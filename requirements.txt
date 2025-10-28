@@ -1,0 +1,29 @@
+# Python 3.13 Compatible Versions
+
+# UI Framework
+PyQt6>=6.7.0
+PyQt6-Qt6>=6.7.0
+
+# Database Connectivity
+sqlalchemy>=2.0.35
+pandas>=2.2.3
+pyodbc>=5.2.0
+openpyxl>=3.1.5
+
+# Security
+cryptography>=43.0.3
+
+# Utilities
+python-dateutil>=2.9.0
+
+# Development & Testing
+pytest>=8.3.0
+pytest-qt>=4.4.0
+black>=24.10.0
+flake8>=7.1.0
+
+# Packaging
+pyinstaller>=6.11.0
+
+# Note: ibm-db and cx-oracle may not have Python 3.13 wheels yet
+# Install these manually if needed for your specific use case
