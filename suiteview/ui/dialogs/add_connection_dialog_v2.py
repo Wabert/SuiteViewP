@@ -373,6 +373,10 @@ class AddConnectionDialog(QDialog):
         if not dsn_name or not PYODBC_AVAILABLE:
             return
 
+        # Check if widgets are initialized
+        if not hasattr(self, 'driver_name_value') or not hasattr(self, 'db_type_value'):
+            return
+
         try:
             datasources = pyodbc.dataSources()
             if dsn_name in datasources:
@@ -384,7 +388,8 @@ class AddConnectionDialog(QDialog):
                 if 'sql server' in driver_lower or 'mssql' in driver_lower:
                     db_type = 'SQL'
                     suffix = ' (SQL)'
-                elif 'db2' in driver_lower:
+                elif 'db2' in driver_lower or 'datadirect' in driver_lower or 'shadow' in driver_lower:
+                    # DB2 or DataDirect Shadow Client (used for DB2)
                     db_type = 'DB2'
                     suffix = ' (DB2)'
                 else:
@@ -487,24 +492,83 @@ class AddConnectionDialog(QDialog):
         if not dsn:
             raise ValueError("Please select a Data Source Name")
 
-        conn_str = f"DSN={dsn}"
-        conn = pyodbc.connect(conn_str)
+        try:
+            conn_str = f"DSN={dsn}"
+            
+            # Show connection attempt
+            QMessageBox.information(self, "Debug", f"Attempting to connect with:\n{conn_str}")
+            
+            conn = pyodbc.connect(conn_str)
 
-        # Get table list
-        cursor = conn.cursor()
-        tables = []
-        for table_info in cursor.tables(tableType='TABLE'):
-            tables.append(table_info.table_name)
+            # Detect database type from driver name and stored value
+            db_type = None
+            driver_name = ""
+            
+            if hasattr(self, 'db_type_value'):
+                db_type = self.db_type_value.text()
+            
+            if hasattr(self, 'driver_name_value'):
+                driver_name = self.driver_name_value.text()
+            
+            # Enhanced DB2 detection - check driver name for DataDirect, Shadow, or DB2
+            driver_lower = driver_name.lower()
+            if db_type != 'DB2' and ('datadirect' in driver_lower or 'shadow' in driver_lower or 'db2' in driver_lower):
+                db_type = 'DB2'
+                QMessageBox.information(self, "Debug", f"DB2 detected from driver name: {driver_name}")
 
-        conn.close()
+            QMessageBox.information(self, "Debug", f"Connected!\nDriver: {driver_name}\nDetected database type: {db_type}")
 
-        # Show results
-        self.sheets_list.clear()
-        self.tables_list.clear()
-        self.tables_list.addItems(tables[:50])  # Limit to first 50
-        self.results_group.setVisible(True)
+            # Get table list - DB2 requires special handling
+            cursor = conn.cursor()
+            tables = []
+            
+            try:
+                if db_type == 'DB2':
+                    # DB2 with DataDirect Shadow Client requires WITH clause and LIMIT
+                    query = """
+                        WITH DUMMY AS (SELECT 1 FROM SYSIBM.SYSDUMMY1)
+                        SELECT NAME, CREATOR
+                        FROM SYSIBM.SYSTABLES
+                        WHERE TYPE = 'T'
+                            AND CREATOR NOT LIKE 'SYS%'
+                            AND NAME NOT LIKE 'SYS%'
+                        ORDER BY CREATOR, NAME
+                        LIMIT 10000
+                    """
+                    
+                    # Show the SQL query before executing
+                    QMessageBox.information(self, "Debug - SQL Query", f"About to execute DB2 query:\n\n{query}")
+                    
+                    cursor.execute(query)
+                    
+                    QMessageBox.information(self, "Debug", "Query executed successfully! Fetching results...")
+                    
+                    for row in cursor.fetchall():
+                        table_name = row[0].strip() if row[0] else row[0]
+                        schema_name = row[1].strip() if row[1] else row[1]
+                        tables.append(f"{schema_name}.{table_name}" if schema_name else table_name)
+                else:
+                    # Standard ODBC table discovery
+                    QMessageBox.information(self, "Debug", "Using standard ODBC cursor.tables() method")
+                    
+                    for table_info in cursor.tables(tableType='TABLE'):
+                        tables.append(table_info.table_name)
+            except Exception as table_err:
+                conn.close()
+                raise ValueError(f"Failed to get table list: {str(table_err)}\n\nFor DB2 connections, ensure the database type is correctly detected.")
 
-        QMessageBox.information(self, "Success", f"Connected successfully! Found {len(tables)} tables.")
+            conn.close()
+
+            # Show results
+            self.sheets_list.clear()
+            self.tables_list.clear()
+            self.tables_list.addItems(tables[:50])  # Limit to first 50
+            self.results_group.setVisible(True)
+
+            QMessageBox.information(self, "Success", f"Connected successfully! Found {len(tables)} tables.")
+            
+        except pyodbc.Error as e:
+            raise ValueError(f"ODBC Error: {str(e)}\n\nThis may be a driver-specific issue. For DB2 with DataDirect driver, special handling is required.")
 
     def test_excel_connection(self):
         """Test Excel file connection"""

@@ -200,9 +200,6 @@ class ConnectionsScreen(QWidget):
 
             # Create tree structure with groups
             for group_type, group_conns in type_groups.items():
-                if not group_conns:
-                    continue  # Skip empty groups
-
                 # Create group header
                 display_name = type_display_names.get(group_type, group_type)
 
@@ -216,6 +213,10 @@ class ConnectionsScreen(QWidget):
                     group_conns = combined_conns
                 elif group_type in ['SQL_SERVER', 'DB2']:
                     continue  # Already handled in ODBC group
+                
+                # Skip empty groups (check after combining for ODBC)
+                if not group_conns:
+                    continue
 
                 group_item = QTreeWidgetItem(self.conn_tree)
                 group_item.setText(0, display_name)

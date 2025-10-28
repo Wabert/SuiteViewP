@@ -1,5 +1,6 @@
 """Data repositories for database access"""
 
+import json
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional, Any
@@ -228,9 +229,168 @@ class SavedTableRepository:
         return row is not None
 
 
+class MetadataCacheRepository:
+    """Repository for managing table metadata and unique values cache"""
+
+    def __init__(self):
+        self.db = get_database()
+
+    def get_or_create_metadata(self, connection_id: int, table_name: str, 
+                               schema_name: str = None) -> int:
+        """Get existing metadata_id or create new entry"""
+        # Check if metadata already exists
+        existing = self.db.fetchone("""
+            SELECT metadata_id FROM table_metadata
+            WHERE connection_id = ? AND table_name = ? AND
+                  (schema_name = ? OR (schema_name IS NULL AND ? IS NULL))
+        """, (connection_id, table_name, schema_name, schema_name))
+
+        if existing:
+            return existing[0]
+
+        # Create new metadata entry
+        cursor = self.db.execute("""
+            INSERT INTO table_metadata (connection_id, schema_name, table_name)
+            VALUES (?, ?, ?)
+        """, (connection_id, schema_name, table_name))
+
+        metadata_id = cursor.lastrowid
+        logger.debug(f"Created metadata entry for {table_name} (ID: {metadata_id})")
+        return metadata_id
+
+    def cache_column_metadata(self, metadata_id: int, columns: List[Dict]):
+        """Cache column metadata for a table"""
+        # Delete existing columns for this table
+        self.db.execute("""
+            DELETE FROM column_metadata WHERE metadata_id = ?
+        """, (metadata_id,))
+
+        # Insert new column data
+        for col in columns:
+            self.db.execute("""
+                INSERT INTO column_metadata (
+                    metadata_id, column_name, data_type, is_nullable, 
+                    is_primary_key, max_length
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                metadata_id,
+                col.get('name'),
+                col.get('type'),
+                col.get('nullable', False),
+                col.get('primary_key', False),
+                col.get('max_length')
+            ))
+
+        # Update table_metadata cached_at timestamp
+        self.db.execute("""
+            UPDATE table_metadata SET cached_at = CURRENT_TIMESTAMP
+            WHERE metadata_id = ?
+        """, (metadata_id,))
+
+        logger.info(f"Cached {len(columns)} columns for metadata_id {metadata_id}")
+
+    def get_cached_columns(self, metadata_id: int) -> Optional[List[Dict]]:
+        """Get cached column metadata"""
+        rows = self.db.fetchall("""
+            SELECT column_name, data_type, is_nullable, is_primary_key, max_length
+            FROM column_metadata
+            WHERE metadata_id = ?
+            ORDER BY column_id
+        """, (metadata_id,))
+
+        if not rows:
+            return None
+
+        columns = []
+        for row in rows:
+            columns.append({
+                'name': row[0],
+                'type': row[1],
+                'nullable': bool(row[2]),
+                'primary_key': bool(row[3]),
+                'max_length': row[4]
+            })
+
+        return columns
+
+    def cache_unique_values(self, metadata_id: int, column_name: str, 
+                           unique_values: List[Any]):
+        """Cache unique values for a specific column"""
+        # Delete existing cache for this column
+        self.db.execute("""
+            DELETE FROM unique_values_cache 
+            WHERE metadata_id = ? AND column_name = ?
+        """, (metadata_id, column_name))
+
+        # Convert unique values to JSON
+        values_json = json.dumps(unique_values)
+        value_count = len(unique_values)
+
+        # Insert new cache entry
+        self.db.execute("""
+            INSERT INTO unique_values_cache (
+                metadata_id, column_name, unique_values, value_count
+            )
+            VALUES (?, ?, ?, ?)
+        """, (metadata_id, column_name, values_json, value_count))
+
+        logger.info(f"Cached {value_count} unique values for column {column_name}")
+
+    def get_cached_unique_values(self, metadata_id: int, 
+                                 column_name: str) -> Optional[Dict]:
+        """Get cached unique values for a column"""
+        row = self.db.fetchone("""
+            SELECT unique_values, value_count, cached_at
+            FROM unique_values_cache
+            WHERE metadata_id = ? AND column_name = ?
+        """, (metadata_id, column_name))
+
+        if not row:
+            return None
+
+        return {
+            'unique_values': json.loads(row[0]),
+            'value_count': row[1],
+            'cached_at': row[2]
+        }
+
+    def get_metadata_id(self, connection_id: int, table_name: str, 
+                       schema_name: str = None) -> Optional[int]:
+        """Get metadata_id for a specific table"""
+        row = self.db.fetchone("""
+            SELECT metadata_id FROM table_metadata
+            WHERE connection_id = ? AND table_name = ? AND
+                  (schema_name = ? OR (schema_name IS NULL AND ? IS NULL))
+        """, (connection_id, table_name, schema_name, schema_name))
+
+        return row[0] if row else None
+
+    def get_metadata_cached_at(self, metadata_id: int) -> Optional[str]:
+        """Get the cached_at timestamp for metadata"""
+        row = self.db.fetchone("""
+            SELECT cached_at FROM table_metadata WHERE metadata_id = ?
+        """, (metadata_id,))
+
+        return row[0] if row else None
+
+    def clear_column_cache(self, metadata_id: int):
+        """Clear cached column metadata"""
+        self.db.execute("""
+            DELETE FROM column_metadata WHERE metadata_id = ?
+        """, (metadata_id,))
+
+        self.db.execute("""
+            DELETE FROM unique_values_cache WHERE metadata_id = ?
+        """, (metadata_id,))
+
+        logger.info(f"Cleared cache for metadata_id {metadata_id}")
+
+
 # Singleton instances
 _connection_repo: Optional[ConnectionRepository] = None
 _saved_table_repo: Optional[SavedTableRepository] = None
+_metadata_cache_repo: Optional[MetadataCacheRepository] = None
 
 
 def get_connection_repository() -> ConnectionRepository:
@@ -247,3 +407,11 @@ def get_saved_table_repository() -> SavedTableRepository:
     if _saved_table_repo is None:
         _saved_table_repo = SavedTableRepository()
     return _saved_table_repo
+
+
+def get_metadata_cache_repository() -> MetadataCacheRepository:
+    """Get or create singleton metadata cache repository"""
+    global _metadata_cache_repo
+    if _metadata_cache_repo is None:
+        _metadata_cache_repo = MetadataCacheRepository()
+    return _metadata_cache_repo

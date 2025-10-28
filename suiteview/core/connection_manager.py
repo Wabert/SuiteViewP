@@ -121,7 +121,11 @@ class ConnectionManager:
             engine = self._get_engine(connection_id)
             with engine.connect() as conn:
                 # Execute a simple query to test connection
-                result = conn.execute(text("SELECT 1"))
+                # DB2 requires LIMIT clause to prevent crashes with DataDirect driver
+                if connection['connection_type'] == 'DB2':
+                    result = conn.execute(text("SELECT 1 FROM SYSIBM.SYSDUMMY1 LIMIT 1"))
+                else:
+                    result = conn.execute(text("SELECT 1"))
                 result.fetchone()
 
             # Update last_tested timestamp
@@ -182,6 +186,12 @@ class ConnectionManager:
         server = connection['server_name']
         database = connection['database_name']
         auth_type = connection['auth_type']
+        
+        # If connection has a custom connection_string (e.g., for ODBC DSN), use it
+        if connection.get('connection_string') and connection['connection_string'].startswith('DSN='):
+            # ODBC DSN connection
+            dsn = connection['connection_string'].replace('DSN=', '')
+            return f"mssql+pyodbc://@{dsn}"
 
         # Decrypt credentials if needed
         username, password = self.cred_manager.decrypt_credentials(

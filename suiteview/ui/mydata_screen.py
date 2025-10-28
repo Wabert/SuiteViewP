@@ -8,7 +8,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 
-from suiteview.data.repositories import SavedTableRepository, ConnectionRepository
+from suiteview.data.repositories import (SavedTableRepository, ConnectionRepository, 
+                                         get_metadata_cache_repository)
 from suiteview.core.schema_discovery import SchemaDiscovery
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ class MyDataScreen(QWidget):
         self.saved_table_repo = SavedTableRepository()
         self.conn_repo = ConnectionRepository()
         self.schema_discovery = SchemaDiscovery()
+        self.metadata_cache_repo = get_metadata_cache_repository()
 
         # Track current selection
         self.current_connection_id = None
@@ -191,7 +193,7 @@ class MyDataScreen(QWidget):
         # TODO: Load XDB Queries (Phase 5)
 
     def _load_my_connections(self):
-        """Load saved connections (grouped by connection)"""
+        """Load saved connections (grouped by connection type, then by connection)"""
         try:
             # Get all saved tables
             saved_tables = self.saved_table_repo.get_all_saved_tables()
@@ -212,20 +214,50 @@ class MyDataScreen(QWidget):
                 if conn_id in connections_dict:
                     connections_dict[conn_id]['tables'].append(table)
 
-            # Add connection nodes to tree (without table children)
+            # Group connections by type
+            type_groups = {}
             for conn_id, data in connections_dict.items():
                 conn = data['connection']
+                conn_type = conn['connection_type']
+                
+                # Map connection types to display names
+                type_display_map = {
+                    'ACCESS': 'MS Access',
+                    'SQL_SERVER': 'ODBC',
+                    'ODBC': 'ODBC',
+                    'DB2': 'ODBC',
+                    'EXCEL': 'Excel',
+                    'CSV': 'CSV'
+                }
+                
+                display_type = type_display_map.get(conn_type, conn_type)
+                
+                if display_type not in type_groups:
+                    type_groups[display_type] = []
+                
+                type_groups[display_type].append((conn_id, conn))
 
-                # Create connection node
-                conn_item = QTreeWidgetItem()
-                conn_item.setText(0, conn['connection_name'])
-                conn_item.setData(0, Qt.ItemDataRole.UserRole, "connection")
-                conn_item.setData(0, Qt.ItemDataRole.UserRole + 1, conn_id)
-                conn_item.setExpanded(False)  # Start collapsed
+            # Add type nodes, then connection nodes under each type
+            for type_name in sorted(type_groups.keys()):
+                # Create type node
+                type_item = QTreeWidgetItem()
+                type_item.setText(0, type_name)
+                type_item.setData(0, Qt.ItemDataRole.UserRole, "connection_type")
+                type_item.setExpanded(True)  # Expand type nodes by default
+                
+                self.my_connections_item.addChild(type_item)
+                
+                # Add connections under this type
+                for conn_id, conn in sorted(type_groups[type_name], key=lambda x: x[1]['connection_name']):
+                    conn_item = QTreeWidgetItem()
+                    conn_item.setText(0, conn['connection_name'])
+                    conn_item.setData(0, Qt.ItemDataRole.UserRole, "connection")
+                    conn_item.setData(0, Qt.ItemDataRole.UserRole + 1, conn_id)
+                    conn_item.setExpanded(False)  # Start collapsed
+                    
+                    type_item.addChild(conn_item)
 
-                self.my_connections_item.addChild(conn_item)
-
-            logger.info(f"Loaded {len(connections_dict)} connections with saved tables")
+            logger.info(f"Loaded {len(connections_dict)} connections in {len(type_groups)} type groups")
 
         except Exception as e:
             logger.error(f"Error loading My Connections: {e}")
@@ -364,30 +396,71 @@ class MyDataScreen(QWidget):
         self.schema_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Last Updated
         self.schema_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)  # Unique Values
 
+        # Connect double-click event to show unique values dialog
+        self.schema_table.cellDoubleClicked.connect(self.on_schema_cell_double_clicked)
+
+        # Get or create metadata entry
+        metadata_id = self.metadata_cache_repo.get_or_create_metadata(
+            connection_id, table_name, schema_name
+        )
+
+        # Try to load cached columns first
+        cached_columns = self.metadata_cache_repo.get_cached_columns(metadata_id)
+        cached_at = None
+
+        if cached_columns:
+            logger.info(f"Using cached columns for {display_name}")
+            columns = cached_columns
+            cached_at = self.metadata_cache_repo.get_metadata_cached_at(metadata_id)
+        else:
+            # Load column data from database
+            logger.info(f"Fetching fresh column data for {display_name}")
+            columns = self.schema_discovery.get_columns(connection_id, table_name, schema_name)
+            
+            # Cache the column metadata
+            self.metadata_cache_repo.cache_column_metadata(metadata_id, [
+                {
+                    'name': col['column_name'],
+                    'type': col['data_type'],
+                    'nullable': col.get('is_nullable', True),
+                    'primary_key': col.get('is_primary_key', False),
+                    'max_length': col.get('max_length')
+                }
+                for col in columns
+            ])
+            cached_at = self.metadata_cache_repo.get_metadata_cached_at(metadata_id)
+
         # Load column data
         try:
-            columns = self.schema_discovery.get_columns(connection_id, table_name, schema_name)
             self.schema_table.setRowCount(len(columns))
 
             # Store checkboxes for later access
             self.find_unique_checkboxes = []
 
             for row, col_data in enumerate(columns):
+                # Handle both cache format and direct query format
+                col_name = col_data.get('name') or col_data.get('column_name')
+                col_type = col_data.get('type') or col_data.get('data_type')
+                is_pk = col_data.get('primary_key') or col_data.get('is_primary_key', False)
+                is_nullable = col_data.get('nullable', True)
+                if 'is_nullable' in col_data:
+                    is_nullable = col_data['is_nullable']
+
                 # Field (Column Name)
-                self.schema_table.setItem(row, 0, QTableWidgetItem(col_data['column_name']))
+                self.schema_table.setItem(row, 0, QTableWidgetItem(col_name))
 
                 # Type (Data Type)
-                self.schema_table.setItem(row, 1, QTableWidgetItem(col_data['data_type']))
+                self.schema_table.setItem(row, 1, QTableWidgetItem(col_type))
 
                 # Key (PK, FK, etc.)
                 key_value = ""
-                if col_data.get('is_primary_key', False):
+                if is_pk:
                     key_value = "PK"
                 # TODO: Add FK detection when available
                 self.schema_table.setItem(row, 2, QTableWidgetItem(key_value))
 
                 # Nullable
-                nullable = "Yes" if col_data.get('is_nullable', True) else "No"
+                nullable = "Yes" if is_nullable else "No"
                 self.schema_table.setItem(row, 3, QTableWidgetItem(nullable))
 
                 # Find Unique (QCheckBox widget instead of item checkbox)
@@ -402,11 +475,38 @@ class MyDataScreen(QWidget):
                 self.schema_table.setCellWidget(row, 4, checkbox_widget)
                 self.find_unique_checkboxes.append(checkbox)
 
-                # Last Updated (timestamp of last unique values query)
-                self.schema_table.setItem(row, 5, QTableWidgetItem(""))
+                # Check for cached unique values
+                cached_unique = self.metadata_cache_repo.get_cached_unique_values(metadata_id, col_name)
+                
+                if cached_unique:
+                    # Last Updated (timestamp from cache)
+                    timestamp = cached_unique['cached_at']
+                    if timestamp:
+                        # Format timestamp nicely
+                        from datetime import datetime
+                        dt_obj = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        timestamp = dt_obj.strftime("%m/%d/%Y %H:%M")
+                    self.schema_table.setItem(row, 5, QTableWidgetItem(timestamp or ""))
 
-                # Unique Values (display cached unique values)
-                self.schema_table.setItem(row, 6, QTableWidgetItem(""))
+                    # Unique Values (display cached unique values)
+                    unique_values = cached_unique['unique_values']
+                    value_count = cached_unique['value_count']
+                    
+                    if value_count == 0:
+                        display_text = "(no values)"
+                    elif value_count <= 10:
+                        display_text = ", ".join(str(v) for v in unique_values)
+                    else:
+                        first_ten = ", ".join(str(v) for v in unique_values[:10])
+                        display_text = f"{first_ten}... ({value_count} total)"
+                    
+                    unique_values_item = QTableWidgetItem(display_text)
+                    unique_values_item.setData(Qt.ItemDataRole.UserRole, unique_values)
+                    self.schema_table.setItem(row, 6, unique_values_item)
+                else:
+                    # No cached data
+                    self.schema_table.setItem(row, 5, QTableWidgetItem(""))
+                    self.schema_table.setItem(row, 6, QTableWidgetItem(""))
 
             schema_layout.addWidget(self.schema_table)
 
@@ -439,6 +539,13 @@ class MyDataScreen(QWidget):
                                    "Please check at least one column to find unique values.")
             return
 
+        # Get or create metadata entry
+        metadata_id = self.metadata_cache_repo.get_or_create_metadata(
+            self.current_connection_id,
+            self.current_table_name,
+            self.current_schema_name
+        )
+
         # Execute queries to find unique values
         try:
             import datetime
@@ -464,9 +571,19 @@ class MyDataScreen(QWidget):
                     self.current_schema_name
                 )
 
+                # Cache the unique values
+                self.metadata_cache_repo.cache_unique_values(metadata_id, col_name, unique_values)
+                
+                # Get the cached timestamp
+                cached_unique = self.metadata_cache_repo.get_cached_unique_values(metadata_id, col_name)
+                timestamp = cached_unique['cached_at'] if cached_unique else dt.now().isoformat()
+                
+                # Format timestamp nicely
+                dt_obj = dt.fromisoformat(timestamp.replace('Z', '+00:00'))
+                formatted_timestamp = dt_obj.strftime("%m/%d/%Y %H:%M")
+
                 # Update the table with results
-                timestamp = dt.now().strftime("%m/%d/%Y")
-                self.schema_table.item(row_index, 5).setText(timestamp)
+                self.schema_table.item(row_index, 5).setText(formatted_timestamp)
 
                 # Format unique values for display
                 value_count = len(unique_values)
@@ -481,8 +598,15 @@ class MyDataScreen(QWidget):
                     display_text = f"{first_ten}... ({value_count} total)"
 
                 self.schema_table.item(row_index, 6).setText(display_text)
+                
+                # Store the full unique values list for later access (for double-click dialog)
+                unique_values_item = self.schema_table.item(row_index, 6)
+                unique_values_item.setData(Qt.ItemDataRole.UserRole, unique_values)
 
-                logger.info(f"Found {value_count} unique values for {col_name}")
+                # Uncheck the "Find Unique" checkbox for this column
+                self.find_unique_checkboxes[row_index].setChecked(False)
+
+                logger.info(f"Found and cached {value_count} unique values for {col_name}")
 
             QMessageBox.information(self, "Find Unique Values",
                                    f"Successfully found unique values for {len(checked_columns)} column(s)")
@@ -490,6 +614,90 @@ class MyDataScreen(QWidget):
         except Exception as e:
             logger.error(f"Error finding unique values: {e}")
             QMessageBox.critical(self, "Error", f"Failed to find unique values:\n{str(e)}")
+
+    def on_schema_cell_double_clicked(self, row: int, column: int):
+        """Handle double-click on schema table cells"""
+        # Only handle double-clicks on the "Unique Values" column (column 6)
+        if column != 6:
+            return
+        
+        # Get the unique values stored in the cell
+        unique_values_item = self.schema_table.item(row, 6)
+        if not unique_values_item:
+            return
+        
+        # Get the full list of unique values from UserRole data
+        unique_values = unique_values_item.data(Qt.ItemDataRole.UserRole)
+        if not unique_values:
+            QMessageBox.information(self, "No Data", 
+                                   "No unique values have been found for this column yet.\n"
+                                   "Check the 'Find Unique' box and click 'Find Unique Values' to populate.")
+            return
+        
+        # Get the column name
+        col_name = self.schema_table.item(row, 0).text()
+        
+        # Show dialog with all unique values
+        self.show_unique_values_dialog(col_name, unique_values)
+
+    def show_unique_values_dialog(self, column_name: str, unique_values: list):
+        """Show a dialog displaying all unique values in a grid"""
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Unique Values - {column_name}")
+        dialog.setMinimumWidth(400)
+        dialog.setMinimumHeight(500)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Header label
+        header = QLabel(f"Column: {column_name}")
+        header.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
+        layout.addWidget(header)
+        
+        # Count label
+        count_label = QLabel(f"Total unique values: {len(unique_values)}")
+        count_label.setStyleSheet("padding: 0 10px 10px 10px;")
+        layout.addWidget(count_label)
+        
+        # Table with unique values
+        table = QTableWidget()
+        table.setColumnCount(2)
+        table.setHorizontalHeaderLabels(["#", "Value"])
+        table.setRowCount(len(unique_values))
+        
+        # Populate table
+        for i, value in enumerate(unique_values):
+            # Row number
+            table.setItem(i, 0, QTableWidgetItem(str(i + 1)))
+            
+            # Value (convert to string, handle None)
+            display_value = str(value) if value is not None else "(NULL)"
+            table.setItem(i, 1, QTableWidgetItem(display_value))
+        
+        # Set column widths
+        table.setColumnWidth(0, 60)
+        table.horizontalHeader().setStretchLastSection(True)
+        
+        # Make read-only
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        
+        layout.addWidget(table)
+        
+        # Add close button
+        from PyQt6.QtWidgets import QPushButton, QHBoxLayout
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        
+        dialog.exec()
 
     def preview_table(self):
         """Preview table data (first 100 rows)"""
