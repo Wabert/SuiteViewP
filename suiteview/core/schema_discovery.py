@@ -567,22 +567,33 @@ class SchemaDiscovery:
             raise
 
     def _get_csv_table(self, connection: Dict) -> List[Dict]:
-        """Get table from a CSV file (single table)"""
+        """Get tables from CSV folder (each CSV file is a table)"""
         import os
 
-        file_path = connection.get('connection_string', '')
-        if not file_path or not os.path.exists(file_path):
-            raise ValueError(f"CSV file not found: {file_path}")
+        folder_path = connection.get('connection_string', '')
+        if not folder_path or not os.path.exists(folder_path):
+            raise ValueError(f"CSV folder not found: {folder_path}")
 
-        filename = os.path.basename(file_path)
-        table_name = os.path.splitext(filename)[0]
+        if not os.path.isdir(folder_path):
+            raise ValueError(f"CSV connection should point to a folder, not a file: {folder_path}")
 
-        return [{
-            'table_name': table_name,
-            'schema_name': None,
-            'full_name': table_name,
-            'type': 'CSV'
-        }]
+        # Find all CSV files in the folder
+        csv_files = [f for f in os.listdir(folder_path) 
+                     if f.lower().endswith('.csv') and os.path.isfile(os.path.join(folder_path, f))]
+
+        tables = []
+        for csv_file in sorted(csv_files):
+            # Table name is the filename without extension
+            table_name = os.path.splitext(csv_file)[0]
+            tables.append({
+                'table_name': table_name,
+                'schema_name': None,
+                'full_name': table_name,
+                'type': 'CSV'
+            })
+
+        logger.info(f"Discovered {len(tables)} CSV files in folder")
+        return tables
 
     def _get_access_tables(self, connection: Dict) -> List[Dict]:
         """Get tables from MS Access database using ODBC"""
@@ -669,7 +680,7 @@ class SchemaDiscovery:
             if conn_type == 'EXCEL':
                 columns = self._get_excel_columns(connection, table_name)
             elif conn_type == 'CSV':
-                columns = self._get_csv_columns(connection)
+                columns = self._get_csv_columns(connection, table_name)
             elif conn_type == 'ACCESS':
                 columns = self._get_access_columns(connection, table_name)
             elif conn_type == 'FIXED_WIDTH':
@@ -779,13 +790,19 @@ class SchemaDiscovery:
             logger.error(f"Failed to read Excel columns: {e}")
             raise
 
-    def _get_csv_columns(self, connection: Dict) -> List[Dict]:
-        """Get columns from a CSV file"""
+    def _get_csv_columns(self, connection: Dict, table_name: str) -> List[Dict]:
+        """Get columns from a CSV file in the folder"""
         import csv
         import os
 
-        file_path = connection.get('connection_string', '')
-        if not file_path or not os.path.exists(file_path):
+        folder_path = connection.get('connection_string', '')
+        if not folder_path or not os.path.exists(folder_path):
+            raise ValueError(f"CSV folder not found: {folder_path}")
+
+        # Construct the full file path from folder + table name + .csv
+        file_path = os.path.join(folder_path, f"{table_name}.csv")
+        
+        if not os.path.exists(file_path):
             raise ValueError(f"CSV file not found: {file_path}")
 
         try:
@@ -807,11 +824,11 @@ class SchemaDiscovery:
                         'max_length': None
                     })
 
-                logger.info(f"Discovered {len(columns)} columns in CSV file")
+                logger.info(f"Discovered {len(columns)} columns in CSV file {table_name}")
                 return columns
 
         except Exception as e:
-            logger.error(f"Failed to read CSV columns: {e}")
+            logger.error(f"Failed to read CSV columns from {file_path}: {e}")
             raise
 
     def _get_access_columns(self, connection: Dict, table_name: str) -> List[Dict]:
@@ -1024,12 +1041,18 @@ class SchemaDiscovery:
 
     def _get_csv_unique_values(self, connection: Dict, table_name: str,
                               column_name: str, limit: int = 1000) -> List[Any]:
-        """Get unique values from a CSV column"""
+        """Get unique values from a CSV column in the folder"""
         import pandas as pd
         import os
 
-        file_path = connection.get('connection_string', '')
-        if not file_path or not os.path.exists(file_path):
+        folder_path = connection.get('connection_string', '')
+        if not folder_path or not os.path.exists(folder_path):
+            raise ValueError(f"CSV folder not found: {folder_path}")
+
+        # Construct the full file path from folder + table name + .csv
+        file_path = os.path.join(folder_path, f"{table_name}.csv")
+        
+        if not os.path.exists(file_path):
             raise ValueError(f"CSV file not found: {file_path}")
 
         # Read CSV
@@ -1040,7 +1063,15 @@ class SchemaDiscovery:
 
         # Get unique values
         unique_values = df[column_name].dropna().unique()
-        unique_values = sorted(unique_values)[:limit]
+        
+        # Convert all values to strings for consistent sorting (handles mixed types)
+        # This prevents comparison errors between int and str
+        try:
+            # Try to sort as-is first (if all same type)
+            unique_values = sorted(unique_values)[:limit]
+        except TypeError:
+            # Mixed types - convert all to strings for sorting
+            unique_values = sorted([str(v) for v in unique_values])[:limit]
 
         return list(unique_values)
 
@@ -1162,12 +1193,18 @@ class SchemaDiscovery:
         return (columns, data)
 
     def _get_csv_preview(self, connection: Dict, table_name: str, limit: int = 100) -> tuple:
-        """Get preview data from a CSV file"""
+        """Get preview data from a CSV file in the folder"""
         import pandas as pd
         import os
 
-        file_path = connection.get('connection_string', '')
-        if not file_path or not os.path.exists(file_path):
+        folder_path = connection.get('connection_string', '')
+        if not folder_path or not os.path.exists(folder_path):
+            raise ValueError(f"CSV folder not found: {folder_path}")
+
+        # Construct the full file path from folder + table name + .csv
+        file_path = os.path.join(folder_path, f"{table_name}.csv")
+        
+        if not os.path.exists(file_path):
             raise ValueError(f"CSV file not found: {file_path}")
 
         # Read CSV with limit

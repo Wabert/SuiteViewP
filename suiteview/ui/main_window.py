@@ -50,14 +50,16 @@ class MainWindow(QMainWindow):
         self.dbquery_screen = DBQueryScreen()
         self.xdbquery_screen = XDBQueryScreen()
 
-        self.tab_widget.addTab(self.connections_screen, "Connections")
+        # Add tabs in order - Connections LAST
         self.tab_widget.addTab(self.mydata_screen, "My Data")
         self.tab_widget.addTab(self.dbquery_screen, "DB Query")
         self.tab_widget.addTab(self.xdbquery_screen, "XDB Query")
+        self.tab_widget.addTab(self.connections_screen, "Connections")
 
         # Connect signals between screens
-        # When saved tables change in Connections, refresh My Data
+        # When saved tables change in Connections, refresh both My Data and DB Query
         self.connections_screen.saved_tables_changed.connect(self.mydata_screen.refresh)
+        self.connections_screen.saved_tables_changed.connect(self.dbquery_screen.load_data_sources)
         
         # When connections are added/edited/deleted, refresh all screens
         self.connections_screen.connections_changed.connect(self.mydata_screen.load_my_data)

@@ -97,6 +97,7 @@ class Database:
                 data_type TEXT NOT NULL,
                 is_nullable BOOLEAN,
                 is_primary_key BOOLEAN,
+                is_common BOOLEAN DEFAULT 0,
                 max_length INTEGER,
                 FOREIGN KEY (metadata_id) REFERENCES table_metadata(metadata_id) ON DELETE CASCADE
             )
@@ -140,6 +141,25 @@ class Database:
 
         conn.commit()
         print(f"Database initialized at: {self.db_path}")
+        
+        # Run migrations
+        self._run_migrations(conn)
+
+    def _run_migrations(self, conn):
+        """Run database migrations for schema updates"""
+        cursor = conn.cursor()
+        
+        # Migration 1: Add is_common column to column_metadata if it doesn't exist
+        try:
+            cursor.execute("SELECT is_common FROM column_metadata LIMIT 1")
+        except:
+            # Column doesn't exist, add it
+            print("Running migration: Adding is_common column to column_metadata")
+            cursor.execute("""
+                ALTER TABLE column_metadata ADD COLUMN is_common BOOLEAN DEFAULT 0
+            """)
+            conn.commit()
+            print("Migration completed: is_common column added")
 
     def execute(self, query: str, params: tuple = ()):
         """Execute a query and return cursor"""

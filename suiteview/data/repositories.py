@@ -293,7 +293,7 @@ class MetadataCacheRepository:
     def get_cached_columns(self, metadata_id: int) -> Optional[List[Dict]]:
         """Get cached column metadata"""
         rows = self.db.fetchall("""
-            SELECT column_name, data_type, is_nullable, is_primary_key, max_length
+            SELECT column_name, data_type, is_nullable, is_primary_key, is_common, max_length
             FROM column_metadata
             WHERE metadata_id = ?
             ORDER BY column_id
@@ -309,7 +309,8 @@ class MetadataCacheRepository:
                 'type': row[1],
                 'nullable': bool(row[2]),
                 'primary_key': bool(row[3]),
-                'max_length': row[4]
+                'is_common': bool(row[4]),
+                'max_length': row[5]
             })
 
         return columns
@@ -323,9 +324,30 @@ class MetadataCacheRepository:
             WHERE metadata_id = ? AND column_name = ?
         """, (metadata_id, column_name))
 
+        # Convert unique values to native Python types to handle numpy/pandas types
+        def convert_to_native(val):
+            """Convert numpy/pandas types to native Python types"""
+            if val is None:
+                return None
+            # Handle pandas/numpy types
+            if hasattr(val, 'item'):  # numpy scalar
+                return val.item()
+            if hasattr(val, 'to_pydatetime'):  # pandas Timestamp
+                return val.to_pydatetime().isoformat()
+            # Try to convert to native type
+            try:
+                if isinstance(val, (int, float, str, bool)):
+                    return val
+                return str(val)
+            except:
+                return str(val)
+        
+        # Convert all values to native types
+        native_values = [convert_to_native(v) for v in unique_values]
+        
         # Convert unique values to JSON
-        values_json = json.dumps(unique_values)
-        value_count = len(unique_values)
+        values_json = json.dumps(native_values)
+        value_count = len(native_values)
 
         # Insert new cache entry
         self.db.execute("""
@@ -385,6 +407,26 @@ class MetadataCacheRepository:
         """, (metadata_id,))
 
         logger.info(f"Cleared cache for metadata_id {metadata_id}")
+
+    def update_column_common_flag(self, metadata_id: int, column_name: str, is_common: bool):
+        """Update the is_common flag for a specific column"""
+        self.db.execute("""
+            UPDATE column_metadata
+            SET is_common = ?
+            WHERE metadata_id = ? AND column_name = ?
+        """, (is_common, metadata_id, column_name))
+        
+        logger.info(f"Updated common flag for {column_name} to {is_common}")
+
+    def update_column_type(self, metadata_id: int, column_name: str, data_type: str):
+        """Update the data type for a specific column (useful for CSV type overrides)"""
+        self.db.execute("""
+            UPDATE column_metadata
+            SET data_type = ?
+            WHERE metadata_id = ? AND column_name = ?
+        """, (data_type, metadata_id, column_name))
+        
+        logger.info(f"Updated data type for {column_name} to {data_type}")
 
 
 # Singleton instances
@@ -527,6 +569,16 @@ class QueryRepository:
             DELETE FROM saved_queries WHERE query_id = ?
         """, (query_id,))
         logger.info(f"Deleted query ID: {query_id}")
+
+    def update_query_name(self, query_id: int, new_name: str):
+        """Update a query's name"""
+        self.db.execute("""
+            UPDATE saved_queries
+            SET query_name = ?,
+                last_modified = CURRENT_TIMESTAMP
+            WHERE query_id = ?
+        """, (new_name, query_id))
+        logger.info(f"Updated query {query_id} name to: {new_name}")
 
     def update_execution_stats(self, query_id: int, duration_ms: int, record_count: int):
         """Update query execution statistics"""

@@ -4,7 +4,7 @@ import logging
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                               QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem,
                               QLabel, QPushButton, QGroupBox, QFormLayout, QMessageBox,
-                              QHeaderView, QMenu, QCheckBox)
+                              QHeaderView, QMenu, QCheckBox, QLineEdit, QComboBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 
@@ -45,17 +45,23 @@ class MyDataScreen(QWidget):
 
         # Create horizontal splitter for three-panel layout
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Allow panels to be resized down to very small widths
+        splitter.setChildrenCollapsible(False)  # Prevent complete collapse
 
         # Left Panel - My Data Sources (200px default)
         left_panel = self._create_left_panel()
+        left_panel.setMinimumWidth(20)  # Allow resizing down to 20px
         splitter.addWidget(left_panel)
 
         # Middle Panel - Tables List (300px default)
         middle_panel = self._create_middle_panel()
+        middle_panel.setMinimumWidth(20)  # Allow resizing down to 20px
         splitter.addWidget(middle_panel)
 
         # Right Panel - Schema Details (flex)
         right_panel = self._create_right_panel()
+        right_panel.setMinimumWidth(100)  # Keep minimum width for readability
         splitter.addWidget(right_panel)
 
         # Set initial sizes (200px, 300px, rest)
@@ -70,18 +76,11 @@ class MyDataScreen(QWidget):
         panel_layout.setContentsMargins(5, 5, 5, 5)
 
         # Panel header
-        header = QLabel("MY DATA")
-        header.setStyleSheet("""
-            background: #34495e;
-            color: white;
-            padding: 8px;
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 1px;
-        """)
+        header = QLabel("Tables")
+        header.setObjectName("panel_header")
         panel_layout.addWidget(header)
 
-        # My Data tree with three sections
+        # My Data tree
         self.my_data_tree = QTreeWidget()
         self.my_data_tree.setHeaderLabel("My Data")
         self.my_data_tree.setHeaderHidden(True)
@@ -91,26 +90,16 @@ class MyDataScreen(QWidget):
                 border: 1px solid #ddd;
                 border-radius: 4px;
             }
+            QTreeWidget::item:hover {
+                background-color: #b3d9ff;
+            }
+            QTreeWidget::item:selected {
+                background-color: #b3d9ff;
+            }
         """)
 
-        # Create three top-level sections
-        self.my_connections_item = QTreeWidgetItem(self.my_data_tree)
-        self.my_connections_item.setText(0, "My Connections")
-        self.my_connections_item.setData(0, Qt.ItemDataRole.UserRole, "section")
-        self.my_connections_item.setExpanded(True)
-        self.my_connections_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-
-        self.db_queries_item = QTreeWidgetItem(self.my_data_tree)
-        self.db_queries_item.setText(0, "DB Queries")
-        self.db_queries_item.setData(0, Qt.ItemDataRole.UserRole, "section")
-        self.db_queries_item.setExpanded(True)
-        self.db_queries_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-
-        self.xdb_queries_item = QTreeWidgetItem(self.my_data_tree)
-        self.xdb_queries_item.setText(0, "XDB Queries")
-        self.xdb_queries_item.setData(0, Qt.ItemDataRole.UserRole, "section")
-        self.xdb_queries_item.setExpanded(True)
-        self.xdb_queries_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        # Don't create section items here - they will be created in load_my_data()
+        # in the correct order after connection types
 
         # Connect signals
         self.my_data_tree.itemClicked.connect(self.on_data_source_clicked)
@@ -123,22 +112,22 @@ class MyDataScreen(QWidget):
         panel = QWidget()
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(5, 5, 5, 5)
+        panel_layout.setSpacing(5)
 
         # Panel header
-        header = QLabel("TABLES")
-        header.setStyleSheet("""
-            background: #34495e;
-            color: white;
-            padding: 8px;
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 1px;
-        """)
+        header = QLabel("Fields")
+        header.setObjectName("panel_header")
         panel_layout.addWidget(header)
+        
+        # Search box for filtering tables
+        self.tables_search_box = QLineEdit()
+        self.tables_search_box.setPlaceholderText("Search tables...")
+        self.tables_search_box.textChanged.connect(self._filter_tables)
+        panel_layout.addWidget(self.tables_search_box)
 
         # Tables tree
         self.tables_tree = QTreeWidget()
-        self.tables_tree.setHeaderLabel("Tables")
+        self.tables_tree.setHeaderLabel("Table Name")
         self.tables_tree.setHeaderHidden(True)
         self.tables_tree.setStyleSheet("""
             QTreeWidget {
@@ -146,7 +135,15 @@ class MyDataScreen(QWidget):
                 border: 1px solid #ddd;
                 border-radius: 4px;
             }
+            QTreeWidget::item:hover {
+                background-color: #b3d9ff;
+            }
+            QTreeWidget::item:selected {
+                background-color: #b3d9ff;
+            }
         """)
+        # Make header stretch to fill width and remove spacing
+        self.tables_tree.setIndentation(20)
 
         # Connect signals
         self.tables_tree.itemClicked.connect(self.on_table_clicked)
@@ -178,20 +175,30 @@ class MyDataScreen(QWidget):
 
     def load_my_data(self):
         """Load all user's saved data into the tree"""
-        # Clear existing items (except section headers)
-        self.my_connections_item.takeChildren()
-        self.db_queries_item.takeChildren()
-        self.xdb_queries_item.takeChildren()
+        # Clear the entire tree
+        self.my_data_tree.clear()
 
         # Clear tables list
         self.tables_tree.clear()
         self.table_info_label.setText("Select a connection to view tables")
 
-        # Load My Connections
+        # Load connections directly at root level (they will be added first)
         self._load_my_connections()
 
-        # Load DB Queries
+        # Create and add DB Queries section AFTER connection types
+        self.db_queries_item = QTreeWidgetItem(self.my_data_tree)
+        self.db_queries_item.setText(0, "DB Queries")
+        self.db_queries_item.setData(0, Qt.ItemDataRole.UserRole, "section")
+        self.db_queries_item.setExpanded(True)
+        self.db_queries_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
         self._load_db_queries()
+
+        # Create and add XDB Queries section AFTER DB Queries
+        self.xdb_queries_item = QTreeWidgetItem(self.my_data_tree)
+        self.xdb_queries_item.setText(0, "XDB Queries")
+        self.xdb_queries_item.setData(0, Qt.ItemDataRole.UserRole, "section")
+        self.xdb_queries_item.setExpanded(True)
+        self.xdb_queries_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
 
         # TODO: Load XDB Queries (Phase 5)
 
@@ -216,7 +223,7 @@ class MyDataScreen(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to load DB queries:\n{str(e)}")
 
     def _load_my_connections(self):
-        """Load saved connections (grouped by connection type, then by connection)"""
+        """Load saved connections directly at root level (no parent)"""
         try:
             # Get all saved tables
             saved_tables = self.saved_table_repo.get_all_saved_tables()
@@ -237,48 +244,51 @@ class MyDataScreen(QWidget):
                 if conn_id in connections_dict:
                     connections_dict[conn_id]['tables'].append(table)
 
-            # Group connections by type
+            # Group connections by their actual type (don't merge types)
             type_groups = {}
             for conn_id, data in connections_dict.items():
                 conn = data['connection']
                 conn_type = conn['connection_type']
                 
-                # Map connection types to display names
-                type_display_map = {
-                    'ACCESS': 'MS Access',
-                    'SQL_SERVER': 'ODBC',
-                    'ODBC': 'ODBC',
-                    'DB2': 'ODBC',
-                    'EXCEL': 'Excel',
-                    'CSV': 'CSV'
-                }
+                # DEBUG: Log connection type
+                logger.info(f"DEBUG: Connection '{conn['connection_name']}' has type '{conn_type}'")
                 
-                display_type = type_display_map.get(conn_type, conn_type)
+                # Use the actual connection type as-is
+                if conn_type not in type_groups:
+                    type_groups[conn_type] = []
                 
-                if display_type not in type_groups:
-                    type_groups[display_type] = []
-                
-                type_groups[display_type].append((conn_id, conn))
+                type_groups[conn_type].append((conn_id, conn))
 
-            # Add type nodes, then connection nodes under each type
-            for type_name in sorted(type_groups.keys()):
-                # Create type node
+            # DEBUG: Log all type groups
+            logger.info(f"DEBUG: Type groups found: {list(type_groups.keys())}")
+
+            # Define the display order (before DB Queries and XDB Queries)
+            type_order = ['DB2', 'SQL_SERVER', 'ACCESS', 'EXCEL', 'CSV', 'FIXED_WIDTH']
+            
+            # Add type nodes in the specified order
+            insert_position = 0  # Track actual position in tree
+            for type_name in type_order:
+                if type_name not in type_groups:
+                    continue
+                    
+                # Create type node at the correct position
                 type_item = QTreeWidgetItem()
                 type_item.setText(0, type_name)
                 type_item.setData(0, Qt.ItemDataRole.UserRole, "connection_type")
                 type_item.setExpanded(True)  # Expand type nodes by default
                 
-                self.my_connections_item.addChild(type_item)
+                # Insert at the actual position (not the type_order index)
+                self.my_data_tree.insertTopLevelItem(insert_position, type_item)
+                logger.info(f"DEBUG: Inserted '{type_name}' at position {insert_position}")
+                insert_position += 1  # Increment for next type
                 
                 # Add connections under this type
                 for conn_id, conn in sorted(type_groups[type_name], key=lambda x: x[1]['connection_name']):
-                    conn_item = QTreeWidgetItem()
+                    conn_item = QTreeWidgetItem(type_item)
                     conn_item.setText(0, conn['connection_name'])
                     conn_item.setData(0, Qt.ItemDataRole.UserRole, "connection")
                     conn_item.setData(0, Qt.ItemDataRole.UserRole + 1, conn_id)
                     conn_item.setExpanded(False)  # Start collapsed
-                    
-                    type_item.addChild(conn_item)
 
             logger.info(f"Loaded {len(connections_dict)} connections in {len(type_groups)} type groups")
 
@@ -342,6 +352,20 @@ class MyDataScreen(QWidget):
             self.table_info_label.setText(f"Error: {str(e)}")
             QMessageBox.warning(self, "Error", f"Failed to load tables:\n{str(e)}")
 
+    def _filter_tables(self, search_text: str):
+        """Filter tables based on search text"""
+        search_text = search_text.lower()
+        
+        for i in range(self.tables_tree.topLevelItemCount()):
+            item = self.tables_tree.topLevelItem(i)
+            table_name = item.text(0).lower()
+            
+            # Show/hide based on search text
+            if search_text in table_name:
+                item.setHidden(False)
+            else:
+                item.setHidden(True)
+
     def on_table_clicked(self, item: QTreeWidgetItem, column: int):
         """Handle click on table in middle panel"""
         item_type = item.data(0, Qt.ItemDataRole.UserRole)
@@ -399,9 +423,9 @@ class MyDataScreen(QWidget):
 
         # Schema table with proper columns
         self.schema_table = QTableWidget()
-        self.schema_table.setColumnCount(7)
+        self.schema_table.setColumnCount(8)
         self.schema_table.setHorizontalHeaderLabels([
-            "Field", "Type", "Key", "Nullable", "Find Unique", "Last Updated", "Unique Values"
+            "Field", "Type", "Key", "Nullable", "Common", "Find Unique", "Last Updated", "Unique Values"
         ])
         self.schema_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.schema_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -414,10 +438,12 @@ class MyDataScreen(QWidget):
         self.schema_table.setColumnWidth(2, 50)
         self.schema_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # Nullable
         self.schema_table.setColumnWidth(3, 70)
-        self.schema_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Find Unique checkbox
-        self.schema_table.setColumnWidth(4, 100)
-        self.schema_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Last Updated
-        self.schema_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)  # Unique Values
+        self.schema_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Common checkbox
+        self.schema_table.setColumnWidth(4, 80)
+        self.schema_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)  # Find Unique checkbox
+        self.schema_table.setColumnWidth(5, 100)
+        self.schema_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Last Updated
+        self.schema_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # Unique Values
 
         # Connect double-click event to show unique values dialog
         self.schema_table.cellDoubleClicked.connect(self.on_schema_cell_double_clicked)
@@ -426,6 +452,11 @@ class MyDataScreen(QWidget):
         metadata_id = self.metadata_cache_repo.get_or_create_metadata(
             connection_id, table_name, schema_name
         )
+
+        # Get connection type to determine if we should allow type editing
+        connection = self.conn_repo.get_connection(connection_id)
+        connection_type = connection.get('connection_type') if connection else None
+        is_csv = (connection_type == 'CSV')
 
         # Try to load cached columns first
         cached_columns = self.metadata_cache_repo.get_cached_columns(metadata_id)
@@ -458,7 +489,9 @@ class MyDataScreen(QWidget):
             self.schema_table.setRowCount(len(columns))
 
             # Store checkboxes for later access
+            self.common_checkboxes = []
             self.find_unique_checkboxes = []
+            self.type_comboboxes = []  # Store type dropdowns for CSV files
 
             for row, col_data in enumerate(columns):
                 # Handle both cache format and direct query format
@@ -468,12 +501,70 @@ class MyDataScreen(QWidget):
                 is_nullable = col_data.get('nullable', True)
                 if 'is_nullable' in col_data:
                     is_nullable = col_data['is_nullable']
+                is_common = col_data.get('is_common', False)
 
                 # Field (Column Name)
                 self.schema_table.setItem(row, 0, QTableWidgetItem(col_name))
 
-                # Type (Data Type)
-                self.schema_table.setItem(row, 1, QTableWidgetItem(col_type))
+                # Type (Data Type) - For CSV files, use QComboBox to allow changing type
+                if is_csv:
+                    type_combo = QComboBox()
+                    type_combo.addItems([
+                        "TEXT",
+                        "INTEGER", 
+                        "FLOAT",
+                        "DECIMAL",
+                        "DATE",
+                        "DATETIME",
+                        "BOOLEAN"
+                    ])
+                    
+                    # Apply compact styling to the combobox - fill the entire cell
+                    type_combo.setStyleSheet("""
+                        QComboBox {
+                            border: 1px solid #ccc;
+                            border-radius: 2px;
+                            padding: 1px 3px 1px 5px;
+                            background: white;
+                            font-size: 11px;
+                        }
+                        QComboBox:hover {
+                            border: 1px solid #0078d4;
+                        }
+                        QComboBox::drop-down {
+                            border: none;
+                            width: 18px;
+                        }
+                        QComboBox::down-arrow {
+                            image: url(none);
+                            border-left: 3px solid transparent;
+                            border-right: 3px solid transparent;
+                            border-top: 4px solid #555;
+                            width: 0;
+                            height: 0;
+                            margin-right: 3px;
+                        }
+                    """)
+                    
+                    # Set current type
+                    current_type = col_type.upper()
+                    if current_type in ["TEXT", "INTEGER", "FLOAT", "DECIMAL", "DATE", "DATETIME", "BOOLEAN"]:
+                        type_combo.setCurrentText(current_type)
+                    else:
+                        type_combo.setCurrentText("TEXT")
+                    
+                    # Connect change handler
+                    type_combo.currentTextChanged.connect(
+                        lambda new_type, r=row, c=col_name: self.on_type_changed(r, c, new_type)
+                    )
+                    
+                    # Add directly to cell without wrapper widget
+                    self.schema_table.setCellWidget(row, 1, type_combo)
+                    self.type_comboboxes.append(type_combo)
+                else:
+                    # Regular database - just display type as text
+                    self.schema_table.setItem(row, 1, QTableWidgetItem(col_type))
+                    self.type_comboboxes.append(None)
 
                 # Key (PK, FK, etc.)
                 key_value = ""
@@ -486,32 +577,48 @@ class MyDataScreen(QWidget):
                 nullable = "Yes" if is_nullable else "No"
                 self.schema_table.setItem(row, 3, QTableWidgetItem(nullable))
 
-                # Find Unique (QCheckBox widget instead of item checkbox)
-                checkbox_widget = QWidget()
-                checkbox_layout = QHBoxLayout(checkbox_widget)
-                checkbox_layout.setContentsMargins(0, 0, 0, 0)
-                checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                # Common (QCheckBox widget) - Column 4
+                common_checkbox_widget = QWidget()
+                common_checkbox_layout = QHBoxLayout(common_checkbox_widget)
+                common_checkbox_layout.setContentsMargins(0, 0, 0, 0)
+                common_checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-                checkbox = QCheckBox()
-                checkbox_layout.addWidget(checkbox)
+                common_checkbox = QCheckBox()
+                common_checkbox.setChecked(is_common)
+                common_checkbox.stateChanged.connect(
+                    lambda state, r=row, c=col_name: self.on_common_checkbox_changed(r, c, state)
+                )
+                common_checkbox_layout.addWidget(common_checkbox)
 
-                self.schema_table.setCellWidget(row, 4, checkbox_widget)
-                self.find_unique_checkboxes.append(checkbox)
+                self.schema_table.setCellWidget(row, 4, common_checkbox_widget)
+                self.common_checkboxes.append(common_checkbox)
+
+                # Find Unique (QCheckBox widget) - Column 5 (shifted from 4)
+                find_unique_checkbox_widget = QWidget()
+                find_unique_checkbox_layout = QHBoxLayout(find_unique_checkbox_widget)
+                find_unique_checkbox_layout.setContentsMargins(0, 0, 0, 0)
+                find_unique_checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                find_unique_checkbox = QCheckBox()
+                find_unique_checkbox_layout.addWidget(find_unique_checkbox)
+
+                self.schema_table.setCellWidget(row, 5, find_unique_checkbox_widget)
+                self.find_unique_checkboxes.append(find_unique_checkbox)
 
                 # Check for cached unique values
                 cached_unique = self.metadata_cache_repo.get_cached_unique_values(metadata_id, col_name)
                 
                 if cached_unique:
-                    # Last Updated (timestamp from cache)
+                    # Last Updated (timestamp from cache) - Column 6 (shifted from 5)
                     timestamp = cached_unique['cached_at']
                     if timestamp:
                         # Format timestamp nicely
                         from datetime import datetime
                         dt_obj = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                         timestamp = dt_obj.strftime("%m/%d/%Y %H:%M")
-                    self.schema_table.setItem(row, 5, QTableWidgetItem(timestamp or ""))
+                    self.schema_table.setItem(row, 6, QTableWidgetItem(timestamp or ""))
 
-                    # Unique Values (display cached unique values)
+                    # Unique Values (display cached unique values) - Column 7 (shifted from 6)
                     unique_values = cached_unique['unique_values']
                     value_count = cached_unique['value_count']
                     
@@ -525,11 +632,11 @@ class MyDataScreen(QWidget):
                     
                     unique_values_item = QTableWidgetItem(display_text)
                     unique_values_item.setData(Qt.ItemDataRole.UserRole, unique_values)
-                    self.schema_table.setItem(row, 6, unique_values_item)
+                    self.schema_table.setItem(row, 7, unique_values_item)
                 else:
                     # No cached data
-                    self.schema_table.setItem(row, 5, QTableWidgetItem(""))
                     self.schema_table.setItem(row, 6, QTableWidgetItem(""))
+                    self.schema_table.setItem(row, 7, QTableWidgetItem(""))
 
             schema_layout.addWidget(self.schema_table)
 
@@ -605,8 +712,12 @@ class MyDataScreen(QWidget):
                 dt_obj = dt.fromisoformat(timestamp.replace('Z', '+00:00'))
                 formatted_timestamp = dt_obj.strftime("%m/%d/%Y %H:%M")
 
-                # Update the table with results
-                self.schema_table.item(row_index, 5).setText(formatted_timestamp)
+                # Update the table with results (Column 6 is Last Updated)
+                last_updated_item = self.schema_table.item(row_index, 6)
+                if last_updated_item:
+                    last_updated_item.setText(formatted_timestamp)
+                else:
+                    self.schema_table.setItem(row_index, 6, QTableWidgetItem(formatted_timestamp))
 
                 # Format unique values for display
                 value_count = len(unique_values)
@@ -620,10 +731,16 @@ class MyDataScreen(QWidget):
                     first_ten = ", ".join(str(v) for v in unique_values[:10])
                     display_text = f"{first_ten}... ({value_count} total)"
 
-                self.schema_table.item(row_index, 6).setText(display_text)
+                # Update Column 7 (Unique Values)
+                unique_values_item = self.schema_table.item(row_index, 7)
+                if unique_values_item:
+                    unique_values_item.setText(display_text)
+                else:
+                    unique_values_item = QTableWidgetItem(display_text)
+                    self.schema_table.setItem(row_index, 7, unique_values_item)
                 
                 # Store the full unique values list for later access (for double-click dialog)
-                unique_values_item = self.schema_table.item(row_index, 6)
+                unique_values_item = self.schema_table.item(row_index, 7)
                 unique_values_item.setData(Qt.ItemDataRole.UserRole, unique_values)
 
                 # Uncheck the "Find Unique" checkbox for this column
@@ -640,12 +757,12 @@ class MyDataScreen(QWidget):
 
     def on_schema_cell_double_clicked(self, row: int, column: int):
         """Handle double-click on schema table cells"""
-        # Only handle double-clicks on the "Unique Values" column (column 6)
-        if column != 6:
+        # Only handle double-clicks on the "Unique Values" column (column 7)
+        if column != 7:
             return
         
         # Get the unique values stored in the cell
-        unique_values_item = self.schema_table.item(row, 6)
+        unique_values_item = self.schema_table.item(row, 7)
         if not unique_values_item:
             return
         
@@ -748,6 +865,36 @@ class MyDataScreen(QWidget):
         except Exception as e:
             logger.error(f"Error previewing table: {e}")
             QMessageBox.critical(self, "Error", f"Failed to preview table:\n{str(e)}")
+
+    def on_common_checkbox_changed(self, row: int, column_name: str, state: int):
+        """Handle common checkbox state change"""
+        is_common = (state == Qt.CheckState.Checked.value)
+        
+        # Get metadata_id for the current table
+        metadata_id = self.metadata_cache_repo.get_or_create_metadata(
+            self.current_connection_id,
+            self.current_table_name,
+            self.current_schema_name
+        )
+        
+        # Update the database
+        self.metadata_cache_repo.update_column_common_flag(metadata_id, column_name, is_common)
+        
+        logger.info(f"Set common flag for {column_name} to {is_common}")
+
+    def on_type_changed(self, row: int, column_name: str, new_type: str):
+        """Handle data type change for CSV columns"""
+        # Get metadata_id for the current table
+        metadata_id = self.metadata_cache_repo.get_or_create_metadata(
+            self.current_connection_id,
+            self.current_table_name,
+            self.current_schema_name
+        )
+        
+        # Update the column type in the cache
+        self.metadata_cache_repo.update_column_type(metadata_id, column_name, new_type)
+        
+        logger.info(f"Changed type for {column_name} to {new_type}")
 
     def show_context_menu(self, position):
         """Show context menu for tree items"""

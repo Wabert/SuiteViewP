@@ -81,7 +81,7 @@ class ConnectionsScreen(QWidget):
         header_layout.setContentsMargins(10, 5, 10, 5)
         header_layout.setSpacing(10)
 
-        header_label = QLabel("CONNECTIONS")
+        header_label = QLabel("DATABASES")
         header_label.setStyleSheet("background: transparent; border: none;")
         header_layout.addWidget(header_label)
 
@@ -129,6 +129,7 @@ class ConnectionsScreen(QWidget):
         # Tables tree with checkboxes
         self.tables_tree = QTreeWidget()
         self.tables_tree.setHeaderLabels(["Table Name"])
+        self.tables_tree.setHeaderHidden(True)
         self.tables_tree.itemChanged.connect(self.on_table_checked)
         self.tables_tree.itemClicked.connect(self.on_table_selected)
         layout.addWidget(self.tables_tree)
@@ -173,62 +174,34 @@ class ConnectionsScreen(QWidget):
         try:
             connections = self.conn_manager.get_connections()
 
-            # Group connections by type
-            type_groups = {
-                'ODBC': [],
-                'SQL_SERVER': [],
-                'DB2': [],
-                'EXCEL': [],
-                'ACCESS': [],
-                'CSV': [],
-                'FIXED_WIDTH': []
-            }
-
-            # Map connection types to display names
-            type_display_names = {
-                'ODBC': 'ODBC',
-                'SQL_SERVER': 'ODBC',  # SQL Server typically accessed via ODBC
-                'DB2': 'ODBC',  # DB2 typically accessed via ODBC
-                'EXCEL': 'Excel',
-                'ACCESS': 'MS Access',
-                'CSV': 'CSV',
-                'FIXED_WIDTH': 'Fixed Width File'
-            }
-
-            # Group connections
+            # Group connections by their actual type (don't merge types)
+            connections_by_type = {}
             for conn in connections:
                 conn_type = conn['connection_type']
-                if conn_type in type_groups:
-                    type_groups[conn_type].append(conn)
-
-            # Create tree structure with groups
-            for group_type, group_conns in type_groups.items():
-                # Create group header
-                display_name = type_display_names.get(group_type, group_type)
-
-                # For ODBC group, combine SQL_SERVER and DB2
-                if group_type == 'ODBC':
-                    combined_conns = (type_groups.get('ODBC', []) +
-                                    type_groups.get('SQL_SERVER', []) +
-                                    type_groups.get('DB2', []))
-                    if not combined_conns:
-                        continue
-                    group_conns = combined_conns
-                elif group_type in ['SQL_SERVER', 'DB2']:
-                    continue  # Already handled in ODBC group
                 
-                # Skip empty groups (check after combining for ODBC)
-                if not group_conns:
+                if conn_type not in connections_by_type:
+                    connections_by_type[conn_type] = []
+                connections_by_type[conn_type].append(conn)
+
+            # Define the display order
+            type_order = ['DB2', 'SQL_SERVER', 'ACCESS', 'EXCEL', 'CSV', 'FIXED_WIDTH']
+            
+            # Add connection groups in the specified order
+            for group_type in type_order:
+                if group_type not in connections_by_type:
                     continue
+                    
+                group_conns = connections_by_type[group_type]
+                
+                # Create type group item at root level
+                type_item = QTreeWidgetItem(self.conn_tree)
+                type_item.setText(0, group_type)
+                type_item.setData(0, Qt.ItemDataRole.UserRole + 1, "group")
+                type_item.setExpanded(True)
 
-                group_item = QTreeWidgetItem(self.conn_tree)
-                group_item.setText(0, display_name)
-                group_item.setData(0, Qt.ItemDataRole.UserRole + 1, "group")
-                group_item.setExpanded(True)
-
-                # Add connections to group
-                for conn in group_conns:
-                    conn_item = QTreeWidgetItem(group_item)
+                # Add connections under type
+                for conn in sorted(group_conns, key=lambda x: x['connection_name']):
+                    conn_item = QTreeWidgetItem(type_item)
                     conn_item.setText(0, conn['connection_name'])
                     conn_item.setData(0, Qt.ItemDataRole.UserRole, conn['connection_id'])
                     conn_item.setData(0, Qt.ItemDataRole.UserRole + 1, "connection")
@@ -591,23 +564,28 @@ class ConnectionsScreen(QWidget):
                 QMessageBox.warning(self, "Error", "Connection not found")
                 return
 
-            # For now, show connection details and allow renaming
-            from PyQt6.QtWidgets import QInputDialog
-
-            new_name, ok = QInputDialog.getText(
-                self,
-                "Edit Connection",
-                f"Edit connection name:\n(Type: {connection['connection_type']})",
-                QLineEdit.EchoMode.Normal,
-                connection['connection_name']
-            )
-
-            if ok and new_name and new_name != connection['connection_name']:
-                # Update connection name
+            # Open the connection dialog with existing data pre-populated
+            dialog = AddConnectionDialog(self, connection_data=connection)
+            
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                # Get the updated connection data from the dialog
+                updated_data = dialog.get_connection_data()
+                
+                # Update the connection in the database
                 self.conn_manager.update_connection(
                     self.current_connection_id,
-                    connection_name=new_name
+                    connection_name=updated_data['connection_name'],
+                    connection_type=updated_data['connection_type'],
+                    connection_string=updated_data.get('connection_string', ''),
+                    server=updated_data.get('server', ''),
+                    database_name=updated_data.get('database_name', ''),
+                    username=updated_data.get('username', ''),
+                    password=updated_data.get('password', ''),
+                    file_path=updated_data.get('file_path', ''),
+                    dsn=updated_data.get('dsn', '')
                 )
+                
+                # Reload connections
                 self.load_connections()
                 
                 # Emit signal so other screens can refresh
@@ -616,9 +594,9 @@ class ConnectionsScreen(QWidget):
                 QMessageBox.information(
                     self,
                     "Success",
-                    f"Connection renamed to '{new_name}'"
+                    f"Connection '{updated_data['connection_name']}' updated successfully"
                 )
-                logger.info(f"Renamed connection {self.current_connection_id} to '{new_name}'")
+                logger.info(f"Updated connection {self.current_connection_id}")
 
         except Exception as e:
             logger.error(f"Failed to edit connection: {e}", exc_info=True)

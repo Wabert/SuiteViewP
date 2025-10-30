@@ -1,6 +1,7 @@
 """Query Executor - Executes queries and returns results"""
 
 import logging
+import os
 import time
 import pandas as pd
 from sqlalchemy import text
@@ -39,17 +40,26 @@ class QueryExecutor:
         start_time = time.time()
         
         try:
-            # Build SQL query
-            sql = self._build_sql(query)
-            self.last_sql = sql
-            
-            logger.info(f"Executing query:\n{sql}")
-            
-            # Check if this is a DB2 connection - use pyodbc directly to avoid SQLAlchemy issues
+            # Get connection info
             connection = self.conn_manager.repo.get_connection(query.connection_id)
-            if connection and connection.get('connection_type') == 'DB2':
+            connection_type = connection.get('connection_type') if connection else None
+            
+            # Handle CSV files differently - no SQL, just pandas filtering
+            if connection_type == 'CSV':
+                df = self._execute_csv_query(query, connection)
+                self.last_sql = "CSV File Query (no SQL generated)"
+            elif connection_type == 'DB2':
+                # Build SQL query
+                sql = self._build_sql(query)
+                self.last_sql = sql
+                logger.info(f"Executing query:\n{sql}")
                 df = self._execute_db2_query(sql, connection)
             else:
+                # Build SQL query
+                sql = self._build_sql(query)
+                self.last_sql = sql
+                logger.info(f"Executing query:\n{sql}")
+                
                 # Get database engine for other connection types
                 engine = self.conn_manager.get_engine(query.connection_id)
                 
@@ -67,7 +77,7 @@ class QueryExecutor:
             
         except Exception as e:
             logger.error(f"Query execution failed: {e}")
-            logger.error(f"SQL: {sql if 'sql' in locals() else 'N/A'}")
+            logger.error(f"SQL: {self.last_sql if hasattr(self, 'last_sql') and self.last_sql else 'N/A'}")
             raise
     
     def _execute_db2_query(self, sql: str, connection: dict) -> pd.DataFrame:
@@ -121,6 +131,182 @@ class QueryExecutor:
             logger.error(f"Error executing DB2 query: {e}")
             raise
 
+    def _execute_csv_query(self, query: Query, connection: dict) -> pd.DataFrame:
+        """
+        Execute query on CSV file using pandas filtering (no SQL)
+        
+        Args:
+            query: Query object with query definition
+            connection: Connection dictionary with folder path
+            
+        Returns:
+            Pandas DataFrame with filtered results
+        """
+        try:
+            # Get CSV folder path from connection
+            folder_path = connection.get('connection_string', '')
+            if not folder_path:
+                raise ValueError("CSV connection requires folder path")
+            
+            # Get table name from query
+            table_name = query.from_table
+            
+            # Construct the full file path: folder + table name + .csv
+            csv_path = os.path.join(folder_path, f"{table_name}.csv")
+            
+            if not os.path.exists(csv_path):
+                raise ValueError(f"CSV file not found: {csv_path}")
+            
+            logger.info(f"Loading CSV file: {csv_path}")
+            
+            # Load the entire CSV file
+            df = pd.read_csv(csv_path)
+            logger.info(f"Loaded {len(df)} rows from CSV")
+            
+            # Apply custom data type conversions from metadata cache
+            from suiteview.data.repositories import get_metadata_cache_repository
+            metadata_repo = get_metadata_cache_repository()
+            
+            # Get metadata_id
+            metadata_id = metadata_repo.get_metadata_id(query.connection_id, table_name, query.from_schema)
+            
+            if metadata_id:
+                # Get cached columns with custom types
+                cached_columns = metadata_repo.get_cached_columns(metadata_id)
+                if cached_columns:
+                    for col_info in cached_columns:
+                        col_name = col_info.get('name')
+                        col_type = col_info.get('type', 'TEXT').upper()
+                        
+                        if col_name in df.columns:
+                            # Apply type conversion based on cached type
+                            try:
+                                if col_type == 'INTEGER':
+                                    df[col_name] = pd.to_numeric(df[col_name], errors='coerce').astype('Int64')
+                                elif col_type == 'FLOAT':
+                                    df[col_name] = pd.to_numeric(df[col_name], errors='coerce').astype('float64')
+                                elif col_type == 'DECIMAL':
+                                    df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
+                                elif col_type == 'DATE':
+                                    df[col_name] = pd.to_datetime(df[col_name], errors='coerce').dt.date
+                                elif col_type == 'DATETIME':
+                                    df[col_name] = pd.to_datetime(df[col_name], errors='coerce')
+                                elif col_type == 'BOOLEAN':
+                                    df[col_name] = df[col_name].astype(str).str.lower().isin(['true', '1', 'yes', 't', 'y'])
+                                # TEXT is default, no conversion needed
+                                
+                                logger.info(f"Converted column '{col_name}' to {col_type}")
+                            except Exception as e:
+                                logger.warning(f"Could not convert column '{col_name}' to {col_type}: {e}")
+            
+            # Apply WHERE criteria using pandas filtering
+            if query.criteria:
+                for criterion in query.criteria:
+                    df = self._apply_csv_filter(df, criterion)
+                    logger.info(f"After filter on {criterion['field_name']}: {len(df)} rows")
+            
+            # Select only display fields
+            if query.display_fields:
+                display_columns = [field['field_name'] for field in query.display_fields]
+                # Only select columns that exist in the dataframe
+                existing_columns = [col for col in display_columns if col in df.columns]
+                if existing_columns:
+                    df = df[existing_columns]
+                else:
+                    logger.warning(f"No matching columns found. Available: {list(df.columns)}")
+            
+            logger.info(f"CSV query complete: {len(df)} rows returned")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error executing CSV query: {e}")
+            raise
+
+    def _apply_csv_filter(self, df: pd.DataFrame, criterion: Dict[str, Any]) -> pd.DataFrame:
+        """
+        Apply a single filter criterion to a pandas DataFrame
+        
+        Args:
+            df: Input DataFrame
+            criterion: Dictionary with filter configuration
+            
+        Returns:
+            Filtered DataFrame
+        """
+        field = criterion['field_name']
+        value = criterion.get('value')
+        operator = criterion.get('operator', '=')
+        match_type = criterion.get('match_type', 'exact')
+        
+        # Handle null/empty values
+        if value is None or value == '':
+            return df
+        
+        # Check if column exists
+        if field not in df.columns:
+            logger.warning(f"Column '{field}' not found in CSV, skipping filter")
+            return df
+        
+        # Convert value to match the column's dtype
+        try:
+            col_dtype = df[field].dtype
+            if pd.api.types.is_integer_dtype(col_dtype):
+                if isinstance(value, list):
+                    value = [int(v) for v in value]
+                elif isinstance(value, tuple):
+                    value = tuple(int(v) for v in value)
+                else:
+                    value = int(value)
+            elif pd.api.types.is_float_dtype(col_dtype):
+                if isinstance(value, list):
+                    value = [float(v) for v in value]
+                elif isinstance(value, tuple):
+                    value = tuple(float(v) for v in value)
+                else:
+                    value = float(value)
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Could not convert filter value for {field}: {e}")
+            # Continue with original value
+        
+        # Handle IN operator (checkbox list)
+        if operator == 'IN':
+            if isinstance(value, list) and value:
+                return df[df[field].isin(value)]
+            return df
+        
+        # Handle BETWEEN operator
+        if operator == 'BETWEEN':
+            if isinstance(value, tuple) and len(value) == 2:
+                low, high = value
+                return df[(df[field] >= low) & (df[field] <= high)]
+            return df
+        
+        # String pattern matching
+        if match_type == 'starts_with':
+            return df[df[field].astype(str).str.startswith(str(value), na=False)]
+        elif match_type == 'ends_with':
+            return df[df[field].astype(str).str.endswith(str(value), na=False)]
+        elif match_type == 'contains':
+            return df[df[field].astype(str).str.contains(str(value), na=False, regex=False)]
+        
+        # Standard operators
+        if operator == '=':
+            return df[df[field] == value]
+        elif operator == '!=':
+            return df[df[field] != value]
+        elif operator == '<':
+            return df[df[field] < value]
+        elif operator == '<=':
+            return df[df[field] <= value]
+        elif operator == '>':
+            return df[df[field] > value]
+        elif operator == '>=':
+            return df[df[field] >= value]
+        
+        # Unknown operator, return unchanged
+        logger.warning(f"Unknown operator '{operator}', no filter applied")
+        return df
+
     def execute_xdb_query(self, query: Query) -> pd.DataFrame:
         """
         Execute a cross-database query using application-level joins
@@ -160,6 +346,10 @@ class QueryExecutor:
         Returns:
             SQL query string
         """
+        # Get connection to determine type
+        connection = self.conn_manager.repo.get_connection(query.connection_id)
+        connection_type = connection.get('connection_type', '') if connection else ''
+        
         # SELECT clause - qualify with table names ONLY if there are JOINs
         select_fields = []
         has_joins = len(query.joins) > 0
@@ -174,9 +364,11 @@ class QueryExecutor:
         
         sql = f"SELECT {', '.join(select_fields)}\n"
         
-        # FROM clause - use alias if there are JOINs
+        # FROM clause - DON'T include schema for SQL Server (it uses database.owner.table syntax differently)
         from_table = query.from_table
-        if query.from_schema:
+        
+        # Only add schema prefix for DB2, not for SQL_SERVER
+        if query.from_schema and connection_type == 'DB2':
             from_table = f'{query.from_schema}.{query.from_table}'
         
         if has_joins:
@@ -190,7 +382,8 @@ class QueryExecutor:
             join_type = join['join_type']
             join_table_name = join['table_name']
             
-            if join['schema_name']:
+            # Only add schema prefix for DB2
+            if join['schema_name'] and connection_type == 'DB2':
                 join_table = f'{join["schema_name"]}.{join_table_name}'
             else:
                 join_table = join_table_name
@@ -230,8 +423,9 @@ class QueryExecutor:
             if where_parts:
                 sql += f"\nWHERE {' AND '.join(where_parts)}"
         
-        # Add row limit - USE LIMIT (not FETCH FIRST)
-        sql += "\nLIMIT 10000000"
+        # Add row limit - ONLY for DB2 (SQL Server doesn't need it)
+        if connection_type == 'DB2':
+            sql += "\nLIMIT 10000000"
         
         return sql
 

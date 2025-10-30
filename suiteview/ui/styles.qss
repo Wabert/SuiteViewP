@@ -71,6 +71,32 @@ QTabBar::tab:selected {
     font-weight: 800;
 }
 
+/* Special styling for Connections tab (last tab) */
+QTabBar::tab:last {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #f39c12,
+                                stop:1 #e67e22);
+    color: #FFFFFF;
+}
+
+QTabBar::tab:last:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #f5a623,
+                                stop:1 #f39c12);
+    color: #FFFFFF;
+    border: 2px solid #f39c12;
+}
+
+QTabBar::tab:last:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #F4D03F,
+                                stop:1 #D4AF37);
+    color: #0A1E5E;
+    border: 2px solid #FFD700;
+    border-bottom: none;
+    font-weight: 800;
+}
+
 /* Panels */
 QWidget#panel {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -176,17 +202,13 @@ QTreeWidget::item {
 }
 
 QTreeWidget::item:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #2563EB,
-                                stop:1 #1E3A8A);
-    border: 1px solid #D4AF37;
-    color: #F4D03F;
+    background-color: #b3d9ff;
+    border: 1px solid #2563EB;
+    color: #1E3A8A;
 }
 
 QTreeWidget::item:selected {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #E8F0FF,
-                                stop:1 #D0E0F5);
+    background-color: #b3d9ff;
     border: 1px solid #2563EB;
     color: #1E3A8A;
     font-weight: 700;
@@ -217,9 +239,7 @@ QTableView::item {
 }
 
 QTableView::item:hover {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #B8D4FF,
-                                stop:1 #A0C0F0);
+    background-color: #b3d9ff;
     border: 1px solid #2563EB;
     color: #1E3A8A;
 }

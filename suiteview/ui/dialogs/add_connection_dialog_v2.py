@@ -35,9 +35,11 @@ class AddConnectionDialog(QDialog):
         "Fixed Width File"
     ]
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, connection_data=None):
         super().__init__(parent)
         self.connection_data = None
+        self.edit_mode = connection_data is not None
+        self.existing_connection = connection_data
 
         # Set window flags to make it a proper dialog
         from PyQt6.QtCore import Qt
@@ -47,10 +49,15 @@ class AddConnectionDialog(QDialog):
         self.init_ui()
         self.setMinimumWidth(700)
         self.setMinimumHeight(500)
+        
+        # If editing, populate the form with existing data
+        if self.edit_mode:
+            self.populate_form_with_existing_data()
 
     def init_ui(self):
         """Initialize the UI - stable layout, no expanding/collapsing"""
-        self.setWindowTitle("Add New Connection")
+        window_title = "Edit Connection" if self.edit_mode else "Add New Connection"
+        self.setWindowTitle(window_title)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
@@ -63,7 +70,8 @@ class AddConnectionDialog(QDialog):
         title_bar_layout = QHBoxLayout(title_bar)
         title_bar_layout.setContentsMargins(15, 10, 15, 10)
 
-        title_label = QLabel("Add New Connection")
+        title_text = "Edit Connection" if self.edit_mode else "Add New Connection"
+        title_label = QLabel(title_text)
         title_label.setObjectName("dialog_title")
         title_label.setStyleSheet("""
             QLabel#dialog_title {
@@ -402,15 +410,28 @@ class AddConnectionDialog(QDialog):
             QMessageBox.warning(self, "Error", f"Failed to get driver info: {str(e)}")
 
     def pick_file(self):
-        """Open file picker dialog"""
+        """Open file picker dialog (or folder for CSV)"""
         conn_type = self.CONNECTION_TYPES[self.current_type_index]
 
+        # For CSV, select folder instead of file
+        if conn_type == "CSV File":
+            folder_path = QFileDialog.getExistingDirectory(
+                self,
+                "Select Folder Containing CSV Files",
+                "",
+                QFileDialog.Option.ShowDirsOnly
+            )
+            if folder_path:
+                # Normalize to Windows backslashes
+                folder_path = os.path.normpath(folder_path)
+                self.file_path_edit.setText(folder_path)
+            return
+
+        # For other file types, select individual files
         if conn_type == "Excel File":
             file_filter = "Excel Files (*.xlsx *.xls)"
         elif conn_type == "MS Access":
             file_filter = "Access Files (*.accdb *.mdb)"
-        elif conn_type == "CSV File":
-            file_filter = "CSV Files (*.csv *.txt)"
         elif conn_type == "Fixed Width File":
             file_filter = "Text Files (*.txt *.dat);;All Files (*.*)"
         else:
@@ -434,6 +455,19 @@ class AddConnectionDialog(QDialog):
             # Normalize path to use Windows backslashes
             file_path = os.path.normpath(file_path)
 
+            conn_type = self.CONNECTION_TYPES[self.current_type_index]
+            
+            # For CSV, the path IS the folder (no filename)
+            if conn_type == "CSV File":
+                if os.path.isdir(file_path):
+                    self.folder_value.setText(file_path)
+                    self.filename_value.setText("(All CSV files in folder)")
+                    # Set connection name to folder name
+                    folder_name = os.path.basename(file_path)
+                    self.conn_name_edit.setText(folder_name)
+                return
+
+            # For other file types, split into folder and filename
             folder = os.path.dirname(file_path)
             filename = os.path.basename(file_path)
 
@@ -641,20 +675,28 @@ class AddConnectionDialog(QDialog):
         QMessageBox.information(self, "Success", f"Connected successfully! Found {len(tables)} tables.")
 
     def test_csv_connection(self):
-        """Test CSV file connection"""
-        file_path = self.file_path_edit.text()
-        if not file_path or not os.path.exists(file_path):
-            raise ValueError("Please select a valid CSV file")
+        """Test CSV folder connection"""
+        folder_path = self.file_path_edit.text()
+        if not folder_path or not os.path.exists(folder_path):
+            raise ValueError("Please select a valid folder")
 
-        # Just verify file can be opened
-        with open(file_path, 'r', encoding=self.encoding_combo.currentText().lower().replace('-', '')) as f:
-            first_line = f.readline()
+        if not os.path.isdir(folder_path):
+            raise ValueError("Please select a folder, not a file")
+
+        # Find all CSV files in the folder
+        csv_files = [f for f in os.listdir(folder_path) 
+                     if f.lower().endswith('.csv')]
+
+        if not csv_files:
+            raise ValueError("No CSV files found in the selected folder")
 
         self.results_group.setVisible(False)
         QMessageBox.information(
             self,
             "Success",
-            f"CSV file is accessible!\nFirst line preview:\n{first_line[:100]}"
+            f"Found {len(csv_files)} CSV file(s) in folder:\n\n" + 
+            "\n".join(csv_files[:10]) + 
+            (f"\n... and {len(csv_files) - 10} more" if len(csv_files) > 10 else "")
         )
 
     def test_fixed_width_connection(self):
@@ -740,6 +782,75 @@ class AddConnectionDialog(QDialog):
                 })
 
         self.accept()
+
+    def populate_form_with_existing_data(self):
+        """Populate form fields with existing connection data"""
+        if not self.existing_connection:
+            return
+        
+        conn = self.existing_connection
+        conn_type = conn.get('connection_type', '')
+        
+        # Map connection types to button indices
+        type_map = {
+            'ODBC': 0,
+            'SQL_SERVER': 0,
+            'DB2': 0,
+            'EXCEL': 1,
+            'ACCESS': 2,
+            'CSV': 3,
+            'FIXED_WIDTH': 4
+        }
+        
+        # Set the connection type button
+        type_index = type_map.get(conn_type, 0)
+        if type_index < len(self.type_buttons):
+            self.type_buttons[type_index].setChecked(True)
+            self.on_type_button_clicked(type_index)
+        
+        # Populate connection name
+        self.conn_name_edit.setText(conn.get('connection_name', ''))
+        
+        # Populate type-specific fields
+        if conn_type in ['ODBC', 'SQL_SERVER', 'DB2']:
+            # ODBC connection
+            dsn = conn.get('dsn', '') or conn.get('connection_string', '').replace('DSN=', '')
+            if dsn and self.odbc_dsn_combo.findText(dsn) >= 0:
+                self.odbc_dsn_combo.setCurrentText(dsn)
+                
+        elif conn_type in ['EXCEL', 'ACCESS', 'CSV', 'FIXED_WIDTH']:
+            # File-based connections
+            file_path = conn.get('file_path', '')
+            if file_path:
+                self.file_path_edit.setText(file_path)
+                # Manually update folder and filename (without changing conn name)
+                folder = os.path.dirname(file_path)
+                filename = os.path.basename(file_path)
+                self.folder_value.setText(folder)
+                self.filename_value.setText(filename)
+                
+            if conn_type == 'CSV':
+                # CSV-specific fields
+                if hasattr(self, 'csv_header_check'):
+                    self.csv_header_check.setChecked(conn.get('has_header', True))
+                if hasattr(self, 'delimiter_combo'):
+                    delimiter = conn.get('delimiter', ',')
+                    if delimiter == '\t':
+                        self.delimiter_combo.setCurrentText('Tab')
+                    elif delimiter == ' ':
+                        self.delimiter_combo.setCurrentText('Space')
+                    else:
+                        self.delimiter_combo.setCurrentText(delimiter)
+                if hasattr(self, 'encoding_combo'):
+                    encoding = conn.get('encoding', 'utf-8')
+                    if self.encoding_combo.findText(encoding) >= 0:
+                        self.encoding_combo.setCurrentText(encoding)
+                        
+            elif conn_type == 'FIXED_WIDTH':
+                # Fixed Width-specific fields
+                if hasattr(self, 'csv_header_check'):
+                    self.csv_header_check.setChecked(conn.get('has_header', False))
+                # TODO: Populate field definitions if stored
 
     def get_connection_data(self) -> Optional[Dict[str, Any]]:
         """Return the connection data after dialog closes"""
