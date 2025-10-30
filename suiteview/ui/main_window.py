@@ -58,6 +58,10 @@ class MainWindow(QMainWindow):
         # Connect signals between screens
         # When saved tables change in Connections, refresh My Data
         self.connections_screen.saved_tables_changed.connect(self.mydata_screen.refresh)
+        
+        # When connections are added/edited/deleted, refresh all screens
+        self.connections_screen.connections_changed.connect(self.mydata_screen.load_my_data)
+        self.connections_screen.connections_changed.connect(self.dbquery_screen.load_data_sources)
 
         # Add tab widget to layout
         layout.addWidget(self.tab_widget)

@@ -415,3 +415,137 @@ def get_metadata_cache_repository() -> MetadataCacheRepository:
     if _metadata_cache_repo is None:
         _metadata_cache_repo = MetadataCacheRepository()
     return _metadata_cache_repo
+
+
+class QueryRepository:
+    """Repository for managing saved queries"""
+
+    def __init__(self):
+        self.db = get_database()
+
+    def save_query(self, query_name: str, query_type: str, query_definition: dict,
+                   category: str = None) -> int:
+        """
+        Save a query definition
+        
+        Args:
+            query_name: Name for the query
+            query_type: 'DB' or 'XDB'
+            query_definition: Query definition as dict
+            category: Optional category for organization
+            
+        Returns:
+            query_id of the saved query
+        """
+        query_json = json.dumps(query_definition)
+        
+        # Check if query name already exists
+        existing = self.db.fetchone("""
+            SELECT query_id FROM saved_queries WHERE query_name = ?
+        """, (query_name,))
+        
+        if existing:
+            # Update existing query
+            self.db.execute("""
+                UPDATE saved_queries
+                SET query_definition = ?,
+                    query_type = ?,
+                    category = ?,
+                    last_modified = CURRENT_TIMESTAMP
+                WHERE query_name = ?
+            """, (query_json, query_type, category, query_name))
+            query_id = existing['query_id']
+            logger.info(f"Updated query: {query_name} (ID: {query_id})")
+        else:
+            # Insert new query
+            cursor = self.db.execute("""
+                INSERT INTO saved_queries (
+                    query_name, query_type, category, query_definition
+                ) VALUES (?, ?, ?, ?)
+            """, (query_name, query_type, category, query_json))
+            query_id = cursor.lastrowid
+            logger.info(f"Saved new query: {query_name} (ID: {query_id})")
+        
+        return query_id
+
+    def get_all_queries(self, query_type: str = None) -> List[Dict]:
+        """
+        Get all saved queries
+        
+        Args:
+            query_type: Optional filter by 'DB' or 'XDB'
+            
+        Returns:
+            List of query dictionaries
+        """
+        if query_type:
+            rows = self.db.fetchall("""
+                SELECT query_id, query_name, query_type, category,
+                       query_definition, created_at, last_modified,
+                       last_executed, execution_duration_ms, record_count
+                FROM saved_queries
+                WHERE query_type = ?
+                ORDER BY query_name
+            """, (query_type,))
+        else:
+            rows = self.db.fetchall("""
+                SELECT query_id, query_name, query_type, category,
+                       query_definition, created_at, last_modified,
+                       last_executed, execution_duration_ms, record_count
+                FROM saved_queries
+                ORDER BY query_name
+            """)
+        
+        queries = []
+        for row in rows:
+            query = dict(row)
+            # Parse JSON definition
+            query['query_definition'] = json.loads(query['query_definition'])
+            queries.append(query)
+        
+        return queries
+
+    def get_query(self, query_id: int) -> Optional[Dict]:
+        """Get a specific query by ID"""
+        row = self.db.fetchone("""
+            SELECT query_id, query_name, query_type, category,
+                   query_definition, created_at, last_modified,
+                   last_executed, execution_duration_ms, record_count
+            FROM saved_queries
+            WHERE query_id = ?
+        """, (query_id,))
+        
+        if row:
+            query = dict(row)
+            query['query_definition'] = json.loads(query['query_definition'])
+            return query
+        return None
+
+    def delete_query(self, query_id: int):
+        """Delete a saved query"""
+        self.db.execute("""
+            DELETE FROM saved_queries WHERE query_id = ?
+        """, (query_id,))
+        logger.info(f"Deleted query ID: {query_id}")
+
+    def update_execution_stats(self, query_id: int, duration_ms: int, record_count: int):
+        """Update query execution statistics"""
+        self.db.execute("""
+            UPDATE saved_queries
+            SET last_executed = CURRENT_TIMESTAMP,
+                execution_duration_ms = ?,
+                record_count = ?
+            WHERE query_id = ?
+        """, (duration_ms, record_count, query_id))
+
+
+# Singleton instances
+_query_repo: Optional[QueryRepository] = None
+
+
+def get_query_repository() -> QueryRepository:
+    """Get or create singleton query repository"""
+    global _query_repo
+    if _query_repo is None:
+        _query_repo = QueryRepository()
+    return _query_repo

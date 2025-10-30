@@ -9,7 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 
 from suiteview.data.repositories import (SavedTableRepository, ConnectionRepository, 
-                                         get_metadata_cache_repository)
+                                         get_metadata_cache_repository, get_query_repository)
 from suiteview.core.schema_discovery import SchemaDiscovery
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ class MyDataScreen(QWidget):
         self.conn_repo = ConnectionRepository()
         self.schema_discovery = SchemaDiscovery()
         self.metadata_cache_repo = get_metadata_cache_repository()
+        self.query_repo = get_query_repository()
 
         # Track current selection
         self.current_connection_id = None
@@ -189,8 +190,30 @@ class MyDataScreen(QWidget):
         # Load My Connections
         self._load_my_connections()
 
-        # TODO: Load DB Queries (Phase 4)
+        # Load DB Queries
+        self._load_db_queries()
+
         # TODO: Load XDB Queries (Phase 5)
+
+    def _load_db_queries(self):
+        """Load saved DB queries"""
+        try:
+            queries = self.query_repo.get_all_queries(query_type='DB')
+            
+            for query in queries:
+                query_item = QTreeWidgetItem()
+                query_item.setText(0, query['query_name'])
+                query_item.setData(0, Qt.ItemDataRole.UserRole, "db_query")
+                query_item.setData(0, Qt.ItemDataRole.UserRole + 1, query['query_id'])
+                query_item.setData(0, Qt.ItemDataRole.UserRole + 2, query['query_definition'])
+                
+                self.db_queries_item.addChild(query_item)
+            
+            logger.info(f"Loaded {len(queries)} DB queries")
+            
+        except Exception as e:
+            logger.error(f"Error loading DB queries: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to load DB queries:\n{str(e)}")
 
     def _load_my_connections(self):
         """Load saved connections (grouped by connection type, then by connection)"""

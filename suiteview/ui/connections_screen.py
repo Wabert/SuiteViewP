@@ -21,6 +21,9 @@ class ConnectionsScreen(QWidget):
 
     # Signal emitted when saved tables change (so My Data can refresh)
     saved_tables_changed = pyqtSignal()
+    
+    # Signal emitted when connections are added/edited/deleted (so other screens can refresh)
+    connections_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -470,6 +473,9 @@ class ConnectionsScreen(QWidget):
 
                     # Reload connections tree
                     self.load_connections()
+                    
+                    # Emit signal so other screens can refresh
+                    self.connections_changed.emit()
 
                     QMessageBox.information(
                         self,
@@ -540,6 +546,10 @@ class ConnectionsScreen(QWidget):
                 self.tables_tree.clear()
                 self.schema_table.setRowCount(0)
                 self.table_info_label.setText("Connection deleted")
+                
+                # Emit signal so other screens can refresh
+                self.connections_changed.emit()
+                
                 QMessageBox.information(self, "Success", "Connection deleted successfully!")
 
             except Exception as e:
@@ -599,6 +609,10 @@ class ConnectionsScreen(QWidget):
                     connection_name=new_name
                 )
                 self.load_connections()
+                
+                # Emit signal so other screens can refresh
+                self.connections_changed.emit()
+                
                 QMessageBox.information(
                     self,
                     "Success",

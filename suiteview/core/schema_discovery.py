@@ -15,6 +15,8 @@ class SchemaDiscovery:
 
     def __init__(self):
         self.conn_manager = get_connection_manager()
+        # Add simple in-memory cache for columns
+        self._columns_cache = {}  # Key: (connection_id, table_name, schema_name)
 
     def get_tables(self, connection_id: int) -> List[Dict]:
         """
@@ -315,39 +317,63 @@ class SchemaDiscovery:
 
     def _get_db2_tables(self, connection_id: int) -> List[Dict]:
         """
-        Get tables from DB2 using direct SQL query with workarounds
+        Get tables from DB2 using direct pyodbc connection with workarounds
         DataDirect Shadow Client 7.3 requires special handling:
         - Must use WITH dummy clause for system catalog queries
         - Must include LIMIT clause to prevent crashes
+        - Cannot use SQLAlchemy engine (forces MSSQL dialect incompatibility)
         """
         try:
-            engine = self.conn_manager.get_engine(connection_id)
+            import pyodbc
+            
+            # Get connection details
+            connection = self.conn_manager.get_connection(connection_id)
+            if not connection:
+                raise ValueError(f"Connection {connection_id} not found")
+            
+            # Build pyodbc connection string from DSN
+            dsn = connection.get('connection_string', '').replace('DSN=', '')
+            if not dsn:
+                raise ValueError("DB2 connection requires DSN")
+            
+            conn_str = f"DSN={dsn}"
+            
+            # Connect with pyodbc directly
+            conn = pyodbc.connect(conn_str)
+            cursor = conn.cursor()
             
             # Query to get user tables with DB2-specific workarounds
             # Using WITH DUMMY clause and LIMIT to avoid driver crashes
-            query = text("""
-                WITH DUMMY AS (SELECT 1 FROM SYSIBM.SYSDUMMY1)
+            query = """
+                WITH DUMMY AS (SELECT 1 AS COL1 FROM SYSIBM.SYSDUMMY1)
                 SELECT NAME, CREATOR, TYPE
                 FROM SYSIBM.SYSTABLES
                 WHERE TYPE = 'T'
-                    AND CREATOR NOT LIKE 'SYS%'
-                    AND NAME NOT LIKE 'SYS%'
                 ORDER BY CREATOR, NAME
                 LIMIT 10000000
-            """)
+            """
+            
+            cursor.execute(query)
             
             tables = []
-            with engine.connect() as conn:
-                result = conn.execute(query)
-                for row in result:
-                    table_name = row[0].strip() if row[0] else row[0]
-                    schema_name = row[1].strip() if row[1] else row[1]
-                    tables.append({
-                        'table_name': table_name,
-                        'schema_name': schema_name,
-                        'full_name': f"{schema_name}.{table_name}" if schema_name else table_name,
-                        'type': 'TABLE'
-                    })
+            for row in cursor.fetchall():
+                table_name = row[0].strip() if row[0] else row[0]
+                schema_name = row[1].strip() if row[1] else row[1]
+                
+                # Skip system tables
+                if schema_name and (schema_name.startswith('SYS') or schema_name.startswith('Q')):
+                    continue
+                if table_name and table_name.startswith('SYS'):
+                    continue
+                
+                tables.append({
+                    'table_name': table_name,
+                    'schema_name': schema_name,
+                    'full_name': f"{schema_name}.{table_name}" if schema_name else table_name,
+                    'type': 'TABLE'
+                })
+            
+            conn.close()
             
             logger.info(f"Discovered {len(tables)} tables in DB2 database")
             return tables
@@ -359,77 +385,80 @@ class SchemaDiscovery:
     def _get_db2_columns(self, connection_id: int, table_name: str, 
                         schema_name: str = None) -> List[Dict]:
         """
-        Get columns from DB2 table using direct SQL query with workarounds
+        Get columns from DB2 table using direct pyodbc connection with workarounds
         """
         try:
-            engine = self.conn_manager.get_engine(connection_id)
+            import pyodbc
             
             if not schema_name:
                 raise ValueError("Schema name is required for DB2 tables")
             
-            # Query to get column information with WITH clause workaround
-            query = text("""
-                WITH DUMMY AS (SELECT 1 FROM SYSIBM.SYSDUMMY1)
+            # Get connection details
+            connection = self.conn_manager.get_connection(connection_id)
+            if not connection:
+                raise ValueError(f"Connection {connection_id} not found")
+            
+            # Build pyodbc connection string from DSN
+            dsn = connection.get('connection_string', '').replace('DSN=', '')
+            if not dsn:
+                raise ValueError("DB2 connection requires DSN")
+            
+            conn_str = f"DSN={dsn}"
+            conn = pyodbc.connect(conn_str)
+            cursor = conn.cursor()
+            
+            # Query to get column information
+            # DataDirect Shadow driver doesn't support parameter binding or complex queries well
+            # Keep it simple and get primary key info separately if needed
+            query = f"""
                 SELECT 
-                    c.NAME as column_name,
-                    c.COLTYPE as data_type,
-                    c.LENGTH as max_length,
-                    c.NULLS as is_nullable,
-                    CASE WHEN k.COLNAME IS NOT NULL THEN 1 ELSE 0 END as is_primary_key
-                FROM SYSIBM.SYSCOLUMNS c
-                LEFT JOIN (
-                    SELECT COLNAME, TBNAME, TBCREATOR
-                    FROM SYSIBM.SYSKEYCOLUSE
-                    WHERE CONSTNAME IN (
-                        SELECT NAME FROM SYSIBM.SYSTABCONST
-                        WHERE TYPE = 'P'
-                    )
-                ) k ON c.NAME = k.COLNAME 
-                    AND c.TBNAME = k.TBNAME 
-                    AND c.TBCREATOR = k.TBCREATOR
-                WHERE c.TBNAME = :table_name
-                    AND c.TBCREATOR = :schema_name
-                ORDER BY c.COLNO
+                    NAME,
+                    COLTYPE,
+                    LENGTH,
+                    SCALE,
+                    NULLS
+                FROM SYSIBM.SYSCOLUMNS
+                WHERE TBNAME = '{table_name}'
+                    AND TBCREATOR = '{schema_name}'
+                ORDER BY COLNO
                 LIMIT 10000000
-            """)
+            """
+            
+            cursor.execute(query)
             
             columns = []
+            for row in cursor.fetchall():
+                col_name = row[0].strip() if row[0] else row[0]
+                type_string = row[1].strip() if row[1] else ''
+                length = row[2]
+                scale = row[3]
+                nullable = row[4]
+                
+                # DB2 COLTYPE returns full type names like 'CHAR', 'VARCHAR', 'INTEGER', etc.
+                # Add length/precision info for applicable types
+                if type_string in ['VARCHAR', 'CHAR', 'GRAPHIC', 'VARGRAPHIC']:
+                    if length:
+                        readable_type = f"{type_string}({length})"
+                    else:
+                        readable_type = type_string
+                elif type_string in ['DECIMAL', 'NUMERIC']:
+                    if length and scale is not None:
+                        readable_type = f"{type_string}({length},{scale})"
+                    else:
+                        readable_type = type_string
+                else:
+                    readable_type = type_string
+                
+                columns.append({
+                    'column_name': col_name,
+                    'data_type': readable_type,
+                    'is_nullable': nullable == 'Y' if nullable else True,
+                    'is_primary_key': False,  # Would require separate query
+                    'default': None,
+                    'max_length': length if length else None
+                })
             
-            with engine.connect() as conn:
-                result = conn.execute(query, {"table_name": table_name, "schema_name": schema_name})
-                for row in result:
-                    col_name = row[0].strip() if row[0] else row[0]
-                    data_type = row[1].strip() if row[1] else 'VARCHAR'
-                    
-                    # Map DB2 type codes to readable names
-                    type_map = {
-                        'VARCHAR': 'VARCHAR',
-                        'CHAR': 'CHAR',
-                        'INTEGER': 'INTEGER',
-                        'SMALLINT': 'SMALLINT',
-                        'BIGINT': 'BIGINT',
-                        'DECIMAL': 'DECIMAL',
-                        'NUMERIC': 'NUMERIC',
-                        'FLOAT': 'FLOAT',
-                        'DOUBLE': 'DOUBLE',
-                        'REAL': 'REAL',
-                        'DATE': 'DATE',
-                        'TIME': 'TIME',
-                        'TIMESTAMP': 'TIMESTAMP',
-                        'BLOB': 'BLOB',
-                        'CLOB': 'CLOB'
-                    }
-                    
-                    readable_type = type_map.get(data_type, data_type)
-                    
-                    columns.append({
-                        'column_name': col_name,
-                        'data_type': readable_type,
-                        'is_nullable': row[3] == 'Y' if row[3] else True,
-                        'is_primary_key': bool(row[4]),
-                        'default': None,
-                        'max_length': row[2] if row[2] else None
-                    })
+            conn.close()
             
             logger.info(f"Discovered {len(columns)} columns in DB2 table {schema_name}.{table_name}")
             return columns
@@ -446,26 +475,41 @@ class SchemaDiscovery:
         LIMIT is required to prevent DataDirect driver crashes
         """
         try:
-            engine = self.conn_manager.get_engine(connection_id)
+            import pyodbc
             
             if not schema_name:
                 raise ValueError("Schema name is required for DB2 tables")
             
+            # Get connection details
+            connection = self.conn_manager.get_connection(connection_id)
+            if not connection:
+                raise ValueError(f"Connection {connection_id} not found")
+            
+            # Build pyodbc connection string from DSN
+            dsn = connection.get('connection_string', '').replace('DSN=', '')
+            if not dsn:
+                raise ValueError("DB2 connection requires DSN")
+            
+            conn_str = f"DSN={dsn}"
+            conn = pyodbc.connect(conn_str)
+            cursor = conn.cursor()
+            
             # Build qualified table name
-            qualified_table = f"{schema_name}.{table_name}"
+            qualified_table = f'{schema_name}.{table_name}'
             
             # DB2 query with LIMIT to prevent crashes
-            query = text(f"""
+            query = f"""
                 SELECT DISTINCT {column_name}
                 FROM {qualified_table}
                 WHERE {column_name} IS NOT NULL
                 ORDER BY {column_name}
                 LIMIT {limit}
-            """)
+            """
             
-            with engine.connect() as conn:
-                result = conn.execute(query)
-                unique_values = [row[0] for row in result]
+            cursor.execute(query)
+            unique_values = [row[0] for row in cursor.fetchall()]
+            
+            conn.close()
             
             logger.info(f"Found {len(unique_values)} unique values for {qualified_table}.{column_name}")
             return unique_values
@@ -480,21 +524,40 @@ class SchemaDiscovery:
         Get preview data from DB2 table with LIMIT clause
         """
         try:
-            engine = self.conn_manager.get_engine(connection_id)
+            import pyodbc
             
             if not schema_name:
                 raise ValueError("Schema name is required for DB2 tables")
             
-            # Build qualified table name
-            qualified_table = f"{schema_name}.{table_name}"
+            # Get connection details
+            connection = self.conn_manager.get_connection(connection_id)
+            if not connection:
+                raise ValueError(f"Connection {connection_id} not found")
+            
+            # Build pyodbc connection string from DSN
+            dsn = connection.get('connection_string', '').replace('DSN=', '')
+            if not dsn:
+                raise ValueError("DB2 connection requires DSN")
+            
+            conn_str = f"DSN={dsn}"
+            conn = pyodbc.connect(conn_str)
+            cursor = conn.cursor()
+            
+            # Build qualified table name - NO QUOTES (works with DB2)
+            qualified_table = f'{schema_name}.{table_name}'
             
             # DB2 query with LIMIT
-            query = text(f"SELECT * FROM {qualified_table} LIMIT {limit}")
+            query = f"SELECT * FROM {qualified_table} LIMIT {limit}"
             
-            with engine.connect() as conn:
-                result = conn.execute(query)
-                columns = list(result.keys())
-                data = [tuple(row) for row in result.fetchall()]
+            cursor.execute(query)
+            
+            # Get column names from cursor.description
+            columns = [desc[0] for desc in cursor.description]
+            
+            # Fetch data
+            data = [tuple(row) for row in cursor.fetchall()]
+            
+            conn.close()
             
             logger.info(f"Retrieved {len(data)} rows for preview of {qualified_table}")
             return (columns, data)
@@ -588,6 +651,12 @@ class SchemaDiscovery:
         Returns:
             List of column dictionaries
         """
+        # Check cache first
+        cache_key = (connection_id, table_name, schema_name)
+        if cache_key in self._columns_cache:
+            logger.debug(f"Using cached columns for {schema_name}.{table_name}")
+            return self._columns_cache[cache_key]
+        
         try:
             # Get connection info to check type
             connection = self.conn_manager.repo.get_connection(connection_id)
@@ -598,48 +667,50 @@ class SchemaDiscovery:
 
             # Handle file-based connections differently
             if conn_type == 'EXCEL':
-                return self._get_excel_columns(connection, table_name)
+                columns = self._get_excel_columns(connection, table_name)
             elif conn_type == 'CSV':
-                return self._get_csv_columns(connection)
+                columns = self._get_csv_columns(connection)
             elif conn_type == 'ACCESS':
-                return self._get_access_columns(connection, table_name)
+                columns = self._get_access_columns(connection, table_name)
             elif conn_type == 'FIXED_WIDTH':
-                return self._get_fixed_width_columns(connection)
-
+                columns = self._get_fixed_width_columns(connection)
             # Handle SQL Server with direct query (avoid pyodbc reflection issues)
-            if conn_type == 'SQL_SERVER':
-                return self._get_sql_server_columns(connection_id, table_name, schema_name)
-            
+            elif conn_type == 'SQL_SERVER':
+                columns = self._get_sql_server_columns(connection_id, table_name, schema_name)
             # Handle DB2 with direct query (DataDirect driver requires special handling)
-            if conn_type == 'DB2':
-                return self._get_db2_columns(connection_id, table_name, schema_name)
+            elif conn_type == 'DB2':
+                columns = self._get_db2_columns(connection_id, table_name, schema_name)
+            else:
+                # Handle database connections with SQLAlchemy
+                engine = self.conn_manager.get_engine(connection_id)
+                inspector = inspect(engine)
 
-            # Handle database connections with SQLAlchemy
-            engine = self.conn_manager.get_engine(connection_id)
-            inspector = inspect(engine)
+                # Get column information
+                columns_info = inspector.get_columns(table_name, schema=schema_name)
 
-            # Get column information
-            columns_info = inspector.get_columns(table_name, schema=schema_name)
+                # Get primary keys
+                pk_constraint = inspector.get_pk_constraint(table_name, schema=schema_name)
+                primary_keys = pk_constraint.get('constrained_columns', []) if pk_constraint else []
+                
+                columns = []
+                for col_info in columns_info:
+                    col_name = col_info['name']
+                    col_type = str(col_info['type'])
 
-            # Get primary keys
-            pk_constraint = inspector.get_pk_constraint(table_name, schema=schema_name)
-            primary_keys = pk_constraint.get('constrained_columns', []) if pk_constraint else []
-
-            columns = []
-            for col_info in columns_info:
-                col_name = col_info['name']
-                col_type = str(col_info['type'])
-
-                columns.append({
-                    'column_name': col_name,
-                    'data_type': col_type,
-                    'is_nullable': col_info.get('nullable', True),
-                    'is_primary_key': col_name in primary_keys,
-                    'default': col_info.get('default'),
-                    'max_length': None  # Could parse from type string if needed
-                })
+                    columns.append({
+                        'column_name': col_name,
+                        'data_type': col_type,
+                        'is_nullable': col_info.get('nullable', True),
+                        'is_primary_key': col_name in primary_keys,
+                        'default': col_info.get('default'),
+                        'max_length': None  # Could parse from type string if needed
+                    })
 
             logger.debug(f"Discovered {len(columns)} columns for {table_name}")
+            
+            # Cache the results
+            self._columns_cache[cache_key] = columns
+            
             return columns
 
         except Exception as e:

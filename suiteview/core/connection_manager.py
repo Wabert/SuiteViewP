@@ -117,16 +117,25 @@ class ConnectionManager:
             if not connection:
                 return False, "Connection not found"
 
-            # Get engine and test connection
-            engine = self._get_engine(connection_id)
-            with engine.connect() as conn:
-                # Execute a simple query to test connection
-                # DB2 requires LIMIT clause to prevent crashes with DataDirect driver
-                if connection['connection_type'] == 'DB2':
-                    result = conn.execute(text("SELECT 1 FROM SYSIBM.SYSDUMMY1 LIMIT 1"))
-                else:
+            # DB2 requires direct pyodbc connection (not SQLAlchemy)
+            if connection['connection_type'] == 'DB2':
+                import pyodbc
+                dsn = connection.get('connection_string', '').replace('DSN=', '')
+                if not dsn:
+                    return False, "DB2 connection requires DSN"
+                
+                conn_str = f"DSN={dsn}"
+                conn = pyodbc.connect(conn_str)
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1 FROM SYSIBM.SYSDUMMY1 LIMIT 1")
+                cursor.fetchone()
+                conn.close()
+            else:
+                # Get engine and test connection for non-DB2 databases
+                engine = self._get_engine(connection_id)
+                with engine.connect() as conn:
                     result = conn.execute(text("SELECT 1"))
-                result.fetchone()
+                    result.fetchone()
 
             # Update last_tested timestamp
             self.repo.update_last_tested(connection_id)
