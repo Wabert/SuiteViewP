@@ -4,9 +4,9 @@ import logging
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitter,
                               QTreeWidget, QTreeWidgetItem, QLineEdit, QToolBar,
                               QPushButton, QTableWidget, QTableWidgetItem, QMessageBox,
-                              QHeaderView, QCheckBox, QMenu, QDialog)
+                              QHeaderView, QCheckBox, QMenu, QDialog, QTextEdit, QFileDialog)
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QPoint
-from PyQt6.QtGui import QIcon, QAction, QCursor
+from PyQt6.QtGui import QIcon, QAction, QCursor, QFont
 
 from suiteview.core.connection_manager import get_connection_manager
 from suiteview.core.schema_discovery import get_schema_discovery
@@ -24,6 +24,9 @@ class ConnectionsScreen(QWidget):
     
     # Signal emitted when connections are added/edited/deleted (so other screens can refresh)
     connections_changed = pyqtSignal()
+    
+    # Signal emitted when a mainframe FTP connection is selected (connection_id)
+    mainframe_connection_selected = pyqtSignal(int)
 
     def __init__(self):
         super().__init__()
@@ -100,6 +103,24 @@ class ConnectionsScreen(QWidget):
         # Connection tree
         self.conn_tree = QTreeWidget()
         self.conn_tree.setHeaderHidden(True)
+        self.conn_tree.setStyleSheet("""
+            QTreeWidget {
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+            QTreeWidget::item {
+                height: 18px;
+                padding: 0px 2px;
+            }
+            QTreeWidget::item:hover {
+                background-color: #b3d9ff;
+            }
+            QTreeWidget::item:selected {
+                background-color: #b3d9ff;
+            }
+        """)
+        self.conn_tree.setIndentation(15)
         self.conn_tree.itemClicked.connect(self.on_connection_selected)
         self.conn_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.conn_tree.customContextMenuRequested.connect(self.show_connection_context_menu)
@@ -130,6 +151,24 @@ class ConnectionsScreen(QWidget):
         self.tables_tree = QTreeWidget()
         self.tables_tree.setHeaderLabels(["Table Name"])
         self.tables_tree.setHeaderHidden(True)
+        self.tables_tree.setStyleSheet("""
+            QTreeWidget {
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+            QTreeWidget::item {
+                height: 18px;
+                padding: 0px 2px;
+            }
+            QTreeWidget::item:hover {
+                background-color: #b3d9ff;
+            }
+            QTreeWidget::item:selected {
+                background-color: #b3d9ff;
+            }
+        """)
+        self.tables_tree.setIndentation(15)
         self.tables_tree.itemChanged.connect(self.on_table_checked)
         self.tables_tree.itemClicked.connect(self.on_table_selected)
         layout.addWidget(self.tables_tree)
@@ -174,17 +213,36 @@ class ConnectionsScreen(QWidget):
         try:
             connections = self.conn_manager.get_connections()
 
-            # Group connections by their actual type (don't merge types)
+            # Map connection types to display categories
+            type_mapping = {
+                'Local ODBC': 'SQL_SERVER',
+                'DB2': 'DB2',
+                'MS Access': 'ACCESS',
+                'ACCESS': 'ACCESS',
+                'Excel File': 'EXCEL',
+                'EXCEL': 'EXCEL',
+                'CSV File': 'CSV',
+                'CSV': 'CSV',
+                'Fixed Width File': 'FIXED_WIDTH',
+                'FIXED_WIDTH': 'FIXED_WIDTH',
+                'Mainframe FTP': 'MAINFRAME_FTP',
+                'MAINFRAME_FTP': 'MAINFRAME_FTP'
+            }
+
+            # Group connections by normalized type (don't merge types)
             connections_by_type = {}
             for conn in connections:
                 conn_type = conn['connection_type']
                 
-                if conn_type not in connections_by_type:
-                    connections_by_type[conn_type] = []
-                connections_by_type[conn_type].append(conn)
+                # Normalize the connection type
+                normalized_type = type_mapping.get(conn_type, conn_type)
+                
+                if normalized_type not in connections_by_type:
+                    connections_by_type[normalized_type] = []
+                connections_by_type[normalized_type].append(conn)
 
             # Define the display order
-            type_order = ['DB2', 'SQL_SERVER', 'ACCESS', 'EXCEL', 'CSV', 'FIXED_WIDTH']
+            type_order = ['DB2', 'SQL_SERVER', 'ACCESS', 'EXCEL', 'CSV', 'FIXED_WIDTH', 'MAINFRAME_FTP']
             
             # Add connection groups in the specified order
             for group_type in type_order:
@@ -220,6 +278,11 @@ class ConnectionsScreen(QWidget):
             connection_id = item.data(0, Qt.ItemDataRole.UserRole)
             self.current_connection_id = connection_id
             self.load_tables(connection_id)
+            
+            # Don't emit mainframe_connection_selected signal - we'll show datasets here
+            # connection = self.conn_manager.repo.get_connection(connection_id)
+            # if connection and connection.get('connection_type') == 'MAINFRAME_FTP':
+            #     self.mainframe_connection_selected.emit(connection_id)
 
     def load_tables(self, connection_id: int):
         """Load tables for a connection"""
@@ -227,46 +290,145 @@ class ConnectionsScreen(QWidget):
         self.table_info_label.setText("Loading tables...")
 
         try:
+            # Get connection info to check type
+            connection = self.conn_manager.repo.get_connection(connection_id)
+            if not connection:
+                raise ValueError("Connection not found")
+            
+            conn_type = connection.get('connection_type', '')
+            
             # Block signals while loading to prevent premature itemChanged events
             self.tables_tree.blockSignals(True)
 
-            # Get tables from schema discovery
-            tables = self.schema_discovery.get_tables(connection_id)
+            # Handle Mainframe FTP connections differently
+            if conn_type == 'MAINFRAME_FTP':
+                self.load_ftp_datasets(connection_id, connection)
+            else:
+                # Get tables from schema discovery for database connections
+                tables = self.schema_discovery.get_tables(connection_id)
 
-            # Get saved tables to show checkmarks
-            saved_tables = self.saved_table_repo.get_saved_tables(connection_id)
-            saved_table_names = {(st['schema_name'], st['table_name']) for st in saved_tables}
+                # Get saved tables to show checkmarks
+                saved_tables = self.saved_table_repo.get_saved_tables(connection_id)
+                saved_table_names = {(st['schema_name'], st['table_name']) for st in saved_tables}
 
-            # Add tables to tree
-            for table in tables:
-                # Create item WITHOUT adding to tree yet
-                table_item = QTreeWidgetItem()
+                # Add tables to tree
+                for table in tables:
+                    # Create item WITHOUT adding to tree yet
+                    table_item = QTreeWidgetItem()
 
-                # Set text and data
-                table_item.setText(0, table['full_name'])
-                table_item.setData(0, Qt.ItemDataRole.UserRole, table['table_name'])
-                table_item.setData(0, Qt.ItemDataRole.UserRole + 1, table['schema_name'])
+                    # Set text and data
+                    table_item.setText(0, table['full_name'])
+                    table_item.setData(0, Qt.ItemDataRole.UserRole, table['table_name'])
+                    table_item.setData(0, Qt.ItemDataRole.UserRole + 1, table['schema_name'])
 
-                # Enable checkbox
-                table_item.setFlags(table_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    # Enable checkbox
+                    table_item.setFlags(table_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
 
-                # Set initial check state
-                is_saved = (table['schema_name'], table['table_name']) in saved_table_names
-                table_item.setCheckState(0, Qt.CheckState.Checked if is_saved else Qt.CheckState.Unchecked)
+                    # Set initial check state
+                    is_saved = (table['schema_name'], table['table_name']) in saved_table_names
+                    table_item.setCheckState(0, Qt.CheckState.Checked if is_saved else Qt.CheckState.Unchecked)
 
-                # NOW add to tree (with all properties set)
-                self.tables_tree.addTopLevelItem(table_item)
+                    # NOW add to tree (with all properties set)
+                    self.tables_tree.addTopLevelItem(table_item)
+
+                self.table_info_label.setText(f"Found {len(tables)} tables")
+                logger.info(f"Loaded {len(tables)} tables for connection {connection_id}")
 
             # Re-enable signals after all items are loaded
             self.tables_tree.blockSignals(False)
 
-            self.table_info_label.setText(f"Found {len(tables)} tables")
-            logger.info(f"Loaded {len(tables)} tables for connection {connection_id}")
-
         except Exception as e:
             logger.error(f"Failed to load tables: {e}")
             self.table_info_label.setText(f"Error loading tables: {str(e)}")
-            QMessageBox.warning(self, "Error", f"Failed to load tables:\n{str(e)}")
+            
+            # Re-enable signals even on error
+            self.tables_tree.blockSignals(False)
+            
+            # Show a less intrusive error message for connection issues
+            error_msg = str(e)
+            if "ODBC Driver" in error_msg or "Data source name" in error_msg:
+                self.table_info_label.setText(f"Connection error: ODBC driver or DSN not configured. Right-click to view/edit connection.")
+                # Don't show popup for ODBC configuration issues - just show in label
+                logger.warning(f"DB2/ODBC configuration issue for connection {connection_id}: {e}")
+            else:
+                # For other errors, show the popup
+                QMessageBox.warning(self, "Error", f"Failed to load tables:\n{str(e)}")
+    
+    def load_ftp_datasets(self, connection_id: int, connection: dict):
+        """Load datasets/members for FTP connection"""
+        from suiteview.core.ftp_manager import MainframeFTPManager
+        from suiteview.core.credential_manager import CredentialManager
+        
+        try:
+            # Get FTP connection details
+            cred_mgr = CredentialManager()
+            
+            # Parse connection string for details
+            conn_string = connection.get('connection_string', '')
+            ftp_params = {}
+            for param in conn_string.split(';'):
+                if '=' in param:
+                    key, value = param.split('=', 1)
+                    ftp_params[key] = value
+            
+            host = connection.get('server_name', '')
+            port = int(ftp_params.get('port', 21))
+            initial_path = ftp_params.get('initial_path', '')
+            
+            # Decrypt credentials
+            encrypted_username = connection.get('encrypted_username')
+            encrypted_password = connection.get('encrypted_password')
+            username = cred_mgr.decrypt(encrypted_username) if encrypted_username else ''
+            password = cred_mgr.decrypt(encrypted_password) if encrypted_password else ''
+            
+            # Connect to FTP
+            self.table_info_label.setText("Connecting to mainframe...")
+            ftp_mgr = MainframeFTPManager(host, username, password, port, initial_path)
+            
+            if not ftp_mgr.connect():
+                raise ValueError("Failed to connect to FTP server")
+            
+            self.table_info_label.setText("Loading datasets...")
+            
+            # List all datasets in the initial path
+            datasets = ftp_mgr.list_datasets(initial_path)
+            ftp_mgr.disconnect()
+            
+            # Add datasets to tree
+            for dataset_info in sorted(datasets, key=lambda x: x.get('name', '')):
+                dataset_name = dataset_info.get('name', '')
+                dataset_type = dataset_info.get('type', 'dataset')
+                
+                dataset_item = QTreeWidgetItem()
+                dataset_item.setText(0, dataset_name)
+                
+                # Store full dataset path for loading later
+                # For PDS members, use parentheses: D03.AA0139.CKAS(MEMBER)
+                # For subdatasets, use dots: D03.AA0139.CKAS
+                if initial_path:
+                    full_path = f"{initial_path}({dataset_name})"
+                else:
+                    full_path = dataset_name
+                    
+                dataset_item.setData(0, Qt.ItemDataRole.UserRole, full_path)
+                dataset_item.setData(0, Qt.ItemDataRole.UserRole + 1, "ftp_dataset")
+                
+                self.tables_tree.addTopLevelItem(dataset_item)
+            
+            self.table_info_label.setText(f"Found {len(datasets)} datasets")
+            logger.info(f"Loaded {len(datasets)} FTP datasets from {initial_path}")
+            
+        except Exception as e:
+            logger.error(f"Error loading FTP datasets: {str(e)}")
+            self.table_info_label.setText(f"Error: {str(e)}")
+            
+            # Show friendly error in table
+            error_item = QTreeWidgetItem()
+            error_item.setText(0, f"❌ Error: {str(e)}")
+            error_item.setForeground(0, self.palette().color(self.palette().ColorRole.PlaceholderText))
+            self.tables_tree.addTopLevelItem(error_item)
+        finally:
+            self.tables_tree.blockSignals(False)
 
     def filter_tables(self, search_text: str):
         """Filter tables based on search text"""
@@ -339,46 +501,321 @@ class ConnectionsScreen(QWidget):
         self.schema_table.setRowCount(0)
 
         try:
-            # Get columns
-            columns = self.schema_discovery.get_columns(connection_id, table_name, schema_name)
+            # Get connection info to check type
+            connection = self.conn_manager.repo.get_connection(connection_id)
+            if not connection:
+                raise ValueError("Connection not found")
+            
+            conn_type = connection.get('connection_type', '')
+            
+            # Handle FTP datasets differently
+            if conn_type == 'MAINFRAME_FTP':
+                self.load_ftp_dataset_preview(connection, table_name)
+            else:
+                # Show schema table and hide FTP text viewer for database tables
+                self.schema_table.setVisible(True)
+                if hasattr(self, 'ftp_text_viewer'):
+                    self.ftp_text_viewer.setVisible(False)
+                if hasattr(self, 'ftp_button_bar'):
+                    self.ftp_button_bar.setVisible(False)
+                
+                # Reset to 5 columns for database tables
+                self.schema_table.setColumnCount(5)
+                self.schema_table.setHorizontalHeaderLabels(["Column Name", "Data Type", "Nullable", "Primary Key", "Default"])
+                
+                # Get columns from schema discovery for database connections
+                columns = self.schema_discovery.get_columns(connection_id, table_name, schema_name)
 
-            # Display in table
-            self.schema_table.setRowCount(len(columns))
+                # Display in table
+                self.schema_table.setRowCount(len(columns))
 
-            for row, col_info in enumerate(columns):
-                # Column name
-                self.schema_table.setItem(row, 0, QTableWidgetItem(col_info['column_name']))
+                for row, col_info in enumerate(columns):
+                    # Column name
+                    self.schema_table.setItem(row, 0, QTableWidgetItem(col_info['column_name']))
 
-                # Data type
-                self.schema_table.setItem(row, 1, QTableWidgetItem(col_info['data_type']))
+                    # Data type
+                    self.schema_table.setItem(row, 1, QTableWidgetItem(col_info['data_type']))
 
-                # Nullable
-                nullable_text = "Yes" if col_info['is_nullable'] else "No"
-                nullable_item = QTableWidgetItem(nullable_text)
-                if not col_info['is_nullable']:
-                    nullable_item.setForeground(Qt.GlobalColor.yellow)
-                self.schema_table.setItem(row, 2, nullable_item)
+                    # Nullable
+                    nullable_text = "Yes" if col_info['is_nullable'] else "No"
+                    nullable_item = QTableWidgetItem(nullable_text)
+                    if not col_info['is_nullable']:
+                        nullable_item.setForeground(Qt.GlobalColor.yellow)
+                    self.schema_table.setItem(row, 2, nullable_item)
 
-                # Primary key
-                pk_text = "Yes" if col_info['is_primary_key'] else "No"
-                pk_item = QTableWidgetItem(pk_text)
-                if col_info['is_primary_key']:
-                    pk_item.setForeground(Qt.GlobalColor.yellow)
-                self.schema_table.setItem(row, 3, pk_item)
+                    # Primary key
+                    pk_text = "Yes" if col_info['is_primary_key'] else "No"
+                    pk_item = QTableWidgetItem(pk_text)
+                    if col_info['is_primary_key']:
+                        pk_item.setForeground(Qt.GlobalColor.yellow)
+                    self.schema_table.setItem(row, 3, pk_item)
 
-                # Default
-                default_val = col_info.get('default', '')
-                self.schema_table.setItem(row, 4, QTableWidgetItem(str(default_val) if default_val else ""))
+                    # Default
+                    default_val = col_info.get('default', '')
+                    self.schema_table.setItem(row, 4, QTableWidgetItem(str(default_val) if default_val else ""))
 
-            full_name = f"{schema_name}.{table_name}" if schema_name else table_name
-            self.table_info_label.setText(f"Table: {full_name} ({len(columns)} columns)")
+                full_name = f"{schema_name}.{table_name}" if schema_name else table_name
+                self.table_info_label.setText(f"Table: {full_name} ({len(columns)} columns)")
 
-            logger.info(f"Loaded schema for {full_name}")
+                logger.info(f"Loaded schema for {full_name}")
 
         except Exception as e:
             logger.error(f"Failed to load schema: {e}")
             self.table_info_label.setText(f"Error loading schema: {str(e)}")
             QMessageBox.warning(self, "Error", f"Failed to load schema:\n{str(e)}")
+    
+    def load_ftp_dataset_preview(self, connection: dict, dataset_name: str):
+        """Load preview of FTP dataset - show first 2000 lines in text viewer"""
+        from suiteview.core.ftp_manager import MainframeFTPManager
+        from suiteview.core.credential_manager import CredentialManager
+        
+        try:
+            # Store connection info for View All button
+            self.current_ftp_connection = connection
+            self.current_ftp_dataset = dataset_name
+            
+            # Get FTP connection details
+            cred_mgr = CredentialManager()
+            
+            # Parse connection string for details
+            conn_string = connection.get('connection_string', '')
+            ftp_params = {}
+            for param in conn_string.split(';'):
+                if '=' in param:
+                    key, value = param.split('=', 1)
+                    ftp_params[key] = value
+            
+            host = connection.get('server_name', '')
+            port = int(ftp_params.get('port', 21))
+            initial_path = ftp_params.get('initial_path', '')
+            
+            # Decrypt credentials
+            encrypted_username = connection.get('encrypted_username')
+            encrypted_password = connection.get('encrypted_password')
+            username = cred_mgr.decrypt(encrypted_username) if encrypted_username else ''
+            password = cred_mgr.decrypt(encrypted_password) if encrypted_password else ''
+            
+            # Connect and read dataset preview
+            ftp_mgr = MainframeFTPManager(host, username, password, port, initial_path)
+            if not ftp_mgr.connect():
+                raise ValueError("Failed to connect to FTP server")
+            
+            # Read all lines
+            content, total_lines = ftp_mgr.read_dataset(dataset_name, max_lines=1000)
+            ftp_mgr.disconnect()
+            
+            # Store content for export button
+            self.current_ftp_content = content
+            
+            # Hide the schema table and show text viewer instead
+            self.schema_table.setVisible(False)
+            
+            # Create or update text viewer for FTP datasets
+            if not hasattr(self, 'ftp_text_viewer'):
+                self.ftp_text_viewer = QTextEdit()
+                self.ftp_text_viewer.setReadOnly(True)
+                self.ftp_text_viewer.setFont(QFont("Courier New", 10))
+                self.ftp_text_viewer.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+                
+                # Add to the same layout as schema_table
+                schema_panel = self.schema_table.parent()
+                if schema_panel and hasattr(schema_panel, 'layout'):
+                    layout = schema_panel.layout()
+                    if layout:
+                        # Add text viewer to layout
+                        layout.addWidget(self.ftp_text_viewer)
+            
+            # Show text viewer and populate with content
+            self.ftp_text_viewer.setVisible(True)
+            self.ftp_text_viewer.setPlainText(content)
+            
+            # Update info label
+            self.table_info_label.setText(
+                f"Dataset: {dataset_name} - Showing {min(1000, total_lines)} of {total_lines} lines (80-byte card format)"
+            )
+            
+            # Create button bar if it doesn't exist
+            if not hasattr(self, 'ftp_button_bar'):
+                self.ftp_button_bar = QWidget()
+                button_layout = QHBoxLayout(self.ftp_button_bar)
+                button_layout.setContentsMargins(0, 0, 0, 0)
+                
+                # View All button (left, smaller)
+                self.view_all_btn = QPushButton("📄 View All")
+                self.view_all_btn.setObjectName("gold_button")
+                self.view_all_btn.setMaximumWidth(100)
+                self.view_all_btn.clicked.connect(self._view_all_ftp_dataset)
+                button_layout.addWidget(self.view_all_btn)
+                
+                # Spacer
+                button_layout.addStretch()
+                
+                # Export button (right)
+                self.export_btn = QPushButton("💾 Export")
+                self.export_btn.setObjectName("gold_button")
+                self.export_btn.setMaximumWidth(120)
+                self.export_btn.clicked.connect(self._export_current_ftp_dataset)
+                button_layout.addWidget(self.export_btn)
+                
+                # Add button bar to layout (after info label)
+                schema_panel = self.schema_table.parent()
+                if schema_panel and hasattr(schema_panel, 'layout'):
+                    layout = schema_panel.layout()
+                    if layout:
+                        layout.insertWidget(2, self.ftp_button_bar)
+            
+            # Show button bar
+            self.ftp_button_bar.setVisible(True)
+            
+            logger.info(f"Loaded preview for FTP dataset {dataset_name} ({total_lines} lines)")
+            
+        except Exception as e:
+            logger.error(f"Failed to load FTP dataset preview: {e}")
+            # Show schema table again on error
+            self.schema_table.setVisible(True)
+            if hasattr(self, 'ftp_text_viewer'):
+                self.ftp_text_viewer.setVisible(False)
+            if hasattr(self, 'ftp_button_bar'):
+                self.ftp_button_bar.setVisible(False)
+            raise
+    
+    def _view_all_ftp_dataset(self):
+        """Open dialog to view complete FTP dataset"""
+        if not hasattr(self, 'current_ftp_dataset'):
+            return
+        
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QFileDialog
+        from suiteview.core.ftp_manager import MainframeFTPManager
+        from suiteview.core.credential_manager import CredentialManager
+        
+        try:
+            # Create dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"View Dataset: {self.current_ftp_dataset}")
+            dialog.setMinimumSize(1000, 600)
+            
+            layout = QVBoxLayout(dialog)
+            
+            # Text display
+            text_edit = QTextEdit()
+            text_edit.setReadOnly(True)
+            text_edit.setFont(QFont("Courier New", 10))
+            text_edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+            layout.addWidget(text_edit)
+            
+            # Get FTP connection details
+            cred_mgr = CredentialManager()
+            connection = self.current_ftp_connection
+            
+            conn_string = connection.get('connection_string', '')
+            ftp_params = {}
+            for param in conn_string.split(';'):
+                if '=' in param:
+                    key, value = param.split('=', 1)
+                    ftp_params[key] = value
+            
+            host = connection.get('server_name', '')
+            port = int(ftp_params.get('port', 21))
+            initial_path = ftp_params.get('initial_path', '')
+            
+            encrypted_username = connection.get('encrypted_username')
+            encrypted_password = connection.get('encrypted_password')
+            username = cred_mgr.decrypt(encrypted_username) if encrypted_username else ''
+            password = cred_mgr.decrypt(encrypted_password) if encrypted_password else ''
+            
+            # Connect and read full dataset
+            ftp_mgr = MainframeFTPManager(host, username, password, port, initial_path)
+            if not ftp_mgr.connect():
+                raise ValueError("Failed to connect to FTP server")
+            
+            # Read all lines (no limit)
+            content, total_lines = ftp_mgr.read_dataset(self.current_ftp_dataset, max_lines=None)
+            ftp_mgr.disconnect()
+            
+            # Display content
+            text_edit.setPlainText(content)
+            
+            # Button bar
+            button_layout = QHBoxLayout()
+            
+            # Export button
+            export_btn = QPushButton("💾 Export to Text File")
+            export_btn.setObjectName("gold_button")
+            export_btn.clicked.connect(lambda: self._export_ftp_dataset(content))
+            button_layout.addWidget(export_btn)
+            
+            button_layout.addStretch()
+            
+            # Close button
+            close_btn = QPushButton("Close")
+            close_btn.clicked.connect(dialog.close)
+            button_layout.addWidget(close_btn)
+            
+            layout.addLayout(button_layout)
+            
+            # Show info
+            text_edit.append(f"\n\n--- {total_lines} lines total ---")
+            
+            dialog.exec()
+            
+        except Exception as e:
+            logger.error(f"Failed to view complete dataset: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to load complete dataset:\n{str(e)}")
+    
+    def _export_ftp_dataset(self, content: str):
+        """Export FTP dataset content to text file"""
+        try:
+            # Ask user where to save
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Dataset",
+                f"{self.current_ftp_dataset}.txt",
+                "Text Files (*.txt);;All Files (*.*)"
+            )
+            
+            if file_path:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                
+                QMessageBox.information(
+                    self,
+                    "Export Success",
+                    f"Dataset exported successfully to:\n{file_path}"
+                )
+                logger.info(f"Exported FTP dataset to {file_path}")
+        
+        except Exception as e:
+            logger.error(f"Failed to export dataset: {e}")
+            QMessageBox.critical(self, "Export Failed", f"Failed to export dataset:\n{str(e)}")
+    
+    def _export_current_ftp_dataset(self):
+        """Export currently displayed FTP dataset preview to text file"""
+        if not hasattr(self, 'current_ftp_content') or not hasattr(self, 'current_ftp_dataset'):
+            return
+        
+        try:
+            # Ask user where to save
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Dataset Preview",
+                f"{self.current_ftp_dataset}.txt",
+                "Text Files (*.txt);;All Files (*.*)"
+            )
+            
+            if file_path:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(self.current_ftp_content)
+                
+                QMessageBox.information(
+                    self,
+                    "Export Success",
+                    f"Dataset preview exported successfully to:\n{file_path}"
+                )
+                logger.info(f"Exported FTP dataset preview to {file_path}")
+        
+        except Exception as e:
+            logger.error(f"Failed to export dataset preview: {e}")
+            QMessageBox.critical(self, "Export Failed", f"Failed to export dataset:\n{str(e)}")
 
     def add_connection(self):
         """Show add connection dialog"""
@@ -390,24 +827,28 @@ class ConnectionsScreen(QWidget):
                     conn_type = conn_data['connection_type']
                     conn_name = conn_data['connection_name']
 
+                    # Map dialog types to storage types
+                    type_storage_map = {
+                        "Excel File": "EXCEL",
+                        "MS Access": "ACCESS",
+                        "CSV File": "CSV",
+                        "Fixed Width File": "FIXED_WIDTH",
+                        "Mainframe FTP": "MAINFRAME_FTP",
+                        "SQL Server": "SQL_SERVER",
+                        "Local ODBC": None  # Will determine based on database_type
+                    }
+
                     # Handle file-based connections (Excel, CSV, Access, Fixed Width)
                     if conn_type in ["Excel File", "MS Access", "CSV File", "Fixed Width File"]:
                         # For file-based connections, store file path in connection_string
                         file_path = conn_data.get('file_path', '')
+                        
+                        # Convert to standardized storage type
+                        storage_type = type_storage_map[conn_type]
 
-                        # Map dialog connection types to database connection types
-                        type_mapping = {
-                            "Excel File": "EXCEL",
-                            "MS Access": "ACCESS",
-                            "CSV File": "CSV",
-                            "Fixed Width File": "FIXED_WIDTH"
-                        }
-                        db_conn_type = type_mapping.get(conn_type, conn_type)
-
-                        # Save to database via repository
                         connection_id = self.conn_manager.repo.create_connection(
                             connection_name=conn_name,
-                            connection_type=db_conn_type,
+                            connection_type=storage_type,  # Store standardized type: EXCEL, ACCESS, CSV, FIXED_WIDTH
                             server_name='',
                             database_name=conn_data.get('filename', ''),
                             auth_type='NONE',
@@ -419,21 +860,16 @@ class ConnectionsScreen(QWidget):
                         logger.info(f"Added file-based connection: {conn_name} (ID: {connection_id})")
 
                     elif conn_type == "Local ODBC":
-                        # Handle ODBC connections
+                        # Handle ODBC connections - determine if SQL_SERVER or DB2
                         dsn = conn_data.get('dsn', '')
                         db_type = conn_data.get('database_type', 'SQL')
 
-                        # Map database type to connection type
-                        type_mapping = {
-                            'SQL': 'SQL_SERVER',
-                            'DB2': 'DB2'
-                        }
-                        db_conn_type = type_mapping.get(db_type, 'ODBC')
+                        # Map database_type to storage type
+                        storage_type = 'DB2' if db_type == 'DB2' else 'SQL_SERVER'
 
-                        # Save ODBC connection
                         connection_id = self.conn_manager.repo.create_connection(
                             connection_name=conn_name,
-                            connection_type=db_conn_type,
+                            connection_type=storage_type,  # Store as SQL_SERVER or DB2
                             server_name=dsn,
                             database_name=dsn,
                             auth_type='WINDOWS',  # ODBC typically uses Windows auth
@@ -443,6 +879,74 @@ class ConnectionsScreen(QWidget):
                         )
 
                         logger.info(f"Added ODBC connection: {conn_name} (ID: {connection_id})")
+
+                    elif conn_type == "SQL Server":
+                        # Handle direct SQL Server connections
+                        from suiteview.core.credential_manager import CredentialManager
+                        
+                        server = conn_data.get('server', '')
+                        database = conn_data.get('database', 'master')
+                        auth_type = conn_data.get('auth_type', 'Windows')
+                        
+                        # Build connection string based on authentication type
+                        if auth_type == 'Windows':
+                            conn_string = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};Trusted_Connection=yes"
+                            encrypted_username = None
+                            encrypted_password = None
+                        else:  # SQL Server Authentication
+                            username = conn_data.get('username', '')
+                            password = conn_data.get('password', '')
+                            
+                            # Encrypt credentials
+                            cred_mgr = CredentialManager()
+                            encrypted_username = cred_mgr.encrypt(username)
+                            encrypted_password = cred_mgr.encrypt(password)
+                            
+                            conn_string = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};UID={username};PWD={password}"
+                        
+                        connection_id = self.conn_manager.repo.create_connection(
+                            connection_name=conn_name,
+                            connection_type="SQL_SERVER",
+                            server_name=server,
+                            database_name=database,
+                            auth_type=auth_type.upper(),
+                            encrypted_username=encrypted_username,
+                            encrypted_password=encrypted_password,
+                            connection_string=conn_string
+                        )
+                        
+                        logger.info(f"Added SQL Server connection: {conn_name} (ID: {connection_id})")
+
+                    elif conn_type == "Mainframe FTP":
+                        # Handle Mainframe FTP connections
+                        from suiteview.core.credential_manager import CredentialManager
+                        
+                        ftp_host = conn_data.get('ftp_host', '')
+                        ftp_port = conn_data.get('ftp_port', 21)
+                        ftp_username = conn_data.get('ftp_username', '')
+                        ftp_password = conn_data.get('ftp_password', '')
+                        ftp_initial_path = conn_data.get('ftp_initial_path', '')
+                        
+                        # Encrypt credentials
+                        cred_mgr = CredentialManager()
+                        encrypted_username = cred_mgr.encrypt(ftp_username)
+                        encrypted_password = cred_mgr.encrypt(ftp_password)
+                        
+                        # Build connection string with FTP details
+                        conn_string = f"host={ftp_host};port={ftp_port};initial_path={ftp_initial_path}"
+                        
+                        connection_id = self.conn_manager.repo.create_connection(
+                            connection_name=conn_name,
+                            connection_type="MAINFRAME_FTP",
+                            server_name=ftp_host,
+                            database_name=ftp_initial_path,
+                            auth_type='PASSWORD',
+                            encrypted_username=encrypted_username,
+                            encrypted_password=encrypted_password,
+                            connection_string=conn_string
+                        )
+                        
+                        logger.info(f"Added Mainframe FTP connection: {conn_name} (ID: {connection_id})")
 
                     # Reload connections tree
                     self.load_connections()
@@ -538,18 +1042,61 @@ class ConnectionsScreen(QWidget):
         if item_type != "connection":
             return
 
+        # Get the connection_id from the clicked item (stored in UserRole, not UserRole+2)
+        connection_id = item.data(0, Qt.ItemDataRole.UserRole)
+        
+        if connection_id is None:
+            logger.warning("Right-clicked connection has no connection_id")
+            return
+        
         # Create context menu
         menu = QMenu(self)
-        edit_action = menu.addAction("Edit")
+        view_action = menu.addAction("View")
         delete_action = menu.addAction("Delete")
 
         # Show menu and get selected action
         action = menu.exec(self.conn_tree.mapToGlobal(position))
 
-        if action == edit_action:
-            self.edit_connection()
+        if action == view_action:
+            # View connection without changing current selection
+            self.view_connection(connection_id)
         elif action == delete_action:
+            # For delete, we need to set it as current and call delete
+            temp_current = self.current_connection_id  # Save current selection
+            self.current_connection_id = connection_id
             self.delete_connection()
+            self.current_connection_id = temp_current  # Restore selection
+    
+    def view_connection(self, connection_id: int = None):
+        """View/Edit the selected connection"""
+        # Use provided connection_id or fall back to current
+        conn_id = connection_id if connection_id is not None else self.current_connection_id
+        
+        if conn_id is None:
+            QMessageBox.information(self, "No Connection", "Please select a connection to view")
+            return
+
+        try:
+            # Get existing connection data
+            connection = self.conn_manager.repo.get_connection(conn_id)
+            if not connection:
+                QMessageBox.warning(self, "Error", "Connection not found")
+                return
+
+            # Open the view connection dialog
+            from suiteview.ui.dialogs.view_connection_dialog import ViewConnectionDialog
+            dialog = ViewConnectionDialog(self, connection_data=connection)
+            
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                # Refresh the connections list if changes were saved
+                self.load_connections()
+                # Emit signal to notify other screens
+                self.connections_changed.emit()
+                logger.info("Connection updated, refreshing display")
+            
+        except Exception as e:
+            logger.error(f"Failed to open view connection dialog: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to view connection:\n{str(e)}")
 
     def edit_connection(self):
         """Edit the selected connection"""
@@ -571,18 +1118,47 @@ class ConnectionsScreen(QWidget):
                 # Get the updated connection data from the dialog
                 updated_data = dialog.get_connection_data()
                 
+                # Map dialog types to storage types
+                type_storage_map = {
+                    "Excel File": "EXCEL",
+                    "MS Access": "ACCESS",
+                    "CSV File": "CSV",
+                    "Fixed Width File": "FIXED_WIDTH",
+                    "Local ODBC": None  # Will determine based on database_type
+                }
+                
+                conn_type = updated_data['connection_type']
+                
+                # Convert dialog type to storage type
+                if conn_type in type_storage_map and type_storage_map[conn_type]:
+                    storage_type = type_storage_map[conn_type]
+                elif conn_type == "Local ODBC":
+                    # Determine SQL_SERVER vs DB2 based on database_type
+                    db_type = updated_data.get('database_type', 'SQL')
+                    storage_type = 'DB2' if db_type == 'DB2' else 'SQL_SERVER'
+                else:
+                    # Already a storage type (editing existing)
+                    storage_type = conn_type
+                
+                # For file-based connections, store file_path in connection_string
+                conn_string = updated_data.get('connection_string', '')
+                if 'file_path' in updated_data and updated_data['file_path']:
+                    conn_string = updated_data['file_path']
+                
+                # For ODBC connections, build connection string from DSN
+                if 'dsn' in updated_data and updated_data['dsn']:
+                    conn_string = f"DSN={updated_data['dsn']}"
+                
                 # Update the connection in the database
                 self.conn_manager.update_connection(
                     self.current_connection_id,
                     connection_name=updated_data['connection_name'],
-                    connection_type=updated_data['connection_type'],
-                    connection_string=updated_data.get('connection_string', ''),
-                    server=updated_data.get('server', ''),
+                    connection_type=storage_type,  # Use standardized storage type
+                    connection_string=conn_string,
+                    server_name=updated_data.get('server', ''),
                     database_name=updated_data.get('database_name', ''),
                     username=updated_data.get('username', ''),
-                    password=updated_data.get('password', ''),
-                    file_path=updated_data.get('file_path', ''),
-                    dsn=updated_data.get('dsn', '')
+                    password=updated_data.get('password', '')
                 )
                 
                 # Reload connections

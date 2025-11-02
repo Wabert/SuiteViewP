@@ -35,23 +35,33 @@ class SchemaDiscovery:
                 raise ValueError(f"Connection {connection_id} not found")
 
             conn_type = connection['connection_type']
+            
+            # Normalize connection type for consistency
+            type_mapping = {
+                'Local ODBC': 'SQL_SERVER',  # Treat ODBC as SQL Server
+                'MS Access': 'ACCESS',
+                'Excel File': 'EXCEL',
+                'CSV File': 'CSV',
+                'Fixed Width File': 'FIXED_WIDTH'
+            }
+            normalized_type = type_mapping.get(conn_type, conn_type)
 
             # Handle file-based connections differently
-            if conn_type == 'EXCEL':
+            if normalized_type == 'EXCEL':
                 return self._get_excel_sheets(connection)
-            elif conn_type == 'CSV':
+            elif normalized_type == 'CSV':
                 return self._get_csv_table(connection)
-            elif conn_type == 'ACCESS':
+            elif normalized_type == 'ACCESS':
                 return self._get_access_tables(connection)
-            elif conn_type == 'FIXED_WIDTH':
+            elif normalized_type == 'FIXED_WIDTH':
                 return self._get_fixed_width_table(connection)
 
             # Handle SQL Server with direct query (avoid pyodbc reflection issues)
-            if conn_type == 'SQL_SERVER':
+            if normalized_type == 'SQL_SERVER':
                 return self._get_sql_server_tables(connection_id)
             
             # Handle DB2 with special queries (DataDirect Shadow Client requires LIMIT/WITH workarounds)
-            if conn_type == 'DB2':
+            if normalized_type == 'DB2':
                 return self._get_db2_tables(connection_id)
 
             # Handle database connections with SQLAlchemy

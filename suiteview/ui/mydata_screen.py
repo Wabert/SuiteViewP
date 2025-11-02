@@ -90,6 +90,10 @@ class MyDataScreen(QWidget):
                 border: 1px solid #ddd;
                 border-radius: 4px;
             }
+            QTreeWidget::item {
+                height: 18px;
+                padding: 0px 2px;
+            }
             QTreeWidget::item:hover {
                 background-color: #b3d9ff;
             }
@@ -103,6 +107,8 @@ class MyDataScreen(QWidget):
 
         # Connect signals
         self.my_data_tree.itemClicked.connect(self.on_data_source_clicked)
+        self.my_data_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.my_data_tree.customContextMenuRequested.connect(self.show_datasource_context_menu)
 
         panel_layout.addWidget(self.my_data_tree)
         return panel
@@ -135,6 +141,10 @@ class MyDataScreen(QWidget):
                 border: 1px solid #ddd;
                 border-radius: 4px;
             }
+            QTreeWidget::item {
+                height: 18px;
+                padding: 0px 2px;
+            }
             QTreeWidget::item:hover {
                 background-color: #b3d9ff;
             }
@@ -142,8 +152,8 @@ class MyDataScreen(QWidget):
                 background-color: #b3d9ff;
             }
         """)
-        # Make header stretch to fill width and remove spacing
-        self.tables_tree.setIndentation(20)
+        # Make header stretch to fill width and reduce indentation for compactness
+        self.tables_tree.setIndentation(15)
 
         # Connect signals
         self.tables_tree.itemClicked.connect(self.on_table_clicked)
@@ -244,26 +254,45 @@ class MyDataScreen(QWidget):
                 if conn_id in connections_dict:
                     connections_dict[conn_id]['tables'].append(table)
 
-            # Group connections by their actual type (don't merge types)
+            # Map connection types to display categories
+            type_mapping = {
+                'Local ODBC': 'SQL_SERVER',
+                'DB2': 'DB2',
+                'MS Access': 'ACCESS',
+                'ACCESS': 'ACCESS',
+                'Excel File': 'EXCEL',
+                'EXCEL': 'EXCEL',
+                'CSV File': 'CSV',
+                'CSV': 'CSV',
+                'Fixed Width File': 'FIXED_WIDTH',
+                'FIXED_WIDTH': 'FIXED_WIDTH',
+                'Mainframe FTP': 'MAINFRAME_FTP',
+                'MAINFRAME_FTP': 'MAINFRAME_FTP'
+            }
+
+            # Group connections by normalized type (don't merge types)
             type_groups = {}
             for conn_id, data in connections_dict.items():
                 conn = data['connection']
                 conn_type = conn['connection_type']
                 
+                # Normalize the connection type
+                normalized_type = type_mapping.get(conn_type, conn_type)
+                
                 # DEBUG: Log connection type
-                logger.info(f"DEBUG: Connection '{conn['connection_name']}' has type '{conn_type}'")
+                logger.info(f"DEBUG: Connection '{conn['connection_name']}' has type '{conn_type}' -> normalized to '{normalized_type}'")
                 
-                # Use the actual connection type as-is
-                if conn_type not in type_groups:
-                    type_groups[conn_type] = []
+                # Use the normalized connection type
+                if normalized_type not in type_groups:
+                    type_groups[normalized_type] = []
                 
-                type_groups[conn_type].append((conn_id, conn))
+                type_groups[normalized_type].append((conn_id, conn))
 
             # DEBUG: Log all type groups
             logger.info(f"DEBUG: Type groups found: {list(type_groups.keys())}")
 
             # Define the display order (before DB Queries and XDB Queries)
-            type_order = ['DB2', 'SQL_SERVER', 'ACCESS', 'EXCEL', 'CSV', 'FIXED_WIDTH']
+            type_order = ['DB2', 'SQL_SERVER', 'ACCESS', 'EXCEL', 'CSV', 'FIXED_WIDTH', 'MAINFRAME_FTP']
             
             # Add type nodes in the specified order
             insert_position = 0  # Track actual position in tree
@@ -895,6 +924,71 @@ class MyDataScreen(QWidget):
         self.metadata_cache_repo.update_column_type(metadata_id, column_name, new_type)
         
         logger.info(f"Changed type for {column_name} to {new_type}")
+
+    def show_datasource_context_menu(self, position):
+        """Show context menu for data source tree items (left panel)"""
+        item = self.my_data_tree.itemAt(position)
+        if not item:
+            return
+
+        # Check if this is a connection item (not a category header)
+        item_type = item.data(0, Qt.ItemDataRole.UserRole)
+        
+        if item_type == "connection":
+            conn_id = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            conn_name = item.text(0)
+            
+            menu = QMenu(self)
+            remove_action = QAction("Remove Database", self)
+            remove_action.triggered.connect(lambda: self._remove_connection_from_mydata(conn_id, conn_name))
+            menu.addAction(remove_action)
+            
+            menu.exec(self.my_data_tree.viewport().mapToGlobal(position))
+    
+    def _remove_connection_from_mydata(self, conn_id: int, conn_name: str):
+        """Remove all saved tables for a connection from My Data"""
+        # Confirm deletion
+        reply = QMessageBox.question(
+            self,
+            "Remove Database",
+            f"Remove all tables from '{conn_name}' from My Data?\n\nThis will remove all saved tables for this database.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Get all saved tables for this connection
+                saved_tables = self.saved_table_repo.get_saved_tables_by_connection(conn_id)
+                
+                # Delete each saved table
+                for table in saved_tables:
+                    self.saved_table_repo.delete_saved_table(
+                        conn_id, 
+                        table['table_name'], 
+                        table.get('schema_name', '')
+                    )
+                
+                logger.info(f"Removed {len(saved_tables)} tables from connection: {conn_name}")
+                
+                # Reload My Data tree
+                self.load_my_data()
+                
+                # Clear right panel if this was the selected connection
+                if self.current_connection_id == conn_id:
+                    self._clear_right_panel()
+                    self.right_panel_layout.addWidget(self.default_label)
+                    self.current_connection_id = None
+                    self.current_table_name = None
+                
+                QMessageBox.information(
+                    self,
+                    "Database Removed",
+                    f"All tables from '{conn_name}' have been removed from My Data."
+                )
+
+            except Exception as e:
+                logger.error(f"Error removing connection tables: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to remove database:\n{str(e)}")
 
     def show_context_menu(self, position):
         """Show context menu for tree items"""

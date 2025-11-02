@@ -29,10 +29,12 @@ class AddConnectionDialog(QDialog):
 
     CONNECTION_TYPES = [
         "Local ODBC",
+        "SQL Server",
         "Excel File",
         "MS Access",
         "CSV File",
-        "Fixed Width File"
+        "Fixed Width File",
+        "Mainframe FTP"
     ]
 
     def __init__(self, parent=None, connection_data=None):
@@ -211,6 +213,43 @@ class AddConnectionDialog(QDialog):
         self.form_grid.addWidget(self.db_type_value, row, 1)
         row += 1
 
+        # SQL Server direct connection fields
+        self.sql_server_label = QLabel("Server Name:")
+        self.sql_server_edit = QLineEdit()
+        self.sql_server_edit.setPlaceholderText("e.g., dsul_ratesdev or SERVER\\INSTANCE")
+        self.form_grid.addWidget(self.sql_server_label, row, 0)
+        self.form_grid.addWidget(self.sql_server_edit, row, 1)
+        row += 1
+
+        self.sql_database_label = QLabel("Database (Optional):")
+        self.sql_database_edit = QLineEdit()
+        self.sql_database_edit.setPlaceholderText("Leave empty to see all databases")
+        self.form_grid.addWidget(self.sql_database_label, row, 0)
+        self.form_grid.addWidget(self.sql_database_edit, row, 1)
+        row += 1
+
+        self.sql_auth_label = QLabel("Authentication:")
+        self.sql_auth_combo = QComboBox()
+        self.sql_auth_combo.addItems(["Windows Authentication", "SQL Server Authentication"])
+        self.sql_auth_combo.currentIndexChanged.connect(self.on_sql_auth_changed)
+        self.form_grid.addWidget(self.sql_auth_label, row, 0)
+        self.form_grid.addWidget(self.sql_auth_combo, row, 1)
+        row += 1
+
+        self.sql_username_label = QLabel("Username:")
+        self.sql_username_edit = QLineEdit()
+        self.sql_username_edit.setPlaceholderText("SQL Server login")
+        self.form_grid.addWidget(self.sql_username_label, row, 0)
+        self.form_grid.addWidget(self.sql_username_edit, row, 1)
+        row += 1
+
+        self.sql_password_label = QLabel("Password:")
+        self.sql_password_edit = QLineEdit()
+        self.sql_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.form_grid.addWidget(self.sql_password_label, row, 0)
+        self.form_grid.addWidget(self.sql_password_edit, row, 1)
+        row += 1
+
         # File picker fields (shared)
         self.file_label = QLabel("File:")
         self.file_layout = QHBoxLayout()
@@ -286,6 +325,43 @@ class AddConnectionDialog(QDialog):
         self.form_grid.addLayout(fw_container, row, 1)
         row += 1
 
+        # Mainframe FTP fields
+        self.ftp_host_label = QLabel("FTP Host:")
+        self.ftp_host_edit = QLineEdit()
+        self.ftp_host_edit.setPlaceholderText("e.g., PRODESA")
+        self.form_grid.addWidget(self.ftp_host_label, row, 0)
+        self.form_grid.addWidget(self.ftp_host_edit, row, 1)
+        row += 1
+
+        self.ftp_port_label = QLabel("FTP Port:")
+        self.ftp_port_edit = QLineEdit()
+        self.ftp_port_edit.setText("21")
+        self.ftp_port_edit.setPlaceholderText("21")
+        self.form_grid.addWidget(self.ftp_port_label, row, 0)
+        self.form_grid.addWidget(self.ftp_port_edit, row, 1)
+        row += 1
+
+        self.ftp_username_label = QLabel("Username:")
+        self.ftp_username_edit = QLineEdit()
+        self.ftp_username_edit.setPlaceholderText("e.g., AC1Z42")
+        self.form_grid.addWidget(self.ftp_username_label, row, 0)
+        self.form_grid.addWidget(self.ftp_username_edit, row, 1)
+        row += 1
+
+        self.ftp_password_label = QLabel("Password:")
+        self.ftp_password_edit = QLineEdit()
+        self.ftp_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.form_grid.addWidget(self.ftp_password_label, row, 0)
+        self.form_grid.addWidget(self.ftp_password_edit, row, 1)
+        row += 1
+
+        self.ftp_initial_path_label = QLabel("Initial Path (Optional):")
+        self.ftp_initial_path_edit = QLineEdit()
+        self.ftp_initial_path_edit.setPlaceholderText("e.g., d03.aa0139.CKAS.cdf.data")
+        self.form_grid.addWidget(self.ftp_initial_path_label, row, 0)
+        self.form_grid.addWidget(self.ftp_initial_path_edit, row, 1)
+        row += 1
+
         # Connection name (common to all)
         self.conn_name_label = QLabel("Connection Name:")
         self.conn_name_edit = QLineEdit()
@@ -351,16 +427,39 @@ class AddConnectionDialog(QDialog):
                 if hasattr(self, attr):
                     getattr(self, attr).setVisible(True)
 
+        elif conn_type == "SQL Server":
+            for attr in ['sql_server_label', 'sql_server_edit', 'sql_database_label', 'sql_database_edit',
+                        'sql_auth_label', 'sql_auth_combo', 'sql_username_label', 'sql_username_edit',
+                        'sql_password_label', 'sql_password_edit']:
+                if hasattr(self, attr):
+                    getattr(self, attr).setVisible(True)
+            # Trigger auth change to show/hide credentials
+            if hasattr(self, 'sql_auth_combo'):
+                self.on_sql_auth_changed(self.sql_auth_combo.currentIndex())
+
+        elif conn_type == "Mainframe FTP":
+            for attr in ['ftp_host_label', 'ftp_host_edit', 'ftp_port_label', 'ftp_port_edit',
+                        'ftp_username_label', 'ftp_username_edit', 'ftp_password_label', 'ftp_password_edit',
+                        'ftp_initial_path_label', 'ftp_initial_path_edit']:
+                if hasattr(self, attr):
+                    getattr(self, attr).setVisible(True)
+
     def hide_all_fields(self):
         """Hide all form fields"""
         # Safely hide fields that might not be initialized yet
         for attr in ['odbc_dsn_label', 'odbc_dsn_combo', 'driver_name_label',
                      'driver_name_value', 'db_type_label', 'db_type_value',
+                     'sql_server_label', 'sql_server_edit', 'sql_database_label', 'sql_database_edit',
+                     'sql_auth_label', 'sql_auth_combo', 'sql_username_label', 'sql_username_edit',
+                     'sql_password_label', 'sql_password_edit',
                      'file_label', 'file_path_edit', 'pick_file_btn',
                      'folder_label', 'folder_value', 'filename_label', 'filename_value',
                      'csv_header_check', 'delimiter_label', 'delimiter_combo',
                      'encoding_label', 'encoding_combo', 'fixed_width_label',
-                     'fixed_width_grid', 'add_field_btn', 'import_fields_btn']:
+                     'fixed_width_grid', 'add_field_btn', 'import_fields_btn',
+                     'ftp_host_label', 'ftp_host_edit', 'ftp_port_label', 'ftp_port_edit',
+                     'ftp_username_label', 'ftp_username_edit', 'ftp_password_label', 'ftp_password_edit',
+                     'ftp_initial_path_label', 'ftp_initial_path_edit']:
             if hasattr(self, attr):
                 getattr(self, attr).setVisible(False)
 
@@ -395,19 +494,33 @@ class AddConnectionDialog(QDialog):
                 driver_lower = driver.lower()
                 if 'sql server' in driver_lower or 'mssql' in driver_lower:
                     db_type = 'SQL'
-                    suffix = ' (SQL)'
                 elif 'db2' in driver_lower or 'datadirect' in driver_lower or 'shadow' in driver_lower:
                     # DB2 or DataDirect Shadow Client (used for DB2)
                     db_type = 'DB2'
-                    suffix = ' (DB2)'
                 else:
                     db_type = 'Unknown'
-                    suffix = ''
 
                 self.db_type_value.setText(db_type)
-                self.conn_name_edit.setText(dsn_name + suffix)
+                
+                # Only set connection name if it's empty (for new connections)
+                if not self.conn_name_edit.text().strip():
+                    self.conn_name_edit.setText(dsn_name)
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to get driver info: {str(e)}")
+    
+    def on_sql_auth_changed(self, index: int):
+        """Show/hide SQL Server username/password based on authentication type"""
+        # 0 = Windows Authentication, 1 = SQL Server Authentication
+        is_sql_auth = (index == 1)
+        
+        if hasattr(self, 'sql_username_label'):
+            self.sql_username_label.setVisible(is_sql_auth)
+        if hasattr(self, 'sql_username_edit'):
+            self.sql_username_edit.setVisible(is_sql_auth)
+        if hasattr(self, 'sql_password_label'):
+            self.sql_password_label.setVisible(is_sql_auth)
+        if hasattr(self, 'sql_password_edit'):
+            self.sql_password_edit.setVisible(is_sql_auth)
 
     def pick_file(self):
         """Open file picker dialog (or folder for CSV)"""
@@ -504,6 +617,8 @@ class AddConnectionDialog(QDialog):
         try:
             if conn_type == "Local ODBC":
                 self.test_odbc_connection()
+            elif conn_type == "SQL Server":
+                self.test_sql_server_connection()
             elif conn_type == "Excel File":
                 self.test_excel_connection()
             elif conn_type == "MS Access":
@@ -512,6 +627,8 @@ class AddConnectionDialog(QDialog):
                 self.test_csv_connection()
             elif conn_type == "Fixed Width File":
                 self.test_fixed_width_connection()
+            elif conn_type == "Mainframe FTP":
+                self.test_ftp_connection()
 
         except Exception as e:
             QMessageBox.critical(self, "Connection Failed", str(e))
@@ -603,6 +720,58 @@ class AddConnectionDialog(QDialog):
             
         except pyodbc.Error as e:
             raise ValueError(f"ODBC Error: {str(e)}\n\nThis may be a driver-specific issue. For DB2 with DataDirect driver, special handling is required.")
+
+    def test_sql_server_connection(self):
+        """Test SQL Server direct connection"""
+        if not PYODBC_AVAILABLE:
+            raise ValueError("ODBC support not available. Please install ODBC drivers.")
+
+        server = self.sql_server_edit.text()
+        if not server:
+            raise ValueError("Please enter a server name")
+
+        database = self.sql_database_edit.text() or "master"
+        auth_type = self.sql_auth_combo.currentIndex()  # 0 = Windows, 1 = SQL Server
+        
+        # Build connection string based on authentication type
+        if auth_type == 0:  # Windows Authentication
+            conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};Trusted_Connection=yes"
+        else:  # SQL Server Authentication
+            username = self.sql_username_edit.text()
+            password = self.sql_password_edit.text()
+            if not username:
+                raise ValueError("Please enter a username for SQL Server Authentication")
+            conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};UID={username};PWD={password}"
+
+        try:
+            # Test connection
+            conn = pyodbc.connect(conn_str, timeout=5)
+            
+            # Get table list
+            cursor = conn.cursor()
+            tables = []
+            
+            # Get tables from all schemas
+            for table_info in cursor.tables(tableType='TABLE'):
+                schema_name = table_info.table_schem
+                table_name = table_info.table_name
+                if schema_name:
+                    tables.append(f"{schema_name}.{table_name}")
+                else:
+                    tables.append(table_name)
+
+            conn.close()
+
+            # Show results
+            self.sheets_list.clear()
+            self.tables_list.clear()
+            self.tables_list.addItems(tables[:50])  # Limit to first 50
+            self.results_group.setVisible(True)
+
+            QMessageBox.information(self, "Success", f"Connected successfully to {server}! Found {len(tables)} tables.")
+            
+        except pyodbc.Error as e:
+            raise ValueError(f"SQL Server Connection Error: {str(e)}")
 
     def test_excel_connection(self):
         """Test Excel file connection"""
@@ -719,6 +888,42 @@ class AddConnectionDialog(QDialog):
             f"File is accessible!\nFields defined: {self.fixed_width_grid.rowCount()}"
         )
 
+    def test_ftp_connection(self):
+        """Test mainframe FTP connection"""
+        from suiteview.core.ftp_manager import MainframeFTPManager
+        
+        host = self.ftp_host_edit.text().strip()
+        port = int(self.ftp_port_edit.text().strip() or "21")
+        username = self.ftp_username_edit.text().strip()
+        password = self.ftp_password_edit.text().strip()
+        initial_path = self.ftp_initial_path_edit.text().strip()
+        
+        if not all([host, username, password]):
+            raise ValueError("Please enter Host, Username, and Password")
+        
+        # Test connection
+        ftp_mgr = MainframeFTPManager(host, username, password, port, initial_path)
+        success, message = ftp_mgr.test_connection()
+        
+        if not success:
+            raise ValueError(message)
+        
+        # Try to list datasets at initial path or root
+        datasets = ftp_mgr.list_datasets()
+        ftp_mgr.disconnect()
+        
+        # Show results
+        self.sheets_list.clear()
+        self.tables_list.clear()
+        self.tables_list.addItems([ds['name'] for ds in datasets[:50]])  # Limit to first 50
+        self.results_group.setVisible(True)
+        
+        QMessageBox.information(
+            self,
+            "Success",
+            f"{message}\n\nFound {len(datasets)} dataset(s)/member(s)"
+        )
+
     def save_connection(self):
         """Save connection and close dialog"""
         conn_name = self.conn_name_edit.text().strip()
@@ -729,16 +934,44 @@ class AddConnectionDialog(QDialog):
         conn_type = self.CONNECTION_TYPES[self.current_type_index]
 
         # Build connection data based on type
-        self.connection_data = {
-            "connection_name": conn_name,
-            "connection_type": conn_type
-        }
+        # If editing existing connection, start with existing data to preserve all fields
+        if self.existing_connection:
+            self.connection_data = self.existing_connection.copy()
+            # Update with new values
+            self.connection_data["connection_name"] = conn_name
+            self.connection_data["connection_type"] = conn_type
+        else:
+            self.connection_data = {
+                "connection_name": conn_name,
+                "connection_type": conn_type
+            }
 
         if conn_type == "Local ODBC":
             self.connection_data.update({
                 "dsn": self.odbc_dsn_combo.currentText(),
                 "driver": self.driver_name_value.text(),
                 "database_type": self.db_type_value.text()
+            })
+        elif conn_type == "SQL Server":
+            auth_type = self.sql_auth_combo.currentIndex()  # 0 = Windows, 1 = SQL Server
+            self.connection_data.update({
+                "server": self.sql_server_edit.text().strip(),
+                "database": self.sql_database_edit.text().strip() or "master",
+                "auth_type": "Windows" if auth_type == 0 else "SQL Server"
+            })
+            # Only store username/password for SQL Server Authentication
+            if auth_type == 1:
+                self.connection_data.update({
+                    "username": self.sql_username_edit.text().strip(),
+                    "password": self.sql_password_edit.text().strip()
+                })
+        elif conn_type == "Mainframe FTP":
+            self.connection_data.update({
+                "ftp_host": self.ftp_host_edit.text().strip(),
+                "ftp_port": int(self.ftp_port_edit.text().strip() or "21"),
+                "ftp_username": self.ftp_username_edit.text().strip(),
+                "ftp_password": self.ftp_password_edit.text().strip(),
+                "ftp_initial_path": self.ftp_initial_path_edit.text().strip()
             })
         elif conn_type in ["Excel File", "MS Access", "CSV File", "Fixed Width File"]:
             self.connection_data.update({
@@ -791,15 +1024,16 @@ class AddConnectionDialog(QDialog):
         conn = self.existing_connection
         conn_type = conn.get('connection_type', '')
         
-        # Map connection types to button indices
+        # Map stored connection types to button indices
+        # Stored types: SQL_SERVER, DB2, ACCESS, EXCEL, CSV, FIXED_WIDTH
+        # Dialog buttons: "Local ODBC" (0), "Excel File" (1), "MS Access" (2), "CSV File" (3), "Fixed Width File" (4)
         type_map = {
-            'ODBC': 0,
-            'SQL_SERVER': 0,
-            'DB2': 0,
-            'EXCEL': 1,
-            'ACCESS': 2,
-            'CSV': 3,
-            'FIXED_WIDTH': 4
+            'SQL_SERVER': 0,  # Maps to "Local ODBC" button
+            'DB2': 0,         # Maps to "Local ODBC" button
+            'EXCEL': 1,       # Maps to "Excel File" button
+            'ACCESS': 2,      # Maps to "MS Access" button
+            'CSV': 3,         # Maps to "CSV File" button
+            'FIXED_WIDTH': 4  # Maps to "Fixed Width File" button
         }
         
         # Set the connection type button
@@ -812,15 +1046,24 @@ class AddConnectionDialog(QDialog):
         self.conn_name_edit.setText(conn.get('connection_name', ''))
         
         # Populate type-specific fields
-        if conn_type in ['ODBC', 'SQL_SERVER', 'DB2']:
+        if conn_type in ['SQL_SERVER', 'DB2']:
             # ODBC connection
-            dsn = conn.get('dsn', '') or conn.get('connection_string', '').replace('DSN=', '')
+            dsn = conn.get('dsn', '') or conn.get('server_name', '') or conn.get('connection_string', '').replace('DSN=', '')
             if dsn and self.odbc_dsn_combo.findText(dsn) >= 0:
                 self.odbc_dsn_combo.setCurrentText(dsn)
+            elif dsn:
+                # If DSN not in combo, add it and select it
+                self.odbc_dsn_combo.addItem(dsn)
+                self.odbc_dsn_combo.setCurrentText(dsn)
+            
+            # Trigger the DSN selection to populate driver and database type
+            if dsn:
+                self.on_odbc_dsn_changed(dsn)
                 
         elif conn_type in ['EXCEL', 'ACCESS', 'CSV', 'FIXED_WIDTH']:
             # File-based connections
-            file_path = conn.get('file_path', '')
+            # File path is stored in connection_string for file-based connections
+            file_path = conn.get('file_path', '') or conn.get('connection_string', '')
             if file_path:
                 self.file_path_edit.setText(file_path)
                 # Manually update folder and filename (without changing conn name)
@@ -847,7 +1090,7 @@ class AddConnectionDialog(QDialog):
                         self.encoding_combo.setCurrentText(encoding)
                         
             elif conn_type == 'FIXED_WIDTH':
-                # Fixed Width-specific fields
+                # Fixed width specific fields
                 if hasattr(self, 'csv_header_check'):
                     self.csv_header_check.setChecked(conn.get('has_header', False))
                 # TODO: Populate field definitions if stored

@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitte
                               QTreeWidget, QTreeWidgetItem, QTabWidget, QPushButton,
                               QScrollArea, QFrame, QLineEdit, QComboBox, QCheckBox,
                               QMessageBox, QInputDialog, QToolBar, QDateEdit, QSizePolicy,
-                              QMenu)
+                              QMenu, QToolButton)
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QDate
 from PyQt6.QtGui import QDrag, QAction
 
@@ -17,6 +17,110 @@ from suiteview.core.query_executor import QueryExecutor
 from suiteview.ui.dialogs.query_results_dialog import QueryResultsDialog
 
 logger = logging.getLogger(__name__)
+
+
+class CascadingMenuWidget(QWidget):
+    """Simple widget with vertically stacked buttons that show cascading menus on click"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        # Create vertical layout
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+        self.layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        # Track currently open menu
+        self.current_button = None
+        self.current_menu = None
+        
+        # Style for the container
+        self.setStyleSheet("""
+            QWidget {
+                background: white;
+            }
+        """)
+        
+    def add_menu_item(self, text, menu, enabled=True):
+        """Add a button with a cascading menu"""
+        btn = QPushButton(text, self)
+        btn.setEnabled(enabled)
+        
+        # Style the button to look like tree items - tight and compact
+        btn.setStyleSheet("""
+            QPushButton {
+                background: white;
+                border: none;
+                border-bottom: 1px solid #ddd;
+                padding: 2px 8px;
+                text-align: left;
+                font-size: 11px;
+                color: #333;
+                min-height: 18px;
+                max-height: 18px;
+            }
+            QPushButton:hover {
+                background: #e3f2fd;
+            }
+            QPushButton:pressed {
+                background: #bbdefb;
+            }
+        """)
+        
+        # Connect click to show menu to the right
+        btn.clicked.connect(lambda: self._show_menu_to_right(btn, menu))
+        
+        self.layout.addWidget(btn)
+        
+    def _show_menu_to_right(self, button, menu):
+        """Show the menu to the right of the button, or close if already open"""
+        # If this button's menu is already open, close it
+        if self.current_button == button and self.current_menu and self.current_menu.isVisible():
+            self.current_menu.close()
+            self.current_button = None
+            self.current_menu = None
+            return
+        
+        # Close any previously open menu
+        if self.current_menu and self.current_menu.isVisible():
+            self.current_menu.close()
+        
+        # Get the button's geometry
+        button_rect = button.rect()
+        # Calculate position to the right of the button
+        global_pos = button.mapToGlobal(button_rect.topRight())
+        
+        # Show the menu (non-blocking)
+        menu.popup(global_pos)
+        
+        # Track this as the current menu
+        self.current_button = button
+        self.current_menu = menu
+        
+        # Connect to aboutToHide to clear tracking when menu closes
+        menu.aboutToHide.connect(lambda: self._on_menu_closed())
+    
+    def _on_menu_closed(self):
+        """Clear tracking when menu closes"""
+        self.current_button = None
+        self.current_menu = None
+        
+    def add_separator(self):
+        """Add a visual separator"""
+        separator = QFrame(self)
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setMaximumHeight(1)
+        separator.setStyleSheet("background: #ddd;")
+        self.layout.addWidget(separator)
+    
+    def clear(self):
+        """Remove all items"""
+        while self.layout.count():
+            item = self.layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
 
 class DBQueryScreen(QWidget):
@@ -89,25 +193,38 @@ class DBQueryScreen(QWidget):
         layout.addWidget(splitter)
 
     def _create_data_sources_panel(self) -> QWidget:
-        """Create left panel with data sources tree"""
+        """Create left panel with two sections: Databases and DB Queries"""
         panel = QWidget()
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(5, 5, 5, 5)
+        panel_layout.setSpacing(10)
 
-        # Panel header
-        header = QLabel("Tables")
-        header.setObjectName("panel_header")
-        panel_layout.addWidget(header)
+        # Databases section
+        databases_header = QLabel("DATABASES")
+        databases_header.setObjectName("panel_header")
+        panel_layout.addWidget(databases_header)
 
-        # Data sources tree (shows My Data connections)
-        self.data_sources_tree = QTreeWidget()
-        self.data_sources_tree.setHeaderLabel("Data Sources")
-        self.data_sources_tree.setHeaderHidden(True)
-        self.data_sources_tree.setStyleSheet("""
+        # Create custom widget for database cascading menus
+        self.data_sources_list = CascadingMenuWidget(self)
+        panel_layout.addWidget(self.data_sources_list, stretch=1)
+
+        # DB Queries section
+        queries_header = QLabel("DB QUERIES")
+        queries_header.setObjectName("panel_header")
+        panel_layout.addWidget(queries_header)
+
+        # Create tree widget for DB Queries list
+        self.db_queries_tree = QTreeWidget()
+        self.db_queries_tree.setHeaderHidden(True)
+        self.db_queries_tree.setStyleSheet("""
             QTreeWidget {
                 background: white;
                 border: 1px solid #ddd;
                 border-radius: 4px;
+            }
+            QTreeWidget::item {
+                height: 18px;
+                padding: 0px 2px;
             }
             QTreeWidget::item:hover {
                 background-color: #b3d9ff;
@@ -116,13 +233,10 @@ class DBQueryScreen(QWidget):
                 background-color: #b3d9ff;
             }
         """)
-        
-        # Connect signals
-        self.data_sources_tree.itemClicked.connect(self.on_data_source_clicked)
-        self.data_sources_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.data_sources_tree.customContextMenuRequested.connect(self.show_data_source_context_menu)
-
-        panel_layout.addWidget(self.data_sources_tree)
+        self.db_queries_tree.itemClicked.connect(self._on_db_query_clicked)
+        self.db_queries_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.db_queries_tree.customContextMenuRequested.connect(self._show_db_query_context_menu)
+        panel_layout.addWidget(self.db_queries_tree, stretch=1)
 
         return panel
 
@@ -136,6 +250,23 @@ class DBQueryScreen(QWidget):
         self.tables_header = QLabel("Tables")
         self.tables_header.setObjectName("panel_header")
         panel_layout.addWidget(self.tables_header)
+
+        # Database name label - prominent display
+        self.database_name_label = QLabel("")
+        self.database_name_label.setStyleSheet("""
+            QLabel {
+                background: #1976d2;
+                color: white;
+                padding: 8px;
+                font-size: 13px;
+                font-weight: bold;
+                border-radius: 4px;
+                margin: 5px 0px;
+            }
+        """)
+        self.database_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.database_name_label.setVisible(False)  # Hidden until database selected
+        panel_layout.addWidget(self.database_name_label)
 
         # Search box for filtering tables
         self.tables_search_box = QLineEdit()
@@ -153,6 +284,10 @@ class DBQueryScreen(QWidget):
                 border: 1px solid #ddd;
                 border-radius: 4px;
             }
+            QTreeWidget::item {
+                height: 18px;
+                padding: 0px;
+            }
             QTreeWidget::item:hover {
                 background-color: #b3d9ff;
             }
@@ -160,6 +295,7 @@ class DBQueryScreen(QWidget):
                 background-color: #b3d9ff;
             }
         """)
+        self.tables_tree.setIndentation(15)
         
         # Connect signals
         self.tables_tree.itemClicked.connect(self.on_table_clicked)
@@ -213,6 +349,10 @@ class DBQueryScreen(QWidget):
                 border: 1px solid #ddd;
                 border-radius: 4px;
             }
+            QTreeWidget::item {
+                height: 18px;
+                padding: 0px;
+            }
             QTreeWidget::item:hover {
                 background-color: #b3d9ff;
             }
@@ -220,6 +360,7 @@ class DBQueryScreen(QWidget):
                 background-color: #b3d9ff;
             }
         """)
+        self.fields_tree.setIndentation(15)
         
         # Connect double-click to show unique values inline
         self.fields_tree.itemDoubleClicked.connect(self.on_field_double_clicked)
@@ -494,130 +635,199 @@ class DBQueryScreen(QWidget):
         return tab
 
     def load_data_sources(self):
-        """Load data sources from My Data - structured like My Data screen"""
-        self.data_sources_tree.clear()
-
+        """Load all data sources into cascading menu list and populate DB Queries tree"""
+        self.data_sources_list.clear()
+        self.db_queries_tree.clear()
+        
         try:
-            # Load connections directly at top level (no parent)
+            # Load connections into databases section
             self._load_my_connections()
             
-            # Create DB Queries section AFTER connections
-            db_queries_item = QTreeWidgetItem()
-            db_queries_item.setText(0, "DB Queries")
-            db_queries_item.setData(0, Qt.ItemDataRole.UserRole, "section")
-            self.data_sources_tree.addTopLevelItem(db_queries_item)
-            self._load_db_queries(db_queries_item)
-
-            # Create XDB Queries section AFTER DB Queries
-            xdb_queries_item = QTreeWidgetItem()
-            xdb_queries_item.setText(0, "XDB Queries")
-            xdb_queries_item.setData(0, Qt.ItemDataRole.UserRole, "section")
-            self.data_sources_tree.addTopLevelItem(xdb_queries_item)
+            # Load DB Queries into tree widget
+            self._load_db_queries_tree()
             
-            # Expand all items in the tree
-            self.data_sources_tree.expandAll()
-
-            logger.info(f"Loaded data sources tree")
-
+            logger.info("Data sources loaded with cascading menus and DB queries tree")
+            
         except Exception as e:
             logger.error(f"Error loading data sources: {e}")
 
     def _load_my_connections(self):
-        """Load connections directly at top level (no parent)"""
+        """Create cascading menu items for each connection type"""
         try:
-            # Get all saved tables grouped by connection
-            saved_tables = self.saved_table_repo.get_all_saved_tables()
+            # Get ALL connections (not just those with saved tables)
+            all_connections = self.conn_repo.get_all_connections()
 
-            # Group by connection and type
-            connections_dict = {}
-            for table in saved_tables:
-                conn_id = table['connection_id']
-                if conn_id not in connections_dict:
-                    conn = self.conn_repo.get_connection(conn_id)
-                    if conn:
-                        connections_dict[conn_id] = {
-                            'connection': conn,
-                            'type': conn.get('connection_type', 'Unknown')
-                        }
+            # Map connection types to display categories
+            type_mapping = {
+                'Local ODBC': 'SQL_SERVER',
+                'DB2': 'DB2',
+                'MS Access': 'ACCESS',
+                'ACCESS': 'ACCESS',
+                'Excel File': 'EXCEL',
+                'EXCEL': 'EXCEL',
+                'CSV File': 'CSV',
+                'CSV': 'CSV',
+                'Fixed Width File': 'FIXED_WIDTH',
+                'FIXED_WIDTH': 'FIXED_WIDTH'
+            }
 
-            # Group connections by type
+            # Group connections by normalized type
             types_dict = {}
-            for conn_id, data in connections_dict.items():
-                conn_type = data['type']
-                if conn_type not in types_dict:
-                    types_dict[conn_type] = []
-                types_dict[conn_type].append((conn_id, data['connection']))
+            for conn in all_connections:
+                conn_id = conn['connection_id']
+                conn_type = conn.get('connection_type', 'Unknown')
+                
+                # Normalize the connection type
+                normalized_type = type_mapping.get(conn_type, conn_type)
+                
+                if normalized_type not in types_dict:
+                    types_dict[normalized_type] = []
+                types_dict[normalized_type].append((conn_id, conn))
 
-            # Define the display order (before DB Queries and XDB Queries)
+            # Define the display order
             type_order = ['DB2', 'SQL_SERVER', 'ACCESS', 'EXCEL', 'CSV', 'FIXED_WIDTH']
             
-            # Add type groups in the specified order AT THE BEGINNING
-            insert_position = 0  # Track actual position in tree
+            # Create a menu item for each connection type with cascading menu
             for conn_type in type_order:
                 if conn_type not in types_dict:
                     continue
-                    
-                # Create type group item
-                type_item = QTreeWidgetItem()
-                type_item.setText(0, conn_type)
-                type_item.setData(0, Qt.ItemDataRole.UserRole, "connection_type")
-                type_item.setExpanded(False)
                 
-                # Insert at the actual position (not the type_order index)
-                self.data_sources_tree.insertTopLevelItem(insert_position, type_item)
-                insert_position += 1  # Increment for next type
-
-                # Add connections under type
+                # Create cascading menu for connections of this type
+                type_menu = QMenu(self)
+                
                 for conn_id, conn in sorted(types_dict[conn_type], key=lambda x: x[1]['connection_name']):
-                    conn_item = QTreeWidgetItem()
-                    conn_item.setText(0, conn['connection_name'])
-                    conn_item.setData(0, Qt.ItemDataRole.UserRole, "connection")
-                    conn_item.setData(0, Qt.ItemDataRole.UserRole + 1, conn_id)
-                    conn_item.setData(0, Qt.ItemDataRole.UserRole + 2, conn['database_name'])
-                    conn_item.setExpanded(False)
-                    type_item.addChild(conn_item)
+                    conn_action = QAction(conn['connection_name'], self)
+                    conn_action.triggered.connect(
+                        lambda checked, cid=conn_id, db=conn['database_name']: 
+                        self.load_tables_for_connection(cid, db)
+                    )
+                    type_menu.addAction(conn_action)
+                
+                # Add to list
+                self.data_sources_list.add_menu_item(conn_type, type_menu)
 
-            logger.info(f"Loaded {len(connections_dict)} connections in {len(types_dict)} type groups")
+            logger.info(f"Loaded {len(all_connections)} connections in {len(types_dict)} type groups")
 
         except Exception as e:
             logger.error(f"Error loading connections: {e}")
 
-    def _load_db_queries(self, parent_item: QTreeWidgetItem):
-        """Load saved DB queries"""
+    def _load_db_queries_tree(self):
+        """Populate the DB Queries tree widget"""
         try:
             queries = self.query_repo.get_all_queries(query_type='DB')
             
             for query in queries:
-                query_item = QTreeWidgetItem()
-                query_item.setText(0, query['query_name'])
-                query_item.setData(0, Qt.ItemDataRole.UserRole, "db_query")
-                query_item.setData(0, Qt.ItemDataRole.UserRole + 1, query['query_id'])
-                query_item.setData(0, Qt.ItemDataRole.UserRole + 2, query['query_definition'])
-                parent_item.addChild(query_item)
+                item = QTreeWidgetItem([query['query_name']])
+                item.setData(0, Qt.ItemDataRole.UserRole, query['query_id'])
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, query['query_definition'])
+                self.db_queries_tree.addTopLevelItem(item)
             
-            logger.info(f"Loaded {len(queries)} DB queries")
+            logger.info(f"Loaded {len(queries)} DB queries into tree")
             
         except Exception as e:
-            logger.error(f"Error loading DB queries: {e}")
-
-    def on_data_source_clicked(self, item: QTreeWidgetItem, column: int):
-        """Handle click on data source item"""
-        item_type = item.data(0, Qt.ItemDataRole.UserRole)
-
-        if item_type == "connection":
-            # Connection clicked - load tables
-            conn_id = item.data(0, Qt.ItemDataRole.UserRole + 1)
-            db_name = item.data(0, Qt.ItemDataRole.UserRole + 2)
-            self.load_tables_for_connection(conn_id, db_name)
-            
-        elif item_type == "db_query":
-            # Saved query clicked - save current state first, then load
+            logger.error(f"Error loading DB queries tree: {e}")
+    
+    def _on_db_query_clicked(self, item: QTreeWidgetItem, column: int):
+        """Handle click on DB Query item to load it"""
+        query_id = item.data(0, Qt.ItemDataRole.UserRole)
+        query_definition = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        
+        if query_id and query_definition:
+            # Save current state first if needed
             if self.current_query_id:
                 self._save_current_query_state()
             
-            query_id = item.data(0, Qt.ItemDataRole.UserRole + 1)
-            query_definition = item.data(0, Qt.ItemDataRole.UserRole + 2)
             self.load_saved_query(query_id, query_definition)
+    
+    def _show_db_query_context_menu(self, position):
+        """Show context menu for DB Query tree items"""
+        item = self.db_queries_tree.itemAt(position)
+        if not item:
+            return
+        
+        query_id = item.data(0, Qt.ItemDataRole.UserRole)
+        query_name = item.text(0)
+        
+        menu = QMenu(self)
+        
+        rename_action = menu.addAction("✏️ Rename")
+        copy_action = menu.addAction("📋 Copy")
+        delete_action = menu.addAction("🗑️ Delete")
+        
+        action = menu.exec(self.db_queries_tree.mapToGlobal(position))
+        
+        if action == rename_action:
+            self._rename_query(query_id, query_name, 'DB')
+        elif action == copy_action:
+            self._copy_query(query_id, query_name, 'DB')
+        elif action == delete_action:
+            self._delete_query(query_id, query_name, 'DB')
+
+    def _populate_db_queries_menu(self, menu: QMenu):
+        """Populate the DB Queries cascading menu"""
+        try:
+            queries = self.query_repo.get_all_queries(query_type='DB')
+            
+            for query in queries:
+                # Create submenu for each query with Load/Rename/Copy/Delete
+                query_submenu = QMenu(query['query_name'], self)
+                
+                # Load action
+                load_action = QAction("📂 Load Query", self)
+                load_action.triggered.connect(
+                    lambda checked, qid=query['query_id'], qdef=query['query_definition']: 
+                    self._load_query_from_menu(qid, qdef)
+                )
+                query_submenu.addAction(load_action)
+                
+                query_submenu.addSeparator()
+                
+                # Rename action
+                rename_action = QAction("✏️ Rename", self)
+                rename_action.triggered.connect(
+                    lambda checked, qid=query['query_id'], qname=query['query_name']: 
+                    self._rename_query(qid, qname, 'DB')
+                )
+                query_submenu.addAction(rename_action)
+                
+                # Copy action
+                copy_action = QAction("📋 Copy", self)
+                copy_action.triggered.connect(
+                    lambda checked, qid=query['query_id'], qname=query['query_name']: 
+                    self._copy_query(qid, qname, 'DB')
+                )
+                query_submenu.addAction(copy_action)
+                
+                # Delete action
+                delete_action = QAction("🗑️ Delete", self)
+                delete_action.triggered.connect(
+                    lambda checked, qid=query['query_id'], qname=query['query_name']: 
+                    self._delete_query(qid, qname, 'DB')
+                )
+                query_submenu.addAction(delete_action)
+                
+                menu.addMenu(query_submenu)
+            
+            logger.info(f"Loaded {len(queries)} DB queries into menu")
+            
+        except Exception as e:
+            logger.error(f"Error loading DB queries: {e}")
+    
+    def _load_query_from_menu(self, query_id: int, query_definition: str):
+        """Load a saved query from menu selection"""
+        # Save current state first if needed
+        if self.current_query_id:
+            self._save_current_query_state()
+        
+        self.load_saved_query(query_id, query_definition)
+
+    def _load_query_from_menu(self, query_id: int, query_definition: str):
+        """Load a saved query from menu selection"""
+        # Save current state first if needed
+        if self.current_query_id:
+            self._save_current_query_state()
+        
+        self.load_saved_query(query_id, query_definition)
 
     def _save_current_query_state(self):
         """Save the current query state to memory (not to database)"""
@@ -657,38 +867,6 @@ class DBQueryScreen(QWidget):
         # Store in memory
         self.unsaved_query_states[self.current_query_id] = state
         logger.debug(f"Saved state for query {self.current_query_id}: {state}")
-
-    def show_data_source_context_menu(self, position):
-        """Show context menu for data source items"""
-        item = self.data_sources_tree.itemAt(position)
-        if not item:
-            return
-        
-        item_type = item.data(0, Qt.ItemDataRole.UserRole)
-        
-        if item_type == "db_query" or item_type == "xdb_query":
-            query_id = item.data(0, Qt.ItemDataRole.UserRole + 1)
-            query_name = item.text(0)
-            query_type = "DB" if item_type == "db_query" else "XDB"
-            
-            menu = QMenu(self)
-            
-            # Rename Query action
-            rename_action = QAction("✏️ Rename Query", self)
-            rename_action.triggered.connect(lambda: self._rename_query(query_id, query_name, query_type))
-            menu.addAction(rename_action)
-            
-            # Copy Query action
-            copy_action = QAction("📋 Copy Query", self)
-            copy_action.triggered.connect(lambda: self._copy_query(query_id, query_name, query_type))
-            menu.addAction(copy_action)
-            
-            # Delete Query action
-            delete_action = QAction("🗑️ Delete Query", self)
-            delete_action.triggered.connect(lambda: self._delete_query(query_id, query_name, query_type))
-            menu.addAction(delete_action)
-            
-            menu.exec(self.data_sources_tree.mapToGlobal(position))
 
     def _rename_query(self, query_id: int, query_name: str, query_type: str):
         """Rename a saved query"""
@@ -857,6 +1035,10 @@ class DBQueryScreen(QWidget):
 
         # Keep headers simple - no database name
         self.tables_header.setText("Tables")
+        
+        # Update the prominent database name label
+        self.database_name_label.setText(database_name)
+        self.database_name_label.setVisible(True)
 
         # Reset fields header
         self.fields_header.setText("Fields")
@@ -1985,7 +2167,6 @@ class DBQueryScreen(QWidget):
                     padding: 5px 20px;
                 }
             """)
-
 
 
 class DropZoneWidget(QWidget):
