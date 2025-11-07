@@ -113,6 +113,7 @@ class BookmarkButton(QPushButton):
     
     right_clicked = pyqtSignal(object)  # Emits the bookmark data
     bookmark_clicked = pyqtSignal()  # Signal when bookmark is opened
+    folder_bookmark_clicked = pyqtSignal(str)  # Signal when folder bookmark is clicked (path)
     
     def __init__(self, bookmark_data, parent=None):
         super().__init__(parent)
@@ -168,14 +169,11 @@ class BookmarkButton(QPushButton):
             if bookmark_type in ['url', 'sharepoint']:
                 # Open in default browser
                 webbrowser.open(path)
+                self.bookmark_clicked.emit()
             elif bookmark_type == 'folder':
-                # Open in file explorer
-                if sys.platform == 'win32':
-                    os.startfile(path)
-                elif sys.platform == 'darwin':
-                    subprocess.run(['open', path])
-                else:
-                    subprocess.run(['xdg-open', path])
+                # Emit signal for folder navigation in the app
+                self.folder_bookmark_clicked.emit(path)
+                self.bookmark_clicked.emit()
             elif bookmark_type == 'file':
                 # Open file with default application
                 if sys.platform == 'win32':
@@ -184,15 +182,14 @@ class BookmarkButton(QPushButton):
                     subprocess.run(['open', path])
                 else:
                     subprocess.run(['xdg-open', path])
+                self.bookmark_clicked.emit()
             else:
                 # Try to open as path
                 if sys.platform == 'win32':
                     os.startfile(path)
                 else:
                     QMessageBox.warning(self, "Cannot Open", f"Cannot open: {path}")
-            
-            # Emit signal so dialog can close
-            self.bookmark_clicked.emit()
+                self.bookmark_clicked.emit()
             
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to open bookmark: {str(e)}")
@@ -234,6 +231,7 @@ class CategoryPanel(QFrame):
     """Panel for a category of bookmarks - vertical column layout with drop support"""
     
     bookmark_opened = pyqtSignal()  # Signal when any bookmark is clicked
+    folder_opened = pyqtSignal(str)  # Signal when folder bookmark is clicked (path)
     remove_bookmark = pyqtSignal(str, dict)  # category, bookmark_data
     edit_bookmark = pyqtSignal(str, dict)  # category, bookmark_data
     remove_category = pyqtSignal(str)  # category name
@@ -294,6 +292,7 @@ class CategoryPanel(QFrame):
             btn = BookmarkButton(bookmark)
             btn.right_clicked.connect(lambda b: self.show_bookmark_menu(b))
             btn.bookmark_clicked.connect(self.bookmark_opened.emit)
+            btn.folder_bookmark_clicked.connect(self.folder_opened.emit)
             self.bookmarks_layout.addWidget(btn)
         
         # Add empty state message if no bookmarks
@@ -656,6 +655,7 @@ class BookmarksDialog(QDialog):
             panel.rename_category_signal.connect(self.rename_category)
             panel.move_bookmark.connect(self.move_bookmark_to_category)
             panel.bookmark_opened.connect(self.close_on_bookmark_click)
+            panel.folder_opened.connect(self.navigate_to_path.emit)
             self.content_layout.addWidget(panel)
         
         self.content_layout.addStretch()

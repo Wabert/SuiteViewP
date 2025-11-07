@@ -14,13 +14,43 @@ from PyQt6.QtWidgets import (QTreeView, QVBoxLayout, QHBoxLayout, QWidget,
                               QHeaderView, QToolBar, QMessageBox, QInputDialog, 
                               QTextEdit, QPushButton, QSplitter, QLabel, QMenu,
                               QDialog, QDialogButtonBox, QCheckBox, QLineEdit,
-                              QProgressDialog, QFileDialog, QFrame)
+                              QProgressDialog, QFileDialog, QFrame, QSizePolicy,
+                              QFileIconProvider)
 from PyQt6.QtGui import QIcon, QAction, QStandardItemModel, QStandardItem
-from PyQt6.QtCore import Qt, QModelIndex, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QModelIndex, QThread, pyqtSignal, QSortFilterProxyModel, QEvent, QFileInfo
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class FileSortProxyModel(QSortFilterProxyModel):
+    """Custom sort proxy that uses UserRole+1 data for proper sorting"""
+    
+    def lessThan(self, left, right):
+        """Compare items using custom sort data"""
+        # Get the sort data (UserRole + 1) from both items
+        left_data = self.sourceModel().data(left, Qt.ItemDataRole.UserRole + 1)
+        right_data = self.sourceModel().data(right, Qt.ItemDataRole.UserRole + 1)
+        
+        # If both have sort data, use it
+        if left_data is not None and right_data is not None:
+            # Handle numeric comparison
+            if isinstance(left_data, (int, float)) and isinstance(right_data, (int, float)):
+                return left_data < right_data
+            # Handle string comparison (includes folder/file prefix)
+            return str(left_data) < str(right_data)
+        
+        # Fallback to display text
+        left_text = self.sourceModel().data(left, Qt.ItemDataRole.DisplayRole)
+        right_text = self.sourceModel().data(right, Qt.ItemDataRole.DisplayRole)
+        
+        if left_text is None:
+            left_text = ""
+        if right_text is None:
+            right_text = ""
+            
+        return str(left_text).lower() < str(right_text).lower()
 
 
 class DirectoryExportThread(QThread):
@@ -262,6 +292,10 @@ class FileExplorerV3(QWidget):
     
     def __init__(self):
         super().__init__()
+        
+        # Initialize icon provider for Windows system icons
+        self.icon_provider = QFileIconProvider()
+        
         self.current_file_path = None
         self.current_file_content = None
         self.current_details_folder = None  # Track current folder in details view
@@ -320,15 +354,8 @@ class FileExplorerV3(QWidget):
         
         self.toolbar.addSeparator()
         
-        # Open in Explorer
-        explorer_action = QAction("📂 Open in Explorer", self)
-        explorer_action.triggered.connect(self.open_in_explorer)
-        self.toolbar.addAction(explorer_action)
-        
-        self.toolbar.addSeparator()
-        
         # Print Directory to Excel
-        print_dir_action = QAction("📊 Print Directory", self)
+        print_dir_action = QAction("Print Directory", self)
         print_dir_action.setToolTip("Export directory structure to Excel")
         print_dir_action.triggered.connect(self.print_directory_to_excel)
         self.toolbar.addAction(print_dir_action)
@@ -336,10 +363,20 @@ class FileExplorerV3(QWidget):
         self.toolbar.addSeparator()
         
         # Batch Rename
-        batch_rename_action = QAction("✏️📦 Batch Rename", self)
+        batch_rename_action = QAction("Batch Rename", self)
         batch_rename_action.setToolTip("Rename multiple selected files")
         batch_rename_action.triggered.connect(self.batch_rename_files)
         self.toolbar.addAction(batch_rename_action)
+        
+        # Add spacer to push "Open in Explorer" to the right
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.toolbar.addWidget(spacer)
+        
+        # Open in Explorer (moved to far right)
+        explorer_action = QAction("📂 Open in Explorer", self)
+        explorer_action.triggered.connect(self.open_in_explorer)
+        self.toolbar.addAction(explorer_action)
         
         return self.toolbar
         
@@ -528,50 +565,26 @@ class FileExplorerV3(QWidget):
         
         return name_item
     
-    def create_folder_item(self, path, icon="📁"):
+    def create_folder_item(self, path, icon=None):
         """Create a row of items for a folder"""
         path = Path(path)
         
-        # Use more descriptive icons for special folders
-        folder_name = path.name.lower() if path.name else ""
+        # Get Windows system icon using QFileIconProvider
+        file_info = QFileInfo(str(path))
+        system_icon = self.icon_provider.icon(file_info)
         
-        # Special folder icons
-        if not icon or icon == "📁":  # Only override if default folder icon
-            if "desktop" in folder_name:
-                icon = "🖥️"
-            elif "documents" in folder_name:
-                icon = "📄"
-            elif "downloads" in folder_name:
-                icon = "⬇️"
-            elif "pictures" in folder_name or "photos" in folder_name:
-                icon = "🖼️"
-            elif "music" in folder_name:
-                icon = "🎵"
-            elif "videos" in folder_name:
-                icon = "🎬"
-            elif "onedrive" in folder_name:
-                icon = "☁️"
-            elif folder_name in ["program files", "program files (x86)"]:
-                icon = "⚙️"
-            elif folder_name == "windows":
-                icon = "🪟"
-            elif folder_name == "users":
-                icon = "👥"
-            elif ".git" in folder_name:
-                icon = "🔀"
-            elif "project" in folder_name or "code" in folder_name:
-                icon = "💻"
-            else:
-                icon = "📁"  # Default folder
-        
-        # Name column with icon
-        name_item = QStandardItem(f"{icon} {path.name if path.name else str(path)}")
+        # Name column with system icon
+        name_item = QStandardItem(system_icon, path.name if path.name else str(path))
         name_item.setData(str(path), Qt.ItemDataRole.UserRole)
-        name_item.setEditable(False)
+        name_item.setEditable(True)  # Allow editing for F2 rename
+        # Store sort data: 0 = folder (sorts first), name in lowercase for case-insensitive sort
+        name_item.setData(f"0_{(path.name if path.name else str(path)).lower()}", Qt.ItemDataRole.UserRole + 1)
         
         # Size column (empty for folders)
         size_item = QStandardItem("")
         size_item.setEditable(False)
+        size_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # Right-align
+        size_item.setData(0, Qt.ItemDataRole.UserRole + 1)  # Sort value for empty size
         
         # Type column
         type_item = QStandardItem("Folder")
@@ -582,13 +595,17 @@ class FileExplorerV3(QWidget):
             # Check if network path
             if str(path).startswith('\\\\'):
                 date_str = ""  # Skip date on network drives
+                mtime = 0
             else:
                 mtime = path.stat().st_mtime
                 date_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
         except:
             date_str = ""
+            mtime = 0
         date_item = QStandardItem(date_str)
         date_item.setEditable(False)
+        # Store timestamp for proper sorting
+        date_item.setData(mtime, Qt.ItemDataRole.UserRole + 1)
         
         # Add placeholder child to make it expandable
         name_item.appendRow([
@@ -604,91 +621,29 @@ class FileExplorerV3(QWidget):
         """Create a row of items for a file"""
         path = Path(path)
         
-        # Determine icon based on file type with better variety
+        # Get Windows system icon using QFileIconProvider
+        file_info = QFileInfo(str(path))
+        icon = self.icon_provider.icon(file_info)
+        
+        # Get suffix for type column
         suffix = path.suffix.lower()
         
-        # Microsoft Office files
-        if suffix in ['.xlsx', '.xlsm', '.xls']:
-            icon = "📊"  # Excel
-        elif suffix in ['.docx', '.doc']:
-            icon = "📝"  # Word
-        elif suffix in ['.pptx', '.ppt']:
-            icon = "📽️"  # PowerPoint
-        elif suffix in ['.accdb', '.mdb']:
-            icon = "🗃️"  # Access
-        
-        # Documents
-        elif suffix == '.pdf':
-            icon = "📕"  # PDF
-        elif suffix in ['.txt', '.log']:
-            icon = "📄"  # Text
-        elif suffix in ['.md', '.markdown']:
-            icon = "📋"  # Markdown
-        elif suffix == '.csv':
-            icon = "📑"  # CSV
-        
-        # Code files
-        elif suffix in ['.py', '.pyw']:
-            icon = "🐍"  # Python
-        elif suffix in ['.js', '.jsx', '.ts', '.tsx']:
-            icon = "📜"  # JavaScript/TypeScript
-        elif suffix in ['.html', '.htm']:
-            icon = "🌐"  # HTML
-        elif suffix in ['.css', '.scss', '.sass']:
-            icon = "🎨"  # CSS
-        elif suffix in ['.json', '.yaml', '.yml', '.xml']:
-            icon = "⚙️"  # Config
-        elif suffix in ['.sql']:
-            icon = "�"  # Database
-        
-        # Images
-        elif suffix in ['.jpg', '.jpeg']:
-            icon = "🖼️"  # JPEG
-        elif suffix in ['.png']:
-            icon = "🖼️"  # PNG
-        elif suffix in ['.gif']:
-            icon = "🎞️"  # GIF
-        elif suffix in ['.svg']:
-            icon = "🎨"  # SVG
-        elif suffix in ['.bmp', '.ico']:
-            icon = "🖼️"  # Bitmap
-        
-        # Archives
-        elif suffix in ['.zip', '.rar', '.7z']:
-            icon = "📦"  # Archive
-        elif suffix in ['.tar', '.gz', '.bz2']:
-            icon = "📦"  # Compressed
-        
-        # Executables
-        elif suffix in ['.exe', '.msi']:
-            icon = "⚙️"  # Windows executable
-        elif suffix in ['.bat', '.cmd', '.ps1']:
-            icon = "⚡"  # Script
-        elif suffix in ['.sh']:
-            icon = "🔧"  # Shell script
-        
-        # Media
-        elif suffix in ['.mp4', '.avi', '.mkv', '.mov']:
-            icon = "🎬"  # Video
-        elif suffix in ['.mp3', '.wav', '.flac', '.m4a']:
-            icon = "🎵"  # Audio
-        
-        # Other
-        else:
-            icon = "📃"  # Generic file
-        
-        # Name column
-        name_item = QStandardItem(f"{icon} {path.name}")
+        # Name column with system icon
+        name_item = QStandardItem(icon, path.name)
         name_item.setData(str(path), Qt.ItemDataRole.UserRole)
-        name_item.setEditable(False)
+        name_item.setEditable(True)  # Allow editing for F2 rename
+        # Store sort data: 1 = file (sorts after folders), name in lowercase for case-insensitive sort
+        name_item.setData(f"1_{path.name.lower()}", Qt.ItemDataRole.UserRole + 1)
         
         # Size column
         try:
             # Skip size calculation on network drives for speed
             if str(path).startswith('\\\\'):
                 size_str = ""  # Skip size on network drives
+                size_bytes = 0
             else:
                 size = path.stat().st_size
+                size_bytes = size
                 if size < 1024:
                     size_str = f"{size} B"
                 elif size < 1024 * 1024:
@@ -699,8 +654,12 @@ class FileExplorerV3(QWidget):
                     size_str = f"{size / (1024 * 1024 * 1024):.2f} GB"
         except:
             size_str = ""
+            size_bytes = 0
         size_item = QStandardItem(size_str)
         size_item.setEditable(False)
+        size_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # Right-align
+        # Store numeric size for proper sorting
+        size_item.setData(size_bytes, Qt.ItemDataRole.UserRole + 1)
         
         # Type column
         type_item = QStandardItem(suffix.upper()[1:] if suffix else "File")
@@ -711,13 +670,17 @@ class FileExplorerV3(QWidget):
             # Skip date on network drives for speed
             if str(path).startswith('\\\\'):
                 date_str = ""
+                mtime = 0
             else:
                 mtime = path.stat().st_mtime
                 date_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
         except:
             date_str = ""
+            mtime = 0
         date_item = QStandardItem(date_str)
         date_item.setEditable(False)
+        # Store timestamp for proper sorting
+        date_item.setData(mtime, Qt.ItemDataRole.UserRole + 1)
         
         return [name_item, size_item, type_item, date_item]
         
@@ -767,7 +730,7 @@ class FileExplorerV3(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         
         # Header
-        self.details_header = QLabel("� Contents")
+        self.details_header = QLabel("Contents")
         self.details_header.setStyleSheet("padding: 8px; font-weight: bold; font-size: 11pt;")
         layout.addWidget(self.details_header)
         
@@ -779,12 +742,24 @@ class FileExplorerV3(QWidget):
         self.details_view.setHeaderHidden(False)
         self.details_view.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)  # Multi-select
         self.details_view.setSortingEnabled(True)
+        self.details_view.setEditTriggers(QTreeView.EditTrigger.EditKeyPressed)  # Enable F2 editing
+        
+        # Install event filter for F2 key
+        self.details_view.installEventFilter(self)
         
         # Create details model
         self.details_model = QStandardItemModel()
         self.details_model.setHorizontalHeaderLabels(['Name', 'Size', 'Type', 'Date Modified'])
         
-        self.details_view.setModel(self.details_model)
+        # Connect to handle renames
+        self.details_model.itemChanged.connect(self.on_item_renamed)
+        
+        # Create sort proxy model for proper sorting
+        self.details_sort_proxy = FileSortProxyModel()
+        self.details_sort_proxy.setSourceModel(self.details_model)
+        
+        # Set the proxy model on the view
+        self.details_view.setModel(self.details_sort_proxy)
         
         # Configure header
         header_view = self.details_view.header()
@@ -792,6 +767,9 @@ class FileExplorerV3(QWidget):
         header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        
+        # Set default sort: Name column, ascending
+        self.details_view.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         
         # Apply saved column widths or use defaults
         default_widths = [350, 100, 120, 150]
@@ -822,6 +800,103 @@ class FileExplorerV3(QWidget):
         path = item.data(Qt.ItemDataRole.UserRole)
         if path:
             self.load_folder_contents_in_details(Path(path))
+    
+    def eventFilter(self, obj, event):
+        """Handle F2 key press for renaming in details view"""
+        if obj == self.details_view and event.type() == event.Type.KeyPress:
+            if event.key() == Qt.Key.Key_F2:
+                # Get selected item
+                indexes = self.details_view.selectedIndexes()
+                if indexes:
+                    # Get the name column (column 0) of the first selected row
+                    name_index = self.details_view.model().index(indexes[0].row(), 0)
+                    self.details_view.edit(name_index)
+                    return True
+        
+        return super().eventFilter(obj, event)
+    
+    def on_item_renamed(self, item):
+        """Handle item rename after F2 edit"""
+        # Disconnect temporarily to avoid recursive calls
+        self.details_model.itemChanged.disconnect(self.on_item_renamed)
+        
+        try:
+            # Get the old path from UserRole
+            old_path = item.data(Qt.ItemDataRole.UserRole)
+            if not old_path:
+                return
+            
+            old_path_obj = Path(old_path)
+            
+            # Extract new name from the item text (remove icon emoji)
+            new_text = item.text()
+            # Remove emoji icons (they're at the start)
+            import re
+            new_name = re.sub(r'^[\U0001F300-\U0001F9FF]\s*', '', new_text).strip()
+            
+            # Validate new name
+            if not new_name or new_name == old_path_obj.name:
+                # No change or empty name, revert
+                icon = item.text().split()[0] if ' ' in item.text() else ""
+                item.setText(f"{icon} {old_path_obj.name}" if icon else old_path_obj.name)
+                return
+            
+            # Check for invalid characters
+            invalid_chars = r'<>:"/\|?*'
+            if any(c in new_name for c in invalid_chars):
+                QMessageBox.warning(
+                    self, 
+                    "Invalid Name", 
+                    f"The name cannot contain any of the following characters:\n{invalid_chars}"
+                )
+                # Revert name
+                icon = item.text().split()[0] if ' ' in item.text() else ""
+                item.setText(f"{icon} {old_path_obj.name}" if icon else old_path_obj.name)
+                return
+            
+            # Build new path
+            new_path_obj = old_path_obj.parent / new_name
+            
+            # Check if target already exists
+            if new_path_obj.exists():
+                QMessageBox.warning(
+                    self,
+                    "Name Conflict",
+                    f"A file or folder with the name '{new_name}' already exists."
+                )
+                # Revert name
+                icon = item.text().split()[0] if ' ' in item.text() else ""
+                item.setText(f"{icon} {old_path_obj.name}" if icon else old_path_obj.name)
+                return
+            
+            # Perform the rename
+            try:
+                old_path_obj.rename(new_path_obj)
+                
+                # Update the item's UserRole data with new path
+                item.setData(str(new_path_obj), Qt.ItemDataRole.UserRole)
+                
+                # Update sort data
+                is_folder = new_path_obj.is_dir()
+                prefix = "0_" if is_folder else "1_"
+                item.setData(f"{prefix}{new_name.lower()}", Qt.ItemDataRole.UserRole + 1)
+                
+                logger.info(f"Renamed: {old_path_obj} -> {new_path_obj}")
+                
+            except Exception as e:
+                logger.error(f"Failed to rename: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Rename Failed",
+                    f"Failed to rename '{old_path_obj.name}':\n{str(e)}"
+                )
+                # Revert name
+                icon = item.text().split()[0] if ' ' in item.text() else ""
+                item.setText(f"{icon} {old_path_obj.name}" if icon else old_path_obj.name)
+                
+        finally:
+            # Reconnect signal
+            self.details_model.itemChanged.connect(self.on_item_renamed)
     
     def load_folder_contents_in_details(self, dir_path):
         """Load folder contents into the details view - optimized for network drives"""
@@ -898,7 +973,9 @@ class FileExplorerV3(QWidget):
     
     def on_details_item_double_clicked(self, index):
         """Handle double click in details view"""
-        item = self.details_model.itemFromIndex(self.details_model.index(index.row(), 0))
+        # Map proxy index to source index
+        source_index = self.details_sort_proxy.mapToSource(index)
+        item = self.details_model.itemFromIndex(self.details_model.index(source_index.row(), 0))
         if not item:
             return
         
@@ -939,8 +1016,11 @@ class FileExplorerV3(QWidget):
         if not path:
             return
         
-        # Check if this is a custom quick link
+        # Check if this is a custom quick link (only top-level items in Quick Links)
         is_custom_link = item.data(Qt.ItemDataRole.UserRole + 1) == "__CUSTOM_LINK__"
+        
+        # Also verify it's a top-level item (no parent except model root)
+        is_top_level = item.parent() is None
         
         menu = QMenu()
         
@@ -950,20 +1030,15 @@ class FileExplorerV3(QWidget):
         
         menu.addSeparator()
         
-        # Add to Quick Links (if not already a custom link)
-        if not is_custom_link:
+        # Add to Quick Links (if not already a custom link and is top-level)
+        if not is_custom_link and is_top_level:
             add_quick_link_action = menu.addAction("📌 Add to Quick Links")
             add_quick_link_action.triggered.connect(lambda: self.add_to_quick_links(path))
         
-        # Remove from Quick Links (only for custom links)
-        if is_custom_link:
+        # Remove from Quick Links (only for top-level custom links)
+        if is_custom_link and is_top_level:
             remove_action = menu.addAction("📌 Remove from Quick Links")
             remove_action.triggered.connect(lambda: self.remove_quick_link_by_path(path))
-        
-        # Hide OneDrive folder (only for OneDrive paths, not custom links)
-        if not is_custom_link and "onedrive" in str(path).lower():
-            hide_action = menu.addAction("🚫 Hide This OneDrive")
-            hide_action.triggered.connect(lambda: self.hide_onedrive_path(path))
         
         # Add to Bookmarks (pass None for name to auto-derive without icon)
         add_bookmark_action = menu.addAction("⭐ Add to Bookmarks")
@@ -979,7 +1054,9 @@ class FileExplorerV3(QWidget):
         menu = QMenu()
         
         if index.isValid():
-            item = self.details_model.itemFromIndex(self.details_model.index(index.row(), 0))
+            # Map proxy index to source index
+            source_index = self.details_sort_proxy.mapToSource(index)
+            item = self.details_model.itemFromIndex(self.details_model.index(source_index.row(), 0))
             if item:
                 path = item.data(Qt.ItemDataRole.UserRole)
                 if path:
@@ -1303,7 +1380,9 @@ class FileExplorerV3(QWidget):
         if not indexes:
             return None
         
-        item = self.details_model.itemFromIndex(self.details_model.index(indexes[0].row(), 0))
+        # Map proxy index to source index
+        source_index = self.details_sort_proxy.mapToSource(indexes[0])
+        item = self.details_model.itemFromIndex(self.details_model.index(source_index.row(), 0))
         if item:
             return item.data(Qt.ItemDataRole.UserRole)
         return None
@@ -1315,7 +1394,9 @@ class FileExplorerV3(QWidget):
         
         # Get unique rows (since selecting a row selects all columns)
         for index in self.details_view.selectedIndexes():
-            row = index.row()
+            # Map proxy index to source index
+            source_index = self.details_sort_proxy.mapToSource(index)
+            row = source_index.row()
             key = (row, 0)
             
             if key not in selected_rows:
@@ -1731,7 +1812,20 @@ class FileExplorerV3(QWidget):
                 parent_geo = self.parent().geometry()
                 dialog.move(parent_geo.left() + 10, parent_geo.top() + 50)
         
+        # Connect folder navigation signal
+        dialog.navigate_to_path.connect(self.navigate_to_bookmark_folder)
+        
         dialog.exec()
+    
+    def navigate_to_bookmark_folder(self, folder_path):
+        """Navigate to a folder from bookmark click"""
+        try:
+            path = Path(folder_path)
+            if path.exists() and path.is_dir():
+                # Load folder in details view
+                self.load_folder_contents_in_details(path)
+        except Exception as e:
+            logger.error(f"Failed to navigate to bookmark folder: {e}")
     
     def add_to_bookmarks(self, path, name=None):
         """Add a path to Bookmarks via dialog"""
@@ -1911,12 +2005,11 @@ class FileExplorerV3(QWidget):
                         progress.setValue(100)
                         progress.close()
                         
-                        QMessageBox.information(
-                            self,
-                            "Directory Listing Opened",
-                            f"Directory listing opened in Excel with {len(data)-1} items.\n\n"
-                            f"The workbook is unsaved. Use 'Save As' if you want to keep it."
-                        )
+                        # Don't show message box - just let Excel open
+                        # Release COM objects to prevent app freezing
+                        ws = None
+                        wb = None
+                        excel = None
                         
                     except ImportError:
                         progress.close()

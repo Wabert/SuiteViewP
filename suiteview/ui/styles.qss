@@ -36,14 +36,24 @@ QTabWidget::pane {
     border-radius: 0px;
 }
 
+QTabWidget::tab-bar {
+    alignment: left;
+}
+
+/* Dark blue background for tab bar area */
+QTabBar {
+    background-color: #1E3A8A;
+}
+
 QTabBar::tab {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #3B82F6,
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #2563EB,
+                                stop:0.5 #1E3A8A,
                                 stop:1 #2563EB);
-    color: #FFFFFF;
+    color: #FFD700;
     padding: 12px 24px;
     margin-right: 3px;
-    border: 2px solid #60A5FA;
+    border: 2px solid #D4AF37;
     border-bottom: none;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
@@ -54,29 +64,33 @@ QTabBar::tab {
 }
 
 QTabBar::tab:hover {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #60A5FA,
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #3B82F6,
+                                stop:0.5 #1E40AF,
                                 stop:1 #3B82F6);
     color: #FFD700;
     border: 2px solid #FFD700;
 }
 
 QTabBar::tab:selected {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #F4D03F,
-                                stop:1 #D4AF37);
-    color: #0A1E5E;
-    border: 2px solid #FFD700;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #2563EB,
+                                stop:0.5 #1E3A8A,
+                                stop:1 #2563EB);
+    color: #FFD700;
+    border: 3px solid #FFD700;
     border-bottom: none;
     font-weight: 800;
 }
 
-/* Special styling for Connections tab (last tab) */
+/* Connections tab should be separated and aligned right */
 QTabBar::tab:last {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                                 stop:0 #f39c12,
-                                stop:1 #e67e22);
-    color: #FFFFFF;
+                                stop:0.5 #c0392b,
+                                stop:1 #f39c12);
+    color: #FFD700;
+    margin-left: 800px;
 }
 
 QTabBar::tab:last:hover {
@@ -109,23 +123,24 @@ QWidget#panel {
 
 /* Panel Headers */
 QWidget#panel_header {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #1E3A8A,
-                                stop:0.5 #2563EB,
-                                stop:1 #1E3A8A);
-    border: 2px solid #D4AF37;
-    border-radius: 6px;
-    min-height: 35px;
-    max-height: 35px;
+    background: #A8C8F0;
+    border: none;
+    border-radius: 0px;
+    min-height: 32px;
+    max-height: 32px;
+    padding: 0px;
 }
 
 QLabel#panel_header, QWidget#panel_header > QLabel {
-    color: #FFD700;
+    color: #0A1E5E;
     font-size: 11px;
-    font-weight: 800;
+    font-weight: 700;
     text-transform: uppercase;
     font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
     letter-spacing: 1px;
+    background-color: #A8C8F0;
+    padding: 8px 12px;
+    border: none;
 }
 
 /* Header Button - compact button inside panel headers */
@@ -254,13 +269,11 @@ QTableView::item:selected {
 }
 
 QHeaderView::section {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #1E3A8A,
-                                stop:1 #0A1E5E);
-    color: #D4AF37;
+    background: #6BA3E8;
+    color: #0A1E5E;
     padding: 10px;
-    border: 1px solid #3A4454;
-    border-right: 2px solid #B8860B;
+    border: 1px solid #5A93D8;
+    border-right: 1px solid #4A83C8;
     font-weight: 700;
     font-size: 11px;
 }
@@ -760,13 +773,11 @@ QLabel#monospace {
 
 /* Group Box */
 QGroupBox {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #F0F8FF,
-                                stop:1 #E0EEFF);
-    border: 2px solid #2563EB;
-    border-radius: 8px;
-    margin-top: 12px;
-    padding-top: 14px;
+    background-color: #E8F0FF;
+    border: none;
+    border-radius: 0px;
+    margin-top: 0px;
+    padding-top: 8px;
     font-weight: 700;
     font-size: 12px;
     font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -776,12 +787,88 @@ QGroupBox {
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    padding: 4px 10px;
+    padding: 8px 12px;
     color: #0A1E5E;
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #D4AF37,
-                                stop:1 #F4D03F);
-    border: 2px solid #FFD700;
-    border-radius: 4px;
-    font-weight: 800;
+    background-color: #A8C8F0;
+    border: none;
+    border-radius: 0px;
+    font-weight: 700;
+    font-size: 11px;
 }
+
+/* Ensure all panels and containers have light blue background */
+QWidget {
+    background-color: #E8F0FF;
+}
+
+/* Dark blue background for tab bar area - higher specificity */
+QTabBar {
+    background-color: #1E3A8A;
+}
+
+QTabWidget::pane {
+    background-color: #E8F0FF;
+}
+
+/* Tree View and List View - Light Blue Background */
+QTreeView, QListWidget, QListView, QTreeWidget {
+    background-color: #E8F0FF;
+    alternate-background-color: #D8E8FF;
+    border: 1px solid #B0C8E8;
+    color: #0A1E5E;
+    font-size: 11px;
+    show-decoration-selected: 1;
+}
+
+QTreeView::item, QListWidget::item, QListView::item, QTreeWidget::item {
+    background-color: #E8F0FF;
+    color: #0A1E5E;
+    padding: 2px;
+}
+
+QTreeView::item:hover, QListWidget::item:hover, QListView::item:hover, QTreeWidget::item:hover {
+    background-color: #C8DFFF;
+}
+
+QTreeView::item:selected, QListWidget::item:selected, QListView::item:selected, QTreeWidget::item:selected {
+    background-color: #6BA3E8;
+    color: #0A1E5E;
+}
+
+QTreeView::branch, QTreeWidget::branch {
+    background-color: #E8F0FF;
+}
+
+QTreeView::branch:has-children:!has-siblings:closed,
+QTreeView::branch:closed:has-children:has-siblings,
+QTreeWidget::branch:has-children:!has-siblings:closed,
+QTreeWidget::branch:closed:has-children:has-siblings {
+    background-color: #E8F0FF;
+}
+
+QTreeView::branch:open:has-children:!has-siblings,
+QTreeView::branch:open:has-children:has-siblings,
+QTreeWidget::branch:open:has-children:!has-siblings,
+QTreeWidget::branch:open:has-children:has-siblings {
+    background-color: #E8F0FF;
+}
+
+/* Splitters between panels */
+QSplitter::handle {
+    background-color: #B0C8E8;
+}
+
+/* Scroll areas */
+QScrollArea {
+    background-color: #E8F0FF;
+    border: none;
+}
+
+QScrollArea > QWidget > QWidget {
+    background-color: #E8F0FF;
+}
+
+QScrollBar:vertical, QScrollBar:horizontal {
+    background-color: #D8E8FF;
+}
+

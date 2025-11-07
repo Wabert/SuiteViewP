@@ -3,7 +3,7 @@
 import logging
 import pandas as pd
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                              QMessageBox, QFileDialog, QCheckBox)
+                              QMessageBox, QFileDialog, QCheckBox, QMenu, QApplication)
 from PyQt6.QtCore import Qt
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
@@ -46,16 +46,16 @@ class QueryResultsDialog(QDialog):
         self.format_excel_cb.setToolTip("Apply data type formatting (text, numbers, dates) - slower for large datasets")
         header_layout.addWidget(self.format_excel_cb)
 
-        # Export to Excel button (green)
-        export_excel_btn = QPushButton("📊 Export to Excel")
+        # Export to Excel button (green, smaller)
+        export_excel_btn = QPushButton("Excel")
         export_excel_btn.setStyleSheet("""
             QPushButton {
                 background-color: #27ae60;
                 color: white;
                 border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
+                border-radius: 3px;
+                padding: 4px 12px;
+                font-size: 11px;
             }
             QPushButton:hover {
                 background-color: #229954;
@@ -64,30 +64,77 @@ class QueryResultsDialog(QDialog):
         export_excel_btn.clicked.connect(self.export_to_excel_open)
         header_layout.addWidget(export_excel_btn)
 
-        # Export to File button
-        export_btn = QPushButton("💾 Save to File")
+        # Export to File button (smaller)
+        export_btn = QPushButton("Save")
         export_btn.setObjectName("gold_button")
+        export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f39c12;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 4px 12px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #e67e22;
+            }
+        """)
         export_btn.clicked.connect(self.export_to_file)
         header_layout.addWidget(export_btn)
-
-        # Copy SQL button
-        copy_sql_btn = QPushButton("📋 Copy SQL")
-        copy_sql_btn.clicked.connect(self.copy_sql)
-        header_layout.addWidget(copy_sql_btn)
-
-        # Close button
-        close_btn = QPushButton("✖ Close")
-        close_btn.clicked.connect(self.close)
-        header_layout.addWidget(close_btn)
 
         layout.addLayout(header_layout)
 
         # FilterTableView - Excel-style filterable table
         self.filter_table = FilterTableView()
         self.filter_table.set_dataframe(self.df)
+        
+        # Style the table headers with standard grey and narrower height
+        self.filter_table.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #f0f0f0;
+                color: #000000;
+                padding: 2px 4px;
+                border: 1px solid #d0d0d0;
+                font-weight: normal;
+                font-size: 11px;
+                height: 20px;
+            }
+            QTableView::item {
+                padding: 2px 4px;
+            }
+            QTableView {
+                gridline-color: #d0d0d0;
+            }
+        """)
+        
+        # Try to style row number headers if the table view has them
+        try:
+            # Access the underlying table view from FilterTableView
+            if hasattr(self.filter_table, 'table_view'):
+                table_view = self.filter_table.table_view
+            else:
+                table_view = self.filter_table
+                
+            if hasattr(table_view, 'verticalHeader'):
+                vertical_header = table_view.verticalHeader()
+                vertical_header.setDefaultSectionSize(20)
+                vertical_header.setStyleSheet("""
+                    QHeaderView::section {
+                        background-color: #f0f0f0;
+                        color: #000000;
+                        padding: 2px;
+                        border: 1px solid #d0d0d0;
+                        font-size: 10px;
+                        width: 40px;
+                    }
+                """)
+        except Exception as e:
+            logger.debug(f"Could not style vertical header: {e}")
+        
         layout.addWidget(self.filter_table)
 
-        # SQL display (collapsible)
+        # SQL display (collapsible) with context menu
         sql_label = QLabel("<b>Generated SQL:</b>")
         sql_label.setStyleSheet("margin-top: 10px;")
         layout.addWidget(sql_label)
@@ -103,7 +150,28 @@ class QueryResultsDialog(QDialog):
             font-size: 10px;
         """)
         self.sql_display.setMaximumHeight(100)
+        self.sql_display.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        
+        # Add context menu for SQL display
+        self.sql_display.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.sql_display.customContextMenuRequested.connect(self.show_sql_context_menu)
+        
         layout.addWidget(self.sql_display)
+    
+    def show_sql_context_menu(self, position):
+        """Show context menu for SQL display"""
+        menu = QMenu(self)
+        
+        copy_action = menu.addAction("📋 Copy SQL")
+        copy_action.triggered.connect(self.copy_sql_silent)
+        
+        menu.exec(self.sql_display.mapToGlobal(position))
+    
+    def copy_sql_silent(self):
+        """Copy SQL to clipboard without showing message"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.sql)
+        logger.info("SQL copied to clipboard")
 
     def export_to_excel_open(self):
         """Export results to Excel - opens new workbook without saving"""

@@ -44,6 +44,163 @@ class XDBQueryExecutor:
                 logger.warning("DuckDB not installed, will use pandas backend")
                 self.duckdb_available = False
     
+    def execute_query(
+        self,
+        source_configs: List[Dict],
+        join_configs: List[Dict],
+        limit: Optional[int] = None
+    ) -> pd.DataFrame:
+        """
+        Execute flexible XDB query with N datasources
+        
+        Args:
+            source_configs: List of source configurations, each with:
+                - connection: Connection dict
+                - table_name: Table name
+                - schema_name: Schema name (optional)
+                - alias: Datasource alias
+                - columns: List of column names or ['*']
+                - filters: List of filter dicts
+            join_configs: List of join configurations (empty if single source)
+            limit: Optional row limit
+        
+        Returns:
+            DataFrame with query results
+        """
+        try:
+            # Single datasource - no joins needed
+            if len(source_configs) == 1:
+                return self._execute_single_source(source_configs[0], limit)
+            
+            # Multiple datasources - use DuckDB for joins
+            if self.duckdb_available:
+                return self._execute_with_duckdb_flexible(source_configs, join_configs, limit)
+            else:
+                # Fallback to pandas (only supports 2-way joins currently)
+                if len(source_configs) == 2 and len(join_configs) >= 1:
+                    return self._execute_with_pandas(
+                        source_configs[0],
+                        source_configs[1],
+                        join_configs[0],
+                        limit
+                    )
+                else:
+                    raise RuntimeError("Pandas backend only supports 2-way joins. Install DuckDB for N-way joins.")
+        
+        except Exception as e:
+            logger.error(f"XDB query execution failed: {e}", exc_info=True)
+            raise
+    
+    def _execute_single_source(self, source: Dict, limit: Optional[int]) -> pd.DataFrame:
+        """Execute query on single datasource - just use standard QueryExecutor"""
+        # For single source, no need for DuckDB complexity - use standard query executor
+        return self.execute_single_source_query(source, limit)
+    
+    def _execute_with_duckdb_flexible(
+        self,
+        source_configs: List[Dict],
+        join_configs: List[Dict],
+        limit: Optional[int]
+    ) -> pd.DataFrame:
+        """Execute N-way join using DuckDB with pre-fetched data"""
+        import duckdb
+        
+        conn = duckdb.connect(':memory:')
+        
+        try:
+            # Configure memory
+            conn.execute("SET memory_limit='2GB'")
+            
+            # Fetch data from all sources first
+            source_dataframes = []
+            source_aliases = []
+            
+            for i, source in enumerate(source_configs):
+                alias = source.get('alias', f's{i}')
+                source_aliases.append(alias)
+                
+                logger.info(f"Fetching data from source '{alias}'...")
+                df = self.execute_single_source_query(source, None)  # No limit yet
+                source_dataframes.append(df)
+                
+                # Register DataFrame in DuckDB
+                conn.register(alias, df)
+                logger.info(f"Registered {len(df)} rows as '{alias}'")
+            
+            # Build SELECT clause from all sources
+            select_parts = []
+            for i, source in enumerate(source_configs):
+                alias = source_aliases[i]
+                columns = source.get('columns', ['*'])
+                
+                if columns == []:
+                    # No columns selected for this alias; skip
+                    continue
+                if columns and columns != ['*']:
+                    for col in columns:
+                        select_parts.append(f'{alias}."{col}"')
+                else:
+                    # columns is None or ['*'] -> select all from this alias
+                    select_parts.append(f'{alias}.*')
+            
+            # If nothing explicitly selected, default to first alias all columns
+            select_clause = ", ".join(select_parts) if select_parts else f"{source_aliases[0]}.*"
+            
+            # Build FROM clause
+            first_alias = source_aliases[0]
+            from_clause = f"FROM {first_alias}"
+            
+            # Build JOIN clauses
+            join_clauses = []
+            for i, join_config in enumerate(join_configs):
+                # Join connects source i to source i+1
+                left_alias = join_config.get('source_a_alias', source_aliases[i])
+                right_alias = join_config.get('source_b_alias', source_aliases[i + 1])
+                join_type = join_config.get('type', 'INNER')
+                
+                # Build ON conditions
+                on_conditions = join_config.get('on_conditions', [])
+                if not on_conditions:
+                    # Fallback to keys_a/keys_b format
+                    keys_a = join_config.get('keys_a', [])
+                    keys_b = join_config.get('keys_b', [])
+                    on_conditions = [{'field_a': ka, 'field_b': kb} for ka, kb in zip(keys_a, keys_b)]
+                
+                on_parts = []
+                for cond in on_conditions:
+                    field_a = cond.get('field_a', '')
+                    field_b = cond.get('field_b', '')
+                    if field_a and field_b:
+                        on_parts.append(f'{left_alias}."{field_a}" = {right_alias}."{field_b}"')
+                
+                on_clause = " AND ".join(on_parts) if on_parts else "1=1"
+                
+                join_clause = f"{join_type} JOIN {right_alias} ON {on_clause}"
+                join_clauses.append(join_clause)
+            
+            # Build complete SQL
+            sql = f"SELECT {select_clause}\n{from_clause}"
+            for jc in join_clauses:
+                sql += f"\n{jc}"
+            
+            if limit:
+                sql += f"\nLIMIT {limit}"
+            
+            logger.info(f"Flexible DuckDB query:\n{sql}")
+            
+            # Show query popup
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(None, "DuckDB Query", f"Executing:\n\n{sql}")
+            
+            # Execute
+            result_df = conn.execute(sql).fetchdf()
+            logger.info(f"Flexible query returned {len(result_df)} rows")
+            
+            return result_df
+            
+        finally:
+            conn.close()
+    
     def execute_cross_query(
         self,
         source_a: Dict[str, Any],
@@ -73,15 +230,20 @@ class XDBQueryExecutor:
         Returns:
             pandas DataFrame with joined results
         """
+        logger.info(f"execute_cross_query called - DuckDB available: {self.duckdb_available}")
+        
         try:
             if self.duckdb_available:
+                logger.info("Attempting DuckDB execution...")
                 return self._execute_with_duckdb(source_a, source_b, join_config, limit)
             else:
+                logger.info("DuckDB not available, using pandas...")
                 return self._execute_with_pandas(source_a, source_b, join_config, limit)
         except Exception as e:
-            logger.error(f"DuckDB execution failed, trying pandas fallback: {e}")
+            logger.error(f"DuckDB execution failed, trying pandas fallback: {e}", exc_info=True)
             if self.duckdb_available:
                 # Fallback to pandas if DuckDB fails
+                logger.info("Falling back to pandas execution...")
                 return self._execute_with_pandas(source_a, source_b, join_config, limit)
             raise
     
@@ -144,6 +306,24 @@ class XDBQueryExecutor:
             """
             
             logger.info(f"Executing DuckDB cross-query:\n{final_query}")
+            
+            # Show query in message box for debugging
+            try:
+                from PyQt6.QtWidgets import QMessageBox, QApplication
+                app = QApplication.instance()
+                if app:
+                    msg = QMessageBox()
+                    msg.setWindowTitle("DuckDB Query")
+                    msg.setText("About to execute the following DuckDB query:")
+                    msg.setDetailedText(final_query)
+                    msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+                    msg.setDefaultButton(QMessageBox.StandardButton.Ok)
+                    result = msg.exec()
+                    
+                    if result == QMessageBox.StandardButton.Cancel:
+                        raise Exception("Query execution cancelled by user")
+            except ImportError:
+                pass  # PyQt6 not available, skip dialog
             
             # Execute and fetch as DataFrame
             result_df = con.execute(final_query).fetchdf()
@@ -283,8 +463,11 @@ class XDBQueryExecutor:
         logger.info(f"Pandas join returned {len(result_df)} rows")
         return result_df
     
-    def _fetch_source_data(self, executor: 'QueryExecutor', source: Dict, limit: Optional[int]) -> pd.DataFrame:
-        """Fetch data from a single source using existing QueryExecutor"""
+    def execute_single_source_query(self, source: Dict, limit: Optional[int] = None) -> pd.DataFrame:
+        """Execute a query on a single datasource (no joins)"""
+        from suiteview.core.query_builder import Query
+        from suiteview.core.query_executor import QueryExecutor
+        
         conn = source['connection']
         conn_id = conn['connection_id']
         table_name = source.get('table_name', '')
@@ -292,29 +475,96 @@ class XDBQueryExecutor:
         columns = source.get('columns', ['*'])
         filters = source.get('filters', [])
         
-        # Build simple SELECT query
-        col_list = ", ".join(columns) if columns and columns != ['*'] else "*"
-        full_table = f"{schema_name}.{table_name}" if schema_name else table_name
+        # Default schema for SQL Server if missing
+        conn_type = conn.get('connection_type')
+        if not schema_name and conn_type == 'SQL_SERVER':
+            schema_name = 'dbo'
         
-        # Build WHERE clause
-        where_clauses = []
+        # Build Query object
+        query = Query()
+        query.connection_id = conn_id
+        query.from_table = table_name
+        query.from_schema = schema_name
+        
+        # Set display fields
+        if columns and columns != ['*']:
+            query.display_fields = [{'field_name': col, 'table_name': table_name} for col in columns]
+        else:
+            query.display_fields = [{'field_name': '*', 'table_name': table_name}]
+        
+        # Set criteria filters
+        query.criteria = []
         for f in filters:
-            col = f['column']
-            op = f['operator']
-            val = f['value']
-            val_str = f"'{val}'" if isinstance(val, str) else str(val)
-            where_clauses.append(f"{col} {op} {val_str}")
+            query.criteria.append({
+                'field_name': f['column'],
+                'operator': f['operator'],
+                'value': f['value'],
+                'table_name': table_name
+            })
         
-        where_clause = f" WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-        limit_clause = f" LIMIT {limit}" if limit else ""
-        
-        query = f"SELECT {col_list} FROM {full_table}{where_clause}{limit_clause}"
-        
-        logger.debug(f"Fetching source data: {query}")
+        logger.info(f"Executing single-source query on {table_name}")
+        logger.info(f"Columns: {columns}")
+        logger.info(f"Filters: {filters}")
         
         # Execute using standard QueryExecutor
-        result = executor.execute_query(conn_id, query)
-        return pd.DataFrame(result['rows'], columns=result['columns'])
+        executor = QueryExecutor()
+        result_df = executor.execute_db_query(query)
+        
+        # Apply limit if specified
+        if limit:
+            result_df = result_df.head(limit)
+        
+        logger.info(f"Single-source query returned {len(result_df)} rows")
+        return result_df
+    
+    def _fetch_source_data(self, executor, source: Dict, limit: Optional[int]) -> pd.DataFrame:
+        """Fetch data from a single source using existing QueryExecutor (internal helper for joins)"""
+        from suiteview.core.query_builder import Query
+        
+        conn = source['connection']
+        conn_id = conn['connection_id']
+        table_name = source.get('table_name', '')
+        schema_name = source.get('schema_name')
+        columns = source.get('columns', ['*'])
+        filters = source.get('filters', [])
+        
+        # Default schema for SQL Server if missing
+        conn_type = conn.get('connection_type')
+        if not schema_name and conn_type == 'SQL_SERVER':
+            schema_name = 'dbo'
+        
+        # Build Query object
+        query = Query()
+        query.connection_id = conn_id
+        query.from_table = table_name
+        query.from_schema = schema_name
+        
+        # Set display fields
+        if columns and columns != ['*']:
+            query.display_fields = [{'field_name': col, 'table_name': table_name} for col in columns]
+        else:
+            query.display_fields = [{'field_name': '*', 'table_name': table_name}]
+        
+        # Set criteria filters
+        query.criteria = []
+        for f in filters:
+            query.criteria.append({
+                'field_name': f['column'],
+                'operator': f['operator'],
+                'value': f['value'],
+                'table_name': table_name
+            })
+        
+        logger.debug(f"Fetching source data from {table_name}")
+        
+        # Execute using standard QueryExecutor
+        result_df = executor.execute_db_query(query)
+        
+        # Apply limit if specified
+        if limit:
+            result_df = result_df.head(limit)
+        
+        return result_df
     
     def _quote_identifier(self, identifier: str) -> str:
         """Quote SQL identifier for safety"""

@@ -323,8 +323,81 @@ class MainframeNavScreen(QWidget):
             self.connection_settings['username'] = user_edit.text()
             self.connection_settings['password'] = pass_edit.text()
             
+            # Save credentials to the first MAINFRAME_FTP connection
+            self.save_credentials_to_connection(
+                self.connection_settings['username'],
+                self.connection_settings['password'],
+                self.connection_settings['host'],
+                self.connection_settings['port'],
+                self.connection_settings['initial_path']
+            )
+            
             # Reconnect with new settings
             self.connect_to_mainframe()
+    
+    def save_credentials_to_connection(self, username, password, host, port, initial_path):
+        """Save credentials to the first MAINFRAME_FTP connection in database"""
+        try:
+            # Get all connections using the correct method
+            connections = self.conn_manager.repo.get_all_connections()
+            ftp_connections = [c for c in connections if c.get('connection_type') == 'MAINFRAME_FTP']
+            
+            from suiteview.core.credential_manager import CredentialManager
+            cred_manager = CredentialManager()
+            
+            # Encrypt credentials
+            encrypted_username = cred_manager.encrypt(username)
+            encrypted_password = cred_manager.encrypt(password)
+            
+            # Build connection string with FTP parameters
+            conn_string = f"port={port};initial_path={initial_path}"
+            
+            if ftp_connections:
+                # Update existing connection - use connection_id not 'id'
+                conn_id = ftp_connections[0].get('connection_id')
+                
+                self.conn_manager.repo.update_connection(
+                    conn_id,
+                    server_name=host,
+                    encrypted_username=encrypted_username,
+                    encrypted_password=encrypted_password,
+                    connection_string=conn_string
+                )
+                
+                logger.info(f"Updated credentials for MAINFRAME_FTP connection (ID: {conn_id})")
+                QMessageBox.information(
+                    self,
+                    "Credentials Saved",
+                    "Your mainframe credentials have been saved successfully!"
+                )
+            else:
+                # Create new connection if none exists
+                self.conn_manager.repo.add_connection(
+                    connection_name='Mainframe FTP',
+                    connection_type='MAINFRAME_FTP',
+                    server_name=host,
+                    database_name='',
+                    auth_type='password',
+                    encrypted_username=encrypted_username,
+                    encrypted_password=encrypted_password,
+                    connection_string=conn_string
+                )
+                
+                logger.info("Created new MAINFRAME_FTP connection with credentials")
+                QMessageBox.information(
+                    self,
+                    "Credentials Saved",
+                    "Your mainframe credentials have been saved successfully!"
+                )
+                
+        except Exception as e:
+            logger.error(f"Failed to save credentials: {str(e)}", exc_info=True)
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self, 
+                "Save Error", 
+                f"Failed to save credentials to database:\n{str(e)}"
+            )
     
     def connect_to_mainframe(self):
         """Connect to mainframe FTP in background thread"""
@@ -676,12 +749,14 @@ class MainframeNavScreen(QWidget):
     def load_default_settings(self):
         """Load default settings from first MAINFRAME_FTP connection"""
         try:
-            connections = self.conn_manager.get_connections()
+            # Get all connections using the correct method
+            connections = self.conn_manager.repo.get_all_connections()
             ftp_connections = [c for c in connections if c.get('connection_type') == 'MAINFRAME_FTP']
             
             if ftp_connections:
-                conn_id = ftp_connections[0].get('id')
-                connection = self.conn_manager.get_connection(conn_id)
+                # Use connection_id, not 'id'
+                conn_id = ftp_connections[0].get('connection_id')
+                connection = self.conn_manager.repo.get_connection(conn_id)
                 
                 if connection:
                     from suiteview.core.credential_manager import CredentialManager
@@ -705,14 +780,24 @@ class MainframeNavScreen(QWidget):
                     
                     if encrypted_username:
                         self.connection_settings['username'] = cred_manager.decrypt(encrypted_username)
+                        logger.info(f"Loaded username: {self.connection_settings['username']}")
                     if encrypted_password:
                         self.connection_settings['password'] = cred_manager.decrypt(encrypted_password)
+                        logger.info("Loaded encrypted password from database")
                     
-                    # DON'T auto-connect on startup - wait for user action
-                    logger.info("Loaded default FTP settings")
+                    # Auto-connect with loaded credentials
+                    if self.connection_settings['username'] and self.connection_settings['password']:
+                        logger.info("Loaded credentials from MAINFRAME_FTP connection, auto-connecting...")
+                        # Small delay to let UI finish loading
+                        from PyQt6.QtCore import QTimer
+                        QTimer.singleShot(500, self.connect_to_mainframe)
+                    else:
+                        logger.warning("No credentials found in MAINFRAME_FTP connection")
+            else:
+                logger.warning("No MAINFRAME_FTP connections found in database")
                     
         except Exception as e:
-            logger.error(f"Failed to load default settings: {str(e)}")
+            logger.error(f"Failed to load default settings: {str(e)}", exc_info=True)
     
     def set_connection(self, connection_id):
         """Load settings from a specific connection and connect"""

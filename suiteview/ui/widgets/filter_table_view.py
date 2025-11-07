@@ -111,7 +111,7 @@ class FilterPopup(QMenu):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
+        layout.setSpacing(3)
 
         # Warning label for large datasets
         if self.has_many_values:
@@ -135,60 +135,69 @@ class FilterPopup(QMenu):
         self.search_box.textChanged.connect(self.filter_checkbox_list)
         layout.addWidget(self.search_box)
 
-        # Select All / Deselect All buttons
-        button_layout = QHBoxLayout()
-        
-        select_all_btn = QPushButton("✓ Select All")
-        select_all_btn.clicked.connect(self.select_all)
-        button_layout.addWidget(select_all_btn)
+        # Scrollable checkbox area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMinimumWidth(200)
+        scroll.setMaximumWidth(400)
+        scroll.setMinimumHeight(200)
+        scroll.setMaximumHeight(400)
 
-        deselect_all_btn = QPushButton("✗ Deselect All")
-        deselect_all_btn.clicked.connect(self.deselect_all)
-        button_layout.addWidget(deselect_all_btn)
+        checkbox_container = QWidget()
+        self.checkbox_layout = QVBoxLayout(checkbox_container)
+        self.checkbox_layout.setSpacing(1)  # Tighter spacing
+        self.checkbox_layout.setContentsMargins(2, 2, 2, 2)
         
-        layout.addLayout(button_layout)
-
-        # Separator
+        # Add (All) checkbox at the top
+        all_cb = QCheckBox("(All)")
+        all_cb.setChecked(len(self.current_selection) == len(self.all_unique_values))
+        all_cb.setStyleSheet("""
+            QCheckBox {
+                font-weight: bold;
+                color: #2c3e50;
+                font-size: 10px;
+                padding: 1px;
+            }
+        """)
+        all_cb.stateChanged.connect(self.toggle_all)
+        self.checkbox_layout.addWidget(all_cb)
+        self.all_checkbox = all_cb
+        
+        # Add separator
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
-        layout.addWidget(separator)
-
-        # Scrollable checkbox list
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setMaximumHeight(400)
-        scroll_area.setMinimumWidth(250)
-
-        self.checkbox_widget = QWidget()
-        self.checkbox_layout = QVBoxLayout(self.checkbox_widget)
-        self.checkbox_layout.setContentsMargins(5, 5, 5, 5)
-        self.checkbox_layout.setSpacing(2)  # Tighter spacing
-
-        # Create checkboxes for initial values
-        self.create_checkboxes(self.unique_values)
-
-        self.checkbox_widget.setLayout(self.checkbox_layout)
-        scroll_area.setWidget(self.checkbox_widget)
-        layout.addWidget(scroll_area)
+        separator.setStyleSheet("background-color: #bdc3c7; max-height: 1px;")
+        self.checkbox_layout.addWidget(separator)
         
+        # Add value checkboxes with tighter spacing
+        for value in self.unique_values:
+            cb = QCheckBox(value)
+            cb.setChecked(value in self.current_selection)
+            cb.setStyleSheet("""
+                QCheckBox {
+                    font-size: 10px;
+                    padding: 1px;
+                }
+                QCheckBox::indicator {
+                    width: 13px;
+                    height: 13px;
+                }
+            """)
+            cb.stateChanged.connect(self.on_checkbox_changed)
+            self.checkbox_layout.addWidget(cb)
+            self.checkboxes[value] = cb
+
+        self.checkbox_layout.addStretch()
+        scroll.setWidget(checkbox_container)
+        layout.addWidget(scroll)
+
         # Info label
-        self.info_label = QLabel()
-        self.update_info_label()
+        self.info_label = QLabel(f"Showing {len(self.unique_values):,} of {len(self.all_unique_values):,} values")
         self.info_label.setStyleSheet("font-size: 9px; color: #666; padding: 2px;")
         layout.addWidget(self.info_label)
 
-        # Separator
-        separator2 = QFrame()
-        separator2.setFrameShape(QFrame.Shape.HLine)
-        separator2.setFrameShadow(QFrame.Shadow.Sunken)
-        layout.addWidget(separator2)
-
-        # OK / Cancel buttons
-        action_layout = QHBoxLayout()
-        
-        ok_btn = QPushButton("✓ OK")
-        ok_btn.clicked.connect(self.apply_filter)
+        # OK button
+        ok_btn = QPushButton("OK")
         ok_btn.setStyleSheet("""
             QPushButton {
                 background-color: #27ae60;
@@ -196,36 +205,25 @@ class FilterPopup(QMenu):
                 border: none;
                 border-radius: 3px;
                 padding: 5px 15px;
-                font-weight: bold;
+                font-size: 11px;
             }
             QPushButton:hover {
                 background-color: #229954;
             }
         """)
-        action_layout.addWidget(ok_btn)
+        ok_btn.clicked.connect(self.apply_filter)
+        layout.addWidget(ok_btn)
 
-        cancel_btn = QPushButton("✗ Cancel")
-        cancel_btn.clicked.connect(self.close)
-        action_layout.addWidget(cancel_btn)
-        
-        layout.addLayout(action_layout)
-
-        # Add container as a widget action
+        # Add widget action
         action = QWidgetAction(self)
         action.setDefaultWidget(container)
         self.addAction(action)
 
-        # Style
         self.setStyleSheet("""
             QMenu {
                 background-color: white;
-                border: 1px solid #ccc;
-            }
-            QCheckBox {
-                padding: 2px;
-            }
-            QPushButton {
-                padding: 4px 8px;
+                border: 2px solid #3498db;
+                border-radius: 5px;
             }
         """)
 
@@ -285,22 +283,24 @@ class FilterPopup(QMenu):
         else:
             self.info_label.setText(f"Showing all {total_count:,} values")
 
-    def select_all(self):
-        """Select all visible checkboxes and update current_selection"""
-        for value, cb in self.checkboxes.items():
-            if cb.isVisible():
-                cb.setChecked(True)
-                self.current_selection.add(value)
-
-    def deselect_all(self):
-        """Deselect all visible checkboxes and update current_selection"""
-        for value, cb in self.checkboxes.items():
-            if cb.isVisible():
-                cb.setChecked(False)
-                self.current_selection.discard(value)
+    def toggle_all(self, state):
+        """Toggle all checkboxes based on (All) checkbox state"""
+        is_checked = (state == 2)  # Qt.CheckState.Checked = 2
+        
+        # Block signals temporarily to avoid recursive updates
+        for cb in self.checkboxes.values():
+            cb.blockSignals(True)
+            cb.setChecked(is_checked)
+            cb.blockSignals(False)
+        
+        # Update current_selection
+        if is_checked:
+            self.current_selection = set(self.all_unique_values)
+        else:
+            self.current_selection.clear()
 
     def on_checkbox_changed(self, state):
-        """Handle checkbox state change - update current_selection"""
+        """Handle checkbox state change - update current_selection and (All) checkbox"""
         sender = self.sender()
         for value, cb in self.checkboxes.items():
             if cb == sender:
@@ -309,6 +309,13 @@ class FilterPopup(QMenu):
                 else:
                     self.current_selection.discard(value)
                 break
+        
+        # Update (All) checkbox state based on whether all items are selected
+        if hasattr(self, 'all_checkbox'):
+            all_selected = len(self.current_selection) == len(self.all_unique_values)
+            self.all_checkbox.blockSignals(True)
+            self.all_checkbox.setChecked(all_selected)
+            self.all_checkbox.blockSignals(False)
 
     def apply_filter(self):
         """Apply the filter and emit signal"""
@@ -349,8 +356,21 @@ class FilterTableView(QWidget):
         self.global_search_box.textChanged.connect(self.apply_global_search)
         search_layout.addWidget(self.global_search_box)
 
-        # Clear filters button
-        clear_btn = QPushButton("✗ Clear All Filters")
+        # Clear filters button (smaller)
+        clear_btn = QPushButton("Clear All")
+        clear_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 4px 12px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
         clear_btn.clicked.connect(self.clear_all_filters)
         search_layout.addWidget(clear_btn)
 
@@ -359,6 +379,8 @@ class FilterTableView(QWidget):
         # Table view
         self.table_view = QTableView()
         self.table_view.setAlternatingRowColors(True)
+        self.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table_view.customContextMenuRequested.connect(self.show_table_context_menu)
         self.table_view.setStyleSheet("""
             QTableView {
                 gridline-color: #d0d0d0;
@@ -367,14 +389,15 @@ class FilterTableView(QWidget):
                 selection-background-color: #667eea;
             }
             QHeaderView::section {
-                background-color: #34495e;
-                color: white;
-                padding: 5px;
-                border: 1px solid #2c3e50;
-                font-weight: bold;
+                background-color: #f0f0f0;
+                color: #000000;
+                padding: 2px 4px;
+                border: 1px solid #d0d0d0;
+                font-weight: normal;
+                font-size: 11px;
             }
             QHeaderView::section:hover {
-                background-color: #415a77;
+                background-color: #e0e0e0;
             }
         """)
 
@@ -590,6 +613,118 @@ class FilterTableView(QWidget):
         """Show all hidden columns"""
         for i in range(self.model.columnCount()):
             self.table_view.showColumn(i)
+
+    def show_table_context_menu(self, pos):
+        """Show context menu for table cell operations"""
+        if self.model is None:
+            return
+        
+        from PyQt6.QtWidgets import QApplication
+        
+        menu = QMenu(self)
+        
+        # Get clicked cell index
+        index = self.table_view.indexAt(pos)
+        
+        if index.isValid():
+            # Copy Cell action
+            copy_cell_action = QAction("📋 Copy Cell", self)
+            copy_cell_action.triggered.connect(lambda: self.copy_cell(index))
+            menu.addAction(copy_cell_action)
+            
+            menu.addSeparator()
+        
+        # Copy Entire Table action (always available)
+        copy_table_action = QAction("📋 Copy Entire Table", self)
+        copy_table_action.triggered.connect(self.copy_entire_table)
+        menu.addAction(copy_table_action)
+        
+        # Copy Visible Table action (when filters are active)
+        display_rows = len(self.model.get_display_data())
+        total_rows = len(self.df)
+        if display_rows != total_rows:
+            copy_visible_action = QAction(f"📋 Copy Filtered Table ({display_rows:,} rows)", self)
+            copy_visible_action.triggered.connect(self.copy_filtered_table)
+            menu.addAction(copy_visible_action)
+        
+        menu.exec(self.table_view.viewport().mapToGlobal(pos))
+    
+    def copy_cell(self, index: QModelIndex):
+        """Copy the contents of a single cell to clipboard"""
+        if not index.isValid():
+            return
+        
+        from PyQt6.QtWidgets import QApplication
+        
+        # Get cell value
+        cell_value = self.model.data(index, Qt.ItemDataRole.DisplayRole)
+        
+        # Copy to clipboard
+        clipboard = QApplication.clipboard()
+        clipboard.setText(str(cell_value) if cell_value else "")
+        
+        logger.info(f"Copied cell value: {cell_value}")
+    
+    def copy_entire_table(self):
+        """Copy the entire original table to clipboard as tab-separated values"""
+        if self.df is None:
+            return
+        
+        from PyQt6.QtWidgets import QApplication
+        
+        # Get the original full DataFrame
+        df_to_copy = self.df.copy()
+        
+        # Convert to tab-separated string (Excel-friendly)
+        # Include headers
+        clipboard_text = df_to_copy.to_csv(sep='\t', index=False)
+        
+        # Copy to clipboard
+        clipboard = QApplication.clipboard()
+        clipboard.setText(clipboard_text)
+        
+        logger.info(f"Copied entire table: {len(df_to_copy)} rows, {len(df_to_copy.columns)} columns")
+        
+        # Optional: Show a brief notification
+        from PyQt6.QtWidgets import QToolTip
+        from PyQt6.QtGui import QCursor
+        QToolTip.showText(
+            QCursor.pos(),
+            f"✓ Copied {len(df_to_copy):,} rows to clipboard",
+            self.table_view,
+            self.table_view.rect(),
+            2000
+        )
+    
+    def copy_filtered_table(self):
+        """Copy the currently filtered/displayed table to clipboard"""
+        if self.model is None:
+            return
+        
+        from PyQt6.QtWidgets import QApplication
+        
+        # Get the currently displayed DataFrame
+        df_to_copy = self.model.get_display_data()
+        
+        # Convert to tab-separated string (Excel-friendly)
+        clipboard_text = df_to_copy.to_csv(sep='\t', index=False)
+        
+        # Copy to clipboard
+        clipboard = QApplication.clipboard()
+        clipboard.setText(clipboard_text)
+        
+        logger.info(f"Copied filtered table: {len(df_to_copy)} rows, {len(df_to_copy.columns)} columns")
+        
+        # Optional: Show a brief notification
+        from PyQt6.QtWidgets import QToolTip
+        from PyQt6.QtGui import QCursor
+        QToolTip.showText(
+            QCursor.pos(),
+            f"✓ Copied {len(df_to_copy):,} filtered rows to clipboard",
+            self.table_view,
+            self.table_view.rect(),
+            2000
+        )
 
     def get_filtered_dataframe(self) -> pd.DataFrame:
         """Get the currently filtered/displayed DataFrame"""

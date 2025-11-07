@@ -295,7 +295,7 @@ class SchemaDiscovery:
             return []
 
     def _get_sql_server_preview(self, connection_id: int, table_name: str,
-                                schema_name: str = None, limit: int = 100) -> tuple:
+                                schema_name: str = None, limit: int = 10000) -> tuple:
         """
         Get preview data from SQL Server table
         Uses TOP instead of LIMIT for SQL Server compatibility
@@ -529,7 +529,7 @@ class SchemaDiscovery:
             return []
 
     def _get_db2_preview(self, connection_id: int, table_name: str,
-                        schema_name: str = None, limit: int = 100) -> tuple:
+                        schema_name: str = None, limit: int = 10000) -> tuple:
         """
         Get preview data from DB2 table with LIMIT clause
         """
@@ -1086,7 +1086,7 @@ class SchemaDiscovery:
         return list(unique_values)
 
     def get_preview_data(self, connection_id: int, table_name: str,
-                        schema_name: str = None, limit: int = 100) -> tuple:
+                        schema_name: str = None, limit: int = 10000) -> tuple:
         """
         Get preview data from a table (first N rows)
 
@@ -1094,7 +1094,7 @@ class SchemaDiscovery:
             connection_id: ID of database connection
             table_name: Name of the table
             schema_name: Schema/database name (optional)
-            limit: Maximum number of rows to return (default 100)
+            limit: Maximum number of rows to return (default 10000)
 
         Returns:
             Tuple of (columns, data) where columns is list of column names
@@ -1141,7 +1141,7 @@ class SchemaDiscovery:
             logger.error(f"Failed to get preview data for {table_name}: {e}")
             raise
 
-    def _get_excel_preview(self, connection: Dict, sheet_name: str, limit: int = 100) -> tuple:
+    def _get_excel_preview(self, connection: Dict, sheet_name: str, limit: int = 10000) -> tuple:
         """Get preview data from an Excel sheet"""
         import openpyxl
         import os
@@ -1170,7 +1170,7 @@ class SchemaDiscovery:
 
         return (columns, data)
 
-    def _get_access_preview(self, connection: Dict, table_name: str, limit: int = 100) -> tuple:
+    def _get_access_preview(self, connection: Dict, table_name: str, limit: int = 10000) -> tuple:
         """Get preview data from an Access table"""
         import pyodbc
         import os
@@ -1202,7 +1202,7 @@ class SchemaDiscovery:
 
         return (columns, data)
 
-    def _get_csv_preview(self, connection: Dict, table_name: str, limit: int = 100) -> tuple:
+    def _get_csv_preview(self, connection: Dict, table_name: str, limit: int = 10000) -> tuple:
         """Get preview data from a CSV file in the folder"""
         import pandas as pd
         import os

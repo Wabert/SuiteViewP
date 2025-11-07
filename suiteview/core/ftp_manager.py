@@ -64,7 +64,19 @@ class MainframeFTPManager:
             return True
             
         except ftplib.error_perm as e:
-            error_msg = f"Authentication failed: {str(e)}"
+            error_str = str(e)
+            # Check if this is a password-related error
+            if "530" in error_str or "PASS" in error_str or "password" in error_str.lower():
+                error_msg = (
+                    f"Authentication failed: {error_str}\n\n"
+                    f"This may indicate your mainframe password has expired or changed.\n"
+                    f"To update your password:\n"
+                    f"1. Go to the Connections tab\n"
+                    f"2. Right-click on 'MAINFRAME_FTP'\n"
+                    f"3. Select 'Update Password for All Children'"
+                )
+            else:
+                error_msg = f"Authentication failed: {error_str}"
             logger.error(error_msg)
             self.connected = False
             raise Exception(error_msg)
@@ -324,6 +336,96 @@ class MainframeFTPManager:
             
         except Exception as e:
             return False, f"Connection test failed: {str(e)}"
+    
+    def upload_file(self, local_file_path: str, remote_dataset_name: str) -> Tuple[bool, str]:
+        """
+        Upload a local file to mainframe dataset
+        
+        Args:
+            local_file_path: Path to local file to upload
+            remote_dataset_name: Target dataset name on mainframe (e.g., 'D03.AA0139.TEST.DATA')
+        
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        if not self.connected:
+            logger.error("Not connected to FTP server")
+            return False, "Not connected to FTP server"
+        
+        try:
+            # Ensure dataset name is properly formatted
+            if not remote_dataset_name.startswith("'") and not remote_dataset_name.startswith('"'):
+                remote_dataset_name = f"'{remote_dataset_name}'"
+            
+            # Read local file
+            with open(local_file_path, 'rb') as file:
+                # Use STOR command to upload
+                self.ftp.storbinary(f'STOR {remote_dataset_name}', file)
+            
+            logger.info(f"Successfully uploaded {local_file_path} to {remote_dataset_name}")
+            return True, f"Successfully uploaded to {remote_dataset_name}"
+            
+        except FileNotFoundError:
+            error_msg = f"Local file not found: {local_file_path}"
+            logger.error(error_msg)
+            return False, error_msg
+            
+        except ftplib.error_perm as e:
+            error_msg = f"Permission denied or dataset error: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
+            
+        except Exception as e:
+            error_msg = f"Upload failed: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
+    
+    def upload_file_as_text(self, local_file_path: str, remote_dataset_name: str) -> Tuple[bool, str]:
+        """
+        Upload a local file to mainframe dataset as text (ASCII mode)
+        Use this for text files, CSV, etc.
+        
+        Args:
+            local_file_path: Path to local file to upload
+            remote_dataset_name: Target dataset name on mainframe
+        
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        if not self.connected:
+            logger.error("Not connected to FTP server")
+            return False, "Not connected to FTP server"
+        
+        try:
+            # Ensure dataset name is properly formatted
+            if not remote_dataset_name.startswith("'") and not remote_dataset_name.startswith('"'):
+                remote_dataset_name = f"'{remote_dataset_name}'"
+            
+            # Set ASCII mode
+            self.ftp.sendcmd('TYPE A')
+            
+            # Read local file as text
+            with open(local_file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                # Store lines
+                self.ftp.storlines(f'STOR {remote_dataset_name}', file)
+            
+            logger.info(f"Successfully uploaded {local_file_path} to {remote_dataset_name} (text mode)")
+            return True, f"Successfully uploaded to {remote_dataset_name}"
+            
+        except FileNotFoundError:
+            error_msg = f"Local file not found: {local_file_path}"
+            logger.error(error_msg)
+            return False, error_msg
+            
+        except ftplib.error_perm as e:
+            error_msg = f"Permission denied or dataset error: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
+            
+        except Exception as e:
+            error_msg = f"Upload failed: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
     
     def __enter__(self):
         """Context manager entry"""

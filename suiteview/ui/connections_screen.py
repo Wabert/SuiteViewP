@@ -202,6 +202,38 @@ class ConnectionsScreen(QWidget):
         self.schema_table.horizontalHeader().setStretchLastSection(True)
         self.schema_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.schema_table.setAlternatingRowColors(True)
+        
+        # Style the table headers with light grey background and reduced height
+        self.schema_table.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #f0f0f0;
+                color: #000000;
+                padding: 2px 4px;
+                border: 1px solid #d0d0d0;
+                font-weight: normal;
+                font-size: 11px;
+            }
+            QTableWidget::item {
+                padding: 2px 4px;
+            }
+            QTableWidget {
+                gridline-color: #d0d0d0;
+            }
+        """)
+        
+        # Style the row number headers (vertical header)
+        vertical_header = self.schema_table.verticalHeader()
+        vertical_header.setDefaultSectionSize(20)  # Smaller row height
+        vertical_header.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #f0f0f0;
+                color: #000000;
+                padding: 2px;
+                border: 1px solid #d0d0d0;
+                font-size: 10px;
+            }
+        """)
+        
         layout.addWidget(self.schema_table)
 
         return panel
@@ -539,15 +571,11 @@ class ConnectionsScreen(QWidget):
                     # Nullable
                     nullable_text = "Yes" if col_info['is_nullable'] else "No"
                     nullable_item = QTableWidgetItem(nullable_text)
-                    if not col_info['is_nullable']:
-                        nullable_item.setForeground(Qt.GlobalColor.yellow)
                     self.schema_table.setItem(row, 2, nullable_item)
 
                     # Primary key
                     pk_text = "Yes" if col_info['is_primary_key'] else "No"
                     pk_item = QTableWidgetItem(pk_text)
-                    if col_info['is_primary_key']:
-                        pk_item.setForeground(Qt.GlobalColor.yellow)
                     self.schema_table.setItem(row, 3, pk_item)
 
                     # Default
@@ -1039,6 +1067,24 @@ class ConnectionsScreen(QWidget):
             return
 
         item_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        
+        # Create context menu
+        menu = QMenu(self)
+        
+        # Check if this is a group (e.g., MAINFRAME_FTP)
+        if item_type == "group":
+            group_name = item.text(0)
+            if group_name == "MAINFRAME_FTP":
+                # Special menu for MAINFRAME_FTP group
+                update_passwords_action = menu.addAction("Update Password for All Children")
+                
+                # Show menu and get selected action
+                action = menu.exec(self.conn_tree.mapToGlobal(position))
+                
+                if action == update_passwords_action:
+                    self.update_mainframe_passwords(item)
+            return
+        
         if item_type != "connection":
             return
 
@@ -1049,8 +1095,6 @@ class ConnectionsScreen(QWidget):
             logger.warning("Right-clicked connection has no connection_id")
             return
         
-        # Create context menu
-        menu = QMenu(self)
         view_action = menu.addAction("View")
         delete_action = menu.addAction("Delete")
 
@@ -1066,6 +1110,68 @@ class ConnectionsScreen(QWidget):
             self.current_connection_id = connection_id
             self.delete_connection()
             self.current_connection_id = temp_current  # Restore selection
+    
+    def update_mainframe_passwords(self, group_item):
+        """Update password for all mainframe connections under the group"""
+        from PyQt6.QtWidgets import QInputDialog, QLineEdit
+        from suiteview.core.credential_manager import CredentialManager
+        
+        # Prompt for new password
+        password, ok = QInputDialog.getText(
+            self,
+            "Update Mainframe Passwords",
+            "Enter new password for all mainframe connections:",
+            QLineEdit.EchoMode.Password
+        )
+        
+        if not ok or not password:
+            return
+        
+        try:
+            cred_manager = CredentialManager()
+            
+            # Encrypt the new password once
+            encrypted_password = cred_manager.encrypt(password)
+            
+            # Get all child connections
+            child_count = group_item.childCount()
+            updated_count = 0
+            failed_connections = []
+            
+            for i in range(child_count):
+                child_item = group_item.child(i)
+                connection_id = child_item.data(0, Qt.ItemDataRole.UserRole)
+                connection_name = child_item.text(0)
+                
+                if connection_id is not None:
+                    try:
+                        # Update the encrypted_password directly in the database
+                        success = self.conn_manager.repo.update_connection(
+                            connection_id,
+                            encrypted_password=encrypted_password
+                        )
+                        
+                        if success:
+                            updated_count += 1
+                            logger.info(f"Updated password for connection: {connection_name}")
+                        else:
+                            failed_connections.append(f"{connection_name} (update failed)")
+                            
+                    except Exception as e:
+                        error_detail = f"{connection_name} ({str(e)})"
+                        failed_connections.append(error_detail)
+                        logger.error(f"Failed to update password for connection {connection_name}: {e}")
+            
+            # Show summary
+            message = f"Successfully updated {updated_count} mainframe connection(s)."
+            if failed_connections:
+                message += f"\n\nFailed to update:\n" + "\n".join(failed_connections)
+            
+            QMessageBox.information(self, "Password Update Complete", message)
+            
+        except Exception as e:
+            logger.error(f"Failed to update mainframe passwords: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to update passwords:\n{str(e)}")
     
     def view_connection(self, connection_id: int = None):
         """View/Edit the selected connection"""

@@ -86,19 +86,20 @@ class MyDataScreen(QWidget):
         self.my_data_tree.setHeaderHidden(True)
         self.my_data_tree.setStyleSheet("""
             QTreeWidget {
-                background: white;
-                border: 1px solid #ddd;
-                border-radius: 4px;
+                background-color: #E8F0FF;
+                border: 1px solid #B0C8E8;
+                border-radius: 0px;
             }
             QTreeWidget::item {
                 height: 18px;
                 padding: 0px 2px;
+                background-color: #E8F0FF;
             }
             QTreeWidget::item:hover {
-                background-color: #b3d9ff;
+                background-color: #C8DFFF;
             }
             QTreeWidget::item:selected {
-                background-color: #b3d9ff;
+                background-color: #6BA3E8;
             }
         """)
 
@@ -137,19 +138,20 @@ class MyDataScreen(QWidget):
         self.tables_tree.setHeaderHidden(True)
         self.tables_tree.setStyleSheet("""
             QTreeWidget {
-                background: white;
-                border: 1px solid #ddd;
-                border-radius: 4px;
+                background-color: #E8F0FF;
+                border: 1px solid #B0C8E8;
+                border-radius: 0px;
             }
             QTreeWidget::item {
                 height: 18px;
                 padding: 0px 2px;
+                background-color: #E8F0FF;
             }
             QTreeWidget::item:hover {
-                background-color: #b3d9ff;
+                background-color: #C8DFFF;
             }
             QTreeWidget::item:selected {
-                background-color: #b3d9ff;
+                background-color: #6BA3E8;
             }
         """)
         # Make header stretch to fill width and reduce indentation for compactness
@@ -473,6 +475,37 @@ class MyDataScreen(QWidget):
         self.schema_table.setColumnWidth(5, 100)
         self.schema_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Last Updated
         self.schema_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # Unique Values
+
+        # Style the table headers with light grey background and reduced height
+        self.schema_table.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #f0f0f0;
+                color: #000000;
+                padding: 2px 4px;
+                border: 1px solid #d0d0d0;
+                font-weight: normal;
+                font-size: 11px;
+            }
+            QTableWidget::item {
+                padding: 2px 4px;
+            }
+            QTableWidget {
+                gridline-color: #d0d0d0;
+            }
+        """)
+        
+        # Style the row number headers (vertical header)
+        vertical_header = self.schema_table.verticalHeader()
+        vertical_header.setDefaultSectionSize(20)  # Smaller row height
+        vertical_header.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #f0f0f0;
+                color: #000000;
+                padding: 2px;
+                border: 1px solid #d0d0d0;
+                font-size: 10px;
+            }
+        """)
 
         # Connect double-click event to show unique values dialog
         self.schema_table.cellDoubleClicked.connect(self.on_schema_cell_double_clicked)
@@ -853,6 +886,37 @@ class MyDataScreen(QWidget):
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         
+        # Style the table headers with light grey background and reduced height
+        table.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #f0f0f0;
+                color: #000000;
+                padding: 2px 4px;
+                border: 1px solid #d0d0d0;
+                font-weight: normal;
+                font-size: 11px;
+            }
+            QTableWidget::item {
+                padding: 2px 4px;
+            }
+            QTableWidget {
+                gridline-color: #d0d0d0;
+            }
+        """)
+        
+        # Style the row number headers (vertical header)
+        vertical_header = table.verticalHeader()
+        vertical_header.setDefaultSectionSize(20)  # Smaller row height
+        vertical_header.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #f0f0f0;
+                color: #000000;
+                padding: 2px;
+                border: 1px solid #d0d0d0;
+                font-size: 10px;
+            }
+        """)
+        
         layout.addWidget(table)
         
         # Add close button
@@ -884,11 +948,19 @@ class MyDataScreen(QWidget):
                 self.current_connection_id,
                 self.current_table_name,
                 self.current_schema_name,
-                limit=100
+                limit=10000
             )
 
-            # Show preview dialog
-            dialog = PreviewDialog(display_name, data, columns, self)
+            # Show preview dialog with connection info for reloading capability
+            dialog = PreviewDialog(
+                display_name, 
+                data, 
+                columns, 
+                self,
+                connection_id=self.current_connection_id,
+                schema_name=self.current_schema_name,
+                schema_discovery=self.schema_discovery
+            )
             dialog.exec()
 
         except Exception as e:

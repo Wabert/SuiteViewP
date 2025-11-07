@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitter,
     QTreeWidget, QTreeWidgetItem, QPushButton, QFrame, QMenu,
     QScrollArea, QComboBox, QMessageBox, QFileDialog, QTabWidget,
-    QLineEdit, QCheckBox, QDateEdit, QToolButton, QSizePolicy
+    QLineEdit, QCheckBox, QDateEdit, QToolButton, QSizePolicy, QInputDialog
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal
 from PyQt6.QtGui import QAction, QDrag
@@ -36,10 +36,10 @@ class CascadingMenuWidget(QWidget):
         self.current_button = None
         self.current_menu = None
 
-        # Style for the container
+        # Style for the container - slightly different light blue
         self.setStyleSheet(
             """
-            QWidget { background: white; }
+            QWidget { background-color: #D8E8FF; }
             """
         )
 
@@ -48,24 +48,46 @@ class CascadingMenuWidget(QWidget):
         btn = QPushButton(text, self)
         btn.setEnabled(enabled)
 
-        # Style the button to look like tree items - tight and compact
+        # Style the button to look like tree items - slightly different light blue
         btn.setStyleSheet(
             """
             QPushButton {
-                background: white;
+                background-color: #D8E8FF;
                 border: none;
-                border-bottom: 1px solid #ddd;
+                border-bottom: 1px solid #B0C8E8;
                 padding: 2px 8px;
                 text-align: left;
                 font-size: 11px;
-                color: #333;
+                color: #0A1E5E;
                 min-height: 18px;
                 max-height: 18px;
             }
-            QPushButton:hover { background: #e3f2fd; }
-            QPushButton:pressed { background: #bbdefb; }
+            QPushButton:hover { background-color: #C8DFFF; }
+            QPushButton:pressed { background-color: #A8C8F0; }
             """
         )
+        
+        # Style the cascading menu with fine border and light blue background
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #E8F0FF;
+                border: 1px solid #6BA3E8;
+                padding: 2px;
+            }
+            QMenu::item {
+                background-color: #E8F0FF;
+                color: #0A1E5E;
+                padding: 4px 20px 4px 10px;
+                border: none;
+            }
+            QMenu::item:selected {
+                background-color: #6BA3E8;
+                color: white;
+            }
+            QMenu::item:disabled {
+                color: #7f8c8d;
+            }
+        """)
 
         # Connect click to show menu to the right
         btn.clicked.connect(lambda: self._show_menu_to_right(btn, menu))
@@ -202,10 +224,10 @@ class XDBQueryScreen(QWidget):
         self.tables_tree.setHeaderHidden(True)
         self.tables_tree.setStyleSheet(
             """
-            QTreeWidget { background: white; border: 1px solid #ddd; border-radius: 4px; }
-            QTreeWidget::item { height: 18px; padding: 0px 2px; }
-            QTreeWidget::item:hover { background-color: #b3d9ff; }
-            QTreeWidget::item:selected { background-color: #b3d9ff; }
+            QTreeWidget { background-color: #E8F0FF; border: 1px solid #B0C8E8; border-radius: 4px; }
+            QTreeWidget::item { background-color: #E8F0FF; height: 18px; padding: 0px 2px; }
+            QTreeWidget::item:hover { background-color: #C8DFFF; }
+            QTreeWidget::item:selected { background-color: #6BA3E8; color: white; }
             """
         )
         self.tables_tree.itemClicked.connect(self._on_table_clicked)
@@ -233,10 +255,10 @@ class XDBQueryScreen(QWidget):
         self.fields_tree.setHeaderHidden(True)
         self.fields_tree.setStyleSheet(
             """
-            QTreeWidget { background: white; border: 1px solid #ddd; border-radius: 4px; }
-            QTreeWidget::item { height: 18px; padding: 0px 2px; }
-            QTreeWidget::item:hover { background-color: #b3d9ff; }
-            QTreeWidget::item:selected { background-color: #b3d9ff; }
+            QTreeWidget { background-color: #E8F0FF; border: 1px solid #B0C8E8; border-radius: 4px; }
+            QTreeWidget::item { background-color: #E8F0FF; height: 18px; padding: 0px 2px; }
+            QTreeWidget::item:hover { background-color: #C8DFFF; }
+            QTreeWidget::item:selected { background-color: #6BA3E8; color: white; }
             """
         )
         self.fields_tree.itemDoubleClicked.connect(self._on_field_double_clicked)
@@ -285,7 +307,7 @@ class XDBQueryScreen(QWidget):
         toolbar_layout.addStretch()
 
         # Right side: New Query button
-        self.new_query_btn = QPushButton("📄 New Query")
+        self.new_query_btn = QPushButton("New Query")
         self.new_query_btn.setObjectName("gold_button")
         self.new_query_btn.setMinimumWidth(120)
         self.new_query_btn.clicked.connect(self._new_query)
@@ -306,27 +328,34 @@ class XDBQueryScreen(QWidget):
         self.xdb_tabs = QTabWidget()
         self.xdb_tabs.setStyleSheet("""
             QTabWidget::pane {
-                border: 1px solid #ddd;
-                background: white;
+                border: 1px solid #B0C8E8;
+                background-color: #E8F0FF;
+            }
+            QTabBar {
+                background-color: #E8F0FF;
             }
             QTabBar::tab {
                 padding: 10px 20px;
                 margin-right: 2px;
-                background: #e8e8e8;
-                color: #2c3e50;
+                margin-left: 0px;
+                background-color: #D8E8FF;
+                color: #0A1E5E;
                 font-weight: 600;
             }
             QTabBar::tab:selected {
-                background: white;
-                border-bottom: 3px solid #667eea;
-                color: #2c3e50;
+                background-color: #6BA3E8;
+                border-bottom: 3px solid #FFD700;
+                color: #0A1E5E;
             }
             QTabBar::tab:!selected {
-                background: #e8e8e8;
+                background-color: #D8E8FF;
                 color: #5a6c7d;
             }
             QTabBar::tab:hover {
-                background: #d4d4d4;
+                background-color: #C8DFFF;
+            }
+            QTabBar::tab:last {
+                margin-left: 0px;
             }
         """)
 
@@ -498,10 +527,10 @@ class XDBQueryScreen(QWidget):
         self.xdb_queries_tree.setHeaderHidden(True)
         self.xdb_queries_tree.setStyleSheet(
             """
-            QTreeWidget { background: white; border: 1px solid #ddd; border-radius: 4px; }
-            QTreeWidget::item { height: 18px; padding: 0px 2px; }
-            QTreeWidget::item:hover { background-color: #b3d9ff; }
-            QTreeWidget::item:selected { background-color: #b3d9ff; }
+            QTreeWidget { background-color: #E8F0FF; border: 1px solid #B0C8E8; border-radius: 4px; }
+            QTreeWidget::item { background-color: #E8F0FF; height: 18px; padding: 0px 2px; }
+            QTreeWidget::item:hover { background-color: #C8DFFF; }
+            QTreeWidget::item:selected { background-color: #6BA3E8; color: white; }
             """
         )
         self.xdb_queries_tree.itemClicked.connect(self._on_xdb_query_clicked)
@@ -581,6 +610,7 @@ class XDBQueryScreen(QWidget):
 
     def _load_xdb_queries_tree(self):
         """Populate the XDB Queries tree widget"""
+        self.xdb_queries_tree.clear()  # Clear existing items first
         queries = self.query_repo.get_all_queries(query_type='XDB')
         for q in queries:
             item = QTreeWidgetItem([q['query_name']])
@@ -591,11 +621,232 @@ class XDBQueryScreen(QWidget):
 
     # --------------------- Event handlers ---------------------
     def _on_xdb_query_clicked(self, item: QTreeWidgetItem, column: int):
-        """Load selected XDB query (placeholder hook)"""
-        qid = item.data(0, Qt.ItemDataRole.UserRole)
-        _qdef = item.data(0, Qt.ItemDataRole.UserRole + 1)
-        logger.info(f"XDB query selected: {qid}")
-        # A full load into the builder will be implemented in the next phase.
+        """Load selected XDB query"""
+        query_id = item.data(0, Qt.ItemDataRole.UserRole)
+        query_definition = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        
+        if query_id and query_definition:
+            self._load_saved_query(query_id, query_definition)
+    
+    def _load_saved_query(self, query_id: int, query_definition: str):
+        """Load a saved XDB query into the query builder"""
+        try:
+            import json
+            
+            # Get the full query record to get the name
+            query_record = self.query_repo.get_query(query_id)
+            if not query_record:
+                raise Exception("Query not found")
+            
+            # Parse the query definition (handle both string and dict)
+            if isinstance(query_definition, str):
+                query_dict = json.loads(query_definition)
+            elif isinstance(query_definition, dict):
+                query_dict = query_definition
+            else:
+                raise Exception(f"Invalid query_definition type: {type(query_definition)}")
+            
+            # Clear current query
+            self._clear_query()
+            
+            # Set query name
+            self.query_name_label.setText(query_record['query_name'])
+            self.query_name_label.setStyleSheet("""
+                QLabel {
+                    color: #2c3e50;
+                    font-size: 16px;
+                    font-weight: bold;
+                    padding: 5px 20px;
+                }
+            """)
+            
+            # Load datasources
+            for ds_data in query_dict.get('datasources', []):
+                # Get the connection from repository
+                connection = self.conn_repo.get_connection(ds_data['connection_id'])
+                if connection:
+                    ds = {
+                        'alias': ds_data['alias'],
+                        'connection': connection,
+                        'table_name': ds_data['table_name'],
+                        'schema_name': ds_data.get('schema_name')
+                    }
+                    self.datasources.append(ds)
+            
+            # Update datasources label and FROM combo
+            self._update_datasources_label()
+            
+            # Set FROM datasource
+            from_datasource = query_dict.get('from_datasource')
+            if from_datasource:
+                index = self.from_datasource_combo.findText(from_datasource)
+                if index >= 0:
+                    self.from_datasource_combo.setCurrentIndex(index)
+            
+            # Load display fields
+            for field_data in query_dict.get('display_fields', []):
+                # Add to tracking
+                self.display_fields.append(field_data)
+                
+                # Create widget
+                display_widget = XDBDisplayFieldWidget(field_data, self)
+                display_widget.remove_requested.connect(lambda w=display_widget: self.remove_display_field(w))
+                self.display_layout.addWidget(display_widget)
+            
+            # Load criteria filters
+            for criterion in query_dict.get('criteria', []):
+                # Reconstruct field_data
+                field_data = {
+                    'field_name': criterion.get('field_name'),
+                    'data_type': criterion.get('data_type'),
+                    'table_name': criterion.get('table_name'),
+                    'schema_name': criterion.get('schema_name'),
+                    'datasource_alias': criterion.get('datasource_alias')
+                }
+                
+                # Create filter widget
+                filter_widget = XDBCriteriaFilterWidget(field_data, self)
+                filter_widget.remove_requested.connect(lambda w=filter_widget: self.remove_criteria_filter(w))
+                self.criteria_layout.addWidget(filter_widget)
+                self.criteria_widgets.append(filter_widget)
+                
+                # Restore filter values
+                if 'operator' in criterion:
+                    operator_index = filter_widget.operator_combo.findText(criterion['operator'])
+                    if operator_index >= 0:
+                        filter_widget.operator_combo.setCurrentIndex(operator_index)
+                
+                if 'value' in criterion:
+                    filter_widget.value_input.setText(str(criterion['value']))
+            
+            # Load joins
+            for join_config in query_dict.get('joins', []):
+                # Create join widget
+                join_widget = XDBJoinWidget(self.datasources, self)
+                join_widget.remove_requested.connect(lambda w=join_widget: self._remove_join_widget(w))
+                self.joins_layout.addWidget(join_widget)
+                
+                # Restore join configuration
+                self._restore_join_config(join_widget, join_config)
+            
+            logger.info(f"Loaded XDB query: {query_record['query_name']}")
+            
+        except Exception as e:
+            logger.error(f"Error loading XDB query: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Load Failed",
+                f"Failed to load XDB query:\n{str(e)}"
+            )
+    
+    def _restore_join_config(self, join_widget: 'XDBJoinWidget', join_config: dict):
+        """Restore join widget configuration from saved state"""
+        try:
+            # Set join type
+            join_type = join_config.get('join_type', 'INNER JOIN')
+            index = join_widget.join_type_combo.findText(join_type)
+            if index >= 0:
+                join_widget.join_type_combo.setCurrentIndex(index)
+            
+            # Set right datasource
+            right_ds = join_config.get('right_datasource')
+            if right_ds:
+                for i in range(join_widget.right_datasource_combo.count()):
+                    ds = join_widget.right_datasource_combo.itemData(i)
+                    if ds and ds['alias'] == right_ds['alias']:
+                        join_widget.right_datasource_combo.setCurrentIndex(i)
+                        break
+            
+            # Restore ON conditions
+            on_conditions = join_config.get('on_conditions', [])
+            
+            # First condition already exists, restore it
+            if len(on_conditions) > 0 and len(join_widget.on_condition_rows) > 0:
+                self._restore_on_condition(join_widget.on_condition_rows[0], on_conditions[0])
+            
+            # Add additional conditions
+            for i in range(1, len(on_conditions)):
+                join_widget._add_on_condition_row()
+                if i < len(join_widget.on_condition_rows):
+                    self._restore_on_condition(join_widget.on_condition_rows[i], on_conditions[i])
+            
+        except Exception as e:
+            logger.error(f"Error restoring join config: {e}", exc_info=True)
+    
+    def _restore_on_condition(self, row_data: dict, condition: dict):
+        """Restore a single ON condition row"""
+        try:
+            # Set left datasource
+            left_ds_alias = condition.get('left_datasource')
+            if left_ds_alias:
+                for i in range(row_data['left_datasource_combo'].count()):
+                    ds = row_data['left_datasource_combo'].itemData(i)
+                    if ds and ds['alias'] == left_ds_alias:
+                        row_data['left_datasource_combo'].setCurrentIndex(i)
+                        break
+            
+            # Set left field
+            left_field = condition.get('left_field')
+            if left_field:
+                index = row_data['left_field_combo'].findText(left_field)
+                if index >= 0:
+                    row_data['left_field_combo'].setCurrentIndex(index)
+            
+            # Set right datasource
+            right_ds_alias = condition.get('right_datasource')
+            if right_ds_alias:
+                for i in range(row_data['right_datasource_combo'].count()):
+                    ds = row_data['right_datasource_combo'].itemData(i)
+                    if ds and ds['alias'] == right_ds_alias:
+                        row_data['right_datasource_combo'].setCurrentIndex(i)
+                        break
+            
+            # Set right field
+            right_field = condition.get('right_field')
+            if right_field:
+                index = row_data['right_field_combo'].findText(right_field)
+                if index >= 0:
+                    row_data['right_field_combo'].setCurrentIndex(index)
+            
+        except Exception as e:
+            logger.error(f"Error restoring ON condition: {e}", exc_info=True)
+    
+    def _clear_query(self):
+        """Clear the query builder"""
+        # Clear display fields
+        while self.display_layout.count() > 0:
+            item = self.display_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.display_fields.clear()
+        
+        # Clear criteria widgets
+        while self.criteria_layout.count() > 0:
+            item = self.criteria_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.criteria_widgets.clear()
+        
+        # Clear joins
+        while self.joins_layout.count() > 0:
+            item = self.joins_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        # Clear datasources
+        self.datasources.clear()
+        self._update_datasources_label()
+        
+        # Reset query name
+        self.query_name_label.setText("unnamed")
+        self.query_name_label.setStyleSheet("""
+            QLabel {
+                color: #95a5a6;
+                font-size: 16px;
+                font-style: italic;
+                padding: 5px 20px;
+            }
+        """)
 
     def _show_xdb_query_context_menu(self, position):
         item = self.xdb_queries_tree.itemAt(position)
@@ -610,13 +861,169 @@ class XDBQueryScreen(QWidget):
         delete_action = menu.addAction("🗑️ Delete")
         action = menu.exec(self.xdb_queries_tree.mapToGlobal(position))
 
-        # Forward to DB query handlers once shared helpers exist; placeholders for now
         if action == rename_action:
-            logger.info(f"Rename XDB query requested: {query_id} {query_name}")
+            self._rename_query(query_id, query_name)
         elif action == copy_action:
-            logger.info(f"Copy XDB query requested: {query_id} {query_name}")
+            self._copy_query(query_id, query_name)
         elif action == delete_action:
-            logger.info(f"Delete XDB query requested: {query_id} {query_name}")
+            self._delete_query(query_id, query_name)
+    
+    def _rename_query(self, query_id: int, query_name: str):
+        """Rename a saved XDB query"""
+        try:
+            # Prompt for new name
+            new_name, ok = QInputDialog.getText(
+                self, "Rename Query", 
+                f"Enter a new name for '{query_name}':",
+                text=query_name
+            )
+            
+            if not ok or not new_name.strip():
+                return
+            
+            new_name = new_name.strip()
+            
+            # Don't update if name hasn't changed
+            if new_name == query_name:
+                return
+            
+            # Update the query name
+            self.query_repo.update_query_name(query_id, new_name)
+            
+            # If this is the currently loaded query, update the label
+            if self.query_name_label.text() == query_name:
+                self.query_name_label.setText(new_name)
+            
+            QMessageBox.information(
+                self,
+                "Query Renamed",
+                f"Query renamed successfully to '{new_name}'!"
+            )
+            
+            # Refresh XDB queries list
+            self._load_xdb_queries_tree()
+            
+            logger.info(f"Renamed XDB query {query_id} from '{query_name}' to '{new_name}'")
+            
+        except Exception as e:
+            logger.error(f"Error renaming XDB query: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Rename Failed",
+                f"Failed to rename query:\n{str(e)}"
+            )
+    
+    def _copy_query(self, query_id: int, query_name: str):
+        """Copy a saved XDB query"""
+        try:
+            # Prompt for new name
+            new_name, ok = QInputDialog.getText(
+                self, "Copy Query", 
+                f"Enter a name for the copy of '{query_name}':",
+                text=f"{query_name} (Copy)"
+            )
+            
+            if not ok or not new_name.strip():
+                return
+            
+            new_name = new_name.strip()
+            
+            # Check if a query with this name already exists
+            existing_queries = self.query_repo.get_all_queries(query_type='XDB')
+            existing_names = [q['query_name'] for q in existing_queries]
+            
+            if new_name in existing_names:
+                reply = QMessageBox.question(
+                    self,
+                    "Query Name Exists",
+                    f"A query named '{new_name}' already exists.\n\n"
+                    f"Do you want to overwrite it?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                
+                if reply == QMessageBox.StandardButton.No:
+                    return
+                
+                # Find and delete the existing query
+                existing_query = next((q for q in existing_queries if q['query_name'] == new_name), None)
+                if existing_query:
+                    self.query_repo.delete_query(existing_query['query_id'])
+                    logger.info(f"Deleted existing XDB query '{new_name}' to overwrite")
+            
+            # Get the original query
+            query_record = self.query_repo.get_query(query_id)
+            if not query_record:
+                raise Exception("Query not found")
+            
+            # Save as new query with new name
+            new_query_id = self.query_repo.save_query(
+                query_name=new_name,
+                query_type='XDB',
+                query_definition=query_record['query_definition'],
+                category=query_record.get('category', 'User Queries')
+            )
+            
+            QMessageBox.information(
+                self,
+                "Query Copied",
+                f"Query copied successfully as '{new_name}'!"
+            )
+            
+            # Refresh XDB queries list
+            self._load_xdb_queries_tree()
+            
+            logger.info(f"Copied XDB query '{query_name}' to '{new_name}' (ID: {new_query_id})")
+            
+        except Exception as e:
+            logger.error(f"Error copying XDB query: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Copy Failed",
+                f"Failed to copy query:\n{str(e)}"
+            )
+    
+    def _delete_query(self, query_id: int, query_name: str):
+        """Delete a saved XDB query"""
+        try:
+            # Confirm deletion
+            reply = QMessageBox.question(
+                self,
+                "Delete Query",
+                f"Are you sure you want to delete the XDB query '{query_name}'?\n\n"
+                f"This action cannot be undone.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.No:
+                return
+            
+            # Delete from database
+            self.query_repo.delete_query(query_id)
+            
+            # If this was the currently loaded query, clear it
+            if self.query_name_label.text() == query_name:
+                self._clear_query()
+            
+            QMessageBox.information(
+                self,
+                "Query Deleted",
+                f"XDB Query '{query_name}' has been deleted."
+            )
+            
+            # Refresh XDB queries list
+            self._load_xdb_queries_tree()
+            
+            logger.info(f"Deleted XDB query '{query_name}' (ID: {query_id})")
+            
+        except Exception as e:
+            logger.error(f"Error deleting XDB query: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Delete Failed",
+                f"Failed to delete query:\n{str(e)}"
+            )
 
     def _on_connection_selected(self, connection_id: int):
         """Legacy method - no longer used with new cascading table selection"""
@@ -834,7 +1241,7 @@ class XDBQueryScreen(QWidget):
         """Add a field to display tab"""
         # Create display field widget
         display_widget = XDBDisplayFieldWidget(field_data, self)
-        display_widget.remove_requested.connect(lambda: self.remove_display_field(display_widget))
+        display_widget.remove_requested.connect(lambda w=display_widget: self.remove_display_field(w))
 
         # Add to the end (bottom) of the layout
         self.display_layout.addWidget(display_widget)
@@ -847,25 +1254,36 @@ class XDBQueryScreen(QWidget):
 
     def remove_display_field(self, widget):
         """Remove a field from display tab"""
-        # Find and remove from tracking
-        for field_data in self.display_fields:
-            if (field_data['field_name'] == widget.field_data['field_name'] and
-                field_data['table_name'] == widget.field_data['table_name']):
-                self.display_fields.remove(field_data)
-                break
+        try:
+            # Find and remove from tracking by matching the widget's field_data
+            field_to_remove = None
+            for field_data in self.display_fields:
+                # Match on key identifying fields
+                if (field_data.get('field_name') == widget.field_data.get('field_name') and
+                    field_data.get('table_name') == widget.field_data.get('table_name') and
+                    field_data.get('datasource_alias') == widget.field_data.get('datasource_alias')):
+                    field_to_remove = field_data
+                    break
+            
+            if field_to_remove:
+                self.display_fields.remove(field_to_remove)
+                logger.info(f"Removed display field: {field_to_remove.get('field_name')}")
 
-        # Remove widget
-        self.display_layout.removeWidget(widget)
-        widget.deleteLater()
-        
-        # Update datasources tab (removes datasources no longer in use)
-        self._update_datasources_from_fields()
+            # Remove widget
+            self.display_layout.removeWidget(widget)
+            widget.deleteLater()
+            
+            # Update datasources tab (removes datasources no longer in use)
+            self._update_datasources_from_fields()
+            
+        except Exception as e:
+            logger.error(f"Error removing display field: {e}", exc_info=True)
 
     def add_criteria_filter(self, field_data: dict):
         """Add a filter widget to criteria tab"""
         # Create filter widget
         filter_widget = XDBCriteriaFilterWidget(field_data, self)
-        filter_widget.remove_requested.connect(lambda: self.remove_criteria_filter(filter_widget))
+        filter_widget.remove_requested.connect(lambda w=filter_widget: self.remove_criteria_filter(w))
 
         # Add to the end (bottom) of the layout
         self.criteria_layout.addWidget(filter_widget)
@@ -878,12 +1296,20 @@ class XDBQueryScreen(QWidget):
 
     def remove_criteria_filter(self, widget):
         """Remove a filter widget from criteria tab"""
-        self.criteria_widgets.remove(widget)
-        self.criteria_layout.removeWidget(widget)
-        widget.deleteLater()
-        
-        # Update datasources tab (removes datasources no longer in use)
-        self._update_datasources_from_fields()
+        try:
+            if widget in self.criteria_widgets:
+                self.criteria_widgets.remove(widget)
+            
+            self.criteria_layout.removeWidget(widget)
+            widget.deleteLater()
+            
+            # Update datasources tab (removes datasources no longer in use)
+            self._update_datasources_from_fields()
+            
+            logger.info("Removed criteria filter")
+            
+        except Exception as e:
+            logger.error(f"Error removing criteria filter: {e}", exc_info=True)
     
     def _update_datasources_from_fields(self):
         """
@@ -1045,134 +1471,25 @@ class XDBQueryScreen(QWidget):
             logger.info(f"Added datasource: {alias} -> {conn['connection_name']}.{table['table_name']}")
     
     def _add_join(self):
-        """Add a join configuration between two datasources"""
+        """Add an inline join configuration widget between datasources"""
         if len(self.datasources) < 2:
             QMessageBox.warning(self, "Not Enough Datasources", "You need at least 2 datasources to create a join.")
             return
         
-        from PyQt6.QtWidgets import QDialog, QFormLayout, QDialogButtonBox
+        # Create inline join widget
+        join_widget = XDBJoinWidget(self.datasources, self)
+        join_widget.remove_requested.connect(lambda: self._remove_join_widget(join_widget))
         
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Add Join")
-        dialog.setModal(True)
-        dialog.setMinimumWidth(450)
+        # Add to joins layout
+        self.joins_layout.addWidget(join_widget)
         
-        layout = QVBoxLayout(dialog)
-        form = QFormLayout()
-        
-        # Join type
-        join_type_combo = QComboBox()
-        join_type_combo.addItems(["INNER", "LEFT", "RIGHT", "FULL"])
-        form.addRow("Join Type:", join_type_combo)
-        
-        # Left datasource
-        left_ds_combo = QComboBox()
-        for ds in self.datasources:
-            left_ds_combo.addItem(ds['alias'], ds)
-        form.addRow("Left Datasource:", left_ds_combo)
-        
-        # Left column
-        left_col_combo = QComboBox()
-        
-        # Right datasource
-        right_ds_combo = QComboBox()
-        for ds in self.datasources:
-            right_ds_combo.addItem(ds['alias'], ds)
-        form.addRow("Right Datasource:", right_ds_combo)
-        
-        # Right column
-        right_col_combo = QComboBox()
-        
-        form.addRow("Left Column:", left_col_combo)
-        form.addRow("Right Column:", right_col_combo)
-        
-        def update_left_columns():
-            left_col_combo.clear()
-            ds = left_ds_combo.currentData()
-            if ds:
-                try:
-                    cols = self.schema_discovery.get_columns(
-                        ds['connection']['connection_id'],
-                        ds['table_name'],
-                        ds.get('schema_name')
-                    )
-                    for c in cols:
-                        left_col_combo.addItem(c['column_name'], c['column_name'])
-                except Exception as e:
-                    logger.error(f"Failed to load columns: {e}")
-        
-        def update_right_columns():
-            right_col_combo.clear()
-            ds = right_ds_combo.currentData()
-            if ds:
-                try:
-                    cols = self.schema_discovery.get_columns(
-                        ds['connection']['connection_id'],
-                        ds['table_name'],
-                        ds.get('schema_name')
-                    )
-                    for c in cols:
-                        right_col_combo.addItem(c['column_name'], c['column_name'])
-                except Exception as e:
-                    logger.error(f"Failed to load columns: {e}")
-        
-        left_ds_combo.currentIndexChanged.connect(update_left_columns)
-        right_ds_combo.currentIndexChanged.connect(update_right_columns)
-        
-        # Initial population
-        if len(self.datasources) > 0:
-            update_left_columns()
-        if len(self.datasources) > 1:
-            right_ds_combo.setCurrentIndex(1)
-            update_right_columns()
-        
-        layout.addLayout(form)
-        
-        # Buttons
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-        
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            join_type = join_type_combo.currentText()
-            left_ds = left_ds_combo.currentData()
-            right_ds = right_ds_combo.currentData()
-            left_col = left_col_combo.currentData()
-            right_col = right_col_combo.currentData()
-            
-            if not all([left_ds, right_ds, left_col, right_col]):
-                QMessageBox.warning(self, "Incomplete Join", "Please fill all join fields.")
-                return
-            
-            # Create join widget
-            self._create_join_widget(join_type, left_ds['alias'], left_col, right_ds['alias'], right_col)
-    
-    def _create_join_widget(self, join_type: str, left_alias: str, left_col: str, right_alias: str, right_col: str):
-        """Create a visual widget for a join"""
-        join_frame = QFrame()
-        join_frame.setFrameShape(QFrame.Shape.Box)
-        join_frame.setStyleSheet("QFrame { background: white; border: 1px solid #ddd; border-radius: 4px; padding: 10px; }")
-        
-        join_layout = QVBoxLayout(join_frame)
-        
-        # Join description
-        join_text = QLabel(f"<b>{join_type} JOIN</b>: {left_alias}.{left_col} = {right_alias}.{right_col}")
-        join_layout.addWidget(join_text)
-        
-        # Remove button
-        remove_btn = QPushButton("✕ Remove")
-        remove_btn.setMaximumWidth(80)
-        remove_btn.clicked.connect(lambda: self._remove_join_widget(join_frame))
-        join_layout.addWidget(remove_btn)
-        
-        self.joins_layout.addWidget(join_frame)
-        logger.info(f"Added join: {join_type} {left_alias}.{left_col} = {right_alias}.{right_col}")
+        logger.info("Added inline JOIN widget")
     
     def _remove_join_widget(self, widget: QWidget):
         """Remove a join widget"""
         self.joins_layout.removeWidget(widget)
         widget.deleteLater()
+        logger.info("Removed JOIN widget")
     
     def _update_datasources_label(self):
         """Update the datasources involved label with Datasource.TableName format"""
@@ -1207,43 +1524,78 @@ class XDBQueryScreen(QWidget):
     def _execute_xdb_query(self, limit: Optional[int]):
         """Build and execute the XDB query"""
         try:
-            # Validate we have at least 2 datasources
-            if len(self.datasources) < 2:
-                QMessageBox.warning(self, "Not Enough Datasources", "Please add at least 2 datasources in the Datasources tab.")
+            # Validate we have at least 1 datasource
+            if len(self.datasources) < 1:
+                QMessageBox.warning(self, "No Datasources", "Please add at least 1 datasource in the Datasources tab.")
                 return
             
-            # For now, use first two datasources (will enhance for N-way joins later)
-            source_a_ds = self.datasources[0]
-            source_b_ds = self.datasources[1]
+            # Extract display columns from Display tab
+            display_columns = []
+            datasource_columns = {}  # Track which columns belong to which datasource
             
-            # Build source configs
-            source_a = {
-                'connection': source_a_ds['connection'],
-                'table_name': source_a_ds['table_name'],
-                'schema_name': source_a_ds.get('schema_name'),
-                'columns': ['*'],  # TODO: Get from Display tab
-                'filters': []  # TODO: Get from Criteria tab
-            }
+            for field_data in self.display_fields:
+                datasource_alias = field_data.get('datasource_alias', '')
+                field_name = field_data.get('field_name', '')
+                
+                if datasource_alias and field_name:
+                    if datasource_alias not in datasource_columns:
+                        datasource_columns[datasource_alias] = []
+                    datasource_columns[datasource_alias].append(field_name)
             
-            source_b = {
-                'connection': source_b_ds['connection'],
-                'table_name': source_b_ds['table_name'],
-                'schema_name': source_b_ds.get('schema_name'),
-                'columns': ['*'],  # TODO: Get from Display tab
-                'filters': []  # TODO: Get from Criteria tab
-            }
+            # Extract criteria filters from Criteria tab
+            datasource_filters = {}  # Track which filters belong to which datasource
             
-            # Build join config - extract from first join widget
-            # TODO: Parse join widgets properly
-            join_config = {
-                'type': 'INNER',  # Default for now
-                'keys_a': ['PolicyNumber'],  # TODO: Extract from joins
-                'keys_b': ['PolicyNumber']  # TODO: Extract from joins
-            }
+            for widget in self.criteria_widgets:
+                filter_condition = widget.get_filter_condition()
+                if filter_condition:
+                    datasource_alias = widget.field_data.get('datasource_alias', '')
+                    
+                    if datasource_alias:
+                        if datasource_alias not in datasource_filters:
+                            datasource_filters[datasource_alias] = []
+                        
+                        # Create filter dict for query executor
+                        filter_dict = {
+                            'column': filter_condition['field_name'],
+                            'operator': filter_condition['operator'],
+                            'value': filter_condition['value']
+                        }
+                        datasource_filters[datasource_alias].append(filter_dict)
             
-            # Execute
-            logger.info(f"Executing XDB query with limit={limit}")
-            result_df = self.xdb_executor.execute_cross_query(source_a, source_b, join_config, limit)
+            logger.info(f"Display columns by datasource: {datasource_columns}")
+            logger.info(f"Filters by datasource: {datasource_filters}")
+            
+            # Handle any number of datasources (1 or more)
+            # Build list of all source configs
+            source_configs = []
+            for ds in self.datasources:
+                # Use explicit columns for this datasource if provided; otherwise, pass empty list
+                ds_alias = ds['alias']
+                ds_columns = datasource_columns.get(ds_alias, [])
+                source_config = {
+                    'connection': ds['connection'],
+                    'table_name': ds['table_name'],
+                    'schema_name': ds.get('schema_name'),
+                    'alias': ds_alias,
+                    'columns': ds_columns,
+                    'filters': datasource_filters.get(ds_alias, [])
+                }
+                source_configs.append(source_config)
+            
+            # Extract join configs from Joins tab (empty list if no joins)
+            join_configs = []
+            for i in range(self.joins_layout.count()):
+                join_widget = self.joins_layout.itemAt(i).widget()
+                if join_widget and hasattr(join_widget, 'get_join_config'):
+                    join_config = join_widget.get_join_config()
+                    if join_config:
+                        join_configs.append(join_config)
+            
+            logger.info(f"Executing XDB query with {len(source_configs)} datasource(s)")
+            logger.info(f"Join configs: {join_configs}")
+            
+            # Execute using XDB executor (handles N datasources flexibly)
+            result_df = self.xdb_executor.execute_query(source_configs, join_configs, limit)
             
             # Show results
             self._show_results(result_df, limit)
@@ -1275,32 +1627,132 @@ class XDBQueryScreen(QWidget):
     
     def _save_query(self):
         """Save current XDB query configuration"""
-        QMessageBox.information(
-            self, 
-            "Save Query", 
-            "Save XDB query functionality coming soon.\n\nThis will save your table selections, field configurations, joins, and filters."
-        )
+        try:
+            # Validate we have necessary components
+            validation_errors = []
+            
+            if not self.datasources:
+                validation_errors.append("No datasources added (add datasources in Datasources tab)")
+            
+            if not self.display_fields:
+                validation_errors.append("No display fields selected (add fields to Display tab)")
+            
+            if validation_errors:
+                QMessageBox.warning(
+                    self,
+                    "Query Validation Failed",
+                    "Please fix the following issues before saving:\n\n" + "\n".join(validation_errors)
+                )
+                return
+            
+            # Prompt for query name if not already named
+            current_name = self.query_name_label.text()
+            if not current_name or current_name == "unnamed":
+                query_name, ok = QInputDialog.getText(
+                    self, "Save Query", "Enter a name for this XDB query:"
+                )
+                
+                if not ok or not query_name.strip():
+                    return
+                
+                query_name = query_name.strip()
+            else:
+                query_name = current_name
+            
+            # Build query definition dictionary
+            query_dict = self._build_query_definition()
+            
+            # Save to database
+            query_id = self.query_repo.save_query(
+                query_name=query_name,
+                query_type='XDB',
+                query_definition=query_dict,
+                category='User Queries'
+            )
+            
+            # Update display
+            self.query_name_label.setText(query_name)
+            self.query_name_label.setStyleSheet("""
+                QLabel {
+                    color: #2c3e50;
+                    font-size: 16px;
+                    font-weight: bold;
+                    padding: 5px 20px;
+                }
+            """)
+            
+            QMessageBox.information(
+                self,
+                "Query Saved",
+                f"XDB Query '{query_name}' has been saved successfully!"
+            )
+            
+            # Refresh XDB queries list
+            self._load_xdb_queries_tree()
+            
+            logger.info(f"Saved XDB query: {query_name} (ID: {query_id})")
+            
+        except Exception as e:
+            logger.error(f"Error saving XDB query: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Save Failed",
+                f"Failed to save XDB query:\n{str(e)}"
+            )
+    
+    def _build_query_definition(self) -> dict:
+        """Build query definition dictionary from current UI state"""
+        query_dict = {
+            'datasources': [],
+            'display_fields': [],
+            'criteria': [],
+            'joins': [],
+            'from_datasource': self.from_datasource_combo.currentText()
+        }
+        
+        # Save datasources
+        for ds in self.datasources:
+            query_dict['datasources'].append({
+                'alias': ds['alias'],
+                'connection_id': ds['connection']['connection_id'],
+                'connection_name': ds['connection']['connection_name'],
+                'table_name': ds['table_name'],
+                'schema_name': ds.get('schema_name')
+            })
+        
+        # Save display fields
+        for field_data in self.display_fields:
+            query_dict['display_fields'].append({
+                'field_name': field_data['field_name'],
+                'data_type': field_data['data_type'],
+                'table_name': field_data['table_name'],
+                'schema_name': field_data.get('schema_name'),
+                'datasource_alias': field_data.get('datasource_alias')
+            })
+        
+        # Save criteria filters
+        for widget in self.criteria_widgets:
+            filter_condition = widget.get_filter_condition()
+            if filter_condition:
+                # Include datasource alias
+                filter_condition['datasource_alias'] = widget.field_data.get('datasource_alias')
+                filter_condition['schema_name'] = widget.field_data.get('schema_name')
+                filter_condition['data_type'] = widget.field_data.get('data_type')
+                query_dict['criteria'].append(filter_condition)
+        
+        # Save joins
+        for i in range(self.joins_layout.count()):
+            widget = self.joins_layout.itemAt(i).widget()
+            if widget and hasattr(widget, 'get_join_config'):
+                join_config = widget.get_join_config()
+                if join_config and join_config.get('on_conditions'):
+                    query_dict['joins'].append(join_config)
+        
+        return query_dict
     
     def _new_query(self):
         """Clear the query builder and start a new query"""
-        # Clear display fields
-        for widget in self.display_fields[:]:
-            widget.deleteLater()
-        self.display_fields.clear()
-        
-        # Clear criteria widgets
-        for widget in self.criteria_widgets[:]:
-            widget.deleteLater()
-        self.criteria_widgets.clear()
-        
-        # Clear selected tables
-        self.tables_tree.clear()
-        self.selected_tables.clear()
-        self._update_tables_header()
-        
-        # Reset query name
-        self.query_name_label.setText("unnamed")
-        
+        self._clear_query()
         logger.info("Query builder cleared - ready for new query")
 
 
@@ -1319,77 +1771,179 @@ class XDBDisplayFieldWidget(QFrame):
     def init_ui(self):
         """Initialize UI"""
         self.setFrameStyle(QFrame.Shape.Box)
-        self.setStyleSheet("""
-            XDBDisplayFieldWidget {
+        
+        # Store default background for toggling
+        self.default_bg = "white"
+        self.aggregated_bg = "#FFE5CC"  # Light orange
+        
+        self.setStyleSheet(f"""
+            XDBDisplayFieldWidget {{
                 border: 1px solid #ddd;
                 border-radius: 4px;
-                background: white;
-                padding: 5px;
-            }
+                background: {self.default_bg};
+                padding: 0px;
+            }}
         """)
         
-        # Prevent widget from expanding
-        self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
-        self.setMaximumHeight(40)
+        # Fixed size for tile layout
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setFixedWidth(200)
+        self.setFixedHeight(95)
 
-        layout = QHBoxLayout(self)
-        layout.setSpacing(5)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(1)
+        layout.setContentsMargins(4, 2, 4, 2)
 
-        # Field name label container (two lines: field name on top, table name below)
-        label_container = QWidget()
-        label_layout = QVBoxLayout(label_container)
-        label_layout.setSpacing(0)
-        label_layout.setContentsMargins(0, 0, 0, 0)
+        # Header row: Field name, data type, and remove button
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(3)
         
-        # Field name (bold, on top)
+        # Field name (bold)
         field_label = QLabel(self.field_data['field_name'])
-        field_label.setStyleSheet("font-weight: bold; font-size: 11px;")
-        label_layout.addWidget(field_label)
+        field_label.setStyleSheet("font-weight: bold; font-size: 11px; background: transparent;")
+        field_label.setWordWrap(True)
+        header_layout.addWidget(field_label)
         
-        # Table name in "Datasource.TableName" format (smaller, gray, below)
-        datasource_alias = self.field_data.get('datasource_alias', '')
-        table_name = self.field_data['table_name']
-        if datasource_alias:
-            display_table = f"{datasource_alias}.{table_name}"
-        else:
-            display_table = table_name
-        
-        table_label = QLabel(display_table)
-        table_label.setStyleSheet("color: #7f8c8d; font-size: 9px;")
-        label_layout.addWidget(table_label)
-        
-        label_container.setMinimumWidth(150)
-        label_container.setMaximumWidth(250)
-        layout.addWidget(label_container)
-
-        # Type label (compact)
+        # Data type (subtle, in header)
         type_label = QLabel(f"({self.field_data['data_type']})")
-        type_label.setStyleSheet("color: #7f8c8d; font-size: 9px;")
-        type_label.setMaximumWidth(80)
-        layout.addWidget(type_label)
-
-        # Add stretch to push remove button to the right
-        layout.addStretch()
-
-        # Remove button with white X, right-justified
-        remove_btn = QPushButton("X")
-        remove_btn.setFixedSize(25, 25)
+        type_label.setStyleSheet("color: #999; font-size: 8px; background: transparent;")
+        header_layout.addWidget(type_label)
+        
+        header_layout.addStretch()
+        
+        # Subtle remove button with X
+        remove_btn = QPushButton("×")
+        remove_btn.setFixedSize(14, 14)
         remove_btn.setStyleSheet("""
             QPushButton {
-                background: #e74c3c;
-                color: white;
+                background: transparent;
+                color: #999;
                 border: none;
-                border-radius: 3px;
-                font-size: 12px;
-                font-weight: bold;
+                font-size: 16px;
+                font-weight: normal;
+                padding: 0px;
             }
             QPushButton:hover {
-                background: #c0392b;
+                color: #e74c3c;
             }
         """)
         remove_btn.clicked.connect(self.remove_requested.emit)
-        layout.addWidget(remove_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        header_layout.addWidget(remove_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        
+        layout.addLayout(header_layout)
+        
+        # Alias input field (editable)
+        alias_layout = QHBoxLayout()
+        alias_layout.setSpacing(2)
+        alias_label = QLabel("Alias:")
+        alias_label.setStyleSheet("font-size: 9px; color: #7f8c8d; background: transparent;")
+        alias_layout.addWidget(alias_label)
+        
+        self.alias_input = QLineEdit()
+        self.alias_input.setText(self.field_data['field_name'])  # Default to field name
+        self.alias_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 9px;
+                padding: 1px 2px;
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 2px;
+            }
+        """)
+        self.alias_input.setMaximumHeight(16)
+        alias_layout.addWidget(self.alias_input)
+        
+        layout.addLayout(alias_layout)
+        
+        # Table name in "Datasource.TableName" format
+        datasource_alias = self.field_data.get('datasource_alias', '')
+        table_name = self.field_data['table_name']
+        if datasource_alias:
+            display_table = f"📋 {datasource_alias}.{table_name}"
+        else:
+            display_table = f"📋 {table_name}"
+        
+        table_label = QLabel(display_table)
+        table_label.setStyleSheet("color: #7f8c8d; font-size: 9px; background: transparent;")
+        layout.addWidget(table_label)
+
+        # Bottom row: Agg and Order on same line
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(4)
+        
+        # Aggregation combobox
+        agg_label = QLabel("Agg:")
+        agg_label.setStyleSheet("font-size: 9px; color: #7f8c8d; background: transparent;")
+        controls_layout.addWidget(agg_label)
+        
+        self.agg_combo = QComboBox()
+        # Populate based on data type
+        data_type_lower = self.field_data['data_type'].lower()
+        if any(t in data_type_lower for t in ['char', 'varchar', 'text', 'string', 'clob']):
+            # String types
+            self.agg_combo.addItems(["None", "First", "Last", "Count"])
+        else:
+            # Numeric types (int, decimal, float, double, etc.)
+            self.agg_combo.addItems(["None", "Sum", "Max", "Min", "Avg", "First", "Last", "Count"])
+        
+        self.agg_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 9px;
+                padding: 1px;
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 2px;
+            }
+        """)
+        self.agg_combo.setMaximumHeight(16)
+        self.agg_combo.setMaximumWidth(60)
+        self.agg_combo.currentTextChanged.connect(self.on_agg_changed)
+        controls_layout.addWidget(self.agg_combo)
+        
+        # Order combobox
+        order_label = QLabel("Order:")
+        order_label.setStyleSheet("font-size: 9px; color: #7f8c8d; background: transparent;")
+        controls_layout.addWidget(order_label)
+        
+        self.order_combo = QComboBox()
+        self.order_combo.addItems(["None", "Ascend", "Descend"])
+        self.order_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 9px;
+                padding: 1px;
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 2px;
+            }
+        """)
+        self.order_combo.setMaximumHeight(16)
+        self.order_combo.setMaximumWidth(60)
+        controls_layout.addWidget(self.order_combo)
+        
+        layout.addLayout(controls_layout)
+    
+    def on_agg_changed(self, text):
+        """Handle aggregation selection change"""
+        if text != "None":
+            # Apply light orange background when aggregated
+            self.setStyleSheet(f"""
+                XDBDisplayFieldWidget {{
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    background: {self.aggregated_bg};
+                    padding: 0px;
+                }}
+            """)
+        else:
+            # Restore white background
+            self.setStyleSheet(f"""
+                XDBDisplayFieldWidget {{
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    background: {self.default_bg};
+                    padding: 0px;
+                }}
+            """)
 
 
 class XDBCriteriaFilterWidget(QFrame):
@@ -1425,13 +1979,14 @@ class XDBCriteriaFilterWidget(QFrame):
 
         # Field name label container (two lines: field name on top, table name below)
         label_container = QWidget()
+        label_container.setStyleSheet("background: transparent;")
         label_layout = QVBoxLayout(label_container)
         label_layout.setSpacing(0)
         label_layout.setContentsMargins(0, 0, 0, 0)
         
         # Field name (bold, on top)
         self.field_label = QLabel(self.field_data['field_name'])
-        self.field_label.setStyleSheet("font-weight: bold; font-size: 11px;")
+        self.field_label.setStyleSheet("font-weight: bold; font-size: 11px; background: transparent;")
         label_layout.addWidget(self.field_label)
         
         # Table name in "Datasource.TableName" format (smaller, gray, below)
@@ -1443,7 +1998,7 @@ class XDBCriteriaFilterWidget(QFrame):
             display_table = table_name
         
         table_label = QLabel(display_table)
-        table_label.setStyleSheet("color: #7f8c8d; font-size: 9px;")
+        table_label.setStyleSheet("color: #7f8c8d; font-size: 9px; background: transparent;")
         label_layout.addWidget(table_label)
         
         label_container.setMinimumWidth(150)
@@ -1452,12 +2007,13 @@ class XDBCriteriaFilterWidget(QFrame):
 
         # Type label (smaller)
         type_label = QLabel(f"({self.field_data['data_type']})")
-        type_label.setStyleSheet("color: #7f8c8d; font-size: 9px;")
+        type_label.setStyleSheet("color: #7f8c8d; font-size: 9px; background: transparent;")
         type_label.setMaximumWidth(80)
         main_layout.addWidget(type_label)
 
         # Filter controls container
         self.controls_container = QWidget()
+        self.controls_container.setStyleSheet("background: transparent;")
         self.controls_layout = QHBoxLayout(self.controls_container)
         self.controls_layout.setContentsMargins(0, 0, 0, 0)
         self.controls_layout.setSpacing(5)
@@ -1467,11 +2023,13 @@ class XDBCriteriaFilterWidget(QFrame):
         self.operator_combo = QComboBox()
         self.operator_combo.addItems(["=", "!=", ">", "<", ">=", "<=", "LIKE", "IN"])
         self.operator_combo.setMaximumWidth(80)
+        self.operator_combo.setStyleSheet("background: white;")
         self.controls_layout.addWidget(self.operator_combo)
 
         self.value_input = QLineEdit()
         self.value_input.setPlaceholderText("Value...")
         self.value_input.setMaximumWidth(150)
+        self.value_input.setStyleSheet("background: white;")
         self.controls_layout.addWidget(self.value_input)
 
         # Add stretch to push remove button to the right
@@ -1504,4 +2062,327 @@ class XDBCriteriaFilterWidget(QFrame):
             'table_name': self.field_data['table_name'],
             'operator': self.operator_combo.currentText(),
             'value': self.value_input.text()
+        }
+
+
+class XDBJoinWidget(QFrame):
+    """Widget for configuring a single JOIN between datasources in XDB queries"""
+
+    remove_requested = pyqtSignal()
+
+    def __init__(self, datasources: list, parent=None):
+        super().__init__(parent)
+        self.datasources = datasources
+        self.parent_screen = parent
+        self.left_datasource = None
+        self.right_datasource = None
+        self.init_ui()
+
+    def init_ui(self):
+        """Initialize UI"""
+        self.setFrameStyle(QFrame.Shape.Box)
+        self.setStyleSheet("""
+            XDBJoinWidget {
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background: white;
+                padding: 10px;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+
+        # First row: JOIN type and right datasource
+        top_layout = QHBoxLayout()
+
+        # JOIN type
+        self.join_type_combo = QComboBox()
+        self.join_type_combo.addItems(["INNER JOIN", "LEFT OUTER JOIN", "RIGHT OUTER JOIN", "FULL OUTER JOIN"])
+        self.join_type_combo.setMinimumWidth(150)
+        self.join_type_combo.setMaximumHeight(22)
+        self.join_type_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+        """)
+        top_layout.addWidget(self.join_type_combo)
+
+        # Right datasource selection (the table being joined)
+        self.right_datasource_combo = QComboBox()
+        for ds in self.datasources:
+            display_name = f"{ds['alias']}.{ds['table_name']}"
+            self.right_datasource_combo.addItem(display_name, ds)
+        self.right_datasource_combo.setMinimumWidth(200)
+        self.right_datasource_combo.setMaximumHeight(22)
+        self.right_datasource_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+        """)
+        self.right_datasource_combo.currentIndexChanged.connect(self._on_right_datasource_changed)
+        top_layout.addWidget(self.right_datasource_combo)
+
+        top_layout.addStretch()
+
+        # Remove button with white X, right-justified
+        remove_btn = QPushButton("X")
+        remove_btn.setFixedSize(25, 25)
+        remove_btn.setStyleSheet("""
+            QPushButton {
+                background: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #c0392b;
+            }
+        """)
+        remove_btn.clicked.connect(self.remove_requested.emit)
+        top_layout.addWidget(remove_btn)
+
+        layout.addLayout(top_layout)
+
+        # Container for ON conditions (can have multiple)
+        self.on_conditions_container = QWidget()
+        self.on_conditions_layout = QVBoxLayout(self.on_conditions_container)
+        self.on_conditions_layout.setContentsMargins(0, 0, 0, 0)
+        self.on_conditions_layout.setSpacing(5)
+        
+        # Store ON condition rows
+        self.on_condition_rows = []
+        
+        # Add first ON condition row
+        self._add_on_condition_row()
+        
+        layout.addWidget(self.on_conditions_container)
+        
+        # Add button for additional ON conditions
+        add_on_btn = QPushButton("+ Add ON Condition")
+        add_on_btn.setObjectName("gold_button")
+        add_on_btn.setMaximumWidth(150)
+        add_on_btn.clicked.connect(self._add_on_condition_row)
+        layout.addWidget(add_on_btn)
+        
+        # Load initial field lists
+        self._load_field_lists()
+
+    def _add_on_condition_row(self):
+        """Add a new ON condition row"""
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(5)
+        
+        # ON label (only on first row)
+        if len(self.on_condition_rows) == 0:
+            on_label = QLabel("ON:")
+            on_label.setStyleSheet("font-weight: bold; font-size: 10px;")
+            on_label.setMinimumWidth(30)
+            row_layout.addWidget(on_label)
+        else:
+            # AND label for additional conditions
+            and_label = QLabel("AND:")
+            and_label.setStyleSheet("font-weight: bold; font-size: 10px; color: #7f8c8d;")
+            and_label.setMinimumWidth(30)
+            row_layout.addWidget(and_label)
+        
+        # Left datasource dropdown
+        left_datasource_combo = QComboBox()
+        for ds in self.datasources:
+            display_name = f"{ds['alias']}.{ds['table_name']}"
+            left_datasource_combo.addItem(display_name, ds)
+        left_datasource_combo.setMinimumWidth(150)
+        left_datasource_combo.setMaximumHeight(22)
+        left_datasource_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+        """)
+        row_layout.addWidget(left_datasource_combo)
+        
+        # Left field dropdown
+        left_field_combo = QComboBox()
+        left_field_combo.setMinimumWidth(150)
+        left_field_combo.setMaximumHeight(22)
+        left_field_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+        """)
+        row_layout.addWidget(left_field_combo)
+
+        # Equals label
+        equals_label = QLabel("=")
+        equals_label.setStyleSheet("font-weight: bold;")
+        row_layout.addWidget(equals_label)
+        
+        # Right datasource dropdown (for the right side of the join condition)
+        right_datasource_combo = QComboBox()
+        for ds in self.datasources:
+            display_name = f"{ds['alias']}.{ds['table_name']}"
+            right_datasource_combo.addItem(display_name, ds)
+        right_datasource_combo.setMinimumWidth(150)
+        right_datasource_combo.setMaximumHeight(22)
+        right_datasource_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+        """)
+        row_layout.addWidget(right_datasource_combo)
+
+        # Right field dropdown
+        right_field_combo = QComboBox()
+        right_field_combo.setMinimumWidth(150)
+        right_field_combo.setMaximumHeight(22)
+        right_field_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+        """)
+        row_layout.addWidget(right_field_combo)
+        
+        # Remove button (only for additional rows)
+        if len(self.on_condition_rows) > 0:
+            remove_on_btn = QPushButton("×")
+            remove_on_btn.setFixedSize(22, 22)
+            remove_on_btn.setStyleSheet("""
+                QPushButton {
+                    background: #95a5a6;
+                    color: white;
+                    border: none;
+                    border-radius: 3px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: #7f8c8d;
+                }
+            """)
+            remove_on_btn.clicked.connect(lambda: self._remove_on_condition_row(row_widget))
+            row_layout.addWidget(remove_on_btn)
+        
+        row_layout.addStretch()
+        
+        # Connect datasource changes to update field lists
+        left_datasource_combo.currentIndexChanged.connect(
+            lambda: self._update_left_fields(left_datasource_combo, left_field_combo)
+        )
+        right_datasource_combo.currentIndexChanged.connect(
+            lambda: self._update_right_fields(right_datasource_combo, right_field_combo)
+        )
+        
+        # Store references
+        row_data = {
+            'widget': row_widget,
+            'left_datasource_combo': left_datasource_combo,
+            'left_field_combo': left_field_combo,
+            'right_datasource_combo': right_datasource_combo,
+            'right_field_combo': right_field_combo
+        }
+        self.on_condition_rows.append(row_data)
+        
+        # Add to layout
+        self.on_conditions_layout.addWidget(row_widget)
+        
+        # Populate the field combos for the new row
+        if len(self.datasources) > 0:
+            self._update_left_fields(left_datasource_combo, left_field_combo)
+            if len(self.datasources) > 1:
+                right_datasource_combo.setCurrentIndex(1)
+            self._update_right_fields(right_datasource_combo, right_field_combo)
+
+    def _remove_on_condition_row(self, row_widget):
+        """Remove an ON condition row"""
+        # Find and remove from list
+        for i, row_data in enumerate(self.on_condition_rows):
+            if row_data['widget'] == row_widget:
+                self.on_condition_rows.pop(i)
+                break
+        
+        # Remove widget
+        self.on_conditions_layout.removeWidget(row_widget)
+        row_widget.deleteLater()
+
+    def _on_right_datasource_changed(self):
+        """Handle right datasource selection change"""
+        self.right_datasource = self.right_datasource_combo.currentData()
+        self._load_field_lists()
+
+    def _load_field_lists(self):
+        """Load fields for all datasources in ON conditions"""
+        for row_data in self.on_condition_rows:
+            self._update_left_fields(
+                row_data['left_datasource_combo'],
+                row_data['left_field_combo']
+            )
+            self._update_right_fields(
+                row_data['right_datasource_combo'],
+                row_data['right_field_combo']
+            )
+
+    def _update_left_fields(self, datasource_combo: QComboBox, field_combo: QComboBox):
+        """Update left field combo based on selected datasource"""
+        field_combo.clear()
+        ds = datasource_combo.currentData()
+        if ds:
+            fields = self._get_datasource_fields(ds)
+            field_combo.addItems(fields)
+
+    def _update_right_fields(self, datasource_combo: QComboBox, field_combo: QComboBox):
+        """Update right field combo based on selected datasource"""
+        field_combo.clear()
+        ds = datasource_combo.currentData()
+        if ds:
+            fields = self._get_datasource_fields(ds)
+            field_combo.addItems(fields)
+
+    def _get_datasource_fields(self, datasource: dict) -> list:
+        """Get list of fields for a datasource"""
+        if not self.parent_screen or not hasattr(self.parent_screen, 'schema_discovery'):
+            return []
+        
+        try:
+            connection = datasource['connection']
+            connection_id = connection['connection_id']
+            table_name = datasource['table_name']
+            schema_name = datasource.get('schema_name', '')
+            
+            columns = self.parent_screen.schema_discovery.get_columns(
+                connection_id, table_name, schema_name
+            )
+            return [col['column_name'] for col in columns]
+        except Exception as e:
+            logger.error(f"Error loading fields for datasource {datasource.get('alias', 'unknown')}: {e}")
+            return []
+
+    def get_join_config(self):
+        """Get JOIN configuration as dict"""
+        on_conditions = []
+        for row_data in self.on_condition_rows:
+            left_ds = row_data['left_datasource_combo'].currentData()
+            left_field = row_data['left_field_combo'].currentText()
+            right_ds = row_data['right_datasource_combo'].currentData()
+            right_field = row_data['right_field_combo'].currentText()
+            
+            if left_ds and left_field and right_ds and right_field:
+                on_conditions.append({
+                    'left_datasource': left_ds['alias'],
+                    'left_field': left_field,
+                    'right_datasource': right_ds['alias'],
+                    'right_field': right_field
+                })
+        
+        return {
+            'join_type': self.join_type_combo.currentText(),
+            'right_datasource': self.right_datasource_combo.currentData(),
+            'on_conditions': on_conditions
         }
