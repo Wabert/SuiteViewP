@@ -650,3 +650,143 @@ class QueryExecutor:
             SQL query string
         """
         return self._build_sql(query)
+
+    def execute_raw_sql(self, connection_id: int, table_name: str, schema_name: str = None, limit: int = None) -> pd.DataFrame:
+        """
+        Execute a raw SELECT * query with optional limit
+        
+        This is a centralized method for executing simple queries across all connection types
+        (CSV, Excel, Access, DB2, SQL Server). All code that needs to query data should use this
+        method to avoid duplication.
+        
+        Args:
+            connection_id: Connection ID
+            table_name: Table/file name to query
+            schema_name: Schema name (optional, for DB2)
+            limit: Optional row limit
+            
+        Returns:
+            Pandas DataFrame with results
+            
+        Raises:
+            Exception: If query execution fails
+        """
+        import os
+        import warnings
+        
+        start_time = time.time()
+        
+        try:
+            # Get connection info
+            connection = self.conn_manager.repo.get_connection(connection_id)
+            conn_type = connection.get('connection_type', '')
+            
+            logger.info(f"Executing raw query - Type: {conn_type}, Table: {table_name}, Limit: {limit}")
+            
+            # Handle file-based connections (CSV, Excel, Access)
+            if conn_type == 'CSV':
+                folder_path = connection.get('connection_string', '')
+                csv_path = os.path.join(folder_path, f"{table_name}.csv")
+                
+                if not os.path.exists(csv_path):
+                    raise ValueError(f"CSV file not found: {csv_path}")
+                
+                logger.info(f"Loading CSV file: {csv_path}")
+                
+                if limit:
+                    df = pd.read_csv(csv_path, nrows=limit)
+                else:
+                    df = pd.read_csv(csv_path)
+                    
+                self.last_sql = "CSV File Query (no SQL generated)"
+            
+            elif conn_type == 'EXCEL':
+                file_path = connection.get('connection_string', '')
+                
+                if not os.path.exists(file_path):
+                    raise ValueError(f"Excel file not found: {file_path}")
+                
+                logger.info(f"Loading Excel file: {file_path}, sheet: {table_name}")
+                
+                if limit:
+                    df = pd.read_excel(file_path, sheet_name=table_name, nrows=limit)
+                else:
+                    df = pd.read_excel(file_path, sheet_name=table_name)
+                    
+                self.last_sql = "Excel File Query (no SQL generated)"
+            
+            elif conn_type == 'ACCESS':
+                import pyodbc
+                file_path = connection.get('connection_string', '')
+                
+                if not os.path.exists(file_path):
+                    raise ValueError(f"Access file not found: {file_path}")
+                
+                logger.info(f"Loading Access table: {table_name}")
+                
+                # Build Access connection string
+                conn_str = f"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={file_path};"
+                
+                # Build SQL with limit
+                if limit:
+                    sql = f"SELECT TOP {limit} * FROM [{table_name}]"
+                else:
+                    sql = f"SELECT * FROM [{table_name}]"
+                
+                self.last_sql = sql
+                logger.info(f"Executing SQL: {sql}")
+                
+                # Execute query
+                with pyodbc.connect(conn_str) as access_conn:
+                    df = pd.read_sql(sql, access_conn)
+            
+            else:
+                # Database query (DB2, SQL Server, etc.)
+                # Build table reference with schema if provided
+                if schema_name and conn_type == 'DB2':
+                    table_ref = f"{schema_name}.{table_name}"
+                else:
+                    table_ref = table_name
+                
+                # Build SQL with proper syntax for each database type
+                if conn_type == 'DB2':
+                    # IMPORTANT: Use LIMIT syntax for DB2, NOT "FETCH FIRST n ROWS ONLY"
+                    # The ODBC Shadow driver we use requires LIMIT syntax to work properly.
+                    # DO NOT CHANGE THIS to FETCH - it will cause "ILLEGAL USE OF KEYWORD FETCH" errors.
+                    if limit:
+                        sql = f"SELECT * FROM {table_ref} LIMIT {limit}"
+                    else:
+                        sql = f"SELECT * FROM {table_ref}"
+                else:
+                    # For SQL Server use TOP
+                    if limit:
+                        sql = f"SELECT TOP {limit} * FROM {table_ref}"
+                    else:
+                        sql = f"SELECT * FROM {table_ref}"
+                
+                self.last_sql = sql
+                logger.info(f"Executing SQL: {sql}")
+                
+                # Execute query - use pyodbc directly for DB2, SQLAlchemy for others
+                if conn_type == 'DB2':
+                    df = self._execute_db2_query(sql, connection)
+                else:
+                    # For other databases, use SQLAlchemy engine
+                    engine = self.conn_manager.get_engine(connection_id)
+                    from sqlalchemy import text
+                    
+                    with engine.connect() as conn:
+                        df = pd.read_sql_query(text(sql), conn)
+            
+            # Update metadata
+            self.last_execution_time = int((time.time() - start_time) * 1000)
+            self.last_record_count = len(df)
+            
+            logger.info(f"Query executed successfully: {self.last_record_count} rows in {self.last_execution_time}ms")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Raw SQL execution failed: {e}")
+            logger.error(f"SQL: {self.last_sql if hasattr(self, 'last_sql') and self.last_sql else 'N/A'}")
+            raise

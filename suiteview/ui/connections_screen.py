@@ -743,144 +743,30 @@ class ConnectionsScreen(QWidget):
         self._show_table_data(limit=None)
     
     def _show_table_data(self, limit: int = None):
-        """Show table data with optional row limit"""
+        """Show table data with optional row limit
+        
+        Uses centralized QueryExecutor.execute_raw_sql() to avoid code duplication.
+        """
         if not self.current_table or not self.current_connection_id:
             QMessageBox.information(self, "No Table Selected", "Please select a table first.")
             return
         
         try:
-            import pandas as pd
-            import os
             from suiteview.ui.widgets.filter_table_view import FilterTableView
+            from suiteview.core.query_executor import QueryExecutor
             
             # Show progress cursor
             self.setCursor(Qt.CursorShape.WaitCursor)
             
             try:
-                # Get connection to check type
-                connection = self.conn_manager.repo.get_connection(self.current_connection_id)
-                conn_type = connection.get('connection_type', '')
-                
-                # Handle file-based connections differently (CSV, Excel, Access)
-                if conn_type == 'CSV':
-                    # Load CSV file directly
-                    # For CSV connections, folder path is stored in connection_string
-                    folder_path = connection.get('connection_string', '')
-                    csv_path = os.path.join(folder_path, f"{self.current_table}.csv")
-                    
-                    if not os.path.exists(csv_path):
-                        raise ValueError(f"CSV file not found: {csv_path}")
-                    
-                    logger.info(f"Loading CSV file: {csv_path}")
-                    
-                    # Load with optional row limit
-                    if limit:
-                        df = pd.read_csv(csv_path, nrows=limit)
-                    else:
-                        df = pd.read_csv(csv_path)
-                
-                elif conn_type == 'EXCEL':
-                    # Load Excel file directly
-                    file_path = connection.get('connection_string', '')
-                    
-                    if not os.path.exists(file_path):
-                        raise ValueError(f"Excel file not found: {file_path}")
-                    
-                    logger.info(f"Loading Excel file: {file_path}, sheet: {self.current_table}")
-                    
-                    # Load with optional row limit
-                    if limit:
-                        df = pd.read_excel(file_path, sheet_name=self.current_table, nrows=limit)
-                    else:
-                        df = pd.read_excel(file_path, sheet_name=self.current_table)
-                
-                elif conn_type == 'ACCESS':
-                    # For Access, we need to use pyodbc directly
-                    import pyodbc
-                    file_path = connection.get('connection_string', '')
-                    
-                    if not os.path.exists(file_path):
-                        raise ValueError(f"Access file not found: {file_path}")
-                    
-                    logger.info(f"Loading Access table: {self.current_table}")
-                    
-                    # Build Access connection string
-                    conn_str = f"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={file_path};"
-                    
-                    # Build SQL with limit
-                    if limit:
-                        sql = f"SELECT TOP {limit} * FROM [{self.current_table}]"
-                    else:
-                        sql = f"SELECT * FROM [{self.current_table}]"
-                    
-                    # Execute query
-                    with pyodbc.connect(conn_str) as access_conn:
-                        df = pd.read_sql(sql, access_conn)
-                    
-                else:
-                    # Database query (SQL Server, DB2, etc.)
-                    # Build SQL based on connection type
-                    if self.current_schema and conn_type == 'DB2':
-                        table_ref = f"{self.current_schema}.{self.current_table}"
-                    else:
-                        table_ref = self.current_table
-                    
-                    # Build SQL with proper syntax for each database type
-                    if conn_type == 'DB2':
-                        # IMPORTANT: Use LIMIT syntax for DB2, NOT "FETCH FIRST n ROWS ONLY"
-                        # The ODBC Shadow driver we use requires LIMIT syntax to work properly.
-                        # DO NOT CHANGE THIS to FETCH - it will cause "ILLEGAL USE OF KEYWORD FETCH" errors.
-                        if limit:
-                            sql = f"SELECT * FROM {table_ref} LIMIT {limit}"
-                        else:
-                            sql = f"SELECT * FROM {table_ref}"
-                    else:
-                        # For SQL Server use TOP
-                        if limit:
-                            sql = f"SELECT TOP {limit} * FROM {table_ref}"
-                        else:
-                            sql = f"SELECT * FROM {table_ref}"
-                    
-                    logger.info(f"Executing query: {sql}")
-                    
-                    # Print SQL to console for debugging
-                    print(f"\n{'='*80}")
-                    print(f"PREVIEW/SHOW ALL QUERY - Connection Type: {conn_type}")
-                    print(f"Table: {self.current_table}")
-                    print(f"Schema: {self.current_schema}")
-                    print(f"Limit: {limit}")
-                    print(f"SQL: {sql}")
-                    print(f"{'='*80}\n")
-                    
-                    # Execute query - use pyodbc directly for DB2, SQLAlchemy for others
-                    if conn_type == 'DB2':
-                        # For DB2, use pyodbc directly (same as query_executor.py)
-                        import pyodbc
-                        import warnings
-                        
-                        # Suppress pandas pyodbc warning
-                        warnings.filterwarnings('ignore', message='pandas only supports SQLAlchemy')
-                        
-                        # Get DSN from connection string
-                        dsn = connection.get('connection_string', '').replace('DSN=', '')
-                        if not dsn:
-                            raise ValueError("DB2 connection requires DSN")
-                        
-                        logger.info(f"Connecting to DB2 with DSN: {dsn}")
-                        conn_str = f"DSN={dsn}"
-                        
-                        # Connect and execute
-                        con = pyodbc.connect(conn_str)
-                        df = pd.read_sql(sql, con)
-                        con.close()
-                        
-                    else:
-                        # For other databases, use SQLAlchemy engine
-                        engine = self.conn_manager.get_engine(self.current_connection_id)
-                        from sqlalchemy import text
-                        
-                        with engine.connect() as conn:
-                            df = pd.read_sql_query(text(sql), conn)
+                # Use centralized query execution method
+                executor = QueryExecutor()
+                df = executor.execute_raw_sql(
+                    self.current_connection_id,
+                    self.current_table,
+                    self.current_schema,
+                    limit
+                )
                 
                 # Restore cursor
                 self.unsetCursor()
