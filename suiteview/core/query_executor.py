@@ -350,34 +350,93 @@ class QueryExecutor:
         connection = self.conn_manager.repo.get_connection(query.connection_id)
         connection_type = connection.get('connection_type', '') if connection else ''
         
-        # SELECT clause - qualify with table names ONLY if there are JOINs
+        # SELECT clause - determine if we need to qualify field names
+        # Qualify if: 1) there are JOINs, OR 2) multiple tables are involved
         select_fields = []
         has_joins = len(query.joins) > 0
+        
+        # Check for multiple tables in display fields and criteria
+        tables_involved = set()
+        for field in query.display_fields:
+            tables_involved.add(field['table_name'])
+        for criterion in query.criteria:
+            tables_involved.add(criterion.get('table_name', ''))
+        
+        # Qualify fields if there are JOINs OR multiple tables
+        needs_qualification = has_joins or len(tables_involved) > 1
+        
+        has_aggregations = False
+        group_by_fields = []
         
         for field in query.display_fields:
             table = field['table_name']
             col = field['field_name']
-            if has_joins:
-                select_fields.append(f'{table}.{col}')  # Use alias for JOINs
+            alias = field.get('alias', col)
+            aggregation = field.get('aggregation', 'None')
+            
+            # Build field reference - qualify if multiple tables involved
+            if needs_qualification:
+                field_ref = f'{table}.{col}'
             else:
-                select_fields.append(f'{col}')  # Just column name for single table
+                field_ref = f'{col}'
+            
+            # Apply aggregation if specified
+            if aggregation and aggregation != 'None':
+                has_aggregations = True
+                agg_upper = aggregation.upper()
+                
+                # Map UI aggregation names to SQL functions
+                agg_map = {
+                    'SUM': 'SUM',
+                    'MAX': 'MAX',
+                    'MIN': 'MIN',
+                    'AVG': 'AVG',
+                    'COUNT': 'COUNT',
+                    'FIRST': 'MIN',  # Use MIN as approximation for FIRST
+                    'LAST': 'MAX'    # Use MAX as approximation for LAST
+                }
+                
+                sql_agg = agg_map.get(agg_upper, agg_upper)
+                select_expr = f'{sql_agg}({field_ref})'
+            else:
+                select_expr = field_ref
+                # If there are other aggregations, non-aggregated fields need to be in GROUP BY
+                group_by_fields.append(field_ref)
+            
+            # Add alias if different from column name
+            if alias != col:
+                select_expr += f' AS {alias}'
+            
+            select_fields.append(select_expr)
         
         sql = f"SELECT {', '.join(select_fields)}\n"
         
         # FROM clause - DON'T include schema for SQL Server (it uses database.owner.table syntax differently)
         from_table = query.from_table
+        from_table_alias = query.from_table  # Use table name as alias
         
         # Only add schema prefix for DB2, not for SQL_SERVER
         if query.from_schema and connection_type == 'DB2':
             from_table = f'{query.from_schema}.{query.from_table}'
         
+        # Handle FROM clause based on whether we have explicit JOINs or multiple tables
         if has_joins:
-            # Use table name as alias
-            sql += f"FROM {from_table} {query.from_table}"
+            # Explicit JOINs - use primary table WITH alias so WHERE clause can reference it
+            sql += f"FROM {from_table} {from_table_alias}\n"
+        elif len(tables_involved) > 1:
+            # Multiple tables without explicit JOINs - use comma-separated list (implicit cross join)
+            table_list = []
+            for table_name in sorted(tables_involved):
+                if query.from_schema and connection_type == 'DB2':
+                    table_list.append(f'{query.from_schema}.{table_name} {table_name}')
+                else:
+                    table_list.append(f'{table_name} {table_name}')
+            sql += f"FROM {', '.join(table_list)}\n"
         else:
-            sql += f"FROM {from_table}"
+            # Single table - add alias for consistency
+            sql += f"FROM {from_table} {from_table_alias}\n"
         
-        # JOIN clauses with aliases
+        # JOIN clauses WITH aliases (use table name as alias)
         for join in query.joins:
             join_type = join['join_type']
             join_table_name = join['table_name']
@@ -388,8 +447,8 @@ class QueryExecutor:
             else:
                 join_table = join_table_name
             
-            # Add alias (the table name without schema)
-            sql += f"\n{join_type} {join_table} {join_table_name}"
+            # Add alias (use table name)
+            sql += f"{join_type} {join_table} {join_table_name}"
             
             # ON conditions
             if join['on_conditions']:
@@ -413,15 +472,82 @@ class QueryExecutor:
         # WHERE clause
         if query.criteria:
             where_parts = []
-            has_joins = len(query.joins) > 0
             
             for criterion in query.criteria:
-                where_clause = self._build_where_clause(criterion, has_joins)
+                where_clause = self._build_where_clause(criterion, needs_qualification)
                 if where_clause:
                     where_parts.append(where_clause)
             
             if where_parts:
                 sql += f"\nWHERE {' AND '.join(where_parts)}"
+        
+        # GROUP BY clause - only add if there are aggregations
+        if has_aggregations and group_by_fields:
+            sql += f"\nGROUP BY {', '.join(group_by_fields)}"
+        
+        # HAVING clause - filter aggregated results
+        having_conditions = []
+        for field in query.display_fields:
+            having_expr = field.get('having', '').strip()
+            aggregation = field.get('aggregation', 'None')
+            
+            # Only add HAVING if there's an expression and the field has aggregation
+            if having_expr and aggregation and aggregation != 'None':
+                table = field['table_name']
+                col = field['field_name']
+                
+                # Build field reference - qualify if multiple tables
+                if needs_qualification:
+                    field_ref = f'{table}.{col}'
+                else:
+                    field_ref = f'{col}'
+                
+                # Build aggregation function
+                agg_upper = aggregation.upper()
+                agg_map = {
+                    'SUM': 'SUM',
+                    'MAX': 'MAX',
+                    'MIN': 'MIN',
+                    'AVG': 'AVG',
+                    'COUNT': 'COUNT',
+                    'FIRST': 'MIN',
+                    'LAST': 'MAX'
+                }
+                sql_agg = agg_map.get(agg_upper, agg_upper)
+                agg_field = f'{sql_agg}({field_ref})'
+                
+                # Check if having_expr starts with an operator, if not add =
+                if not any(having_expr.upper().startswith(op) for op in 
+                    ['=', '>', '<', '!', 'LIKE', 'IN', 'BETWEEN', 'IS', 'NOT']):
+                    having_expr = f"= {having_expr}"
+                
+                having_conditions.append(f'{agg_field} {having_expr}')
+        
+        if having_conditions:
+            sql += f"\nHAVING {' AND '.join(having_conditions)}"
+        
+        # ORDER BY clause - collect fields with order specified
+        order_by_fields = []
+        for field in query.display_fields:
+            order = field.get('order', 'None')
+            if order and order != 'None':
+                table = field['table_name']
+                col = field['field_name']
+                
+                # Build field reference - qualify if multiple tables
+                if needs_qualification:
+                    field_ref = f'{table}.{col}'
+                else:
+                    field_ref = f'{col}'
+                
+                # Add ASC or DESC
+                if order == 'Ascend':
+                    order_by_fields.append(f'{field_ref} ASC')
+                elif order == 'Descend':
+                    order_by_fields.append(f'{field_ref} DESC')
+        
+        if order_by_fields:
+            sql += f"\nORDER BY {', '.join(order_by_fields)}"
         
         # Add row limit - ONLY for DB2 (SQL Server doesn't need it)
         if connection_type == 'DB2':
@@ -456,6 +582,19 @@ class QueryExecutor:
             field_ref = f'{table}.{field}'
         else:
             field_ref = field
+        
+        # Handle EXPRESSION operator (user-provided custom expression)
+        if operator == 'EXPRESSION':
+            # User provides the full expression (e.g., "= 100", "> 100", "LIKE 'A%'", "IN ('A', 'B')")
+            expression = str(value).strip()
+            
+            # If expression doesn't start with an operator, assume equality
+            if expression and not any(expression.upper().startswith(op) for op in 
+                ['=', '>', '<', '!', 'LIKE', 'IN', 'BETWEEN', 'IS', 'NOT']):
+                # Auto-add = operator - user is responsible for proper quoting
+                expression = f"= {expression}"
+            
+            return f"{field_ref} {expression}"
         
         # Handle IN operator (checkbox list)
         if operator == 'IN':

@@ -466,7 +466,7 @@ class QueryRepository:
         self.db = get_database()
 
     def save_query(self, query_name: str, query_type: str, query_definition: dict,
-                   category: str = None) -> int:
+                   category: str = None, folder_id: int = None) -> int:
         """
         Save a query definition
         
@@ -475,6 +475,7 @@ class QueryRepository:
             query_type: 'DB' or 'XDB'
             query_definition: Query definition as dict
             category: Optional category for organization
+            folder_id: Optional folder to place query in
             
         Returns:
             query_id of the saved query
@@ -493,18 +494,19 @@ class QueryRepository:
                 SET query_definition = ?,
                     query_type = ?,
                     category = ?,
+                    folder_id = ?,
                     last_modified = CURRENT_TIMESTAMP
                 WHERE query_name = ?
-            """, (query_json, query_type, category, query_name))
+            """, (query_json, query_type, category, folder_id, query_name))
             query_id = existing['query_id']
             logger.info(f"Updated query: {query_name} (ID: {query_id})")
         else:
             # Insert new query
             cursor = self.db.execute("""
                 INSERT INTO saved_queries (
-                    query_name, query_type, category, query_definition
-                ) VALUES (?, ?, ?, ?)
-            """, (query_name, query_type, category, query_json))
+                    query_name, query_type, category, folder_id, query_definition
+                ) VALUES (?, ?, ?, ?, ?)
+            """, (query_name, query_type, category, folder_id, query_json))
             query_id = cursor.lastrowid
             logger.info(f"Saved new query: {query_name} (ID: {query_id})")
         
@@ -522,7 +524,7 @@ class QueryRepository:
         """
         if query_type:
             rows = self.db.fetchall("""
-                SELECT query_id, query_name, query_type, category,
+                SELECT query_id, query_name, query_type, category, folder_id,
                        query_definition, created_at, last_modified,
                        last_executed, execution_duration_ms, record_count
                 FROM saved_queries
@@ -531,7 +533,7 @@ class QueryRepository:
             """, (query_type,))
         else:
             rows = self.db.fetchall("""
-                SELECT query_id, query_name, query_type, category,
+                SELECT query_id, query_name, query_type, category, folder_id,
                        query_definition, created_at, last_modified,
                        last_executed, execution_duration_ms, record_count
                 FROM saved_queries
@@ -550,7 +552,7 @@ class QueryRepository:
     def get_query(self, query_id: int) -> Optional[Dict]:
         """Get a specific query by ID"""
         row = self.db.fetchone("""
-            SELECT query_id, query_name, query_type, category,
+            SELECT query_id, query_name, query_type, category, folder_id,
                    query_definition, created_at, last_modified,
                    last_executed, execution_duration_ms, record_count
             FROM saved_queries
@@ -589,10 +591,404 @@ class QueryRepository:
                 record_count = ?
             WHERE query_id = ?
         """, (duration_ms, record_count, query_id))
+    
+    # Folder management methods
+    def get_all_folders(self, query_type: str = None) -> List[Dict]:
+        """Get all query folders"""
+        if query_type:
+            rows = self.db.fetchall("""
+                SELECT folder_id, folder_name, query_type, parent_folder_id, display_order, created_at
+                FROM query_folders
+                WHERE query_type = ?
+                ORDER BY display_order, folder_name
+            """, (query_type,))
+        else:
+            rows = self.db.fetchall("""
+                SELECT folder_id, folder_name, query_type, parent_folder_id, display_order, created_at
+                FROM query_folders
+                ORDER BY display_order, folder_name
+            """)
+        
+        return [dict(row) for row in rows]
+    
+    def create_folder(self, folder_name: str, query_type: str, parent_folder_id: int = None) -> int:
+        """Create a new query folder"""
+        cursor = self.db.execute("""
+            INSERT INTO query_folders (folder_name, query_type, parent_folder_id)
+            VALUES (?, ?, ?)
+        """, (folder_name, query_type, parent_folder_id))
+        folder_id = cursor.lastrowid
+        logger.info(f"Created folder: {folder_name} (ID: {folder_id})")
+        return folder_id
+    
+    def delete_folder(self, folder_id: int):
+        """Delete a folder and move its queries to General folder"""
+        # Get the query type for this folder
+        folder = self.db.fetchone("SELECT query_type FROM query_folders WHERE folder_id = ?", (folder_id,))
+        if folder:
+            # Get or create General folder
+            general = self.db.fetchone("""
+                SELECT folder_id FROM query_folders 
+                WHERE folder_name = 'General' AND query_type = ?
+            """, (folder['query_type'],))
+            
+            if general:
+                # Move queries to General folder
+                self.db.execute("""
+                    UPDATE saved_queries SET folder_id = ? WHERE folder_id = ?
+                """, (general['folder_id'], folder_id))
+            
+            # Delete the folder
+            self.db.execute("DELETE FROM query_folders WHERE folder_id = ?", (folder_id,))
+            logger.info(f"Deleted folder ID: {folder_id}")
+    
+    def rename_folder(self, folder_id: int, new_name: str):
+        """Rename a folder"""
+        self.db.execute("""
+            UPDATE query_folders SET folder_name = ? WHERE folder_id = ?
+        """, (new_name, folder_id))
+        logger.info(f"Renamed folder {folder_id} to: {new_name}")
+    
+    def move_query_to_folder(self, query_id: int, folder_id: int):
+        """Move a query to a different folder"""
+        self.db.execute("""
+            UPDATE saved_queries SET folder_id = ? WHERE query_id = ?
+        """, (folder_id, query_id))
+        logger.info(f"Moved query {query_id} to folder {folder_id}")
+    
+    def count_queries_in_folder(self, folder_id: int) -> int:
+        """Count the number of queries in a specific folder"""
+        result = self.db.fetchone("""
+            SELECT COUNT(*) as count FROM saved_queries WHERE folder_id = ?
+        """, (folder_id,))
+        return result['count'] if result else 0
+    
+    def get_queries_in_folder(self, folder_id: int) -> List[Dict]:
+        """Get all queries in a specific folder"""
+        rows = self.db.fetchall("""
+            SELECT query_id, query_name, query_type, category, folder_id,
+                   query_definition, created_at, last_modified,
+                   last_executed, execution_duration_ms, record_count
+            FROM saved_queries
+            WHERE folder_id = ?
+            ORDER BY query_name
+        """, (folder_id,))
+        
+        queries = []
+        for row in rows:
+            query = dict(row)
+            query['query_definition'] = json.loads(query['query_definition'])
+            queries.append(query)
+        
+        return queries
+
+
+class DataMapRepository:
+    """Repository for managing data mappings"""
+
+    def __init__(self):
+        self.db = get_database()
+
+    # Folder operations
+    def get_all_folders(self) -> List[Dict]:
+        """Get all data map folders"""
+        rows = self.db.fetchall("""
+            SELECT folder_id, folder_name, parent_folder_id, created_at, display_order
+            FROM data_map_folders
+            ORDER BY display_order, folder_name
+        """)
+        return [dict(row) for row in rows]
+
+    def create_folder(self, folder_name: str, parent_folder_id: int = None) -> int:
+        """Create a new data map folder"""
+        cursor = self.db.execute("""
+            INSERT INTO data_map_folders (folder_name, parent_folder_id)
+            VALUES (?, ?)
+        """, (folder_name, parent_folder_id))
+        folder_id = cursor.lastrowid
+        logger.info(f"Created data map folder: {folder_name} (ID: {folder_id})")
+        return folder_id
+
+    def delete_folder(self, folder_id: int):
+        """Delete a data map folder and move its maps to General folder"""
+        # Get General folder
+        general_folder = self.db.fetchone("""
+            SELECT folder_id FROM data_map_folders WHERE folder_name = 'General'
+        """)
+        
+        if general_folder:
+            # Move all maps to General folder
+            self.db.execute("""
+                UPDATE data_maps SET folder_id = ? WHERE folder_id = ?
+            """, (general_folder['folder_id'], folder_id))
+        
+        # Delete the folder
+        self.db.execute("""
+            DELETE FROM data_map_folders WHERE folder_id = ?
+        """, (folder_id,))
+        logger.info(f"Deleted data map folder {folder_id}")
+
+    def rename_folder(self, folder_id: int, new_name: str):
+        """Rename a data map folder"""
+        self.db.execute("""
+            UPDATE data_map_folders SET folder_name = ? WHERE folder_id = ?
+        """, (new_name, folder_id))
+        logger.info(f"Renamed data map folder {folder_id} to: {new_name}")
+
+    def count_maps_in_folder(self, folder_id: int) -> int:
+        """Count the number of data maps in a specific folder"""
+        result = self.db.fetchone("""
+            SELECT COUNT(*) as count FROM data_maps WHERE folder_id = ?
+        """, (folder_id,))
+        return result['count'] if result else 0
+
+    # Data map operations
+    def get_all_data_maps(self) -> List[Dict]:
+        """Get all data maps"""
+        rows = self.db.fetchall("""
+            SELECT data_map_id, map_name, folder_id, key_data_type, value_data_type,
+                   notes, created_at, last_modified
+            FROM data_maps
+            ORDER BY map_name
+        """)
+        return [dict(row) for row in rows]
+
+    def get_data_map(self, data_map_id: int) -> Optional[Dict]:
+        """Get a specific data map by ID"""
+        row = self.db.fetchone("""
+            SELECT data_map_id, map_name, folder_id, key_data_type, value_data_type,
+                   notes, created_at, last_modified
+            FROM data_maps
+            WHERE data_map_id = ?
+        """, (data_map_id,))
+        return dict(row) if row else None
+
+    def get_data_map_by_name(self, map_name: str) -> Optional[Dict]:
+        """Get a specific data map by name"""
+        row = self.db.fetchone("""
+            SELECT data_map_id, map_name, folder_id, key_data_type, value_data_type,
+                   notes, created_at, last_modified
+            FROM data_maps
+            WHERE map_name = ?
+        """, (map_name,))
+        return dict(row) if row else None
+
+    def create_data_map(self, map_name: str, key_data_type: str = 'string',
+                       value_data_type: str = 'string', notes: str = None,
+                       folder_id: int = None) -> int:
+        """Create a new data map"""
+        cursor = self.db.execute("""
+            INSERT INTO data_maps (map_name, folder_id, key_data_type, value_data_type, notes)
+            VALUES (?, ?, ?, ?, ?)
+        """, (map_name, folder_id, key_data_type, value_data_type, notes))
+        data_map_id = cursor.lastrowid
+        logger.info(f"Created data map: {map_name} (ID: {data_map_id})")
+        return data_map_id
+
+    def update_data_map(self, data_map_id: int, map_name: str = None,
+                       key_data_type: str = None, value_data_type: str = None,
+                       notes: str = None, folder_id: int = None):
+        """Update a data map's metadata"""
+        updates = []
+        params = []
+        
+        if map_name is not None:
+            updates.append("map_name = ?")
+            params.append(map_name)
+        if key_data_type is not None:
+            updates.append("key_data_type = ?")
+            params.append(key_data_type)
+        if value_data_type is not None:
+            updates.append("value_data_type = ?")
+            params.append(value_data_type)
+        if notes is not None:
+            updates.append("notes = ?")
+            params.append(notes)
+        if folder_id is not None:
+            updates.append("folder_id = ?")
+            params.append(folder_id)
+        
+        updates.append("last_modified = CURRENT_TIMESTAMP")
+        params.append(data_map_id)
+        
+        self.db.execute(f"""
+            UPDATE data_maps SET {', '.join(updates)}
+            WHERE data_map_id = ?
+        """, tuple(params))
+        logger.info(f"Updated data map {data_map_id}")
+
+    def move_data_map_to_folder(self, data_map_id: int, folder_id: int):
+        """Move a data map to a different folder"""
+        self.db.execute("""
+            UPDATE data_maps SET folder_id = ?, last_modified = CURRENT_TIMESTAMP
+            WHERE data_map_id = ?
+        """, (folder_id, data_map_id))
+        logger.info(f"Moved data map {data_map_id} to folder {folder_id}")
+
+    def delete_data_map(self, data_map_id: int):
+        """Delete a data map and all its entries"""
+        self.db.execute("""
+            DELETE FROM data_maps WHERE data_map_id = ?
+        """, (data_map_id,))
+        logger.info(f"Deleted data map {data_map_id}")
+
+    # Data map entry operations
+    def get_map_entries(self, data_map_id: int) -> List[Dict]:
+        """Get all entries for a data map"""
+        rows = self.db.fetchall("""
+            SELECT entry_id, data_map_id, key_value, mapped_value, comment,
+                   created_at, last_updated
+            FROM data_map_entries
+            WHERE data_map_id = ?
+            ORDER BY key_value
+        """, (data_map_id,))
+        return [dict(row) for row in rows]
+
+    def add_map_entry(self, data_map_id: int, key_value: str,
+                     mapped_value: str = None, comment: str = None) -> int:
+        """Add a new entry to a data map"""
+        cursor = self.db.execute("""
+            INSERT INTO data_map_entries (data_map_id, key_value, mapped_value, comment)
+            VALUES (?, ?, ?, ?)
+        """, (data_map_id, key_value, mapped_value, comment))
+        
+        # Update data map's last_modified
+        self.db.execute("""
+            UPDATE data_maps SET last_modified = CURRENT_TIMESTAMP
+            WHERE data_map_id = ?
+        """, (data_map_id,))
+        
+        entry_id = cursor.lastrowid
+        logger.info(f"Added entry to data map {data_map_id}: {key_value} -> {mapped_value}")
+        return entry_id
+
+    def update_map_entry(self, entry_id: int, key_value: str = None,
+                        mapped_value: str = None, comment: str = None):
+        """Update a data map entry"""
+        updates = []
+        params = []
+        
+        if key_value is not None:
+            updates.append("key_value = ?")
+            params.append(key_value)
+        if mapped_value is not None:
+            updates.append("mapped_value = ?")
+            params.append(mapped_value)
+        if comment is not None:
+            updates.append("comment = ?")
+            params.append(comment)
+        
+        updates.append("last_updated = CURRENT_TIMESTAMP")
+        params.append(entry_id)
+        
+        self.db.execute(f"""
+            UPDATE data_map_entries SET {', '.join(updates)}
+            WHERE entry_id = ?
+        """, tuple(params))
+        
+        # Also update the parent data map's last_modified
+        self.db.execute("""
+            UPDATE data_maps SET last_modified = CURRENT_TIMESTAMP
+            WHERE data_map_id = (SELECT data_map_id FROM data_map_entries WHERE entry_id = ?)
+        """, (entry_id,))
+        
+        logger.info(f"Updated data map entry {entry_id}")
+
+    def delete_map_entry(self, entry_id: int):
+        """Delete a data map entry"""
+        # Get the data_map_id before deleting
+        row = self.db.fetchone("""
+            SELECT data_map_id FROM data_map_entries WHERE entry_id = ?
+        """, (entry_id,))
+        
+        self.db.execute("""
+            DELETE FROM data_map_entries WHERE entry_id = ?
+        """, (entry_id,))
+        
+        # Update data map's last_modified
+        if row:
+            self.db.execute("""
+                UPDATE data_maps SET last_modified = CURRENT_TIMESTAMP
+                WHERE data_map_id = ?
+            """, (row['data_map_id'],))
+        
+        logger.info(f"Deleted data map entry {entry_id}")
+
+    def delete_map_entries(self, entry_ids: List[int]):
+        """Delete multiple data map entries"""
+        if not entry_ids:
+            return
+        
+        placeholders = ','.join('?' * len(entry_ids))
+        
+        # Get affected data_map_ids
+        rows = self.db.fetchall(f"""
+            SELECT DISTINCT data_map_id FROM data_map_entries
+            WHERE entry_id IN ({placeholders})
+        """, tuple(entry_ids))
+        
+        # Delete entries
+        self.db.execute(f"""
+            DELETE FROM data_map_entries WHERE entry_id IN ({placeholders})
+        """, tuple(entry_ids))
+        
+        # Update data maps' last_modified
+        for row in rows:
+            self.db.execute("""
+                UPDATE data_maps SET last_modified = CURRENT_TIMESTAMP
+                WHERE data_map_id = ?
+            """, (row['data_map_id'],))
+        
+        logger.info(f"Deleted {len(entry_ids)} data map entries")
+
+    # Field assignment operations
+    def assign_data_map_to_field(self, connection_id: int, table_name: str,
+                                 column_name: str, data_map_id: int,
+                                 schema_name: str = None):
+        """Assign a data map to a specific table field"""
+        self.db.execute("""
+            INSERT OR REPLACE INTO field_data_map_assignments
+            (connection_id, schema_name, table_name, column_name, data_map_id)
+            VALUES (?, ?, ?, ?, ?)
+        """, (connection_id, schema_name, table_name, column_name, data_map_id))
+        logger.info(f"Assigned data map {data_map_id} to {table_name}.{column_name}")
+
+    def get_field_data_map(self, connection_id: int, table_name: str,
+                          column_name: str, schema_name: str = None) -> Optional[int]:
+        """Get the data map assigned to a specific field"""
+        row = self.db.fetchone("""
+            SELECT data_map_id FROM field_data_map_assignments
+            WHERE connection_id = ? AND table_name = ? AND column_name = ?
+            AND (schema_name = ? OR (schema_name IS NULL AND ? IS NULL))
+        """, (connection_id, table_name, column_name, schema_name, schema_name))
+        return row['data_map_id'] if row else None
+
+    def remove_field_data_map(self, connection_id: int, table_name: str,
+                             column_name: str, schema_name: str = None):
+        """Remove data map assignment from a field"""
+        self.db.execute("""
+            DELETE FROM field_data_map_assignments
+            WHERE connection_id = ? AND table_name = ? AND column_name = ?
+            AND (schema_name = ? OR (schema_name IS NULL AND ? IS NULL))
+        """, (connection_id, table_name, column_name, schema_name, schema_name))
+        logger.info(f"Removed data map assignment from {table_name}.{column_name}")
+
+    def get_all_field_assignments(self, connection_id: int, table_name: str,
+                                  schema_name: str = None) -> List[Dict]:
+        """Get all data map assignments for a table"""
+        rows = self.db.fetchall("""
+            SELECT assignment_id, connection_id, schema_name, table_name,
+                   column_name, data_map_id, assigned_at
+            FROM field_data_map_assignments
+            WHERE connection_id = ? AND table_name = ?
+            AND (schema_name = ? OR (schema_name IS NULL AND ? IS NULL))
+        """, (connection_id, table_name, schema_name, schema_name))
+        return [dict(row) for row in rows]
 
 
 # Singleton instances
 _query_repo: Optional[QueryRepository] = None
+_data_map_repo: Optional[DataMapRepository] = None
 
 
 def get_query_repository() -> QueryRepository:
@@ -601,3 +997,12 @@ def get_query_repository() -> QueryRepository:
     if _query_repo is None:
         _query_repo = QueryRepository()
     return _query_repo
+
+
+def get_data_map_repository() -> DataMapRepository:
+    """Get or create singleton data map repository"""
+    global _data_map_repo
+    if _data_map_repo is None:
+        _data_map_repo = DataMapRepository()
+    return _data_map_repo
+

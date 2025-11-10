@@ -15,6 +15,7 @@ from suiteview.core.schema_discovery import SchemaDiscovery
 from suiteview.core.query_builder import QueryBuilder, Query
 from suiteview.core.query_executor import QueryExecutor
 from suiteview.ui.dialogs.query_results_dialog import QueryResultsDialog
+from suiteview.ui.mydata_screen import QueryTreeWidget
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,16 @@ class FlowLayout(QLayout):
         if 0 <= index < len(self._item_list):
             return self._item_list.pop(index)
         return None
+    
+    def insertWidget(self, index, widget):
+        """Insert widget at specific index"""
+        from PyQt6.QtWidgets import QWidgetItem
+        item = QWidgetItem(widget)
+        if 0 <= index <= len(self._item_list):
+            self._item_list.insert(index, item)
+        else:
+            self._item_list.append(item)
+        self.invalidate()
     
     def expandingDirections(self):
         return Qt.Orientation(0)
@@ -234,6 +245,9 @@ class CascadingMenuWidget(QWidget):
 
 class DBQueryScreen(QWidget):
     """DB Query screen with visual query builder"""
+    
+    # Signal when queries or folders change
+    queries_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -255,6 +269,7 @@ class DBQueryScreen(QWidget):
         # Track query components
         self.criteria_widgets = []  # List of filter widgets in Criteria tab
         self.display_fields = []    # List of fields in Display tab
+        self.display_widgets = []   # List of DisplayFieldWidget instances
         self.tables_involved = set()  # Set of table names involved in query
         self.joins = []  # List of join configurations
         
@@ -322,8 +337,8 @@ class DBQueryScreen(QWidget):
         queries_header.setObjectName("panel_header")
         panel_layout.addWidget(queries_header)
 
-        # Create tree widget for DB Queries list
-        self.db_queries_tree = QTreeWidget()
+        # Create tree widget for DB Queries list with folder support
+        self.db_queries_tree = QueryTreeWidget()
         self.db_queries_tree.setHeaderHidden(True)
         self.db_queries_tree.setStyleSheet("""
             QTreeWidget {
@@ -346,6 +361,7 @@ class DBQueryScreen(QWidget):
         self.db_queries_tree.itemClicked.connect(self._on_db_query_clicked)
         self.db_queries_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.db_queries_tree.customContextMenuRequested.connect(self._show_db_query_context_menu)
+        self.db_queries_tree.query_moved.connect(self._on_query_moved)
         panel_layout.addWidget(self.db_queries_tree, stretch=1)
 
         return panel
@@ -524,10 +540,18 @@ class DBQueryScreen(QWidget):
         """)
         toolbar_layout.addWidget(self.query_name_label)
         
-        # Add stretch to push New Query button to the right
+        # Add stretch to push buttons to the right
         toolbar_layout.addStretch()
 
-        # Right side: New Query button
+        # Right side: Reset and New Query buttons
+        self.reset_query_btn = QPushButton("🔄 Reset")
+        self.reset_query_btn.setObjectName("reset_button")
+        self.reset_query_btn.setMinimumWidth(100)
+        self.reset_query_btn.setToolTip("Reset to last saved version")
+        self.reset_query_btn.clicked.connect(self.reset_query)
+        self.reset_query_btn.setEnabled(False)  # Disabled until a query is loaded
+        toolbar_layout.addWidget(self.reset_query_btn)
+        
         self.new_query_btn = QPushButton("New Query")
         self.new_query_btn.setObjectName("gold_button")
         self.new_query_btn.setMinimumWidth(120)
@@ -595,6 +619,9 @@ class DBQueryScreen(QWidget):
         # Tables tab
         self.tables_tab = self._create_tables_tab()
         self.query_tabs.addTab(self.tables_tab, "Tables")
+
+        # Connect tab change signal to update field indicators
+        self.query_tabs.currentChanged.connect(self._on_query_tab_changed)
 
         panel_layout.addWidget(self.query_tabs)
 
@@ -813,6 +840,7 @@ class DBQueryScreen(QWidget):
                 
                 # Create cascading menu for connections of this type
                 type_menu = QMenu(self)
+                type_menu.setStyleSheet("QMenu { border: 2px solid #555; }")
                 
                 for conn_id, conn in sorted(types_dict[conn_type], key=lambda x: x[1]['connection_name']):
                     conn_action = QAction(conn['connection_name'], self)
@@ -831,25 +859,91 @@ class DBQueryScreen(QWidget):
             logger.error(f"Error loading connections: {e}")
 
     def _load_db_queries_tree(self):
-        """Populate the DB Queries tree widget"""
+        """Populate the DB Queries tree widget with folders
+        
+        Preserves the exact expanded/collapsed state of folders as set by the user.
+        """
         try:
+            # Save the complete expanded/collapsed state before clearing
+            folder_states = {}  # folder_id -> is_expanded
+            has_prior_state = self.db_queries_tree.topLevelItemCount() > 0
+            
+            for i in range(self.db_queries_tree.topLevelItemCount()):
+                item = self.db_queries_tree.topLevelItem(i)
+                if item:
+                    folder_id = item.data(0, Qt.ItemDataRole.UserRole + 1)
+                    if folder_id:
+                        folder_states[folder_id] = item.isExpanded()
+            
+            self.db_queries_tree.clear()
+            
+            # Get all folders for DB queries
+            folders = self.query_repo.get_all_folders(query_type='DB')
+            
+            # Get all queries
             queries = self.query_repo.get_all_queries(query_type='DB')
             
-            for query in queries:
-                item = QTreeWidgetItem([query['query_name']])
-                item.setData(0, Qt.ItemDataRole.UserRole, query['query_id'])
-                item.setData(0, Qt.ItemDataRole.UserRole + 1, query['query_definition'])
-                self.db_queries_tree.addTopLevelItem(item)
+            # Create folder items
+            folder_items = {}
+            for folder in folders:
+                folder_item = QTreeWidgetItem()
+                folder_item.setText(0, f"📁 {folder['folder_name']}")
+                folder_item.setData(0, Qt.ItemDataRole.UserRole, "query_folder")
+                folder_item.setData(0, Qt.ItemDataRole.UserRole + 1, folder['folder_id'])
+                
+                # Don't set expanded state yet - do it after adding children
+                
+                folder_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsDropEnabled)
+                
+                self.db_queries_tree.addTopLevelItem(folder_item)
+                folder_items[folder['folder_id']] = folder_item
             
-            logger.info(f"Loaded {len(queries)} DB queries into tree")
+            # Add queries to their respective folders
+            for query in queries:
+                item = QTreeWidgetItem()
+                item.setText(0, query['query_name'])
+                item.setData(0, Qt.ItemDataRole.UserRole, "db_query")
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, query['query_id'])
+                item.setData(0, Qt.ItemDataRole.UserRole + 2, query['query_definition'])
+                item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled)
+                
+                # Add to appropriate folder
+                folder_id = query.get('folder_id')
+                if folder_id and folder_id in folder_items:
+                    folder_items[folder_id].addChild(item)
+                else:
+                    # If no folder or folder doesn't exist, add to first folder (General)
+                    if folder_items:
+                        list(folder_items.values())[0].addChild(item)
+            
+            # NOW set the expanded state AFTER all children are added
+            for folder in folders:
+                folder_id = folder['folder_id']
+                if folder_id in folder_items:
+                    folder_item = folder_items[folder_id]
+                    # Restore the exact state the user had set
+                    if has_prior_state and folder_id in folder_states:
+                        # Restore saved state exactly as it was
+                        folder_item.setExpanded(folder_states[folder_id])
+                    else:
+                        # New folder or first load - default to COLLAPSED
+                        folder_item.setExpanded(False)
+            
+            logger.info(f"Loaded {len(queries)} DB queries in {len(folders)} folders into tree")
             
         except Exception as e:
             logger.error(f"Error loading DB queries tree: {e}")
     
     def _on_db_query_clicked(self, item: QTreeWidgetItem, column: int):
         """Handle click on DB Query item to load it"""
-        query_id = item.data(0, Qt.ItemDataRole.UserRole)
-        query_definition = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        item_type = item.data(0, Qt.ItemDataRole.UserRole)
+        
+        # Ignore folder clicks, only handle query clicks
+        if item_type != "db_query":
+            return
+        
+        query_id = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        query_definition = item.data(0, Qt.ItemDataRole.UserRole + 2)
         
         if query_id and query_definition:
             # Save current state first if needed
@@ -862,25 +956,61 @@ class DBQueryScreen(QWidget):
         """Show context menu for DB Query tree items"""
         item = self.db_queries_tree.itemAt(position)
         if not item:
+            # Right-click on empty space - show "New Folder" option
+            menu = QMenu(self)
+            menu.setStyleSheet("QMenu { border: 2px solid #555; }")
+            add_folder_action = menu.addAction("➕ New Folder")
+            action = menu.exec(self.db_queries_tree.mapToGlobal(position))
+            if action == add_folder_action:
+                self._create_new_folder('DB')
             return
         
-        query_id = item.data(0, Qt.ItemDataRole.UserRole)
-        query_name = item.text(0)
-        
+        item_type = item.data(0, Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
+        menu.setStyleSheet("QMenu { border: 2px solid #555; }")
         
-        rename_action = menu.addAction("✏️ Rename")
-        copy_action = menu.addAction("📋 Copy")
-        delete_action = menu.addAction("🗑️ Delete")
+        # Context menu for query folders
+        if item_type == "query_folder":
+            folder_id = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            folder_name = item.text(0).replace("📁 ", "")
+            
+            add_folder_action = menu.addAction("➕ New Folder")
+            menu.addSeparator()
+            
+            # Don't allow deleting or renaming the General folder
+            if folder_name != "General":
+                rename_action = menu.addAction("✏️ Rename Folder")
+                delete_action = menu.addAction("🗑️ Delete Folder")
+            else:
+                rename_action = None
+                delete_action = None
+            
+            action = menu.exec(self.db_queries_tree.mapToGlobal(position))
+            
+            if action == add_folder_action:
+                self._create_new_folder('DB')
+            elif action == rename_action:
+                self._rename_folder(folder_id, item)
+            elif action == delete_action:
+                self._delete_folder(folder_id)
         
-        action = menu.exec(self.db_queries_tree.mapToGlobal(position))
-        
-        if action == rename_action:
-            self._rename_query(query_id, query_name, 'DB')
-        elif action == copy_action:
-            self._copy_query(query_id, query_name, 'DB')
-        elif action == delete_action:
-            self._delete_query(query_id, query_name, 'DB')
+        # Context menu for queries
+        elif item_type == "db_query":
+            query_id = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            query_name = item.text(0)
+            
+            rename_action = menu.addAction("✏️ Rename")
+            copy_action = menu.addAction("📋 Copy")
+            delete_action = menu.addAction("🗑️ Delete")
+            
+            action = menu.exec(self.db_queries_tree.mapToGlobal(position))
+            
+            if action == rename_action:
+                self._rename_query(query_id, query_name, 'DB')
+            elif action == copy_action:
+                self._copy_query(query_id, query_name, 'DB')
+            elif action == delete_action:
+                self._delete_query(query_id, query_name, 'DB')
 
     def _populate_db_queries_menu(self, menu: QMenu):
         """Populate the DB Queries cascading menu"""
@@ -1014,6 +1144,7 @@ class DBQueryScreen(QWidget):
             
             # Refresh data sources
             self.load_data_sources()
+            self.queries_changed.emit()  # Notify other screens
             
             logger.info(f"Renamed query {query_id} from '{query_name}' to '{new_name}'")
             
@@ -1068,12 +1199,21 @@ class DBQueryScreen(QWidget):
             if not query_record:
                 raise Exception("Query not found")
             
-            # Save as new query with new name
+            # Save expanded state of folders before refreshing
+            expanded_folders = set()
+            for i in range(self.db_queries_tree.topLevelItemCount()):
+                folder_item = self.db_queries_tree.topLevelItem(i)
+                if folder_item.isExpanded():
+                    folder_id = folder_item.data(0, Qt.ItemDataRole.UserRole + 1)
+                    expanded_folders.add(folder_id)
+            
+            # Save as new query with new name in the same folder as original
             new_query_id = self.query_repo.save_query(
                 query_name=new_name,
                 query_type=query_type,
                 query_definition=query_record['query_definition'],
-                category=query_record.get('category', 'User Queries')
+                category=query_record.get('category', 'User Queries'),
+                folder_id=query_record.get('folder_id')  # Keep in same folder
             )
             
             QMessageBox.information(
@@ -1084,6 +1224,15 @@ class DBQueryScreen(QWidget):
             
             # Refresh data sources
             self.load_data_sources()
+            
+            # Restore expanded state of folders
+            for i in range(self.db_queries_tree.topLevelItemCount()):
+                folder_item = self.db_queries_tree.topLevelItem(i)
+                folder_id = folder_item.data(0, Qt.ItemDataRole.UserRole + 1)
+                if folder_id in expanded_folders:
+                    folder_item.setExpanded(True)
+            
+            self.queries_changed.emit()  # Notify other screens
             
         except Exception as e:
             logger.error(f"Error copying query: {e}")
@@ -1109,6 +1258,14 @@ class DBQueryScreen(QWidget):
             if reply == QMessageBox.StandardButton.No:
                 return
             
+            # Save expanded state of folders before refreshing
+            expanded_folders = set()
+            for i in range(self.db_queries_tree.topLevelItemCount()):
+                folder_item = self.db_queries_tree.topLevelItem(i)
+                if folder_item.isExpanded():
+                    folder_id = folder_item.data(0, Qt.ItemDataRole.UserRole + 1)
+                    expanded_folders.add(folder_id)
+            
             # Delete from database
             self.query_repo.delete_query(query_id)
             
@@ -1129,6 +1286,15 @@ class DBQueryScreen(QWidget):
             # Refresh data sources
             self.load_data_sources()
             
+            # Restore expanded state of folders
+            for i in range(self.db_queries_tree.topLevelItemCount()):
+                folder_item = self.db_queries_tree.topLevelItem(i)
+                folder_id = folder_item.data(0, Qt.ItemDataRole.UserRole + 1)
+                if folder_id in expanded_folders:
+                    folder_item.setExpanded(True)
+            
+            self.queries_changed.emit()  # Notify other screens
+            
         except Exception as e:
             logger.error(f"Error deleting query: {e}")
             QMessageBox.critical(
@@ -1136,6 +1302,91 @@ class DBQueryScreen(QWidget):
                 "Delete Failed",
                 f"Failed to delete query:\n{str(e)}"
             )
+    
+    def _create_new_folder(self, query_type: str):
+        """Create a new query folder"""
+        folder_name, ok = QInputDialog.getText(
+            self,
+            "New Folder",
+            "Enter folder name:"
+        )
+        
+        if ok and folder_name.strip():
+            try:
+                self.query_repo.create_folder(folder_name.strip(), query_type)
+                self._load_db_queries_tree()  # Reload to show new folder
+                self.queries_changed.emit()  # Notify other screens
+                logger.info(f"Created new folder: {folder_name}")
+            except Exception as e:
+                logger.error(f"Error creating folder: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to create folder:\n{str(e)}")
+    
+    def _rename_folder(self, folder_id: int, item: QTreeWidgetItem):
+        """Rename a folder"""
+        current_name = item.text(0).replace("📁 ", "")
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Rename Folder",
+            "Enter new folder name:",
+            text=current_name
+        )
+        
+        if ok and new_name.strip() and new_name.strip() != current_name:
+            try:
+                self.query_repo.rename_folder(folder_id, new_name.strip())
+                item.setText(0, f"📁 {new_name.strip()}")
+                self.queries_changed.emit()  # Notify other screens
+                logger.info(f"Renamed folder {folder_id} to: {new_name}")
+            except Exception as e:
+                logger.error(f"Error renaming folder: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to rename folder:\n{str(e)}")
+    
+    def _delete_folder(self, folder_id: int):
+        """Delete a folder"""
+        # Count queries in folder
+        query_count = self.query_repo.count_queries_in_folder(folder_id)
+        
+        # Build confirmation message based on query count
+        if query_count > 0:
+            message = (
+                f"This folder contains {query_count} quer{'y' if query_count == 1 else 'ies'}.\n\n"
+                f"Are you sure you want to delete this folder?\n"
+                f"All queries in this folder will be moved to the General folder."
+            )
+        else:
+            message = "Are you sure you want to delete this empty folder?"
+        
+        reply = QMessageBox.question(
+            self,
+            "Delete Folder",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.query_repo.delete_folder(folder_id)
+                self._load_db_queries_tree()  # Reload to reflect deletion
+                self.queries_changed.emit()  # Notify other screens
+                logger.info(f"Deleted folder {folder_id}")
+            except Exception as e:
+                logger.error(f"Error deleting folder: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to delete folder:\n{str(e)}")
+    
+    def _on_query_moved(self, query_id: int, folder_id: int):
+        """Handle query being moved to a different folder"""
+        try:
+            self.query_repo.move_query_to_folder(query_id, folder_id)
+            # Reload while preserving user's folder expand/collapse state
+            self._load_db_queries_tree()
+            self.queries_changed.emit()  # Notify other screens
+            logger.info(f"Moved query {query_id} to folder {folder_id}")
+        except Exception as e:
+            logger.error(f"Error moving query: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to move query:\n{str(e)}")
+            # Reload to revert visual change
+            self._load_db_queries_tree()
 
     def load_tables_for_connection(self, connection_id: int, database_name: str):
         """Load tables for selected connection"""
@@ -1220,13 +1471,21 @@ class DBQueryScreen(QWidget):
         
         for i in range(self.tables_tree.topLevelItemCount()):
             item = self.tables_tree.topLevelItem(i)
-            table_name = item.text(0).lower()
+            item_type = item.data(0, Qt.ItemDataRole.UserRole)
             
-            # Show/hide based on search text
-            if search_text in table_name:
-                item.setHidden(False)
-            else:
-                item.setHidden(True)
+            if item_type == "table":
+                table_name = item.data(0, Qt.ItemDataRole.UserRole + 1)
+                schema_name = item.data(0, Qt.ItemDataRole.UserRole + 2)
+                
+                # Build searchable text (without indicator)
+                base_name = f"{schema_name}.{table_name}" if schema_name else table_name
+                searchable_text = base_name.lower()
+                
+                # Show/hide based on search text
+                if search_text in searchable_text:
+                    item.setHidden(False)
+                else:
+                    item.setHidden(True)
 
     def on_table_clicked(self, item: QTreeWidgetItem, column: int):
         """Handle click on table"""
@@ -1290,6 +1549,9 @@ class DBQueryScreen(QWidget):
 
                 self.fields_tree.addTopLevelItem(field_item)
 
+            # Update field indicators based on current tab
+            self._update_field_indicators()
+
             self.field_info_label.setText(f"{len(columns)} field(s)")
             logger.info(f"Loaded {len(columns)} fields for table {table_name}")
 
@@ -1342,6 +1604,9 @@ class DBQueryScreen(QWidget):
         # Enable query buttons
         self.update_query_buttons()
 
+        # Update field indicators
+        self._update_field_indicators()
+
         logger.info(f"Added criteria filter for {field_data['field_name']}")
 
     def remove_criteria_filter(self, widget):
@@ -1356,6 +1621,9 @@ class DBQueryScreen(QWidget):
         # Update query buttons
         self.update_query_buttons()
 
+        # Update field indicators
+        self._update_field_indicators()
+
     def add_display_field(self, field_data: dict):
         """Add a field to display tab"""
         # Create display field widget
@@ -1365,12 +1633,16 @@ class DBQueryScreen(QWidget):
         # Add to the end (bottom) of the layout
         self.display_layout.addWidget(display_widget)
         self.display_fields.append(field_data)
+        self.display_widgets.append(display_widget)
 
         # Update tables involved
         self.update_tables_involved()
 
         # Enable query buttons
         self.update_query_buttons()
+
+        # Update field indicators
+        self._update_field_indicators()
 
         logger.info(f"Added display field: {field_data['field_name']}")
 
@@ -1383,6 +1655,10 @@ class DBQueryScreen(QWidget):
                 self.display_fields.remove(field_data)
                 break
 
+        # Remove from widget list
+        if widget in self.display_widgets:
+            self.display_widgets.remove(widget)
+
         # Remove widget
         self.display_layout.removeWidget(widget)
         widget.deleteLater()
@@ -1392,6 +1668,9 @@ class DBQueryScreen(QWidget):
 
         # Update query buttons
         self.update_query_buttons()
+
+        # Update field indicators
+        self._update_field_indicators()
 
     def update_tables_involved(self):
         """Update the list of tables involved in the query"""
@@ -1407,6 +1686,9 @@ class DBQueryScreen(QWidget):
 
         self.tables_involved = tables
 
+        # Update visual indicators in tables tree
+        self.update_table_indicators()
+
         # Update Tables tab
         if tables:
             table_list = ", ".join(sorted(tables))
@@ -1419,6 +1701,85 @@ class DBQueryScreen(QWidget):
         else:
             self.tables_involved_label.setText("(None)")
             self.from_table_combo.clear()
+    
+    def update_table_indicators(self):
+        """Update green dot indicators next to tables that are in use"""
+        # Iterate through all table items in the tree
+        for i in range(self.tables_tree.topLevelItemCount()):
+            item = self.tables_tree.topLevelItem(i)
+            item_type = item.data(0, Qt.ItemDataRole.UserRole)
+            
+            if item_type == "table":
+                table_name = item.data(0, Qt.ItemDataRole.UserRole + 1)
+                schema_name = item.data(0, Qt.ItemDataRole.UserRole + 2)
+                
+                # Base display name (without indicator)
+                base_name = f"{schema_name}.{table_name}" if schema_name else table_name
+                
+                # Check if this table is in use
+                if table_name in self.tables_involved:
+                    # Add green dot indicator
+                    item.setText(0, f"🟢 {base_name}")
+                    # Make it bold
+                    font = item.font(0)
+                    font.setBold(True)
+                    item.setFont(0, font)
+                else:
+                    # No indicator
+                    item.setText(0, base_name)
+                    # Regular font
+                    font = item.font(0)
+                    font.setBold(False)
+                    item.setFont(0, font)
+
+    def _on_query_tab_changed(self, index: int):
+        """Handle tab change to update field indicators"""
+        self._update_field_indicators()
+
+    def _update_field_indicators(self):
+        """Update green dot indicators next to fields based on current tab"""
+        # Get current tab index (0=Display, 1=Criteria, 2=Tables)
+        current_tab = self.query_tabs.currentIndex()
+        
+        # Determine which fields to highlight
+        if current_tab == 0:  # Display tab
+            fields_in_use = {
+                (f['field_name'], f['table_name']) 
+                for f in self.display_fields
+            }
+        elif current_tab == 1:  # Criteria tab
+            fields_in_use = {
+                (w.field_data['field_name'], w.field_data['table_name']) 
+                for w in self.criteria_widgets
+            }
+        else:  # Tables tab or other
+            fields_in_use = set()
+        
+        # Update indicators for all fields in the fields tree
+        for i in range(self.fields_tree.topLevelItemCount()):
+            item = self.fields_tree.topLevelItem(i)
+            field_name = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            field_type = item.data(0, Qt.ItemDataRole.UserRole + 2)
+            table_name = item.data(0, Qt.ItemDataRole.UserRole + 3)
+            
+            # Base display name (without indicator)
+            base_name = f"{field_name} ({field_type})"
+            
+            # Check if this field is in use for the current tab
+            if (field_name, table_name) in fields_in_use:
+                # Add green dot indicator
+                item.setText(0, f"🟢 {base_name}")
+                # Make it bold
+                font = item.font(0)
+                font.setBold(True)
+                item.setFont(0, font)
+            else:
+                # No indicator
+                item.setText(0, base_name)
+                # Regular font
+                font = item.font(0)
+                font.setBold(False)
+                item.setFont(0, font)
 
     def add_all_fields_to_display(self):
         """Add all fields from current table to Display tab"""
@@ -1609,8 +1970,19 @@ class DBQueryScreen(QWidget):
         # Connection info
         query.connection_id = self.current_connection_id
         
-        # Display fields
-        query.display_fields = self.display_fields.copy()
+        # Display fields - collect current state from widgets
+        display_fields_with_config = []
+        for widget in self.display_widgets:
+            field_config = widget.field_data.copy()
+            # Add UI state
+            field_config['alias'] = widget.alias_input.text()
+            field_config['aggregation'] = widget.agg_combo.currentText()
+            field_config['order'] = widget.order_combo.currentText()
+            field_config['having'] = widget.having_input.text()
+            field_config['is_expanded'] = widget.is_expanded
+            display_fields_with_config.append(field_config)
+        
+        query.display_fields = display_fields_with_config
         
         # FROM clause
         query.from_table = self.from_table_combo.currentText()
@@ -1633,6 +2005,11 @@ class DBQueryScreen(QWidget):
                 
                 if filter_type == 'string':
                     criterion['match_type'] = filter_value.get('match_type', 'contains')
+                    criterion['value'] = filter_value.get('value', '')
+                
+                elif filter_type == 'expression':
+                    # Expression mode - user provides the entire condition (e.g., "> 100", "LIKE 'A%'")
+                    criterion['operator'] = 'EXPRESSION'
                     criterion['value'] = filter_value.get('value', '')
                     
                 elif filter_type == 'checkbox_list':
@@ -1844,6 +2221,23 @@ class DBQueryScreen(QWidget):
                 display_widget = DisplayFieldWidget(field, self)
                 display_widget.remove_requested.connect(lambda w=display_widget: self.remove_display_field(w))
                 self.display_layout.addWidget(display_widget)
+                self.display_widgets.append(display_widget)
+                
+                # Restore widget state
+                if 'alias' in field:
+                    display_widget.alias_input.setText(field['alias'])
+                if 'aggregation' in field:
+                    index = display_widget.agg_combo.findText(field['aggregation'])
+                    if index >= 0:
+                        display_widget.agg_combo.setCurrentIndex(index)
+                if 'order' in field:
+                    index = display_widget.order_combo.findText(field['order'])
+                    if index >= 0:
+                        display_widget.order_combo.setCurrentIndex(index)
+                if 'having' in field:
+                    display_widget.having_input.setText(field['having'])
+                if 'is_expanded' in field and field['is_expanded']:
+                    display_widget.toggle_details()  # Expand if it was expanded
             
             # Load criteria filters
             criteria = query_dict.get('criteria', [])
@@ -1887,6 +2281,9 @@ class DBQueryScreen(QWidget):
             # Update tables involved and buttons
             self.update_tables_involved()
             self.update_query_buttons()
+            
+            # Enable reset button since we have a loaded query
+            self.reset_query_btn.setEnabled(True)
             
             logger.info(f"Loaded query {query_id}: {query_record['query_name']}")
             
@@ -1937,6 +2334,23 @@ class DBQueryScreen(QWidget):
                 display_widget = DisplayFieldWidget(field, self)
                 display_widget.remove_requested.connect(lambda w=display_widget: self.remove_display_field(w))
                 self.display_layout.addWidget(display_widget)
+                self.display_widgets.append(display_widget)
+                
+                # Restore widget state
+                if 'alias' in field:
+                    display_widget.alias_input.setText(field['alias'])
+                if 'aggregation' in field:
+                    index = display_widget.agg_combo.findText(field['aggregation'])
+                    if index >= 0:
+                        display_widget.agg_combo.setCurrentIndex(index)
+                if 'order' in field:
+                    index = display_widget.order_combo.findText(field['order'])
+                    if index >= 0:
+                        display_widget.order_combo.setCurrentIndex(index)
+                if 'having' in field:
+                    display_widget.having_input.setText(field['having'])
+                if 'is_expanded' in field and field['is_expanded']:
+                    display_widget.toggle_details()  # Expand if it was expanded
             
             # Restore criteria filters
             for criterion in state.get('criteria', []):
@@ -1991,6 +2405,9 @@ class DBQueryScreen(QWidget):
                 if isinstance(widget, DisplayFieldWidget) and widget.field_data == field_data:
                     self.remove_display_field(widget)
                     break
+        
+        # Ensure display_widgets is cleared
+        self.display_widgets.clear()
         
         # Clear all joins
         for widget in self.joins.copy():
@@ -2150,6 +2567,11 @@ class DBQueryScreen(QWidget):
                 if hasattr(filter_widget, '_update_list_button_style'):
                     filter_widget._update_list_button_style()
                 
+                # IMPORTANT: Update the combobox and input box state to show "List" and disabled styling
+                if hasattr(filter_widget, '_update_selected_values') and hasattr(filter_widget, 'unique_values'):
+                    # Call the update method to apply the UI state
+                    filter_widget._update_selected_values(selected_values)
+                
                 # Also restore text filter if present
                 if 'text_value' in filter_config and hasattr(filter_widget, 'filter_input'):
                     filter_widget.filter_input.setText(filter_config.get('text_value', ''))
@@ -2165,9 +2587,6 @@ class DBQueryScreen(QWidget):
                 custom_text = filter_config.get('custom_criteria', '').strip()
                 if hasattr(filter_widget, 'custom_criteria_text'):
                     filter_widget.custom_criteria_text = custom_text
-                    # Update custom button style to reflect loaded state
-                    if hasattr(filter_widget, '_update_custom_button_style'):
-                        filter_widget._update_custom_button_style()
         
         except Exception as e:
             logger.warning(f"Could not fully restore filter config: {e}")
@@ -2259,10 +2678,54 @@ class DBQueryScreen(QWidget):
         self.current_query_name = None
         self.current_query_id = None
         
-        # Update query name display
+        # Update query name display and reset button
         self._update_query_name_display()
+        self.reset_query_btn.setEnabled(False)
         
         logger.info("Started new query - cleared all previous state")
+    
+    def reset_query(self):
+        """Reset current query to last saved version from disk"""
+        if self.current_query_id is None:
+            QMessageBox.information(
+                self,
+                "No Query Loaded",
+                "There is no saved query to reset to.\n\n"
+                "Please load a saved query first."
+            )
+            return
+        
+        # Confirm reset
+        reply = QMessageBox.question(
+            self,
+            "Reset Query",
+            f"Are you sure you want to reset to the last saved version of '{self.current_query_name}'?\n\n"
+            "All unsaved changes will be lost.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.No:
+            return
+        
+        # Get the query from database
+        query_record = self.query_repo.get_query(self.current_query_id)
+        if not query_record:
+            QMessageBox.critical(
+                self,
+                "Error",
+                "Failed to load query from database."
+            )
+            return
+        
+        # Clear any unsaved state for this query
+        if self.current_query_id in self.unsaved_query_states:
+            del self.unsaved_query_states[self.current_query_id]
+        
+        # Reload the query from disk
+        self.load_saved_query(self.current_query_id, query_record['query_definition'])
+        
+        logger.info(f"Reset query {self.current_query_id} to last saved version")
 
     def _update_query_name_display(self):
         """Update the query name label"""
@@ -2370,6 +2833,7 @@ class CriteriaFilterWidget(QFrame):
         self.parent_screen = parent
         self.unique_values = None
         self.value_checkboxes = []
+        self.setAcceptDrops(True)
         self.init_ui()
 
     def init_ui(self):
@@ -2383,8 +2847,8 @@ class CriteriaFilterWidget(QFrame):
             }
         """)
         
-        # Fixed width for tile layout - compact but functional
-        self.setFixedWidth(320)
+        # Fixed width for tile layout - match DisplayFieldWidget width
+        self.setFixedWidth(200)
         self.setMinimumHeight(100)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
@@ -2392,7 +2856,7 @@ class CriteriaFilterWidget(QFrame):
         main_layout.setSpacing(2)
         main_layout.setContentsMargins(4, 4, 4, 4)
 
-        # Header row: Field name, select values button (if applicable), and remove button
+        # Header row: Field name and remove button only (no other buttons)
         header_layout = QHBoxLayout()
         header_layout.setSpacing(4)
         header_layout.setContentsMargins(0, 0, 0, 0)
@@ -2406,14 +2870,7 @@ class CriteriaFilterWidget(QFrame):
         
         header_layout.addStretch()
         
-        # Placeholder for select values button (will be added later if needed)
-        self.header_button_container = QWidget()
-        self.header_button_layout = QHBoxLayout(self.header_button_container)
-        self.header_button_layout.setSpacing(4)
-        self.header_button_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.addWidget(self.header_button_container)
-        
-        # Placeholder for buttons
+        # Placeholder for buttons (will be added later next to controls)
         self.list_button = None
         self.custom_criteria_button = None
         self.custom_criteria_text = ""  # Store custom criteria
@@ -2484,36 +2941,15 @@ class CriteriaFilterWidget(QFrame):
         is_numeric = any(t in data_type for t in ['INT', 'DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE', 'REAL', 'NUMBER'])
         is_date = any(t in data_type for t in ['DATE', 'TIME', 'TIMESTAMP'])
 
-        # If we have unique values, ALWAYS show checkbox list (regardless of count)
-        # The popup button makes it easy to navigate even with thousands of values
-        if self.unique_values:
-            # Add the type-specific control first (left side)
-            if is_string:
-                self._add_string_filter_compact()
-            elif is_numeric:
-                self._add_numeric_filter_compact()
-            elif is_date:
-                self._add_date_filter_compact()
-            else:
-                self._add_default_filter_compact()
-            
-            # Then add checkbox list (right side) with popup button
-            self._add_checkbox_list_compact()
-        # String types
-        elif is_string:
+        # Add the appropriate filter type (buttons are now integrated into each method)
+        if is_string:
             self._add_string_filter_compact()
-        # Numeric types
         elif is_numeric:
             self._add_numeric_filter_compact()
-        # Date/Time types
         elif is_date:
             self._add_date_filter_compact()
-        # Default: simple text input
         else:
             self._add_default_filter_compact()
-        
-        # Always add custom criteria button at the bottom
-        self._add_custom_criteria_button()
 
     def _load_unique_values(self):
         """Try to load cached unique values for this field"""
@@ -2543,27 +2979,6 @@ class CriteriaFilterWidget(QFrame):
             logger.warning(f"Could not load unique values: {e}")
             self.unique_values = None
 
-    def _add_checkbox_list_compact(self):
-        """Add list button to header for value selection popup"""
-        # Initialize with all values selected by default
-        self.selected_values = self.unique_values[:]
-        
-        # Add list button to header
-        self.list_button = QPushButton("☰")
-        self.list_button.setFixedSize(20, 20)
-        self.list_button.setToolTip(f"Select Values ({len(self.unique_values)} available)")
-        self._update_list_button_style()
-        self.list_button.clicked.connect(self._open_value_selection_popup)
-        
-        # Add to header button container
-        self.header_button_layout.addWidget(self.list_button)
-        
-        # Initialize empty checkbox list for compatibility
-        self.value_checkboxes = []
-        # Initialize dummy checkboxes for Select All/None (for compatibility)
-        self.select_all_checkbox = None
-        self.select_none_checkbox = None
-    
     def _update_list_button_style(self):
         """Update list button style based on selection state"""
         if not self.list_button:
@@ -2630,78 +3045,94 @@ class CriteriaFilterWidget(QFrame):
         self.selected_values = selected_values
         # Update button style to reflect selection state
         self._update_list_button_style()
-    
-    def _add_custom_criteria_button(self):
-        """Add custom criteria button to header"""
-        self.custom_criteria_button = QPushButton("🖊")
-        self.custom_criteria_button.setFixedSize(20, 20)
-        self.custom_criteria_button.setToolTip("Enter custom criteria (e.g., >100 AND <200)")
-        self._update_custom_button_style()
-        self.custom_criteria_button.clicked.connect(self._open_custom_criteria_dialog)
         
-        # Add to header button container
-        self.header_button_layout.addWidget(self.custom_criteria_button)
-    
-    def _update_custom_button_style(self):
-        """Update custom criteria button style based on whether criteria is entered"""
-        if not self.custom_criteria_button:
-            return
+        # Enable/disable combobox and input based on whether list values are being used
+        all_selected = len(selected_values) == len(self.unique_values)
         
-        if self.custom_criteria_text:
-            # Solid orange (criteria entered)
-            self.custom_criteria_button.setStyleSheet("""
-                QPushButton {
-                    background: #ff9800;
-                    color: white;
-                    border: 2px solid #ff9800;
-                    border-radius: 3px;
-                    font-size: 12px;
-                    padding: 0px;
-                }
-                QPushButton:hover {
-                    background: #f57c00;
-                }
-            """)
-        else:
-            # Orange border only (no criteria)
-            self.custom_criteria_button.setStyleSheet("""
-                QPushButton {
-                    background: white;
-                    color: #ff9800;
-                    border: 2px solid #ff9800;
-                    border-radius: 3px;
-                    font-size: 12px;
-                    padding: 0px;
-                }
-                QPushButton:hover {
-                    background: #fff3e0;
-                }
-            """)
+        # If not all values are selected (some filtering), disable combo and input (mutually exclusive)
+        if hasattr(self, 'match_type_combo'):
+            self.match_type_combo.setEnabled(all_selected)
+            if not all_selected:
+                # Store original value and show "List"
+                if not hasattr(self, '_original_combo_text'):
+                    self._original_combo_text = self.match_type_combo.currentText()
+                # Temporarily add "List" option and select it
+                if self.match_type_combo.findText("List") == -1:
+                    self.match_type_combo.addItem("List")
+                self.match_type_combo.setCurrentText("List")
+                # Set light grey background for disabled state
+                self.match_type_combo.setStyleSheet("""
+                    QComboBox {
+                        background-color: #E0E0E0;
+                        color: #808080;
+                        font-size: 10px;
+                        padding: 2px 4px;
+                    }
+                """)
+            else:
+                # Remove "List" option and restore original
+                list_index = self.match_type_combo.findText("List")
+                if list_index != -1:
+                    self.match_type_combo.removeItem(list_index)
+                if hasattr(self, '_original_combo_text'):
+                    self.match_type_combo.setCurrentText(self._original_combo_text)
+                    delattr(self, '_original_combo_text')
+                # Restore normal styling
+                self.match_type_combo.setStyleSheet("""
+                    QComboBox {
+                        font-size: 10px;
+                        padding: 2px 4px;
+                        background: white;
+                    }
+                """)
+        
+        if hasattr(self, 'filter_input'):
+            self.filter_input.setEnabled(all_selected)
+            if not all_selected:
+                # Set light grey background for disabled state
+                self.filter_input.setStyleSheet("""
+                    QLineEdit {
+                        background-color: #E0E0E0;
+                        color: #808080;
+                        font-size: 10px;
+                        padding: 2px 4px;
+                    }
+                """)
+            else:
+                # Restore normal styling
+                self.filter_input.setStyleSheet("""
+                    QLineEdit {
+                        font-size: 10px;
+                        padding: 2px 4px;
+                        background: white;
+                    }
+                """)
     
     def _open_custom_criteria_dialog(self):
-        """Open dialog to enter custom criteria"""
+        """Open dialog to enter custom criteria - works for all combo box modes"""
         from PyQt6.QtWidgets import QDialog, QTextEdit
         
         dialog = QDialog(self)
-        dialog.setWindowTitle(f"Custom Criteria - {self.field_data['field_name']}")
+        dialog.setWindowTitle(f"Edit - {self.field_data['field_name']}")
         dialog.setMinimumWidth(400)
         dialog.setMinimumHeight(200)
         
         layout = QVBoxLayout(dialog)
         
-        # Instructions
-        instructions = QLabel(
-            "Enter custom criteria (e.g., >100, LIKE 'ABC%', BETWEEN 1 AND 10)\n"
-            "The field name will be added automatically."
-        )
+        # Instructions - simpler for all modes
+        instructions = QLabel("Enter your criteria below. This gives you more space to type.")
         instructions.setStyleSheet("font-size: 10px; color: #666; background: transparent;")
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
         
-        # Text input
+        # Text input - use content from filter_input for all modes
         text_edit = QTextEdit()
-        text_edit.setPlaceholderText("Example: >100 AND <200\nExample: LIKE 'A%'\nExample: IS NOT NULL")
-        text_edit.setPlainText(self.custom_criteria_text)
+        text_edit.setPlaceholderText("Type your filter criteria here...")
+        
+        # Load current content from the input box
+        if hasattr(self, 'filter_input') and self.filter_input.text():
+            text_edit.setPlainText(self.filter_input.text())
+        
         text_edit.setStyleSheet("""
             QTextEdit {
                 font-size: 11px;
@@ -2730,10 +3161,11 @@ class CriteriaFilterWidget(QFrame):
         
         layout.addLayout(button_layout)
         
-        # Show dialog and process result
+        # Show dialog and process result - update filter_input for all modes
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.custom_criteria_text = text_edit.toPlainText().strip()
-            self._update_custom_button_style()
+            new_text = text_edit.toPlainText().strip()
+            if hasattr(self, 'filter_input'):
+                self.filter_input.setText(new_text)
     
     def _on_select_all_changed(self, state):
         """Handle Select All checkbox - No longer used with button-only interface"""
@@ -2749,9 +3181,15 @@ class CriteriaFilterWidget(QFrame):
 
     def _add_string_filter_compact(self):
         """Add compact string filter controls"""
+        # First row: Match type dropdown with list button
+        combo_row = QHBoxLayout()
+        combo_row.setSpacing(4)
+        combo_row.setContentsMargins(0, 0, 0, 0)
+        
         # Match type dropdown (compact with reduced height)
         self.match_type_combo = QComboBox()
-        self.match_type_combo.addItems(["Exact", "Starts", "Ends", "Contains"])
+        self.match_type_combo.addItems(["None", "Exact", "Starts", "Ends", "Contains", "Expression"])
+        self.match_type_combo.setCurrentText("Exact")  # Default to Exact, not None
         self.match_type_combo.setMinimumWidth(80)
         self.match_type_combo.setMaximumWidth(90)
         self.match_type_combo.setMaximumHeight(22)
@@ -2762,13 +3200,39 @@ class CriteriaFilterWidget(QFrame):
                 background: white;
             }
         """)
-        self.controls_layout.addWidget(self.match_type_combo)
+        self.match_type_combo.currentTextChanged.connect(self._on_match_type_changed)
+        combo_row.addWidget(self.match_type_combo)
+        
+        # List button next to combobox (will be added if unique values exist)
+        if self.unique_values:
+            # Initialize with all values selected by default
+            self.selected_values = self.unique_values[:]
+            
+            self.list_button = QPushButton("☰")
+            self.list_button.setFixedSize(20, 20)
+            self.list_button.setToolTip(f"Select Values ({len(self.unique_values)} available)")
+            self._update_list_button_style()
+            self.list_button.clicked.connect(self._open_value_selection_popup)
+            combo_row.addWidget(self.list_button)
+        
+        combo_row.addStretch()
+        
+        # Add combo row to layout
+        combo_widget = QWidget()
+        combo_widget.setStyleSheet("background: transparent;")
+        combo_widget.setLayout(combo_row)
+        self.controls_layout.addWidget(combo_widget)
 
+        # Second row: Text input with custom criteria button
+        input_row = QHBoxLayout()
+        input_row.setSpacing(4)
+        input_row.setContentsMargins(0, 0, 0, 0)
+        
         # Text input (compact with reduced height)
         self.filter_input = QLineEdit()
         self.filter_input.setPlaceholderText("Enter text...")
         self.filter_input.setMinimumWidth(120)
-        self.filter_input.setMaximumWidth(200)
+        self.filter_input.setMaximumWidth(260)
         self.filter_input.setMaximumHeight(22)
         self.filter_input.setStyleSheet("""
             QLineEdit {
@@ -2777,7 +3241,56 @@ class CriteriaFilterWidget(QFrame):
                 background: white;
             }
         """)
-        self.controls_layout.addWidget(self.filter_input)
+        self.filter_input.textChanged.connect(self._on_filter_input_changed)
+        input_row.addWidget(self.filter_input)
+        
+        # Custom criteria button next to input box (orange pen) - always visible, always outline style
+        self.custom_criteria_button = QPushButton("🖊")
+        self.custom_criteria_button.setFixedSize(20, 20)
+        self.custom_criteria_button.setToolTip("Open larger editor for more space")
+        # Always use outline style (never solid)
+        self.custom_criteria_button.setStyleSheet("""
+            QPushButton {
+                background: white;
+                color: #ff9800;
+                border: 2px solid #ff9800;
+                border-radius: 3px;
+                font-size: 12px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background: #fff3e0;
+            }
+        """)
+        self.custom_criteria_button.clicked.connect(self._open_custom_criteria_dialog)
+        input_row.addWidget(self.custom_criteria_button)
+        
+        input_row.addStretch()
+        
+        # Add input row to layout
+        input_widget = QWidget()
+        input_widget.setStyleSheet("background: transparent;")
+        input_widget.setLayout(input_row)
+        self.controls_layout.addWidget(input_widget)
+    
+    def _on_match_type_changed(self, text):
+        """Handle match type combobox changes"""
+        if not hasattr(self, 'filter_input'):
+            return
+        
+        # Update placeholder text based on mode
+        if text == "Expression":
+            self.filter_input.setPlaceholderText("Enter custom criteria (e.g., >100, LIKE 'A%')...")
+        else:
+            self.filter_input.setPlaceholderText("Enter text...")
+        
+        # Pen button is always visible now - removed visibility toggle
+    
+    def _on_filter_input_changed(self, text):
+        """Handle filter input text changes - sync with custom_criteria_text in Expression mode"""
+        if hasattr(self, 'match_type_combo') and self.match_type_combo.currentText() == 'Expression':
+            # In Expression mode, sync the filter input with custom_criteria_text
+            self.custom_criteria_text = text
 
     def _add_numeric_filter_compact(self):
         """Add compact numeric filter controls in horizontal layout"""
@@ -2950,17 +3463,41 @@ class CriteriaFilterWidget(QFrame):
         data_type = self.field_data['data_type'].upper()
         result = None
 
-        # Checkbox list mode (use stored selected_values instead of checkboxes)
+        # Check if "None" is selected - return None to skip this filter
+        if hasattr(self, 'match_type_combo') and self.match_type_combo.currentText() == "None":
+            return None
+
+        # Checkbox list mode - only include if "List" is showing in combobox (meaning actively filtering)
         if hasattr(self, 'selected_values') and self.selected_values is not None:
-            result = {
-                'type': 'checkbox_list',
-                'selected_values': self.selected_values
-            }
-            # Also check if there's a text/range input with value
-            if hasattr(self, 'filter_input') and self.filter_input.text():
-                result['text_value'] = self.filter_input.text()
+            # Only return list filter if combobox shows "List" (indicating active filtering)
+            if hasattr(self, 'match_type_combo') and self.match_type_combo.currentText() == "List":
+                result = {
+                    'type': 'checkbox_list',
+                    'selected_values': self.selected_values
+                }
+            # If "List" is not showing, check for text input instead
+            elif hasattr(self, 'filter_input') and self.filter_input.text():
                 if hasattr(self, 'match_type_combo'):
-                    result['text_match'] = self.match_type_combo.currentText()
+                    match_types = {
+                        'Exact': 'exact',
+                        'Starts': 'starts_with',
+                        'Ends': 'ends_with',
+                        'Contains': 'contains',
+                        'Expression': 'expression'
+                    }
+                    match_type = self.match_type_combo.currentText()
+                    
+                    if match_type == 'Expression':
+                        result = {
+                            'type': 'expression',
+                            'value': self.filter_input.text()
+                        }
+                    else:
+                        result = {
+                            'type': 'string',
+                            'match_type': match_types.get(match_type, 'exact'),
+                            'value': self.filter_input.text()
+                        }
 
         # String mode
         elif hasattr(self, 'match_type_combo'):
@@ -2968,13 +3505,23 @@ class CriteriaFilterWidget(QFrame):
                 'Exact': 'exact',
                 'Starts': 'starts_with',
                 'Ends': 'ends_with',
-                'Contains': 'contains'
+                'Contains': 'contains',
+                'Expression': 'expression'
             }
-            result = {
-                'type': 'string',
-                'match_type': match_types.get(self.match_type_combo.currentText(), 'exact'),
-                'value': self.filter_input.text() if hasattr(self, 'filter_input') else ''
-            }
+            match_type = self.match_type_combo.currentText()
+            
+            # If Expression mode, treat the filter_input as custom criteria
+            if match_type == 'Expression':
+                result = {
+                    'type': 'expression',
+                    'value': self.filter_input.text() if hasattr(self, 'filter_input') else ''
+                }
+            else:
+                result = {
+                    'type': 'string',
+                    'match_type': match_types.get(match_type, 'exact'),
+                    'value': self.filter_input.text() if hasattr(self, 'filter_input') else ''
+                }
 
         # Numeric mode (check which input has value)
         elif hasattr(self, 'exact_input'):
@@ -3033,6 +3580,7 @@ class CriteriaFilterWidget(QFrame):
     def _show_field_context_menu(self, position):
         """Show context menu for field label"""
         menu = QMenu(self)
+        menu.setStyleSheet("QMenu { border: 2px solid #555; }")
         
         find_unique_action = QAction("Find Unique Values", self)
         find_unique_action.triggered.connect(self._find_unique_values)
@@ -3094,6 +3642,81 @@ class CriteriaFilterWidget(QFrame):
                 "Error",
                 f"Failed to find unique values:\n{str(e)}"
             )
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press for drag initiation"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_position = event.pos()
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move for dragging"""
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if not hasattr(self, 'drag_start_position'):
+            return
+        if (event.pos() - self.drag_start_position).manhattanLength() < 10:
+            return
+        
+        if not self.parent_screen or not hasattr(self.parent_screen, 'criteria_widgets'):
+            return
+        
+        source_index = self.parent_screen.criteria_widgets.index(self)
+        
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        mime_data.setText(f"CriteriaFilterWidget:{source_index}")
+        drag.setMimeData(mime_data)
+        
+        # Create a semi-transparent pixmap of the widget for drag visualization
+        pixmap = self.grab()
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(event.pos())
+        
+        drag.exec(Qt.DropAction.MoveAction)
+    
+    def dragEnterEvent(self, event):
+        """Handle drag enter"""
+        if event.mimeData().hasText() and event.mimeData().text().startswith("CriteriaFilterWidget:"):
+            event.acceptProposedAction()
+            # Add visual feedback - highlight border
+            self.setStyleSheet(self.styleSheet().replace("border: 2px solid #3498db", "border: 3px solid #5dade2"))
+    
+    def dragLeaveEvent(self, event):
+        """Handle drag leave"""
+        # Remove visual feedback
+        self.setStyleSheet(self.styleSheet().replace("border: 3px solid #5dade2", "border: 2px solid #3498db"))
+    
+    def dropEvent(self, event):
+        """Handle drop"""
+        # Remove visual feedback
+        self.setStyleSheet(self.styleSheet().replace("border: 3px solid #5dade2", "border: 2px solid #3498db"))
+        
+        if event.mimeData().hasText() and event.mimeData().text().startswith("CriteriaFilterWidget:"):
+            source_text = event.mimeData().text()
+            source_index = int(source_text.split(":")[1])
+            
+            if self.parent_screen and hasattr(self.parent_screen, 'criteria_widgets'):
+                # Find target index
+                target_index = self.parent_screen.criteria_widgets.index(self)
+                
+                if source_index != target_index:
+                    # Remove source widget
+                    source_widget = self.parent_screen.criteria_widgets.pop(source_index)
+                    self.parent_screen.criteria_layout.removeWidget(source_widget)
+                    
+                    # Adjust target index if source was before target
+                    if source_index < target_index:
+                        target_index -= 1
+                    
+                    # Insert at new position
+                    self.parent_screen.criteria_widgets.insert(target_index, source_widget)
+                    self.parent_screen.criteria_layout.insertWidget(target_index, source_widget)
+                    
+                    # Show the widget again
+                    source_widget.show()
+                    
+            event.acceptProposedAction()
 
 
 
@@ -3105,6 +3728,8 @@ class DisplayFieldWidget(QFrame):
     def __init__(self, field_data: dict, parent=None):
         super().__init__(parent)
         self.field_data = field_data
+        self.is_expanded = False  # Start collapsed
+        self.setAcceptDrops(True)
         self.init_ui()
 
     def init_ui(self):
@@ -3114,6 +3739,7 @@ class DisplayFieldWidget(QFrame):
         # Store default background for toggling
         self.default_bg = "white"
         self.aggregated_bg = "#FFE5CC"  # Light orange
+        self.aggregated_having_bg = "#FFB366"  # Darker orange (with HAVING clause)
         
         self.setStyleSheet(f"""
             DisplayFieldWidget {{
@@ -3126,7 +3752,10 @@ class DisplayFieldWidget(QFrame):
         
         # Fixed width for tile layout - compact but readable
         self.setFixedWidth(200)
-        self.setFixedHeight(95)
+        # Dynamic height based on expanded state
+        self.collapsed_height = 50
+        self.expanded_height = 115  # Increased for Having field
+        self.setFixedHeight(self.collapsed_height)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         layout = QVBoxLayout(self)
@@ -3171,6 +3800,46 @@ class DisplayFieldWidget(QFrame):
         
         layout.addLayout(header_layout)
         
+        # Table name row with expand/collapse button
+        table_row_layout = QHBoxLayout()
+        table_row_layout.setSpacing(2)
+        
+        table_label = QLabel(f"📋 {self.field_data['table_name']}")
+        table_label.setStyleSheet("color: #7f8c8d; font-size: 9px; background: transparent;")
+        table_row_layout.addWidget(table_label)
+        
+        table_row_layout.addStretch()
+        
+        # Toggle button (arrow icon)
+        self.toggle_btn = QPushButton("▼")
+        self.toggle_btn.setFixedSize(16, 16)
+        self.toggle_btn.setStyleSheet("""
+            QPushButton {
+                background: #27ae60;
+                color: white;
+                border: none;
+                font-size: 10px;
+                font-weight: bold;
+                padding: 0px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background: #229954;
+            }
+        """)
+        self.toggle_btn.clicked.connect(self.toggle_details)
+        table_row_layout.addWidget(self.toggle_btn)
+        
+        layout.addLayout(table_row_layout)
+        layout.addLayout(table_row_layout)
+        
+        # Collapsible details container
+        self.details_container = QWidget()
+        self.details_container.setStyleSheet("background: transparent;")
+        details_layout = QVBoxLayout(self.details_container)
+        details_layout.setSpacing(1)
+        details_layout.setContentsMargins(0, 2, 0, 0)
+        
         # Alias input field (editable)
         alias_layout = QHBoxLayout()
         alias_layout.setSpacing(2)
@@ -3192,12 +3861,8 @@ class DisplayFieldWidget(QFrame):
         self.alias_input.setMaximumHeight(16)
         alias_layout.addWidget(self.alias_input)
         
-        layout.addLayout(alias_layout)
-        
-        # Table name
-        table_label = QLabel(f"📋 {self.field_data['table_name']}")
-        table_label.setStyleSheet("color: #7f8c8d; font-size: 9px; background: transparent;")
-        layout.addWidget(table_label)
+        details_layout.addLayout(alias_layout)
+        details_layout.addLayout(alias_layout)
         
         # Bottom row: Agg and Order on same line
         controls_layout = QHBoxLayout()
@@ -3252,30 +3917,170 @@ class DisplayFieldWidget(QFrame):
         self.order_combo.setMaximumWidth(60)
         controls_layout.addWidget(self.order_combo)
         
-        layout.addLayout(controls_layout)
+        details_layout.addLayout(controls_layout)
+        
+        # Having clause input (for filtering aggregated results)
+        having_layout = QHBoxLayout()
+        having_layout.setSpacing(2)
+        having_label = QLabel("Having:")
+        having_label.setStyleSheet("font-size: 9px; color: #7f8c8d; background: transparent;")
+        having_label.setToolTip("Filter aggregated results (e.g., > 100, BETWEEN 10 AND 50)")
+        having_layout.addWidget(having_label)
+        
+        self.having_input = QLineEdit()
+        self.having_input.setPlaceholderText("e.g., > 100")
+        self.having_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 9px;
+                padding: 1px 2px;
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 2px;
+            }
+        """)
+        self.having_input.setMaximumHeight(16)
+        self.having_input.textChanged.connect(self.on_having_changed)
+        having_layout.addWidget(self.having_input)
+        
+        details_layout.addLayout(having_layout)
+        
+        # Add details container to main layout and hide initially
+        layout.addWidget(self.details_container)
+        self.details_container.hide()
+    
+    def toggle_details(self):
+        """Toggle the visibility of alias and controls"""
+        self.is_expanded = not self.is_expanded
+        
+        if self.is_expanded:
+            # Expand
+            self.details_container.show()
+            self.setFixedHeight(self.expanded_height)
+            self.toggle_btn.setText("▲")
+        else:
+            # Collapse
+            self.details_container.hide()
+            self.setFixedHeight(self.collapsed_height)
+            self.toggle_btn.setText("▼")
+    
+    def update_background_color(self):
+        """Update background color based on aggregation and having state"""
+        has_agg = self.agg_combo.currentText() != "None"
+        has_having = self.having_input.text().strip() != ""
+        
+        if has_agg and has_having:
+            # Darker orange when both aggregation and having are present
+            bg_color = self.aggregated_having_bg
+        elif has_agg:
+            # Light orange when only aggregation is present
+            bg_color = self.aggregated_bg
+        else:
+            # White background when no aggregation
+            bg_color = self.default_bg
+        
+        self.setStyleSheet(f"""
+            DisplayFieldWidget {{
+                border: 2px solid #27ae60;
+                border-radius: 6px;
+                background: {bg_color};
+                padding: 0px;
+            }}
+        """)
     
     def on_agg_changed(self, text):
         """Handle aggregation selection change"""
-        if text != "None":
-            # Apply light orange background when aggregated
-            self.setStyleSheet(f"""
-                DisplayFieldWidget {{
-                    border: 2px solid #27ae60;
-                    border-radius: 6px;
-                    background: {self.aggregated_bg};
-                    padding: 0px;
-                }}
-            """)
-        else:
-            # Restore white background
-            self.setStyleSheet(f"""
-                DisplayFieldWidget {{
-                    border: 2px solid #27ae60;
-                    border-radius: 6px;
-                    background: {self.default_bg};
-                    padding: 0px;
-                }}
-            """)
+        self.update_background_color()
+    
+    def on_having_changed(self):
+        """Handle having input change"""
+        self.update_background_color()
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press for drag initiation"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_position = event.pos()
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move for dragging"""
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if not hasattr(self, 'drag_start_position'):
+            return
+        if (event.pos() - self.drag_start_position).manhattanLength() < 10:
+            return
+        
+        # Get parent screen
+        parent_screen = self.parent()
+        while parent_screen and not hasattr(parent_screen, 'display_widgets'):
+            parent_screen = parent_screen.parent()
+        
+        if not parent_screen or not hasattr(parent_screen, 'display_widgets'):
+            return
+        
+        source_index = parent_screen.display_widgets.index(self)
+        
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        mime_data.setText(f"DisplayFieldWidget:{source_index}")
+        drag.setMimeData(mime_data)
+        
+        # Create a semi-transparent pixmap of the widget for drag visualization
+        pixmap = self.grab()
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(event.pos())
+        
+        drag.exec(Qt.DropAction.MoveAction)
+    
+    def dragEnterEvent(self, event):
+        """Handle drag enter"""
+        if event.mimeData().hasText() and event.mimeData().text().startswith("DisplayFieldWidget:"):
+            event.acceptProposedAction()
+            # Add visual feedback - highlight border
+            self.setStyleSheet(self.styleSheet().replace("border: 2px solid #27ae60", "border: 3px solid #2ecc71"))
+    
+    def dragLeaveEvent(self, event):
+        """Handle drag leave"""
+        # Remove visual feedback
+        self.setStyleSheet(self.styleSheet().replace("border: 3px solid #2ecc71", "border: 2px solid #27ae60"))
+    
+    def dropEvent(self, event):
+        """Handle drop"""
+        # Remove visual feedback
+        self.setStyleSheet(self.styleSheet().replace("border: 3px solid #2ecc71", "border: 2px solid #27ae60"))
+        
+        if event.mimeData().hasText() and event.mimeData().text().startswith("DisplayFieldWidget:"):
+            source_text = event.mimeData().text()
+            source_index = int(source_text.split(":")[1])
+            
+            # Get parent screen
+            parent_screen = self.parent()
+            while parent_screen and not hasattr(parent_screen, 'display_widgets'):
+                parent_screen = parent_screen.parent()
+            
+            if parent_screen and hasattr(parent_screen, 'display_widgets'):
+                # Find target index
+                target_index = parent_screen.display_widgets.index(self)
+                
+                if source_index != target_index:
+                    # Remove source widget
+                    source_widget = parent_screen.display_widgets.pop(source_index)
+                    source_data = parent_screen.display_fields.pop(source_index)
+                    parent_screen.display_layout.removeWidget(source_widget)
+                    
+                    # Adjust target index if source was before target
+                    if source_index < target_index:
+                        target_index -= 1
+                    
+                    # Insert at new position
+                    parent_screen.display_widgets.insert(target_index, source_widget)
+                    parent_screen.display_fields.insert(target_index, source_data)
+                    parent_screen.display_layout.insertWidget(target_index, source_widget)
+                    
+                    # Show the widget again
+                    source_widget.show()
+                    
+            event.acceptProposedAction()
 
 
 class JoinWidget(QFrame):

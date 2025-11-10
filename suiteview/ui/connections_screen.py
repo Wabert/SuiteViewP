@@ -188,10 +188,33 @@ class ConnectionsScreen(QWidget):
         header.setObjectName("panel_header")
         layout.addWidget(header)
 
+        # Table info and preview button row
+        info_row = QHBoxLayout()
+        
         # Table info label
         self.table_info_label = QLabel("Select a table to view schema details")
         self.table_info_label.setStyleSheet("color: #D4AF37; padding: 10px;")
-        layout.addWidget(self.table_info_label)
+        info_row.addWidget(self.table_info_label)
+        
+        info_row.addStretch()
+        
+        # Preview button (1000 rows)
+        self.preview_table_btn = QPushButton("Preview")
+        self.preview_table_btn.setObjectName("gold_button")
+        self.preview_table_btn.setMinimumWidth(100)
+        self.preview_table_btn.setVisible(False)  # Hide until table is selected
+        self.preview_table_btn.clicked.connect(self.preview_selected_table)
+        info_row.addWidget(self.preview_table_btn)
+        
+        # Show All button (all rows)
+        self.show_all_table_btn = QPushButton("Show All")
+        self.show_all_table_btn.setObjectName("gold_button")
+        self.show_all_table_btn.setMinimumWidth(100)
+        self.show_all_table_btn.setVisible(False)  # Hide until table is selected
+        self.show_all_table_btn.clicked.connect(self.show_all_selected_table)
+        info_row.addWidget(self.show_all_table_btn)
+        
+        layout.addLayout(info_row)
 
         # Schema table
         self.schema_table = QTableWidget()
@@ -584,6 +607,10 @@ class ConnectionsScreen(QWidget):
 
                 full_name = f"{schema_name}.{table_name}" if schema_name else table_name
                 self.table_info_label.setText(f"Table: {full_name} ({len(columns)} columns)")
+                
+                # Show preview and show all buttons for database tables
+                self.preview_table_btn.setVisible(True)
+                self.show_all_table_btn.setVisible(True)
 
                 logger.info(f"Loaded schema for {full_name}")
 
@@ -706,6 +733,226 @@ class ConnectionsScreen(QWidget):
             if hasattr(self, 'ftp_button_bar'):
                 self.ftp_button_bar.setVisible(False)
             raise
+    
+    def preview_selected_table(self):
+        """Preview first 1,000 rows of the selected table using FilterTableView"""
+        self._show_table_data(limit=1000)
+    
+    def show_all_selected_table(self):
+        """Show all rows of the selected table using FilterTableView"""
+        self._show_table_data(limit=None)
+    
+    def _show_table_data(self, limit: int = None):
+        """Show table data with optional row limit"""
+        if not self.current_table or not self.current_connection_id:
+            QMessageBox.information(self, "No Table Selected", "Please select a table first.")
+            return
+        
+        try:
+            import pandas as pd
+            import os
+            from suiteview.ui.widgets.filter_table_view import FilterTableView
+            
+            # Show progress cursor
+            self.setCursor(Qt.CursorShape.WaitCursor)
+            
+            try:
+                # Get connection to check type
+                connection = self.conn_manager.repo.get_connection(self.current_connection_id)
+                conn_type = connection.get('connection_type', '')
+                
+                # Handle file-based connections differently (CSV, Excel, Access)
+                if conn_type == 'CSV':
+                    # Load CSV file directly
+                    # For CSV connections, folder path is stored in connection_string
+                    folder_path = connection.get('connection_string', '')
+                    csv_path = os.path.join(folder_path, f"{self.current_table}.csv")
+                    
+                    if not os.path.exists(csv_path):
+                        raise ValueError(f"CSV file not found: {csv_path}")
+                    
+                    logger.info(f"Loading CSV file: {csv_path}")
+                    
+                    # Load with optional row limit
+                    if limit:
+                        df = pd.read_csv(csv_path, nrows=limit)
+                    else:
+                        df = pd.read_csv(csv_path)
+                
+                elif conn_type == 'EXCEL':
+                    # Load Excel file directly
+                    file_path = connection.get('connection_string', '')
+                    
+                    if not os.path.exists(file_path):
+                        raise ValueError(f"Excel file not found: {file_path}")
+                    
+                    logger.info(f"Loading Excel file: {file_path}, sheet: {self.current_table}")
+                    
+                    # Load with optional row limit
+                    if limit:
+                        df = pd.read_excel(file_path, sheet_name=self.current_table, nrows=limit)
+                    else:
+                        df = pd.read_excel(file_path, sheet_name=self.current_table)
+                
+                elif conn_type == 'ACCESS':
+                    # For Access, we need to use pyodbc directly
+                    import pyodbc
+                    file_path = connection.get('connection_string', '')
+                    
+                    if not os.path.exists(file_path):
+                        raise ValueError(f"Access file not found: {file_path}")
+                    
+                    logger.info(f"Loading Access table: {self.current_table}")
+                    
+                    # Build Access connection string
+                    conn_str = f"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={file_path};"
+                    
+                    # Build SQL with limit
+                    if limit:
+                        sql = f"SELECT TOP {limit} * FROM [{self.current_table}]"
+                    else:
+                        sql = f"SELECT * FROM [{self.current_table}]"
+                    
+                    # Execute query
+                    with pyodbc.connect(conn_str) as access_conn:
+                        df = pd.read_sql(sql, access_conn)
+                    
+                else:
+                    # Database query (SQL Server, DB2, etc.)
+                    # Build SQL based on connection type
+                    if self.current_schema and conn_type == 'DB2':
+                        table_ref = f"{self.current_schema}.{self.current_table}"
+                    else:
+                        table_ref = self.current_table
+                    
+                    # Build SQL with proper syntax for each database type
+                    if conn_type == 'DB2':
+                        # IMPORTANT: Use LIMIT syntax for DB2, NOT "FETCH FIRST n ROWS ONLY"
+                        # The ODBC Shadow driver we use requires LIMIT syntax to work properly.
+                        # DO NOT CHANGE THIS to FETCH - it will cause "ILLEGAL USE OF KEYWORD FETCH" errors.
+                        if limit:
+                            sql = f"SELECT * FROM {table_ref} LIMIT {limit}"
+                        else:
+                            sql = f"SELECT * FROM {table_ref}"
+                    else:
+                        # For SQL Server use TOP
+                        if limit:
+                            sql = f"SELECT TOP {limit} * FROM {table_ref}"
+                        else:
+                            sql = f"SELECT * FROM {table_ref}"
+                    
+                    logger.info(f"Executing query: {sql}")
+                    
+                    # Print SQL to console for debugging
+                    print(f"\n{'='*80}")
+                    print(f"PREVIEW/SHOW ALL QUERY - Connection Type: {conn_type}")
+                    print(f"Table: {self.current_table}")
+                    print(f"Schema: {self.current_schema}")
+                    print(f"Limit: {limit}")
+                    print(f"SQL: {sql}")
+                    print(f"{'='*80}\n")
+                    
+                    # Execute query - use pyodbc directly for DB2, SQLAlchemy for others
+                    if conn_type == 'DB2':
+                        # For DB2, use pyodbc directly (same as query_executor.py)
+                        import pyodbc
+                        import warnings
+                        
+                        # Suppress pandas pyodbc warning
+                        warnings.filterwarnings('ignore', message='pandas only supports SQLAlchemy')
+                        
+                        # Get DSN from connection string
+                        dsn = connection.get('connection_string', '').replace('DSN=', '')
+                        if not dsn:
+                            raise ValueError("DB2 connection requires DSN")
+                        
+                        logger.info(f"Connecting to DB2 with DSN: {dsn}")
+                        conn_str = f"DSN={dsn}"
+                        
+                        # Connect and execute
+                        con = pyodbc.connect(conn_str)
+                        df = pd.read_sql(sql, con)
+                        con.close()
+                        
+                    else:
+                        # For other databases, use SQLAlchemy engine
+                        engine = self.conn_manager.get_engine(self.current_connection_id)
+                        from sqlalchemy import text
+                        
+                        with engine.connect() as conn:
+                            df = pd.read_sql_query(text(sql), conn)
+                
+                # Restore cursor
+                self.unsetCursor()
+                
+                if df is not None and not df.empty:
+                    # Create dialog with FilterTableView
+                    from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+                    
+                    dialog = QDialog(self)
+                    full_name = f"{self.current_schema}.{self.current_table}" if self.current_schema else self.current_table
+                    
+                    # Set title based on whether it's limited or showing all
+                    if limit:
+                        dialog.setWindowTitle(f"Preview: {full_name} (First {limit} rows)")
+                    else:
+                        dialog.setWindowTitle(f"{full_name} (All rows)")
+                    
+                    dialog.setMinimumSize(1000, 600)
+                    
+                    layout = QVBoxLayout(dialog)
+                    
+                    # Info label
+                    if limit:
+                        info_label = QLabel(f"Showing {len(df)} rows × {len(df.columns)} columns (limited to {limit})")
+                    else:
+                        info_label = QLabel(f"Showing {len(df)} rows × {len(df.columns)} columns (all data)")
+                    info_label.setStyleSheet("font-weight: bold; padding: 5px;")
+                    layout.addWidget(info_label)
+                    
+                    # FilterTableView - Excel-style filterable table
+                    filter_table = FilterTableView()
+                    filter_table.set_dataframe(df)
+                    layout.addWidget(filter_table)
+                    
+                    # Button bar
+                    button_layout = QHBoxLayout()
+                    button_layout.addStretch()
+                    
+                    close_btn = QPushButton("Close")
+                    close_btn.setStyleSheet("""
+                        QPushButton {
+                            background-color: #95a5a6;
+                            color: white;
+                            border: none;
+                            padding: 8px 16px;
+                            font-size: 12px;
+                            border-radius: 4px;
+                        }
+                        QPushButton:hover {
+                            background-color: #7f8c8d;
+                        }
+                    """)
+                    close_btn.clicked.connect(dialog.close)
+                    button_layout.addWidget(close_btn)
+                    
+                    layout.addLayout(button_layout)
+                    
+                    logger.info(f"Preview loaded: {len(df)} rows")
+                    
+                    # Show dialog
+                    dialog.exec()
+                else:
+                    self.unsetCursor()
+                    QMessageBox.information(self, "No Data", "No data found in table.")
+                    
+            except Exception as e:
+                self.unsetCursor()
+                raise
+                
+        except Exception as e:
+            logger.error(f"Error previewing table: {e}")
+            QMessageBox.critical(self, "Preview Error", f"Failed to preview table:\n{str(e)}")
     
     def _view_all_ftp_dataset(self):
         """Open dialog to view complete FTP dataset"""

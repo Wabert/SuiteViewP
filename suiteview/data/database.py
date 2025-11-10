@@ -122,12 +122,84 @@ class Database:
                 query_name TEXT NOT NULL,
                 query_type TEXT NOT NULL,
                 category TEXT,
+                folder_id INTEGER,
                 query_definition TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_executed TIMESTAMP,
                 execution_duration_ms INTEGER,
-                record_count INTEGER
+                record_count INTEGER,
+                FOREIGN KEY (folder_id) REFERENCES query_folders(folder_id) ON DELETE SET NULL
+            )
+        """)
+        
+        # Query folders for organization
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS query_folders (
+                folder_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                folder_name TEXT NOT NULL,
+                query_type TEXT NOT NULL,
+                parent_folder_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                display_order INTEGER DEFAULT 0,
+                FOREIGN KEY (parent_folder_id) REFERENCES query_folders(folder_id) ON DELETE CASCADE
+            )
+        """)
+
+        # Data map folders for organization
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS data_map_folders (
+                folder_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                folder_name TEXT NOT NULL,
+                parent_folder_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                display_order INTEGER DEFAULT 0,
+                FOREIGN KEY (parent_folder_id) REFERENCES data_map_folders(folder_id) ON DELETE CASCADE
+            )
+        """)
+
+        # Data maps
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS data_maps (
+                data_map_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                map_name TEXT NOT NULL UNIQUE,
+                folder_id INTEGER,
+                key_data_type TEXT DEFAULT 'string',
+                value_data_type TEXT DEFAULT 'string',
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (folder_id) REFERENCES data_map_folders(folder_id) ON DELETE SET NULL
+            )
+        """)
+
+        # Data map entries (key-value pairs)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS data_map_entries (
+                entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                data_map_id INTEGER NOT NULL,
+                key_value TEXT NOT NULL,
+                mapped_value TEXT,
+                comment TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (data_map_id) REFERENCES data_maps(data_map_id) ON DELETE CASCADE
+            )
+        """)
+
+        # Field to data map assignments
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS field_data_map_assignments (
+                assignment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_id INTEGER NOT NULL,
+                schema_name TEXT,
+                table_name TEXT NOT NULL,
+                column_name TEXT NOT NULL,
+                data_map_id INTEGER NOT NULL,
+                assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (connection_id) REFERENCES connections(connection_id) ON DELETE CASCADE,
+                FOREIGN KEY (data_map_id) REFERENCES data_maps(data_map_id) ON DELETE CASCADE,
+                UNIQUE(connection_id, schema_name, table_name, column_name)
             )
         """)
 
@@ -160,6 +232,54 @@ class Database:
             """)
             conn.commit()
             print("Migration completed: is_common column added")
+        
+        # Migration 2: Add folder_id column to saved_queries if it doesn't exist
+        try:
+            cursor.execute("SELECT folder_id FROM saved_queries LIMIT 1")
+        except:
+            # Column doesn't exist, add it
+            print("Running migration: Adding folder_id column to saved_queries")
+            cursor.execute("""
+                ALTER TABLE saved_queries ADD COLUMN folder_id INTEGER REFERENCES query_folders(folder_id) ON DELETE SET NULL
+            """)
+            conn.commit()
+            print("Migration completed: folder_id column added")
+        
+        # Migration 3: Create default "General" folders if they don't exist
+        cursor.execute("SELECT COUNT(*) FROM query_folders WHERE folder_name = 'General' AND query_type = 'DB'")
+        if cursor.fetchone()[0] == 0:
+            print("Running migration: Creating default folders")
+            cursor.execute("""
+                INSERT INTO query_folders (folder_name, query_type, display_order)
+                VALUES ('General', 'DB', 0)
+            """)
+            cursor.execute("""
+                INSERT INTO query_folders (folder_name, query_type, display_order)
+                VALUES ('General', 'XDB', 0)
+            """)
+            
+            # Move all existing queries to General folder
+            cursor.execute("SELECT folder_id FROM query_folders WHERE folder_name = 'General' AND query_type = 'DB'")
+            db_folder_id = cursor.fetchone()[0]
+            cursor.execute("UPDATE saved_queries SET folder_id = ? WHERE query_type = 'DB' AND folder_id IS NULL", (db_folder_id,))
+            
+            cursor.execute("SELECT folder_id FROM query_folders WHERE folder_name = 'General' AND query_type = 'XDB'")
+            xdb_folder_id = cursor.fetchone()[0]
+            cursor.execute("UPDATE saved_queries SET folder_id = ? WHERE query_type = 'XDB' AND folder_id IS NULL", (xdb_folder_id,))
+            
+            conn.commit()
+            print("Migration completed: Default folders created and queries migrated")
+        
+        # Migration 4: Create default "General" folder for data maps if it doesn't exist
+        cursor.execute("SELECT COUNT(*) FROM data_map_folders WHERE folder_name = 'General'")
+        if cursor.fetchone()[0] == 0:
+            print("Running migration: Creating default data map folder")
+            cursor.execute("""
+                INSERT INTO data_map_folders (folder_name, display_order)
+                VALUES ('General', 0)
+            """)
+            conn.commit()
+            print("Migration completed: Default data map folder created")
 
     def execute(self, query: str, params: tuple = ()):
         """Execute a query and return cursor"""

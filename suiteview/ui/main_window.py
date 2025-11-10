@@ -3,7 +3,8 @@
 import logging
 from pathlib import Path
 from PyQt6.QtWidgets import (QMainWindow, QTabWidget, QWidget, QVBoxLayout, 
-                              QMessageBox, QLabel, QStatusBar, QSplitter, QTextEdit)
+                              QMessageBox, QLabel, QStatusBar, QSplitter, QTextEdit,
+                              QHBoxLayout, QPushButton, QToolBar)
 from PyQt6.QtCore import Qt, QEvent, QTimer
 from PyQt6.QtGui import QIcon, QAction
 
@@ -57,7 +58,7 @@ class MainWindow(QMainWindow):
         self.file_explorer_screen = FileExplorerScreen()
         self.file_explorer_v2 = FileExplorerV2()  # New enhanced file explorer
 
-        # Add tabs in order - Connections LAST
+        # Add tabs in order
         self.tab_widget.addTab(self.mydata_screen, "My Data")
         self.tab_widget.addTab(self.dbquery_screen, "DB Query")
         self.tab_widget.addTab(self.xdbquery_screen, "XDB Query")
@@ -73,6 +74,10 @@ class MainWindow(QMainWindow):
         self.connections_screen.connections_changed.connect(self.mydata_screen.load_my_data)
         self.connections_screen.connections_changed.connect(self.dbquery_screen.load_data_sources)
         self.connections_screen.connections_changed.connect(self.xdbquery_screen.load_data_sources)
+        
+        # Synchronize query folders between My Data and DB Query screens
+        self.mydata_screen.queries_changed.connect(self.dbquery_screen._load_db_queries_tree)
+        self.dbquery_screen.queries_changed.connect(self.mydata_screen._load_db_queries)
         
         # When mainframe FTP connection is selected, switch to Mainframe Nav tab and load it
         self.connections_screen.mainframe_connection_selected.connect(self.on_mainframe_connection_selected)
