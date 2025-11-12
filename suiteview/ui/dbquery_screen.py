@@ -16,6 +16,8 @@ from suiteview.core.query_builder import QueryBuilder, Query
 from suiteview.core.query_executor import QueryExecutor
 from suiteview.ui.dialogs.query_results_dialog import QueryResultsDialog
 from suiteview.ui.mydata_screen import QueryTreeWidget
+from suiteview.ui.widgets import CascadingMenuWidget
+from suiteview.ui.helpers import TreeStateManager
 
 logger = logging.getLogger(__name__)
 
@@ -115,132 +117,6 @@ class FlowLayout(QLayout):
             line_height = max(line_height, item.sizeHint().height())
         
         return y + line_height - rect.y()
-
-
-class CascadingMenuWidget(QWidget):
-    """Simple widget with vertically stacked buttons that show cascading menus on click"""
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        
-        # Create vertical layout
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(0)
-        self.layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        
-        # Track currently open menu
-        self.current_button = None
-        self.current_menu = None
-        
-        # Style for the container - slightly different light blue
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #D8E8FF;
-            }
-        """)
-        
-    def add_menu_item(self, text, menu, enabled=True):
-        """Add a button with a cascading menu"""
-        btn = QPushButton(text, self)
-        btn.setEnabled(enabled)
-        
-        # Style the button to look like tree items - slightly different light blue
-        btn.setStyleSheet("""
-            QPushButton {
-                background-color: #D8E8FF;
-                border: none;
-                border-bottom: 1px solid #B0C8E8;
-                padding: 2px 8px;
-                text-align: left;
-                font-size: 11px;
-                color: #0A1E5E;
-                min-height: 18px;
-                max-height: 18px;
-            }
-            QPushButton:hover {
-                background-color: #C8DFFF;
-            }
-            QPushButton:pressed {
-                background-color: #A8C8F0;
-            }
-        """)
-        
-        # Style the cascading menu with fine border and light blue background
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #E8F0FF;
-                border: 1px solid #6BA3E8;
-                padding: 2px;
-            }
-            QMenu::item {
-                background-color: #E8F0FF;
-                color: #0A1E5E;
-                padding: 4px 20px 4px 10px;
-                border: none;
-            }
-            QMenu::item:selected {
-                background-color: #6BA3E8;
-                color: white;
-            }
-            QMenu::item:disabled {
-                color: #7f8c8d;
-            }
-        """)
-        
-        # Connect click to show menu to the right
-        btn.clicked.connect(lambda: self._show_menu_to_right(btn, menu))
-        
-        self.layout.addWidget(btn)
-        
-    def _show_menu_to_right(self, button, menu):
-        """Show the menu to the right of the button, or close if already open"""
-        # If this button's menu is already open, close it
-        if self.current_button == button and self.current_menu and self.current_menu.isVisible():
-            self.current_menu.close()
-            self.current_button = None
-            self.current_menu = None
-            return
-        
-        # Close any previously open menu
-        if self.current_menu and self.current_menu.isVisible():
-            self.current_menu.close()
-        
-        # Get the button's geometry
-        button_rect = button.rect()
-        # Calculate position to the right of the button
-        global_pos = button.mapToGlobal(button_rect.topRight())
-        
-        # Show the menu (non-blocking)
-        menu.popup(global_pos)
-        
-        # Track this as the current menu
-        self.current_button = button
-        self.current_menu = menu
-        
-        # Connect to aboutToHide to clear tracking when menu closes
-        menu.aboutToHide.connect(lambda: self._on_menu_closed())
-    
-    def _on_menu_closed(self):
-        """Clear tracking when menu closes"""
-        self.current_button = None
-        self.current_menu = None
-        
-    def add_separator(self):
-        """Add a visual separator"""
-        separator = QFrame(self)
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
-        separator.setMaximumHeight(1)
-        separator.setStyleSheet("background: #ddd;")
-        self.layout.addWidget(separator)
-    
-    def clear(self):
-        """Remove all items"""
-        while self.layout.count():
-            item = self.layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
 
 
 class DBQueryScreen(QWidget):
@@ -744,7 +620,7 @@ class DBQueryScreen(QWidget):
         layout.addLayout(from_layout)
 
         # JOIN section
-        layout.addSpacing(20)
+        layout.addSpacing(10)
         join_header_layout = QHBoxLayout()
         join_label = QLabel("JOINS:")
         join_label.setStyleSheet("font-weight: bold;")
@@ -758,9 +634,10 @@ class DBQueryScreen(QWidget):
 
         layout.addLayout(join_header_layout)
 
-        # Scroll area for joins
+        # Scroll area for joins - expands to fill available space
         join_scroll = QScrollArea()
         join_scroll.setWidgetResizable(True)
+        join_scroll.setMinimumHeight(300)  # Set minimum height for better visibility
         join_scroll.setStyleSheet("""
             QScrollArea {
                 border: none;
@@ -773,10 +650,25 @@ class DBQueryScreen(QWidget):
         self.joins_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.joins_layout.setSpacing(10)
 
-        join_scroll.setWidget(self.joins_container)
-        layout.addWidget(join_scroll)
+        # Debug panel for JOIN restoration (green box requested)
+        from PyQt6.QtWidgets import QTextEdit  # local import to avoid top-level changes
+        self.join_debug_panel = QWidget()
+        self.join_debug_panel.setStyleSheet("background: #00aa00; border-radius: 4px; padding: 6px;")
+        debug_layout = QVBoxLayout(self.join_debug_panel)
+        debug_layout.setContentsMargins(4,4,4,4)
+        debug_layout.setSpacing(4)
+        header = QLabel("JOIN Field Debug")
+        header.setStyleSheet("font-weight: bold; color: white;")
+        debug_layout.addWidget(header)
+        self.join_debug_text = QTextEdit()
+        self.join_debug_text.setReadOnly(True)
+        self.join_debug_text.setStyleSheet("QTextEdit { background: #003f00; color: #e0ffe0; font-size: 11px; border: 1px solid #066; }")
+        self.join_debug_text.setMinimumHeight(90)
+        debug_layout.addWidget(self.join_debug_text)
+        self.joins_layout.addWidget(self.join_debug_panel)
 
-        layout.addStretch()
+        join_scroll.setWidget(self.joins_container)
+        layout.addWidget(join_scroll, 1)  # Add stretch factor to expand
 
         return tab
 
@@ -1200,12 +1092,7 @@ class DBQueryScreen(QWidget):
                 raise Exception("Query not found")
             
             # Save expanded state of folders before refreshing
-            expanded_folders = set()
-            for i in range(self.db_queries_tree.topLevelItemCount()):
-                folder_item = self.db_queries_tree.topLevelItem(i)
-                if folder_item.isExpanded():
-                    folder_id = folder_item.data(0, Qt.ItemDataRole.UserRole + 1)
-                    expanded_folders.add(folder_id)
+            expanded_folders = TreeStateManager.save_expanded_folders(self.db_queries_tree)
             
             # Save as new query with new name in the same folder as original
             new_query_id = self.query_repo.save_query(
@@ -1226,11 +1113,7 @@ class DBQueryScreen(QWidget):
             self.load_data_sources()
             
             # Restore expanded state of folders
-            for i in range(self.db_queries_tree.topLevelItemCount()):
-                folder_item = self.db_queries_tree.topLevelItem(i)
-                folder_id = folder_item.data(0, Qt.ItemDataRole.UserRole + 1)
-                if folder_id in expanded_folders:
-                    folder_item.setExpanded(True)
+            TreeStateManager.restore_expanded_folders(self.db_queries_tree, expanded_folders)
             
             self.queries_changed.emit()  # Notify other screens
             
@@ -1259,12 +1142,7 @@ class DBQueryScreen(QWidget):
                 return
             
             # Save expanded state of folders before refreshing
-            expanded_folders = set()
-            for i in range(self.db_queries_tree.topLevelItemCount()):
-                folder_item = self.db_queries_tree.topLevelItem(i)
-                if folder_item.isExpanded():
-                    folder_id = folder_item.data(0, Qt.ItemDataRole.UserRole + 1)
-                    expanded_folders.add(folder_id)
+            expanded_folders = TreeStateManager.save_expanded_folders(self.db_queries_tree)
             
             # Delete from database
             self.query_repo.delete_query(query_id)
@@ -1287,11 +1165,7 @@ class DBQueryScreen(QWidget):
             self.load_data_sources()
             
             # Restore expanded state of folders
-            for i in range(self.db_queries_tree.topLevelItemCount()):
-                folder_item = self.db_queries_tree.topLevelItem(i)
-                folder_id = folder_item.data(0, Qt.ItemDataRole.UserRole + 1)
-                if folder_id in expanded_folders:
-                    folder_item.setExpanded(True)
+            TreeStateManager.restore_expanded_folders(self.db_queries_tree, expanded_folders)
             
             self.queries_changed.emit()  # Notify other screens
             
@@ -1684,6 +1558,15 @@ class DBQueryScreen(QWidget):
         for field_data in self.display_fields:
             tables.add(field_data['table_name'])
 
+        # Include JOIN tables so they are not dropped when user edits criteria/display
+        for join_widget in getattr(self, 'joins', []):
+            try:
+                jt = getattr(join_widget, 'join_table', None) or join_widget.join_table_combo.currentText()
+                if jt:
+                    tables.add(jt)
+            except Exception:
+                pass
+
         self.tables_involved = tables
 
         # Update visual indicators in tables tree
@@ -1701,6 +1584,42 @@ class DBQueryScreen(QWidget):
         else:
             self.tables_involved_label.setText("(None)")
             self.from_table_combo.clear()
+        
+        # Update all JOIN widgets with new table list
+        self._update_join_widgets_table_list()
+    
+    def _update_join_widgets_table_list(self):
+        """Update the table list and field dropdowns in all JOIN widgets"""
+        # Skip during query loading to prevent clearing restored values
+        if hasattr(self, '_loading_query') and self._loading_query:
+            print("    [_update_join_widgets_table_list] Skipping - query is being loaded")
+            return
+            
+        # Update each JOIN widget
+        for join_widget in self.joins:
+            # Update the join table combo with available tables
+            current_selection = join_widget.join_table_combo.currentText()
+            
+            # Rebuild the join table combo but preserve current selection even
+            # if it is no longer part of tables_involved
+            new_items = sorted(self.tables_involved)
+            if current_selection and current_selection not in new_items:
+                new_items = [current_selection] + new_items
+            # Block signals during dropdown rebuild to avoid triggering
+            # _on_join_table_changed (which would reload without preservation)
+            prev_block = join_widget.join_table_combo.blockSignals(True)
+            join_widget.join_table_combo.clear()
+            join_widget.join_table_combo.addItems(new_items)
+            
+            # Try to restore the previous selection if it still exists
+            index = join_widget.join_table_combo.findText(current_selection)
+            if index >= 0:
+                join_widget.join_table_combo.setCurrentIndex(index)
+            # Restore original signal blocking state
+            join_widget.join_table_combo.blockSignals(prev_block)
+            
+            # Update the field lists in ON conditions
+            join_widget._load_field_lists(preserve_selections=True)
     
     def update_table_indicators(self):
         """Update green dot indicators next to tables that are in use"""
@@ -1898,12 +1817,18 @@ class DBQueryScreen(QWidget):
         self.joins.append(join_widget)
 
         logger.info("Added JOIN widget")
+        # Update debug panel
+        if hasattr(self, '_update_join_debug_panel'):
+            self._update_join_debug_panel()
 
     def remove_join(self, widget):
         """Remove a JOIN widget"""
         self.joins.remove(widget)
         self.joins_layout.removeWidget(widget)
         widget.deleteLater()
+        # Update debug panel
+        if hasattr(self, '_update_join_debug_panel'):
+            self._update_join_debug_panel()
 
     def run_query(self):
         """Execute the query"""
@@ -2059,15 +1984,31 @@ class DBQueryScreen(QWidget):
         
         # JOINs
         query.joins = []
-        for join_widget in self.joins:
+        print("\n" + "="*80)
+        print("SAVING JOIN CONFIGURATIONS:")
+        print("="*80)
+        for idx, join_widget in enumerate(self.joins, 1):
             join_config = join_widget.get_join_config()
-            if join_config['on_conditions']:
-                query.joins.append({
-                    'join_type': join_config['join_type'],
-                    'table_name': join_config['join_table'],
-                    'schema_name': self.current_schema_name,
-                    'on_conditions': join_config['on_conditions']
-                })
+            print(f"\nJOIN #{idx}:")
+            print(f"  Join Type: {join_config['join_type']}")
+            print(f"  Join Table: {join_config['join_table']}")
+            print(f"  Schema: {self.current_schema_name}")
+            print(f"  ON Conditions ({len(join_config['on_conditions'])} total):")
+            for cond_idx, condition in enumerate(join_config['on_conditions'], 1):
+                print(f"    Condition #{cond_idx}:")
+                print(f"      Left Field:  {condition.get('left_field', 'EMPTY')}")
+                print(f"      Operator:    {condition.get('operator', 'EMPTY')}")
+                print(f"      Right Field: {condition.get('right_field', 'EMPTY')}")
+            
+            # Save join even if on_conditions is empty (allows saving incomplete joins)
+            join_data = {
+                'join_type': join_config['join_type'],
+                'table_name': join_config['join_table'],
+                'schema_name': self.current_schema_name,
+                'on_conditions': join_config['on_conditions']
+            }
+            query.joins.append(join_data)
+        print("="*80 + "\n")
         
         return query
 
@@ -2265,7 +2206,55 @@ class DBQueryScreen(QWidget):
             
             # Load JOINs
             joins = query_dict.get('joins', [])
-            for join_config in joins:
+            print("\n" + "="*80)
+            print("LOADING JOIN CONFIGURATIONS:")
+            print("="*80)
+            print(f"Found {len(joins)} JOIN(s) to restore")
+            
+            # Set flag to prevent field list reloading during restoration
+            self._loading_query = True
+            
+            # Ensure join tables are considered "involved" so dropdowns include them
+            try:
+                for j in joins:
+                    jt = j.get('table_name') or j.get('join_table')
+                    if jt:
+                        if not hasattr(self, 'tables_involved') or self.tables_involved is None:
+                            self.tables_involved = set()
+                        self.tables_involved.add(jt)
+                # Reflect in UI combos/labels without triggering join widget updates
+                self.update_table_indicators()
+                if self.tables_involved:
+                    table_list = ", ".join(sorted(self.tables_involved))
+                    self.tables_involved_label.setText(table_list)
+                    # Refill FROM combo but preserve current selection
+                    current_from = self.from_table_combo.currentText()
+                    self.from_table_combo.clear()
+                    for table in sorted(self.tables_involved):
+                        self.from_table_combo.addItem(table)
+                    if current_from:
+                        idx = self.from_table_combo.findText(current_from)
+                        if idx >= 0:
+                            self.from_table_combo.setCurrentIndex(idx)
+                else:
+                    self.tables_involved_label.setText("(None)")
+            except Exception as _e:
+                # Non-fatal: continue restoration
+                print(f"    [RESTORE] Warning: could not pre-add join tables: {_e}")
+
+            for idx, join_config in enumerate(joins, 1):
+                print(f"\nJOIN #{idx} from saved data:")
+                print(f"  Join Type: {join_config.get('join_type', 'MISSING')}")
+                print(f"  Table Name: {join_config.get('table_name', 'MISSING')}")
+                print(f"  Schema: {join_config.get('schema_name', 'MISSING')}")
+                on_conds = join_config.get('on_conditions', [])
+                print(f"  ON Conditions ({len(on_conds)} total):")
+                for cond_idx, condition in enumerate(on_conds, 1):
+                    print(f"    Condition #{cond_idx}:")
+                    print(f"      Left Field:  {condition.get('left_field', 'MISSING')}")
+                    print(f"      Operator:    {condition.get('operator', 'MISSING')}")
+                    print(f"      Right Field: {condition.get('right_field', 'MISSING')}")
+                
                 # Update tables_involved first (needed by JoinWidget)
                 self.update_tables_involved()
                 
@@ -2276,11 +2265,20 @@ class DBQueryScreen(QWidget):
                 self.joins.append(join_widget)
                 
                 # Restore the JOIN configuration
+                print(f"  Restoring JOIN #{idx}...")
                 self._restore_join_config(join_widget, join_config)
+            print("="*80 + "\n")
+            
+            # Clear the loading flag
+            self._loading_query = False
             
             # Update tables involved and buttons
             self.update_tables_involved()
             self.update_query_buttons()
+
+            # Refresh debug panel
+            if hasattr(self, '_update_join_debug_panel'):
+                self._update_join_debug_panel()
             
             # Enable reset button since we have a loaded query
             self.reset_query_btn.setEnabled(True)
@@ -2364,7 +2362,33 @@ class DBQueryScreen(QWidget):
                 self._restore_filter_config(filter_widget, criterion['filter_config'])
             
             # Restore JOINs
-            for join_config in state.get('joins', []):
+            join_state_list = state.get('joins', [])
+            # Make sure join tables are included before creating widgets
+            try:
+                for j in join_state_list:
+                    jt = j.get('table_name') or j.get('join_table')
+                    if jt:
+                        if not hasattr(self, 'tables_involved') or self.tables_involved is None:
+                            self.tables_involved = set()
+                        self.tables_involved.add(jt)
+                self.update_table_indicators()
+                if self.tables_involved:
+                    table_list = ", ".join(sorted(self.tables_involved))
+                    self.tables_involved_label.setText(table_list)
+                    current_from = self.from_table_combo.currentText()
+                    self.from_table_combo.clear()
+                    for table in sorted(self.tables_involved):
+                        self.from_table_combo.addItem(table)
+                    if current_from:
+                        idx = self.from_table_combo.findText(current_from)
+                        if idx >= 0:
+                            self.from_table_combo.setCurrentIndex(idx)
+                else:
+                    self.tables_involved_label.setText("(None)")
+            except Exception as _e:
+                print(f"    [RESTORE] Warning: could not pre-add join tables (state): {_e}")
+
+            for join_config in join_state_list:
                 # Update tables_involved first (needed by JoinWidget)
                 self.update_tables_involved()
                 
@@ -2380,6 +2404,10 @@ class DBQueryScreen(QWidget):
             # Update tables involved and buttons
             self.update_tables_involved()
             self.update_query_buttons()
+
+            # Refresh debug panel
+            if hasattr(self, '_update_join_debug_panel'):
+                self._update_join_debug_panel()
             
             logger.info(f"Restored unsaved state for query {query_id}")
             
@@ -2415,6 +2443,56 @@ class DBQueryScreen(QWidget):
         
         # Reset FROM table
         self.from_table_combo.clear()
+
+    def _update_join_debug_panel(self):
+        """Populate the green JOIN debug panel with available fields and selections."""
+        # Only proceed if the panel exists
+        if not hasattr(self, 'join_debug_text') or self.join_debug_text is None:
+            return
+
+        try:
+            lines = []
+            # Header context
+            tables = sorted(list(self.tables_involved)) if hasattr(self, 'tables_involved') and self.tables_involved else []
+            from_table = self.from_table_combo.currentText() if hasattr(self, 'from_table_combo') else ''
+            lines.append(f"Tables Involved: {', '.join(tables) if tables else '(none)'}")
+            lines.append(f"FROM: {from_table or '(none)'}")
+
+            if not self.joins:
+                lines.append("No JOIN widgets.")
+            else:
+                for j_idx, jw in enumerate(self.joins, 1):
+                    # Determine tables for this join
+                    jw_from = jw.from_table or from_table or ''
+                    jw_join = jw.join_table or (jw.join_table_combo.currentText() if hasattr(jw, 'join_table_combo') else '')
+                    lines.append(f"\nJOIN #{j_idx}: FROM={jw_from or '(none)'} JOIN={jw_join or '(none)'}")
+
+                    # Get fields using the widget's accessor (safe with try/except)
+                    try:
+                        left_fields = jw._get_table_fields(jw_from) if jw_from else []
+                    except Exception as _e:
+                        left_fields = []
+                        lines.append(f"  Left fields error: {_e}")
+                    try:
+                        right_fields = jw._get_table_fields(jw_join) if jw_join else []
+                    except Exception as _e:
+                        right_fields = []
+                        lines.append(f"  Right fields error: {_e}")
+
+                    # Show counts and sample
+                    lines.append(f"  Left fields ({len(left_fields)}): " + (", ".join(left_fields[:10]) if left_fields else '(none)'))
+                    lines.append(f"  Right fields ({len(right_fields)}): " + (", ".join(right_fields[:10]) if right_fields else '(none)'))
+
+                    # Current ON selections
+                    for r_idx, row in enumerate(jw.on_condition_rows, 1):
+                        lf = row['left_field_combo'].currentText()
+                        op = row.get('operator_combo').currentText() if row.get('operator_combo') else '='
+                        rf = row['right_field_combo'].currentText()
+                        lines.append(f"  ON[{r_idx}]: {lf or '(empty)'} {op} {rf or '(empty)'}")
+
+            self.join_debug_text.setPlainText("\n".join(lines))
+        except Exception as e:
+            self.join_debug_text.setPlainText(f"[Debug error] {e}")
     
     def _criterion_to_filter_config(self, criterion: dict) -> dict:
         """Convert saved criterion format to filter_config format"""
@@ -2594,37 +2672,130 @@ class DBQueryScreen(QWidget):
     def _restore_join_config(self, join_widget: 'JoinWidget', join_config: dict):
         """Restore JOIN widget configuration from saved state"""
         if not join_config:
+            print("    [RESTORE] No join_config provided!")
             return
         
         try:
+            print("    [RESTORE] Starting restoration...")
+            
+            # Disconnect the signal that triggers field list reload
+            if hasattr(join_widget, 'join_table_combo'):
+                try:
+                    join_widget.join_table_combo.currentTextChanged.disconnect()
+                    print("    [RESTORE] Disconnected join_table_combo signal")
+                except:
+                    pass  # Already disconnected or no connections
+            
             # Set join type
             if hasattr(join_widget, 'join_type_combo'):
-                join_widget.join_type_combo.setCurrentText(join_config.get('join_type', 'INNER JOIN'))
+                join_type = join_config.get('join_type', 'INNER JOIN')
+                join_widget.join_type_combo.setCurrentText(join_type)
+                print(f"    [RESTORE] Set join type: {join_type}")
             
-            # Set join table
+            # Set join table - handle both 'table_name' (saved format) and 'join_table' (legacy)
             if hasattr(join_widget, 'join_table_combo'):
-                join_widget.join_table_combo.setCurrentText(join_config.get('join_table', ''))
+                table_name = join_config.get('table_name') or join_config.get('join_table', '')
+                if table_name:
+                    index = join_widget.join_table_combo.findText(table_name)
+                    print(f"    [RESTORE] Looking for table '{table_name}' - found at index {index}")
+                    if index < 0:
+                        # If the table isn't present (e.g., not yet in tables_involved), add it
+                        join_widget.join_table_combo.addItem(table_name)
+                        index = join_widget.join_table_combo.findText(table_name)
+                        print(f"    [RESTORE] Added missing table '{table_name}' to dropdown at index {index}")
+                        # Also ensure parent knows about this table to prevent later clearing
+                        if getattr(join_widget, 'parent_screen', None) is not None:
+                            try:
+                                if not hasattr(join_widget.parent_screen, 'tables_involved') or join_widget.parent_screen.tables_involved is None:
+                                    join_widget.parent_screen.tables_involved = set()
+                                join_widget.parent_screen.tables_involved.add(table_name)
+                            except Exception as _e:
+                                print(f"    [RESTORE] Warning: couldn't add '{table_name}' to tables_involved: {_e}")
+                    if index >= 0:
+                        # Block signals temporarily to prevent premature field list reload
+                        join_widget.join_table_combo.blockSignals(True)
+                        join_widget.join_table_combo.setCurrentIndex(index)
+                        join_widget.join_table_combo.blockSignals(False)
+                        
+                        # Manually set the join_table attribute
+                        join_widget.join_table = table_name
+                        
+                        print(f"    [RESTORE] Set join table to: {table_name}")
+                        
+                        # Manually load field lists for all rows WITHOUT triggering the normal change handler
+                        if hasattr(join_widget, 'parent_screen') and join_widget.parent_screen:
+                            from_table = join_widget.parent_screen.from_table_combo.currentText()
+                            print(f"    [RESTORE] Manually loading fields - FROM: {from_table}, JOIN: {table_name}")
+                            
+                            for row_idx, row_data in enumerate(join_widget.on_condition_rows):
+                                # Load FROM table fields
+                                if from_table and hasattr(join_widget, '_get_table_fields'):
+                                    fields = join_widget._get_table_fields(from_table)
+                                    row_data['left_field_combo'].clear()
+                                    row_data['left_field_combo'].addItems(fields)
+                                    print(f"    [RESTORE]   Row {row_idx+1}: Loaded {len(fields)} left fields")
+                                
+                                # Load JOIN table fields
+                                if table_name and hasattr(join_widget, '_get_table_fields'):
+                                    fields = join_widget._get_table_fields(table_name)
+                                    row_data['right_field_combo'].clear()
+                                    row_data['right_field_combo'].addItems(fields)
+                                    print(f"    [RESTORE]   Row {row_idx+1}: Loaded {len(fields)} right fields")
+                    else:
+                        print(f"    [RESTORE] WARNING: Table '{table_name}' not found in dropdown!")
             
-            # Restore ON conditions
+            # Restore ON conditions - AFTER field lists are loaded
             on_conditions = join_config.get('on_conditions', [])
+            print(f"    [RESTORE] Restoring {len(on_conditions)} ON condition(s)")
             
             # The first condition row already exists, populate it
             if on_conditions and hasattr(join_widget, 'on_condition_rows') and join_widget.on_condition_rows:
                 first_row = join_widget.on_condition_rows[0]
                 first_condition = on_conditions[0]
+                print(f"    [RESTORE] Condition #1:")
                 
                 if 'left_field_combo' in first_row:
-                    first_row['left_field_combo'].setCurrentText(first_condition.get('left_field', ''))
+                    left_field = first_condition.get('left_field', '')
+                    left_combo = first_row['left_field_combo']
+                    print(f"      Left combo has {left_combo.count()} items")
+                    idx = left_combo.findText(left_field)
+                    print(f"      Looking for left field '{left_field}' - found at index {idx}")
+                    if idx >= 0:
+                        left_combo.blockSignals(True)  # Block auto-populate signal
+                        left_combo.setCurrentIndex(idx)
+                        left_combo.blockSignals(False)
+                        print(f"      ✓ Set left field to: {left_field}")
+                    else:
+                        print(f"      ✗ Left field '{left_field}' not found in dropdown!")
+                        
                 if 'operator_combo' in first_row:
-                    first_row['operator_combo'].setCurrentText(first_condition.get('operator', '='))
+                    operator = first_condition.get('operator', '=')
+                    idx = first_row['operator_combo'].findText(operator)
+                    if idx >= 0:
+                        first_row['operator_combo'].setCurrentIndex(idx)
+                        print(f"      ✓ Set operator to: {operator}")
+                    else:
+                        print(f"      ✗ Operator '{operator}' not found!")
+                        
                 if 'right_field_combo' in first_row:
-                    first_row['right_field_combo'].setCurrentText(first_condition.get('right_field', ''))
+                    right_field = first_condition.get('right_field', '')
+                    right_combo = first_row['right_field_combo']
+                    print(f"      Right combo has {right_combo.count()} items")
+                    idx = right_combo.findText(right_field)
+                    print(f"      Looking for right field '{right_field}' - found at index {idx}")
+                    if idx >= 0:
+                        right_combo.setCurrentIndex(idx)
+                        print(f"      ✓ Set right field to: {right_field}")
+                    else:
+                        print(f"      ✗ Right field '{right_field}' not found in dropdown!")
             
             # Add and populate additional condition rows
             for i in range(1, len(on_conditions)):
+                print(f"    [RESTORE] Condition #{i+1}:")
                 # Add new row
                 if hasattr(join_widget, '_add_on_condition_row'):
                     join_widget._add_on_condition_row()
+                    print(f"      Added new ON condition row")
                     
                     # Populate the new row
                     if i < len(join_widget.on_condition_rows):
@@ -2632,14 +2803,50 @@ class DBQueryScreen(QWidget):
                         condition = on_conditions[i]
                         
                         if 'left_field_combo' in row:
-                            row['left_field_combo'].setCurrentText(condition.get('left_field', ''))
+                            left_field = condition.get('left_field', '')
+                            left_combo = row['left_field_combo']
+                            idx = left_combo.findText(left_field)
+                            if idx >= 0:
+                                left_combo.blockSignals(True)  # Block auto-populate signal
+                                left_combo.setCurrentIndex(idx)
+                                left_combo.blockSignals(False)
+                                print(f"      ✓ Set left field to: {left_field}")
+                            else:
+                                print(f"      ✗ Left field '{left_field}' not found!")
+                                
                         if 'operator_combo' in row:
-                            row['operator_combo'].setCurrentText(condition.get('operator', '='))
+                            operator = condition.get('operator', '=')
+                            idx = row['operator_combo'].findText(operator)
+                            if idx >= 0:
+                                row['operator_combo'].setCurrentIndex(idx)
+                                print(f"      ✓ Set operator to: {operator}")
+                            else:
+                                print(f"      ✗ Operator '{operator}' not found!")
+                                
                         if 'right_field_combo' in row:
-                            row['right_field_combo'].setCurrentText(condition.get('right_field', ''))
+                            right_field = condition.get('right_field', '')
+                            idx = row['right_field_combo'].findText(right_field)
+                            if idx >= 0:
+                                row['right_field_combo'].setCurrentIndex(idx)
+                                print(f"      ✓ Set right field to: {right_field}")
+                            else:
+                                print(f"      ✗ Right field '{right_field}' not found!")
+            
+            # Reconnect the signal after restoration is complete
+            if hasattr(join_widget, 'join_table_combo') and hasattr(join_widget, '_on_join_table_changed'):
+                join_widget.join_table_combo.currentTextChanged.connect(join_widget._on_join_table_changed)
+                print("    [RESTORE] Reconnected join_table_combo signal")
         
         except Exception as e:
+            print(f"    [RESTORE] ERROR: {e}")
             logger.warning(f"Could not fully restore JOIN config: {e}")
+        
+        # Update debug panel if available
+        try:
+            if self and hasattr(self, 'joins') and hasattr(self, '_update_join_debug_panel'):
+                self._update_join_debug_panel()
+        except Exception:
+            pass
 
     def new_query(self):
         """Clear current query and start fresh"""
@@ -4185,7 +4392,7 @@ class JoinWidget(QFrame):
         layout.addWidget(add_on_btn)
         
         # Load initial field lists
-        self._load_field_lists()
+        self._load_field_lists(preserve_selections=False)
 
     def _add_on_condition_row(self):
         """Add a new ON condition row"""
@@ -4224,11 +4431,22 @@ class JoinWidget(QFrame):
             }
         """)
         row_layout.addWidget(left_field_combo)
+        
+        # Connect signal to auto-populate right field
+        left_field_combo.currentTextChanged.connect(lambda: self._on_left_field_changed(left_field_combo, right_field_combo))
 
-        # Equals label
-        equals_label = QLabel("=")
-        equals_label.setStyleSheet("font-weight: bold;")
-        row_layout.addWidget(equals_label)
+        # Operator dropdown
+        operator_combo = QComboBox()
+        operator_combo.addItems(["=", "<>", "<", ">", "<=", ">="])
+        operator_combo.setMaximumWidth(60)
+        operator_combo.setMaximumHeight(22)
+        operator_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+        """)
+        row_layout.addWidget(operator_combo)
         
         # Right table name label
         right_table_label = QLabel("")
@@ -4275,6 +4493,7 @@ class JoinWidget(QFrame):
             'widget': row_widget,
             'left_table_label': left_table_label,
             'left_field_combo': left_field_combo,
+            'operator_combo': operator_combo,
             'right_table_label': right_table_label,
             'right_field_combo': right_field_combo
         }
@@ -4321,12 +4540,30 @@ class JoinWidget(QFrame):
 
     def _on_join_table_changed(self, table_name):
         """Handle join table selection change"""
+        # Skip if parent screen is loading a query
+        if self.parent_screen and hasattr(self.parent_screen, '_loading_query') and self.parent_screen._loading_query:
+            print(f"      [_on_join_table_changed] SKIPPED - Parent is loading query")
+            return
+            
         self.join_table = table_name
-        self._load_field_lists()
+        # When user explicitly changes the JOIN table, rebuild lists without preserving
+        self._load_field_lists(preserve_selections=False)
 
-    def _load_field_lists(self):
-        """Load fields for FROM and JOIN tables"""
+    def _load_field_lists(self, preserve_selections: bool = True):
+        """Load fields for FROM and JOIN tables.
+        If preserve_selections is True, keep the currently displayed values and
+        only refresh the dropdown contents. Signals are blocked during the
+        refresh to avoid unintended auto-matching.
+        """
+        print(f"      [_load_field_lists] Called (preserve={preserve_selections}) - FROM: {self.from_table}, JOIN: {self.join_table}")
+        
+        # Skip if parent screen is loading a query
+        if self.parent_screen and hasattr(self.parent_screen, '_loading_query') and self.parent_screen._loading_query:
+            print(f"      [_load_field_lists] SKIPPED - Parent is loading query")
+            return
+            
         if not self.parent_screen:
+            print(f"      [_load_field_lists] No parent_screen!")
             return
         
         # Get FROM table from parent
@@ -4340,18 +4577,53 @@ class JoinWidget(QFrame):
         self._update_on_condition_labels()
         
         # Load fields for all ON condition rows
-        for row_data in self.on_condition_rows:
+        print(f"      [_load_field_lists] Loading fields for {len(self.on_condition_rows)} row(s)")
+        for idx, row_data in enumerate(self.on_condition_rows, 1):
+            left_combo = row_data['left_field_combo']
+            right_combo = row_data['right_field_combo']
+            # Save current selections if preserving
+            left_current = left_combo.currentText() if preserve_selections else ''
+            right_current = right_combo.currentText() if preserve_selections else ''
+            print(f"      [_load_field_lists] Row {idx} - Before clear: left='{left_current}', right='{right_current}'")
+            
             # Load FROM table fields (left side)
-            row_data['left_field_combo'].clear()
+            prev_left_block = left_combo.blockSignals(True)
+            left_combo.clear()
             if from_table:
                 fields = self._get_table_fields(from_table)
-                row_data['left_field_combo'].addItems(fields)
+                left_combo.addItems(fields)
+                print(f"      [_load_field_lists] Row {idx} - Loaded {len(fields)} left fields from {from_table}")
+                
+                # Restore selection if it still exists
+                if preserve_selections and left_current in fields:
+                    index = left_combo.findText(left_current)
+                    if index >= 0:
+                        left_combo.setCurrentIndex(index)
+                        print(f"      [_load_field_lists] Row {idx} - Restored left field: '{left_current}'")
+            left_combo.blockSignals(prev_left_block)
             
             # Load JOIN table fields (right side)
-            row_data['right_field_combo'].clear()
+            prev_right_block = right_combo.blockSignals(True)
+            right_combo.clear()
             if join_table:
                 fields = self._get_table_fields(join_table)
-                row_data['right_field_combo'].addItems(fields)
+                right_combo.addItems(fields)
+                print(f"      [_load_field_lists] Row {idx} - Loaded {len(fields)} right fields from {join_table}")
+                
+                # Restore selection if it still exists
+                if preserve_selections and right_current in fields:
+                    index = right_combo.findText(right_current)
+                    if index >= 0:
+                        right_combo.setCurrentIndex(index)
+                        print(f"      [_load_field_lists] Row {idx} - Restored right field: '{right_current}'")
+            right_combo.blockSignals(prev_right_block)
+
+        # Update debug panel on parent
+        if self.parent_screen and hasattr(self.parent_screen, '_update_join_debug_panel'):
+            try:
+                self.parent_screen._update_join_debug_panel()
+            except Exception as _e:
+                print(f"      [_load_field_lists] Debug panel update error: {_e}")
 
     def _get_table_fields(self, table_name):
         """Get list of fields for a table"""
@@ -4369,6 +4641,19 @@ class JoinWidget(QFrame):
         except Exception as e:
             logger.error(f"Error loading fields for {table_name}: {e}")
             return []
+    
+    def _on_left_field_changed(self, left_field_combo, right_field_combo):
+        """Auto-select matching right field if user hasn't chosen one yet.
+        Never override an existing right-side choice.
+        """
+        selected_field = left_field_combo.currentText()
+        if not selected_field:
+            return
+        if right_field_combo.currentText():
+            return
+        index = right_field_combo.findText(selected_field)
+        if index >= 0:
+            right_field_combo.setCurrentIndex(index)
 
     def get_join_config(self):
         """Get JOIN configuration as dict"""
@@ -4376,10 +4661,14 @@ class JoinWidget(QFrame):
         for row_data in self.on_condition_rows:
             left_field = row_data['left_field_combo'].currentText()
             right_field = row_data['right_field_combo'].currentText()
+            operator = row_data.get('operator_combo', None)
+            operator_text = operator.currentText() if operator else '='
+            
             if left_field and right_field:
                 on_conditions.append({
                     'left_field': left_field,
-                    'right_field': right_field
+                    'right_field': right_field,
+                    'operator': operator_text
                 })
         
         return {
