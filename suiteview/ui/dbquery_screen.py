@@ -153,6 +153,10 @@ class DBQueryScreen(QWidget):
         self.unsaved_query_states = {}
         self.current_query_id = None  # Track which query is currently loaded
 
+        # Track dirty state for change detection (#15)
+        self._original_query_definition = None  # Store loaded query state
+        self._is_dirty = False  # Track if query has unsaved changes
+
         self.init_ui()
         self.load_data_sources()
 
@@ -1595,6 +1599,9 @@ class DBQueryScreen(QWidget):
         # Update field indicators
         self._update_field_indicators()
 
+        # Mark query as dirty
+        self._mark_query_dirty()
+
         logger.info(f"Added criteria filter for {field_data['field_name']}")
 
     def remove_criteria_filter(self, widget):
@@ -1611,6 +1618,9 @@ class DBQueryScreen(QWidget):
 
         # Update field indicators
         self._update_field_indicators()
+
+        # Mark query as dirty
+        self._mark_query_dirty()
 
     def add_display_field(self, field_data: dict):
         """Add a field to display tab"""
@@ -1631,6 +1641,9 @@ class DBQueryScreen(QWidget):
 
         # Update field indicators
         self._update_field_indicators()
+
+        # Mark query as dirty
+        self._mark_query_dirty()
 
         logger.info(f"Added display field: {field_data['field_name']}")
 
@@ -1659,6 +1672,9 @@ class DBQueryScreen(QWidget):
 
         # Update field indicators
         self._update_field_indicators()
+
+        # Mark query as dirty
+        self._mark_query_dirty()
 
     def update_tables_involved(self):
         """Update the list of tables involved in the query"""
@@ -1931,6 +1947,51 @@ class DBQueryScreen(QWidget):
         self.save_query_btn.setEnabled(has_display_fields)
         self.view_sql_btn.setEnabled(has_display_fields)
 
+    # ========== Query Change Detection Methods (#15) ==========
+
+    def _mark_query_dirty(self):
+        """Mark query as having unsaved changes"""
+        if not self._is_dirty and self.current_query_id:
+            self._is_dirty = True
+            self._update_window_title()
+            logger.debug(f"Query {self.current_query_id} marked as dirty")
+
+    def _has_unsaved_changes(self) -> bool:
+        """Check if current query differs from saved version"""
+        if not self.current_query_id or not self._original_query_definition:
+            return False  # New query or no saved state to compare
+
+        try:
+            # Build current query from UI
+            current_query = self._build_query_object()
+            current_dict = current_query.to_dict()
+
+            # Compare with original
+            return current_dict != self._original_query_definition
+        except Exception as e:
+            logger.error(f"Error checking unsaved changes: {e}")
+            return False
+
+    def _update_window_title(self):
+        """Update window title to show dirty state"""
+        query_name = self.query_name_label.text()
+
+        # Get the main window
+        main_window = self.window()
+        if main_window:
+            if self._is_dirty:
+                main_window.setWindowTitle(f"SuiteView - {query_name}*")
+            else:
+                main_window.setWindowTitle(f"SuiteView - {query_name}")
+
+    def _clear_dirty_state(self):
+        """Clear dirty state after save"""
+        self._is_dirty = False
+        self._update_window_title()
+        logger.debug("Query dirty state cleared")
+
+    # ========== End Query Change Detection Methods ==========
+
     def add_join(self):
         """Add a new JOIN configuration widget"""
         if len(self.tables_involved) < 2:
@@ -1947,6 +2008,9 @@ class DBQueryScreen(QWidget):
         self.joins_layout.addWidget(join_widget)
         self.joins.append(join_widget)
 
+        # Mark query as dirty
+        self._mark_query_dirty()
+
         logger.info("Added JOIN widget")
         # Update debug panel
         if hasattr(self, '_update_join_debug_panel'):
@@ -1957,6 +2021,10 @@ class DBQueryScreen(QWidget):
         self.joins.remove(widget)
         self.joins_layout.removeWidget(widget)
         widget.deleteLater()
+
+        # Mark query as dirty
+        self._mark_query_dirty()
+
         # Update debug panel
         if hasattr(self, '_update_join_debug_panel'):
             self._update_join_debug_panel()
@@ -2530,10 +2598,14 @@ class DBQueryScreen(QWidget):
             # Clear unsaved state since we just saved
             if query_id in self.unsaved_query_states:
                 del self.unsaved_query_states[query_id]
-            
+
+            # Store new original definition and clear dirty state (#15)
+            self._original_query_definition = query.to_dict()
+            self._clear_dirty_state()
+
             # Update display
             self._update_query_name_display()
-            
+
             QMessageBox.information(
                 self,
                 "Query Saved",
@@ -2745,9 +2817,19 @@ class DBQueryScreen(QWidget):
             
             # Enable reset button since we have a loaded query
             self.reset_query_btn.setEnabled(True)
-            
+
+            # Store original query definition for change detection (#15)
+            try:
+                current_query = self._build_query_object()
+                self._original_query_definition = current_query.to_dict()
+                self._is_dirty = False
+                self._update_window_title()
+                logger.debug(f"Stored original query definition for change detection")
+            except Exception as e:
+                logger.warning(f"Could not store original query definition: {e}")
+
             logger.info(f"Loaded query {query_id}: {query_record['query_name']}")
-            
+
         except Exception as e:
             logger.error(f"Error loading saved query: {e}")
             QMessageBox.critical(
