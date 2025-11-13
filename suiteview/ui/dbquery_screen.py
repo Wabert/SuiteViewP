@@ -325,6 +325,52 @@ class DBQueryScreen(QWidget):
         self.fields_header.setObjectName("panel_header")
         panel_layout.addWidget(self.fields_header)
 
+        # Search box for filtering fields
+        search_layout = QHBoxLayout()
+        search_layout.setSpacing(3)
+        search_layout.setContentsMargins(0, 5, 0, 5)
+
+        self.field_search_input = QLineEdit()
+        self.field_search_input.setPlaceholderText("🔍 Search fields...")
+        self.field_search_input.setMaximumHeight(26)
+        self.field_search_input.setStyleSheet("""
+            QLineEdit {
+                padding: 4px 8px;
+                border: 1px solid #B0C8E8;
+                border-radius: 3px;
+                background: white;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #6BA3E8;
+            }
+        """)
+        self.field_search_input.textChanged.connect(self._filter_fields_tree)
+        search_layout.addWidget(self.field_search_input)
+
+        clear_search_btn = QPushButton("×")
+        clear_search_btn.setFixedSize(24, 24)
+        clear_search_btn.setToolTip("Clear search")
+        clear_search_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #6c757d;
+                border: none;
+                font-size: 16px;
+                font-weight: bold;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                color: #dc3545;
+                background: #f8f9fa;
+                border-radius: 3px;
+            }
+        """)
+        clear_search_btn.clicked.connect(lambda: self.field_search_input.clear())
+        search_layout.addWidget(clear_search_btn)
+
+        panel_layout.addLayout(search_layout)
+
         # Add All and Add Common buttons
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(5)
@@ -2054,6 +2100,44 @@ class DBQueryScreen(QWidget):
         self.query_executor.last_record_count = len(df)
 
         return df
+
+    def _filter_fields_tree(self, search_text: str):
+        """Filter fields tree based on search text"""
+        search_text = search_text.lower().strip()
+
+        # If search is empty, show all items
+        if not search_text:
+            for i in range(self.fields_tree.topLevelItemCount()):
+                table_item = self.fields_tree.topLevelItem(i)
+                table_item.setHidden(False)
+                for j in range(table_item.childCount()):
+                    field_item = table_item.child(j)
+                    field_item.setHidden(False)
+            return
+
+        # Filter based on search text
+        for i in range(self.fields_tree.topLevelItemCount()):
+            table_item = self.fields_tree.topLevelItem(i)
+            has_matching_child = False
+
+            # Check each field under the table
+            for j in range(table_item.childCount()):
+                field_item = table_item.child(j)
+                field_name = field_item.text(0).lower()
+
+                # Show/hide based on match
+                matches = search_text in field_name
+                field_item.setHidden(not matches)
+
+                if matches:
+                    has_matching_child = True
+
+            # Show table if it has matching children, or hide if no matches
+            table_item.setHidden(not has_matching_child)
+
+            # Expand tables that have matches to show the matching fields
+            if has_matching_child:
+                table_item.setExpanded(True)
 
     def run_query(self):
         """Execute the query"""
