@@ -406,6 +406,32 @@ class DBQueryScreen(QWidget):
         self.save_query_btn.setEnabled(False)
         toolbar_layout.addWidget(self.save_query_btn)
 
+        # View SQL button
+        self.view_sql_btn = QPushButton("📄 View SQL")
+        self.view_sql_btn.setMinimumWidth(100)
+        self.view_sql_btn.setToolTip("View generated SQL query")
+        self.view_sql_btn.setStyleSheet("""
+            QPushButton {
+                background: #17a2b8;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #138496;
+            }
+            QPushButton:disabled {
+                background: #bdc3c7;
+                color: #ecf0f1;
+            }
+        """)
+        self.view_sql_btn.clicked.connect(self._show_sql_dialog)
+        self.view_sql_btn.setEnabled(False)
+        toolbar_layout.addWidget(self.view_sql_btn)
+
         # Center: Query name label
         self.query_name_label = QLabel("unnamed")
         self.query_name_label.setStyleSheet("""
@@ -1830,6 +1856,7 @@ class DBQueryScreen(QWidget):
         has_display_fields = len(self.display_fields) > 0
         self.run_query_btn.setEnabled(has_display_fields)
         self.save_query_btn.setEnabled(has_display_fields)
+        self.view_sql_btn.setEnabled(has_display_fields)
 
     def add_join(self):
         """Add a new JOIN configuration widget"""
@@ -1940,6 +1967,146 @@ class DBQueryScreen(QWidget):
                 "Query Execution Failed",
                 f"Failed to execute query:\n\n{str(e)}"
             )
+
+    def _show_sql_dialog(self):
+        """Show generated SQL in a dialog with copy functionality"""
+        try:
+            # Build query object from current UI state
+            query = self._build_query_object()
+
+            # Validate query has minimum requirements
+            if not query.display_fields:
+                QMessageBox.warning(
+                    self,
+                    "Cannot Generate SQL",
+                    "Please add at least one display field to generate SQL."
+                )
+                return
+
+            # Generate SQL using the query executor
+            sql = self.query_executor._build_sql(query)
+
+            # Create dialog
+            from PyQt6.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QHBoxLayout, QPushButton, QApplication
+            from PyQt6.QtGui import QFont
+
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"Generated SQL - {self.query_name_label.text()}")
+            dialog.setMinimumSize(700, 500)
+
+            layout = QVBoxLayout(dialog)
+
+            # SQL display with monospace font
+            sql_text = QTextEdit()
+            sql_text.setPlainText(sql)
+            sql_text.setReadOnly(True)
+            sql_text.setFont(QFont("Courier New", 10))
+            sql_text.setStyleSheet("""
+                QTextEdit {
+                    background: #2d2d2d;
+                    color: #f8f8f2;
+                    border: 1px solid #555;
+                    padding: 10px;
+                }
+            """)
+            layout.addWidget(sql_text)
+
+            # Buttons
+            button_layout = QHBoxLayout()
+            button_layout.addStretch()
+
+            copy_btn = QPushButton("📋 Copy to Clipboard")
+            copy_btn.setMinimumWidth(150)
+            copy_btn.setStyleSheet("""
+                QPushButton {
+                    background: #28a745;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: #218838;
+                }
+            """)
+            copy_btn.clicked.connect(lambda: self._copy_sql_to_clipboard(sql, copy_btn))
+            button_layout.addWidget(copy_btn)
+
+            close_btn = QPushButton("Close")
+            close_btn.setMinimumWidth(100)
+            close_btn.setStyleSheet("""
+                QPushButton {
+                    background: #6c757d;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: #5a6268;
+                }
+            """)
+            close_btn.clicked.connect(dialog.accept)
+            button_layout.addWidget(close_btn)
+
+            layout.addLayout(button_layout)
+
+            # Show dialog
+            dialog.exec()
+
+        except Exception as e:
+            logger.error(f"Error generating SQL: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "SQL Generation Failed",
+                f"Failed to generate SQL:\n\n{str(e)}"
+            )
+
+    def _copy_sql_to_clipboard(self, sql: str, button: QPushButton):
+        """Copy SQL to clipboard and show feedback"""
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText(sql)
+
+        # Temporarily change button text to show success
+        original_text = button.text()
+        button.setText("✓ Copied!")
+        button.setStyleSheet("""
+            QPushButton {
+                background: #218838;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+        """)
+
+        # Reset button after 2 seconds
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(2000, lambda: self._reset_copy_button(button, original_text))
+
+    def _reset_copy_button(self, button: QPushButton, original_text: str):
+        """Reset copy button to original state"""
+        button.setText(original_text)
+        button.setStyleSheet("""
+            QPushButton {
+                background: #28a745;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #218838;
+            }
+        """)
 
     def _build_query_object(self) -> Query:
         """Build Query object from current UI state"""
