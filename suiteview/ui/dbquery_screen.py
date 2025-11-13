@@ -197,7 +197,7 @@ class DBQueryScreen(QWidget):
         layout.addWidget(splitter)
 
     def _create_data_sources_panel(self) -> QWidget:
-        """Create left panel with two sections: Databases and DB Queries"""
+        """Create left panel with three sections: Databases, Recent Queries, and DB Queries"""
         panel = QWidget()
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(5, 5, 5, 5)
@@ -211,6 +211,48 @@ class DBQueryScreen(QWidget):
         # Create custom widget for database cascading menus
         self.data_sources_list = CascadingMenuWidget(self)
         panel_layout.addWidget(self.data_sources_list, stretch=1)
+
+        # Recent Queries section (#1)
+        recent_header = QLabel("RECENT QUERIES")
+        recent_header.setObjectName("panel_header")
+        recent_header.setStyleSheet("""
+            QLabel {
+                background: #e3f2fd;
+                color: #1976d2;
+                font-weight: bold;
+                font-size: 10px;
+                padding: 3px 5px;
+                border-bottom: 2px solid #1976d2;
+            }
+        """)
+        panel_layout.addWidget(recent_header)
+
+        # Recent queries list
+        self.recent_queries_list = QTreeWidget()
+        self.recent_queries_list.setHeaderHidden(True)
+        self.recent_queries_list.setMaximumHeight(150)  # Compact list
+        self.recent_queries_list.setStyleSheet("""
+            QTreeWidget {
+                background-color: #f5f5f5;
+                border: 1px solid #B0C8E8;
+                border-radius: 0px;
+                font-size: 10px;
+            }
+            QTreeWidget::item {
+                height: 16px;
+                padding: 0px 2px;
+                background-color: #f5f5f5;
+            }
+            QTreeWidget::item:hover {
+                background-color: #e3f2fd;
+            }
+            QTreeWidget::item:selected {
+                background-color: #1976d2;
+                color: white;
+            }
+        """)
+        self.recent_queries_list.itemClicked.connect(self._on_recent_query_clicked)
+        panel_layout.addWidget(self.recent_queries_list)
 
         # DB Queries section
         queries_header = QLabel("DB QUERIES")
@@ -803,18 +845,91 @@ class DBQueryScreen(QWidget):
         """Load all data sources into cascading menu list and populate DB Queries tree"""
         self.data_sources_list.clear()
         self.db_queries_tree.clear()
-        
+
         try:
             # Load connections into databases section
             self._load_my_connections()
-            
+
+            # Load recent queries (#1)
+            self._load_recent_queries()
+
             # Load DB Queries into tree widget
             self._load_db_queries_tree()
-            
+
             logger.info("Data sources loaded with cascading menus and DB queries tree")
-            
+
         except Exception as e:
             logger.error(f"Error loading data sources: {e}")
+
+    def _load_recent_queries(self):
+        """Load and display recently executed queries (#1)"""
+        try:
+            self.recent_queries_list.clear()
+
+            # Get recent queries from repository
+            recent_queries = self.query_repo.get_recent_queries(query_type='DB', limit=10)
+
+            if not recent_queries:
+                # Show empty state
+                empty_item = QTreeWidgetItem(self.recent_queries_list)
+                empty_item.setText(0, "No recent queries")
+                empty_item.setForeground(0, Qt.GlobalColor.gray)
+                empty_item.setFlags(Qt.ItemFlag.NoItemFlags)  # Not clickable
+                return
+
+            # Display each recent query
+            from datetime import datetime
+            for query in recent_queries:
+                item = QTreeWidgetItem(self.recent_queries_list)
+
+                # Format: "Query Name (2m ago, 1.2k rows)"
+                last_executed = query.get('last_executed')
+                record_count = query.get('record_count', 0)
+
+                # Calculate time ago
+                if last_executed:
+                    try:
+                        exec_time = datetime.fromisoformat(last_executed)
+                        now = datetime.now()
+                        delta = now - exec_time
+
+                        if delta.days > 0:
+                            time_ago = f"{delta.days}d ago"
+                        elif delta.seconds >= 3600:
+                            time_ago = f"{delta.seconds // 3600}h ago"
+                        elif delta.seconds >= 60:
+                            time_ago = f"{delta.seconds // 60}m ago"
+                        else:
+                            time_ago = "just now"
+                    except:
+                        time_ago = "recently"
+                else:
+                    time_ago = "unknown"
+
+                # Format record count
+                if record_count >= 1000:
+                    count_str = f"{record_count/1000:.1f}k rows"
+                else:
+                    count_str = f"{record_count} rows"
+
+                # Set display text
+                item.setText(0, f"⏱ {query['query_name']} ({time_ago}, {count_str})")
+                item.setData(0, Qt.ItemDataRole.UserRole, query['query_id'])
+                item.setToolTip(0, f"{query['query_name']}\nLast run: {last_executed}\nRows: {record_count}")
+
+            logger.info(f"Loaded {len(recent_queries)} recent queries")
+
+        except Exception as e:
+            logger.error(f"Error loading recent queries: {e}")
+
+    def _on_recent_query_clicked(self, item: QTreeWidgetItem, column: int):
+        """Handle clicking on a recent query item (#1)"""
+        query_id = item.data(0, Qt.ItemDataRole.UserRole)
+        if query_id:
+            # Load the query (reuse existing logic)
+            query_record = self.query_repo.get_query(query_id)
+            if query_record:
+                self.load_saved_query(query_id, query_record['query_definition'])
 
     def _load_my_connections(self):
         """Create cascading menu items for each connection type"""
@@ -2257,10 +2372,20 @@ class DBQueryScreen(QWidget):
                 # Get execution metadata
                 metadata = self.query_executor.get_execution_metadata()
                 logger.info(f"Retrieved metadata: {metadata}")
-                
+
+                # Update execution stats if this is a saved query
+                if self.current_query_id:
+                    self.query_repo.update_execution_stats(
+                        self.current_query_id,
+                        metadata['execution_time_ms'],
+                        len(df)
+                    )
+                    # Refresh recent queries list
+                    self._load_recent_queries()
+
                 # Restore cursor
                 self.unsetCursor()
-                
+
                 # Show results dialog
                 logger.info("Creating results dialog...")
                 results_dialog = QueryResultsDialog(

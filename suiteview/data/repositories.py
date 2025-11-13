@@ -591,7 +591,28 @@ class QueryRepository:
                 record_count = ?
             WHERE query_id = ?
         """, (duration_ms, record_count, query_id))
-    
+
+    def get_recent_queries(self, query_type: str = 'DB', limit: int = 10) -> List[Dict]:
+        """Get recently executed queries ordered by last_executed timestamp
+
+        Args:
+            query_type: Type of queries to retrieve ('DB' or 'XDB')
+            limit: Maximum number of queries to return (default 10)
+
+        Returns:
+            List of query dictionaries with execution metadata
+        """
+        rows = self.db.fetchall("""
+            SELECT query_id, query_name, query_type, category, folder_id,
+                   last_executed, execution_duration_ms, record_count
+            FROM saved_queries
+            WHERE query_type = ? AND last_executed IS NOT NULL
+            ORDER BY last_executed DESC
+            LIMIT ?
+        """, (query_type, limit))
+
+        return [dict(row) for row in rows]
+
     # Folder management methods
     def get_all_folders(self, query_type: str = None) -> List[Dict]:
         """Get all query folders"""
