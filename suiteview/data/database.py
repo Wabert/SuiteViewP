@@ -281,6 +281,18 @@ class Database:
             conn.commit()
             print("Migration completed: Default data map folder created")
 
+        # Migration 5: Add notes column to saved_queries if it doesn't exist
+        try:
+            cursor.execute("SELECT notes FROM saved_queries LIMIT 1")
+        except:
+            # Column doesn't exist, add it
+            print("Running migration: Adding notes column to saved_queries")
+            cursor.execute("""
+                ALTER TABLE saved_queries ADD COLUMN notes TEXT
+            """)
+            conn.commit()
+            print("Migration completed: notes column added")
+
     def execute(self, query: str, params: tuple = ()):
         """Execute a query and return cursor"""
         conn = self.connect()
