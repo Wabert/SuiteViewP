@@ -439,94 +439,94 @@ class DBQueryScreen(QWidget):
         # Toolbar with action buttons
         toolbar_layout = QHBoxLayout()
         toolbar_layout.setContentsMargins(10, 5, 10, 5)
-        toolbar_layout.setSpacing(10)
+        toolbar_layout.setSpacing(8)
 
-        # Left side: Run and Save buttons
+        # ==== PRIMARY ACTIONS GROUP ====
+        # Run Query button with dropdown
         self.run_query_btn = QPushButton("▶ Run Query")
         self.run_query_btn.setObjectName("gold_button")
-        self.run_query_btn.setMinimumWidth(120)
+        self.run_query_btn.setMinimumWidth(110)
         self.run_query_btn.clicked.connect(self.run_query)
         self.run_query_btn.setEnabled(False)
         toolbar_layout.addWidget(self.run_query_btn)
 
-        # Preview button (100 rows)
-        self.preview_query_btn = QPushButton("👁 Preview (100 rows)")
-        self.preview_query_btn.setMinimumWidth(150)
-        self.preview_query_btn.setToolTip("Run query with 100 row limit for quick preview")
-        self.preview_query_btn.setStyleSheet("""
-            QPushButton {
-                background: #6f42c1;
+        # Dropdown menu button for run options
+        run_options_btn = QToolButton()
+        run_options_btn.setText("▼")
+        run_options_btn.setToolTip("More run options")
+        run_options_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        run_options_btn.setStyleSheet("""
+            QToolButton {
+                background: #f39c12;
                 color: white;
                 border: none;
                 border-radius: 4px;
-                padding: 6px 12px;
-                font-size: 12px;
+                padding: 6px 8px;
+                font-size: 10px;
                 font-weight: bold;
             }
-            QPushButton:hover {
-                background: #5a32a3;
+            QToolButton:hover {
+                background: #e67e22;
             }
-            QPushButton:disabled {
+            QToolButton:disabled {
                 background: #bdc3c7;
                 color: #ecf0f1;
             }
+            QToolButton::menu-indicator {
+                image: none;
+            }
         """)
-        self.preview_query_btn.clicked.connect(self._preview_query)
-        self.preview_query_btn.setEnabled(False)
-        toolbar_layout.addWidget(self.preview_query_btn)
 
-        self.save_query_btn = QPushButton("💾 Save Query")
+        # Create dropdown menu
+        run_menu = QMenu(run_options_btn)
+
+        # Preview action
+        self.preview_action = QAction("👁 Preview (100 rows)", self)
+        self.preview_action.setToolTip("Run query with 100 row limit")
+        self.preview_action.triggered.connect(self._preview_query)
+        self.preview_action.setEnabled(False)
+        run_menu.addAction(self.preview_action)
+
+        # View SQL action
+        self.view_sql_action = QAction("📄 View SQL", self)
+        self.view_sql_action.setToolTip("View generated SQL query")
+        self.view_sql_action.triggered.connect(self._show_sql_dialog)
+        self.view_sql_action.setEnabled(False)
+        run_menu.addAction(self.view_sql_action)
+
+        run_options_btn.setMenu(run_menu)
+        run_options_btn.setEnabled(False)
+        self.run_options_btn = run_options_btn
+        toolbar_layout.addWidget(run_options_btn)
+
+        # Separator
+        separator1 = QFrame()
+        separator1.setFrameShape(QFrame.Shape.VLine)
+        separator1.setFrameShadow(QFrame.Shadow.Sunken)
+        separator1.setStyleSheet("background: #ddd;")
+        toolbar_layout.addWidget(separator1)
+
+        # Save button
+        self.save_query_btn = QPushButton("💾 Save")
         self.save_query_btn.setObjectName("gold_button")
-        self.save_query_btn.setMinimumWidth(120)
+        self.save_query_btn.setMinimumWidth(90)
+        self.save_query_btn.setToolTip("Save query")
         self.save_query_btn.clicked.connect(self.save_query)
         self.save_query_btn.setEnabled(False)
         toolbar_layout.addWidget(self.save_query_btn)
 
-        # View SQL button
-        self.view_sql_btn = QPushButton("📄 View SQL")
-        self.view_sql_btn.setMinimumWidth(100)
-        self.view_sql_btn.setToolTip("View generated SQL query")
-        self.view_sql_btn.setStyleSheet("""
-            QPushButton {
-                background: #17a2b8;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 12px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background: #138496;
-            }
-            QPushButton:disabled {
-                background: #bdc3c7;
-                color: #ecf0f1;
-            }
-        """)
-        self.view_sql_btn.clicked.connect(self._show_sql_dialog)
-        self.view_sql_btn.setEnabled(False)
-        toolbar_layout.addWidget(self.view_sql_btn)
+        # Separator
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.Shape.VLine)
+        separator2.setFrameShadow(QFrame.Shadow.Sunken)
+        separator2.setStyleSheet("background: #ddd;")
+        toolbar_layout.addWidget(separator2)
 
-        # Center: Query name label
-        self.query_name_label = QLabel("unnamed")
-        self.query_name_label.setStyleSheet("""
-            QLabel {
-                color: #95a5a6;
-                font-size: 16px;
-                font-style: italic;
-                padding: 5px 20px;
-            }
-        """)
-        toolbar_layout.addWidget(self.query_name_label)
-        
-        # Add stretch to push buttons to the right
-        toolbar_layout.addStretch()
-
-        # Right side: Reset and New Query buttons
+        # ==== QUERY MANAGEMENT GROUP ====
+        # Reset button
         self.reset_query_btn = QPushButton("🔄 Reset")
         self.reset_query_btn.setObjectName("reset_button")
-        self.reset_query_btn.setMinimumWidth(100)
+        self.reset_query_btn.setMinimumWidth(85)
         self.reset_query_btn.setToolTip("Reset to last saved version")
         self.reset_query_btn.setStyleSheet("""
             QPushButton {
@@ -534,8 +534,8 @@ class DBQueryScreen(QWidget):
                 color: white;
                 border: none;
                 border-radius: 4px;
-                padding: 6px 12px;
-                font-size: 12px;
+                padding: 6px 10px;
+                font-size: 11px;
                 font-weight: bold;
             }
             QPushButton:hover {
@@ -547,14 +547,35 @@ class DBQueryScreen(QWidget):
             }
         """)
         self.reset_query_btn.clicked.connect(self.reset_query)
-        self.reset_query_btn.setEnabled(False)  # Disabled until a query is loaded
+        self.reset_query_btn.setEnabled(False)
         toolbar_layout.addWidget(self.reset_query_btn)
-        
-        self.new_query_btn = QPushButton("New Query")
+
+        # New Query button
+        self.new_query_btn = QPushButton("✨ New")
         self.new_query_btn.setObjectName("gold_button")
-        self.new_query_btn.setMinimumWidth(120)
+        self.new_query_btn.setMinimumWidth(85)
+        self.new_query_btn.setToolTip("Start a new query")
         self.new_query_btn.clicked.connect(self.new_query)
         toolbar_layout.addWidget(self.new_query_btn)
+
+        # Add stretch to push query name to center
+        toolbar_layout.addStretch()
+
+        # Center: Query name label
+        self.query_name_label = QLabel("unnamed")
+        self.query_name_label.setStyleSheet("""
+            QLabel {
+                color: #7f8c8d;
+                font-size: 14px;
+                font-style: italic;
+                font-weight: 600;
+                padding: 5px 15px;
+            }
+        """)
+        toolbar_layout.addWidget(self.query_name_label)
+
+        # Add stretch to push label to center
+        toolbar_layout.addStretch()
 
         # Add toolbar layout to panel
         toolbar_container = QWidget()
@@ -1943,9 +1964,10 @@ class DBQueryScreen(QWidget):
         """Enable/disable query buttons based on query state"""
         has_display_fields = len(self.display_fields) > 0
         self.run_query_btn.setEnabled(has_display_fields)
-        self.preview_query_btn.setEnabled(has_display_fields)
+        self.run_options_btn.setEnabled(has_display_fields)
+        self.preview_action.setEnabled(has_display_fields)
+        self.view_sql_action.setEnabled(has_display_fields)
         self.save_query_btn.setEnabled(has_display_fields)
-        self.view_sql_btn.setEnabled(has_display_fields)
 
     # ========== Query Change Detection Methods (#15) ==========
 
