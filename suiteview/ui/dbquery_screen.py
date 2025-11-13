@@ -2552,18 +2552,89 @@ class DBQueryScreen(QWidget):
         return query
 
     def _validate_query(self, query: Query) -> list:
-        """Validate query and return list of error messages"""
+        """Validate query and return list of error messages with actionable guidance"""
         errors = []
-        
+        warnings = []
+
+        # === CRITICAL ERRORS (prevent execution) ===
+
         if not query.connection_id:
-            errors.append("No database connection selected")
-        
+            errors.append("❌ No database connection selected")
+
         if not query.display_fields:
-            errors.append("No display fields selected (add fields to Display tab)")
-        
+            errors.append("❌ No display fields selected\n   → Go to Display tab and drag fields to add them")
+
         if not query.from_table:
-            errors.append("No FROM table selected (select FROM table in Tables tab)")
-        
+            errors.append("❌ No FROM table selected\n   → Go to Tables tab and select a FROM table")
+
+        # Check for multiple tables without JOINs
+        tables_in_query = set()
+        for field in query.display_fields:
+            tables_in_query.add(field['table_name'])
+        for criterion in query.criteria:
+            tables_in_query.add(criterion['table_name'])
+
+        if len(tables_in_query) > 1 and not query.joins:
+            errors.append(
+                f"❌ Multiple tables used ({', '.join(sorted(tables_in_query))}) but no JOINs defined\n"
+                f"   → Go to Tables tab and click 'Add Join' to define how tables relate"
+            )
+
+        # Validate JOIN configurations
+        for idx, join in enumerate(query.joins, 1):
+            if not join.get('table_name'):
+                errors.append(f"❌ JOIN #{idx}: No table selected")
+
+            if not join.get('on_conditions') or len(join['on_conditions']) == 0:
+                errors.append(
+                    f"❌ JOIN #{idx} ({join.get('table_name', 'unknown')}): No ON conditions defined\n"
+                    f"   → Add at least one ON condition to specify how tables join"
+                )
+            else:
+                # Validate each ON condition
+                for cond_idx, condition in enumerate(join['on_conditions'], 1):
+                    if not condition.get('left_field'):
+                        errors.append(f"❌ JOIN #{idx}, Condition #{cond_idx}: Left field is empty")
+                    if not condition.get('right_field'):
+                        errors.append(f"❌ JOIN #{idx}, Condition #{cond_idx}: Right field is empty")
+
+        # === WARNINGS (query can run but may have issues) ===
+
+        # Check for criteria with no values
+        empty_criteria_count = 0
+        for criterion in query.criteria:
+            if criterion.get('filter_type') in ['text', 'numeric_exact', 'numeric_range', 'date_range']:
+                value = criterion.get('value')
+                if not value or (isinstance(value, str) and not value.strip()):
+                    empty_criteria_count += 1
+
+        if empty_criteria_count > 0:
+            warnings.append(
+                f"⚠️ {empty_criteria_count} filter(s) have no value set\n"
+                f"   → These filters will be ignored. Remove them or set values."
+            )
+
+        # Check if query has no criteria (SELECT * warning)
+        if not query.criteria:
+            warnings.append(
+                "⚠️ No filters applied - query will return ALL rows\n"
+                "   → Consider adding filters in Criteria tab to limit results"
+            )
+
+        # Combine errors and warnings
+        messages = []
+        if errors:
+            messages.append("🚫 ERRORS (must fix before running):\n")
+            messages.extend(errors)
+
+        if warnings:
+            if errors:
+                messages.append("\n")  # Spacing between sections
+            messages.append("⚠️  WARNINGS (query can run but check these):\n")
+            messages.extend(warnings)
+
+        # Return only errors (warnings are informational)
+        # If you want to show warnings too, return messages instead
         return errors
 
     def save_query(self):
