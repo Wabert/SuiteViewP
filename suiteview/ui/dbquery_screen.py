@@ -211,6 +211,8 @@ class DBQueryScreen(QWidget):
         # DB Queries section
         queries_header = QLabel("DB QUERIES")
         queries_header.setObjectName("panel_header")
+        queries_header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        queries_header.customContextMenuRequested.connect(self._show_db_queries_header_context_menu)
         panel_layout.addWidget(queries_header)
 
         # Create tree widget for DB Queries list with folder support
@@ -424,6 +426,24 @@ class DBQueryScreen(QWidget):
         self.reset_query_btn.setObjectName("reset_button")
         self.reset_query_btn.setMinimumWidth(100)
         self.reset_query_btn.setToolTip("Reset to last saved version")
+        self.reset_query_btn.setStyleSheet("""
+            QPushButton {
+                background: #3498db;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #2980b9;
+            }
+            QPushButton:disabled {
+                background: #bdc3c7;
+                color: #ecf0f1;
+            }
+        """)
         self.reset_query_btn.clicked.connect(self.reset_query)
         self.reset_query_btn.setEnabled(False)  # Disabled until a query is loaded
         toolbar_layout.addWidget(self.reset_query_btn)
@@ -614,6 +634,7 @@ class DBQueryScreen(QWidget):
 
         self.from_table_combo = QComboBox()
         self.from_table_combo.setMinimumWidth(200)
+        self.from_table_combo.currentTextChanged.connect(self._on_from_table_changed)
         from_layout.addWidget(self.from_table_combo)
         from_layout.addStretch()
 
@@ -649,23 +670,6 @@ class DBQueryScreen(QWidget):
         self.joins_layout = QVBoxLayout(self.joins_container)
         self.joins_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.joins_layout.setSpacing(10)
-
-        # Debug panel for JOIN restoration (green box requested)
-        from PyQt6.QtWidgets import QTextEdit  # local import to avoid top-level changes
-        self.join_debug_panel = QWidget()
-        self.join_debug_panel.setStyleSheet("background: #00aa00; border-radius: 4px; padding: 6px;")
-        debug_layout = QVBoxLayout(self.join_debug_panel)
-        debug_layout.setContentsMargins(4,4,4,4)
-        debug_layout.setSpacing(4)
-        header = QLabel("JOIN Field Debug")
-        header.setStyleSheet("font-weight: bold; color: white;")
-        debug_layout.addWidget(header)
-        self.join_debug_text = QTextEdit()
-        self.join_debug_text.setReadOnly(True)
-        self.join_debug_text.setStyleSheet("QTextEdit { background: #003f00; color: #e0ffe0; font-size: 11px; border: 1px solid #066; }")
-        self.join_debug_text.setMinimumHeight(90)
-        debug_layout.addWidget(self.join_debug_text)
-        self.joins_layout.addWidget(self.join_debug_panel)
 
         join_scroll.setWidget(self.joins_container)
         layout.addWidget(join_scroll, 1)  # Add stretch factor to expand
@@ -1177,6 +1181,18 @@ class DBQueryScreen(QWidget):
                 f"Failed to delete query:\n{str(e)}"
             )
     
+    def _show_db_queries_header_context_menu(self, position):
+        """Show context menu for DB Queries header label"""
+        menu = QMenu(self)
+        menu.setStyleSheet("QMenu { border: 2px solid #555; }")
+
+        add_folder_action = menu.addAction("➕ New Folder")
+        add_folder_action.triggered.connect(lambda: self._create_new_folder('DB'))
+
+        # Get the header widget to map position correctly
+        header = self.sender()
+        menu.exec(header.mapToGlobal(position))
+
     def _create_new_folder(self, query_type: str):
         """Create a new query folder"""
         folder_name, ok = QInputDialog.getText(
@@ -1577,10 +1593,25 @@ class DBQueryScreen(QWidget):
             table_list = ", ".join(sorted(tables))
             self.tables_involved_label.setText(table_list)
 
-            # Update FROM combo
+            # Update FROM combo - PRESERVE current selection
+            current_from = self.from_table_combo.currentText()
+            print(f"  [update_tables_involved] Current FROM before rebuild: '{current_from}'")
+            print(f"  [update_tables_involved] Tables in query: {sorted(tables)}")
+            self.from_table_combo.blockSignals(True)  # Block to prevent _on_from_table_changed
             self.from_table_combo.clear()
             for table in sorted(tables):
                 self.from_table_combo.addItem(table)
+
+            # Restore the previous selection if it still exists
+            if current_from and current_from in tables:
+                index = self.from_table_combo.findText(current_from)
+                if index >= 0:
+                    self.from_table_combo.setCurrentIndex(index)
+                    print(f"  [update_tables_involved] Restored FROM to: '{current_from}'")
+            else:
+                print(f"  [update_tables_involved] Could not restore '{current_from}' - not in tables or empty")
+                print(f"  [update_tables_involved] FROM combo now shows: '{self.from_table_combo.currentText()}'")
+            self.from_table_combo.blockSignals(False)
         else:
             self.tables_involved_label.setText("(None)")
             self.from_table_combo.clear()
@@ -1826,6 +1857,28 @@ class DBQueryScreen(QWidget):
         self.joins.remove(widget)
         self.joins_layout.removeWidget(widget)
         widget.deleteLater()
+        # Update debug panel
+        if hasattr(self, '_update_join_debug_panel'):
+            self._update_join_debug_panel()
+
+    def _on_from_table_changed(self, table_name):
+        """Handle FROM table selection change - update all join widgets' left fields"""
+        # Skip if we're loading a query to prevent interference
+        if hasattr(self, '_loading_query') and self._loading_query:
+            print(f"    [_on_from_table_changed] SKIPPED - Query is being loaded")
+            return
+
+        print(f"    [_on_from_table_changed] FROM table changed to: '{table_name}'")
+
+        # Update all existing join widgets to refresh their left field dropdowns
+        for join_widget in self.joins:
+            if hasattr(join_widget, '_load_field_lists'):
+                # Store the from_table on the join widget
+                join_widget.from_table = table_name
+                # Reload field lists, preserving current selections
+                join_widget._load_field_lists(preserve_selections=True)
+                print(f"    [_on_from_table_changed] Updated join widget fields")
+
         # Update debug panel
         if hasattr(self, '_update_join_debug_panel'):
             self._update_join_debug_panel()
@@ -2147,13 +2200,10 @@ class DBQueryScreen(QWidget):
                     # Load tables for this connection
                     self.load_tables_for_connection(connection_id, conn['database_name'])
             
-            # Set FROM table
-            from_table = query_dict.get('from_table')
-            if from_table:
-                index = self.from_table_combo.findText(from_table)
-                if index >= 0:
-                    self.from_table_combo.setCurrentIndex(index)
-            
+            # NOTE: FROM table will be set AFTER display/criteria/joins are loaded
+            # to prevent update_tables_involved() from overwriting it
+            saved_from_table = query_dict.get('from_table')
+
             # Load display fields
             display_fields = query_dict.get('display_fields', [])
             for field in display_fields:
@@ -2228,7 +2278,9 @@ class DBQueryScreen(QWidget):
                     table_list = ", ".join(sorted(self.tables_involved))
                     self.tables_involved_label.setText(table_list)
                     # Refill FROM combo but preserve current selection
+                    # IMPORTANT: Block signals to prevent _on_from_table_changed during restoration
                     current_from = self.from_table_combo.currentText()
+                    self.from_table_combo.blockSignals(True)
                     self.from_table_combo.clear()
                     for table in sorted(self.tables_involved):
                         self.from_table_combo.addItem(table)
@@ -2236,6 +2288,7 @@ class DBQueryScreen(QWidget):
                         idx = self.from_table_combo.findText(current_from)
                         if idx >= 0:
                             self.from_table_combo.setCurrentIndex(idx)
+                    self.from_table_combo.blockSignals(False)
                 else:
                     self.tables_involved_label.setText("(None)")
             except Exception as _e:
@@ -2268,13 +2321,27 @@ class DBQueryScreen(QWidget):
                 print(f"  Restoring JOIN #{idx}...")
                 self._restore_join_config(join_widget, join_config)
             print("="*80 + "\n")
-            
-            # Clear the loading flag
-            self._loading_query = False
-            
-            # Update tables involved and buttons
+
+            # Update tables involved and buttons BEFORE clearing the loading flag
+            # This prevents _on_from_table_changed from firing during the FROM combo update
             self.update_tables_involved()
             self.update_query_buttons()
+
+            # NOW set the FROM table (AFTER update_tables_involved has run)
+            # This ensures it doesn't get overwritten
+            if saved_from_table:
+                print(f"  [FINAL] Setting FROM table to saved value: '{saved_from_table}'")
+                self.from_table_combo.blockSignals(True)
+                index = self.from_table_combo.findText(saved_from_table)
+                if index >= 0:
+                    self.from_table_combo.setCurrentIndex(index)
+                    print(f"  [FINAL] FROM table set successfully to: '{self.from_table_combo.currentText()}'")
+                else:
+                    print(f"  [FINAL] WARNING: Could not find '{saved_from_table}' in FROM combo")
+                self.from_table_combo.blockSignals(False)
+
+            # NOW clear the loading flag (after all updates are complete)
+            self._loading_query = False
 
             # Refresh debug panel
             if hasattr(self, '_update_join_debug_panel'):
@@ -2318,12 +2385,14 @@ class DBQueryScreen(QWidget):
             if self.current_connection_id and self.current_database_name:
                 self.load_tables_for_connection(self.current_connection_id, self.current_database_name)
             
-            # Restore FROM table
+            # Restore FROM table (block signals to prevent premature join widget updates)
             from_table = state.get('from_table')
             if from_table:
+                self.from_table_combo.blockSignals(True)
                 index = self.from_table_combo.findText(from_table)
                 if index >= 0:
                     self.from_table_combo.setCurrentIndex(index)
+                self.from_table_combo.blockSignals(False)
             
             # Restore display fields
             for field in state.get('display_fields', []):
@@ -2375,7 +2444,9 @@ class DBQueryScreen(QWidget):
                 if self.tables_involved:
                     table_list = ", ".join(sorted(self.tables_involved))
                     self.tables_involved_label.setText(table_list)
+                    # IMPORTANT: Block signals to prevent _on_from_table_changed during restoration
                     current_from = self.from_table_combo.currentText()
+                    self.from_table_combo.blockSignals(True)
                     self.from_table_combo.clear()
                     for table in sorted(self.tables_involved):
                         self.from_table_combo.addItem(table)
@@ -2383,6 +2454,7 @@ class DBQueryScreen(QWidget):
                         idx = self.from_table_combo.findText(current_from)
                         if idx >= 0:
                             self.from_table_combo.setCurrentIndex(idx)
+                    self.from_table_combo.blockSignals(False)
                 else:
                     self.tables_involved_label.setText("(None)")
             except Exception as _e:
@@ -2764,19 +2836,19 @@ class DBQueryScreen(QWidget):
                         left_combo.blockSignals(True)  # Block auto-populate signal
                         left_combo.setCurrentIndex(idx)
                         left_combo.blockSignals(False)
-                        print(f"      ✓ Set left field to: {left_field}")
+                        print(f"      [OK] Set left field to: {left_field}")
                     else:
-                        print(f"      ✗ Left field '{left_field}' not found in dropdown!")
-                        
+                        print(f"      [ERROR] Left field '{left_field}' not found in dropdown!")
+
                 if 'operator_combo' in first_row:
                     operator = first_condition.get('operator', '=')
                     idx = first_row['operator_combo'].findText(operator)
                     if idx >= 0:
                         first_row['operator_combo'].setCurrentIndex(idx)
-                        print(f"      ✓ Set operator to: {operator}")
+                        print(f"      [OK] Set operator to: {operator}")
                     else:
-                        print(f"      ✗ Operator '{operator}' not found!")
-                        
+                        print(f"      [ERROR] Operator '{operator}' not found!")
+
                 if 'right_field_combo' in first_row:
                     right_field = first_condition.get('right_field', '')
                     right_combo = first_row['right_field_combo']
@@ -2785,52 +2857,69 @@ class DBQueryScreen(QWidget):
                     print(f"      Looking for right field '{right_field}' - found at index {idx}")
                     if idx >= 0:
                         right_combo.setCurrentIndex(idx)
-                        print(f"      ✓ Set right field to: {right_field}")
+                        print(f"      [OK] Set right field to: {right_field}")
                     else:
-                        print(f"      ✗ Right field '{right_field}' not found in dropdown!")
+                        print(f"      [ERROR] Right field '{right_field}' not found in dropdown!")
             
             # Add and populate additional condition rows
             for i in range(1, len(on_conditions)):
                 print(f"    [RESTORE] Condition #{i+1}:")
+                condition = on_conditions[i]
+
                 # Add new row
                 if hasattr(join_widget, '_add_on_condition_row'):
                     join_widget._add_on_condition_row()
                     print(f"      Added new ON condition row")
-                    
-                    # Populate the new row
+
+                    # CRITICAL: Load fields into the new row BEFORE setting values
                     if i < len(join_widget.on_condition_rows):
                         row = join_widget.on_condition_rows[i]
-                        condition = on_conditions[i]
-                        
+
+                        # Populate left field combo (FROM table)
+                        if from_table and hasattr(join_widget, '_get_table_fields'):
+                            fields = join_widget._get_table_fields(from_table)
+                            row['left_field_combo'].clear()
+                            row['left_field_combo'].addItems(fields)
+                            print(f"      Loaded {len(fields)} left fields into row {i+1}")
+
+                        # Populate right field combo (JOIN table)
+                        if table_name and hasattr(join_widget, '_get_table_fields'):
+                            fields = join_widget._get_table_fields(table_name)
+                            row['right_field_combo'].clear()
+                            row['right_field_combo'].addItems(fields)
+                            print(f"      Loaded {len(fields)} right fields into row {i+1}")
+
+                        # NOW set the saved values
                         if 'left_field_combo' in row:
                             left_field = condition.get('left_field', '')
                             left_combo = row['left_field_combo']
+                            print(f"      DEBUG: Before setting - combo has {left_combo.count()} items, current='{left_combo.currentText()}'")
                             idx = left_combo.findText(left_field)
                             if idx >= 0:
                                 left_combo.blockSignals(True)  # Block auto-populate signal
                                 left_combo.setCurrentIndex(idx)
                                 left_combo.blockSignals(False)
-                                print(f"      ✓ Set left field to: {left_field}")
+                                print(f"      [OK] Set left field to: {left_field}, now current='{left_combo.currentText()}'")
                             else:
-                                print(f"      ✗ Left field '{left_field}' not found!")
-                                
+                                print(f"      [ERROR] Left field '{left_field}' not found!")
+
                         if 'operator_combo' in row:
                             operator = condition.get('operator', '=')
                             idx = row['operator_combo'].findText(operator)
                             if idx >= 0:
                                 row['operator_combo'].setCurrentIndex(idx)
-                                print(f"      ✓ Set operator to: {operator}")
+                                print(f"      [OK] Set operator to: {operator}")
                             else:
-                                print(f"      ✗ Operator '{operator}' not found!")
-                                
+                                print(f"      [ERROR] Operator '{operator}' not found!")
+
                         if 'right_field_combo' in row:
                             right_field = condition.get('right_field', '')
                             idx = row['right_field_combo'].findText(right_field)
                             if idx >= 0:
                                 row['right_field_combo'].setCurrentIndex(idx)
-                                print(f"      ✓ Set right field to: {right_field}")
+                                print(f"      [OK] Set right field to: {right_field}")
                             else:
-                                print(f"      ✗ Right field '{right_field}' not found!")
+                                print(f"      [ERROR] Right field '{right_field}' not found!")
             
             # Reconnect the signal after restoration is complete
             if hasattr(join_widget, 'join_table_combo') and hasattr(join_widget, '_on_join_table_changed'):
@@ -3076,15 +3165,37 @@ class CriteriaFilterWidget(QFrame):
         header_layout.addWidget(self.field_label)
         
         header_layout.addStretch()
-        
+
         # Placeholder for buttons (will be added later next to controls)
         self.list_button = None
         self.custom_criteria_button = None
         self.custom_criteria_text = ""  # Store custom criteria
-        
+
+        # Reset button (clears filter values but keeps widget)
+        reset_btn = QPushButton("↻")
+        reset_btn.setFixedSize(18, 18)
+        reset_btn.setToolTip("Reset filter values")
+        reset_btn.setStyleSheet("""
+            QPushButton {
+                background: #3498db;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                font-size: 13px;
+                font-weight: bold;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background: #2980b9;
+            }
+        """)
+        reset_btn.clicked.connect(self._reset_filter_values)
+        header_layout.addWidget(reset_btn)
+
         # Remove button with X (subtle)
         remove_btn = QPushButton("×")
         remove_btn.setFixedSize(14, 14)
+        remove_btn.setToolTip("Remove this filter")
         remove_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
@@ -3505,24 +3616,59 @@ class CriteriaFilterWidget(QFrame):
         range_layout = QHBoxLayout()
         range_layout.setSpacing(4)
         range_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         # Exact value input at the top
         exact_layout = QHBoxLayout()
         exact_layout.setSpacing(4)
         exact_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.exact_input = QLineEdit()
-        self.exact_input.setPlaceholderText("Exact value")
-        self.exact_input.setMaximumHeight(22)
-        self.exact_input.setStyleSheet("""
-            QLineEdit {
-                font-size: 10px;
-                padding: 2px 4px;
-                background: white;
-            }
-        """)
-        exact_layout.addWidget(self.exact_input)
-        
+
+        # If we have unique values, use a combobox instead of line edit
+        if self.unique_values:
+            # Initialize with all values selected by default
+            self.selected_values = self.unique_values[:]
+
+            # Sort numeric values properly
+            sorted_values = sorted(self.unique_values, key=lambda x: float(x) if str(x).replace('.','',1).replace('-','',1).isdigit() else 0)
+
+            self.exact_input = QComboBox()
+            self.exact_input.setEditable(True)
+            self.exact_input.addItem("None")  # Default option
+            for val in sorted_values:
+                self.exact_input.addItem(str(val))
+            self.exact_input.setCurrentText("None")
+            self.exact_input.setMaximumHeight(22)
+            self.exact_input.setMinimumWidth(120)
+            self.exact_input.setMaximumWidth(260)
+            self.exact_input.setStyleSheet("""
+                QComboBox {
+                    font-size: 10px;
+                    padding: 2px 4px;
+                    background: white;
+                }
+            """)
+            exact_layout.addWidget(self.exact_input)
+
+            # Add list button for value selection
+            self.list_button = QPushButton("☰")
+            self.list_button.setFixedSize(20, 20)
+            self.list_button.setToolTip(f"Select Values ({len(self.unique_values)} available)")
+            self._update_list_button_style()
+            self.list_button.clicked.connect(self._open_value_selection_popup)
+            exact_layout.addWidget(self.list_button)
+        else:
+            # No unique values - use regular line edit
+            self.exact_input = QLineEdit()
+            self.exact_input.setPlaceholderText("Exact value")
+            self.exact_input.setMaximumHeight(22)
+            self.exact_input.setStyleSheet("""
+                QLineEdit {
+                    font-size: 10px;
+                    padding: 2px 4px;
+                    background: white;
+                }
+            """)
+            exact_layout.addWidget(self.exact_input)
+
         exact_widget = QWidget()
         exact_widget.setStyleSheet("background: transparent;")
         exact_widget.setLayout(exact_layout)
@@ -3675,9 +3821,16 @@ class CriteriaFilterWidget(QFrame):
             return None
 
         # Checkbox list mode - only include if "List" is showing in combobox (meaning actively filtering)
+        # OR if we have list_button (numeric with unique values) and not all are selected
         if hasattr(self, 'selected_values') and self.selected_values is not None:
+            # Check if we're using a list button (numeric unique values) AND not all are selected
+            if hasattr(self, 'list_button') and len(self.selected_values) < len(self.unique_values):
+                result = {
+                    'type': 'checkbox_list',
+                    'selected_values': self.selected_values
+                }
             # Only return list filter if combobox shows "List" (indicating active filtering)
-            if hasattr(self, 'match_type_combo') and self.match_type_combo.currentText() == "List":
+            elif hasattr(self, 'match_type_combo') and self.match_type_combo.currentText() == "List":
                 result = {
                     'type': 'checkbox_list',
                     'selected_values': self.selected_values
@@ -3732,11 +3885,17 @@ class CriteriaFilterWidget(QFrame):
 
         # Numeric mode (check which input has value)
         elif hasattr(self, 'exact_input'):
-            exact_val = self.exact_input.text().strip()
+            # Handle both QLineEdit (text()) and QComboBox (currentText())
+            if isinstance(self.exact_input, QComboBox):
+                exact_val = self.exact_input.currentText().strip()
+            else:
+                exact_val = self.exact_input.text().strip()
+
             low_val = self.range_low_input.text().strip() if hasattr(self, 'range_low_input') else ''
             high_val = self.range_high_input.text().strip() if hasattr(self, 'range_high_input') else ''
-            
-            if exact_val:
+
+            # Skip if exact value is "None"
+            if exact_val and exact_val != "None":
                 result = {
                     'type': 'numeric_exact',
                     'value': exact_val
@@ -3849,7 +4008,47 @@ class CriteriaFilterWidget(QFrame):
                 "Error",
                 f"Failed to find unique values:\n{str(e)}"
             )
-    
+
+    def _reset_filter_values(self):
+        """Reset all filter values to defaults"""
+        # Reset string filter
+        if hasattr(self, 'match_type_combo'):
+            self.match_type_combo.setCurrentText("Exact")
+        if hasattr(self, 'filter_input'):
+            if isinstance(self.filter_input, QLineEdit):
+                self.filter_input.clear()
+
+        # Reset numeric filter
+        if hasattr(self, 'exact_input'):
+            if isinstance(self.exact_input, QComboBox):
+                self.exact_input.setCurrentText("None")
+            elif isinstance(self.exact_input, QLineEdit):
+                self.exact_input.clear()
+
+        if hasattr(self, 'range_low_input'):
+            self.range_low_input.clear()
+        if hasattr(self, 'range_high_input'):
+            self.range_high_input.clear()
+
+        # Reset date filter
+        if hasattr(self, 'exact_date_input'):
+            self.exact_date_input.setDate(QDate.currentDate())
+        if hasattr(self, 'date_range_start'):
+            self.date_range_start.setDate(QDate.currentDate())
+        if hasattr(self, 'date_range_end'):
+            self.date_range_end.setDate(QDate.currentDate())
+
+        # Reset selected values to all (if unique values exist)
+        if hasattr(self, 'unique_values') and self.unique_values:
+            self.selected_values = self.unique_values[:]
+            if hasattr(self, 'list_button'):
+                self._update_list_button_style()
+
+        # Clear custom criteria
+        self.custom_criteria_text = ""
+
+        logger.info(f"Reset filter values for {self.field_data['field_name']}")
+
     def mousePressEvent(self, event):
         """Handle mouse press for drag initiation"""
         if event.button() == Qt.MouseButton.LeftButton:
@@ -4643,17 +4842,33 @@ class JoinWidget(QFrame):
             return []
     
     def _on_left_field_changed(self, left_field_combo, right_field_combo):
-        """Auto-select matching right field if user hasn't chosen one yet.
-        Never override an existing right-side choice.
+        """Auto-populate right field to match left field when user changes it.
+
+        Only triggers on REAL user changes, not during:
+        - Query restoration (_loading_query flag)
+        - Programmatic updates (blocked signals)
+
+        If the matching field exists in the right combo, set it.
+        Otherwise, leave the right combo unchanged.
         """
+        # Skip if we're loading a query (restoration in progress)
+        if self.parent_screen and hasattr(self.parent_screen, '_loading_query'):
+            if self.parent_screen._loading_query:
+                return
+
+        # Skip if signals are blocked (programmatic change)
+        if left_field_combo.signalsBlocked():
+            return
+
         selected_field = left_field_combo.currentText()
         if not selected_field:
             return
-        if right_field_combo.currentText():
-            return
+
+        # Try to match the right field to the left field
         index = right_field_combo.findText(selected_field)
         if index >= 0:
             right_field_combo.setCurrentIndex(index)
+            print(f"      [AUTO-MATCH] Set right field to match left: '{selected_field}'")
 
     def get_join_config(self):
         """Get JOIN configuration as dict"""

@@ -234,6 +234,8 @@ class MyDataScreen(QWidget):
         # Add DB Queries section header
         db_queries_header = QLabel("DB Queries")
         db_queries_header.setObjectName("panel_header")
+        db_queries_header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        db_queries_header.customContextMenuRequested.connect(lambda pos: self._show_header_context_menu(pos, 'DB'))
         panel_layout.addWidget(db_queries_header)
         
         # Create DB Queries tree (separate from My Data tree)
@@ -1850,19 +1852,31 @@ class MyDataScreen(QWidget):
         if not menu.isEmpty():
             menu.exec(self.data_mapping_tree.viewport().mapToGlobal(position))
     
+    def _show_header_context_menu(self, position, query_type: str):
+        """Show context menu for DB Queries header label"""
+        menu = QMenu(self)
+        menu.setStyleSheet("QMenu { border: 2px solid #555; }")
+
+        add_folder_action = menu.addAction("➕ New Folder")
+        add_folder_action.triggered.connect(lambda: self._create_new_folder(query_type))
+
+        # Get the header widget to map position correctly
+        header = self.sender()
+        menu.exec(header.mapToGlobal(position))
+
     def _show_data_mapping_header_context_menu(self, position):
         """Show context menu for Data Mapping header label"""
         menu = QMenu(self)
         menu.setStyleSheet("QMenu { border: 2px solid #555; }")
-        
+
         add_folder_action = menu.addAction("➕ New Folder")
         add_folder_action.triggered.connect(lambda: self._create_new_data_map_folder())
-        
+
         menu.addSeparator()
-        
+
         add_map_action = menu.addAction("📊 New Data Map")
         add_map_action.triggered.connect(lambda: self._create_new_data_map())
-        
+
         # Get the header widget to map position correctly
         header = self.sender()
         menu.exec(header.mapToGlobal(position))
