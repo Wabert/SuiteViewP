@@ -616,7 +616,22 @@ class DBQueryScreen(QWidget):
         """)
         toolbar_layout.addWidget(self.query_name_label)
 
-        # Add stretch to push label to center
+        # Complexity indicator badge (#22)
+        self.complexity_label = QLabel("🟢 Simple")
+        self.complexity_label.setStyleSheet("""
+            QLabel {
+                background: #28a745;
+                color: white;
+                padding: 4px 12px;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+        """)
+        self.complexity_label.setToolTip("Query Complexity: Simple")
+        toolbar_layout.addWidget(self.complexity_label)
+
+        # Add stretch to push labels to center
         toolbar_layout.addStretch()
 
         # Add toolbar layout to panel
@@ -2084,6 +2099,66 @@ class DBQueryScreen(QWidget):
         self.view_sql_action.setEnabled(has_display_fields)
         self.save_query_btn.setEnabled(has_display_fields)
 
+        # Update complexity indicator (#22)
+        self._update_complexity_indicator()
+
+    # ========== Query Complexity Indicator (#22) ==========
+
+    def _calculate_query_complexity(self) -> tuple[str, str, str]:
+        """Calculate query complexity level and return (level, color, emoji)
+
+        Returns:
+            tuple: (level_name, color_hex, emoji)
+                - level_name: "Simple", "Moderate", or "Complex"
+                - color_hex: "#28a745" (green), "#ffc107" (yellow), or "#dc3545" (red)
+                - emoji: "🟢", "🟡", or "🔴"
+        """
+        complexity_score = 0
+
+        # Count display fields (1 point each)
+        complexity_score += len(self.display_fields)
+
+        # Count criteria filters (2 points each - filters add complexity)
+        complexity_score += len(self.criteria_widgets) * 2
+
+        # Count JOIN operations (5 points each - joins significantly increase complexity)
+        complexity_score += len(self.joins) * 5
+
+        # Count tables involved (3 points each)
+        complexity_score += len(self.tables_involved) * 3
+
+        # Determine complexity level
+        if complexity_score <= 10:
+            return ("Simple", "#28a745", "🟢")
+        elif complexity_score <= 25:
+            return ("Moderate", "#ffc107", "🟡")
+        else:
+            return ("Complex", "#dc3545", "🔴")
+
+    def _update_complexity_indicator(self):
+        """Update the query complexity indicator badge (#22)"""
+        level, color, emoji = self._calculate_query_complexity()
+
+        # Update the complexity label
+        self.complexity_label.setText(f"{emoji} {level}")
+        self.complexity_label.setStyleSheet(f"""
+            QLabel {{
+                background: {color};
+                color: white;
+                padding: 4px 12px;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: bold;
+            }}
+        """)
+        self.complexity_label.setToolTip(
+            f"Query Complexity: {level}\n"
+            f"Display fields: {len(self.display_fields)}\n"
+            f"Filters: {len(self.criteria_widgets)}\n"
+            f"JOINs: {len(self.joins)}\n"
+            f"Tables: {len(self.tables_involved)}"
+        )
+
     # ========== Query Change Detection Methods (#15) ==========
 
     def _mark_query_dirty(self):
@@ -2360,15 +2435,18 @@ class DBQueryScreen(QWidget):
                 )
                 return
             
-            # Show progress cursor
-            self.setCursor(Qt.CursorShape.WaitCursor)
-            
+            # Show progress dialog (#23)
+            progress = QProgressDialog("Executing query...", "Cancel", 0, 0, self)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0)  # Show immediately
+            progress.show()
+
             try:
                 # Execute query
                 logger.info("Executing query...")
                 df = self.query_executor.execute_db_query(query)
                 logger.info(f"Query executed successfully, returned {len(df)} rows")
-                
+
                 # Get execution metadata
                 metadata = self.query_executor.get_execution_metadata()
                 logger.info(f"Retrieved metadata: {metadata}")
@@ -2383,8 +2461,8 @@ class DBQueryScreen(QWidget):
                     # Refresh recent queries list
                     self._load_recent_queries()
 
-                # Restore cursor
-                self.unsetCursor()
+                # Close progress dialog
+                progress.close()
 
                 # Show results dialog
                 logger.info("Creating results dialog...")
@@ -2397,14 +2475,13 @@ class DBQueryScreen(QWidget):
                 logger.info("Showing results dialog...")
                 results_dialog.exec()
                 logger.info("Results dialog closed")
-                
+
             except Exception as e:
-                self.unsetCursor()
+                progress.close()
                 logger.error(f"Error during query execution or display: {e}", exc_info=True)
                 raise
-            
+
         except Exception as e:
-            self.unsetCursor()
             logger.error(f"Query execution failed: {e}", exc_info=True)
             QMessageBox.critical(
                 self,
