@@ -399,6 +399,32 @@ class DBQueryScreen(QWidget):
         self.run_query_btn.setEnabled(False)
         toolbar_layout.addWidget(self.run_query_btn)
 
+        # Preview button (100 rows)
+        self.preview_query_btn = QPushButton("👁 Preview (100 rows)")
+        self.preview_query_btn.setMinimumWidth(150)
+        self.preview_query_btn.setToolTip("Run query with 100 row limit for quick preview")
+        self.preview_query_btn.setStyleSheet("""
+            QPushButton {
+                background: #6f42c1;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #5a32a3;
+            }
+            QPushButton:disabled {
+                background: #bdc3c7;
+                color: #ecf0f1;
+            }
+        """)
+        self.preview_query_btn.clicked.connect(self._preview_query)
+        self.preview_query_btn.setEnabled(False)
+        toolbar_layout.addWidget(self.preview_query_btn)
+
         self.save_query_btn = QPushButton("💾 Save Query")
         self.save_query_btn.setObjectName("gold_button")
         self.save_query_btn.setMinimumWidth(120)
@@ -1855,6 +1881,7 @@ class DBQueryScreen(QWidget):
         """Enable/disable query buttons based on query state"""
         has_display_fields = len(self.display_fields) > 0
         self.run_query_btn.setEnabled(has_display_fields)
+        self.preview_query_btn.setEnabled(has_display_fields)
         self.save_query_btn.setEnabled(has_display_fields)
         self.view_sql_btn.setEnabled(has_display_fields)
 
@@ -1909,6 +1936,124 @@ class DBQueryScreen(QWidget):
         # Update debug panel
         if hasattr(self, '_update_join_debug_panel'):
             self._update_join_debug_panel()
+
+    def _preview_query(self):
+        """Execute query with 100 row limit for preview"""
+        try:
+            # Build query object
+            query = self._build_query_object()
+
+            # Validate query
+            validation_errors = self._validate_query(query)
+            if validation_errors:
+                QMessageBox.warning(
+                    self,
+                    "Query Validation Failed",
+                    "Please fix the following issues:\n\n" + "\n".join(validation_errors)
+                )
+                return
+
+            # Show progress dialog
+            progress = QProgressDialog("Previewing first 100 rows...", "Cancel", 0, 0, self)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+            progress.show()
+            QApplication.processEvents()
+
+            try:
+                # Execute query with 100 row limit
+                logger.info("Executing preview query (100 rows)...")
+                df = self._execute_query_with_limit(query, limit=100)
+                logger.info(f"Preview query executed successfully, returned {len(df)} rows")
+
+                # Get execution metadata
+                metadata = self.query_executor.get_execution_metadata()
+                logger.info(f"Retrieved metadata: {metadata}")
+
+                # Close progress
+                progress.close()
+
+                # Show results dialog with preview indicator
+                logger.info("Creating preview results dialog...")
+                results_dialog = QueryResultsDialog(
+                    df,
+                    metadata['sql'],
+                    metadata['execution_time_ms'],
+                    self
+                )
+                # Add preview indicator to window title
+                results_dialog.setWindowTitle(f"Query Results - PREVIEW (First 100 Rows) - {self.query_name_label.text()}")
+                logger.info("Showing preview results dialog...")
+                results_dialog.exec()
+                logger.info("Preview results dialog closed")
+
+            except Exception as e:
+                progress.close()
+                logger.error(f"Error during preview execution or display: {e}", exc_info=True)
+                raise
+
+        except Exception as e:
+            logger.error(f"Preview query execution failed: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Preview Query Failed",
+                f"Failed to execute preview query:\n\n{str(e)}"
+            )
+
+    def _execute_query_with_limit(self, query: Query, limit: int = 100):
+        """Execute query with row limit"""
+        import pandas as pd
+        import time
+
+        start_time = time.time()
+
+        # Get connection info
+        connection = self.conn_manager.repo.get_connection(query.connection_id)
+        connection_type = connection.get('connection_type') if connection else None
+
+        # Build SQL with limit
+        sql = self.query_executor._build_sql(query)
+
+        # Add LIMIT clause based on database type
+        if connection_type == 'SQL_SERVER':
+            # SQL Server uses TOP - insert after SELECT
+            if 'SELECT DISTINCT' in sql.upper():
+                sql = sql.replace('SELECT DISTINCT', f'SELECT DISTINCT TOP {limit}', 1)
+            else:
+                sql = sql.replace('SELECT', f'SELECT TOP {limit}', 1)
+        elif connection_type == 'DB2':
+            # DB2 uses FETCH FIRST
+            sql = f"{sql}\nFETCH FIRST {limit} ROWS ONLY"
+        elif connection_type == 'ORACLE':
+            # Oracle uses ROWNUM or FETCH FIRST (12c+)
+            sql = f"{sql}\nFETCH FIRST {limit} ROWS ONLY"
+        else:
+            # Most others (PostgreSQL, MySQL, SQLite) use LIMIT
+            sql = f"{sql}\nLIMIT {limit}"
+
+        # Store the modified SQL
+        self.query_executor.last_sql = sql
+        logger.info(f"Executing preview query with limit:\n{sql}")
+
+        # Execute based on connection type
+        if connection_type == 'DB2':
+            df = self.query_executor._execute_db2_query(sql, connection)
+        elif connection_type == 'CSV':
+            df = self.query_executor._execute_csv_query(query, connection)
+            # For CSV, manually limit to 100 rows
+            df = df.head(limit)
+        else:
+            from sqlalchemy import text
+            engine = self.conn_manager.get_engine(query.connection_id)
+            with engine.connect() as conn:
+                df = pd.read_sql_query(text(sql), conn)
+
+        # Update metadata
+        self.query_executor.last_execution_time = int((time.time() - start_time) * 1000)
+        self.query_executor.last_record_count = len(df)
+
+        return df
 
     def run_query(self):
         """Execute the query"""
