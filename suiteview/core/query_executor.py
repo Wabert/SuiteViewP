@@ -447,8 +447,8 @@ class QueryExecutor:
             else:
                 join_table = join_table_name
             
-            # Add alias (use table name)
-            sql += f"{join_type} {join_table} {join_table_name}"
+            # Add alias (use table name) - with newline before join type
+            sql += f"\n{join_type} {join_table} {join_table_name}"
             
             # ON conditions
             if join['on_conditions']:

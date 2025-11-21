@@ -13,8 +13,6 @@ from suiteview.ui.mydata_screen import MyDataScreen
 from suiteview.ui.dbquery_screen import DBQueryScreen
 from suiteview.ui.xdbquery_screen import XDBQueryScreen
 from suiteview.ui.mainframe_nav_screen import MainframeNavScreen
-from suiteview.ui.file_explorer_screen import FileExplorerScreen
-from suiteview.ui.file_explorer_v2 import FileExplorerV2
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +53,6 @@ class MainWindow(QMainWindow):
         self.dbquery_screen = DBQueryScreen()
         self.xdbquery_screen = XDBQueryScreen()
         self.mainframe_nav_screen = MainframeNavScreen(self.connections_screen.conn_manager)
-        self.file_explorer_screen = FileExplorerScreen()
-        self.file_explorer_v2 = FileExplorerV2()  # New enhanced file explorer
 
         # Add tabs in order
         self.tab_widget.addTab(self.mydata_screen, "My Data")

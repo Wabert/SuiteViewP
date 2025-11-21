@@ -279,9 +279,9 @@ class PrintDirectoryDialog(QDialog):
         }
 
 
-class FileExplorerV3(QWidget):
+class FileExplorerCore(QWidget):
     """
-    File Explorer with custom model showing OneDrive at top level
+    Core File Explorer with custom model showing OneDrive at top level
     Features:
     - OneDrive shortcuts at root level (like Windows Explorer)
     - System drives (C: D: etc.)
@@ -973,13 +973,25 @@ class FileExplorerV3(QWidget):
     
     def on_details_item_double_clicked(self, index):
         """Handle double click in details view"""
-        # Map proxy index to source index
-        source_index = self.details_sort_proxy.mapToSource(index)
-        item = self.details_model.itemFromIndex(self.details_model.index(source_index.row(), 0))
-        if not item:
-            return
+        # DEBUG: Log what we're clicking
+        print(f"\n=== DOUBLE CLICK DEBUG ===")
+        print(f"Proxy Index: row={index.row()}, col={index.column()}")
+        print(f"Display text at clicked index: {self.details_sort_proxy.data(index, Qt.ItemDataRole.DisplayRole)}")
         
-        path = item.data(Qt.ItemDataRole.UserRole)
+        # Get the data directly from the proxy model at the clicked index
+        # The proxy model handles all the sorting/filtering, so we should query it directly
+        path = self.details_sort_proxy.data(index, Qt.ItemDataRole.UserRole)
+        
+        # If this column doesn't have the path data, get it from column 0 of the same row
+        if not path:
+            col0_index = index.sibling(index.row(), 0)
+            col0_text = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole)
+            print(f"Column 0 text for this row: {col0_text}")
+            path = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole)
+        
+        print(f"Path retrieved: {path}")
+        print(f"=========================\n")
+        
         if not path:
             return
         
@@ -1054,12 +1066,15 @@ class FileExplorerV3(QWidget):
         menu = QMenu()
         
         if index.isValid():
-            # Map proxy index to source index
-            source_index = self.details_sort_proxy.mapToSource(index)
-            item = self.details_model.itemFromIndex(self.details_model.index(source_index.row(), 0))
-            if item:
-                path = item.data(Qt.ItemDataRole.UserRole)
-                if path:
+            # Get the data directly from the proxy model at the clicked index
+            path = self.details_sort_proxy.data(index, Qt.ItemDataRole.UserRole)
+            
+            # If this column doesn't have the path data, get it from column 0 of the same row
+            if not path:
+                col0_index = index.sibling(index.row(), 0)
+                path = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole)
+            
+            if path:
                     path_obj = Path(path)
                     
                     # Open
@@ -1380,12 +1395,15 @@ class FileExplorerV3(QWidget):
         if not indexes:
             return None
         
-        # Map proxy index to source index
-        source_index = self.details_sort_proxy.mapToSource(indexes[0])
-        item = self.details_model.itemFromIndex(self.details_model.index(source_index.row(), 0))
-        if item:
-            return item.data(Qt.ItemDataRole.UserRole)
-        return None
+        # Get the data directly from the proxy model
+        path = self.details_sort_proxy.data(indexes[0], Qt.ItemDataRole.UserRole)
+        
+        # If this column doesn't have the path data, get it from column 0 of the same row
+        if not path:
+            col0_index = indexes[0].sibling(indexes[0].row(), 0)
+            path = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole)
+        
+        return path
     
     def get_selected_paths(self):
         """Get all selected file/folder paths from details view (multi-selection)"""
@@ -1394,18 +1412,15 @@ class FileExplorerV3(QWidget):
         
         # Get unique rows (since selecting a row selects all columns)
         for index in self.details_view.selectedIndexes():
-            # Map proxy index to source index
-            source_index = self.details_sort_proxy.mapToSource(index)
-            row = source_index.row()
-            key = (row, 0)
+            row = index.row()
             
-            if key not in selected_rows:
-                selected_rows[key] = True
-                item = self.details_model.itemFromIndex(self.details_model.index(row, 0))
-                if item:
-                    path = item.data(Qt.ItemDataRole.UserRole)
-                    if path:
-                        paths.append(path)
+            if row not in selected_rows:
+                selected_rows[row] = True
+                # Get column 0 index for this row and query the proxy model
+                col0_index = index.sibling(row, 0)
+                path = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole)
+                if path:
+                    paths.append(path)
         
         return paths
         
@@ -1956,10 +1971,10 @@ class FileExplorerV3(QWidget):
                 # Open Excel using COM automation (Windows only)
                 if os.name == 'nt':
                     try:
-                        import win32com.client as win32
+                        from win32com.client import dynamic
                         
-                        # Create Excel instance
-                        excel = win32.gencache.EnsureDispatch('Excel.Application')
+                        # Create Excel instance using dynamic dispatch to avoid gen_py cache issues
+                        excel = dynamic.Dispatch('Excel.Application')
                         excel.Visible = True
                         
                         # Add a new workbook

@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitte
                               QTreeWidget, QTreeWidgetItem, QTabWidget, QPushButton,
                               QScrollArea, QFrame, QLineEdit, QComboBox, QCheckBox,
                               QMessageBox, QInputDialog, QToolBar, QDateEdit, QSizePolicy,
-                              QMenu, QToolButton, QLayout)
+                              QMenu, QToolButton, QLayout, QProgressDialog, QApplication)
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QDate, QRect, QSize, QPoint
 from PyQt6.QtGui import QDrag, QAction
 
@@ -206,6 +206,16 @@ class DBQueryScreen(QWidget):
         # Databases section
         databases_header = QLabel("DATABASES")
         databases_header.setObjectName("panel_header")
+        databases_header.setStyleSheet("""
+            QLabel {
+                background: #e3f2fd;
+                color: #1976d2;
+                font-weight: bold;
+                font-size: 10px;
+                padding: 3px 5px;
+                border-bottom: 2px solid #1976d2;
+            }
+        """)
         panel_layout.addWidget(databases_header)
 
         # Create custom widget for database cascading menus
@@ -257,6 +267,16 @@ class DBQueryScreen(QWidget):
         # DB Queries section
         queries_header = QLabel("DB QUERIES")
         queries_header.setObjectName("panel_header")
+        queries_header.setStyleSheet("""
+            QLabel {
+                background: #e3f2fd;
+                color: #1976d2;
+                font-weight: bold;
+                font-size: 10px;
+                padding: 3px 5px;
+                border-bottom: 2px solid #1976d2;
+            }
+        """)
         queries_header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         queries_header.customContextMenuRequested.connect(self._show_db_queries_header_context_menu)
         panel_layout.addWidget(queries_header)
@@ -297,8 +317,18 @@ class DBQueryScreen(QWidget):
         panel_layout.setContentsMargins(5, 5, 5, 5)
 
         # Panel header (will be updated dynamically)
-        self.tables_header = QLabel("Tables")
+        self.tables_header = QLabel("TABLES")
         self.tables_header.setObjectName("panel_header")
+        self.tables_header.setStyleSheet("""
+            QLabel {
+                background: #e3f2fd;
+                color: #1976d2;
+                font-weight: bold;
+                font-size: 10px;
+                padding: 3px 5px;
+                border-bottom: 2px solid #1976d2;
+            }
+        """)
         panel_layout.addWidget(self.tables_header)
 
         # Database name label - prominent display
@@ -367,8 +397,18 @@ class DBQueryScreen(QWidget):
         panel_layout.setContentsMargins(5, 5, 5, 5)
 
         # Panel header (will be updated dynamically)
-        self.fields_header = QLabel("Fields")
+        self.fields_header = QLabel("FIELDS")
         self.fields_header.setObjectName("panel_header")
+        self.fields_header.setStyleSheet("""
+            QLabel {
+                background: #e3f2fd;
+                color: #1976d2;
+                font-weight: bold;
+                font-size: 10px;
+                padding: 3px 5px;
+                border-bottom: 2px solid #1976d2;
+            }
+        """)
         panel_layout.addWidget(self.fields_header)
 
         # Search box for filtering fields
@@ -480,26 +520,45 @@ class DBQueryScreen(QWidget):
 
         # Toolbar with action buttons
         toolbar_layout = QHBoxLayout()
-        toolbar_layout.setContentsMargins(10, 5, 10, 5)
-        toolbar_layout.setSpacing(8)
+        toolbar_layout.setContentsMargins(10, 8, 10, 8)
+        toolbar_layout.setSpacing(10)
 
         # ==== PRIMARY ACTIONS GROUP ====
         # Run Query button with dropdown
         self.run_query_btn = QPushButton("▶ Run Query")
-        self.run_query_btn.setObjectName("gold_button")
-        self.run_query_btn.setMinimumWidth(110)
+        self.run_query_btn.setMinimumWidth(100)
+        self.run_query_btn.setMinimumHeight(32)
         self.run_query_btn.clicked.connect(self.run_query)
         self.run_query_btn.setEnabled(False)
+        self.run_query_btn.setStyleSheet("""
+            QPushButton {
+                background: #1976d2;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #1565c0;
+            }
+            QPushButton:disabled {
+                background: #bdc3c7;
+                color: #ecf0f1;
+            }
+        """)
         toolbar_layout.addWidget(self.run_query_btn)
 
         # Dropdown menu button for run options
         run_options_btn = QToolButton()
         run_options_btn.setText("▼")
         run_options_btn.setToolTip("More run options")
+        run_options_btn.setMinimumHeight(32)
         run_options_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         run_options_btn.setStyleSheet("""
             QToolButton {
-                background: #f39c12;
+                background: #1976d2;
                 color: white;
                 border: none;
                 border-radius: 4px;
@@ -508,7 +567,7 @@ class DBQueryScreen(QWidget):
                 font-weight: bold;
             }
             QToolButton:hover {
-                background: #e67e22;
+                background: #1565c0;
             }
             QToolButton:disabled {
                 background: #bdc3c7;
@@ -541,51 +600,55 @@ class DBQueryScreen(QWidget):
         self.run_options_btn = run_options_btn
         toolbar_layout.addWidget(run_options_btn)
 
-        # Separator
-        separator1 = QFrame()
-        separator1.setFrameShape(QFrame.Shape.VLine)
-        separator1.setFrameShadow(QFrame.Shadow.Sunken)
-        separator1.setStyleSheet("background: #ddd;")
-        toolbar_layout.addWidget(separator1)
-
         # Save button
         self.save_query_btn = QPushButton("💾 Save")
-        self.save_query_btn.setObjectName("gold_button")
-        self.save_query_btn.setMinimumWidth(90)
+        self.save_query_btn.setMinimumWidth(80)
+        self.save_query_btn.setMinimumHeight(32)
         self.save_query_btn.setToolTip("Save query")
         self.save_query_btn.clicked.connect(self.save_query)
         self.save_query_btn.setEnabled(False)
-        toolbar_layout.addWidget(self.save_query_btn)
-
-        # Separator
-        separator2 = QFrame()
-        separator2.setFrameShape(QFrame.Shape.VLine)
-        separator2.setFrameShadow(QFrame.Shadow.Sunken)
-        separator2.setStyleSheet("background: #ddd;")
-        toolbar_layout.addWidget(separator2)
-
-        # ==== QUERY MANAGEMENT GROUP ====
-        # Reset button
-        self.reset_query_btn = QPushButton("🔄 Reset")
-        self.reset_query_btn.setObjectName("reset_button")
-        self.reset_query_btn.setMinimumWidth(85)
-        self.reset_query_btn.setToolTip("Reset to last saved version")
-        self.reset_query_btn.setStyleSheet("""
+        self.save_query_btn.setStyleSheet("""
             QPushButton {
-                background: #3498db;
+                background: #1976d2;
                 color: white;
                 border: none;
                 border-radius: 4px;
-                padding: 6px 10px;
+                padding: 6px 14px;
                 font-size: 11px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background: #2980b9;
+                background: #1565c0;
             }
             QPushButton:disabled {
                 background: #bdc3c7;
                 color: #ecf0f1;
+            }
+        """)
+        toolbar_layout.addWidget(self.save_query_btn)
+
+        # Reset button
+        self.reset_query_btn = QPushButton("🔄 Reset")
+        self.reset_query_btn.setMinimumWidth(75)
+        self.reset_query_btn.setMinimumHeight(32)
+        self.reset_query_btn.setToolTip("Reset to last saved version")
+        self.reset_query_btn.setStyleSheet("""
+            QPushButton {
+                background: #e3f2fd;
+                color: #1976d2;
+                border: 1px solid #1976d2;
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #bbdefb;
+            }
+            QPushButton:disabled {
+                background: #f5f5f5;
+                color: #bdc3c7;
+                border-color: #bdc3c7;
             }
         """)
         self.reset_query_btn.clicked.connect(self.reset_query)
@@ -594,10 +657,25 @@ class DBQueryScreen(QWidget):
 
         # New Query button
         self.new_query_btn = QPushButton("✨ New")
-        self.new_query_btn.setObjectName("gold_button")
-        self.new_query_btn.setMinimumWidth(85)
+        self.new_query_btn.setMinimumWidth(75)
+        self.new_query_btn.setMinimumHeight(32)
         self.new_query_btn.setToolTip("Start a new query")
         self.new_query_btn.clicked.connect(self.new_query)
+        self.new_query_btn.setStyleSheet("""
+            QPushButton {
+                background: #e3f2fd;
+                color: #1976d2;
+                border: 1px solid #1976d2;
+                border-radius: 4px;
+                padding: 6px 14px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #bbdefb;
+            }
+        """)
+        toolbar_layout.addWidget(self.new_query_btn)
         toolbar_layout.addWidget(self.new_query_btn)
 
         # Add stretch to push query name to center
@@ -607,29 +685,14 @@ class DBQueryScreen(QWidget):
         self.query_name_label = QLabel("unnamed")
         self.query_name_label.setStyleSheet("""
             QLabel {
-                color: #7f8c8d;
-                font-size: 14px;
+                color: #1976d2;
+                font-size: 13px;
                 font-style: italic;
                 font-weight: 600;
                 padding: 5px 15px;
             }
         """)
         toolbar_layout.addWidget(self.query_name_label)
-
-        # Complexity indicator badge (#22)
-        self.complexity_label = QLabel("🟢 Simple")
-        self.complexity_label.setStyleSheet("""
-            QLabel {
-                background: #28a745;
-                color: white;
-                padding: 4px 12px;
-                border-radius: 12px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-        """)
-        self.complexity_label.setToolTip("Query Complexity: Simple")
-        toolbar_layout.addWidget(self.complexity_label)
 
         # Add stretch to push labels to center
         toolbar_layout.addStretch()
@@ -1531,53 +1594,74 @@ class DBQueryScreen(QWidget):
             # Reload to revert visual change
             self._load_db_queries_tree()
 
-    def load_tables_for_connection(self, connection_id: int, database_name: str):
+    def load_tables_for_connection(self, connection_id: int, database_name: str = None):
         """Load tables for selected connection"""
         self.current_connection_id = connection_id
-        self.current_database_name = database_name
+        
+        # Get connection details to determine type and actual database name
+        try:
+            connection = self.conn_repo.get_connection(connection_id)
+            if not connection:
+                logger.error(f"Connection {connection_id} not found")
+                return
+            
+            conn_type = connection.get('connection_type', '')
+            
+            # Use provided database_name or get from connection
+            if database_name is None:
+                database_name = connection.get('database_name', '') or connection.get('connection_name', 'Unknown')
+            
+            self.current_database_name = database_name
+            
+        except Exception as e:
+            logger.error(f"Error getting connection details: {e}")
+            self.current_database_name = database_name or "Unknown"
+            conn_type = ''
+        
+        # Clear current display
         self.tables_tree.clear()
         self.fields_tree.clear()
 
-        # Keep headers simple - no database name
-        self.tables_header.setText("Tables")
+        # Update header to show database name
+        self.tables_header.setText(f"TABLES")
         
-        # Update the prominent database name label
-        self.database_name_label.setText(database_name)
+        # For file-based connections (CSV, Excel), show the connection name instead
+        if conn_type in ('CSV', 'EXCEL'):
+            display_name = connection.get('connection_name', database_name)
+            self.database_name_label.setText(f"📄 {display_name}")
+        else:
+            self.database_name_label.setText(database_name)
+        
         self.database_name_label.setVisible(True)
 
         # Reset fields header
-        self.fields_header.setText("Fields")
+        self.fields_header.setText("FIELDS")
 
         try:
-            # Check if this is a CSV connection and hide Tables tab if so
-            connection = self.conn_repo.get_connection(connection_id)
-            if connection:
-                conn_type = connection.get('connection_type', '')
-                # Hide Tables tab for CSV connections (no JOINs supported)
-                if conn_type == 'CSV':
-                    # Find the Tables tab index and remove it
-                    for i in range(self.query_tabs.count()):
-                        if self.query_tabs.tabText(i) == "Tables":
-                            # Store the current tab before removing
-                            current_index = self.query_tabs.currentIndex()
-                            # Remove the Tables tab
-                            self.query_tabs.removeTab(i)
-                            # If we were on the Tables tab, switch to Display
-                            if current_index == i:
-                                self.query_tabs.setCurrentIndex(0)  # Switch to Display
-                            break
-                else:
-                    # Show Tables tab for non-CSV connections if it's not already there
-                    # Check if Tables tab exists
-                    tables_exists = False
-                    for i in range(self.query_tabs.count()):
-                        if self.query_tabs.tabText(i) == "Tables":
-                            tables_exists = True
-                            break
-                    
-                    # Add it back if it doesn't exist (it was removed for CSV)
-                    if not tables_exists:
-                        self.query_tabs.addTab(self.tables_tab, "Tables")
+            # Hide Tables tab for CSV/Excel connections (no JOINs supported)
+            if conn_type in ('CSV', 'EXCEL'):
+                # Find the Tables tab index and remove it
+                for i in range(self.query_tabs.count()):
+                    if self.query_tabs.tabText(i) == "Tables":
+                        # Store the current tab before removing
+                        current_index = self.query_tabs.currentIndex()
+                        # Remove the Tables tab
+                        self.query_tabs.removeTab(i)
+                        # If we were on the Tables tab, switch to Display
+                        if current_index == i:
+                            self.query_tabs.setCurrentIndex(0)  # Switch to Display
+                        break
+            else:
+                # Show Tables tab for database connections if it's not already there
+                tables_exists = False
+                for i in range(self.query_tabs.count()):
+                    if self.query_tabs.tabText(i) == "Tables":
+                        tables_exists = True
+                        break
+                
+                # Add it back if it doesn't exist (it was removed for CSV/Excel)
+                if not tables_exists and hasattr(self, 'tables_tab'):
+                    self.query_tabs.addTab(self.tables_tab, "Tables")
 
             # Get saved tables for this connection
             saved_tables = self.saved_table_repo.get_saved_tables(connection_id)
@@ -2137,27 +2221,8 @@ class DBQueryScreen(QWidget):
 
     def _update_complexity_indicator(self):
         """Update the query complexity indicator badge (#22)"""
-        level, color, emoji = self._calculate_query_complexity()
-
-        # Update the complexity label
-        self.complexity_label.setText(f"{emoji} {level}")
-        self.complexity_label.setStyleSheet(f"""
-            QLabel {{
-                background: {color};
-                color: white;
-                padding: 4px 12px;
-                border-radius: 12px;
-                font-size: 11px;
-                font-weight: bold;
-            }}
-        """)
-        self.complexity_label.setToolTip(
-            f"Query Complexity: {level}\n"
-            f"Display fields: {len(self.display_fields)}\n"
-            f"Filters: {len(self.criteria_widgets)}\n"
-            f"JOINs: {len(self.joins)}\n"
-            f"Tables: {len(self.tables_involved)}"
-        )
+        # Complexity indicator removed - feature disabled
+        pass
 
     # ========== Query Change Detection Methods (#15) ==========
 
@@ -2280,10 +2345,14 @@ class DBQueryScreen(QWidget):
                 return
 
             # Show progress dialog
-            progress = QProgressDialog("Previewing first 100 rows...", "Cancel", 0, 0, self)
+            progress = QProgressDialog("Previewing first 100 rows...", None, 0, 100, self)
             progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setMinimumDuration(0)
-            progress.setValue(0)
+            progress.setAutoClose(True)
+            progress.setAutoReset(True)
+            progress.setCancelButton(None)  # No cancel button
+            progress.setRange(0, 0)  # Indeterminate/busy indicator
+            progress.setMinimumWidth(300)
             progress.show()
             QApplication.processEvents()
 
@@ -2436,10 +2505,16 @@ class DBQueryScreen(QWidget):
                 return
             
             # Show progress dialog (#23)
-            progress = QProgressDialog("Executing query...", "Cancel", 0, 0, self)
+            progress = QProgressDialog("Executing query...", None, 0, 100, self)
             progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setMinimumDuration(0)  # Show immediately
+            progress.setAutoClose(True)
+            progress.setAutoReset(True)
+            progress.setCancelButton(None)  # No cancel button
+            progress.setRange(0, 0)  # Indeterminate/busy indicator
+            progress.setMinimumWidth(300)
             progress.show()
+            QApplication.processEvents()
 
             try:
                 # Execute query
@@ -2957,11 +3032,19 @@ class DBQueryScreen(QWidget):
                 conn = self.conn_repo.get_connection(connection_id)
                 if conn:
                     self.current_connection_id = connection_id
-                    self.current_database_name = conn['database_name']
+                    # Get database name from connection - handle different connection types
+                    db_name = conn.get('database_name') or conn.get('connection_name', 'Unknown')
+                    self.current_database_name = db_name
                     self.current_schema_name = query_dict.get('from_schema', '')
                     
-                    # Load tables for this connection
-                    self.load_tables_for_connection(connection_id, conn['database_name'])
+                    # Load tables for this connection - this will update the Tables panel UI
+                    # Pass the database name explicitly
+                    self.load_tables_for_connection(connection_id, db_name)
+                    
+                    # Force UI update
+                    QApplication.processEvents()
+                else:
+                    logger.warning(f"Connection {connection_id} not found in database")
             
             # NOTE: FROM table will be set AFTER display/criteria/joins are loaded
             # to prevent update_tables_involved() from overwriting it
@@ -3288,6 +3371,9 @@ class DBQueryScreen(QWidget):
         
         # Reset FROM table
         self.from_table_combo.clear()
+        
+        # Note: We don't clear tables_tree or database_name_label here
+        # Those will be updated when loading the new query's connection
 
     def _update_join_debug_panel(self):
         """Populate the green JOIN debug panel with available fields and selections."""

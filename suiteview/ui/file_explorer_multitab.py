@@ -1,7 +1,7 @@
 
 """
-File Explorer V4 - Multi-Tab Edition
-Wraps FileExplorerV3 with tab support, breadcrumbs, and enhanced features
+File Explorer - Multi-Tab Edition
+Wraps FileExplorerCore with tab support, breadcrumbs, and enhanced features
 """
 
 import os
@@ -13,8 +13,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
 from PyQt6.QtGui import QAction, QCursor, QMouseEvent
 
-# Import the base FileExplorerV3
-from suiteview.ui.file_explorer_v3 import FileExplorerV3
+# Import the base FileExplorerCore
+from suiteview.ui.file_explorer_core import FileExplorerCore
 
 import logging
 logger = logging.getLogger(__name__)
@@ -29,7 +29,15 @@ class NavigableTreeView(QTreeView):
     def mousePressEvent(self, event: QMouseEvent):
         """Override to catch back/forward mouse buttons"""
         button = event.button()
-        print(f"NavigableTreeView.mousePressEvent: {button}")
+        
+        # Get the item being clicked
+        index = self.indexAt(event.pos())
+        if index.isValid():
+            # Get the name from the model (column 0 is the Name column)
+            item_name = self.model().data(index.sibling(index.row(), 0), Qt.ItemDataRole.DisplayRole)
+            print(f"NavigableTreeView.mousePressEvent: {button} - Clicked: {item_name}")
+        else:
+            print(f"NavigableTreeView.mousePressEvent: {button}")
         
         if event.button() == Qt.MouseButton.XButton1:
             print("XButton1 detected")
@@ -43,7 +51,6 @@ class NavigableTreeView(QTreeView):
             return
         
         # Pass other events to parent
-        print("Passing to parent")
         super().mousePressEvent(event)
     
     def mouseDoubleClickEvent(self, event: QMouseEvent):
@@ -195,7 +202,7 @@ class ClickableBreadcrumb(QWidget):
             logger.error(f"Failed to update breadcrumb display: {e}")
 
 
-class FileExplorerTab(FileExplorerV3):
+class FileExplorerTab(FileExplorerCore):
     """
     Extended FileExplorer with breadcrumb navigation and current path tracking
     """
@@ -572,19 +579,26 @@ class FileExplorerTab(FileExplorerV3):
     
     def on_details_item_double_clicked(self, index):
         """Override to use navigate_to_path for history tracking"""
-        print(f"on_details_item_double_clicked called! index={index}")
+        print(f"\n=== DOUBLE CLICK DEBUG ===")
+        print(f"Proxy Index: row={index.row()}, col={index.column()}")
         
-        item = self.details_model.itemFromIndex(self.details_model.index(index.row(), 0))
-        if not item:
-            print("No item found")
-            return
+        # Get the data directly from the proxy model (which handles sorting)
+        path = self.details_sort_proxy.data(index, Qt.ItemDataRole.UserRole)
         
-        path = item.data(Qt.ItemDataRole.UserRole)
+        # If this column doesn't have the path data, get it from column 0 of the same row
         if not path:
-            print("No path data")
+            col0_index = index.sibling(index.row(), 0)
+            col0_text = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole)
+            print(f"Column 0 text for this row: {col0_text}")
+            path = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole)
+        
+        if not path:
+            print("No path data found")
             return
         
-        print(f"Path: {path}")
+        print(f"Path retrieved: {path}")
+        print(f"=========================\n")
+        
         path_obj = Path(path)
         
         if path_obj.is_dir():
@@ -654,6 +668,16 @@ class FileExplorerTab(FileExplorerV3):
             self.update_breadcrumb(self.current_details_folder)
             self.current_directory = self.current_details_folder
     
+    def navigate_to_bookmark_folder(self, folder_path):
+        """Override parent method to update breadcrumb when navigating from bookmark"""
+        # Call parent implementation to load folder contents
+        super().navigate_to_bookmark_folder(folder_path)
+        
+        # Update breadcrumb if navigation was successful
+        if hasattr(self, 'current_details_folder') and self.current_details_folder:
+            self.update_breadcrumb(self.current_details_folder)
+            self.current_directory = self.current_details_folder
+    
     def on_item_double_clicked(self, index):
         """Override to update breadcrumb when navigating into folders"""
         item = self.model.itemFromIndex(self.model.index(index.row(), 0, index.parent()))
@@ -684,14 +708,14 @@ class FileExplorerTab(FileExplorerV3):
                 logger.error(f"Failed to open file: {e}")
 
 
-class FileExplorerV4(QWidget):
+class FileExplorerMultiTab(QWidget):
     """
     Multi-tab File Explorer with breadcrumb navigation
     Features:
     - Multiple tabs for different folders
     - Breadcrumb navigation per tab
     - New tab, close tab, pin tab functionality
-    - All FileExplorerV3 features in each tab
+    - All FileExplorerCore features in each tab
     """
     
     def __init__(self):
@@ -775,3 +799,9 @@ class FileExplorerV4(QWidget):
     def get_current_tab(self):
         """Get currently active tab"""
         return self.tab_widget.currentWidget()
+    
+    def navigate_to_bookmark_folder(self, folder_path):
+        """Navigate the current tab to a bookmark folder"""
+        current_tab = self.get_current_tab()
+        if current_tab and hasattr(current_tab, 'navigate_to_bookmark_folder'):
+            current_tab.navigate_to_bookmark_folder(folder_path)

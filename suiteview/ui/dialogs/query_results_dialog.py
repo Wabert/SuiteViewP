@@ -176,7 +176,40 @@ class QueryResultsDialog(QDialog):
     def export_to_excel_open(self):
         """Export results to Excel - opens new workbook without saving"""
         try:
-            import win32com.client as win32
+            # Clear corrupted gen_py cache and reimport win32com
+            try:
+                import win32com
+                import shutil
+                import os
+                import tempfile
+                import sys
+                
+                # Clear all possible cache locations
+                if hasattr(win32com, '__gen_path__'):
+                    cache_path = os.path.join(win32com.__gen_path__, 'win32com', 'gen_py')
+                    if os.path.exists(cache_path):
+                        shutil.rmtree(cache_path, ignore_errors=True)
+                
+                temp_gen_py = os.path.join(tempfile.gettempdir(), 'gen_py')
+                if os.path.exists(temp_gen_py):
+                    shutil.rmtree(temp_gen_py, ignore_errors=True)
+                
+                appdata = os.environ.get('LOCALAPPDATA', '')
+                if appdata:
+                    appdata_gen_py = os.path.join(appdata, 'Temp', 'gen_py')
+                    if os.path.exists(appdata_gen_py):
+                        shutil.rmtree(appdata_gen_py, ignore_errors=True)
+                
+                # Force reimport of win32com
+                mods_to_remove = [m for m in sys.modules if m.startswith('win32com')]
+                for mod in mods_to_remove:
+                    del sys.modules[mod]
+                    
+            except Exception as cache_err:
+                logger.warning(f"Cache clear failed: {cache_err}")
+            
+            # Use dynamic dispatch to completely avoid gen_py cache issues
+            from win32com.client import dynamic
             
             # Get the currently filtered/displayed data
             export_df = self.filter_table.get_filtered_dataframe()
@@ -184,8 +217,8 @@ class QueryResultsDialog(QDialog):
             # Check if formatting is requested
             apply_formatting = self.format_excel_cb.isChecked()
             
-            # Create Excel application instance
-            excel = win32.Dispatch('Excel.Application')
+            # Use dynamic dispatch - this completely bypasses gen_py cache
+            excel = dynamic.Dispatch('Excel.Application')
             excel.Visible = True
             excel.ScreenUpdating = False  # Disable screen updates for performance
             
@@ -193,37 +226,18 @@ class QueryResultsDialog(QDialog):
             wb = excel.Workbooks.Add()
             ws = wb.Worksheets(1)
             
-            # Prepare data as 2D array (headers + data)
-            data_array = []
+            # Get the currently filtered/displayed data
+            export_df = self.filter_table.get_filtered_dataframe()
             
-            # Add headers as first row
-            headers = [str(col) for col in export_df.columns]
-            data_array.append(headers)
+            num_rows = len(export_df) + 1  # +1 for header
+            num_cols = len(export_df.columns)
             
-            # Add data rows, replacing NaN with empty string
-            for row in export_df.values:
-                data_row = [("" if pd.isna(val) else val) for val in row]
-                data_array.append(data_row)
-            
-            # Write all data at once (much faster than cell-by-cell)
-            num_rows = len(data_array)
-            num_cols = len(headers)
-            
-            # Define range from A1 to last cell
-            data_range = ws.Range(ws.Cells(1, 1), ws.Cells(num_rows, num_cols))
-            data_range.Value = data_array
-            
-            # Format headers (always applied - fast operation)
-            header_range = ws.Range(ws.Cells(1, 1), ws.Cells(1, num_cols))
-            header_range.Font.Bold = True
-            header_range.Interior.Color = 0x404040  # Dark gray
-            header_range.Font.Color = 0xFFFFFF  # White
-            
-            # Apply column formatting only if requested
+            # PRE-FORMAT columns BEFORE writing data to prevent auto-conversion
+            # This is critical for preserving leading zeros in codes like "06995708"
             if apply_formatting:
                 for col_idx, (col_name, dtype) in enumerate(zip(export_df.columns, export_df.dtypes), start=1):
-                    # Get the data range for this column (excluding header)
-                    col_range = ws.Range(ws.Cells(2, col_idx), ws.Cells(num_rows, col_idx))
+                    # Get the entire column range (including header)
+                    col_range = ws.Range(ws.Cells(1, col_idx), ws.Cells(num_rows, col_idx))
                     
                     # Determine format based on pandas dtype
                     if pd.api.types.is_integer_dtype(dtype):
@@ -236,8 +250,46 @@ class QueryResultsDialog(QDialog):
                         # Date/DateTime - standard date format
                         col_range.NumberFormat = "mm/dd/yyyy hh:mm:ss"
                     else:
-                        # String/Object - force text format to preserve leading zeros, etc.
-                        col_range.NumberFormat = "@"  # @ means text format in Excel
+                        # String/Object - CRITICAL: force text format BEFORE writing data
+                        # This preserves leading zeros in codes like "06995708"
+                        col_range.NumberFormat = "@"
+            else:
+                # Even without formatting, force text format for object/string columns
+                # to prevent Excel from auto-converting codes with leading zeros
+                for col_idx, (col_name, dtype) in enumerate(zip(export_df.columns, export_df.dtypes), start=1):
+                    if pd.api.types.is_object_dtype(dtype) or not pd.api.types.is_numeric_dtype(dtype):
+                        col_range = ws.Range(ws.Cells(1, col_idx), ws.Cells(num_rows, col_idx))
+                        col_range.NumberFormat = "@"  # Text format
+            
+            # NOW write the data (after formatting is set)
+            # Prepare data as 2D array (headers + data)
+            data_array = []
+            
+            # Add headers as first row
+            headers = [str(col) for col in export_df.columns]
+            data_array.append(headers)
+            
+            # Add data rows, replacing NaN with empty string
+            # Convert all values to strings for text-formatted columns to ensure preservation
+            for row in export_df.values:
+                data_row = []
+                for val in row:
+                    if pd.isna(val):
+                        data_row.append("")
+                    else:
+                        # Keep as-is, Excel will respect the pre-set format
+                        data_row.append(val)
+                data_array.append(data_row)
+            
+            # Write all data at once (much faster than cell-by-cell)
+            data_range = ws.Range(ws.Cells(1, 1), ws.Cells(num_rows, num_cols))
+            data_range.Value = data_array
+            
+            # Format headers (always applied - fast operation)
+            header_range = ws.Range(ws.Cells(1, 1), ws.Cells(1, num_cols))
+            header_range.Font.Bold = True
+            header_range.Interior.Color = 0x404040  # Dark gray
+            header_range.Font.Color = 0xFFFFFF  # White
             
             # Auto-fit columns
             ws.Columns.AutoFit()

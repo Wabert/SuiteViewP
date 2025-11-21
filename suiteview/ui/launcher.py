@@ -4,6 +4,7 @@ Small resizable window with quick access to all SuiteView tools
 """
 
 import sys
+import os
 from PyQt6.QtWidgets import (QApplication, QWidget, QPushButton, QHBoxLayout, QVBoxLayout,
                               QSystemTrayIcon, QMenu, QLabel)
 from PyQt6.QtCore import Qt, QPoint, QRect, QSize
@@ -35,19 +36,69 @@ class LauncherWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         
+        # Enable mouse tracking for resize cursor
+        self.setMouseTracking(True)
+        
         # Window state
         self.dragging = False
         self.resizing = False
         self.resize_direction = None
         self.drag_position = QPoint()
-        self.resize_margin = 8  # Pixels from edge to trigger resize
+        self.resize_margin = 12  # Pixels from edge to trigger resize (increased for easier grabbing)
         
         # Store references to opened windows
         self.db_window = None
         self.file_nav_window = None
         
+        # Settings file for persistence
+        from pathlib import Path
+        self.settings_file = Path.home() / '.suiteview' / 'launcher_settings.json'
+        
         self.init_ui()
         self.setup_system_tray()
+        self.load_window_state()
+        
+    def load_window_state(self):
+        """Load window size and position from settings"""
+        import json
+        
+        if self.settings_file.exists():
+            try:
+                with open(self.settings_file, 'r') as f:
+                    settings = json.load(f)
+                
+                # Restore window geometry
+                if 'geometry' in settings:
+                    geom = settings['geometry']
+                    self.setGeometry(geom['x'], geom['y'], geom['width'], geom['height'])
+                    
+            except Exception as e:
+                logger.error(f"Failed to load launcher settings: {e}")
+    
+    def save_window_state(self):
+        """Save window size and position to settings"""
+        import json
+        
+        try:
+            # Ensure directory exists
+            self.settings_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Save current geometry
+            geom = self.geometry()
+            settings = {
+                'geometry': {
+                    'x': geom.x(),
+                    'y': geom.y(),
+                    'width': geom.width(),
+                    'height': geom.height()
+                }
+            }
+            
+            with open(self.settings_file, 'w') as f:
+                json.dump(settings, f, indent=2)
+                
+        except Exception as e:
+            logger.error(f"Failed to save launcher settings: {e}")
         
     def create_database_icon(self):
         """Create a custom database cylinder stack icon"""
@@ -85,7 +136,7 @@ class LauncherWindow(QWidget):
     def init_ui(self):
         """Initialize the UI"""
         # Set window properties
-        self.setMinimumSize(160, 60)
+        self.setMinimumSize(100, 60)
         self.resize(300, 75)
         
         # Position in bottom right corner of screen
@@ -300,6 +351,9 @@ class LauncherWindow(QWidget):
         
     def quit_application(self):
         """Actually quit the application"""
+        # Save window state before quitting
+        self.save_window_state()
+        
         # Close all child windows
         if self.db_window:
             self.db_window.close()
@@ -345,8 +399,8 @@ class LauncherWindow(QWidget):
         if self.file_nav_window is None:
             # Create window only once - first time
             try:
-                from suiteview.ui.file_explorer_v4 import FileExplorerV4
-                self.file_nav_window = FileExplorerV4()
+                from suiteview.ui.file_explorer_multitab import FileExplorerMultiTab
+                self.file_nav_window = FileExplorerMultiTab()
                 self.file_nav_window.setWindowTitle("SuiteView - File Navigator")
                 self.file_nav_window.resize(1400, 800)
                 
@@ -436,7 +490,13 @@ class LauncherWindow(QWidget):
             self.setCursor(Qt.CursorShape.ArrowCursor)
             
     def mousePressEvent(self, event):
-        """Handle mouse press for dragging and resizing"""
+        """Handle mouse press for dragging, resizing, and right-click menu"""
+        if event.button() == Qt.MouseButton.RightButton:
+            # Right-click - show bookmarks menu
+            self.show_bookmarks_menu(event.globalPosition().toPoint())
+            event.accept()
+            return
+            
         if event.button() == Qt.MouseButton.LeftButton:
             # Check if near edge for resizing
             direction = self.get_resize_direction(event.pos())
@@ -486,12 +546,116 @@ class LauncherWindow(QWidget):
     def mouseReleaseEvent(self, event):
         """Handle mouse release to stop dragging/resizing"""
         if event.button() == Qt.MouseButton.LeftButton:
+            # Save window state after move or resize
+            if self.dragging or self.resizing:
+                self.save_window_state()
+            
             self.dragging = False
             self.resizing = False
             self.resize_direction = None
+    
+    def show_bookmarks_menu(self, pos):
+        """Show context menu with File Nav bookmarks"""
+        import json
+        from pathlib import Path
+        
+        menu = QMenu(self)
+        
+        # Load bookmarks from File Nav's bookmark file
+        bookmark_file = Path.home() / '.suiteview' / 'bookmarks.json'
+        
+        if bookmark_file.exists():
+            try:
+                with open(bookmark_file, 'r') as f:
+                    bookmarks_data = json.load(f)
+                
+                # Get all bookmarks from all categories
+                all_bookmarks = []
+                if 'categories' in bookmarks_data:
+                    for category_name, bookmarks in bookmarks_data['categories'].items():
+                        if isinstance(bookmarks, list):
+                            all_bookmarks.extend(bookmarks)
+                
+                if all_bookmarks:
+                    for bookmark in all_bookmarks:
+                        # Get the icon based on bookmark type
+                        bookmark_type = bookmark.get('type', 'folder')
+                        icon_map = {
+                            'folder': '📁',
+                            'file': '📄',
+                            'url': '🌐',
+                            'sharepoint': '🔗'
+                        }
+                        icon = icon_map.get(bookmark_type, '📌')
+                        
+                        action = QAction(f"{icon} {bookmark['name']}", self)
+                        # Pass both path and type
+                        bookmark_path = bookmark['path']
+                        action.triggered.connect(lambda checked, p=bookmark_path, t=bookmark_type: self.open_bookmark(p, t))
+                        menu.addAction(action)
+                else:
+                    action = QAction("No bookmarks yet", self)
+                    action.setEnabled(False)
+                    menu.addAction(action)
+                    
+            except Exception as e:
+                logger.error(f"Failed to load bookmarks: {e}")
+                action = QAction("Failed to load bookmarks", self)
+                action.setEnabled(False)
+                menu.addAction(action)
+        else:
+            action = QAction("No bookmarks yet", self)
+            action.setEnabled(False)
+            menu.addAction(action)
+        
+        menu.exec(pos)
+    
+    def open_bookmark(self, bookmark_path, bookmark_type='folder'):
+        """Open a bookmark - handle URLs, folders, and files"""
+        import webbrowser
+        import subprocess
+        
+        try:
+            if bookmark_type in ['url', 'sharepoint']:
+                # Open URL in default browser
+                webbrowser.open(bookmark_path)
+            elif bookmark_type == 'folder':
+                # Open folder in File Nav
+                if not self.file_nav_window or not self.file_nav_window.isVisible():
+                    self.open_file_navigator()
+                    # Give the window time to fully initialize
+                    from PyQt6.QtCore import QTimer
+                    QTimer.singleShot(100, lambda: self.navigate_to_bookmark(bookmark_path))
+                else:
+                    self.navigate_to_bookmark(bookmark_path)
+            elif bookmark_type == 'file':
+                # Open file with default application
+                if sys.platform == 'win32':
+                    os.startfile(bookmark_path)
+                elif sys.platform == 'darwin':
+                    subprocess.run(['open', bookmark_path])
+                else:
+                    subprocess.run(['xdg-open', bookmark_path])
+            else:
+                # Default: try to open as path
+                if sys.platform == 'win32':
+                    os.startfile(bookmark_path)
+                    
+        except Exception as e:
+            logger.error(f"Failed to open bookmark: {e}")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Error", f"Failed to open bookmark: {str(e)}")
+    
+    def navigate_to_bookmark(self, bookmark_path):
+        """Navigate File Nav to the bookmark path"""
+        if self.file_nav_window and hasattr(self.file_nav_window, 'navigate_to_bookmark_folder'):
+            self.file_nav_window.navigate_to_bookmark_folder(bookmark_path)
+            self.file_nav_window.raise_()
+            self.file_nav_window.activateWindow()
             
     def closeEvent(self, event):
         """Override close to hide to tray instead"""
+        self.save_window_state()
         event.ignore()
         self.hide_to_tray()
 
