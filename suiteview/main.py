@@ -5,6 +5,7 @@ import sys
 import logging
 from PyQt6.QtWidgets import QApplication
 from suiteview.ui.launcher import LauncherWindow
+from suiteview.ui.theme import apply_global_theme
 from suiteview.utils.config import load_config
 from suiteview.utils.logger import setup_logging
 from suiteview.data.database import get_database
@@ -48,6 +49,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(config.app_name)
     app.setOrganizationName(config.organization_name)
+    apply_global_theme(app)
 
     logger.info("Qt application created")
 

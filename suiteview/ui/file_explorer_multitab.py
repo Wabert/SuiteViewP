@@ -9,7 +9,7 @@ import sys
 import subprocess
 from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, 
-                              QPushButton, QLabel, QFrame, QToolButton, QMenu, QLineEdit, QTreeView)
+                              QPushButton, QLabel, QFrame, QMenu, QLineEdit, QTreeView, QStyle, QTabBar, QToolButton)
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
 from PyQt6.QtGui import QAction, QCursor, QMouseEvent
 
@@ -432,29 +432,13 @@ class FileExplorerTab(FileExplorerCore):
         breadcrumb_layout.setSpacing(4)
         
         # Home button - go to OneDrive instead of user folder
-        self.home_btn = QPushButton("🏠")
-        self.home_btn.setToolTip("Go to OneDrive")
-        self.home_btn.setFixedSize(24, 24)
-        self.home_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #ffffff;
-                border: 1px solid #ced4da;
-                border-radius: 2px;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #e9ecef;
-            }
-        """)
-        self.home_btn.clicked.connect(self.go_to_onedrive_home)
+        home_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DirHomeIcon)
+        self.home_btn = self._create_nav_button(home_icon, "Go to OneDrive", self.go_to_onedrive_home)
         breadcrumb_layout.addWidget(self.home_btn)
         
         # Up/Back button
-        self.up_btn = QPushButton("⬆️")
-        self.up_btn.setToolTip("Go Up One Level")
-        self.up_btn.setFixedSize(24, 24)
-        self.up_btn.setStyleSheet(self.home_btn.styleSheet())
-        self.up_btn.clicked.connect(self.go_up_one_level)
+        up_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp)
+        self.up_btn = self._create_nav_button(up_icon, "Go Up One Level", self.go_up_one_level)
         breadcrumb_layout.addWidget(self.up_btn)
         
         # Clickable breadcrumb widget
@@ -469,17 +453,19 @@ class FileExplorerTab(FileExplorerCore):
         self.dual_pane_btn.setCheckable(True)
         self.dual_pane_btn.setStyleSheet("""
             QPushButton {
-                background-color: #ffffff;
-                border: 1px solid #ced4da;
-                border-radius: 2px;
+                background-color: #E0ECFF;
+                border: 1px solid #2563EB;
+                border-radius: 4px;
                 font-size: 13px;
+                color: #0A1E5E;
             }
             QPushButton:hover {
-                background-color: #e9ecef;
+                background-color: #C9DAFF;
             }
             QPushButton:checked {
-                background-color: #0d6efd;
-                color: white;
+                background-color: #1E3A8A;
+                color: #FFD700;
+                border: 1px solid #FFD700;
             }
         """)
         self.dual_pane_btn.clicked.connect(self.toggle_dual_pane)
@@ -736,16 +722,11 @@ class FileExplorerMultiTab(QWidget):
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.setMovable(True)
         self.tab_widget.setDocumentMode(True)
+        self.tab_widget.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tab_widget.tabBar().customContextMenuRequested.connect(self.show_tab_bar_context_menu)
         
         # Tab bar controls
         self.tab_widget.tabCloseRequested.connect(self.close_tab)
-        
-        # Add "+" button for new tab
-        self.new_tab_btn = QToolButton()
-        self.new_tab_btn.setText("➕")
-        self.new_tab_btn.setToolTip("New Tab (Ctrl+T)")
-        self.new_tab_btn.clicked.connect(self.add_new_tab)
-        self.tab_widget.setCornerWidget(self.new_tab_btn, Qt.Corner.TopRightCorner)
         
         layout.addWidget(self.tab_widget)
         
@@ -755,6 +736,14 @@ class FileExplorerMultiTab(QWidget):
         # Ctrl+Tab: Next tab
         # Ctrl+Shift+Tab: Previous tab
     
+    def show_tab_bar_context_menu(self, pos):
+        """Show context menu for adding new tabs."""
+        menu = QMenu(self)
+        new_tab_action = QAction("New Tab", self)
+        new_tab_action.triggered.connect(lambda _: self.add_new_tab())
+        menu.addAction(new_tab_action)
+        menu.exec(self.tab_widget.tabBar().mapToGlobal(pos))
+
     def add_new_tab(self, path=None, title=None):
         """Add a new tab"""
         # Create new tab - if no path specified, stay at root Quick Links level
@@ -771,6 +760,7 @@ class FileExplorerMultiTab(QWidget):
         # Add tab
         index = self.tab_widget.addTab(explorer_tab, title)
         self.tab_widget.setCurrentIndex(index)
+        self._style_close_button(index)
         
         # Connect path changes to update tab title
         explorer_tab.path_changed.connect(
@@ -805,3 +795,38 @@ class FileExplorerMultiTab(QWidget):
         current_tab = self.get_current_tab()
         if current_tab and hasattr(current_tab, 'navigate_to_bookmark_folder'):
             current_tab.navigate_to_bookmark_folder(folder_path)
+
+    def _style_close_button(self, index):
+        """Make the tab close button a subtle gold X instead of the default red icon."""
+        tab_bar = self.tab_widget.tabBar()
+        close_btn = QToolButton(tab_bar)
+        close_btn.setAutoRaise(True)
+        close_btn.setText("X")
+        close_btn.setToolTip("Close Tab")
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet(
+            """
+            QToolButton {
+                background: transparent;
+                color: #FFD700;
+                border: none;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 0px;
+                min-width: 14px;
+            }
+            QToolButton:hover {
+                color: #FFE066;
+            }
+            """
+        )
+        close_btn.clicked.connect(lambda _: self._emit_close_for_button(close_btn))
+        tab_bar.setTabButton(index, QTabBar.ButtonPosition.RightSide, close_btn)
+
+    def _emit_close_for_button(self, button):
+        """Map custom close button clicks to the correct tab index."""
+        tab_bar = self.tab_widget.tabBar()
+        for idx in range(tab_bar.count()):
+            if tab_bar.tabButton(idx, QTabBar.ButtonPosition.RightSide) is button:
+                self.tab_widget.tabCloseRequested.emit(idx)
+                return

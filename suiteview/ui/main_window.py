@@ -1,7 +1,6 @@
 """Main Window - SuiteView Data Manager"""
 
 import logging
-from pathlib import Path
 from PyQt6.QtWidgets import (QMainWindow, QTabWidget, QWidget, QVBoxLayout, 
                               QMessageBox, QLabel, QStatusBar, QSplitter, QTextEdit,
                               QHBoxLayout, QPushButton, QToolBar)
@@ -81,9 +80,6 @@ class MainWindow(QMainWindow):
         # Add tab widget to layout
         layout.addWidget(self.tab_widget)
 
-        # Load and apply stylesheet
-        self.load_stylesheet()
-
         logger.info("UI initialized successfully")
 
     def on_mainframe_connection_selected(self, connection_id: int):
@@ -97,21 +93,4 @@ class MainWindow(QMainWindow):
                 # Load the connection in the Mainframe Nav screen
                 self.mainframe_nav_screen.set_connection(connection_id)
                 break
-
-    def load_stylesheet(self):
-        """Load and apply Qt stylesheet"""
-        try:
-            # Get path to styles.qss
-            ui_dir = Path(__file__).parent
-            style_file = ui_dir / 'styles.qss'
-
-            if style_file.exists():
-                with open(style_file, 'r') as f:
-                    stylesheet = f.read()
-                    self.setStyleSheet(stylesheet)
-                    logger.info(f"Stylesheet loaded from: {style_file}")
-            else:
-                logger.warning(f"Stylesheet not found: {style_file}")
-        except Exception as e:
-            logger.error(f"Error loading stylesheet: {e}")
 

@@ -18,6 +18,7 @@ from suiteview.ui.dialogs.query_results_dialog import QueryResultsDialog
 from suiteview.ui.mydata_screen import QueryTreeWidget
 from suiteview.ui.widgets import CascadingMenuWidget
 from suiteview.ui.helpers import TreeStateManager
+from suiteview.ui import theme
 
 logger = logging.getLogger(__name__)
 
@@ -205,17 +206,7 @@ class DBQueryScreen(QWidget):
 
         # Databases section
         databases_header = QLabel("DATABASES")
-        databases_header.setObjectName("panel_header")
-        databases_header.setStyleSheet("""
-            QLabel {
-                background: #e3f2fd;
-                color: #1976d2;
-                font-weight: bold;
-                font-size: 10px;
-                padding: 3px 5px;
-                border-bottom: 2px solid #1976d2;
-            }
-        """)
+        theme.apply_panel_header(databases_header)
         panel_layout.addWidget(databases_header)
 
         # Create custom widget for database cascading menus
@@ -224,59 +215,19 @@ class DBQueryScreen(QWidget):
 
         # Recent Queries section (#1)
         recent_header = QLabel("RECENT QUERIES")
-        recent_header.setObjectName("panel_header")
-        recent_header.setStyleSheet("""
-            QLabel {
-                background: #e3f2fd;
-                color: #1976d2;
-                font-weight: bold;
-                font-size: 10px;
-                padding: 3px 5px;
-                border-bottom: 2px solid #1976d2;
-            }
-        """)
+        theme.apply_panel_header(recent_header)
         panel_layout.addWidget(recent_header)
 
         # Recent queries list
         self.recent_queries_list = QTreeWidget()
         self.recent_queries_list.setHeaderHidden(True)
         self.recent_queries_list.setMaximumHeight(150)  # Compact list
-        self.recent_queries_list.setStyleSheet("""
-            QTreeWidget {
-                background-color: #f5f5f5;
-                border: 1px solid #B0C8E8;
-                border-radius: 0px;
-                font-size: 10px;
-            }
-            QTreeWidget::item {
-                height: 16px;
-                padding: 0px 2px;
-                background-color: #f5f5f5;
-            }
-            QTreeWidget::item:hover {
-                background-color: #e3f2fd;
-            }
-            QTreeWidget::item:selected {
-                background-color: #1976d2;
-                color: white;
-            }
-        """)
         self.recent_queries_list.itemClicked.connect(self._on_recent_query_clicked)
         panel_layout.addWidget(self.recent_queries_list)
 
         # DB Queries section
         queries_header = QLabel("DB QUERIES")
-        queries_header.setObjectName("panel_header")
-        queries_header.setStyleSheet("""
-            QLabel {
-                background: #e3f2fd;
-                color: #1976d2;
-                font-weight: bold;
-                font-size: 10px;
-                padding: 3px 5px;
-                border-bottom: 2px solid #1976d2;
-            }
-        """)
+        theme.apply_panel_header(queries_header)
         queries_header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         queries_header.customContextMenuRequested.connect(self._show_db_queries_header_context_menu)
         panel_layout.addWidget(queries_header)
@@ -284,24 +235,6 @@ class DBQueryScreen(QWidget):
         # Create tree widget for DB Queries list with folder support
         self.db_queries_tree = QueryTreeWidget()
         self.db_queries_tree.setHeaderHidden(True)
-        self.db_queries_tree.setStyleSheet("""
-            QTreeWidget {
-                background-color: #E8F0FF;
-                border: 1px solid #B0C8E8;
-                border-radius: 0px;
-            }
-            QTreeWidget::item {
-                height: 18px;
-                padding: 0px 2px;
-                background-color: #E8F0FF;
-            }
-            QTreeWidget::item:hover {
-                background-color: #C8DFFF;
-            }
-            QTreeWidget::item:selected {
-                background-color: #6BA3E8;
-            }
-        """)
         self.db_queries_tree.itemClicked.connect(self._on_db_query_clicked)
         self.db_queries_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.db_queries_tree.customContextMenuRequested.connect(self._show_db_query_context_menu)
@@ -318,17 +251,7 @@ class DBQueryScreen(QWidget):
 
         # Panel header (will be updated dynamically)
         self.tables_header = QLabel("TABLES")
-        self.tables_header.setObjectName("panel_header")
-        self.tables_header.setStyleSheet("""
-            QLabel {
-                background: #e3f2fd;
-                color: #1976d2;
-                font-weight: bold;
-                font-size: 10px;
-                padding: 3px 5px;
-                border-bottom: 2px solid #1976d2;
-            }
-        """)
+        theme.apply_panel_header(self.tables_header)
         panel_layout.addWidget(self.tables_header)
 
         # Database name label - prominent display
@@ -358,24 +281,6 @@ class DBQueryScreen(QWidget):
         self.tables_tree = QTreeWidget()
         self.tables_tree.setHeaderLabel("Tables")
         self.tables_tree.setHeaderHidden(True)
-        self.tables_tree.setStyleSheet("""
-            QTreeWidget {
-                background-color: #E8F0FF;
-                border: 1px solid #B0C8E8;
-                border-radius: 0px;
-            }
-            QTreeWidget::item {
-                height: 18px;
-                padding: 0px;
-                background-color: #E8F0FF;
-            }
-            QTreeWidget::item:hover {
-                background-color: #C8DFFF;
-            }
-            QTreeWidget::item:selected {
-                background-color: #6BA3E8;
-            }
-        """)
         self.tables_tree.setIndentation(15)
         
         # Connect signals
@@ -398,17 +303,7 @@ class DBQueryScreen(QWidget):
 
         # Panel header (will be updated dynamically)
         self.fields_header = QLabel("FIELDS")
-        self.fields_header.setObjectName("panel_header")
-        self.fields_header.setStyleSheet("""
-            QLabel {
-                background: #e3f2fd;
-                color: #1976d2;
-                font-weight: bold;
-                font-size: 10px;
-                padding: 3px 5px;
-                border-bottom: 2px solid #1976d2;
-            }
-        """)
+        theme.apply_panel_header(self.fields_header)
         panel_layout.addWidget(self.fields_header)
 
         # Search box for filtering fields

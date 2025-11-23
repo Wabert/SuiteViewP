@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, QPoint, QRect, QSize
 from PyQt6.QtGui import QIcon, QAction, QPainter, QColor, QPen, QCursor, QLinearGradient, QPixmap
 
 import logging
+from suiteview.ui import theme
 logger = logging.getLogger(__name__)
 
 
@@ -100,8 +101,8 @@ class LauncherWindow(QWidget):
         except Exception as e:
             logger.error(f"Failed to save launcher settings: {e}")
         
-    def create_database_icon(self):
-        """Create a custom database cylinder stack icon"""
+    def _build_database_icon(self):
+        """Create a custom database cylinder stack icon."""
         pixmap = QPixmap(28, 28)
         pixmap.fill(Qt.GlobalColor.transparent)
         
@@ -210,7 +211,7 @@ class LauncherWindow(QWidget):
         
         # Database Manager button - smaller size with database icon
         self.db_btn = QPushButton()
-        self.db_btn.setIcon(self.create_database_icon())
+        self.db_btn.setIcon(theme.get_icon("launcher-database", builder=self._build_database_icon))
         self.db_btn.setIconSize(QSize(24, 24))
         self.db_btn.setToolTip("Data Manager")
         self.db_btn.setFixedSize(32, 32)  # 2/3 of original 40x40
@@ -265,8 +266,8 @@ class LauncherWindow(QWidget):
         # No stylesheet needed - we'll paint the background ourselves
         self.setStyleSheet("")
     
-    def create_tray_icon(self):
-        """Create the circular S icon for system tray"""
+    def _build_tray_icon(self):
+        """Create the circular S icon for the system tray."""
         from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor
         from PyQt6.QtCore import Qt
         
@@ -300,7 +301,7 @@ class LauncherWindow(QWidget):
         self.tray_icon = QSystemTrayIcon(self)
         
         # Use circular S icon
-        self.tray_icon.setIcon(self.create_tray_icon())
+        self.tray_icon.setIcon(theme.get_icon("launcher-tray", builder=self._build_tray_icon))
         
         # Create tray menu
         tray_menu = QMenu()

@@ -13,6 +13,7 @@ from suiteview.data.repositories import (SavedTableRepository, ConnectionReposit
                                          get_data_map_repository)
 from suiteview.core.schema_discovery import SchemaDiscovery
 from suiteview.ui.dialogs.data_map_editor_dialog import DataMapEditorDialog
+from suiteview.ui import theme
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +195,7 @@ class MyDataScreen(QWidget):
 
         # Panel header
         header = QLabel("Databases")
-        header.setObjectName("panel_header")
+        theme.apply_panel_header(header)
         panel_layout.addWidget(header)
 
         # My Data tree
@@ -202,24 +203,6 @@ class MyDataScreen(QWidget):
         self.my_data_tree.query_moved.connect(self._on_query_moved)
         self.my_data_tree.setHeaderLabel("My Data")
         self.my_data_tree.setHeaderHidden(True)
-        self.my_data_tree.setStyleSheet("""
-            QTreeWidget {
-                background-color: #E8F0FF;
-                border: 1px solid #B0C8E8;
-                border-radius: 0px;
-            }
-            QTreeWidget::item {
-                height: 18px;
-                padding: 0px 2px;
-                background-color: #E8F0FF;
-            }
-            QTreeWidget::item:hover {
-                background-color: #C8DFFF;
-            }
-            QTreeWidget::item:selected {
-                background-color: #6BA3E8;
-            }
-        """)
 
         # Don't create section items here - they will be created in load_my_data()
         # in the correct order after connection types
@@ -233,7 +216,7 @@ class MyDataScreen(QWidget):
         
         # Add DB Queries section header
         db_queries_header = QLabel("DB Queries")
-        db_queries_header.setObjectName("panel_header")
+        theme.apply_panel_header(db_queries_header)
         db_queries_header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         db_queries_header.customContextMenuRequested.connect(lambda pos: self._show_header_context_menu(pos, 'DB'))
         panel_layout.addWidget(db_queries_header)
@@ -243,24 +226,6 @@ class MyDataScreen(QWidget):
         self.db_queries_tree.query_moved.connect(self._on_query_moved)
         self.db_queries_tree.setHeaderLabel("DB Queries")
         self.db_queries_tree.setHeaderHidden(True)
-        self.db_queries_tree.setStyleSheet("""
-            QTreeWidget {
-                background-color: #E8F0FF;
-                border: 1px solid #B0C8E8;
-                border-radius: 0px;
-            }
-            QTreeWidget::item {
-                height: 18px;
-                padding: 0px 2px;
-                background-color: #E8F0FF;
-            }
-            QTreeWidget::item:hover {
-                background-color: #C8DFFF;
-            }
-            QTreeWidget::item:selected {
-                background-color: #6BA3E8;
-            }
-        """)
         
         # Connect signals for DB queries tree
         self.db_queries_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -270,7 +235,7 @@ class MyDataScreen(QWidget):
         
         # Add Data Mapping section header (blue rectangle like Databases header)
         data_mapping_header = QLabel("Data Mapping")
-        data_mapping_header.setObjectName("panel_header")
+        theme.apply_panel_header(data_mapping_header)
         data_mapping_header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         data_mapping_header.customContextMenuRequested.connect(self._show_data_mapping_header_context_menu)
         panel_layout.addWidget(data_mapping_header)
@@ -280,24 +245,6 @@ class MyDataScreen(QWidget):
         self.data_mapping_tree.data_map_moved.connect(self._on_data_map_moved)
         self.data_mapping_tree.setHeaderLabel("Data Maps")
         self.data_mapping_tree.setHeaderHidden(True)
-        self.data_mapping_tree.setStyleSheet("""
-            QTreeWidget {
-                background-color: #E8F0FF;
-                border: 1px solid #B0C8E8;
-                border-radius: 0px;
-            }
-            QTreeWidget::item {
-                height: 18px;
-                padding: 0px 2px;
-                background-color: #E8F0FF;
-            }
-            QTreeWidget::item:hover {
-                background-color: #C8DFFF;
-            }
-            QTreeWidget::item:selected {
-                background-color: #6BA3E8;
-            }
-        """)
         
         # Connect signals for data mapping tree
         self.data_mapping_tree.itemClicked.connect(self.on_data_map_clicked)
@@ -317,7 +264,7 @@ class MyDataScreen(QWidget):
 
         # Panel header
         header = QLabel("Tables")
-        header.setObjectName("panel_header")
+        theme.apply_panel_header(header)
         panel_layout.addWidget(header)
         
         # Search box for filtering tables

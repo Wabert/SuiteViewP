@@ -12,6 +12,7 @@ from suiteview.core.connection_manager import get_connection_manager
 from suiteview.core.schema_discovery import get_schema_discovery
 from suiteview.data.repositories import get_saved_table_repository
 from suiteview.ui.dialogs.add_connection_dialog_v2 import AddConnectionDialog
+from suiteview.ui import theme
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ class ConnectionsScreen(QWidget):
 
         # Header with embedded + New button
         header_container = QWidget()
-        header_container.setObjectName("panel_header")
+        theme.apply_panel_header(header_container)
         header_layout = QHBoxLayout(header_container)
         header_layout.setContentsMargins(10, 5, 10, 5)
         header_layout.setSpacing(10)
@@ -103,23 +104,6 @@ class ConnectionsScreen(QWidget):
         # Connection tree
         self.conn_tree = QTreeWidget()
         self.conn_tree.setHeaderHidden(True)
-        self.conn_tree.setStyleSheet("""
-            QTreeWidget {
-                background: white;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-            }
-            QTreeWidget::item {
-                height: 18px;
-                padding: 0px 2px;
-            }
-            QTreeWidget::item:hover {
-                background-color: #b3d9ff;
-            }
-            QTreeWidget::item:selected {
-                background-color: #b3d9ff;
-            }
-        """)
         self.conn_tree.setIndentation(15)
         self.conn_tree.itemClicked.connect(self.on_connection_selected)
         self.conn_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -138,7 +122,7 @@ class ConnectionsScreen(QWidget):
 
         # Header
         header = QLabel("TABLES")
-        header.setObjectName("panel_header")
+        theme.apply_panel_header(header)
         layout.addWidget(header)
 
         # Search box
@@ -151,23 +135,6 @@ class ConnectionsScreen(QWidget):
         self.tables_tree = QTreeWidget()
         self.tables_tree.setHeaderLabels(["Table Name"])
         self.tables_tree.setHeaderHidden(True)
-        self.tables_tree.setStyleSheet("""
-            QTreeWidget {
-                background: white;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-            }
-            QTreeWidget::item {
-                height: 18px;
-                padding: 0px 2px;
-            }
-            QTreeWidget::item:hover {
-                background-color: #b3d9ff;
-            }
-            QTreeWidget::item:selected {
-                background-color: #b3d9ff;
-            }
-        """)
         self.tables_tree.setIndentation(15)
         self.tables_tree.itemChanged.connect(self.on_table_checked)
         self.tables_tree.itemClicked.connect(self.on_table_selected)
@@ -185,7 +152,7 @@ class ConnectionsScreen(QWidget):
 
         # Header
         header = QLabel("SCHEMA DETAILS")
-        header.setObjectName("panel_header")
+        theme.apply_panel_header(header)
         layout.addWidget(header)
 
         # Table info and preview button row

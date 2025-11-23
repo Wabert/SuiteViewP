@@ -17,6 +17,7 @@ from suiteview.core.schema_discovery import SchemaDiscovery
 from suiteview.core.query_executor_xdb import XDBQueryExecutor
 from suiteview.ui.dialogs.query_results_dialog import QueryResultsDialog
 from suiteview.ui.widgets import CascadingMenuWidget
+from suiteview.ui import theme
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ class XDBQueryScreen(QWidget):
         panel_layout.setContentsMargins(5, 5, 5, 5)
 
         self.tables_header = QLabel("TABLES (Select from databases)")
-        self.tables_header.setObjectName("panel_header")
+        theme.apply_panel_header(self.tables_header)
         panel_layout.addWidget(self.tables_header)
 
         # Search box
@@ -99,14 +100,6 @@ class XDBQueryScreen(QWidget):
 
         self.tables_tree = QTreeWidget()
         self.tables_tree.setHeaderHidden(True)
-        self.tables_tree.setStyleSheet(
-            """
-            QTreeWidget { background-color: #E8F0FF; border: 1px solid #B0C8E8; border-radius: 4px; }
-            QTreeWidget::item { background-color: #E8F0FF; height: 18px; padding: 0px 2px; }
-            QTreeWidget::item:hover { background-color: #C8DFFF; }
-            QTreeWidget::item:selected { background-color: #6BA3E8; color: white; }
-            """
-        )
         self.tables_tree.itemClicked.connect(self._on_table_clicked)
         self.tables_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tables_tree.customContextMenuRequested.connect(self._show_table_context_menu)
@@ -125,19 +118,11 @@ class XDBQueryScreen(QWidget):
         panel_layout.setContentsMargins(5, 5, 5, 5)
 
         header = QLabel("FIELDS")
-        header.setObjectName("panel_header")
+        theme.apply_panel_header(header)
         panel_layout.addWidget(header)
 
         self.fields_tree = QTreeWidget()
         self.fields_tree.setHeaderHidden(True)
-        self.fields_tree.setStyleSheet(
-            """
-            QTreeWidget { background-color: #E8F0FF; border: 1px solid #B0C8E8; border-radius: 4px; }
-            QTreeWidget::item { background-color: #E8F0FF; height: 18px; padding: 0px 2px; }
-            QTreeWidget::item:hover { background-color: #C8DFFF; }
-            QTreeWidget::item:selected { background-color: #6BA3E8; color: white; }
-            """
-        )
         self.fields_tree.itemDoubleClicked.connect(self._on_field_double_clicked)
         panel_layout.addWidget(self.fields_tree)
 
@@ -388,7 +373,7 @@ class XDBQueryScreen(QWidget):
 
         # Databases section
         databases_header = QLabel("DATABASES")
-        databases_header.setObjectName("panel_header")
+        theme.apply_panel_header(databases_header)
         panel_layout.addWidget(databases_header)
 
         # Cascading list of database types with menus
@@ -397,19 +382,11 @@ class XDBQueryScreen(QWidget):
 
         # XDB Queries section
         queries_header = QLabel("XDB QUERIES")
-        queries_header.setObjectName("panel_header")
+        theme.apply_panel_header(queries_header)
         panel_layout.addWidget(queries_header)
 
         self.xdb_queries_tree = QTreeWidget()
         self.xdb_queries_tree.setHeaderHidden(True)
-        self.xdb_queries_tree.setStyleSheet(
-            """
-            QTreeWidget { background-color: #E8F0FF; border: 1px solid #B0C8E8; border-radius: 4px; }
-            QTreeWidget::item { background-color: #E8F0FF; height: 18px; padding: 0px 2px; }
-            QTreeWidget::item:hover { background-color: #C8DFFF; }
-            QTreeWidget::item:selected { background-color: #6BA3E8; color: white; }
-            """
-        )
         self.xdb_queries_tree.itemClicked.connect(self._on_xdb_query_clicked)
         self.xdb_queries_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.xdb_queries_tree.customContextMenuRequested.connect(self._show_xdb_query_context_menu)

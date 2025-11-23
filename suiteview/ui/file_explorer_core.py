@@ -15,9 +15,9 @@ from PyQt6.QtWidgets import (QTreeView, QVBoxLayout, QHBoxLayout, QWidget,
                               QTextEdit, QPushButton, QSplitter, QLabel, QMenu,
                               QDialog, QDialogButtonBox, QCheckBox, QLineEdit,
                               QProgressDialog, QFileDialog, QFrame, QSizePolicy,
-                              QFileIconProvider)
+                              QFileIconProvider, QToolButton, QStyle)
 from PyQt6.QtGui import QIcon, QAction, QStandardItemModel, QStandardItem
-from PyQt6.QtCore import Qt, QModelIndex, QThread, pyqtSignal, QSortFilterProxyModel, QEvent, QFileInfo
+from PyQt6.QtCore import Qt, QModelIndex, QThread, pyqtSignal, QSortFilterProxyModel, QEvent, QFileInfo, QSize
 
 import logging
 
@@ -345,6 +345,7 @@ class FileExplorerCore(QWidget):
         """Create toolbar with file operations"""
         self.toolbar = QToolBar()
         self.toolbar.setMovable(False)
+        self._apply_compact_toolbar_style(self.toolbar)
         
         # Bookmarks button (prominent at the start)
         self.bookmarks_action = QAction("Bookmarks", self)
@@ -379,6 +380,59 @@ class FileExplorerCore(QWidget):
         self.toolbar.addAction(explorer_action)
         
         return self.toolbar
+
+    def _apply_compact_toolbar_style(self, toolbar: QToolBar) -> None:
+        """Shrink the file explorer toolbar footprint."""
+
+        toolbar.setObjectName("fileExplorerToolbar")
+        toolbar.setIconSize(QSize(16, 16))
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        toolbar.setStyleSheet(
+            """
+            QToolBar#fileExplorerToolbar {
+                padding: 0px 6px;
+                spacing: 3px;
+                min-height: 26px;
+                background: #E3EDFF;
+                border: none;
+            }
+            QToolBar#fileExplorerToolbar QToolButton {
+                padding: 2px 8px;
+                border-radius: 4px;
+                color: #0A1E5E;
+                font-weight: 600;
+                font-size: 10px;
+            }
+            QToolBar#fileExplorerToolbar QToolButton:hover {
+                background-color: #D0E3FF;
+            }
+            """
+        )
+
+    def _create_nav_button(self, icon: QIcon, tooltip: str, handler) -> QToolButton:
+        """Build a breadcrumb-nav button with a clear icon."""
+
+        button = QToolButton()
+        button.setAutoRaise(True)
+        button.setIcon(icon)
+        button.setIconSize(QSize(16, 16))
+        button.setToolTip(tooltip)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setStyleSheet(
+            """
+            QToolButton {
+                border: 1px solid #2563EB;
+                border-radius: 4px;
+                background-color: #E0ECFF;
+                padding: 2px;
+            }
+            QToolButton:hover {
+                background-color: #C9DAFF;
+            }
+            """
+        )
+        button.clicked.connect(handler)
+        return button
         
     def create_tree_panel(self):
         """Create the tree view with custom model (folders only, name column only)"""
@@ -388,7 +442,18 @@ class FileExplorerCore(QWidget):
         
         # Header
         header = QLabel("📁 Folders")
-        header.setStyleSheet("padding: 8px; font-weight: bold; font-size: 11pt;")
+        header.setStyleSheet(
+            """
+            QLabel {
+                padding: 4px 8px;
+                font-weight: 600;
+                font-size: 10pt;
+                background-color: #D8E8FF;
+                border: 1px solid #B0C8E8;
+                border-radius: 4px;
+            }
+            """
+        )
         layout.addWidget(header)
         
         # Create tree view
@@ -397,6 +462,22 @@ class FileExplorerCore(QWidget):
         self.tree_view.setIndentation(20)
         self.tree_view.setHeaderHidden(True)  # Hide header for tree view
         self.tree_view.setSelectionMode(QTreeView.SelectionMode.SingleSelection)
+        self.tree_view.setStyleSheet(
+            """
+            QTreeView::branch:has-children:!has-siblings:closed,
+            QTreeView::branch:closed:has-children:has-siblings,
+            QTreeView::branch:has-children:!has-siblings:closed:!has-children,
+            QTreeView::branch:closed:has-children:has-siblings:!has-children {
+                image: url(:/qt-project.org/styles/commonstyle/images/branch-closed.png);
+            }
+            QTreeView::branch:has-children:!has-siblings:open,
+            QTreeView::branch:open:has-children:has-siblings,
+            QTreeView::branch:has-children:!has-siblings:open:!has-children,
+            QTreeView::branch:open:has-children:has-siblings:!has-children {
+                image: url(:/qt-project.org/styles/commonstyle/images/branch-open.png);
+            }
+            """
+        )
         
         # Create custom model
         self.model = QStandardItemModel()
@@ -731,7 +812,18 @@ class FileExplorerCore(QWidget):
         
         # Header
         self.details_header = QLabel("Contents")
-        self.details_header.setStyleSheet("padding: 8px; font-weight: bold; font-size: 11pt;")
+        self.details_header.setStyleSheet(
+            """
+            QLabel {
+                padding: 4px 8px;
+                font-weight: 600;
+                font-size: 10pt;
+                background-color: #D8E8FF;
+                border: 1px solid #B0C8E8;
+                border-radius: 4px;
+            }
+            """
+        )
         layout.addWidget(self.details_header)
         
         # Create details tree view
@@ -767,6 +859,15 @@ class FileExplorerCore(QWidget):
         header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        header_view.setStyleSheet(
+            """
+            QHeaderView::section {
+                padding: 4px 6px;
+                font-size: 10px;
+                font-weight: 600;
+            }
+            """
+        )
         
         # Set default sort: Name column, ascending
         self.details_view.sortByColumn(0, Qt.SortOrder.AscendingOrder)

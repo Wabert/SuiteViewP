@@ -120,9 +120,8 @@ QWidget#panel_header {
     background: #A8C8F0;
     border: none;
     border-radius: 0px;
-    min-height: 21px;
-    max-height: 21px;
-    padding: 0px;
+    min-height: 26px;
+    padding: 0px 8px;
 }
 
 QLabel#panel_header, QWidget#panel_header > QLabel {
@@ -223,12 +222,14 @@ QTreeWidget::item:selected {
     font-weight: 700;
 }
 
+QTreeView::branch:has-children:closed,
 QTreeWidget::branch:has-children:closed {
-    image: url(none);
+    image: url(:/qt-project.org/styles/commonstyle/images/branch-closed.png);
 }
 
+QTreeView::branch:has-children:open,
 QTreeWidget::branch:has-children:open {
-    image: url(none);
+    image: url(:/qt-project.org/styles/commonstyle/images/branch-open.png);
 }
 
 /* Table Views */
@@ -265,11 +266,11 @@ QTableView::item:selected {
 QHeaderView::section {
     background: #6BA3E8;
     color: #0A1E5E;
-    padding: 10px;
+    padding: 6px;
     border: 1px solid #5A93D8;
     border-right: 1px solid #4A83C8;
-    font-weight: 700;
-    font-size: 11px;
+    font-weight: 600;
+    font-size: 10px;
 }
 
 /* Buttons */
