@@ -475,7 +475,6 @@ class MainframeNavScreen(QWidget):
         try:
             # Disable buttons during connection
             self.load_button.setEnabled(False)
-            self.connection_button.setEnabled(False)
             
             self.status_label.setText("Connecting to mainframe...")
             self.status_label.setStyleSheet("color: #3498db; font-style: italic; padding: 2px; font-size: 11px;")
