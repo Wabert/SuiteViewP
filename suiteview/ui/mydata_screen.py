@@ -1450,12 +1450,12 @@ class MyDataScreen(QWidget):
 
     def on_schema_cell_double_clicked(self, row: int, column: int):
         """Handle double-click on schema table cells"""
-        # Only handle double-clicks on the "Unique Values" column (column 7)
-        if column != 7:
+        # Only handle double-clicks on the "Unique Values" column (column 8)
+        if column != 8:
             return
         
         # Get the unique values stored in the cell
-        unique_values_item = self.schema_table.item(row, 7)
+        unique_values_item = self.schema_table.item(row, 8)
         if not unique_values_item:
             return
         
