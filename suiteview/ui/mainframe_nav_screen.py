@@ -644,11 +644,26 @@ class MainframeNavScreen(QWidget):
             
             items_to_display = []
             
+            # Get the full dataset path from current connection
+            full_dataset = None
+            if self.current_connection_id:
+                try:
+                    connection = self.conn_manager.repo.get_connection(self.current_connection_id)
+                    if connection:
+                        conn_string = connection.get('connection_string', '')
+                        ftp_params = {}
+                        for param in conn_string.split(';'):
+                            if '=' in param:
+                                key, value = param.split('=', 1)
+                                ftp_params[key] = value
+                        full_dataset = ftp_params.get('initial_path', '').strip()
+                except Exception as e:
+                    logger.debug(f"Could not get full dataset path: {str(e)}")
+            
             # Check if this path could have child folders by looking at the full dataset path
             # For example, if full path is "d03.aa0139.CKAS.cirf.data" and current is "d03.aa0139.CKAS.cirf"
             # we should show "data" as a folder
-            if self.dataset_edit.text().strip():
-                full_dataset = self.dataset_edit.text().strip()
+            if full_dataset:
                 current_parts = dataset_path.split('.')
                 full_parts = full_dataset.split('.')
                 
