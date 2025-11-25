@@ -170,40 +170,26 @@ class MainframeNavScreen(QWidget):
         """)
         top_bar.addWidget(self.delete_conn_button)
         
-        top_bar.addSpacing(20)
-        
-        # Dataset input
-        dataset_label = QLabel("Dataset:")
-        dataset_label.setStyleSheet("font-weight: bold;")
-        top_bar.addWidget(dataset_label)
-        
-        self.dataset_edit = QLineEdit()
-        self.dataset_edit.setPlaceholderText("e.g., d03.aa0139.CKAS.cirf.data")
-        self.dataset_edit.returnPressed.connect(self.load_dataset)
-        top_bar.addWidget(self.dataset_edit)
-        
-        # Load button
-        self.load_button = QPushButton("Load Dataset")
-        self.load_button.setFixedWidth(120)
-        self.load_button.clicked.connect(self.load_dataset)
-        self.load_button.setEnabled(False)
-        self.load_button.setStyleSheet("""
+        # Settings button for global credentials
+        self.settings_button = QPushButton("⚙️ Settings")
+        self.settings_button.setFixedWidth(100)
+        self.settings_button.clicked.connect(self.show_credentials_dialog)
+        self.settings_button.setStyleSheet("""
             QPushButton {
-                background-color: #3498db;
+                background-color: #2c5f8d;
                 color: white;
                 border: none;
-                padding: 8px;
+                padding: 6px;
                 font-weight: bold;
                 border-radius: 4px;
             }
             QPushButton:hover {
-                background-color: #2980b9;
-            }
-            QPushButton:disabled {
-                background-color: #bdc3c7;
+                background-color: #1e4a6b;
             }
         """)
-        top_bar.addWidget(self.load_button)
+        top_bar.addWidget(self.settings_button)
+        
+        top_bar.addStretch()
         
         layout.addLayout(top_bar)
         
@@ -331,15 +317,15 @@ class MainframeNavScreen(QWidget):
         layout.addWidget(main_splitter)
         
         # Status label at bottom
-        self.status_label = QLabel("Click 'Connection Details' to configure connection")
+        self.status_label = QLabel("Select a connection to browse mainframe datasets")
         self.status_label.setStyleSheet("color: #7f8c8d; font-style: italic; padding: 2px; font-size: 11px;")
         self.status_label.setMaximumHeight(20)
         layout.addWidget(self.status_label)
     
-    def show_connection_dialog(self):
-        """Show dialog to edit connection settings"""
+    def show_credentials_dialog(self):
+        """Show dialog to configure global FTP credentials"""
         dialog = QDialog(self)
-        dialog.setWindowTitle("Mainframe FTP Connection Settings")
+        dialog.setWindowTitle("Mainframe FTP Credentials")
         dialog.setModal(True)
         dialog.resize(400, 250)
         
@@ -380,10 +366,22 @@ class MainframeNavScreen(QWidget):
         
         layout.addWidget(form_widget)
         
-        # Buttons
+        # Buttons with royal blue theme
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setStyleSheet("""
+            QPushButton {
+                background-color: #2c5f8d;
+                color: white;
+                padding: 6px 20px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1e4a6b;
+            }
+        """)
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
         layout.addWidget(button_box)
@@ -395,20 +393,19 @@ class MainframeNavScreen(QWidget):
             self.connection_settings['username'] = user_edit.text()
             self.connection_settings['password'] = pass_edit.text()
             
-            # Save credentials to the first MAINFRAME_FTP connection
-            self.save_credentials_to_connection(
+            # Save global credentials to all MAINFRAME_FTP connections
+            self.save_global_credentials(
                 self.connection_settings['username'],
                 self.connection_settings['password'],
                 self.connection_settings['host'],
-                self.connection_settings['port'],
-                self.connection_settings['initial_path']
+                self.connection_settings['port']
             )
             
             # Reconnect with new settings
             self.connect_to_mainframe()
     
-    def save_credentials_to_connection(self, username, password, host, port, initial_path):
-        """Save credentials to the first MAINFRAME_FTP connection in database"""
+    def save_global_credentials(self, username, password, host, port):
+        """Save global credentials to all MAINFRAME_FTP connections in database"""
         try:
             # Get all connections using the correct method
             connections = self.conn_manager.repo.get_all_connections()
@@ -421,45 +418,43 @@ class MainframeNavScreen(QWidget):
             encrypted_username = cred_manager.encrypt(username)
             encrypted_password = cred_manager.encrypt(password)
             
-            # Build connection string with FTP parameters
-            conn_string = f"port={port};initial_path={initial_path}"
-            
             if ftp_connections:
-                # Update existing connection - use connection_id not 'id'
-                conn_id = ftp_connections[0].get('connection_id')
+                # Update ALL existing MAINFRAME_FTP connections with new credentials
+                for conn in ftp_connections:
+                    conn_id = conn.get('connection_id')
+                    
+                    # Parse existing connection string to preserve initial_path
+                    conn_string = conn.get('connection_string', '')
+                    ftp_params = {}
+                    for param in conn_string.split(';'):
+                        if '=' in param:
+                            key, value = param.split('=', 1)
+                            ftp_params[key] = value
+                    
+                    # Build connection string preserving the initial_path
+                    initial_path = ftp_params.get('initial_path', '')
+                    new_conn_string = f"port={port};initial_path={initial_path}"
+                    
+                    self.conn_manager.repo.update_connection(
+                        conn_id,
+                        server_name=host,
+                        encrypted_username=encrypted_username,
+                        encrypted_password=encrypted_password,
+                        connection_string=new_conn_string
+                    )
                 
-                self.conn_manager.repo.update_connection(
-                    conn_id,
-                    server_name=host,
-                    encrypted_username=encrypted_username,
-                    encrypted_password=encrypted_password,
-                    connection_string=conn_string
-                )
-                
-                logger.info(f"Updated credentials for MAINFRAME_FTP connection (ID: {conn_id})")
+                logger.info(f"Updated credentials for {len(ftp_connections)} MAINFRAME_FTP connection(s)")
                 QMessageBox.information(
                     self,
                     "Credentials Saved",
-                    "Your mainframe credentials have been saved successfully!"
+                    f"Global mainframe credentials have been updated for {len(ftp_connections)} connection(s)!"
                 )
             else:
-                # Create new connection if none exists
-                self.conn_manager.repo.add_connection(
-                    connection_name='Mainframe FTP',
-                    connection_type='MAINFRAME_FTP',
-                    server_name=host,
-                    database_name='',
-                    auth_type='password',
-                    encrypted_username=encrypted_username,
-                    encrypted_password=encrypted_password,
-                    connection_string=conn_string
-                )
-                
-                logger.info("Created new MAINFRAME_FTP connection with credentials")
+                logger.warning("No MAINFRAME_FTP connections found to update credentials")
                 QMessageBox.information(
                     self,
-                    "Credentials Saved",
-                    "Your mainframe credentials have been saved successfully!"
+                    "No Connections",
+                    "No mainframe connections exist yet. Please add a connection first."
                 )
                 
         except Exception as e:
@@ -473,8 +468,7 @@ class MainframeNavScreen(QWidget):
     def connect_to_mainframe(self):
         """Connect to mainframe FTP in background thread"""
         try:
-            # Disable buttons during connection
-            self.load_button.setEnabled(False)
+            # Disable buttons during connection (load_button removed in UI refactor)
             
             self.status_label.setText("Connecting to mainframe...")
             self.status_label.setStyleSheet("color: #3498db; font-style: italic; padding: 2px; font-size: 11px;")
@@ -504,13 +498,15 @@ class MainframeNavScreen(QWidget):
         self.ftp_manager = ftp_manager
         self.status_label.setText("✓ Connected to mainframe")
         self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
-        self.load_button.setEnabled(True)
         logger.info("Successfully connected to mainframe")
+        
+        # Auto-load dataset after successful connection
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(200, self.load_dataset)
     
     def on_connection_failed(self, error_message):
         """Handle failed FTP connection"""
         self.ftp_manager = None
-        self.load_button.setEnabled(False)
         
         # Check for common connection issues
         if "timed out" in error_message.lower() or "timeout" in error_message.lower():
@@ -552,9 +548,26 @@ class MainframeNavScreen(QWidget):
             QMessageBox.warning(self, "Not Connected", "Please connect to mainframe first")
             return
         
-        path = self.dataset_edit.text().strip()
+        # Get dataset path from current connection
+        if not self.current_connection_id:
+            QMessageBox.warning(self, "No Connection", "Please select a connection first")
+            return
+        
+        connection = self.conn_manager.repo.get_connection(self.current_connection_id)
+        if not connection:
+            return
+        
+        # Parse connection string for dataset path
+        conn_string = connection.get('connection_string', '')
+        ftp_params = {}
+        for param in conn_string.split(';'):
+            if '=' in param:
+                key, value = param.split('=', 1)
+                ftp_params[key] = value
+        
+        path = ftp_params.get('initial_path', '').strip()
         if not path:
-            QMessageBox.warning(self, "No Dataset", "Please enter a dataset path")
+            QMessageBox.warning(self, "No Dataset Path", "This connection does not have a dataset path configured.\nPlease edit the connection to add one.")
             return
         
         try:
@@ -904,7 +917,7 @@ class MainframeNavScreen(QWidget):
         dialog = QDialog(self)
         dialog.setWindowTitle("New Mainframe Connection")
         dialog.setModal(True)
-        dialog.resize(450, 300)
+        dialog.resize(450, 200)
         
         layout = QVBoxLayout(dialog)
         
@@ -916,42 +929,13 @@ class MainframeNavScreen(QWidget):
         name_layout = QHBoxLayout()
         name_layout.addWidget(QLabel("Connection Name:"))
         name_edit = QLineEdit()
-        name_edit.setPlaceholderText("e.g., Production Mainframe")
+        name_edit.setPlaceholderText("e.g., CKAS CIRF Data")
         name_layout.addWidget(name_edit)
         form_layout.addLayout(name_layout)
         
-        # Host
-        host_layout = QHBoxLayout()
-        host_layout.addWidget(QLabel("Host:"))
-        host_edit = QLineEdit("PRODESA")
-        host_layout.addWidget(host_edit)
-        form_layout.addLayout(host_layout)
-        
-        # Port
-        port_layout = QHBoxLayout()
-        port_layout.addWidget(QLabel("Port:"))
-        port_edit = QLineEdit("21")
-        port_layout.addWidget(port_edit)
-        form_layout.addLayout(port_layout)
-        
-        # Username
-        user_layout = QHBoxLayout()
-        user_layout.addWidget(QLabel("Username:"))
-        user_edit = QLineEdit()
-        user_layout.addWidget(user_edit)
-        form_layout.addLayout(user_layout)
-        
-        # Password
-        pass_layout = QHBoxLayout()
-        pass_layout.addWidget(QLabel("Password:"))
-        pass_edit = QLineEdit()
-        pass_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        pass_layout.addWidget(pass_edit)
-        form_layout.addLayout(pass_layout)
-        
-        # Initial Path
+        # Dataset Path (initial_path)
         path_layout = QHBoxLayout()
-        path_layout.addWidget(QLabel("Initial Path:"))
+        path_layout.addWidget(QLabel("Dataset Path:"))
         path_edit = QLineEdit()
         path_edit.setPlaceholderText("e.g., d03.aa0139.CKAS.cirf.data")
         path_layout.addWidget(path_edit)
@@ -959,10 +943,22 @@ class MainframeNavScreen(QWidget):
         
         layout.addWidget(form_widget)
         
-        # Buttons
+        # Buttons with royal blue theme
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setStyleSheet("""
+            QPushButton {
+                background-color: #2c5f8d;
+                color: white;
+                padding: 6px 20px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1e4a6b;
+            }
+        """)
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
         layout.addWidget(button_box)
@@ -972,18 +968,18 @@ class MainframeNavScreen(QWidget):
                 from suiteview.core.credential_manager import CredentialManager
                 cred_manager = CredentialManager()
                 
-                # Encrypt credentials
-                encrypted_username = cred_manager.encrypt(user_edit.text())
-                encrypted_password = cred_manager.encrypt(pass_edit.text())
+                # Use global credentials from connection_settings
+                encrypted_username = cred_manager.encrypt(self.connection_settings['username'])
+                encrypted_password = cred_manager.encrypt(self.connection_settings['password'])
                 
-                # Build connection string
-                conn_string = f"port={port_edit.text()};initial_path={path_edit.text()}"
+                # Build connection string with dataset path
+                conn_string = f"port={self.connection_settings['port']};initial_path={path_edit.text()}"
                 
                 # Add connection
                 self.conn_manager.repo.add_connection(
-                    connection_name=name_edit.text() or "Mainframe FTP",
+                    connection_name=name_edit.text() or "Mainframe Dataset",
                     connection_type='MAINFRAME_FTP',
-                    server_name=host_edit.text(),
+                    server_name=self.connection_settings['host'],
                     database_name='',
                     auth_type='password',
                     encrypted_username=encrypted_username,
@@ -1012,10 +1008,7 @@ class MainframeNavScreen(QWidget):
             if not connection:
                 return
             
-            from suiteview.core.credential_manager import CredentialManager
-            cred_manager = CredentialManager()
-            
-            # Parse existing connection string
+            # Parse existing connection string for dataset path
             conn_string = connection.get('connection_string', '')
             ftp_params = {}
             for param in conn_string.split(';'):
@@ -1023,19 +1016,11 @@ class MainframeNavScreen(QWidget):
                     key, value = param.split('=', 1)
                     ftp_params[key] = value
             
-            # Decrypt credentials
-            username = ''
-            password = ''
-            if connection.get('encrypted_username'):
-                username = cred_manager.decrypt(connection['encrypted_username'])
-            if connection.get('encrypted_password'):
-                password = cred_manager.decrypt(connection['encrypted_password'])
-            
             # Show edit dialog
             dialog = QDialog(self)
             dialog.setWindowTitle("Edit Mainframe Connection")
             dialog.setModal(True)
-            dialog.resize(450, 300)
+            dialog.resize(450, 200)
             
             layout = QVBoxLayout(dialog)
             
@@ -1050,65 +1035,51 @@ class MainframeNavScreen(QWidget):
             name_layout.addWidget(name_edit)
             form_layout.addLayout(name_layout)
             
-            # Host
-            host_layout = QHBoxLayout()
-            host_layout.addWidget(QLabel("Host:"))
-            host_edit = QLineEdit(connection.get('server_name', 'PRODESA'))
-            host_layout.addWidget(host_edit)
-            form_layout.addLayout(host_layout)
-            
-            # Port
-            port_layout = QHBoxLayout()
-            port_layout.addWidget(QLabel("Port:"))
-            port_edit = QLineEdit(ftp_params.get('port', '21'))
-            port_layout.addWidget(port_edit)
-            form_layout.addLayout(port_layout)
-            
-            # Username
-            user_layout = QHBoxLayout()
-            user_layout.addWidget(QLabel("Username:"))
-            user_edit = QLineEdit(username)
-            user_layout.addWidget(user_edit)
-            form_layout.addLayout(user_layout)
-            
-            # Password
-            pass_layout = QHBoxLayout()
-            pass_layout.addWidget(QLabel("Password:"))
-            pass_edit = QLineEdit(password)
-            pass_edit.setEchoMode(QLineEdit.EchoMode.Password)
-            pass_layout.addWidget(pass_edit)
-            form_layout.addLayout(pass_layout)
-            
-            # Initial Path
+            # Dataset Path
             path_layout = QHBoxLayout()
-            path_layout.addWidget(QLabel("Initial Path:"))
+            path_layout.addWidget(QLabel("Dataset Path:"))
             path_edit = QLineEdit(ftp_params.get('initial_path', ''))
             path_layout.addWidget(path_edit)
             form_layout.addLayout(path_layout)
             
             layout.addWidget(form_widget)
             
-            # Buttons
+            # Buttons with royal blue theme
             button_box = QDialogButtonBox(
                 QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
             )
+            button_box.button(QDialogButtonBox.StandardButton.Ok).setStyleSheet("""
+                QPushButton {
+                    background-color: #2c5f8d;
+                    color: white;
+                    padding: 6px 20px;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #1e4a6b;
+                }
+            """)
             button_box.accepted.connect(dialog.accept)
             button_box.rejected.connect(dialog.reject)
             layout.addWidget(button_box)
             
             if dialog.exec() == QDialog.DialogCode.Accepted:
-                # Encrypt credentials
-                encrypted_username = cred_manager.encrypt(user_edit.text())
-                encrypted_password = cred_manager.encrypt(pass_edit.text())
+                from suiteview.core.credential_manager import CredentialManager
+                cred_manager = CredentialManager()
                 
-                # Build connection string
-                conn_string = f"port={port_edit.text()};initial_path={path_edit.text()}"
+                # Use global credentials from connection_settings
+                encrypted_username = cred_manager.encrypt(self.connection_settings['username'])
+                encrypted_password = cred_manager.encrypt(self.connection_settings['password'])
+                
+                # Build connection string with new dataset path
+                conn_string = f"port={self.connection_settings['port']};initial_path={path_edit.text()}"
                 
                 # Update connection
                 self.conn_manager.repo.update_connection(
                     conn_id,
                     connection_name=name_edit.text(),
-                    server_name=host_edit.text(),
+                    server_name=self.connection_settings['host'],
                     encrypted_username=encrypted_username,
                     encrypted_password=encrypted_password,
                     connection_string=conn_string
