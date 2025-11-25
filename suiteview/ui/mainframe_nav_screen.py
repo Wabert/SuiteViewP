@@ -5,7 +5,7 @@ Mainframe Navigation Screen - File explorer interface for browsing mainframe dat
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTextEdit, QLineEdit, QPushButton,
     QLabel, QMessageBox, QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem,
-    QHeaderView, QDialog, QDialogButtonBox, QStyle
+    QHeaderView, QDialog, QDialogButtonBox, QStyle, QComboBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
@@ -71,7 +71,7 @@ class MainframeNavScreen(QWidget):
         }
         
         self.init_ui()
-        self.load_default_settings()
+        self.load_connections()  # Load all mainframe connections into dropdown
         
     def init_ui(self):
         """Initialize the user interface"""
@@ -79,28 +79,98 @@ class MainframeNavScreen(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(2)
         
-        # Top bar with connection button and dataset input
+        # Top bar with connection selector and dataset input
         top_bar = QHBoxLayout()
         top_bar.setSpacing(5)
         
-        # Connection Details button
-        self.connection_button = QPushButton("⚙️ Connection Details")
-        self.connection_button.setFixedWidth(150)
-        self.connection_button.clicked.connect(self.show_connection_dialog)
-        self.connection_button.setStyleSheet("""
+        # Connection selector label
+        conn_label = QLabel("Connection:")
+        conn_label.setStyleSheet("font-weight: bold;")
+        top_bar.addWidget(conn_label)
+        
+        # Connection dropdown
+        self.connection_combo = QComboBox()
+        self.connection_combo.setMinimumWidth(200)
+        self.connection_combo.currentIndexChanged.connect(self.on_connection_changed)
+        self.connection_combo.setStyleSheet("""
+            QComboBox {
+                padding: 6px;
+                border: 1px solid #bdc3c7;
+                border-radius: 4px;
+                background-color: white;
+            }
+            QComboBox:hover {
+                border: 1px solid #3498db;
+            }
+        """)
+        top_bar.addWidget(self.connection_combo)
+        
+        # Add Connection button
+        self.add_conn_button = QPushButton("➕ New")
+        self.add_conn_button.setFixedWidth(80)
+        self.add_conn_button.clicked.connect(self.add_connection)
+        self.add_conn_button.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                padding: 6px;
+                font-weight: bold;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+        """)
+        top_bar.addWidget(self.add_conn_button)
+        
+        # Edit Connection button
+        self.edit_conn_button = QPushButton("✏️ Edit")
+        self.edit_conn_button.setFixedWidth(80)
+        self.edit_conn_button.clicked.connect(self.edit_connection)
+        self.edit_conn_button.setEnabled(False)
+        self.edit_conn_button.setStyleSheet("""
             QPushButton {
                 background-color: #34495e;
                 color: white;
                 border: none;
-                padding: 8px;
+                padding: 6px;
                 font-weight: bold;
                 border-radius: 4px;
             }
             QPushButton:hover {
                 background-color: #2c3e50;
             }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+            }
         """)
-        top_bar.addWidget(self.connection_button)
+        top_bar.addWidget(self.edit_conn_button)
+        
+        # Delete Connection button
+        self.delete_conn_button = QPushButton("🗑️ Delete")
+        self.delete_conn_button.setFixedWidth(90)
+        self.delete_conn_button.clicked.connect(self.delete_connection)
+        self.delete_conn_button.setEnabled(False)
+        self.delete_conn_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                padding: 6px;
+                font-weight: bold;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+            }
+        """)
+        top_bar.addWidget(self.delete_conn_button)
+        
+        top_bar.addSpacing(20)
         
         # Dataset input
         dataset_label = QLabel("Dataset:")
@@ -204,6 +274,8 @@ class MainframeNavScreen(QWidget):
         self.members_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.members_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.members_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        # Enable sorting by clicking column headers
+        self.members_table.setSortingEnabled(True)
         self.members_table.itemSelectionChanged.connect(self.on_member_selected)
         content_layout.addWidget(self.members_table)
         
@@ -392,7 +464,6 @@ class MainframeNavScreen(QWidget):
                 
         except Exception as e:
             logger.error(f"Failed to save credentials: {str(e)}", exc_info=True)
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 self, 
                 "Save Error", 
@@ -435,14 +506,12 @@ class MainframeNavScreen(QWidget):
         self.status_label.setText("✓ Connected to mainframe")
         self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
         self.load_button.setEnabled(True)
-        self.connection_button.setEnabled(True)
         logger.info("Successfully connected to mainframe")
     
     def on_connection_failed(self, error_message):
         """Handle failed FTP connection"""
         self.ftp_manager = None
         self.load_button.setEnabled(False)
-        self.connection_button.setEnabled(True)
         
         # Check for common connection issues
         if "timed out" in error_message.lower() or "timeout" in error_message.lower():
@@ -745,6 +814,350 @@ class MainframeNavScreen(QWidget):
         except Exception as e:
             logger.error(f"Failed to export member: {str(e)}")
             QMessageBox.critical(self, "Export Error", f"Failed to export member:\n{str(e)}")
+    
+    def load_connections(self):
+        """Load all MAINFRAME_FTP connections into dropdown"""
+        try:
+            self.connection_combo.clear()
+            
+            # Get all connections
+            connections = self.conn_manager.repo.get_all_connections()
+            ftp_connections = [c for c in connections if c.get('connection_type') == 'MAINFRAME_FTP']
+            
+            if not ftp_connections:
+                self.connection_combo.addItem("No connections - click 'New' to add", None)
+                self.edit_conn_button.setEnabled(False)
+                self.delete_conn_button.setEnabled(False)
+                self.load_button.setEnabled(False)
+                self.status_label.setText("No mainframe connections found. Click 'New' to create one.")
+                return
+            
+            # Add connections to dropdown
+            for conn in ftp_connections:
+                conn_name = conn.get('connection_name', 'Unnamed')
+                conn_id = conn.get('connection_id')
+                self.connection_combo.addItem(conn_name, conn_id)
+            
+            # Select first connection by default
+            if ftp_connections:
+                self.connection_combo.setCurrentIndex(0)
+                self.edit_conn_button.setEnabled(True)
+                self.delete_conn_button.setEnabled(True)
+            
+            logger.info(f"Loaded {len(ftp_connections)} mainframe connections")
+            
+        except Exception as e:
+            logger.error(f"Failed to load connections: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to load connections:\n{str(e)}")
+    
+    def on_connection_changed(self, index):
+        """Handle connection selection change"""
+        if index < 0:
+            return
+        
+        conn_id = self.connection_combo.currentData()
+        if not conn_id:
+            return
+        
+        try:
+            # Load connection details
+            connection = self.conn_manager.repo.get_connection(conn_id)
+            if not connection:
+                return
+            
+            from suiteview.core.credential_manager import CredentialManager
+            cred_manager = CredentialManager()
+            
+            # Parse connection string for FTP details
+            conn_string = connection.get('connection_string', '')
+            ftp_params = {}
+            for param in conn_string.split(';'):
+                if '=' in param:
+                    key, value = param.split('=', 1)
+                    ftp_params[key] = value
+            
+            self.connection_settings['host'] = connection.get('server_name', 'PRODESA')
+            self.connection_settings['port'] = int(ftp_params.get('port', 21))
+            self.connection_settings['initial_path'] = ftp_params.get('initial_path', '')
+            
+            # Decrypt credentials
+            encrypted_username = connection.get('encrypted_username')
+            encrypted_password = connection.get('encrypted_password')
+            
+            if encrypted_username:
+                self.connection_settings['username'] = cred_manager.decrypt(encrypted_username)
+            if encrypted_password:
+                self.connection_settings['password'] = cred_manager.decrypt(encrypted_password)
+            
+            self.current_connection_id = conn_id
+            
+            # Auto-connect
+            if self.connection_settings['username'] and self.connection_settings['password']:
+                logger.info(f"Connecting to {self.connection_settings['host']}...")
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(100, self.connect_to_mainframe)
+            
+        except Exception as e:
+            logger.error(f"Failed to load connection details: {str(e)}")
+    
+    def add_connection(self):
+        """Add a new mainframe connection"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("New Mainframe Connection")
+        dialog.setModal(True)
+        dialog.resize(450, 300)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Connection form
+        form_widget = QWidget()
+        form_layout = QVBoxLayout(form_widget)
+        
+        # Connection Name
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("Connection Name:"))
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("e.g., Production Mainframe")
+        name_layout.addWidget(name_edit)
+        form_layout.addLayout(name_layout)
+        
+        # Host
+        host_layout = QHBoxLayout()
+        host_layout.addWidget(QLabel("Host:"))
+        host_edit = QLineEdit("PRODESA")
+        host_layout.addWidget(host_edit)
+        form_layout.addLayout(host_layout)
+        
+        # Port
+        port_layout = QHBoxLayout()
+        port_layout.addWidget(QLabel("Port:"))
+        port_edit = QLineEdit("21")
+        port_layout.addWidget(port_edit)
+        form_layout.addLayout(port_layout)
+        
+        # Username
+        user_layout = QHBoxLayout()
+        user_layout.addWidget(QLabel("Username:"))
+        user_edit = QLineEdit()
+        user_layout.addWidget(user_edit)
+        form_layout.addLayout(user_layout)
+        
+        # Password
+        pass_layout = QHBoxLayout()
+        pass_layout.addWidget(QLabel("Password:"))
+        pass_edit = QLineEdit()
+        pass_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        pass_layout.addWidget(pass_edit)
+        form_layout.addLayout(pass_layout)
+        
+        # Initial Path
+        path_layout = QHBoxLayout()
+        path_layout.addWidget(QLabel("Initial Path:"))
+        path_edit = QLineEdit()
+        path_edit.setPlaceholderText("e.g., d03.aa0139.CKAS.cirf.data")
+        path_layout.addWidget(path_edit)
+        form_layout.addLayout(path_layout)
+        
+        layout.addWidget(form_widget)
+        
+        # Buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            try:
+                from suiteview.core.credential_manager import CredentialManager
+                cred_manager = CredentialManager()
+                
+                # Encrypt credentials
+                encrypted_username = cred_manager.encrypt(user_edit.text())
+                encrypted_password = cred_manager.encrypt(pass_edit.text())
+                
+                # Build connection string
+                conn_string = f"port={port_edit.text()};initial_path={path_edit.text()}"
+                
+                # Add connection
+                self.conn_manager.repo.add_connection(
+                    connection_name=name_edit.text() or "Mainframe FTP",
+                    connection_type='MAINFRAME_FTP',
+                    server_name=host_edit.text(),
+                    database_name='',
+                    auth_type='password',
+                    encrypted_username=encrypted_username,
+                    encrypted_password=encrypted_password,
+                    connection_string=conn_string
+                )
+                
+                logger.info(f"Created new mainframe connection: {name_edit.text()}")
+                QMessageBox.information(self, "Success", "Mainframe connection created successfully!")
+                
+                # Reload connections
+                self.load_connections()
+                
+            except Exception as e:
+                logger.error(f"Failed to create connection: {str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to create connection:\n{str(e)}")
+    
+    def edit_connection(self):
+        """Edit the selected mainframe connection"""
+        conn_id = self.connection_combo.currentData()
+        if not conn_id:
+            return
+        
+        try:
+            connection = self.conn_manager.repo.get_connection(conn_id)
+            if not connection:
+                return
+            
+            from suiteview.core.credential_manager import CredentialManager
+            cred_manager = CredentialManager()
+            
+            # Parse existing connection string
+            conn_string = connection.get('connection_string', '')
+            ftp_params = {}
+            for param in conn_string.split(';'):
+                if '=' in param:
+                    key, value = param.split('=', 1)
+                    ftp_params[key] = value
+            
+            # Decrypt credentials
+            username = ''
+            password = ''
+            if connection.get('encrypted_username'):
+                username = cred_manager.decrypt(connection['encrypted_username'])
+            if connection.get('encrypted_password'):
+                password = cred_manager.decrypt(connection['encrypted_password'])
+            
+            # Show edit dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Edit Mainframe Connection")
+            dialog.setModal(True)
+            dialog.resize(450, 300)
+            
+            layout = QVBoxLayout(dialog)
+            
+            # Connection form
+            form_widget = QWidget()
+            form_layout = QVBoxLayout(form_widget)
+            
+            # Connection Name
+            name_layout = QHBoxLayout()
+            name_layout.addWidget(QLabel("Connection Name:"))
+            name_edit = QLineEdit(connection.get('connection_name', ''))
+            name_layout.addWidget(name_edit)
+            form_layout.addLayout(name_layout)
+            
+            # Host
+            host_layout = QHBoxLayout()
+            host_layout.addWidget(QLabel("Host:"))
+            host_edit = QLineEdit(connection.get('server_name', 'PRODESA'))
+            host_layout.addWidget(host_edit)
+            form_layout.addLayout(host_layout)
+            
+            # Port
+            port_layout = QHBoxLayout()
+            port_layout.addWidget(QLabel("Port:"))
+            port_edit = QLineEdit(ftp_params.get('port', '21'))
+            port_layout.addWidget(port_edit)
+            form_layout.addLayout(port_layout)
+            
+            # Username
+            user_layout = QHBoxLayout()
+            user_layout.addWidget(QLabel("Username:"))
+            user_edit = QLineEdit(username)
+            user_layout.addWidget(user_edit)
+            form_layout.addLayout(user_layout)
+            
+            # Password
+            pass_layout = QHBoxLayout()
+            pass_layout.addWidget(QLabel("Password:"))
+            pass_edit = QLineEdit(password)
+            pass_edit.setEchoMode(QLineEdit.EchoMode.Password)
+            pass_layout.addWidget(pass_edit)
+            form_layout.addLayout(pass_layout)
+            
+            # Initial Path
+            path_layout = QHBoxLayout()
+            path_layout.addWidget(QLabel("Initial Path:"))
+            path_edit = QLineEdit(ftp_params.get('initial_path', ''))
+            path_layout.addWidget(path_edit)
+            form_layout.addLayout(path_layout)
+            
+            layout.addWidget(form_widget)
+            
+            # Buttons
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            )
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+            layout.addWidget(button_box)
+            
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                # Encrypt credentials
+                encrypted_username = cred_manager.encrypt(user_edit.text())
+                encrypted_password = cred_manager.encrypt(pass_edit.text())
+                
+                # Build connection string
+                conn_string = f"port={port_edit.text()};initial_path={path_edit.text()}"
+                
+                # Update connection
+                self.conn_manager.repo.update_connection(
+                    conn_id,
+                    connection_name=name_edit.text(),
+                    server_name=host_edit.text(),
+                    encrypted_username=encrypted_username,
+                    encrypted_password=encrypted_password,
+                    connection_string=conn_string
+                )
+                
+                logger.info(f"Updated mainframe connection: {name_edit.text()}")
+                QMessageBox.information(self, "Success", "Connection updated successfully!")
+                
+                # Reload connections
+                self.load_connections()
+                
+        except Exception as e:
+            logger.error(f"Failed to edit connection: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to edit connection:\n{str(e)}")
+    
+    def delete_connection(self):
+        """Delete the selected mainframe connection"""
+        conn_id = self.connection_combo.currentData()
+        if not conn_id:
+            return
+        
+        conn_name = self.connection_combo.currentText()
+        
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete the connection '{conn_name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.conn_manager.repo.delete_connection(conn_id)
+                logger.info(f"Deleted mainframe connection: {conn_name}")
+                QMessageBox.information(self, "Success", "Connection deleted successfully!")
+                
+                # Disconnect if this was the active connection
+                if self.current_connection_id == conn_id:
+                    self.ftp_manager = None
+                    self.current_connection_id = None
+                    self.load_button.setEnabled(False)
+                
+                # Reload connections
+                self.load_connections()
+                
+            except Exception as e:
+                logger.error(f"Failed to delete connection: {str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to delete connection:\n{str(e)}")
     
     def load_default_settings(self):
         """Load default settings from first MAINFRAME_FTP connection"""

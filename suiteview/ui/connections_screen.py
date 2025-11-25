@@ -234,6 +234,9 @@ class ConnectionsScreen(QWidget):
 
         try:
             connections = self.conn_manager.get_connections()
+            
+            # Filter out MAINFRAME_FTP connections (managed in Mainframe Nav screen)
+            connections = [c for c in connections if c.get('connection_type') not in ['MAINFRAME_FTP', 'Mainframe FTP']]
 
             # Map connection types to display categories
             type_mapping = {
@@ -246,9 +249,7 @@ class ConnectionsScreen(QWidget):
                 'CSV File': 'CSV',
                 'CSV': 'CSV',
                 'Fixed Width File': 'FIXED_WIDTH',
-                'FIXED_WIDTH': 'FIXED_WIDTH',
-                'Mainframe FTP': 'MAINFRAME_FTP',
-                'MAINFRAME_FTP': 'MAINFRAME_FTP'
+                'FIXED_WIDTH': 'FIXED_WIDTH'
             }
 
             # Group connections by normalized type (don't merge types)
@@ -263,8 +264,8 @@ class ConnectionsScreen(QWidget):
                     connections_by_type[normalized_type] = []
                 connections_by_type[normalized_type].append(conn)
 
-            # Define the display order
-            type_order = ['DB2', 'SQL_SERVER', 'ACCESS', 'EXCEL', 'CSV', 'FIXED_WIDTH', 'MAINFRAME_FTP']
+            # Define the display order (removed MAINFRAME_FTP)
+            type_order = ['DB2', 'SQL_SERVER', 'ACCESS', 'EXCEL', 'CSV', 'FIXED_WIDTH']
             
             # Add connection groups in the specified order
             for group_type in type_order:
@@ -286,7 +287,7 @@ class ConnectionsScreen(QWidget):
                     conn_item.setData(0, Qt.ItemDataRole.UserRole, conn['connection_id'])
                     conn_item.setData(0, Qt.ItemDataRole.UserRole + 1, "connection")
 
-            logger.info(f"Loaded {len(connections)} connections")
+            logger.info(f"Loaded {len(connections)} connections (excluding MAINFRAME_FTP)")
 
         except Exception as e:
             logger.error(f"Failed to load connections: {e}")

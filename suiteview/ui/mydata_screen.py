@@ -4,7 +4,7 @@ import logging
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                               QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem,
                               QLabel, QPushButton, QGroupBox, QFormLayout, QMessageBox,
-                              QHeaderView, QMenu, QCheckBox, QLineEdit, QComboBox, QDialog, QTextEdit)
+                              QHeaderView, QMenu, QCheckBox, QLineEdit, QComboBox, QDialog, QTextEdit, QSizePolicy, QAbstractItemView)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 
@@ -67,8 +67,22 @@ class DataMappingTreeWidget(QTreeWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        # Enable drag-drop for organizing data maps
         self.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
+    
+    def mousePressEvent(self, event):
+        """Override to handle single-click expand while preserving drag-drop"""
+        # Let the parent handle the click first
+        super().mousePressEvent(event)
+        
+        # Get the item that was clicked
+        item = self.itemAt(event.pos())
+        if item:
+            item_type = item.data(0, Qt.ItemDataRole.UserRole)
+            # If it's a folder, toggle expand on single click
+            if item_type == "data_map_folder":
+                item.setExpanded(not item.isExpanded())
     
     def dropEvent(self, event):
         """Handle drop event to move data maps between folders"""
@@ -182,78 +196,97 @@ class MyDataScreen(QWidget):
         right_panel.setMinimumWidth(100)  # Keep minimum width for readability
         splitter.addWidget(right_panel)
 
-        # Set initial sizes (200px, 300px, rest)
-        splitter.setSizes([200, 300, 700])
+        # Far Right Panel - Data Mapping (250px default)
+        far_right_panel = self._create_far_right_panel()
+        far_right_panel.setMinimumWidth(20)
+        splitter.addWidget(far_right_panel)
+
+        # Set initial sizes (200px, 300px, rest, 250px)
+        splitter.setSizes([200, 300, 600, 250])
 
         layout.addWidget(splitter)
 
     def _create_left_panel(self) -> QWidget:
         """Create left panel with My Data sources tree"""
         panel = QWidget()
+        panel.setObjectName("left_panel")  # For styling
         panel_layout = QVBoxLayout(panel)
-        panel_layout.setContentsMargins(5, 5, 5, 5)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(0)
 
-        # Panel header
-        header = QLabel("Databases")
-        theme.apply_panel_header(header)
-        panel_layout.addWidget(header)
+        # --- Databases Section ---
+        self.btn_databases = QPushButton("Databases")
+        self.btn_databases.setObjectName("section_header")
+        self.btn_databases.setCheckable(False) # Not collapsible anymore since it's the only item
+        # self.btn_databases.clicked.connect(lambda: self._toggle_section(self.my_data_tree, self.btn_databases))
+        panel_layout.addWidget(self.btn_databases)
 
-        # My Data tree
         self.my_data_tree = QueryTreeWidget()
+        self.my_data_tree.setObjectName("sidebar_tree")
+        # Remove size policy constraints to allow full expansion
+        self.my_data_tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.my_data_tree.query_moved.connect(self._on_query_moved)
-        self.my_data_tree.setHeaderLabel("My Data")
         self.my_data_tree.setHeaderHidden(True)
-
-        # Don't create section items here - they will be created in load_my_data()
-        # in the correct order after connection types
-
-        # Connect signals
         self.my_data_tree.itemClicked.connect(self.on_data_source_clicked)
         self.my_data_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.my_data_tree.customContextMenuRequested.connect(self.show_datasource_context_menu)
-
         panel_layout.addWidget(self.my_data_tree)
-        
-        # Add DB Queries section header
-        db_queries_header = QLabel("DB Queries")
-        theme.apply_panel_header(db_queries_header)
-        db_queries_header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        db_queries_header.customContextMenuRequested.connect(lambda pos: self._show_header_context_menu(pos, 'DB'))
-        panel_layout.addWidget(db_queries_header)
-        
-        # Create DB Queries tree (separate from My Data tree)
-        self.db_queries_tree = QueryTreeWidget()
-        self.db_queries_tree.query_moved.connect(self._on_query_moved)
-        self.db_queries_tree.setHeaderLabel("DB Queries")
-        self.db_queries_tree.setHeaderHidden(True)
-        
-        # Connect signals for DB queries tree
-        self.db_queries_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.db_queries_tree.customContextMenuRequested.connect(self._show_db_query_context_menu_mydata)
-        
-        panel_layout.addWidget(self.db_queries_tree)
-        
-        # Add Data Mapping section header (blue rectangle like Databases header)
-        data_mapping_header = QLabel("Data Mapping")
-        theme.apply_panel_header(data_mapping_header)
-        data_mapping_header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        data_mapping_header.customContextMenuRequested.connect(self._show_data_mapping_header_context_menu)
-        panel_layout.addWidget(data_mapping_header)
-        
-        # Create Data Mapping tree (separate from My Data tree)
-        self.data_mapping_tree = DataMappingTreeWidget()
-        self.data_mapping_tree.data_map_moved.connect(self._on_data_map_moved)
-        self.data_mapping_tree.setHeaderLabel("Data Maps")
-        self.data_mapping_tree.setHeaderHidden(True)
-        
-        # Connect signals for data mapping tree
-        self.data_mapping_tree.itemClicked.connect(self.on_data_map_clicked)
-        self.data_mapping_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.data_mapping_tree.customContextMenuRequested.connect(self._show_data_map_context_menu)
-        
-        panel_layout.addWidget(self.data_mapping_tree)
-        
+
+        # Removed addStretch to prevent artificial cutoff
+        # panel_layout.addStretch() 
+
         return panel
+
+    def _toggle_section(self, widget, button):
+        """Toggle visibility of a section"""
+        is_visible = widget.isVisible()
+        widget.setVisible(not is_visible)
+        button.setChecked(not is_visible)
+        
+    def _filter_sidebar(self, text):
+        """Filter items in all sidebar trees"""
+        text = text.lower()
+        
+        # Helper to filter a tree
+        def filter_tree(tree):
+            has_visible = False
+            for i in range(tree.topLevelItemCount()):
+                item = tree.topLevelItem(i)
+                item_visible = self._filter_tree_item(item, text)
+                if item_visible:
+                    has_visible = True
+            
+            # If searching, expand the tree if it has matches
+            if text and has_visible and not tree.isVisible():
+                 # Find the button for this tree and click it? 
+                 # Or just show it. Let's just show it.
+                 tree.setVisible(True)
+                 # Update button state
+                 if tree == self.my_data_tree: self.btn_databases.setChecked(True)
+                 elif tree == self.db_queries_tree: self.btn_db_queries.setChecked(True)
+                 elif tree == self.data_mapping_tree: self.btn_data_mapping.setChecked(True)
+
+        filter_tree(self.my_data_tree)
+        filter_tree(self.db_queries_tree)
+        filter_tree(self.data_mapping_tree)
+
+    def _filter_tree_item(self, item, text):
+        """Recursive filter for tree items"""
+        child_visible = False
+        for i in range(item.childCount()):
+            if self._filter_tree_item(item.child(i), text):
+                child_visible = True
+        
+        # Check if this item matches
+        matches = text in item.text(0).lower()
+        
+        should_show = matches or child_visible
+        item.setHidden(not should_show)
+        
+        if should_show and text:
+            item.setExpanded(True)
+            
+        return should_show
 
     def _create_middle_panel(self) -> QWidget:
         """Create middle panel with tables list"""
@@ -262,9 +295,10 @@ class MyDataScreen(QWidget):
         panel_layout.setContentsMargins(5, 5, 5, 5)
         panel_layout.setSpacing(5)
 
-        # Panel header
-        header = QLabel("Tables")
-        theme.apply_panel_header(header)
+        # Panel header - Match Databases style
+        header = QPushButton("Tables")
+        header.setObjectName("section_header")
+        # theme.apply_panel_header(header) # Removed old styling
         panel_layout.addWidget(header)
         
         # Search box for filtering tables
@@ -275,26 +309,11 @@ class MyDataScreen(QWidget):
 
         # Tables tree
         self.tables_tree = QTreeWidget()
+        self.tables_tree.setObjectName("tables_tree")
         self.tables_tree.setHeaderLabel("Table Name")
         self.tables_tree.setHeaderHidden(True)
-        self.tables_tree.setStyleSheet("""
-            QTreeWidget {
-                background-color: #E8F0FF;
-                border: 1px solid #B0C8E8;
-                border-radius: 0px;
-            }
-            QTreeWidget::item {
-                height: 18px;
-                padding: 0px 2px;
-                background-color: #E8F0FF;
-            }
-            QTreeWidget::item:hover {
-                background-color: #C8DFFF;
-            }
-            QTreeWidget::item:selected {
-                background-color: #6BA3E8;
-            }
-        """)
+        # Styling moved to styles.qss
+        
         # Make header stretch to fill width and reduce indentation for compactness
         self.tables_tree.setIndentation(15)
 
@@ -309,6 +328,39 @@ class MyDataScreen(QWidget):
         self.table_info_label = QLabel("Select a connection to view tables")
         self.table_info_label.setStyleSheet("color: #7f8c8d; font-size: 10px; padding: 5px;")
         panel_layout.addWidget(self.table_info_label)
+
+        return panel
+
+    def _create_far_right_panel(self) -> QWidget:
+        """Create far right panel for Data Mapping"""
+        panel = QWidget()
+        panel.setObjectName("left_panel") # Reuse sidebar styling for consistency
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(0)
+
+        # Header - Match Databases style
+        header = QPushButton("Data Mapping")
+        header.setObjectName("section_header")
+        # theme.apply_panel_header(header) # Removed old styling
+        # Add context menu for header
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(self._show_data_mapping_header_context_menu)
+        panel_layout.addWidget(header)
+
+        # Data Mapping Tree
+        self.data_mapping_tree = DataMappingTreeWidget()
+        self.data_mapping_tree.setObjectName("sidebar_tree")
+        self.data_mapping_tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.data_mapping_tree.data_map_moved.connect(self._on_data_map_moved)
+        self.data_mapping_tree.setHeaderHidden(True)
+        
+        # Connect signals - itemClicked for single-click expand
+        self.data_mapping_tree.itemClicked.connect(self.on_data_map_clicked)
+        self.data_mapping_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.data_mapping_tree.customContextMenuRequested.connect(self._show_data_map_context_menu)
+        
+        panel_layout.addWidget(self.data_mapping_tree)
 
         return panel
 
@@ -338,8 +390,8 @@ class MyDataScreen(QWidget):
         # Load connections directly at root level in the my_data_tree
         self._load_my_connections()
 
-        # Load DB Queries into separate db_queries_tree
-        self._load_db_queries()
+        # Load DB Queries into separate db_queries_tree - REMOVED
+        # self._load_db_queries()
         
         # Load Data Maps in separate tree
         self._load_data_maps()
@@ -467,7 +519,7 @@ class MyDataScreen(QWidget):
             folder_items = {}
             for folder in folders:
                 folder_item = QTreeWidgetItem()
-                folder_item.setText(0, f"📁 {folder['folder_name']}")
+                folder_item.setText(0, folder['folder_name'])
                 folder_item.setData(0, Qt.ItemDataRole.UserRole, "data_map_folder")
                 folder_item.setData(0, Qt.ItemDataRole.UserRole + 1, folder['folder_id'])
                 
@@ -629,14 +681,25 @@ class MyDataScreen(QWidget):
             # Load tables for this connection in middle panel
             conn_id = item.data(0, Qt.ItemDataRole.UserRole + 1)
             self.load_tables_for_connection(conn_id)
+            
+        elif item_type == "connection_type":
+            # Auto-expand/collapse on click
+            item.setExpanded(not item.isExpanded())
 
-        elif item_type == "db_query":
-            # TODO: Show query details (Phase 4)
-            pass
-
-        elif item_type == "xdb_query":
-            # TODO: Show query details (Phase 5)
-            pass
+    def on_data_map_clicked(self, item: QTreeWidgetItem, column: int):
+        """Handle click on data mapping tree (far right panel)"""
+        item_type = item.data(0, Qt.ItemDataRole.UserRole)
+        
+        logger.info(f"Data map clicked: type={item_type}, text={item.text(0)}, expanded={item.isExpanded()}")
+        
+        if item_type == "data_map_folder":
+            # Auto-expand/collapse on click (like Databases)
+            item.setExpanded(not item.isExpanded())
+            logger.info(f"Toggled folder to expanded={item.isExpanded()}")
+        elif item_type == "data_map":
+            # Show data map editor in right panel
+            data_map_id = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            self._show_data_map_editor_in_panel(data_map_id)
 
     def load_tables_for_connection(self, connection_id: int):
         """Load saved tables for a connection into middle panel"""
@@ -1712,13 +1775,13 @@ class MyDataScreen(QWidget):
         menu = QMenu(self)
         menu.setStyleSheet("QMenu { border: 2px solid #555; }")
         
-        # Context menu for DB Queries section header
-        if item == self.db_queries_item:
-            add_folder_action = menu.addAction("➕ New Folder")
-            add_folder_action.triggered.connect(lambda: self._create_new_folder('DB'))
+        # Context menu for DB Queries section header - REMOVED (Handled by button context menu now)
+        # if item == self.db_queries_item:
+        #     add_folder_action = menu.addAction("➕ New Folder")
+        #     add_folder_action.triggered.connect(lambda: self._create_new_folder('DB'))
         
         # Context menu for query folders
-        elif item_type == "query_folder":
+        if item_type == "query_folder":
             folder_id = item.data(0, Qt.ItemDataRole.UserRole + 1)
             folder_name = item.text(0).replace("📁 ", "")
             

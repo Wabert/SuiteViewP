@@ -115,6 +115,145 @@ QWidget#panel {
     padding: 12px;
 }
 
+/* Left Panel (Sidebar) Specifics */
+QWidget#left_panel {
+    /* Reverted to default (light blue) per user request */
+    /* background-color: #0A1E5E; */ 
+    border-right: 2px solid #D4AF37;
+}
+
+/* Sidebar Search Box */
+QLineEdit#sidebar_search {
+    background-color: #1A1F2E;
+    border: 1px solid #3A4454;
+    border-radius: 15px;
+    color: #FFD700;
+    padding: 8px 12px;
+    margin: 5px;
+    font-size: 12px;
+}
+
+QLineEdit#sidebar_search:focus {
+    border: 1px solid #D4AF37;
+    background-color: #242938;
+}
+
+/* Collapsible Section Header Buttons */
+QPushButton#section_header {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #1E3A8A,
+                                stop:1 #2563EB);
+    color: #FFD700;
+    border: none;
+    border-bottom: 1px solid #3A4454;
+    border-radius: 0px;
+    padding: 12px 15px;
+    text-align: left;
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+QPushButton#section_header:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #2563EB,
+                                stop:1 #3B82F6);
+}
+
+QPushButton#section_header:checked {
+    border-left: 4px solid #D4AF37;
+    /* Keep the blue gradient, don't switch to black */
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #1E3A8A,
+                                stop:1 #2563EB);
+}
+
+/* Sidebar Tree Widgets */
+QTreeWidget#sidebar_tree {
+    background-color: transparent; /* Match panel background */
+    border: none;
+    color: #0A1E5E; /* Dark blue text for contrast on light background */
+    font-size: 12px;
+    font-weight: 600;
+    outline: 0; /* Remove focus outline */
+}
+
+QTreeWidget#sidebar_tree:focus {
+    outline: none;
+    border: none;
+}
+
+QTreeWidget#sidebar_tree::item {
+    padding: 2px 8px; /* Reduced padding for tighter packing */
+    margin: 1px 4px;  /* Reduced margin */
+    border-radius: 10px; /* Adjusted radius */
+    background-color: #D0E0F5;
+    border: 1px solid #B0C8E8;
+    height: 20px; /* Explicit height to match DB Query screen items */
+}
+
+QTreeWidget#sidebar_tree::item:hover {
+    background-color: #C0D8F0;
+    border: 1px solid #2563EB;
+    color: #0A1E5E;
+}
+
+QTreeWidget#sidebar_tree::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #1E3A8A,
+                                stop:1 #2563EB);
+    color: #FFD700;
+    border: 1px solid #D4AF37;
+    font-weight: 700;
+}
+
+QTreeWidget#sidebar_tree::branch:open:has-children:!has-siblings,
+QTreeWidget#sidebar_tree::branch:open:has-children:has-siblings {
+    border-image: none;
+    image: url(:/qt-project.org/styles/commonstyle/images/down-arrow.png);
+    padding: 2px;
+}
+
+/* Tables Tree Widget (Middle Panel) */
+QTreeWidget#tables_tree {
+    background-color: transparent;
+    border: none;
+    color: #0A1E5E;
+    font-size: 12px;
+    font-weight: 600;
+    outline: 0;
+}
+
+QTreeWidget#tables_tree:focus {
+    outline: none;
+    border: none;
+}
+
+QTreeWidget#tables_tree::item {
+    padding: 2px 8px;
+    margin: 1px 4px;
+    border-radius: 0px; /* Boxy look (no rounded corners) */
+    background-color: #D0E0F5; /* Same blue as sidebar items */
+    border: 1px solid #B0C8E8;
+    height: 20px;
+}
+
+QTreeWidget#tables_tree::item:hover {
+    background-color: #C0D8F0;
+    border: 1px solid #2563EB;
+    color: #0A1E5E;
+}
+
+QTreeWidget#tables_tree::item:selected {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #2563EB,
+                                stop:1 #1E3A8A);
+    color: #FFD700;
+    border: 1px solid #D4AF37;
+    font-weight: 700;
+}
+
 /* Panel Headers */
 QWidget#panel_header {
     background: #A8C8F0;
