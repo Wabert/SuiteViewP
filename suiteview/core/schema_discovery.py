@@ -1,13 +1,65 @@
 """Schema Discovery - Discovers and caches database metadata"""
 
 import logging
+import re
 from typing import List, Dict, Any, Optional
 from sqlalchemy import MetaData, Table, inspect, text
 from sqlalchemy.engine import Engine
 
 from suiteview.core.connection_manager import get_connection_manager
+from suiteview.utils.connection_strings import build_db2_connection, build_access_connection
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_sql_identifier(value: str, identifier_type: str = "identifier") -> str:
+    """
+    Validate and sanitize SQL identifier to prevent SQL injection.
+
+    Args:
+        value: The identifier value to validate (table name, column name, schema name)
+        identifier_type: Description for error messages
+
+    Returns:
+        The validated identifier
+
+    Raises:
+        ValueError: If identifier contains dangerous characters
+    """
+    if not value:
+        raise ValueError(f"Empty {identifier_type} not allowed")
+
+    # Allow alphanumeric, underscore, dot (for qualified names), and $ (common in mainframe)
+    # This pattern is restrictive but covers common valid identifiers
+    if not re.match(r'^[A-Za-z0-9_.$]+$', value):
+        raise ValueError(
+            f"Invalid {identifier_type}: '{value}'. "
+            f"Only alphanumeric characters, underscores, dots, and $ are allowed."
+        )
+
+    # Check for SQL injection patterns
+    dangerous_patterns = [
+        r'--',           # SQL comment
+        r';',            # Statement terminator
+        r"'",            # Single quote
+        r'"',            # Double quote
+        r'\bOR\b',       # OR keyword
+        r'\bAND\b',      # AND keyword (in context of injection)
+        r'\bUNION\b',    # UNION keyword
+        r'\bSELECT\b',   # SELECT keyword
+        r'\bDROP\b',     # DROP keyword
+        r'\bDELETE\b',   # DELETE keyword
+        r'\bINSERT\b',   # INSERT keyword
+        r'\bUPDATE\b',   # UPDATE keyword
+    ]
+
+    for pattern in dangerous_patterns:
+        if re.search(pattern, value, re.IGNORECASE):
+            raise ValueError(
+                f"Potentially dangerous pattern in {identifier_type}: '{value}'"
+            )
+
+    return value
 
 
 class SchemaDiscovery:
@@ -73,8 +125,9 @@ class SchemaDiscovery:
             # Get all schemas (databases)
             try:
                 schemas = inspector.get_schema_names()
-            except:
+            except (NotImplementedError, AttributeError, Exception) as e:
                 # Some databases don't support schemas, use default
+                logger.debug(f"Schema names not available: {e}")
                 schemas = [None]
 
             for schema in schemas:
@@ -335,19 +388,15 @@ class SchemaDiscovery:
         """
         try:
             import pyodbc
-            
+
             # Get connection details
             connection = self.conn_manager.get_connection(connection_id)
             if not connection:
                 raise ValueError(f"Connection {connection_id} not found")
-            
-            # Build pyodbc connection string from DSN
-            dsn = connection.get('connection_string', '').replace('DSN=', '')
-            if not dsn:
-                raise ValueError("DB2 connection requires DSN")
-            
-            conn_str = f"DSN={dsn}"
-            
+
+            # Build pyodbc connection string using centralized builder
+            conn_str = build_db2_connection(connection.get('connection_string', ''))
+
             # Connect with pyodbc directly
             conn = pyodbc.connect(conn_str)
             cursor = conn.cursor()
@@ -399,37 +448,36 @@ class SchemaDiscovery:
         """
         try:
             import pyodbc
-            
+
             if not schema_name:
                 raise ValueError("Schema name is required for DB2 tables")
-            
+
             # Get connection details
             connection = self.conn_manager.get_connection(connection_id)
             if not connection:
                 raise ValueError(f"Connection {connection_id} not found")
-            
-            # Build pyodbc connection string from DSN
-            dsn = connection.get('connection_string', '').replace('DSN=', '')
-            if not dsn:
-                raise ValueError("DB2 connection requires DSN")
-            
-            conn_str = f"DSN={dsn}"
+
+            # Build pyodbc connection string using centralized builder
+            conn_str = build_db2_connection(connection.get('connection_string', ''))
             conn = pyodbc.connect(conn_str)
             cursor = conn.cursor()
-            
+
             # Query to get column information
-            # DataDirect Shadow driver doesn't support parameter binding or complex queries well
-            # Keep it simple and get primary key info separately if needed
+            # DataDirect Shadow driver doesn't support parameter binding well
+            # Validate inputs to prevent SQL injection
+            safe_table = _validate_sql_identifier(table_name, "table name")
+            safe_schema = _validate_sql_identifier(schema_name, "schema name")
+
             query = f"""
-                SELECT 
+                SELECT
                     NAME,
                     COLTYPE,
                     LENGTH,
                     SCALE,
                     NULLS
                 FROM SYSIBM.SYSCOLUMNS
-                WHERE TBNAME = '{table_name}'
-                    AND TBCREATOR = '{schema_name}'
+                WHERE TBNAME = '{safe_table}'
+                    AND TBCREATOR = '{safe_schema}'
                 ORDER BY COLNO
                 LIMIT 10000000
             """
@@ -486,33 +534,34 @@ class SchemaDiscovery:
         """
         try:
             import pyodbc
-            
+
             if not schema_name:
                 raise ValueError("Schema name is required for DB2 tables")
-            
+
             # Get connection details
             connection = self.conn_manager.get_connection(connection_id)
             if not connection:
                 raise ValueError(f"Connection {connection_id} not found")
-            
-            # Build pyodbc connection string from DSN
-            dsn = connection.get('connection_string', '').replace('DSN=', '')
-            if not dsn:
-                raise ValueError("DB2 connection requires DSN")
-            
-            conn_str = f"DSN={dsn}"
+
+            # Build pyodbc connection string using centralized builder
+            conn_str = build_db2_connection(connection.get('connection_string', ''))
             conn = pyodbc.connect(conn_str)
             cursor = conn.cursor()
-            
+
+            # Validate inputs to prevent SQL injection
+            safe_table = _validate_sql_identifier(table_name, "table name")
+            safe_schema = _validate_sql_identifier(schema_name, "schema name")
+            safe_column = _validate_sql_identifier(column_name, "column name")
+
             # Build qualified table name
-            qualified_table = f'{schema_name}.{table_name}'
-            
+            qualified_table = f'{safe_schema}.{safe_table}'
+
             # DB2 query with LIMIT to prevent crashes
             query = f"""
-                SELECT DISTINCT {column_name}
+                SELECT DISTINCT {safe_column}
                 FROM {qualified_table}
-                WHERE {column_name} IS NOT NULL
-                ORDER BY {column_name}
+                WHERE {safe_column} IS NOT NULL
+                ORDER BY {safe_column}
                 LIMIT {limit}
             """
             
@@ -535,27 +584,27 @@ class SchemaDiscovery:
         """
         try:
             import pyodbc
-            
+
             if not schema_name:
                 raise ValueError("Schema name is required for DB2 tables")
-            
+
             # Get connection details
             connection = self.conn_manager.get_connection(connection_id)
             if not connection:
                 raise ValueError(f"Connection {connection_id} not found")
-            
-            # Build pyodbc connection string from DSN
-            dsn = connection.get('connection_string', '').replace('DSN=', '')
-            if not dsn:
-                raise ValueError("DB2 connection requires DSN")
-            
-            conn_str = f"DSN={dsn}"
+
+            # Build pyodbc connection string using centralized builder
+            conn_str = build_db2_connection(connection.get('connection_string', ''))
             conn = pyodbc.connect(conn_str)
             cursor = conn.cursor()
-            
+
+            # Validate inputs to prevent SQL injection
+            safe_table = _validate_sql_identifier(table_name, "table name")
+            safe_schema = _validate_sql_identifier(schema_name, "schema name")
+
             # Build qualified table name - NO QUOTES (works with DB2)
-            qualified_table = f'{schema_name}.{table_name}'
-            
+            qualified_table = f'{safe_schema}.{safe_table}'
+
             # DB2 query with LIMIT
             query = f"SELECT * FROM {qualified_table} LIMIT {limit}"
             
@@ -615,10 +664,8 @@ class SchemaDiscovery:
             if not file_path or not os.path.exists(file_path):
                 raise ValueError(f"Access file not found: {file_path}")
 
-            conn_str = (
-                r'DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};'
-                f'DBQ={file_path};'
-            )
+            # Build Access connection string using centralized builder
+            conn_str = build_access_connection(file_path)
             conn = pyodbc.connect(conn_str)
             cursor = conn.cursor()
 
@@ -851,10 +898,8 @@ class SchemaDiscovery:
             if not file_path or not os.path.exists(file_path):
                 raise ValueError(f"Access file not found: {file_path}")
 
-            conn_str = (
-                r'DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};'
-                f'DBQ={file_path};'
-            )
+            # Build Access connection string using centralized builder
+            conn_str = build_access_connection(file_path)
             conn = pyodbc.connect(conn_str)
             cursor = conn.cursor()
 
@@ -1024,12 +1069,8 @@ class SchemaDiscovery:
         if not file_path or not os.path.exists(file_path):
             raise ValueError(f"Access file not found: {file_path}")
 
-        # Use pyodbc to query the Access database
-        conn_str = (
-            r'DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};'
-            f'DBQ={file_path};'
-        )
-
+        # Build Access connection string using centralized builder
+        conn_str = build_access_connection(file_path)
         conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
 
@@ -1179,11 +1220,8 @@ class SchemaDiscovery:
         if not file_path or not os.path.exists(file_path):
             raise ValueError(f"Access file not found: {file_path}")
 
-        conn_str = (
-            r'DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};'
-            f'DBQ={file_path};'
-        )
-
+        # Build Access connection string using centralized builder
+        conn_str = build_access_connection(file_path)
         conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
 

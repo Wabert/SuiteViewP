@@ -224,7 +224,7 @@ class Database:
         # Migration 1: Add is_common column to column_metadata if it doesn't exist
         try:
             cursor.execute("SELECT is_common FROM column_metadata LIMIT 1")
-        except:
+        except sqlite3.OperationalError:
             # Column doesn't exist, add it
             print("Running migration: Adding is_common column to column_metadata")
             cursor.execute("""
@@ -236,7 +236,7 @@ class Database:
         # Migration 2: Add folder_id column to saved_queries if it doesn't exist
         try:
             cursor.execute("SELECT folder_id FROM saved_queries LIMIT 1")
-        except:
+        except sqlite3.OperationalError:
             # Column doesn't exist, add it
             print("Running migration: Adding folder_id column to saved_queries")
             cursor.execute("""
@@ -284,7 +284,7 @@ class Database:
         # Migration 5: Add notes column to saved_queries if it doesn't exist
         try:
             cursor.execute("SELECT notes FROM saved_queries LIMIT 1")
-        except:
+        except sqlite3.OperationalError:
             # Column doesn't exist, add it
             print("Running migration: Adding notes column to saved_queries")
             cursor.execute("""

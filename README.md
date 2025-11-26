@@ -2,67 +2,63 @@
 
 A native Python desktop application for visual, low-code access to diverse data sources across an enterprise. Built with PyQt6.
 
-## Project Status: Phase 2 Complete
+## Features
 
-### Completed Features
-- ✅ Complete Python project structure
-- ✅ SQLite database schema initialization
-- ✅ PyQt6 application with professional royal blue & gold theme
-- ✅ Four-tab navigation (Connections | My Data | DB Query | XDB Query)
-- ✅ **Connections Screen** with full functionality:
-  - Connection browser tree
-  - Table schema viewer
-  - Right-click context menu (Edit/Delete)
-  - Comprehensive Add Connection dialog supporting:
-    - Local ODBC (SQL Server, DB2)
-    - Excel Files (.xlsx, .xls)
-    - MS Access (.accdb, .mdb)
-    - CSV Files (with delimiter & encoding options)
-    - Fixed Width Files (with field definitions)
+### Data Connections
+- **SQL Server, DB2, Oracle** - Enterprise database connectivity via ODBC
+- **MS Access** - Direct .mdb/.accdb file access
+- **Excel & CSV** - File-based data sources with encoding options
+- **Fixed Width Files** - Support for legacy file formats
+- **Mainframe FTP** - Browse and download mainframe datasets
+
+### Visual Query Building
+- **DB Query** - Single-database visual query builder (no SQL required)
+- **XDB Query** - Cross-database queries with application-level joins
+- **Drag-and-drop** criteria and display field selection
+- **Smart filters** - Type-aware filter controls for strings, numbers, dates
+
+### My Data Workspace
+- Curated list of saved tables and queries
+- Query metadata tracking (last run, duration, record count)
+- Find unique values for columns
+- Organize queries in folders
+
+### File Explorer
+- Windows-style file browser with OneDrive integration
+- Multi-tab support for multiple folder views
+- Bookmarks system for quick access to files, folders, and URLs
+- Cut/Copy/Paste, Rename, Delete operations
+- File preview pane
+
+### Mainframe Navigation
+- Browse mainframe datasets via FTP/TLS
+- Preview dataset members
+- Export to local files
 
 ## Quick Start
 
-### Windows Users (Recommended Platform)
+### Windows (Recommended)
 
-**Method 1: VSCode with WSL (Best for Development)**
-1. Install VSCode "WSL" extension
-2. In VSCode, press `Ctrl+K Ctrl+O` and open:
-   ```
-   \\wsl.localhost\Ubuntu-22.04\home\obert\SuiteViewProjects\SuiteViewP
-   ```
-3. Open a **WSL terminal** (click dropdown next to `+` → select "Ubuntu-22.04")
-4. Run:
-   ```bash
-   ./run_from_vscode.sh
-   ```
-   Or manually:
-   ```bash
-   source venv/bin/activate
-   python -m suiteview.main
-   ```
-
-**Method 2: Standalone on Windows**
-1. Make sure Python 3.13+ is installed ([download here](https://www.python.org/downloads/))
-2. Copy project folder to Windows
-3. Double-click `run_windows.bat`
-
-**See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for complete Windows setup guide.**
-
-### Linux/WSL Users
-
-**Prerequisites:**
-- Python 3.10+
-- X11 server (for WSL users)
-
-**Running:**
-```bash
-# Easy way
-./run.sh
-
-# Or manually
-source venv/bin/activate
+**Option 1: Run from source**
+```cmd
+cd C:\path\to\SuiteViewP
+python -m venv venv
+venv\Scripts\activate.bat
+pip install -r requirements.txt
 python -m suiteview.main
 ```
+
+**Option 2: Use batch file**
+```cmd
+run_windows.bat
+```
+
+### Linux/WSL
+```bash
+./run.sh
+```
+
+See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for detailed installation instructions.
 
 ## Project Structure
 
@@ -71,8 +67,6 @@ SuiteViewP/
 ├── CLAUDE.md              # Product Requirements Document
 ├── README.md              # This file
 ├── requirements.txt       # Python dependencies
-├── run.sh                 # Convenience run script
-├── venv/                  # Virtual environment
 ├── suiteview/             # Main application package
 │   ├── main.py            # Application entry point
 │   ├── ui/                # UI layer (PyQt6 widgets)
@@ -81,103 +75,83 @@ SuiteViewP/
 │   │   ├── mydata_screen.py
 │   │   ├── dbquery_screen.py
 │   │   ├── xdbquery_screen.py
-│   │   ├── styles.qss     # Qt Style Sheets
+│   │   ├── mainframe_nav_screen.py
+│   │   ├── file_explorer_core.py
+│   │   ├── file_explorer_multitab.py
+│   │   ├── dialogs/       # Dialog windows
 │   │   └── widgets/       # Reusable custom widgets
 │   ├── core/              # Business logic layer
+│   │   ├── connection_manager.py
+│   │   ├── query_builder.py
+│   │   ├── query_executor.py
+│   │   ├── schema_discovery.py
+│   │   └── ftp_manager.py
 │   ├── data/              # Data access layer
-│   │   └── database.py    # SQLite initialization
+│   │   ├── database.py
+│   │   └── repositories.py
 │   └── utils/             # Utility modules
-│       ├── config.py
-│       └── logger.py
-├── resources/             # Application resources
-│   ├── icons/
-│   └── images/
+├── resources/             # Application resources (icons, images)
 └── tests/                 # Test suite
 ```
 
 ## Application Data
 
 The application stores its data in your home directory:
-- Database: `~/.suiteview/suiteview.db`
-- Logs: `~/.suiteview/logs/suiteview.log`
+- **Database**: `~/.suiteview/suiteview.db`
+- **Logs**: `~/.suiteview/logs/suiteview.log`
+- **Bookmarks**: `~/.suiteview/bookmarks.json`
+- **Quick Links**: `~/.suiteview/quick_links.json`
 
-## Features (Current)
+## Technology Stack
 
-### UI Shell
-- Main window with tabbed navigation (4 tabs)
-- Responsive multi-panel layouts with resizable splitters
-- Modern, professional styling using Qt Style Sheets
-- Color-coded panels for easy identification
+- **UI Framework**: PyQt6
+- **Database**: SQLite 3 (local), SQLAlchemy (external connections)
+- **Data Processing**: Pandas, DuckDB
+- **Security**: cryptography (credential encryption)
+- **Packaging**: PyInstaller
 
-### Database
-- SQLite database with complete schema:
-  - Connections table
-  - Saved tables
-  - Cached metadata (tables & columns)
-  - Unique values cache
-  - Saved queries
-  - User preferences
+## Documentation
 
-### Infrastructure
-- Logging system with file rotation
-- Configuration management
-- Database initialization and connection pooling
-- Clean separation of concerns (UI/Core/Data layers)
-
-## Next Steps - Phase 2: Connections Screen
-
-Phase 2 will implement the Connections Screen functionality:
-- QTreeWidget for connection hierarchy
-- Add/Edit Connection dialogs
-- Schema discovery with SQLAlchemy
-- Table list with checkboxes
-- Schema details table view
-- Connection testing
-- Save to My Data functionality
+- [CLAUDE.md](CLAUDE.md) - Complete Product Requirements Document
+- [WINDOWS_SETUP.md](WINDOWS_SETUP.md) - Windows installation guide
+- [MAINFRAME_NAV_GUIDE.md](MAINFRAME_NAV_GUIDE.md) - Mainframe navigation help
+- [BOOKMARKS_FEATURE.md](BOOKMARKS_FEATURE.md) - Bookmarks system documentation
+- [TECH_DEBT.md](TECH_DEBT.md) - Technical debt and refactoring opportunities
 
 ## Development
 
-### Installing Additional Dependencies
-
-```bash
-source venv/bin/activate
-pip install <package-name>
-```
-
 ### Running Tests
-
 ```bash
-source venv/bin/activate
+source venv/bin/activate  # or venv\Scripts\activate on Windows
 pytest
 ```
 
 ### Code Formatting
-
 ```bash
-source venv/bin/activate
 black suiteview/
 flake8 suiteview/
 ```
 
-## Technology Stack
+### Building Executable
+```bash
+python build_windows.py
+```
+Output: `dist/SuiteView Data Manager.exe`
 
-- **UI Framework:** PyQt6
-- **Database:** SQLite 3 (local), SQLAlchemy (connections)
-- **Data Processing:** Pandas
-- **Security:** cryptography
-- **Packaging:** PyInstaller (for future deployment)
+## System Requirements
 
-## Architecture
+### Minimum
+- Windows 10 (64-bit) or Linux
+- Python 3.10+
+- 4 GB RAM
+- 1 GB free disk space
 
-All-Python stack with direct method calls between layers:
-- **UI Layer:** PyQt6 widgets handle user interaction
-- **Business Logic:** Pure Python classes for query building, connection management
-- **Data Layer:** SQLAlchemy and Pandas for data operations
+### Recommended
+- Windows 11 (64-bit)
+- Python 3.13+
+- 8 GB RAM
+- 1920x1080 display
 
 ## License
 
 Proprietary - Internal use only
-
-## Contact
-
-For questions or support, refer to CLAUDE.md for project details.
