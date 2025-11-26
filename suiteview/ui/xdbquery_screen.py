@@ -229,9 +229,13 @@ class XDBQueryScreen(QWidget):
         self.criteria_tab = self._create_criteria_tab()
         self.xdb_tabs.addTab(self.criteria_tab, "Criteria")
 
-        # Datasources tab (THIRD - replaces Tables)
-        self.datasources_tab = self._create_datasources_tab()
-        self.xdb_tabs.addTab(self.datasources_tab, "Datasources")
+        # Dataset Staging tab (THIRD - for adding data sources with filters)
+        self.staging_tab = self._create_staging_tab()
+        self.xdb_tabs.addTab(self.staging_tab, "Dataset Staging")
+
+        # Joins tab (FOURTH - for configuring joins between sources)
+        self.joins_tab = self._create_joins_tab()
+        self.xdb_tabs.addTab(self.joins_tab, "Joins")
 
         panel_layout.addWidget(self.xdb_tabs)
 
@@ -293,49 +297,74 @@ class XDBQueryScreen(QWidget):
 
         return tab
     
-    def _create_datasources_tab(self) -> QWidget:
-        """Create Datasources tab with connection+table selection and join configuration"""
+    def _create_staging_tab(self) -> QWidget:
+        """Create Dataset Staging tab with source containers that show datasource + filters"""
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        # Tables involved section (showing Datasource.TableName format)
-        tables_label = QLabel("Tables Involved:")
-        tables_label.setStyleSheet("font-weight: bold; padding: 5px;")
-        layout.addWidget(tables_label)
+        # Header with summary
+        header_layout = QHBoxLayout()
+        header_label = QLabel("Staged Data Sources")
+        header_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
+        header_layout.addWidget(header_label)
+        header_layout.addStretch()
 
-        self.datasources_involved_label = QLabel("(None)")
-        self.datasources_involved_label.setStyleSheet("color: #7f8c8d; padding: 5px 5px 15px 20px;")
-        layout.addWidget(self.datasources_involved_label)
-
-        # Add Datasource button (to add datasources to the query)
-        add_ds_layout = QHBoxLayout()
-        self.add_datasource_btn = QPushButton("+ Add Datasource")
+        # Add Datasource button
+        self.add_datasource_btn = QPushButton("+ Add Data Source")
         self.add_datasource_btn.setObjectName("gold_button")
         self.add_datasource_btn.clicked.connect(self._add_datasource)
-        add_ds_layout.addWidget(self.add_datasource_btn)
-        add_ds_layout.addStretch()
-        layout.addLayout(add_ds_layout)
-        
-        layout.addSpacing(10)
+        header_layout.addWidget(self.add_datasource_btn)
+        layout.addLayout(header_layout)
+
+        # Summary label
+        self.datasources_involved_label = QLabel("No data sources staged. Add tables from the left panel or click '+ Add Data Source'.")
+        self.datasources_involved_label.setStyleSheet("color: #7f8c8d; font-style: italic; padding: 5px 5px 15px 10px;")
+        self.datasources_involved_label.setWordWrap(True)
+        layout.addWidget(self.datasources_involved_label)
+
+        # Scroll area for source containers
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        self.staging_container = QWidget()
+        self.staging_layout = QVBoxLayout(self.staging_container)
+        self.staging_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.staging_layout.setSpacing(15)
+
+        scroll.setWidget(self.staging_container)
+        layout.addWidget(scroll)
+
+        return tab
+
+    def _create_joins_tab(self) -> QWidget:
+        """Create Joins tab for configuring joins between data sources"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 10, 10, 10)
 
         # FROM clause section
         from_layout = QHBoxLayout()
-        from_label = QLabel("FROM:")
+        from_label = QLabel("FROM (Primary Source):")
         from_label.setStyleSheet("font-weight: bold;")
         from_layout.addWidget(from_label)
 
         self.from_datasource_combo = QComboBox()
-        self.from_datasource_combo.setMinimumWidth(200)
+        self.from_datasource_combo.setMinimumWidth(250)
         from_layout.addWidget(self.from_datasource_combo)
         from_layout.addStretch()
-
         layout.addLayout(from_layout)
 
-        # JOIN section
-        layout.addSpacing(20)
+        # Info label
+        info_label = QLabel("Configure how your data sources connect. Each join links two sources on matching fields.")
+        info_label.setStyleSheet("color: #7f8c8d; font-style: italic; padding: 10px 5px;")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        # JOIN section header
         join_header_layout = QHBoxLayout()
-        join_label = QLabel("JOINS:")
+        join_label = QLabel("JOIN Configuration:")
         join_label.setStyleSheet("font-weight: bold;")
         join_header_layout.addWidget(join_label)
         join_header_layout.addStretch()
@@ -344,7 +373,6 @@ class XDBQueryScreen(QWidget):
         self.add_join_btn.setObjectName("gold_button")
         self.add_join_btn.clicked.connect(self._add_join)
         join_header_layout.addWidget(self.add_join_btn)
-
         layout.addLayout(join_header_layout)
 
         # Scroll area for joins
@@ -359,8 +387,6 @@ class XDBQueryScreen(QWidget):
 
         join_scroll.setWidget(self.joins_container)
         layout.addWidget(join_scroll)
-
-        layout.addStretch()
 
         return tab
 
@@ -1346,27 +1372,65 @@ class XDBQueryScreen(QWidget):
         logger.info("Removed JOIN widget")
     
     def _update_datasources_label(self):
-        """Update the datasources involved label with Datasource.TableName format"""
+        """Update the datasources involved label and staging containers"""
         if not self.datasources:
-            self.datasources_involved_label.setText("(None)")
+            self.datasources_involved_label.setText("No data sources staged. Add tables from the left panel or click '+ Add Data Source'.")
             self.from_datasource_combo.clear()
+            # Clear staging containers
+            while self.staging_layout.count() > 0:
+                item = self.staging_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
         else:
-            # Build list in "Datasource.TableName" format
+            # Build summary text
             table_names = []
             for ds in self.datasources:
                 alias = ds['alias']
                 table = ds['table_name']
-                table_names.append(f"{alias}.{table}")
-            
-            table_list = ", ".join(table_names)
-            self.datasources_involved_label.setText(table_list)
-            
-            # Update FROM combo with same format
+                conn_name = ds['connection'].get('connection_name', 'Unknown')
+                table_names.append(f"{alias} ({conn_name}.{table})")
+
+            summary = f"{len(self.datasources)} source(s) staged: " + ", ".join(table_names)
+            self.datasources_involved_label.setText(summary)
+
+            # Update FROM combo
             self.from_datasource_combo.clear()
             for ds in self.datasources:
                 display_name = f"{ds['alias']}.{ds['table_name']}"
                 self.from_datasource_combo.addItem(display_name)
-    
+
+            # Rebuild staging containers
+            self._rebuild_staging_containers()
+
+    def _rebuild_staging_containers(self):
+        """Rebuild the source container widgets in the staging tab"""
+        # Clear existing containers
+        while self.staging_layout.count() > 0:
+            item = self.staging_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Create container widget for each datasource
+        for ds in self.datasources:
+            container = XDBSourceContainerWidget(ds, self)
+            container.remove_requested.connect(lambda d=ds: self._remove_datasource(d))
+            container.add_filter_requested.connect(lambda d=ds: self._add_filter_to_datasource(d))
+            self.staging_layout.addWidget(container)
+
+    def _remove_datasource(self, datasource: dict):
+        """Remove a datasource from the staging list"""
+        if datasource in self.datasources:
+            self.datasources.remove(datasource)
+            self._update_datasources_label()
+            logger.info(f"Removed datasource: {datasource['alias']}")
+
+    def _add_filter_to_datasource(self, datasource: dict):
+        """Add a filter to a specific datasource (switches to Criteria tab with context)"""
+        # Switch to Criteria tab
+        self.xdb_tabs.setCurrentIndex(1)
+        logger.info(f"User requested filter for datasource: {datasource['alias']}")
+        # User can then add filters via the Criteria tab
+
     def _preview_query(self):
         """Execute cross-query with LIMIT 1000 for preview"""
         self._execute_xdb_query(limit=1000)
@@ -2226,7 +2290,7 @@ class XDBJoinWidget(QFrame):
             left_field = row_data['left_field_combo'].currentText()
             right_ds = row_data['right_datasource_combo'].currentData()
             right_field = row_data['right_field_combo'].currentText()
-            
+
             if left_ds and left_field and right_ds and right_field:
                 on_conditions.append({
                     'left_datasource': left_ds['alias'],
@@ -2234,9 +2298,229 @@ class XDBJoinWidget(QFrame):
                     'right_datasource': right_ds['alias'],
                     'right_field': right_field
                 })
-        
+
         return {
             'join_type': self.join_type_combo.currentText(),
             'right_datasource': self.right_datasource_combo.currentData(),
             'on_conditions': on_conditions
+        }
+
+
+class XDBSourceContainerWidget(QFrame):
+    """Container widget for a staged data source with its filters in the Dataset Staging tab"""
+
+    remove_requested = pyqtSignal()
+    add_filter_requested = pyqtSignal()
+
+    def __init__(self, datasource: dict, parent=None):
+        super().__init__(parent)
+        self.datasource = datasource
+        self.parent_screen = parent
+        self.filters = []  # List of filter dicts for this source
+        self.init_ui()
+
+    def init_ui(self):
+        """Initialize UI"""
+        self.setFrameStyle(QFrame.Shape.Box)
+        self.setStyleSheet("""
+            XDBSourceContainerWidget {
+                border: 2px solid #6BA3E8;
+                border-radius: 8px;
+                background: white;
+                padding: 10px;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+
+        # Header row: Alias, Table name, Type badge, Remove button
+        header_layout = QHBoxLayout()
+
+        # Alias (bold, editable via double-click in future)
+        alias_label = QLabel(self.datasource['alias'])
+        alias_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2c3e50;")
+        header_layout.addWidget(alias_label)
+
+        # Connection type badge
+        conn = self.datasource.get('connection', {})
+        conn_type = conn.get('connection_type', 'Unknown')
+        type_badge = QLabel(conn_type)
+        type_badge.setStyleSheet("""
+            QLabel {
+                background: #6BA3E8;
+                color: white;
+                font-size: 10px;
+                font-weight: bold;
+                padding: 2px 8px;
+                border-radius: 3px;
+            }
+        """)
+        header_layout.addWidget(type_badge)
+
+        header_layout.addStretch()
+
+        # Remove button
+        remove_btn = QPushButton("×")
+        remove_btn.setFixedSize(24, 24)
+        remove_btn.setStyleSheet("""
+            QPushButton {
+                background: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #c0392b;
+            }
+        """)
+        remove_btn.clicked.connect(self.remove_requested.emit)
+        header_layout.addWidget(remove_btn)
+
+        layout.addLayout(header_layout)
+
+        # Connection and Table info
+        conn_name = conn.get('connection_name', 'Unknown Connection')
+        table_name = self.datasource.get('table_name', '')
+        schema_name = self.datasource.get('schema_name', '')
+
+        if schema_name:
+            full_table = f"{schema_name}.{table_name}"
+        else:
+            full_table = table_name
+
+        info_label = QLabel(f"📋 {conn_name} → {full_table}")
+        info_label.setStyleSheet("color: #7f8c8d; font-size: 11px; padding-left: 5px;")
+        layout.addWidget(info_label)
+
+        # Filters section
+        filters_header = QHBoxLayout()
+        filters_label = QLabel("Filters applied to this source:")
+        filters_label.setStyleSheet("font-size: 11px; color: #5a6c7d; margin-top: 5px;")
+        filters_header.addWidget(filters_label)
+        filters_header.addStretch()
+
+        # Add Filter button
+        add_filter_btn = QPushButton("+ Add Filter")
+        add_filter_btn.setStyleSheet("""
+            QPushButton {
+                background: #27ae60;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                font-size: 10px;
+                padding: 3px 10px;
+            }
+            QPushButton:hover {
+                background: #219a52;
+            }
+        """)
+        add_filter_btn.clicked.connect(self.add_filter_requested.emit)
+        filters_header.addWidget(add_filter_btn)
+
+        layout.addLayout(filters_header)
+
+        # Filter list area
+        self.filters_container = QWidget()
+        self.filters_layout = QVBoxLayout(self.filters_container)
+        self.filters_layout.setContentsMargins(10, 5, 10, 5)
+        self.filters_layout.setSpacing(5)
+
+        # Placeholder for no filters
+        self.no_filters_label = QLabel("No filters. Data will be fetched unfiltered (may be slow for large tables).")
+        self.no_filters_label.setStyleSheet("color: #bdc3c7; font-style: italic; font-size: 10px;")
+        self.filters_layout.addWidget(self.no_filters_label)
+
+        layout.addWidget(self.filters_container)
+
+        # Summary row at bottom
+        self._update_filter_summary()
+
+    def add_filter(self, filter_dict: dict):
+        """Add a filter to this source container"""
+        self.filters.append(filter_dict)
+        self._update_filter_display()
+
+    def _update_filter_display(self):
+        """Update the filter display"""
+        # Hide "no filters" label if we have filters
+        self.no_filters_label.setVisible(len(self.filters) == 0)
+
+        # Clear existing filter widgets (except the no_filters_label)
+        while self.filters_layout.count() > 1:
+            item = self.filters_layout.takeAt(1)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Add filter widgets
+        for f in self.filters:
+            filter_widget = self._create_filter_widget(f)
+            self.filters_layout.addWidget(filter_widget)
+
+        self._update_filter_summary()
+
+    def _create_filter_widget(self, filter_dict: dict) -> QWidget:
+        """Create a widget to display a filter"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
+
+        # Filter description
+        field = filter_dict.get('column', filter_dict.get('field_name', ''))
+        op = filter_dict.get('operator', '=')
+        value = filter_dict.get('value', '')
+        filter_text = f"{field} {op} '{value}'"
+
+        filter_label = QLabel(f"🔍 {filter_text}")
+        filter_label.setStyleSheet("font-size: 10px; color: #2c3e50;")
+        layout.addWidget(filter_label)
+
+        layout.addStretch()
+
+        # Remove filter button
+        remove_btn = QPushButton("×")
+        remove_btn.setFixedSize(16, 16)
+        remove_btn.setStyleSheet("""
+            QPushButton {
+                background: #95a5a6;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background: #7f8c8d;
+            }
+        """)
+        remove_btn.clicked.connect(lambda: self._remove_filter(filter_dict))
+        layout.addWidget(remove_btn)
+
+        return widget
+
+    def _remove_filter(self, filter_dict: dict):
+        """Remove a filter from this source"""
+        if filter_dict in self.filters:
+            self.filters.remove(filter_dict)
+            self._update_filter_display()
+
+    def _update_filter_summary(self):
+        """Update the summary text based on filters"""
+        if self.filters:
+            # Filters will help reduce data
+            pass
+        else:
+            # No filters warning for large tables
+            pass
+
+    def get_source_config(self) -> dict:
+        """Get the source configuration including filters"""
+        return {
+            'alias': self.datasource['alias'],
+            'connection': self.datasource['connection'],
+            'table_name': self.datasource['table_name'],
+            'schema_name': self.datasource.get('schema_name'),
+            'filters': self.filters
         }
