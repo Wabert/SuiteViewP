@@ -9,6 +9,7 @@ from typing import Tuple, Dict, Any
 
 from suiteview.core.connection_manager import get_connection_manager
 from suiteview.core.query_builder import Query
+from suiteview.utils.connection_strings import build_db2_connection, build_access_connection
 
 logger = logging.getLogger(__name__)
 
@@ -98,16 +99,10 @@ class QueryExecutor:
         warnings.filterwarnings('ignore', message='pandas only supports SQLAlchemy')
         
         try:
-            # Get DSN from connection string
-            dsn = connection.get('connection_string', '').replace('DSN=', '')
-            if not dsn:
-                raise ValueError("DB2 connection requires DSN")
-            
-            logger.info(f"Connecting to DB2 with DSN: {dsn}")
-            conn_str = f"DSN={dsn}"
-            
-            # Connect - exactly like your working code
-            logger.info(f"Connection string: {conn_str}")
+            # Get DSN from connection string using centralized builder
+            conn_str = build_db2_connection(connection.get('connection_string', ''))
+
+            logger.info(f"Connecting to DB2 with connection string: {conn_str}")
             con = pyodbc.connect(conn_str)
             logger.info("DB2 connection established, executing query")
             
@@ -121,9 +116,7 @@ class QueryExecutor:
             logger.info("DB2 connection closed")
             
             return data
-            
-            return df
-            
+
         except pyodbc.Error as e:
             logger.error(f"DB2 pyodbc error: {e}")
             raise Exception(f"Database error: {str(e)}")
@@ -718,14 +711,14 @@ class QueryExecutor:
             elif conn_type == 'ACCESS':
                 import pyodbc
                 file_path = connection.get('connection_string', '')
-                
+
                 if not os.path.exists(file_path):
                     raise ValueError(f"Access file not found: {file_path}")
-                
+
                 logger.info(f"Loading Access table: {table_name}")
-                
-                # Build Access connection string
-                conn_str = f"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={file_path};"
+
+                # Build Access connection string using centralized builder
+                conn_str = build_access_connection(file_path)
                 
                 # Build SQL with limit
                 if limit:
