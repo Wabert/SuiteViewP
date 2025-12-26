@@ -5,7 +5,7 @@ Mainframe Navigation Screen - File explorer interface for browsing mainframe dat
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTextEdit, QLineEdit, QPushButton,
     QLabel, QMessageBox, QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem,
-    QHeaderView, QDialog, QDialogButtonBox, QStyle, QComboBox
+    QHeaderView, QDialog, QDialogButtonBox, QStyle, QComboBox, QFileDialog, QInputDialog
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
@@ -225,15 +225,87 @@ class MainframeNavScreen(QWidget):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(2)
         
-        content_header = QLabel("📄 Folder Content")
-        content_header.setStyleSheet(
-            "font-weight: bold; "
-            "padding: 6px; "
+        # Folder Content header with buttons
+        content_header_widget = QWidget()
+        content_header_widget.setStyleSheet(
             "background-color: #2c5f8d; "
-            "color: white; "
             "border-radius: 3px;"
         )
-        content_layout.addWidget(content_header)
+        content_header_layout = QHBoxLayout(content_header_widget)
+        content_header_layout.setContentsMargins(8, 4, 8, 4)
+        content_header_layout.setSpacing(6)
+        
+        content_header_label = QLabel("📄 Folder Content")
+        content_header_label.setStyleSheet(
+            "font-weight: bold; "
+            "color: white; "
+            "background: transparent;"
+        )
+        content_header_layout.addWidget(content_header_label)
+        
+        content_header_layout.addStretch()
+        
+        # Add Member button
+        self.add_member_button = QPushButton("➕ Add")
+        self.add_member_button.setFixedWidth(70)
+        self.add_member_button.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: 2px solid #1e8449;
+                border-radius: 4px;
+                padding: 3px 6px;
+                font-weight: bold;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #52be80;
+                border-color: #27ae60;
+            }
+            QPushButton:pressed {
+                background-color: #1e8449;
+            }
+            QPushButton:disabled {
+                background-color: #5d6d7e;
+                border-color: #4a5a6a;
+                color: #95a5a6;
+            }
+        """)
+        self.add_member_button.clicked.connect(self.add_member)
+        self.add_member_button.setEnabled(False)
+        content_header_layout.addWidget(self.add_member_button)
+        
+        # Delete Member button
+        self.delete_member_button = QPushButton("🗑️ Delete")
+        self.delete_member_button.setFixedWidth(80)
+        self.delete_member_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: 2px solid #c0392b;
+                border-radius: 4px;
+                padding: 3px 6px;
+                font-weight: bold;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #ec7063;
+                border-color: #e74c3c;
+            }
+            QPushButton:pressed {
+                background-color: #c0392b;
+            }
+            QPushButton:disabled {
+                background-color: #5d6d7e;
+                border-color: #4a5a6a;
+                color: #95a5a6;
+            }
+        """)
+        self.delete_member_button.clicked.connect(self.delete_member)
+        self.delete_member_button.setEnabled(False)
+        content_header_layout.addWidget(self.delete_member_button)
+        
+        content_layout.addWidget(content_header_widget)
         
         self.members_table = QTableWidget()
         self.members_table.setColumnCount(3)
@@ -273,14 +345,147 @@ class MainframeNavScreen(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(2)
         
-        right_header = QLabel("👁️ File View Window")
+        # Title bar with member name and buttons
+        right_header = QWidget()
         right_header.setStyleSheet(
-            "font-weight: bold; "
-            "padding: 6px; "
             "background-color: #2c5f8d; "
-            "color: white; "
             "border-radius: 3px;"
         )
+        header_layout = QHBoxLayout(right_header)
+        header_layout.setContentsMargins(8, 4, 8, 4)
+        header_layout.setSpacing(10)
+        
+        # Member name label
+        self.file_view_title = QLabel("👁️ File View Window")
+        self.file_view_title.setStyleSheet(
+            "font-weight: bold; "
+            "color: white; "
+            "background: transparent;"
+        )
+        header_layout.addWidget(self.file_view_title)
+        
+        header_layout.addStretch()
+        
+        # View All button in header
+        self.view_all_button = QPushButton("📄 View All")
+        self.view_all_button.setFixedWidth(100)
+        self.view_all_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: 2px solid #2980b9;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #5dade2;
+                border-color: #3498db;
+            }
+            QPushButton:pressed {
+                background-color: #2980b9;
+            }
+            QPushButton:disabled {
+                background-color: #5d6d7e;
+                border-color: #4a5a6a;
+                color: #95a5a6;
+            }
+        """)
+        self.view_all_button.clicked.connect(self.view_all_lines)
+        self.view_all_button.setEnabled(False)
+        header_layout.addWidget(self.view_all_button)
+        
+        # Export button in header
+        self.export_button = QPushButton("💾 Export")
+        self.export_button.setFixedWidth(90)
+        self.export_button.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: 2px solid #1e8449;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #52be80;
+                border-color: #27ae60;
+            }
+            QPushButton:pressed {
+                background-color: #1e8449;
+            }
+            QPushButton:disabled {
+                background-color: #5d6d7e;
+                border-color: #4a5a6a;
+                color: #95a5a6;
+            }
+        """)
+        self.export_button.clicked.connect(self.export_member)
+        self.export_button.setEnabled(False)
+        header_layout.addWidget(self.export_button)
+        
+        # Edit button in header
+        self.edit_button = QPushButton("✏️ Edit")
+        self.edit_button.setFixedWidth(80)
+        self.edit_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f39c12;
+                color: white;
+                border: 2px solid #d68910;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #f7b731;
+                border-color: #f39c12;
+            }
+            QPushButton:pressed {
+                background-color: #d68910;
+            }
+            QPushButton:disabled {
+                background-color: #5d6d7e;
+                border-color: #4a5a6a;
+                color: #95a5a6;
+            }
+        """)
+        self.edit_button.clicked.connect(self.toggle_edit_mode)
+        self.edit_button.setEnabled(False)
+        header_layout.addWidget(self.edit_button)
+        
+        # Save button in header (hidden initially)
+        self.save_button = QPushButton("💾 Save")
+        self.save_button.setFixedWidth(80)
+        self.save_button.setStyleSheet("""
+            QPushButton {
+                background-color: #9b59b6;
+                color: white;
+                border: 2px solid #8e44ad;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #af7ac5;
+                border-color: #9b59b6;
+            }
+            QPushButton:pressed {
+                background-color: #8e44ad;
+            }
+            QPushButton:disabled {
+                background-color: #5d6d7e;
+                border-color: #4a5a6a;
+                color: #95a5a6;
+            }
+        """)
+        self.save_button.clicked.connect(self.save_member)
+        self.save_button.setVisible(False)
+        header_layout.addWidget(self.save_button)
+        
         right_layout.addWidget(right_header)
         
         self.file_preview = QTextEdit()
@@ -289,25 +494,8 @@ class MainframeNavScreen(QWidget):
         self.file_preview.setPlaceholderText("Select a member to view its contents (first 1000 rows)...")
         right_layout.addWidget(self.file_preview)
         
-        # Buttons below preview
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
-        
-        self.view_all_button = QPushButton("View All")
-        self.view_all_button.setFixedWidth(100)
-        self.view_all_button.clicked.connect(self.view_all_lines)
-        self.view_all_button.setEnabled(False)
-        button_layout.addWidget(self.view_all_button)
-        
-        button_layout.addStretch()
-        
-        self.export_button = QPushButton("Export")
-        self.export_button.setFixedWidth(100)
-        self.export_button.clicked.connect(self.export_member)
-        self.export_button.setEnabled(False)
-        button_layout.addWidget(self.export_button)
-        
-        right_layout.addLayout(button_layout)
+        # Track edit mode state
+        self.is_edit_mode = False
         
         main_splitter.addWidget(right_widget)
         
@@ -720,6 +908,11 @@ class MainframeNavScreen(QWidget):
             file_count = len(items_to_display) - folder_count
             self.status_label.setText(f"Found {folder_count} folder(s) and {file_count} member(s) in {dataset_path}")
             
+            # Enable Add button when viewing a PDS
+            self.add_member_button.setEnabled(True)
+            # Disable delete until a member is selected
+            self.delete_member_button.setEnabled(False)
+            
         except Exception as e:
             logger.error(f"Failed to load members: {str(e)}")
             self.status_label.setText(f"✗ Failed to load members")
@@ -774,9 +967,14 @@ class MainframeNavScreen(QWidget):
             self.file_preview.setPlainText(content)
             self.current_member_content = member_path
             
+            # Update title bar with member name
+            self.file_view_title.setText(f"👁️ {member_name}")
+            
             # Enable buttons
             self.view_all_button.setEnabled(True)
             self.export_button.setEnabled(True)
+            self.edit_button.setEnabled(True)
+            self.delete_member_button.setEnabled(True)
             
             self.status_label.setText(f"✓ Showing first 1000 rows of {member_name} (Total: {line_count} lines)")
             self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
@@ -841,6 +1039,200 @@ class MainframeNavScreen(QWidget):
         except Exception as e:
             logger.error(f"Failed to export member: {str(e)}")
             QMessageBox.critical(self, "Export Error", f"Failed to export member:\n{str(e)}")
+    
+    def toggle_edit_mode(self):
+        """Toggle between view and edit mode"""
+        if self.is_edit_mode:
+            # Exit edit mode without saving
+            reply = QMessageBox.question(
+                self,
+                "Cancel Edit",
+                "Discard changes?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.is_edit_mode = False
+                self.file_preview.setReadOnly(True)
+                self.edit_button.setText("✏️ Edit")
+                self.save_button.setVisible(False)
+                # Reload content
+                if self.current_member_content:
+                    content, _ = self.ftp_manager.read_dataset(self.current_member_content, max_lines=1000)
+                    self.file_preview.setPlainText(content)
+                self.status_label.setText("Edit cancelled")
+        else:
+            # Enter edit mode
+            self.is_edit_mode = True
+            self.file_preview.setReadOnly(False)
+            self.edit_button.setText("❌ Cancel")
+            self.save_button.setVisible(True)
+            self.status_label.setText("✏️ Edit mode - Make changes and click Save")
+            self.status_label.setStyleSheet("color: #f39c12; font-weight: bold; padding: 2px; font-size: 11px;")
+    
+    def save_member(self):
+        """Save changes to the member"""
+        if not self.current_member_content or not self.is_edit_mode:
+            return
+        
+        reply = QMessageBox.question(
+            self,
+            "Save Changes",
+            f"Save changes to {self.current_member_content}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        try:
+            self.status_label.setText("Saving...")
+            
+            content = self.file_preview.toPlainText()
+            success, message = self.ftp_manager.write_content(self.current_member_content, content)
+            
+            if success:
+                self.is_edit_mode = False
+                self.file_preview.setReadOnly(True)
+                self.edit_button.setText("✏️ Edit")
+                self.save_button.setVisible(False)
+                self.status_label.setText(f"✓ {message}")
+                self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
+                QMessageBox.information(self, "Save Complete", message)
+                # Reload member list to get updated date from mainframe
+                self.load_members(self.current_dataset)
+            else:
+                self.status_label.setText(f"✗ {message}")
+                self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+                QMessageBox.critical(self, "Save Error", message)
+                
+        except Exception as e:
+            logger.error(f"Failed to save member: {str(e)}")
+            QMessageBox.critical(self, "Save Error", f"Failed to save member:\n{str(e)}")
+    
+    def add_member(self):
+        """Add a new member from a local text file"""
+        if not self.current_dataset or not self.ftp_manager:
+            QMessageBox.warning(self, "Not Ready", "Please select a PDS first.")
+            return
+        
+        # Ask for member name
+        member_name, ok = QInputDialog.getText(
+            self,
+            "Add Member",
+            "Enter member name (max 8 characters):",
+            QLineEdit.EchoMode.Normal
+        )
+        
+        if not ok or not member_name:
+            return
+        
+        # Validate member name (must be 1-8 chars, alphanumeric + national chars)
+        member_name = member_name.strip().upper()
+        if len(member_name) > 8:
+            QMessageBox.warning(self, "Invalid Name", "Member name must be 8 characters or less.")
+            return
+        
+        if not member_name.replace('@', '').replace('#', '').replace('$', '').isalnum():
+            QMessageBox.warning(self, "Invalid Name", "Member name can only contain letters, numbers, @, #, $")
+            return
+        
+        # Open file dialog to select source file
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Text File to Upload",
+            "",
+            "Text Files (*.txt *.jcl *.cob *.cbl *.asm *.pli *.rexx *.clist);;All Files (*.*)"
+        )
+        
+        if not filename:
+            return
+        
+        try:
+            self.status_label.setText(f"Uploading {member_name}...")
+            
+            # Build the member path
+            member_path = f"{self.current_dataset}({member_name})"
+            
+            # Upload using text mode
+            success, message = self.ftp_manager.upload_file_as_text(filename, member_path)
+            
+            if success:
+                self.status_label.setText(f"✓ Added {member_name}")
+                self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
+                QMessageBox.information(self, "Upload Complete", f"Member {member_name} added successfully.")
+                # Reload the member list to get actual dates from mainframe
+                self.load_members(self.current_dataset)
+            else:
+                self.status_label.setText(f"✗ {message}")
+                self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+                QMessageBox.critical(self, "Upload Error", message)
+                
+        except Exception as e:
+            logger.error(f"Failed to add member: {str(e)}")
+            QMessageBox.critical(self, "Upload Error", f"Failed to add member:\n{str(e)}")
+    
+    def delete_member(self):
+        """Delete the selected member"""
+        selected_rows = self.members_table.selectedItems()
+        if not selected_rows:
+            QMessageBox.warning(self, "No Selection", "Please select a member to delete.")
+            return
+        
+        row = selected_rows[0].row()
+        member_name = self.members_table.item(row, 0).text()
+        member_type = self.members_table.item(row, 2).text()
+        
+        if member_type == "File folder":
+            QMessageBox.warning(self, "Cannot Delete", "Cannot delete folders, only members.")
+            return
+        
+        if not member_name:
+            return
+        
+        # Confirm deletion
+        reply = QMessageBox.warning(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete member '{member_name}'?\n\nThis action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        try:
+            self.status_label.setText(f"Deleting {member_name}...")
+            
+            # Build the member path
+            member_path = f"{self.current_dataset}({member_name})"
+            
+            success, message = self.ftp_manager.delete_member(member_path)
+            
+            if success:
+                self.status_label.setText(f"✓ Deleted {member_name}")
+                self.status_label.setStyleSheet("color: #27ae60; font-weight: bold; padding: 2px; font-size: 11px;")
+                QMessageBox.information(self, "Delete Complete", f"Member {member_name} deleted.")
+                # Clear preview if deleted member was displayed
+                if self.current_member_content and member_name in self.current_member_content:
+                    self.file_preview.clear()
+                    self.file_view_title.setText("👁️ File View Window")
+                    self.current_member_content = ""
+                    self.view_all_button.setEnabled(False)
+                    self.export_button.setEnabled(False)
+                    self.edit_button.setEnabled(False)
+                # Reload the member list
+                self.load_members(self.current_dataset)
+            else:
+                self.status_label.setText(f"✗ {message}")
+                self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold; padding: 2px; font-size: 11px;")
+                QMessageBox.critical(self, "Delete Error", message)
+                
+        except Exception as e:
+            logger.error(f"Failed to delete member: {str(e)}")
+            QMessageBox.critical(self, "Delete Error", f"Failed to delete member:\n{str(e)}")
     
     def load_connections(self):
         """Load all MAINFRAME_FTP connections into dropdown"""
@@ -990,8 +1382,8 @@ class MainframeNavScreen(QWidget):
                 # Build connection string with dataset path
                 conn_string = f"port={self.connection_settings['port']};initial_path={path_edit.text()}"
                 
-                # Add connection
-                self.conn_manager.repo.add_connection(
+                # Add connection using repository's create_connection method
+                self.conn_manager.repo.create_connection(
                     connection_name=name_edit.text() or "Mainframe Dataset",
                     connection_type='MAINFRAME_FTP',
                     server_name=self.connection_settings['host'],

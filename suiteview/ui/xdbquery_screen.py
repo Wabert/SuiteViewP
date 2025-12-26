@@ -5,10 +5,107 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitter,
     QTreeWidget, QTreeWidgetItem, QPushButton, QFrame, QMenu,
     QScrollArea, QComboBox, QMessageBox, QFileDialog, QTabWidget,
-    QLineEdit, QCheckBox, QDateEdit, QToolButton, QSizePolicy, QInputDialog
+    QLineEdit, QCheckBox, QDateEdit, QToolButton, QSizePolicy, QInputDialog,
+    QTextEdit, QLayout, QWidgetItem
 )
-from PyQt6.QtCore import Qt, QDate, pyqtSignal
+from PyQt6.QtCore import Qt, QDate, pyqtSignal, QMimeData, QRect, QPoint, QSize
 from PyQt6.QtGui import QAction, QDrag
+
+
+class FlowLayout(QLayout):
+    """Custom flow layout that arranges widgets in rows with wrapping (grid-like)"""
+    
+    def __init__(self, parent=None, margin=0, spacing=-1):
+        super().__init__(parent)
+        
+        if parent is not None:
+            self.setContentsMargins(margin, margin, margin, margin)
+        
+        self.setSpacing(spacing)
+        self._item_list = []
+        
+    def __del__(self):
+        item = self.takeAt(0)
+        while item:
+            item = self.takeAt(0)
+    
+    def addItem(self, item):
+        self._item_list.append(item)
+    
+    def count(self):
+        return len(self._item_list)
+    
+    def itemAt(self, index):
+        if 0 <= index < len(self._item_list):
+            return self._item_list[index]
+        return None
+    
+    def takeAt(self, index):
+        if 0 <= index < len(self._item_list):
+            return self._item_list.pop(index)
+        return None
+    
+    def insertWidget(self, index, widget):
+        """Insert widget at specific index"""
+        item = QWidgetItem(widget)
+        if 0 <= index <= len(self._item_list):
+            self._item_list.insert(index, item)
+        else:
+            self._item_list.append(item)
+        self.invalidate()
+    
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+    
+    def hasHeightForWidth(self):
+        return True
+    
+    def heightForWidth(self, width):
+        height = self._do_layout(QRect(0, 0, width, 0), True)
+        return height
+    
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, False)
+    
+    def sizeHint(self):
+        return self.minimumSize()
+    
+    def minimumSize(self):
+        size = QSize()
+        
+        for item in self._item_list:
+            size = size.expandedTo(item.minimumSize())
+        
+        margins = self.contentsMargins()
+        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
+        return size
+    
+    def _do_layout(self, rect, test_only):
+        x = rect.x()
+        y = rect.y()
+        line_height = 0
+        spacing = self.spacing()
+        
+        for item in self._item_list:
+            widget = item.widget()
+            space_x = spacing
+            space_y = spacing
+            
+            next_x = x + item.sizeHint().width() + space_x
+            if next_x - space_x > rect.right() and line_height > 0:
+                x = rect.x()
+                y = y + line_height + space_y
+                next_x = x + item.sizeHint().width() + space_x
+                line_height = 0
+            
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+            
+            x = next_x
+            line_height = max(line_height, item.sizeHint().height())
+        
+        return y + line_height - rect.y()
 from typing import Optional
 
 from suiteview.data.repositories import (ConnectionRepository, get_query_repository, 
@@ -42,9 +139,13 @@ class XDBQueryScreen(QWidget):
         self.datasources = []  # List of {connection, table_name, schema_name, alias}
         # Track display fields and criteria filters
         self.display_fields = []  # List of field_data dicts
+        self.display_widgets = []  # List of XDBDisplayFieldWidget instances for drag-drop
         self.criteria_widgets = []  # List of CriteriaFilterWidget instances
         # Track selected tables for XDB query building
         self.selected_tables = {}  # Dict: {connection_id: [table_names]}
+        # Track current table for field highlighting
+        self.current_table_name = None
+        self.current_schema_name = None
         self.init_ui()
         self.load_data_sources()
 
@@ -233,6 +334,13 @@ class XDBQueryScreen(QWidget):
         self.datasources_tab = self._create_datasources_tab()
         self.xdb_tabs.addTab(self.datasources_tab, "Datasources")
 
+        # Query Statement tab (FOURTH - shows executed SQL)
+        self.query_statement_tab = self._create_query_statement_tab()
+        self.xdb_tabs.addTab(self.query_statement_tab, "Query Statement")
+
+        # Connect tab change to update field indicators
+        self.xdb_tabs.currentChanged.connect(self._on_tab_changed)
+
         panel_layout.addWidget(self.xdb_tabs)
 
         return panel
@@ -256,9 +364,7 @@ class XDBQueryScreen(QWidget):
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         self.display_container = QWidget()
-        self.display_layout = QVBoxLayout(self.display_container)
-        self.display_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.display_layout.setSpacing(10)
+        self.display_layout = FlowLayout(self.display_container, margin=10, spacing=10)
 
         scroll.setWidget(self.display_container)
         layout.addWidget(scroll)
@@ -284,9 +390,7 @@ class XDBQueryScreen(QWidget):
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         self.criteria_container = QWidget()
-        self.criteria_layout = QVBoxLayout(self.criteria_container)
-        self.criteria_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.criteria_layout.setSpacing(10)
+        self.criteria_layout = FlowLayout(self.criteria_container, margin=5, spacing=5)
 
         scroll.setWidget(self.criteria_container)
         layout.addWidget(scroll)
@@ -347,22 +451,73 @@ class XDBQueryScreen(QWidget):
 
         layout.addLayout(join_header_layout)
 
-        # Scroll area for joins
+        # Scroll area for joins - make it expand to fill available space
         join_scroll = QScrollArea()
         join_scroll.setWidgetResizable(True)
-        join_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        join_scroll.setMinimumHeight(200)  # Minimum height so joins aren't cut off
+        join_scroll.setStyleSheet("QScrollArea { border: 1px solid #ddd; background: #f9f9f9; border-radius: 4px; }")
 
         self.joins_container = QWidget()
         self.joins_layout = QVBoxLayout(self.joins_container)
         self.joins_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.joins_layout.setSpacing(10)
+        self.joins_layout.setContentsMargins(5, 5, 5, 5)
 
         join_scroll.setWidget(self.joins_container)
-        layout.addWidget(join_scroll)
-
-        layout.addStretch()
+        # Use stretch factor of 1 to let scroll area expand
+        layout.addWidget(join_scroll, 1)
 
         return tab
+
+    def _create_query_statement_tab(self) -> QWidget:
+        """Create Query Statement tab to show executed SQL statements"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # Header
+        header = QLabel("SQL Statements Executed")
+        header.setStyleSheet("font-weight: bold; font-size: 12px; padding: 5px;")
+        layout.addWidget(header)
+
+        # Text area to show the SQL
+        self.query_statement_text = QTextEdit()
+        self.query_statement_text.setReadOnly(True)
+        self.query_statement_text.setStyleSheet("""
+            QTextEdit {
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 11px;
+                background: #f8f9fa;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 10px;
+            }
+        """)
+        self.query_statement_text.setPlaceholderText("SQL statements will appear here after running a query...")
+        layout.addWidget(self.query_statement_text)
+
+        # Copy button
+        copy_layout = QHBoxLayout()
+        copy_layout.addStretch()
+        copy_btn = QPushButton("📋 Copy to Clipboard")
+        copy_btn.clicked.connect(self._copy_query_statement)
+        copy_layout.addWidget(copy_btn)
+        layout.addLayout(copy_layout)
+
+        return tab
+
+    def _copy_query_statement(self):
+        """Copy query statement to clipboard"""
+        from PyQt6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.query_statement_text.toPlainText())
+        
+        # Show brief feedback
+        QMessageBox.information(self, "Copied", "Query statement copied to clipboard!")
+
+    def _update_query_statement(self, statements: str):
+        """Update the Query Statement tab with executed SQL"""
+        self.query_statement_text.setPlainText(statements)
 
     def _create_data_sources_panel(self) -> QWidget:
         """Create left panel with two sections: Databases and XDB Queries"""
@@ -526,6 +681,10 @@ class XDBQueryScreen(QWidget):
                         'schema_name': ds_data.get('schema_name')
                     }
                     self.datasources.append(ds)
+                    
+                    # Also add to the tables tree panel
+                    table_dict = {'table_name': ds_data['table_name'], 'schema_name': ds_data.get('schema_name')}
+                    self._add_table_to_list(connection, table_dict)
             
             # Update datasources label and FROM combo
             self._update_datasources_label()
@@ -537,8 +696,22 @@ class XDBQueryScreen(QWidget):
                 if index >= 0:
                     self.from_datasource_combo.setCurrentIndex(index)
             
+            # Helper to find connection for a datasource alias
+            def get_connection_for_alias(alias):
+                for ds in self.datasources:
+                    if ds['alias'] == alias:
+                        return ds.get('connection')
+                return None
+            
             # Load display fields
             for field_data in query_dict.get('display_fields', []):
+                # Add connection from matching datasource
+                ds_alias = field_data.get('datasource_alias')
+                if ds_alias and 'connection' not in field_data:
+                    conn = get_connection_for_alias(ds_alias)
+                    if conn:
+                        field_data['connection'] = conn
+                
                 # Add to tracking
                 self.display_fields.append(field_data)
                 
@@ -546,16 +719,21 @@ class XDBQueryScreen(QWidget):
                 display_widget = XDBDisplayFieldWidget(field_data, self)
                 display_widget.remove_requested.connect(lambda w=display_widget: self.remove_display_field(w))
                 self.display_layout.addWidget(display_widget)
+                self.display_widgets.append(display_widget)  # Track widget for drag-drop
             
             # Load criteria filters
             for criterion in query_dict.get('criteria', []):
-                # Reconstruct field_data
+                # Reconstruct field_data with connection
+                ds_alias = criterion.get('datasource_alias')
+                conn = get_connection_for_alias(ds_alias) if ds_alias else None
+                
                 field_data = {
                     'field_name': criterion.get('field_name'),
                     'data_type': criterion.get('data_type'),
                     'table_name': criterion.get('table_name'),
                     'schema_name': criterion.get('schema_name'),
-                    'datasource_alias': criterion.get('datasource_alias')
+                    'datasource_alias': ds_alias,
+                    'connection': conn
                 }
                 
                 # Create filter widget
@@ -564,14 +742,13 @@ class XDBQueryScreen(QWidget):
                 self.criteria_layout.addWidget(filter_widget)
                 self.criteria_widgets.append(filter_widget)
                 
-                # Restore filter values
-                if 'operator' in criterion:
-                    operator_index = filter_widget.operator_combo.findText(criterion['operator'])
-                    if operator_index >= 0:
-                        filter_widget.operator_combo.setCurrentIndex(operator_index)
+                # Restore filter values using dedicated restore method
+                match_type = criterion.get('match_type', '')
+                operator = criterion.get('operator', '=')
+                value = criterion.get('value', '')
                 
-                if 'value' in criterion:
-                    filter_widget.value_input.setText(str(criterion['value']))
+                # Use the restore_filter_state method which handles List mode properly
+                filter_widget.restore_filter_state(match_type, value, operator)
             
             # Load joins
             for join_config in query_dict.get('joins', []):
@@ -602,60 +779,114 @@ class XDBQueryScreen(QWidget):
             if index >= 0:
                 join_widget.join_type_combo.setCurrentIndex(index)
             
-            # Set right datasource
+            # Set right datasource - match by connection_id + table_name for robustness
             right_ds = join_config.get('right_datasource')
             if right_ds:
+                # Try matching by connection_id + table_name first (more reliable)
+                right_conn_id = right_ds.get('connection_id') or (right_ds.get('connection', {}).get('connection_id'))
+                right_table = right_ds.get('table_name')
+                
+                matched = False
                 for i in range(join_widget.right_datasource_combo.count()):
                     ds = join_widget.right_datasource_combo.itemData(i)
-                    if ds and ds['alias'] == right_ds['alias']:
-                        join_widget.right_datasource_combo.setCurrentIndex(i)
-                        break
+                    if ds:
+                        ds_conn_id = ds['connection']['connection_id']
+                        ds_table = ds['table_name']
+                        if right_conn_id and right_table and ds_conn_id == right_conn_id and ds_table == right_table:
+                            join_widget.right_datasource_combo.setCurrentIndex(i)
+                            matched = True
+                            break
+                
+                # Fallback to alias matching
+                if not matched and right_ds.get('alias'):
+                    for i in range(join_widget.right_datasource_combo.count()):
+                        ds = join_widget.right_datasource_combo.itemData(i)
+                        if ds and ds['alias'] == right_ds['alias']:
+                            join_widget.right_datasource_combo.setCurrentIndex(i)
+                            break
             
             # Restore ON conditions
             on_conditions = join_config.get('on_conditions', [])
             
             # First condition already exists, restore it
             if len(on_conditions) > 0 and len(join_widget.on_condition_rows) > 0:
-                self._restore_on_condition(join_widget.on_condition_rows[0], on_conditions[0])
+                self._restore_on_condition(join_widget.on_condition_rows[0], on_conditions[0], join_widget)
             
             # Add additional conditions
             for i in range(1, len(on_conditions)):
                 join_widget._add_on_condition_row()
                 if i < len(join_widget.on_condition_rows):
-                    self._restore_on_condition(join_widget.on_condition_rows[i], on_conditions[i])
+                    self._restore_on_condition(join_widget.on_condition_rows[i], on_conditions[i], join_widget)
             
         except Exception as e:
             logger.error(f"Error restoring join config: {e}", exc_info=True)
     
-    def _restore_on_condition(self, row_data: dict, condition: dict):
+    def _restore_on_condition(self, row_data: dict, condition: dict, join_widget: 'XDBJoinWidget'):
         """Restore a single ON condition row"""
         try:
-            # Set left datasource
-            left_ds_alias = condition.get('left_datasource')
-            if left_ds_alias:
-                for i in range(row_data['left_datasource_combo'].count()):
-                    ds = row_data['left_datasource_combo'].itemData(i)
-                    if ds and ds['alias'] == left_ds_alias:
-                        row_data['left_datasource_combo'].setCurrentIndex(i)
-                        break
+            # Helper to find datasource by connection_id + table_name or alias
+            def find_datasource_index(combo, conn_id, table_name, alias):
+                # First try connection_id + table_name (more reliable)
+                if conn_id and table_name:
+                    for i in range(combo.count()):
+                        ds = combo.itemData(i)
+                        if ds:
+                            ds_conn_id = ds['connection']['connection_id']
+                            ds_table = ds['table_name']
+                            if ds_conn_id == conn_id and ds_table == table_name:
+                                return i
+                
+                # Fallback to alias matching
+                if alias:
+                    for i in range(combo.count()):
+                        ds = combo.itemData(i)
+                        if ds and ds['alias'] == alias:
+                            return i
+                
+                return -1
             
-            # Set left field
+            # Set left datasource and trigger field loading
+            left_conn_id = condition.get('left_connection_id')
+            left_table = condition.get('left_table_name')
+            left_alias = condition.get('left_datasource')
+            
+            left_idx = find_datasource_index(
+                row_data['left_datasource_combo'],
+                left_conn_id, left_table, left_alias
+            )
+            if left_idx >= 0:
+                row_data['left_datasource_combo'].setCurrentIndex(left_idx)
+                # Manually trigger field loading
+                join_widget._update_left_fields(
+                    row_data['left_datasource_combo'],
+                    row_data['left_field_combo']
+                )
+            
+            # Set left field (after fields are loaded)
             left_field = condition.get('left_field')
             if left_field:
                 index = row_data['left_field_combo'].findText(left_field)
                 if index >= 0:
                     row_data['left_field_combo'].setCurrentIndex(index)
             
-            # Set right datasource
-            right_ds_alias = condition.get('right_datasource')
-            if right_ds_alias:
-                for i in range(row_data['right_datasource_combo'].count()):
-                    ds = row_data['right_datasource_combo'].itemData(i)
-                    if ds and ds['alias'] == right_ds_alias:
-                        row_data['right_datasource_combo'].setCurrentIndex(i)
-                        break
+            # Set right datasource and trigger field loading
+            right_conn_id = condition.get('right_connection_id')
+            right_table = condition.get('right_table_name')
+            right_alias = condition.get('right_datasource')
             
-            # Set right field
+            right_idx = find_datasource_index(
+                row_data['right_datasource_combo'],
+                right_conn_id, right_table, right_alias
+            )
+            if right_idx >= 0:
+                row_data['right_datasource_combo'].setCurrentIndex(right_idx)
+                # Manually trigger field loading
+                join_widget._update_right_fields(
+                    row_data['right_datasource_combo'],
+                    row_data['right_field_combo']
+                )
+            
+            # Set right field (after fields are loaded)
             right_field = condition.get('right_field')
             if right_field:
                 index = row_data['right_field_combo'].findText(right_field)
@@ -673,6 +904,7 @@ class XDBQueryScreen(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         self.display_fields.clear()
+        self.display_widgets.clear()  # Clear widget tracking
         
         # Clear criteria widgets
         while self.criteria_layout.count() > 0:
@@ -690,6 +922,10 @@ class XDBQueryScreen(QWidget):
         # Clear datasources
         self.datasources.clear()
         self._update_datasources_label()
+        
+        # Clear tables tree
+        self.tables_tree.clear()
+        self._update_tables_count()
         
         # Reset query name
         self.query_name_label.setText("unnamed")
@@ -1024,6 +1260,10 @@ class XDBQueryScreen(QWidget):
         schema_name = item.data(0, Qt.ItemDataRole.UserRole + 1)
         connection_id = item.data(0, Qt.ItemDataRole.UserRole + 2)
         
+        # Track current table for field highlighting
+        self.current_table_name = table_name
+        self.current_schema_name = schema_name
+        
         try:
             self.fields_tree.clear()
             cols = self.schema_discovery.get_columns(connection_id, table_name, schema_name)
@@ -1037,6 +1277,9 @@ class XDBQueryScreen(QWidget):
                 field_item.setData(0, Qt.ItemDataRole.UserRole + 3, table_name)
                 field_item.setData(0, Qt.ItemDataRole.UserRole + 4, schema_name)
                 self.fields_tree.addTopLevelItem(field_item)
+            
+            # Update field indicators based on current tab
+            self._update_field_indicators()
             
             logger.info(f"Loaded {len(cols)} fields for table {table_name}")
         except Exception as e:
@@ -1091,6 +1334,57 @@ class XDBQueryScreen(QWidget):
             self.add_criteria_filter(field_data)
         # Datasources tab doesn't support adding fields this way
 
+    def _on_tab_changed(self, index: int):
+        """Handle tab change to update field indicators"""
+        self._update_field_indicators()
+
+    def _update_field_indicators(self):
+        """Update green dot indicators next to fields based on current tab"""
+        # Get current tab index (0=Display, 1=Criteria, 2=Datasources)
+        current_tab = self.xdb_tabs.currentIndex()
+        
+        # Determine which fields to highlight based on current table
+        if current_tab == 0:  # Display tab
+            fields_in_use = {
+                (f['field_name'], f['table_name']) 
+                for f in self.display_fields
+                if f.get('table_name') == self.current_table_name
+            }
+        elif current_tab == 1:  # Criteria tab
+            fields_in_use = {
+                (w.field_data['field_name'], w.field_data['table_name']) 
+                for w in self.criteria_widgets
+                if w.field_data.get('table_name') == self.current_table_name
+            }
+        else:  # Datasources tab or other
+            fields_in_use = set()
+        
+        # Update indicators for all fields in the fields tree
+        for i in range(self.fields_tree.topLevelItemCount()):
+            item = self.fields_tree.topLevelItem(i)
+            field_name = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            field_type = item.data(0, Qt.ItemDataRole.UserRole + 2)
+            table_name = item.data(0, Qt.ItemDataRole.UserRole + 3)
+            
+            # Base display name (without indicator)
+            base_name = f"{field_name} ({field_type})"
+            
+            # Check if this field is in use for the current tab
+            if (field_name, table_name) in fields_in_use:
+                # Add green dot indicator
+                item.setText(0, f"🟢 {base_name}")
+                # Make it bold
+                font = item.font(0)
+                font.setBold(True)
+                item.setFont(0, font)
+            else:
+                # No indicator
+                item.setText(0, base_name)
+                # Regular font
+                font = item.font(0)
+                font.setBold(False)
+                item.setFont(0, font)
+
     def add_display_field(self, field_data: dict):
         """Add a field to display tab"""
         # Create display field widget
@@ -1100,9 +1394,13 @@ class XDBQueryScreen(QWidget):
         # Add to the end (bottom) of the layout
         self.display_layout.addWidget(display_widget)
         self.display_fields.append(field_data)
+        self.display_widgets.append(display_widget)  # Track widget for drag-drop
         
         # Update datasources tab (automatically adds datasource if needed)
         self._update_datasources_from_fields()
+        
+        # Update field indicators
+        self._update_field_indicators()
 
         logger.info(f"Added display field: {field_data['field_name']}")
 
@@ -1123,12 +1421,19 @@ class XDBQueryScreen(QWidget):
                 self.display_fields.remove(field_to_remove)
                 logger.info(f"Removed display field: {field_to_remove.get('field_name')}")
 
+            # Remove from widget tracking
+            if widget in self.display_widgets:
+                self.display_widgets.remove(widget)
+
             # Remove widget
             self.display_layout.removeWidget(widget)
             widget.deleteLater()
             
             # Update datasources tab (removes datasources no longer in use)
             self._update_datasources_from_fields()
+            
+            # Update field indicators
+            self._update_field_indicators()
             
         except Exception as e:
             logger.error(f"Error removing display field: {e}", exc_info=True)
@@ -1145,6 +1450,9 @@ class XDBQueryScreen(QWidget):
         
         # Update datasources tab (automatically adds datasource if needed)
         self._update_datasources_from_fields()
+        
+        # Update field indicators
+        self._update_field_indicators()
 
         logger.info(f"Added criteria filter for {field_data['field_name']}")
 
@@ -1159,6 +1467,9 @@ class XDBQueryScreen(QWidget):
             
             # Update datasources tab (removes datasources no longer in use)
             self._update_datasources_from_fields()
+            
+            # Update field indicators
+            self._update_field_indicators()
             
             logger.info("Removed criteria filter")
             
@@ -1175,7 +1486,7 @@ class XDBQueryScreen(QWidget):
         
         # From display fields
         for field_data in self.display_fields:
-            if 'datasource_alias' in field_data:
+            if 'datasource_alias' in field_data and 'connection' in field_data:
                 alias = field_data['datasource_alias']
                 if alias not in datasources_in_use:
                     datasources_in_use[alias] = {
@@ -1188,7 +1499,7 @@ class XDBQueryScreen(QWidget):
         # From criteria widgets
         for widget in self.criteria_widgets:
             field_data = widget.field_data
-            if 'datasource_alias' in field_data:
+            if 'datasource_alias' in field_data and 'connection' in field_data:
                 alias = field_data['datasource_alias']
                 if alias not in datasources_in_use:
                     datasources_in_use[alias] = {
@@ -1198,8 +1509,10 @@ class XDBQueryScreen(QWidget):
                         'schema_name': field_data.get('schema_name')
                     }
         
-        # Update self.datasources to match what's in use
-        self.datasources = list(datasources_in_use.values())
+        # Only update if we have valid datasources with connections
+        # (Don't clobber existing datasources if fields lack connection info)
+        if datasources_in_use:
+            self.datasources = list(datasources_in_use.values())
         
         # Update UI
         self._update_datasources_label()
@@ -1217,10 +1530,28 @@ class XDBQueryScreen(QWidget):
                 return ds['alias']
         
         # Datasource doesn't exist - create a new one with auto-generated alias
-        # Use connection name as base for alias (e.g., "DeArb_Data", "TALCESS_Test")
-        base_alias = connection['connection_name'].replace(' ', '_').replace('-', '_')
+        # Use combination of connection name + table name for clarity in cross-DB queries
+        import re
         
-        # If alias already exists, append a number
+        # Sanitize connection name
+        conn_part = connection['connection_name']
+        conn_part = re.sub(r'[^a-zA-Z0-9]', '_', conn_part)
+        conn_part = re.sub(r'_+', '_', conn_part).strip('_')
+        
+        # Sanitize table name
+        table_part = table_name
+        table_part = re.sub(r'[^a-zA-Z0-9]', '_', table_part)
+        table_part = re.sub(r'_+', '_', table_part).strip('_')
+        
+        # Combine: ConnectionName__TableName (double underscore separator)
+        # e.g., VRD_Prod_SQL__CENSUS_ADV, UL_Rates__TAICession
+        base_alias = f"{conn_part}__{table_part}" if conn_part and table_part else (conn_part or table_part or 'datasource')
+        
+        # Ensure it doesn't start with a number
+        if base_alias and base_alias[0].isdigit():
+            base_alias = 'ds_' + base_alias
+        
+        # If alias already exists (unlikely but possible), append number
         alias = base_alias
         counter = 1
         while any(ds['alias'] == alias for ds in self.datasources):
@@ -1366,6 +1697,18 @@ class XDBQueryScreen(QWidget):
             for ds in self.datasources:
                 display_name = f"{ds['alias']}.{ds['table_name']}"
                 self.from_datasource_combo.addItem(display_name)
+        
+        # Update all existing join widgets with new datasource list
+        self._update_join_widgets_datasources()
+    
+    def _update_join_widgets_datasources(self):
+        """Update all join widgets when datasources change"""
+        for i in range(self.joins_layout.count()):
+            item = self.joins_layout.itemAt(i)
+            if item and item.widget():
+                join_widget = item.widget()
+                if hasattr(join_widget, 'update_datasources'):
+                    join_widget.update_datasources(self.datasources)
     
     def _preview_query(self):
         """Execute cross-query with LIMIT 1000 for preview"""
@@ -1376,7 +1719,7 @@ class XDBQueryScreen(QWidget):
         self._execute_xdb_query(limit=None)
     
     def _execute_xdb_query(self, limit: Optional[int]):
-        """Build and execute the XDB query"""
+        """Build and execute the XDB query using the hybrid engine"""
         try:
             # Validate we have at least 1 datasource
             if len(self.datasources) < 1:
@@ -1401,7 +1744,10 @@ class XDBQueryScreen(QWidget):
             
             for widget in self.criteria_widgets:
                 filter_condition = widget.get_filter_condition()
-                if filter_condition:
+                # Only include filters with values AND valid operators (not None)
+                if (filter_condition and 
+                    filter_condition.get('value') and 
+                    filter_condition.get('operator') is not None):
                     datasource_alias = widget.field_data.get('datasource_alias', '')
                     
                     if datasource_alias:
@@ -1419,11 +1765,9 @@ class XDBQueryScreen(QWidget):
             logger.info(f"Display columns by datasource: {datasource_columns}")
             logger.info(f"Filters by datasource: {datasource_filters}")
             
-            # Handle any number of datasources (1 or more)
             # Build list of all source configs
             source_configs = []
             for ds in self.datasources:
-                # Use explicit columns for this datasource if provided; otherwise, pass empty list
                 ds_alias = ds['alias']
                 ds_columns = datasource_columns.get(ds_alias, [])
                 source_config = {
@@ -1436,29 +1780,77 @@ class XDBQueryScreen(QWidget):
                 }
                 source_configs.append(source_config)
             
-            # Extract join configs from Joins tab (empty list if no joins)
+            # Extract join configs from Joins tab
             join_configs = []
             for i in range(self.joins_layout.count()):
                 join_widget = self.joins_layout.itemAt(i).widget()
                 if join_widget and hasattr(join_widget, 'get_join_config'):
                     join_config = join_widget.get_join_config()
-                    if join_config:
+                    if join_config and join_config.get('on_conditions'):
                         join_configs.append(join_config)
+            
+            # Validate joins if multiple datasources
+            if len(source_configs) > 1 and not join_configs:
+                QMessageBox.warning(
+                    self, 
+                    "Missing Joins", 
+                    "You have multiple datasources but no joins defined.\n\n"
+                    "Please add at least one join in the Datasources tab to connect your tables."
+                )
+                return
             
             logger.info(f"Executing XDB query with {len(source_configs)} datasource(s)")
             logger.info(f"Join configs: {join_configs}")
             
-            # Execute using XDB executor (handles N datasources flexibly)
-            result_df = self.xdb_executor.execute_query(source_configs, join_configs, limit)
+            # Show progress
+            from PyQt6.QtWidgets import QApplication
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             
-            # Show results
-            self._show_results(result_df, limit)
+            try:
+                # Execute using XDB executor
+                result_df = self.xdb_executor.execute_query(source_configs, join_configs, limit)
+                
+                # Get execution plan summary if available
+                plan_summary = ""
+                if hasattr(self.xdb_executor, 'get_execution_plan_summary'):
+                    plan_summary = self.xdb_executor.get_execution_plan_summary()
+                
+                # Update Query Statement tab with formatted SQL
+                if hasattr(self.xdb_executor, 'get_formatted_sql'):
+                    formatted_sql = self.xdb_executor.get_formatted_sql()
+                    self.query_statement_text.setPlainText(formatted_sql)
+                    # Switch to Query Statement tab to show the SQL
+                    for i in range(self.xdb_tabs.count()):
+                        if self.xdb_tabs.tabText(i) == "Query Statement":
+                            self.xdb_tabs.setCurrentIndex(i)
+                            break
+                
+                # Show results with plan info
+                self._show_results(result_df, limit, plan_summary)
+                
+            finally:
+                QApplication.restoreOverrideCursor()
             
         except Exception as e:
             logger.error(f"XDB query failed: {e}", exc_info=True)
+            
+            # Still try to show any SQL that was captured before the error
+            if hasattr(self, 'xdb_executor') and hasattr(self.xdb_executor, 'get_formatted_sql'):
+                try:
+                    formatted_sql = self.xdb_executor.get_formatted_sql()
+                    error_msg = f"ERROR: {str(e)}\n\n{'='*70}\n\n{formatted_sql}"
+                    self.query_statement_text.setPlainText(error_msg)
+                    # Switch to Query Statement tab to show the SQL with error
+                    for i in range(self.xdb_tabs.count()):
+                        if self.xdb_tabs.tabText(i) == "Query Statement":
+                            self.xdb_tabs.setCurrentIndex(i)
+                            break
+                except Exception:
+                    pass
+            
             QMessageBox.critical(self, "Query Error", f"Failed to execute cross-database query:\n\n{str(e)}")
     
-    def _show_results(self, df, limit: Optional[int]):
+    def _show_results(self, df, limit: Optional[int], plan_summary: str = ""):
         """Display query results in a dialog"""
         # Convert DataFrame to dict format expected by QueryResultsDialog
         result = {
@@ -1471,9 +1863,17 @@ class XDBQueryScreen(QWidget):
         if limit:
             title += f" - Preview Limited to {limit}"
         
-        dialog = QueryResultsDialog(result, query_text="Cross-Database Query", parent=self)
+        # Build query text with execution plan
+        query_text = "Cross-Database Query"
+        if plan_summary:
+            query_text = plan_summary
+        
+        # QueryResultsDialog expects (df, sql, execution_time_ms)
+        # For XDB queries, we pass the plan summary as the SQL text
+        execution_time_ms = 0  # Could extract from plan if available
+        dialog = QueryResultsDialog(df, query_text, execution_time_ms, parent=self)
         dialog.setWindowTitle(title)
-        dialog.exec()
+        dialog.show()  # Modeless - allows interaction with main app
     
     def _export_results(self):
         """Export last query results to file"""
@@ -1620,6 +2020,7 @@ class XDBDisplayFieldWidget(QFrame):
     def __init__(self, field_data: dict, parent=None):
         super().__init__(parent)
         self.field_data = field_data
+        self.setAcceptDrops(True)  # Enable drop
         self.init_ui()
 
     def init_ui(self):
@@ -1632,7 +2033,7 @@ class XDBDisplayFieldWidget(QFrame):
         
         self.setStyleSheet(f"""
             XDBDisplayFieldWidget {{
-                border: 1px solid #ddd;
+                border: 2px solid #27ae60;
                 border-radius: 4px;
                 background: {self.default_bg};
                 padding: 0px;
@@ -1782,7 +2183,7 @@ class XDBDisplayFieldWidget(QFrame):
             # Apply light orange background when aggregated
             self.setStyleSheet(f"""
                 XDBDisplayFieldWidget {{
-                    border: 1px solid #ddd;
+                    border: 2px solid #27ae60;
                     border-radius: 4px;
                     background: {self.aggregated_bg};
                     padding: 0px;
@@ -1792,16 +2193,120 @@ class XDBDisplayFieldWidget(QFrame):
             # Restore white background
             self.setStyleSheet(f"""
                 XDBDisplayFieldWidget {{
-                    border: 1px solid #ddd;
+                    border: 2px solid #27ae60;
                     border-radius: 4px;
                     background: {self.default_bg};
                     padding: 0px;
                 }}
             """)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press for drag start"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_position = event.pos()
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move to initiate drag"""
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if not hasattr(self, 'drag_start_position'):
+            return
+        if (event.pos() - self.drag_start_position).manhattanLength() < 10:
+            return
+        
+        # Find the XDBQueryScreen parent
+        parent = self.parent()
+        while parent and not hasattr(parent, 'display_widgets'):
+            parent = parent.parent()
+        
+        if not parent:
+            return
+        
+        # Create drag object
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        
+        # Store the index of this widget
+        try:
+            index = parent.display_widgets.index(self)
+            mime_data.setText(f"display_widget:{index}")
+            drag.setMimeData(mime_data)
+            drag.exec(Qt.DropAction.MoveAction)
+        except ValueError:
+            pass
+    
+    def dragEnterEvent(self, event):
+        """Handle drag enter"""
+        if event.mimeData().hasText():
+            text = event.mimeData().text()
+            if text.startswith("display_widget:"):
+                event.acceptProposedAction()
+                self.setStyleSheet(f"""
+                    XDBDisplayFieldWidget {{
+                        border: 2px solid #3498db;
+                        border-radius: 4px;
+                        background: #e8f4fc;
+                        padding: 0px;
+                    }}
+                """)
+    
+    def dragLeaveEvent(self, event):
+        """Handle drag leave"""
+        # Restore normal styling
+        agg = self.agg_combo.currentText() if hasattr(self, 'agg_combo') else "None"
+        bg = self.aggregated_bg if agg != "None" else self.default_bg
+        self.setStyleSheet(f"""
+            XDBDisplayFieldWidget {{
+                border: 2px solid #27ae60;
+                border-radius: 4px;
+                background: {bg};
+                padding: 0px;
+            }}
+        """)
+    
+    def dropEvent(self, event):
+        """Handle drop to reorder widgets"""
+        text = event.mimeData().text()
+        if not text.startswith("display_widget:"):
+            return
+        
+        source_index = int(text.split(":")[1])
+        
+        # Find parent with display_widgets
+        parent = self.parent()
+        while parent and not hasattr(parent, 'display_widgets'):
+            parent = parent.parent()
+        
+        if not parent:
+            return
+        
+        try:
+            target_index = parent.display_widgets.index(self)
+        except ValueError:
+            return
+        
+        if source_index == target_index:
+            # Restore styling
+            self.dragLeaveEvent(event)
+            return
+        
+        # Reorder in the list
+        widget = parent.display_widgets.pop(source_index)
+        parent.display_widgets.insert(target_index, widget)
+        
+        # Reorder in the layout
+        layout = parent.display_layout
+        layout.takeAt(source_index)
+        layout.insertWidget(target_index, widget)
+        
+        # Restore styling
+        self.dragLeaveEvent(event)
+        event.acceptProposedAction()
 
 
 class XDBCriteriaFilterWidget(QFrame):
-    """Widget for a single filter criterion in XDB queries"""
+    """Widget for a single filter criterion in XDB queries - matches DB Query style"""
 
     remove_requested = pyqtSignal()
 
@@ -1809,114 +2314,950 @@ class XDBCriteriaFilterWidget(QFrame):
         super().__init__(parent)
         self.field_data = field_data
         self.parent_screen = parent
+        self.unique_values = None
+        self.selected_values = []
+        self.setAcceptDrops(True)  # Enable drop
+        # Enable right-click context menu on the whole widget
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_field_context_menu)
         self.init_ui()
+        # Try to load cached unique values after UI is built
+        self._load_cached_unique_values()
+
+    def _load_cached_unique_values(self):
+        """Try to load cached unique values for this field from My Data"""
+        try:
+            # Find the parent screen to get connection info
+            parent = self.parent_screen
+            if not parent:
+                parent = self.parent()
+                while parent and not hasattr(parent, 'datasources'):
+                    parent = parent.parent()
+            
+            if not parent:
+                return
+            
+            # Find the datasource for this field
+            datasource_alias = self.field_data.get('datasource_alias', '')
+            table_name = self.field_data['table_name']
+            field_name = self.field_data['field_name']
+            
+            # Find matching datasource
+            datasource = None
+            for ds in parent.datasources:
+                if ds.get('alias') == datasource_alias or ds.get('table_name') == table_name:
+                    datasource = ds
+                    break
+            
+            if not datasource:
+                return
+            
+            connection = datasource.get('connection')
+            if not connection:
+                return
+            
+            connection_id = connection.get('connection_id')
+            schema_name = datasource.get('schema_name', '')
+            
+            # Try to load from metadata cache
+            from suiteview.data.repositories import MetadataCacheRepository
+            metadata_repo = MetadataCacheRepository()
+            
+            metadata_id = metadata_repo.get_or_create_metadata(
+                connection_id,
+                table_name,
+                schema_name or ''
+            )
+            
+            cached_unique = metadata_repo.get_cached_unique_values(
+                metadata_id,
+                field_name
+            )
+            
+            if cached_unique and cached_unique.get('unique_values'):
+                self.unique_values = cached_unique['unique_values']
+                self.selected_values = self.unique_values[:]  # Select all by default
+                
+                # Show and update the list button
+                if hasattr(self, 'list_button') and self.list_button:
+                    self.list_button.setVisible(True)
+                    self._update_list_button_style()
+                    logger.info(f"Loaded {len(self.unique_values)} cached unique values for {field_name}")
+                    
+        except Exception as e:
+            logger.debug(f"Could not load cached unique values: {e}")
 
     def init_ui(self):
-        """Initialize UI"""
+        """Initialize UI - compact card style matching DB Query"""
         self.setFrameStyle(QFrame.Shape.Box)
         self.setStyleSheet("""
             XDBCriteriaFilterWidget {
-                border: 1px solid #ddd;
-                border-radius: 4px;
+                border: 2px solid #e67e22;
+                border-radius: 6px;
                 background: white;
-                padding: 5px;
             }
         """)
         
-        # Prevent widget from expanding horizontally
-        self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
-        self.setMaximumHeight(95)
+        # Fixed width for tile layout - match DisplayFieldWidget width
+        self.setFixedWidth(200)
+        self.setMinimumHeight(100)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
-        main_layout = QHBoxLayout(self)
-        main_layout.setSpacing(5)
-        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(2)
+        main_layout.setContentsMargins(4, 4, 4, 4)
 
-        # Field name label container (two lines: field name on top, table name below)
-        label_container = QWidget()
-        label_container.setStyleSheet("background: transparent;")
-        label_layout = QVBoxLayout(label_container)
-        label_layout.setSpacing(0)
-        label_layout.setContentsMargins(0, 0, 0, 0)
+        # Header row: Field name and remove button
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(4)
+        header_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Field name (bold, on top)
+        # Field name (bold, prominent) with right-click support
         self.field_label = QLabel(self.field_data['field_name'])
-        self.field_label.setStyleSheet("font-weight: bold; font-size: 11px; background: transparent;")
-        label_layout.addWidget(self.field_label)
+        self.field_label.setStyleSheet("font-weight: bold; font-size: 11px; color: #2c3e50; background: transparent;")
+        self.field_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.field_label.customContextMenuRequested.connect(self._show_field_context_menu)
+        header_layout.addWidget(self.field_label)
         
-        # Table name in "Datasource.TableName" format (smaller, gray, below)
+        header_layout.addStretch()
+
+        # Remove button with X (subtle)
+        remove_btn = QPushButton("×")
+        remove_btn.setFixedSize(14, 14)
+        remove_btn.setToolTip("Remove this filter")
+        remove_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #999;
+                border: none;
+                font-size: 16px;
+                font-weight: normal;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                color: #e74c3c;
+            }
+        """)
+        remove_btn.clicked.connect(self.remove_requested.emit)
+        header_layout.addWidget(remove_btn)
+        
+        main_layout.addLayout(header_layout)
+        
+        # Table name and type row (compact info)
+        info_layout = QHBoxLayout()
+        info_layout.setSpacing(6)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Table name in "Datasource.TableName" format
         datasource_alias = self.field_data.get('datasource_alias', '')
         table_name = self.field_data['table_name']
         if datasource_alias:
-            display_table = f"{datasource_alias}.{table_name}"
+            display_table = f"📋 {datasource_alias}.{table_name}"
         else:
-            display_table = table_name
+            display_table = f"📋 {table_name}"
         
         table_label = QLabel(display_table)
         table_label.setStyleSheet("color: #7f8c8d; font-size: 9px; background: transparent;")
-        label_layout.addWidget(table_label)
+        info_layout.addWidget(table_label)
         
-        label_container.setMinimumWidth(150)
-        label_container.setMaximumWidth(200)
-        main_layout.addWidget(label_container)
-
-        # Type label (smaller)
         type_label = QLabel(f"({self.field_data['data_type']})")
-        type_label.setStyleSheet("color: #7f8c8d; font-size: 9px; background: transparent;")
-        type_label.setMaximumWidth(80)
-        main_layout.addWidget(type_label)
+        type_label.setStyleSheet("color: #95a5a6; font-size: 9px; background: transparent;")
+        info_layout.addWidget(type_label)
+        
+        info_layout.addStretch()
+        main_layout.addLayout(info_layout)
+        
+        # Separator line
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #ecf0f1; max-height: 1px;")
+        main_layout.addWidget(separator)
 
         # Filter controls container
         self.controls_container = QWidget()
         self.controls_container.setStyleSheet("background: transparent;")
-        self.controls_layout = QHBoxLayout(self.controls_container)
-        self.controls_layout.setContentsMargins(0, 0, 0, 0)
-        self.controls_layout.setSpacing(5)
+        self.controls_layout = QVBoxLayout(self.controls_container)
+        self.controls_layout.setContentsMargins(0, 2, 0, 0)
+        self.controls_layout.setSpacing(3)
         main_layout.addWidget(self.controls_container)
 
-        # Add basic filter controls (operator and value)
-        self.operator_combo = QComboBox()
-        self.operator_combo.addItems(["=", "!=", ">", "<", ">=", "<=", "LIKE", "IN"])
-        self.operator_combo.setMaximumWidth(80)
-        self.operator_combo.setStyleSheet("background: white;")
-        self.controls_layout.addWidget(self.operator_combo)
+        # Add filter controls
+        self._add_filter_controls()
 
-        self.value_input = QLineEdit()
-        self.value_input.setPlaceholderText("Value...")
-        self.value_input.setMaximumWidth(150)
-        self.value_input.setStyleSheet("background: white;")
-        self.controls_layout.addWidget(self.value_input)
+    def _add_filter_controls(self):
+        """Add type-specific filter controls"""
+        data_type = self.field_data['data_type'].upper()
 
-        # Add stretch to push remove button to the right
-        main_layout.addStretch()
+        # Determine field type
+        is_string = any(t in data_type for t in ['CHAR', 'VARCHAR', 'TEXT', 'STRING'])
+        is_numeric = any(t in data_type for t in ['INT', 'DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE', 'REAL', 'NUMBER'])
+        is_date = any(t in data_type for t in ['DATE', 'TIME', 'TIMESTAMP'])
 
-        # Remove button with white X, right-justified
-        remove_btn = QPushButton("X")
-        remove_btn.setFixedSize(25, 25)
-        remove_btn.setStyleSheet("""
-            QPushButton {
-                background: #e74c3c;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 0px;
-            }
-            QPushButton:hover {
-                background: #c0392b;
+        if is_string:
+            self._add_string_filter()
+        elif is_numeric:
+            self._add_numeric_filter()
+        elif is_date:
+            self._add_date_filter()
+        else:
+            self._add_string_filter()  # Default to string-like filter
+
+    def _add_string_filter(self):
+        """Add string filter controls"""
+        # First row: Match type dropdown with list button
+        combo_row = QHBoxLayout()
+        combo_row.setSpacing(4)
+        combo_row.setContentsMargins(0, 0, 0, 0)
+        
+        # Match type dropdown
+        self.match_type_combo = QComboBox()
+        self.match_type_combo.addItems(["None", "Exact", "Starts", "Ends", "Contains", "Expression"])
+        self.match_type_combo.setCurrentText("Exact")
+        self.match_type_combo.setMinimumWidth(80)
+        self.match_type_combo.setMaximumWidth(90)
+        self.match_type_combo.setMaximumHeight(22)
+        self.match_type_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: white;
             }
         """)
-        remove_btn.clicked.connect(self.remove_requested.emit)
-        main_layout.addWidget(remove_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        combo_row.addWidget(self.match_type_combo)
+        
+        # List button (hidden until unique values are loaded)
+        self.list_button = QPushButton("☰")
+        self.list_button.setFixedSize(20, 20)
+        self.list_button.setToolTip("Select Values (right-click field name to fetch)")
+        self.list_button.setVisible(False)  # Hidden until values are loaded
+        self.list_button.setStyleSheet("""
+            QPushButton {
+                background: white;
+                color: #e67e22;
+                border: 2px solid #e67e22;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #fef5e7;
+            }
+        """)
+        self.list_button.clicked.connect(self._open_value_selection_popup)
+        combo_row.addWidget(self.list_button)
+        
+        combo_row.addStretch()
+        
+        combo_widget = QWidget()
+        combo_widget.setStyleSheet("background: transparent;")
+        combo_widget.setLayout(combo_row)
+        self.controls_layout.addWidget(combo_widget)
+
+        # Second row: Text input with custom criteria button
+        input_row = QHBoxLayout()
+        input_row.setSpacing(4)
+        input_row.setContentsMargins(0, 0, 0, 0)
+        
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("Enter text...")
+        self.filter_input.setMinimumWidth(120)
+        self.filter_input.setMaximumWidth(160)
+        self.filter_input.setMaximumHeight(22)
+        self.filter_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: white;
+            }
+        """)
+        input_row.addWidget(self.filter_input)
+        
+        # Custom criteria button (pen icon)
+        self.custom_criteria_button = QPushButton("✏")
+        self.custom_criteria_button.setFixedSize(20, 20)
+        self.custom_criteria_button.setToolTip("Open larger editor")
+        self.custom_criteria_button.setStyleSheet("""
+            QPushButton {
+                background: white;
+                color: #e67e22;
+                border: 2px solid #e67e22;
+                border-radius: 3px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background: #fef5e7;
+            }
+        """)
+        self.custom_criteria_button.clicked.connect(self._open_custom_criteria_dialog)
+        input_row.addWidget(self.custom_criteria_button)
+        
+        input_widget = QWidget()
+        input_widget.setStyleSheet("background: transparent;")
+        input_widget.setLayout(input_row)
+        self.controls_layout.addWidget(input_widget)
+
+    def _add_numeric_filter(self):
+        """Add numeric filter controls"""
+        # First row: Operator dropdown
+        combo_row = QHBoxLayout()
+        combo_row.setSpacing(4)
+        combo_row.setContentsMargins(0, 0, 0, 0)
+        
+        self.match_type_combo = QComboBox()
+        self.match_type_combo.addItems(["None", "=", "!=", ">", "<", ">=", "<=", "Between"])
+        self.match_type_combo.setCurrentText("=")
+        self.match_type_combo.setMinimumWidth(80)
+        self.match_type_combo.setMaximumWidth(90)
+        self.match_type_combo.setMaximumHeight(22)
+        self.match_type_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: white;
+            }
+        """)
+        combo_row.addWidget(self.match_type_combo)
+        
+        # List button (hidden until unique values are loaded)
+        self.list_button = QPushButton("☰")
+        self.list_button.setFixedSize(20, 20)
+        self.list_button.setToolTip("Select Values (right-click field name to fetch)")
+        self.list_button.setVisible(False)  # Hidden until values are loaded
+        self.list_button.setStyleSheet("""
+            QPushButton {
+                background: white;
+                color: #e67e22;
+                border: 2px solid #e67e22;
+                border-radius: 3px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #fef5e7;
+            }
+        """)
+        self.list_button.clicked.connect(self._open_value_selection_popup)
+        combo_row.addWidget(self.list_button)
+        
+        combo_row.addStretch()
+        
+        combo_widget = QWidget()
+        combo_widget.setStyleSheet("background: transparent;")
+        combo_widget.setLayout(combo_row)
+        self.controls_layout.addWidget(combo_widget)
+
+        # Second row: Value input
+        input_row = QHBoxLayout()
+        input_row.setSpacing(4)
+        input_row.setContentsMargins(0, 0, 0, 0)
+        
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("Enter value...")
+        self.filter_input.setMinimumWidth(120)
+        self.filter_input.setMaximumWidth(160)
+        self.filter_input.setMaximumHeight(22)
+        self.filter_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: white;
+            }
+        """)
+        input_row.addWidget(self.filter_input)
+        
+        self.custom_criteria_button = QPushButton("✏")
+        self.custom_criteria_button.setFixedSize(20, 20)
+        self.custom_criteria_button.setToolTip("Open larger editor")
+        self.custom_criteria_button.setStyleSheet("""
+            QPushButton {
+                background: white;
+                color: #e67e22;
+                border: 2px solid #e67e22;
+                border-radius: 3px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background: #fef5e7;
+            }
+        """)
+        self.custom_criteria_button.clicked.connect(self._open_custom_criteria_dialog)
+        input_row.addWidget(self.custom_criteria_button)
+        
+        input_widget = QWidget()
+        input_widget.setStyleSheet("background: transparent;")
+        input_widget.setLayout(input_row)
+        self.controls_layout.addWidget(input_widget)
+
+    def _add_date_filter(self):
+        """Add date filter controls"""
+        # First row: Operator dropdown
+        combo_row = QHBoxLayout()
+        combo_row.setSpacing(4)
+        combo_row.setContentsMargins(0, 0, 0, 0)
+        
+        self.match_type_combo = QComboBox()
+        self.match_type_combo.addItems(["None", "=", "!=", ">", "<", ">=", "<=", "Between"])
+        self.match_type_combo.setCurrentText("=")
+        self.match_type_combo.setMinimumWidth(80)
+        self.match_type_combo.setMaximumWidth(90)
+        self.match_type_combo.setMaximumHeight(22)
+        self.match_type_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: white;
+            }
+        """)
+        combo_row.addWidget(self.match_type_combo)
+        
+        combo_row.addStretch()
+        
+        combo_widget = QWidget()
+        combo_widget.setStyleSheet("background: transparent;")
+        combo_widget.setLayout(combo_row)
+        self.controls_layout.addWidget(combo_widget)
+
+        # Second row: Date input
+        input_row = QHBoxLayout()
+        input_row.setSpacing(4)
+        input_row.setContentsMargins(0, 0, 0, 0)
+        
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("YYYY-MM-DD...")
+        self.filter_input.setMinimumWidth(120)
+        self.filter_input.setMaximumWidth(160)
+        self.filter_input.setMaximumHeight(22)
+        self.filter_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: white;
+            }
+        """)
+        input_row.addWidget(self.filter_input)
+        
+        self.custom_criteria_button = QPushButton("✏")
+        self.custom_criteria_button.setFixedSize(20, 20)
+        self.custom_criteria_button.setToolTip("Open larger editor")
+        self.custom_criteria_button.setStyleSheet("""
+            QPushButton {
+                background: white;
+                color: #e67e22;
+                border: 2px solid #e67e22;
+                border-radius: 3px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background: #fef5e7;
+            }
+        """)
+        self.custom_criteria_button.clicked.connect(self._open_custom_criteria_dialog)
+        input_row.addWidget(self.custom_criteria_button)
+        
+        input_widget = QWidget()
+        input_widget.setStyleSheet("background: transparent;")
+        input_widget.setLayout(input_row)
+        self.controls_layout.addWidget(input_widget)
+
+    def _show_field_context_menu(self, pos):
+        """Show right-click context menu for fetching unique values"""
+        menu = QMenu(self)
+        
+        fetch_unique_action = QAction("Fetch Unique Values", self)
+        fetch_unique_action.triggered.connect(self._fetch_unique_values)
+        menu.addAction(fetch_unique_action)
+        
+        # Map position to global - works whether called from field_label or widget itself
+        menu.exec(self.mapToGlobal(pos))
+
+    def _fetch_unique_values(self):
+        """Fetch unique values for this field from the database"""
+        try:
+            # Find the parent screen to get connection info
+            parent = self.parent_screen
+            if not parent:
+                parent = self.parent()
+                while parent and not hasattr(parent, 'datasources'):
+                    parent = parent.parent()
+            
+            if not parent:
+                QMessageBox.warning(self, "Error", "Could not find parent screen")
+                return
+            
+            # Find the datasource for this field
+            datasource_alias = self.field_data.get('datasource_alias', '')
+            table_name = self.field_data['table_name']
+            field_name = self.field_data['field_name']
+            schema_name = self.field_data.get('schema_name', '')
+            
+            # Find matching datasource
+            datasource = None
+            for ds in parent.datasources:
+                if ds.get('alias') == datasource_alias or ds.get('table_name') == table_name:
+                    datasource = ds
+                    break
+            
+            if not datasource:
+                QMessageBox.warning(self, "Error", f"Could not find datasource for {table_name}")
+                return
+            
+            connection = datasource.get('connection')
+            if not connection:
+                QMessageBox.warning(self, "Error", "No connection found for this datasource")
+                return
+            
+            connection_id = connection.get('connection_id')
+            schema_name = datasource.get('schema_name', schema_name)
+            
+            # Fetch unique values using SchemaDiscovery instance
+            schema_discovery = SchemaDiscovery()
+            unique_values = schema_discovery.get_unique_values(
+                connection_id,
+                table_name,
+                field_name,
+                schema_name=schema_name,
+                limit=1000
+            )
+            
+            if unique_values:
+                self.unique_values = unique_values
+                self.selected_values = unique_values[:]  # Select all by default
+                
+                # Show and update the list button
+                self.list_button.setVisible(True)
+                self._update_list_button_style()
+                
+                # Cache to My Data (metadata cache) so it shows up when clicking on table
+                try:
+                    from suiteview.data.repositories import MetadataCacheRepository
+                    metadata_repo = MetadataCacheRepository()
+                    
+                    # Get or create metadata entry for this table
+                    metadata_id = metadata_repo.get_or_create_metadata(
+                        connection_id,
+                        table_name,
+                        schema_name or ''
+                    )
+                    
+                    # Cache the unique values
+                    metadata_repo.cache_unique_values(
+                        metadata_id,
+                        field_name,
+                        unique_values
+                    )
+                    logger.info(f"Cached {len(unique_values)} unique values for {field_name} to My Data")
+                except Exception as cache_err:
+                    logger.warning(f"Could not cache unique values: {cache_err}")
+                
+                QMessageBox.information(
+                    self, "Success", 
+                    f"Loaded {len(unique_values)} unique values for {field_name}"
+                )
+            else:
+                QMessageBox.information(self, "No Values", f"No unique values found for {field_name}")
+                
+        except Exception as e:
+            logger.error(f"Error fetching unique values: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to fetch unique values:\n{str(e)}")
+
+    def _update_list_button_style(self):
+        """Update list button style based on selection state"""
+        if not self.list_button or not self.unique_values:
+            return
+        
+        all_selected = len(self.selected_values) == len(self.unique_values)
+        
+        if all_selected:
+            # Outline style - no filtering active
+            self.list_button.setStyleSheet("""
+                QPushButton {
+                    background: white;
+                    color: #e67e22;
+                    border: 2px solid #e67e22;
+                    border-radius: 3px;
+                    font-size: 11px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: #fef5e7;
+                }
+            """)
+        else:
+            # Solid style - filtering active
+            self.list_button.setStyleSheet("""
+                QPushButton {
+                    background: #e67e22;
+                    color: white;
+                    border: 2px solid #e67e22;
+                    border-radius: 3px;
+                    font-size: 11px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: #d35400;
+                }
+            """)
+        
+        self.list_button.setToolTip(f"Select Values ({len(self.selected_values)}/{len(self.unique_values)} selected)")
+
+    def _open_value_selection_popup(self):
+        """Open the value selection dialog"""
+        if not self.unique_values:
+            QMessageBox.information(self, "No Values", "No unique values available. Right-click the field name to fetch.")
+            return
+        
+        # Import the dialog from dbquery_screen
+        from suiteview.ui.dbquery_screen import ValueSelectionDialog
+        
+        dialog = ValueSelectionDialog(
+            self.field_data['field_name'],
+            self.unique_values,
+            self.selected_values,
+            self
+        )
+        
+        dialog.values_selected.connect(self._update_selected_values)
+        dialog.show()
+
+    def _update_selected_values(self, selected_values):
+        """Update stored selected values from popup"""
+        self.selected_values = selected_values
+        self._update_list_button_style()
+        
+        # Update combo and input based on selection
+        all_selected = len(selected_values) == len(self.unique_values)
+        
+        if hasattr(self, 'match_type_combo'):
+            self.match_type_combo.setEnabled(all_selected)
+            if not all_selected:
+                if self.match_type_combo.findText("List") == -1:
+                    self.match_type_combo.addItem("List")
+                self.match_type_combo.setCurrentText("List")
+                self.match_type_combo.setStyleSheet("""
+                    QComboBox {
+                        background-color: #E0E0E0;
+                        color: #808080;
+                        font-size: 10px;
+                        padding: 2px 4px;
+                    }
+                """)
+            else:
+                list_index = self.match_type_combo.findText("List")
+                if list_index != -1:
+                    self.match_type_combo.removeItem(list_index)
+                self.match_type_combo.setStyleSheet("""
+                    QComboBox {
+                        font-size: 10px;
+                        padding: 2px 4px;
+                        background: white;
+                    }
+                """)
+        
+        if hasattr(self, 'filter_input'):
+            self.filter_input.setEnabled(all_selected)
+            if not all_selected:
+                self.filter_input.setStyleSheet("""
+                    QLineEdit {
+                        background-color: #E0E0E0;
+                        color: #808080;
+                        font-size: 10px;
+                        padding: 2px 4px;
+                    }
+                """)
+            else:
+                self.filter_input.setStyleSheet("""
+                    QLineEdit {
+                        font-size: 10px;
+                        padding: 2px 4px;
+                        background: white;
+                    }
+                """)
+
+    def _open_custom_criteria_dialog(self):
+        """Open dialog to enter custom criteria"""
+        from PyQt6.QtWidgets import QDialog, QTextEdit
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Edit - {self.field_data['field_name']}")
+        dialog.setMinimumWidth(400)
+        dialog.setMinimumHeight(200)
+        
+        layout = QVBoxLayout(dialog)
+        
+        instructions = QLabel("Enter your criteria below. This gives you more space to type.")
+        instructions.setStyleSheet("font-size: 10px; color: #666; background: transparent;")
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+        
+        text_edit = QTextEdit()
+        text_edit.setPlaceholderText("Type your filter criteria here...")
+        
+        if hasattr(self, 'filter_input') and self.filter_input.text():
+            text_edit.setPlainText(self.filter_input.text())
+        
+        text_edit.setStyleSheet("""
+            QTextEdit {
+                font-size: 11px;
+                font-family: 'Courier New', monospace;
+                background: white;
+            }
+        """)
+        layout.addWidget(text_edit)
+        
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        clear_btn = QPushButton("Clear")
+        clear_btn.clicked.connect(lambda: text_edit.clear())
+        button_layout.addWidget(clear_btn)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        ok_btn = QPushButton("OK")
+        ok_btn.clicked.connect(dialog.accept)
+        ok_btn.setDefault(True)
+        button_layout.addWidget(ok_btn)
+        
+        layout.addLayout(button_layout)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_text = text_edit.toPlainText().strip()
+            if hasattr(self, 'filter_input'):
+                self.filter_input.setText(new_text)
+
+    def _reset_filter_values(self):
+        """Reset filter values"""
+        if hasattr(self, 'filter_input'):
+            self.filter_input.clear()
+        if hasattr(self, 'match_type_combo'):
+            # Reset to first non-None option
+            self.match_type_combo.setCurrentIndex(1 if self.match_type_combo.count() > 1 else 0)
+        if self.unique_values:
+            self.selected_values = self.unique_values[:]
+            self._update_list_button_style()
+            self._update_selected_values(self.selected_values)
 
     def get_filter_condition(self) -> dict:
         """Get the filter condition as a dict"""
+        match_type = self.match_type_combo.currentText() if hasattr(self, 'match_type_combo') else "Exact"
+        value = self.filter_input.text() if hasattr(self, 'filter_input') else ""
+        
+        # Handle List mode (selected values from popup)
+        # Save as List if:
+        # 1. Match type is List AND we have selected_values AND
+        # 2. Either unique_values is not loaded OR selected_values is a subset of unique_values
+        if match_type == "List" and self.selected_values:
+            # Check if it's a meaningful filter (not all values selected)
+            should_save_as_list = True
+            if self.unique_values:
+                # If unique_values loaded and ALL are selected, don't save as filter
+                if set(self.selected_values) == set(self.unique_values):
+                    should_save_as_list = False
+            
+            if should_save_as_list:
+                return {
+                    'field_name': self.field_data['field_name'],
+                    'table_name': self.field_data['table_name'],
+                    'datasource_alias': self.field_data.get('datasource_alias', ''),
+                    'operator': 'IN',
+                    'value': self.selected_values,
+                    'match_type': 'List'
+                }
+        
+        # Map match type to operator
+        operator_map = {
+            'None': None,
+            'Exact': '=',
+            '=': '=',
+            '!=': '!=',
+            '>': '>',
+            '<': '<',
+            '>=': '>=',
+            '<=': '<=',
+            'Starts': 'LIKE',
+            'Ends': 'LIKE',
+            'Contains': 'LIKE',
+            'Expression': 'EXPR',
+            'Between': 'BETWEEN',
+            'List': 'IN'
+        }
+        
+        operator = operator_map.get(match_type, '=')
+        
+        # Modify value for LIKE patterns
+        if match_type == 'Starts':
+            value = f"{value}%"
+        elif match_type == 'Ends':
+            value = f"%{value}"
+        elif match_type == 'Contains':
+            value = f"%{value}%"
+        
         return {
             'field_name': self.field_data['field_name'],
             'table_name': self.field_data['table_name'],
-            'operator': self.operator_combo.currentText(),
-            'value': self.value_input.text()
+            'datasource_alias': self.field_data.get('datasource_alias', ''),
+            'operator': operator,
+            'value': value,
+            'match_type': match_type
         }
+    
+    def restore_filter_state(self, match_type: str, value, operator: str = None):
+        """Restore saved filter state including List mode selections"""
+        # Handle value restoration FIRST (before match_type, so List mode works)
+        if value:
+            if isinstance(value, list):
+                # List mode - restore selected values
+                self.selected_values = list(value)
+                
+                # Update unique_values if not already loaded, so condition check works
+                if not self.unique_values:
+                    # Use selected_values as minimum set (actual unique values may be larger)
+                    # Add placeholder so selected_values < unique_values check works
+                    self.unique_values = list(value) + ['__placeholder__']
+                
+                # Update the filter_input display
+                if hasattr(self, 'filter_input'):
+                    self.filter_input.setText(', '.join(str(v) for v in value))
+                
+                # Call _update_selected_values to properly set List mode UI state
+                # (greyed out combo/input, solid list button, etc.)
+                self._update_selected_values(self.selected_values)
+                return  # Done - _update_selected_values handles everything for List mode
+            else:
+                # Regular value - strip LIKE wildcards for display
+                if hasattr(self, 'filter_input'):
+                    display_value = str(value)
+                    if display_value.startswith('%') and display_value.endswith('%'):
+                        display_value = display_value[1:-1]
+                    elif display_value.startswith('%'):
+                        display_value = display_value[1:]
+                    elif display_value.endswith('%'):
+                        display_value = display_value[:-1]
+                    self.filter_input.setText(display_value)
+        
+        # Set match type (only for non-List modes, List is handled above)
+        if hasattr(self, 'match_type_combo') and match_type and match_type != 'List':
+            idx = self.match_type_combo.findText(match_type)
+            if idx >= 0:
+                self.match_type_combo.setCurrentIndex(idx)
+            elif operator:
+                # Fallback to operator mapping
+                match_type_map = {
+                    '=': 'Exact',
+                    '!=': '!=',
+                    '>': '>',
+                    '<': '<',
+                    '>=': '>=',
+                    '<=': '<=',
+                    'LIKE': 'Contains',
+                    'IN': 'List'
+                }
+                if operator in match_type_map:
+                    idx = self.match_type_combo.findText(match_type_map[operator])
+                    if idx >= 0:
+                        self.match_type_combo.setCurrentIndex(idx)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press for drag start"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_position = event.pos()
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move to initiate drag"""
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if not hasattr(self, 'drag_start_position'):
+            return
+        if (event.pos() - self.drag_start_position).manhattanLength() < 10:
+            return
+        
+        # Find the XDBQueryScreen parent
+        parent = self.parent()
+        while parent and not hasattr(parent, 'criteria_widgets'):
+            parent = parent.parent()
+        
+        if not parent:
+            return
+        
+        # Create drag object
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        
+        # Store the index of this widget
+        try:
+            index = parent.criteria_widgets.index(self)
+            mime_data.setText(f"criteria_widget:{index}")
+            drag.setMimeData(mime_data)
+            drag.exec(Qt.DropAction.MoveAction)
+        except ValueError:
+            pass
+    
+    def dragEnterEvent(self, event):
+        """Handle drag enter"""
+        if event.mimeData().hasText():
+            text = event.mimeData().text()
+            if text.startswith("criteria_widget:"):
+                event.acceptProposedAction()
+                self.setStyleSheet("""
+                    XDBCriteriaFilterWidget {
+                        border: 2px solid #3498db;
+                        border-radius: 6px;
+                        background: #e8f4fc;
+                    }
+                """)
+    
+    def dragLeaveEvent(self, event):
+        """Handle drag leave"""
+        # Restore normal styling
+        self.setStyleSheet("""
+            XDBCriteriaFilterWidget {
+                border: 2px solid #e67e22;
+                border-radius: 6px;
+                background: white;
+            }
+        """)
+    
+    def dropEvent(self, event):
+        """Handle drop to reorder widgets"""
+        text = event.mimeData().text()
+        if not text.startswith("criteria_widget:"):
+            return
+        
+        source_index = int(text.split(":")[1])
+        
+        # Find parent with criteria_widgets
+        parent = self.parent()
+        while parent and not hasattr(parent, 'criteria_widgets'):
+            parent = parent.parent()
+        
+        if not parent:
+            return
+        
+        try:
+            target_index = parent.criteria_widgets.index(self)
+        except ValueError:
+            return
+        
+        if source_index == target_index:
+            # Restore styling
+            self.dragLeaveEvent(event)
+            return
+        
+        # Reorder in the list
+        widget = parent.criteria_widgets.pop(source_index)
+        parent.criteria_widgets.insert(target_index, widget)
+        
+        # Reorder in the layout
+        layout = parent.criteria_layout
+        layout.takeAt(source_index)
+        layout.insertWidget(target_index, widget)
+        
+        # Restore styling
+        self.dragLeaveEvent(event)
+        event.acceptProposedAction()
 
 
 class XDBJoinWidget(QFrame):
@@ -2230,13 +3571,67 @@ class XDBJoinWidget(QFrame):
             if left_ds and left_field and right_ds and right_field:
                 on_conditions.append({
                     'left_datasource': left_ds['alias'],
+                    'left_connection_id': left_ds['connection']['connection_id'],
+                    'left_table_name': left_ds['table_name'],
                     'left_field': left_field,
                     'right_datasource': right_ds['alias'],
+                    'right_connection_id': right_ds['connection']['connection_id'],
+                    'right_table_name': right_ds['table_name'],
                     'right_field': right_field
                 })
         
+        # Get right datasource info for the join row header
+        right_ds_data = self.right_datasource_combo.currentData()
+        right_ds_info = None
+        if right_ds_data:
+            right_ds_info = {
+                'alias': right_ds_data['alias'],
+                'connection_id': right_ds_data['connection']['connection_id'],
+                'table_name': right_ds_data['table_name']
+            }
+        
         return {
             'join_type': self.join_type_combo.currentText(),
-            'right_datasource': self.right_datasource_combo.currentData(),
+            'right_datasource': right_ds_info,
             'on_conditions': on_conditions
         }
+    
+    def update_datasources(self, datasources: list):
+        """Update datasource list in all combo boxes when datasources change"""
+        self.datasources = datasources
+        
+        # Helper to update a combo while preserving selection
+        def update_combo(combo: QComboBox):
+            current_data = combo.currentData()
+            current_alias = current_data['alias'] if current_data else None
+            
+            combo.blockSignals(True)
+            combo.clear()
+            
+            selected_index = 0
+            for i, ds in enumerate(datasources):
+                display_name = f"{ds['alias']}.{ds['table_name']}"
+                combo.addItem(display_name, ds)
+                # Try to restore previous selection
+                if current_alias and ds['alias'] == current_alias:
+                    selected_index = i
+            
+            combo.setCurrentIndex(selected_index)
+            combo.blockSignals(False)
+        
+        # Update main right datasource combo
+        update_combo(self.right_datasource_combo)
+        
+        # Update all ON condition row combos
+        for row_data in self.on_condition_rows:
+            update_combo(row_data['left_datasource_combo'])
+            update_combo(row_data['right_datasource_combo'])
+            # Refresh field lists after updating datasource combos
+            self._update_left_fields(
+                row_data['left_datasource_combo'],
+                row_data['left_field_combo']
+            )
+            self._update_right_fields(
+                row_data['right_datasource_combo'],
+                row_data['right_field_combo']
+            )

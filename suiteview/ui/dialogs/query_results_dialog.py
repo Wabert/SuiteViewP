@@ -2,7 +2,7 @@
 
 import logging
 import pandas as pd
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                               QMessageBox, QFileDialog, QCheckBox, QMenu, QApplication)
 from PyQt6.QtCore import Qt
 from suiteview.ui.widgets.filter_table_view import FilterTableView
@@ -10,15 +10,34 @@ from suiteview.ui.widgets.filter_table_view import FilterTableView
 logger = logging.getLogger(__name__)
 
 
-class QueryResultsDialog(QDialog):
-    """Dialog for displaying query results"""
+class QueryResultsDialog(QWidget):
+    """Window for displaying query results (modeless - allows interaction with main app)"""
+    
+    # Keep references to open windows to prevent garbage collection
+    _open_dialogs = []
 
     def __init__(self, df: pd.DataFrame, sql: str, execution_time_ms: int, parent=None):
-        super().__init__(parent)
+        # Create without parent for true modeless behavior
+        super().__init__()
         self.df = df
         self.sql = sql
         self.execution_time_ms = execution_time_ms
+        
+        # Make this a top-level independent window
+        self.setWindowFlags(Qt.WindowType.Window)
+        # Delete on close to free memory
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        
         self.init_ui()
+        
+        # Track this dialog
+        QueryResultsDialog._open_dialogs.append(self)
+    
+    def closeEvent(self, event):
+        """Remove from tracking when closed"""
+        if self in QueryResultsDialog._open_dialogs:
+            QueryResultsDialog._open_dialogs.remove(self)
+        super().closeEvent(event)
 
     def init_ui(self):
         """Initialize the UI"""

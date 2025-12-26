@@ -19,7 +19,8 @@ class ConnectionRepository:
                          server_name: str = None, database_name: str = None,
                          auth_type: str = None, encrypted_username: bytes = None,
                          encrypted_password: bytes = None,
-                         connection_string: str = None) -> int:
+                         connection_string: str = None,
+                         database_type: str = None) -> int:
         """
         Create a new connection
 
@@ -30,10 +31,12 @@ class ConnectionRepository:
             INSERT INTO connections (
                 connection_name, connection_type, server_name, database_name,
                 auth_type, encrypted_username, encrypted_password, connection_string,
+                database_type,
                 is_active
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         """, (connection_name, connection_type, server_name, database_name,
-              auth_type, encrypted_username, encrypted_password, connection_string))
+              auth_type, encrypted_username, encrypted_password, connection_string,
+              database_type))
 
         connection_id = cursor.lastrowid
         logger.info(f"Created connection: {connection_name} (ID: {connection_id})")
@@ -44,7 +47,7 @@ class ConnectionRepository:
         rows = self.db.fetchall("""
             SELECT connection_id, connection_name, connection_type, server_name,
                    database_name, auth_type, encrypted_username, encrypted_password,
-                   connection_string, created_at, last_tested, is_active
+                   connection_string, database_type, created_at, last_tested, is_active
             FROM connections
             WHERE is_active = 1
             ORDER BY connection_name
@@ -62,9 +65,10 @@ class ConnectionRepository:
                 'encrypted_username': row[6],
                 'encrypted_password': row[7],
                 'connection_string': row[8],
-                'created_at': row[9],
-                'last_tested': row[10],
-                'is_active': row[11]
+                'database_type': row[9],
+                'created_at': row[10],
+                'last_tested': row[11],
+                'is_active': row[12]
             })
 
         return connections
@@ -74,7 +78,7 @@ class ConnectionRepository:
         row = self.db.fetchone("""
             SELECT connection_id, connection_name, connection_type, server_name,
                    database_name, auth_type, encrypted_username, encrypted_password,
-                   connection_string, created_at, last_tested, is_active
+                   connection_string, database_type, created_at, last_tested, is_active
             FROM connections
             WHERE connection_id = ?
         """, (connection_id,))
@@ -92,9 +96,10 @@ class ConnectionRepository:
             'encrypted_username': row[6],
             'encrypted_password': row[7],
             'connection_string': row[8],
-            'created_at': row[9],
-            'last_tested': row[10],
-            'is_active': row[11]
+            'database_type': row[9],
+            'created_at': row[10],
+            'last_tested': row[11],
+            'is_active': row[12]
         }
 
     def update_connection(self, connection_id: int, **kwargs) -> bool:
@@ -105,7 +110,8 @@ class ConnectionRepository:
 
         for key, value in kwargs.items():
             if key in ['connection_name', 'connection_type', 'server_name', 'database_name',
-                      'auth_type', 'encrypted_username', 'encrypted_password', 'connection_string']:
+                      'auth_type', 'encrypted_username', 'encrypted_password', 'connection_string',
+                      'database_type']:
                 fields.append(f"{key} = ?")
                 values.append(value)
 
@@ -720,6 +726,30 @@ class DataMapRepository:
         """)
         return [dict(row) for row in rows]
 
+    def get_folder(self, folder_id: int) -> Optional[Dict]:
+        """Get a specific folder by ID"""
+        if folder_id is None:
+            return None
+        row = self.db.fetchone("""
+            SELECT folder_id, folder_name, parent_folder_id, created_at, display_order
+            FROM data_map_folders
+            WHERE folder_id = ?
+        """, (folder_id,))
+        return dict(row) if row else None
+
+    def is_map_name_unique(self, map_name: str, exclude_data_map_id: int = None) -> bool:
+        """Check if a data map name is unique across all folders"""
+        if exclude_data_map_id:
+            row = self.db.fetchone("""
+                SELECT data_map_id FROM data_maps 
+                WHERE map_name = ? AND data_map_id != ?
+            """, (map_name, exclude_data_map_id))
+        else:
+            row = self.db.fetchone("""
+                SELECT data_map_id FROM data_maps WHERE map_name = ?
+            """, (map_name,))
+        return row is None
+
     def create_folder(self, folder_name: str, parent_folder_id: int = None) -> int:
         """Create a new data map folder"""
         cursor = self.db.execute("""
@@ -1026,4 +1056,342 @@ def get_data_map_repository() -> DataMapRepository:
     if _data_map_repo is None:
         _data_map_repo = DataMapRepository()
     return _data_map_repo
+
+
+class EmailRepository:
+    """Repository for email metadata caching"""
+    
+    def __init__(self, db=None):
+        self.db = db if db is not None else get_database()
+        self._ensure_tables()
+    
+    def _ensure_tables(self):
+        """Create email tables if they don't exist"""
+        # Emails table
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS emails (
+                email_id TEXT PRIMARY KEY,
+                subject TEXT,
+                sender TEXT,
+                sender_email TEXT,
+                received_date TEXT,
+                size INTEGER,
+                unread INTEGER,
+                has_attachments INTEGER,
+                attachment_count INTEGER,
+                folder_path TEXT,
+                body_preview TEXT,
+                last_synced TEXT
+            )
+        """)
+        
+        # Attachments table
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS email_attachments (
+                attachment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_id TEXT,
+                email_subject TEXT,
+                email_sender TEXT,
+                email_date TEXT,
+                attachment_name TEXT,
+                attachment_type TEXT,
+                attachment_size INTEGER,
+                attachment_index INTEGER,
+                file_hash TEXT,
+                last_synced TEXT,
+                FOREIGN KEY (email_id) REFERENCES emails(email_id)
+            )
+        """)
+        
+        # Sync tracking table
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS email_sync_status (
+                sync_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                folder_path TEXT UNIQUE,
+                last_sync_time TEXT,
+                email_count INTEGER,
+                attachment_count INTEGER,
+                scan_complete INTEGER DEFAULT 0
+            )
+        """)
+        
+        # Create indexes
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_emails_received_date 
+            ON emails(received_date DESC)
+        """)
+        
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_emails_folder 
+            ON emails(folder_path)
+        """)
+        
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_attachments_email_id 
+            ON email_attachments(email_id)
+        """)
+        
+        self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_attachments_hash 
+            ON email_attachments(file_hash)
+        """)
+    
+    def save_emails(self, emails: List[Dict]):
+        """Save or update emails in cache"""
+        for email in emails:
+            self.db.execute("""
+                INSERT OR REPLACE INTO emails (
+                    email_id, subject, sender, sender_email, received_date,
+                    size, unread, has_attachments, attachment_count,
+                    folder_path, body_preview, last_synced
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                email['email_id'],
+                email['subject'],
+                email['sender'],
+                email['sender_email'],
+                email['received_date'].isoformat() if hasattr(email['received_date'], 'isoformat') else str(email['received_date']),
+                email['size'],
+                1 if email['unread'] else 0,
+                1 if email['has_attachments'] else 0,
+                email['attachment_count'],
+                email['folder_path'],
+                email.get('body_preview', ''),
+                datetime.now().isoformat()
+            ))
+    
+    def save_attachments(self, attachments: List[Dict]):
+        """Save or update attachments in cache"""
+        for attach in attachments:
+            self.db.execute("""
+                INSERT OR REPLACE INTO email_attachments (
+                    email_id, email_subject, email_sender, email_date,
+                    attachment_name, attachment_type, attachment_size,
+                    attachment_index, file_hash, last_synced
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                attach['email_id'],
+                attach['email_subject'],
+                attach['email_sender'],
+                attach['email_date'].isoformat() if hasattr(attach['email_date'], 'isoformat') else str(attach['email_date']),
+                attach['attachment_name'],
+                attach['attachment_type'],
+                attach['attachment_size'],
+                attach['attachment_index'],
+                attach.get('file_hash'),
+                datetime.now().isoformat()
+            ))
+    
+    def get_all_emails(self, folder_path: str = None, unread_only: bool = False) -> List[Dict]:
+        """Get emails from cache"""
+        query = "SELECT * FROM emails WHERE 1=1"
+        params = []
+        
+        if folder_path:
+            query += " AND folder_path = ?"
+            params.append(folder_path)
+        
+        if unread_only:
+            query += " AND unread = 1"
+        
+        query += " ORDER BY received_date DESC"
+        
+        rows = self.db.fetchall(query, tuple(params))
+        
+        emails = []
+        for row in rows:
+            emails.append({
+                'email_id': row[0],
+                'subject': row[1],
+                'sender': row[2],
+                'sender_email': row[3],
+                'received_date': row[4],
+                'size': row[5],
+                'unread': bool(row[6]),
+                'has_attachments': bool(row[7]),
+                'attachment_count': row[8],
+                'folder_path': row[9],
+                'body_preview': row[10],
+                'last_synced': row[11]
+            })
+        
+        return emails
+    
+    def get_all_attachments(self) -> List[Dict]:
+        """Get all attachments from cache"""
+        rows = self.db.fetchall("""
+            SELECT attachment_id, email_id, email_subject, email_sender,
+                   email_date, attachment_name, attachment_type, attachment_size,
+                   attachment_index, file_hash, last_synced
+            FROM email_attachments
+            ORDER BY email_date DESC
+        """)
+        
+        attachments = []
+        for row in rows:
+            attachments.append({
+                'attachment_id': row[0],
+                'email_id': row[1],
+                'email_subject': row[2],
+                'email_sender': row[3],
+                'email_date': row[4],
+                'attachment_name': row[5],
+                'attachment_type': row[6],
+                'attachment_size': row[7],
+                'attachment_index': row[8],
+                'file_hash': row[9],
+                'last_synced': row[10]
+            })
+        
+        return attachments
+    
+    def get_duplicate_attachments(self) -> List[Dict]:
+        """Find duplicate attachments by file hash"""
+        rows = self.db.fetchall("""
+            SELECT file_hash, COUNT(*) as count,
+                   GROUP_CONCAT(attachment_name) as names,
+                   GROUP_CONCAT(email_subject) as subjects,
+                   SUM(attachment_size) as total_size
+            FROM email_attachments
+            WHERE file_hash IS NOT NULL
+            GROUP BY file_hash
+            HAVING count > 1
+            ORDER BY count DESC, total_size DESC
+        """)
+        
+        duplicates = []
+        for row in rows:
+            duplicates.append({
+                'file_hash': row[0],
+                'count': row[1],
+                'names': row[2],
+                'subjects': row[3],
+                'total_size': row[4]
+            })
+        
+        return duplicates
+    
+    def get_attachments_by_hash(self, file_hash: str) -> List[Dict]:
+        """Get all attachments with a specific hash"""
+        rows = self.db.fetchall("""
+            SELECT attachment_id, email_id, email_subject, email_sender,
+                   email_date, attachment_name, attachment_type, attachment_size,
+                   attachment_index, file_hash, last_synced
+            FROM email_attachments
+            WHERE file_hash = ?
+            ORDER BY email_date DESC
+        """, (file_hash,))
+        
+        attachments = []
+        for row in rows:
+            attachments.append({
+                'attachment_id': row[0],
+                'email_id': row[1],
+                'email_subject': row[2],
+                'email_sender': row[3],
+                'email_date': row[4],
+                'attachment_name': row[5],
+                'attachment_type': row[6],
+                'attachment_size': row[7],
+                'attachment_index': row[8],
+                'file_hash': row[9],
+                'last_synced': row[10]
+            })
+        
+        return attachments
+    
+    def update_sync_status(self, folder_path: str, email_count: int, attachment_count: int, scan_complete: bool = True):
+        """Update sync status for a folder"""
+        self.db.execute("""
+            INSERT OR REPLACE INTO email_sync_status (
+                folder_path, last_sync_time, email_count, attachment_count, scan_complete
+            ) VALUES (?, ?, ?, ?, ?)
+        """, (folder_path, datetime.now().isoformat(), email_count, attachment_count, 1 if scan_complete else 0))
+    
+    def get_sync_status(self, folder_path: str = None) -> List[Dict]:
+        """Get sync status for folder(s)"""
+        if folder_path:
+            rows = self.db.fetchall("""
+                SELECT sync_id, folder_path, last_sync_time, email_count,
+                       attachment_count, scan_complete
+                FROM email_sync_status
+                WHERE folder_path = ?
+            """, (folder_path,))
+        else:
+            rows = self.db.fetchall("""
+                SELECT sync_id, folder_path, last_sync_time, email_count,
+                       attachment_count, scan_complete
+                FROM email_sync_status
+                ORDER BY last_sync_time DESC
+            """)
+        
+        statuses = []
+        for row in rows:
+            statuses.append({
+                'sync_id': row[0],
+                'folder_path': row[1],
+                'last_sync_time': row[2],
+                'email_count': row[3],
+                'attachment_count': row[4],
+                'scan_complete': bool(row[5])
+            })
+        
+        return statuses
+    
+    def clear_cache(self, folder_path: str = None):
+        """Clear email cache for folder or all"""
+        if folder_path:
+            self.db.execute("DELETE FROM emails WHERE folder_path = ?", (folder_path,))
+            self.db.execute("""
+                DELETE FROM email_attachments 
+                WHERE email_id IN (SELECT email_id FROM emails WHERE folder_path = ?)
+            """, (folder_path,))
+            self.db.execute("DELETE FROM email_sync_status WHERE folder_path = ?", (folder_path,))
+        else:
+            self.db.execute("DELETE FROM emails")
+            self.db.execute("DELETE FROM email_attachments")
+            self.db.execute("DELETE FROM email_sync_status")
+    
+    def get_last_sync_time(self) -> Optional[datetime]:
+        """Get timestamp of the last successful sync
+        
+        Returns:
+            datetime of last sync, or None if never synced
+        """
+        try:
+            rows = self.db.fetchall("""
+                SELECT last_sync_time 
+                FROM email_sync_status 
+                ORDER BY last_sync_time DESC 
+                LIMIT 1
+            """)
+            
+            if rows and rows[0][0]:
+                return datetime.fromisoformat(rows[0][0])
+            
+            return None
+        
+        except Exception as e:
+            logger.error(f"Error getting last sync time: {e}")
+            return None
+    
+    def record_sync_time(self):
+        """Record that a sync was completed (for incremental sync tracking)"""
+        # This is called after update_sync_status, so the timestamp is already recorded
+        # Just log it for tracking
+        last_sync = self.get_last_sync_time()
+        if last_sync:
+            logger.info(f"Sync completed at {last_sync}")
+
+
+# Singleton instances
+_email_repo = None
+
+
+def get_email_repository() -> EmailRepository:
+    """Get or create singleton email repository"""
+    global _email_repo
+    if _email_repo is None:
+        _email_repo = EmailRepository()
+    return _email_repo
 

@@ -12,6 +12,51 @@ from suiteview.core.query_builder import Query
 
 logger = logging.getLogger(__name__)
 
+# SQL Server reserved keywords that need to be escaped with brackets
+SQL_SERVER_RESERVED_WORDS = {
+    'ADD', 'ALL', 'ALTER', 'AND', 'ANY', 'AS', 'ASC', 'AUTHORIZATION', 'BACKUP', 'BEGIN',
+    'BETWEEN', 'BREAK', 'BROWSE', 'BULK', 'BY', 'CASCADE', 'CASE', 'CHECK', 'CHECKPOINT',
+    'CLOSE', 'CLUSTERED', 'COALESCE', 'COLLATE', 'COLUMN', 'COMMIT', 'COMPUTE', 'CONSTRAINT',
+    'CONTAINS', 'CONTAINSTABLE', 'CONTINUE', 'CONVERT', 'CREATE', 'CROSS', 'CURRENT',
+    'CURRENT_DATE', 'CURRENT_TIME', 'CURRENT_TIMESTAMP', 'CURRENT_USER', 'CURSOR', 'DATABASE',
+    'DBCC', 'DEALLOCATE', 'DECLARE', 'DEFAULT', 'DELETE', 'DENY', 'DESC', 'DISK', 'DISTINCT',
+    'DISTRIBUTED', 'DOUBLE', 'DROP', 'DUMP', 'ELSE', 'END', 'ERRLVL', 'ESCAPE', 'EXCEPT',
+    'EXEC', 'EXECUTE', 'EXISTS', 'EXIT', 'EXTERNAL', 'FETCH', 'FILE', 'FILLFACTOR', 'FOR',
+    'FOREIGN', 'FREETEXT', 'FREETEXTTABLE', 'FROM', 'FULL', 'FUNCTION', 'GOTO', 'GRANT',
+    'GROUP', 'HAVING', 'HOLDLOCK', 'IDENTITY', 'IDENTITY_INSERT', 'IDENTITYCOL', 'IF', 'IN',
+    'INDEX', 'INNER', 'INSERT', 'INTERSECT', 'INTO', 'IS', 'JOIN', 'KEY', 'KILL', 'LEFT',
+    'LIKE', 'LINENO', 'LOAD', 'MERGE', 'NATIONAL', 'NOCHECK', 'NONCLUSTERED', 'NOT', 'NULL',
+    'NULLIF', 'OF', 'OFF', 'OFFSETS', 'ON', 'OPEN', 'OPENDATASOURCE', 'OPENQUERY', 'OPENROWSET',
+    'OPENXML', 'OPTION', 'OR', 'ORDER', 'OUTER', 'OVER', 'PERCENT', 'PIVOT', 'PLAN', 'PRECISION',
+    'PRIMARY', 'PRINT', 'PROC', 'PROCEDURE', 'PUBLIC', 'RAISERROR', 'READ', 'READTEXT',
+    'RECONFIGURE', 'REFERENCES', 'REPLICATION', 'RESTORE', 'RESTRICT', 'RETURN', 'REVERT',
+    'REVOKE', 'RIGHT', 'ROLLBACK', 'ROWCOUNT', 'ROWGUIDCOL', 'RULE', 'SAVE', 'SCHEMA',
+    'SECURITYAUDIT', 'SELECT', 'SEMANTICKEYPHRASETABLE', 'SEMANTICSIMILARITYDETAILSTABLE',
+    'SEMANTICSIMILARITYTABLE', 'SESSION_USER', 'SET', 'SETUSER', 'SHUTDOWN', 'SOME', 'STATISTICS',
+    'SYSTEM_USER', 'TABLE', 'TABLESAMPLE', 'TEXTSIZE', 'THEN', 'TO', 'TOP', 'TRAN', 'TRANSACTION',
+    'TRIGGER', 'TRUNCATE', 'TRY_CONVERT', 'TSEQUAL', 'UNION', 'UNIQUE', 'UNPIVOT', 'UPDATE',
+    'UPDATETEXT', 'USE', 'USER', 'VALUES', 'VARYING', 'VIEW', 'WAITFOR', 'WHEN', 'WHERE',
+    'WHILE', 'WITH', 'WITHIN GROUP', 'WRITETEXT'
+}
+
+
+def escape_identifier(name: str, connection_type: str = 'SQL_SERVER') -> str:
+    """
+    Escape a SQL identifier if it's a reserved word.
+    
+    Args:
+        name: The identifier name (column, table, etc.)
+        connection_type: The database type (SQL_SERVER, DB2, etc.)
+        
+    Returns:
+        The escaped identifier if needed, otherwise the original name
+    """
+    if connection_type == 'SQL_SERVER':
+        # Check if it's a reserved word (case-insensitive)
+        if name.upper() in SQL_SERVER_RESERVED_WORDS:
+            return f'[{name}]'
+    return name
+
 
 class QueryExecutor:
     """Executes database queries and returns results as DataFrames"""
@@ -63,9 +108,12 @@ class QueryExecutor:
                 # Get database engine for other connection types
                 engine = self.conn_manager.get_engine(query.connection_id)
                 
-                # Execute query and load into DataFrame
-                with engine.connect() as conn:
-                    df = pd.read_sql_query(text(sql), conn)
+                # Use raw connection to avoid SQLAlchemy parameter parsing issues
+                raw_conn = engine.raw_connection()
+                try:
+                    df = pd.read_sql_query(sql, raw_conn)
+                finally:
+                    raw_conn.close()
             
             # Update metadata
             self.last_execution_time = int((time.time() - start_time) * 1000)  # milliseconds
@@ -78,6 +126,58 @@ class QueryExecutor:
         except Exception as e:
             logger.error(f"Query execution failed: {e}")
             logger.error(f"SQL: {self.last_sql if hasattr(self, 'last_sql') and self.last_sql else 'N/A'}")
+            raise
+
+    def execute_sql(self, connection_id: int, sql: str) -> pd.DataFrame:
+        """
+        Execute an arbitrary SQL query string
+        
+        Args:
+            connection_id: Connection ID
+            sql: SQL query string
+            
+        Returns:
+            Pandas DataFrame with query results
+            
+        Raises:
+            Exception: If query execution fails
+        """
+        start_time = time.time()
+        self.last_sql = sql
+        
+        try:
+            # Get connection info
+            connection = self.conn_manager.repo.get_connection(connection_id)
+            connection_type = connection.get('connection_type') if connection else None
+            
+            logger.info(f"Executing arbitrary SQL (Type: {connection_type}):\n{sql}")
+            
+            if connection_type == 'DB2':
+                df = self._execute_db2_query(sql, connection)
+            else:
+                # Get database engine for other connection types
+                engine = self.conn_manager.get_engine(connection_id)
+                
+                # Use raw connection to avoid SQLAlchemy parameter parsing issues
+                # This is safer for "Run Query" where user types arbitrary SQL
+                # and we don't want % characters to be interpreted as placeholders
+                raw_conn = engine.raw_connection()
+                try:
+                    df = pd.read_sql_query(sql, raw_conn)
+                finally:
+                    raw_conn.close()
+            
+            # Update metadata
+            self.last_execution_time = int((time.time() - start_time) * 1000)  # milliseconds
+            self.last_record_count = len(df)
+            
+            logger.info(f"Query executed successfully: {self.last_record_count} rows in {self.last_execution_time}ms")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Query execution failed: {e}")
+            logger.error(f"SQL: {sql}")
             raise
     
     def _execute_db2_query(self, sql: str, connection: dict) -> pd.DataFrame:
@@ -338,17 +438,33 @@ class QueryExecutor:
 
     def _build_sql(self, query: Query) -> str:
         """
-        Build SQL query string from Query object
+        Build SQL query string from Query object with nice formatting.
+        
+        Produces SQL formatted like:
+        SELECT
+           field1,
+           field2
+        FROM
+           schema.table table
+           INNER JOIN
+              schema.other other
+              ON table.id = other.id
+        WHERE
+           field = 'value'
         
         Args:
             query: Query object
             
         Returns:
-            SQL query string
+            Formatted SQL query string
         """
         # Get connection to determine type
         connection = self.conn_manager.repo.get_connection(query.connection_id)
         connection_type = connection.get('connection_type', '') if connection else ''
+        
+        # Indentation settings
+        indent = "   "  # 3 spaces for main indentation
+        indent2 = "      "  # 6 spaces for nested indentation
         
         # SELECT clause - determine if we need to qualify field names
         # Qualify if: 1) there are JOINs, OR 2) multiple tables are involved
@@ -358,7 +474,9 @@ class QueryExecutor:
         # Check for multiple tables in display fields and criteria
         tables_involved = set()
         for field in query.display_fields:
-            tables_involved.add(field['table_name'])
+            # Expression fields don't have a table
+            if not field.get('is_expression'):
+                tables_involved.add(field['table_name'])
         for criterion in query.criteria:
             tables_involved.add(criterion.get('table_name', ''))
         
@@ -369,16 +487,33 @@ class QueryExecutor:
         group_by_fields = []
         
         for field in query.display_fields:
+            # Check if this is an expression field
+            if field.get('is_expression'):
+                # Expression field - use the expression directly
+                expression = field.get('expression', '')
+                alias = field.get('alias', field.get('field_name', 'EXPR'))
+                
+                if expression:
+                    select_expr = f"({expression}) AS {alias}"
+                else:
+                    # No expression provided, skip this field
+                    continue
+                select_fields.append(select_expr)
+                continue
+            
             table = field['table_name']
             col = field['field_name']
             alias = field.get('alias', col)
             aggregation = field.get('aggregation', 'None')
             
+            # Escape column name if it's a reserved word
+            escaped_col = escape_identifier(col, connection_type)
+            
             # Build field reference - qualify if multiple tables involved
             if needs_qualification:
-                field_ref = f'{table}.{col}'
+                field_ref = f'{table}.{escaped_col}'
             else:
-                field_ref = f'{col}'
+                field_ref = escaped_col
             
             # Apply aggregation if specified
             if aggregation and aggregation != 'None':
@@ -409,48 +544,64 @@ class QueryExecutor:
             
             select_fields.append(select_expr)
         
-        sql = f"SELECT {', '.join(select_fields)}\n"
+        # Build SELECT clause with each field on its own line
+        sql = "SELECT\n"
+        for i, field_expr in enumerate(select_fields):
+            if i < len(select_fields) - 1:
+                sql += f"{indent}{field_expr},\n"
+            else:
+                sql += f"{indent}{field_expr} \n"
         
-        # FROM clause - DON'T include schema for SQL Server (it uses database.owner.table syntax differently)
+        # FROM clause - include schema prefix for all database types
         from_table = query.from_table
-        from_table_alias = query.from_table  # Use table name as alias
         
-        # Only add schema prefix for DB2, not for SQL_SERVER
-        if query.from_schema and connection_type == 'DB2':
+        # Add schema prefix if available
+        if query.from_schema:
             from_table = f'{query.from_schema}.{query.from_table}'
         
         # Handle FROM clause based on whether we have explicit JOINs or multiple tables
+        sql += "FROM\n"
         if has_joins:
             # Explicit JOINs - use primary table WITH alias so WHERE clause can reference it
-            sql += f"FROM {from_table} {from_table_alias}\n"
+            sql += f"{indent}{from_table} {query.from_table} \n"
         elif len(tables_involved) > 1:
             # Multiple tables without explicit JOINs - use comma-separated list (implicit cross join)
             table_list = []
             for table_name in sorted(tables_involved):
-                if query.from_schema and connection_type == 'DB2':
+                if query.from_schema:
                     table_list.append(f'{query.from_schema}.{table_name} {table_name}')
                 else:
                     table_list.append(f'{table_name} {table_name}')
-            sql += f"FROM {', '.join(table_list)}\n"
+            sql += f"{indent}{', '.join(table_list)} \n"
+        elif needs_qualification and query.from_schema:
+            # Single table with schema prefix and qualified field names - need alias
+            # so that "table.column" references work (e.g., SELECT CENSUS_ADV.LOB FROM LIFE.CENSUS_ADV CENSUS_ADV)
+            sql += f"{indent}{from_table} {query.from_table} \n"
         else:
-            # Single table - add alias for consistency
-            sql += f"FROM {from_table} {from_table_alias}\n"
+            # Single table without schema or unqualified fields - no alias needed
+            sql += f"{indent}{from_table} \n"
+        
+        # Indentation settings (define again for clarity in this section)
+        indent = "   "  # 3 spaces for main indentation
+        indent2 = "      "  # 6 spaces for nested indentation
         
         # JOIN clauses WITH aliases (use table name as alias)
         for join in query.joins:
             join_type = join['join_type']
             join_table_name = join['table_name']
             
-            # Only add schema prefix for DB2
-            if join['schema_name'] and connection_type == 'DB2':
+            # Add schema prefix if available
+            if join['schema_name']:
                 join_table = f'{join["schema_name"]}.{join_table_name}'
             else:
                 join_table = join_table_name
             
-            # Add alias (use table name) - with newline before join type
-            sql += f"\n{join_type} {join_table} {join_table_name}"
+            # Add JOIN on its own indented line
+            sql += f"{indent}{join_type}\n"
+            # Add table on further indented line
+            sql += f"{indent2}{join_table} {join_table_name} \n"
             
-            # ON conditions
+            # ON conditions - each on its own line with proper indentation
             if join['on_conditions']:
                 on_parts = []
                 for condition in join['on_conditions']:
@@ -467,23 +618,39 @@ class QueryExecutor:
                     
                     on_parts.append(f"{left_field} {op} {right_field}")
                 
-                sql += f" ON {' AND '.join(on_parts)}"
+                # First condition gets ON, rest get AND
+                for i, on_part in enumerate(on_parts):
+                    if i == 0:
+                        sql += f"{indent2}ON {on_part} \n"
+                    else:
+                        sql += f"{indent2}AND {on_part} \n"
         
         # WHERE clause
         if query.criteria:
             where_parts = []
             
             for criterion in query.criteria:
-                where_clause = self._build_where_clause(criterion, needs_qualification)
+                where_clause = self._build_where_clause(criterion, needs_qualification, connection_type)
                 if where_clause:
                     where_parts.append(where_clause)
             
             if where_parts:
-                sql += f"\nWHERE {' AND '.join(where_parts)}"
+                sql += "WHERE\n"
+                for i, where_part in enumerate(where_parts):
+                    if i == 0:
+                        sql += f"{indent}{where_part}"
+                    else:
+                        sql += f"\n{indent}AND {where_part}"
+                sql += " \n"
         
         # GROUP BY clause - only add if there are aggregations
         if has_aggregations and group_by_fields:
-            sql += f"\nGROUP BY {', '.join(group_by_fields)}"
+            sql += "GROUP BY\n"
+            for i, gb_field in enumerate(group_by_fields):
+                if i < len(group_by_fields) - 1:
+                    sql += f"{indent}{gb_field},\n"
+                else:
+                    sql += f"{indent}{gb_field} \n"
         
         # HAVING clause - filter aggregated results
         having_conditions = []
@@ -496,11 +663,14 @@ class QueryExecutor:
                 table = field['table_name']
                 col = field['field_name']
                 
+                # Escape column name if reserved
+                escaped_col = escape_identifier(col, connection_type)
+                
                 # Build field reference - qualify if multiple tables
                 if needs_qualification:
-                    field_ref = f'{table}.{col}'
+                    field_ref = f'{table}.{escaped_col}'
                 else:
-                    field_ref = f'{col}'
+                    field_ref = escaped_col
                 
                 # Build aggregation function
                 agg_upper = aggregation.upper()
@@ -524,7 +694,13 @@ class QueryExecutor:
                 having_conditions.append(f'{agg_field} {having_expr}')
         
         if having_conditions:
-            sql += f"\nHAVING {' AND '.join(having_conditions)}"
+            sql += "HAVING\n"
+            for i, having_part in enumerate(having_conditions):
+                if i == 0:
+                    sql += f"{indent}{having_part}"
+                else:
+                    sql += f"\n{indent}AND {having_part}"
+            sql += " \n"
         
         # ORDER BY clause - collect fields with order specified
         order_by_fields = []
@@ -534,11 +710,14 @@ class QueryExecutor:
                 table = field['table_name']
                 col = field['field_name']
                 
+                # Escape column name if reserved
+                escaped_col = escape_identifier(col, connection_type)
+                
                 # Build field reference - qualify if multiple tables
                 if needs_qualification:
-                    field_ref = f'{table}.{col}'
+                    field_ref = f'{table}.{escaped_col}'
                 else:
-                    field_ref = f'{col}'
+                    field_ref = escaped_col
                 
                 # Add ASC or DESC
                 if order == 'Ascend':
@@ -547,21 +726,30 @@ class QueryExecutor:
                     order_by_fields.append(f'{field_ref} DESC')
         
         if order_by_fields:
-            sql += f"\nORDER BY {', '.join(order_by_fields)}"
+            sql += "ORDER BY\n"
+            for i, ob_field in enumerate(order_by_fields):
+                if i < len(order_by_fields) - 1:
+                    sql += f"{indent}{ob_field},\n"
+                else:
+                    sql += f"{indent}{ob_field} \n"
         
         # Add row limit - ONLY for DB2 (SQL Server doesn't need it)
         if connection_type == 'DB2':
-            sql += "\nLIMIT 10000000"
+            sql += "LIMIT 10000000"
+        
+        # Remove trailing whitespace from each line and trailing newline
+        sql = '\n'.join(line.rstrip() for line in sql.split('\n')).rstrip()
         
         return sql
 
-    def _build_where_clause(self, criterion: Dict[str, Any], has_joins: bool = False) -> str:
+    def _build_where_clause(self, criterion: Dict[str, Any], has_joins: bool = False, connection_type: str = '') -> str:
         """
         Build WHERE clause for a single criterion
         
         Args:
             criterion: Dictionary with filter configuration
             has_joins: Whether the query has JOINs (determines if we qualify fields)
+            connection_type: Database type for identifier escaping
             
         Returns:
             WHERE clause string
@@ -573,15 +761,18 @@ class QueryExecutor:
         operator = criterion.get('operator', '=')
         match_type = criterion.get('match_type', 'exact')
         
+        # Escape field name if it's a reserved word
+        escaped_field = escape_identifier(field, connection_type)
+        
         # Handle null/empty values
         if value is None or value == '':
             return None
         
         # Build field reference - qualify with table name ONLY if there are JOINs
         if has_joins:
-            field_ref = f'{table}.{field}'
+            field_ref = f'{table}.{escaped_field}'
         else:
-            field_ref = field
+            field_ref = escaped_field
         
         # Handle EXPRESSION operator (user-provided custom expression)
         if operator == 'EXPRESSION':
@@ -594,7 +785,13 @@ class QueryExecutor:
                 # Auto-add = operator - user is responsible for proper quoting
                 expression = f"= {expression}"
             
-            return f"{field_ref} {expression}"
+            # Check for function wrapper (e.g., RTRIM, UPPER)
+            function_wrapper = criterion.get('function_wrapper', '')
+            if function_wrapper:
+                # Wrap field in function: RTRIM(table.field) LIKE '%value'
+                return f"{function_wrapper}({field_ref}) {expression}"
+            else:
+                return f"{field_ref} {expression}"
         
         # Handle IN operator (checkbox list)
         if operator == 'IN':

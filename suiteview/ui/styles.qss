@@ -40,9 +40,9 @@ QTabWidget::tab-bar {
     alignment: left;
 }
 
-/* Dark blue background for tab bar area */
+/* Transparent background for tab bar area to blend with main window */
 QTabBar {
-    background-color: #1E3A8A;
+    background-color: transparent;
 }
 
 QTabBar::tab {
@@ -185,12 +185,12 @@ QTreeWidget#sidebar_tree:focus {
 }
 
 QTreeWidget#sidebar_tree::item {
-    padding: 2px 8px; /* Reduced padding for tighter packing */
-    margin: 1px 4px;  /* Reduced margin */
-    border-radius: 10px; /* Adjusted radius */
+    padding: 1px 6px;
+    margin: 0px 2px;
+    border-radius: 0px;
     background-color: #D0E0F5;
     border: 1px solid #B0C8E8;
-    height: 20px; /* Explicit height to match DB Query screen items */
+    min-height: 18px;
 }
 
 QTreeWidget#sidebar_tree::item:hover {
@@ -231,12 +231,12 @@ QTreeWidget#tables_tree:focus {
 }
 
 QTreeWidget#tables_tree::item {
-    padding: 2px 8px;
-    margin: 1px 4px;
-    border-radius: 0px; /* Boxy look (no rounded corners) */
-    background-color: #D0E0F5; /* Same blue as sidebar items */
+    padding: 1px 6px;
+    margin: 0px 2px;
+    border-radius: 0px;
+    background-color: #D0E0F5;
     border: 1px solid #B0C8E8;
-    height: 20px;
+    min-height: 18px;
 }
 
 QTreeWidget#tables_tree::item:hover {
@@ -394,22 +394,20 @@ QTableView::item:hover {
 }
 
 QTableView::item:selected {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #D4AF37,
-                                stop:1 #B8860B);
-    border: 1px solid #FFD700;
+    background-color: #d4e4f7;
+    border: 1px solid #a8c8e8;
     color: #0A1E5E;
     font-weight: 700;
 }
 
 QHeaderView::section {
-    background: #6BA3E8;
-    color: #0A1E5E;
-    padding: 6px;
-    border: 1px solid #5A93D8;
-    border-right: 1px solid #4A83C8;
+    background: #E0E0E0;
+    color: #333333;
+    padding: 2px 6px;
+    border: none;
+    border-right: 1px solid #C0C0C0;
     font-weight: 600;
-    font-size: 10px;
+    font-size: 11px;
 }
 
 /* Buttons */
@@ -567,6 +565,28 @@ QLineEdit {
     selection-color: #FFFFFF;
 }
 
+/* Inline rename/edit editors inside item views (QTreeView/QListView/etc)
+   The global QLineEdit padding is intentionally generous for forms, but it
+   causes in-place editors (e.g., F2 rename) to clip text in tight row heights.
+   Keep these editors compact so the filename is readable. */
+QTreeView QLineEdit,
+QTreeWidget QLineEdit,
+QListView QLineEdit,
+QListWidget QLineEdit {
+    padding: 0px 2px;
+    margin: 0px;
+    border: none;
+    border-radius: 0px;
+    background-color: transparent;
+}
+
+QTreeView QLineEdit:focus,
+QTreeWidget QLineEdit:focus,
+QListView QLineEdit:focus,
+QListWidget QLineEdit:focus {
+    border: none;
+}
+
 QLineEdit:focus {
     border: 2px solid #D4AF37;
     background-color: #FFFFFF;
@@ -655,30 +675,33 @@ QDateEdit:focus {
 
 /* Check Box */
 QCheckBox {
-    spacing: 10px;
+    spacing: 6px;
     font-size: 11px;
     font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
     color: #1E3A8A;
 }
 
 QCheckBox::indicator {
-    width: 20px;
-    height: 20px;
-    border: 2px solid #A0B8D8;
-    border-radius: 4px;
+    width: 14px;
+    height: 14px;
+    border: 1px solid #6B8AB8;
+    border-radius: 2px;
     background-color: #FFFFFF;
 }
 
 QCheckBox::indicator:hover {
-    border: 2px solid #2563EB;
-    background-color: #F0F8FF;
+    border: 1px solid #2563EB;
+    background-color: #E8F4FF;
 }
 
 QCheckBox::indicator:checked {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #F4D03F,
-                                stop:1 #D4AF37);
-    border: 2px solid #FFD700;
+    background-color: #2563EB;
+    border: 1px solid #1E3A8A;
+}
+
+QCheckBox::indicator:checked:hover {
+    background-color: #3B82F6;
+    border: 1px solid #1E3A8A;
 }
 
 /* Radio Button */
@@ -709,29 +732,24 @@ QRadioButton::indicator:checked {
     border: 2px solid #FFD700;
 }
 
-/* Scroll Bar */
+/* Scroll Bar - Subtle styling */
 QScrollBar:vertical {
-    background: #1A1F2E;
-    width: 14px;
+    background: #E8E8E8;
+    width: 10px;
     margin: 0px;
-    border: 1px solid #3A4454;
-    border-radius: 7px;
+    border: none;
+    border-radius: 5px;
 }
 
 QScrollBar::handle:vertical {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #1E3A8A,
-                                stop:1 #2563EB);
+    background: #B0B0B0;
     min-height: 30px;
-    border-radius: 6px;
-    border: 1px solid #B8860B;
+    border-radius: 5px;
+    border: none;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #B8860B,
-                                stop:1 #D4AF37);
-    border: 1px solid #FFD700;
+    background: #909090;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -739,27 +757,22 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 }
 
 QScrollBar:horizontal {
-    background: #1A1F2E;
-    height: 14px;
+    background: #E8E8E8;
+    height: 10px;
     margin: 0px;
-    border: 1px solid #3A4454;
-    border-radius: 7px;
+    border: none;
+    border-radius: 5px;
 }
 
 QScrollBar::handle:horizontal {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #1E3A8A,
-                                stop:1 #2563EB);
+    background: #B0B0B0;
     min-width: 30px;
-    border-radius: 6px;
-    border: 1px solid #B8860B;
+    border-radius: 5px;
+    border: none;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #B8860B,
-                                stop:1 #D4AF37);
-    border: 1px solid #FFD700;
+    background: #909090;
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {

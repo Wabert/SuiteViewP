@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                               QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem,
                               QLabel, QPushButton, QGroupBox, QFormLayout, QMessageBox,
                               QHeaderView, QMenu, QCheckBox, QLineEdit, QComboBox, QDialog, QTextEdit, QSizePolicy, QAbstractItemView)
-from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 
 from suiteview.data.repositories import (SavedTableRepository, ConnectionRepository, 
@@ -174,114 +174,37 @@ class MyDataScreen(QWidget):
         # Main layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
 
-        # Create horizontal splitter for four-panel layout
-        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        # Create horizontal splitter for three-panel layout
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # Allow Data Mapping panel to collapse to 0
-        self.main_splitter.setChildrenCollapsible(True)
+        # Allow panels to be resized down to very small widths
+        splitter.setChildrenCollapsible(False)  # Prevent complete collapse
 
         # Left Panel - My Data Sources (200px default)
         left_panel = self._create_left_panel()
-        left_panel.setMinimumWidth(20)
-        self.main_splitter.addWidget(left_panel)
+        left_panel.setMinimumWidth(20)  # Allow resizing down to 20px
+        splitter.addWidget(left_panel)
 
         # Middle Panel - Tables List (300px default)
         middle_panel = self._create_middle_panel()
-        middle_panel.setMinimumWidth(20)
-        self.main_splitter.addWidget(middle_panel)
+        middle_panel.setMinimumWidth(20)  # Allow resizing down to 20px
+        splitter.addWidget(middle_panel)
 
         # Right Panel - Schema Details (flex)
         right_panel = self._create_right_panel()
-        right_panel.setMinimumWidth(100)
-        self.main_splitter.addWidget(right_panel)
+        right_panel.setMinimumWidth(100)  # Keep minimum width for readability
+        splitter.addWidget(right_panel)
 
-        # Far Right Panel - Data Mapping (4th panel, resizable, can collapse to 0)
-        self.data_mapping_panel = self._create_far_right_panel()
-        self.data_mapping_panel.setMinimumWidth(0)
-        self.main_splitter.addWidget(self.data_mapping_panel)
+        # Far Right Panel - Data Mapping (250px default)
+        far_right_panel = self._create_far_right_panel()
+        far_right_panel.setMinimumWidth(20)
+        splitter.addWidget(far_right_panel)
 
-        # Set initial sizes for 4 panels - Data Mapping closed by default
-        self.data_mapping_panel_width = 250
-        self.main_splitter.setSizes([200, 300, 850, 0])
+        # Set initial sizes (200px, 300px, rest, 250px)
+        splitter.setSizes([200, 300, 600, 250])
 
-        layout.addWidget(self.main_splitter, 1)
-
-        # Create floating toggle button (overlay)
-        self.data_mapping_toggle = QPushButton("<<", self)
-        self.data_mapping_toggle.setCheckable(True)
-        self.data_mapping_toggle.setChecked(False)  # Start unchecked (panel closed)
-        self.data_mapping_toggle.clicked.connect(self._toggle_data_mapping_panel)
-        self.data_mapping_toggle.setFixedSize(24, 38)
-        self.data_mapping_toggle.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                            stop:0 #1E3A8A,
-                                            stop:1 #2563EB);
-                color: #FFD700;
-                border: none;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                            stop:0 #2563EB,
-                                            stop:1 #3B82F6);
-            }
-        """)
-        self.data_mapping_toggle.raise_()  # Bring to front
-        
-        # Connect splitter movement to reposition button
-        self.main_splitter.splitterMoved.connect(self._update_toggle_position)
-
-    def resizeEvent(self, event):
-        """Handle resize to reposition the toggle button"""
-        super().resizeEvent(event)
-        self._update_toggle_position()
-
-    def showEvent(self, event):
-        """Handle show event to position the toggle button"""
-        super().showEvent(event)
-        self._update_toggle_position()
-
-    def _update_toggle_position(self):
-        """Position the toggle button at the left edge of Data Mapping panel"""
-        if not hasattr(self, 'data_mapping_toggle'):
-            return
-        
-        sizes = self.main_splitter.sizes()
-        # Calculate x position: sum of first 3 panels + splitter handles
-        x_pos = sizes[0] + sizes[1] + sizes[2] + 12  # 12 for splitter handles (3 * 4px approx)
-        
-        # Position button at top, to the left of Data Mapping panel
-        self.data_mapping_toggle.move(x_pos - 24, 0)
-
-    def _toggle_data_mapping_panel(self):
-        """Toggle visibility of the Data Mapping panel"""
-        sizes = self.main_splitter.sizes()
-        is_visible = sizes[3] > 0
-        
-        if is_visible:
-            # Store width and collapse
-            self.data_mapping_panel_width = sizes[3]
-            new_sizes = [sizes[0], sizes[1], sizes[2] + sizes[3], 0]
-            self.main_splitter.setSizes(new_sizes)
-            self.data_mapping_toggle.setText("<<")
-            self.data_mapping_toggle.setChecked(False)
-        else:
-            # Restore width from content panel
-            content_width = sizes[2] - self.data_mapping_panel_width
-            if content_width < 100:
-                content_width = 100
-            new_sizes = [sizes[0], sizes[1], content_width, self.data_mapping_panel_width]
-            self.main_splitter.setSizes(new_sizes)
-            self.data_mapping_toggle.setText(">>")
-            self.data_mapping_toggle.setChecked(True)
-        
-        # Update button position after toggle
-        self._update_toggle_position()
+        layout.addWidget(splitter)
 
     def _create_left_panel(self) -> QWidget:
         """Create left panel with My Data sources tree"""
@@ -366,50 +289,60 @@ class MyDataScreen(QWidget):
         return should_show
 
     def _create_middle_panel(self) -> QWidget:
-        """Create middle panel with TABLES title bar and tables list"""
+        """Create middle panel with tables list"""
         panel = QWidget()
         panel_layout = QVBoxLayout(panel)
-        panel_layout.setContentsMargins(0, 0, 0, 0)
-        panel_layout.setSpacing(0)
+        panel_layout.setContentsMargins(5, 5, 5, 5)
+        panel_layout.setSpacing(5)
+
+        # Panel header - Match Databases style
+        header = QPushButton("Tables")
+        header.setObjectName("section_header")
+        # theme.apply_panel_header(header) # Removed old styling
+        panel_layout.addWidget(header)
         
-        # Title bar - using QPushButton to match "Databases" styling
-        title_bar = QPushButton("TABLES")
-        title_bar.setObjectName("section_header")
-        title_bar.setCheckable(False)
-        panel_layout.addWidget(title_bar)
-        
-        # Tables tree widget
-        self.tables_tree = QTreeWidget()
-        self.tables_tree.setObjectName("sidebar_tree")
-        self.tables_tree.setHeaderHidden(True)
-        self.tables_tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.tables_tree.itemClicked.connect(self.on_table_clicked)
-        panel_layout.addWidget(self.tables_tree)
-        
-        # Hidden widgets for compatibility
+        # Search box for filtering tables
         self.tables_search_box = QLineEdit()
-        self.tables_search_box.hide()
-        self.table_info_label = QLabel("")
-        self.table_info_label.hide()
+        self.tables_search_box.setPlaceholderText("Search tables...")
+        self.tables_search_box.textChanged.connect(self._filter_tables)
+        panel_layout.addWidget(self.tables_search_box)
+
+        # Tables tree
+        self.tables_tree = QTreeWidget()
+        self.tables_tree.setObjectName("tables_tree")
+        self.tables_tree.setHeaderLabel("Table Name")
+        self.tables_tree.setHeaderHidden(True)
+        # Styling moved to styles.qss
         
+        # Make header stretch to fill width and reduce indentation for compactness
+        self.tables_tree.setIndentation(15)
+
+        # Connect signals
+        self.tables_tree.itemClicked.connect(self.on_table_clicked)
+        self.tables_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tables_tree.customContextMenuRequested.connect(self.show_context_menu)
+
+        panel_layout.addWidget(self.tables_tree)
+
+        # Info label
+        self.table_info_label = QLabel("Select a connection to view tables")
+        self.table_info_label.setStyleSheet("color: #7f8c8d; font-size: 10px; padding: 5px;")
+        panel_layout.addWidget(self.table_info_label)
+
         return panel
 
     def _create_far_right_panel(self) -> QWidget:
         """Create far right panel for Data Mapping"""
         panel = QWidget()
-        panel.setObjectName("data_mapping_panel")  # For border styling
-        panel.setStyleSheet("""
-            QWidget#data_mapping_panel {
-                border-left: 2px solid #1E3A8A;
-            }
-        """)
+        panel.setObjectName("left_panel") # Reuse sidebar styling for consistency
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(0, 0, 0, 0)
         panel_layout.setSpacing(0)
 
-        # Header title
+        # Header - Match Databases style
         header = QPushButton("Data Mapping")
         header.setObjectName("section_header")
+        # theme.apply_panel_header(header) # Removed old styling
         # Add context menu for header
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._show_data_mapping_header_context_menu)
@@ -1074,30 +1007,13 @@ class MyDataScreen(QWidget):
                 nullable = "Yes" if is_nullable else "No"
                 self.schema_table.setItem(row, 3, QTableWidgetItem(nullable))
 
-                # Common (QCheckBox widget) - Column 5 - Professional styled checkbox
+                # Common (QCheckBox widget) - Column 5
                 common_checkbox_widget = QWidget()
                 common_checkbox_layout = QHBoxLayout(common_checkbox_widget)
                 common_checkbox_layout.setContentsMargins(0, 0, 0, 0)
                 common_checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
                 common_checkbox = QCheckBox()
-                common_checkbox.setStyleSheet("""
-                    QCheckBox::indicator {
-                        width: 14px;
-                        height: 14px;
-                        border: 1px solid #6B8AB8;
-                        border-radius: 2px;
-                        background-color: #FFFFFF;
-                    }
-                    QCheckBox::indicator:hover {
-                        border: 1px solid #2563EB;
-                        background-color: #E8F4FF;
-                    }
-                    QCheckBox::indicator:checked {
-                        background-color: #2563EB;
-                        border: 1px solid #1E3A8A;
-                    }
-                """)
                 common_checkbox.setChecked(is_common)
                 common_checkbox.stateChanged.connect(
                     lambda state, r=row, c=col_name: self.on_common_checkbox_changed(r, c, state)
@@ -1107,30 +1023,13 @@ class MyDataScreen(QWidget):
                 self.schema_table.setCellWidget(row, 5, common_checkbox_widget)
                 self.common_checkboxes.append(common_checkbox)
 
-                # Find Unique (QCheckBox widget) - Column 6 - Professional styled checkbox
+                # Find Unique (QCheckBox widget) - Column 6
                 find_unique_checkbox_widget = QWidget()
                 find_unique_checkbox_layout = QHBoxLayout(find_unique_checkbox_widget)
                 find_unique_checkbox_layout.setContentsMargins(0, 0, 0, 0)
                 find_unique_checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
                 find_unique_checkbox = QCheckBox()
-                find_unique_checkbox.setStyleSheet("""
-                    QCheckBox::indicator {
-                        width: 14px;
-                        height: 14px;
-                        border: 1px solid #6B8AB8;
-                        border-radius: 2px;
-                        background-color: #FFFFFF;
-                    }
-                    QCheckBox::indicator:hover {
-                        border: 1px solid #2563EB;
-                        background-color: #E8F4FF;
-                    }
-                    QCheckBox::indicator:checked {
-                        background-color: #2563EB;
-                        border: 1px solid #1E3A8A;
-                    }
-                """)
                 find_unique_checkbox_layout.addWidget(find_unique_checkbox)
 
                 self.schema_table.setCellWidget(row, 6, find_unique_checkbox_widget)
@@ -1213,28 +1112,28 @@ class MyDataScreen(QWidget):
                     assigned_map_name = data_map['map_name']
                     break
             
-            # Create button - fills the entire cell
+            # Create button
             button = QPushButton(assigned_map_name)
             button.setStyleSheet("""
                 QPushButton {
-                    border: none;
-                    border-radius: 0px;
-                    padding: 0px 2px;
-                    margin: 0px;
+                    border: 1px solid #d0d0d0;
+                    border-radius: 2px;
+                    padding: 2px 5px;
                     background: #E8F0FF;
-                    font-size: 10px;
+                    font-size: 11px;
                     text-align: left;
                     color: #1E3A8A;
                     font-weight: normal;
                 }
                 QPushButton:hover {
+                    border: 1px solid #0078d4;
                     background: #D0E0F5;
                 }
                 QPushButton::menu-indicator {
-                    width: 10px;
+                    width: 12px;
                     subcontrol-position: right center;
                     subcontrol-origin: padding;
-                    right: 2px;
+                    left: -2px;
                 }
             """)
             
@@ -1506,12 +1405,12 @@ class MyDataScreen(QWidget):
                 dt_obj = dt.fromisoformat(timestamp.replace('Z', '+00:00'))
                 formatted_timestamp = dt_obj.strftime("%m/%d/%Y %H:%M")
 
-                # Update the table with results (Column 7 is Last Updated)
-                last_updated_item = self.schema_table.item(row_index, 7)
+                # Update the table with results (Column 6 is Last Updated)
+                last_updated_item = self.schema_table.item(row_index, 6)
                 if last_updated_item:
                     last_updated_item.setText(formatted_timestamp)
                 else:
-                    self.schema_table.setItem(row_index, 7, QTableWidgetItem(formatted_timestamp))
+                    self.schema_table.setItem(row_index, 6, QTableWidgetItem(formatted_timestamp))
 
                 # Format unique values for display
                 value_count = len(unique_values)
@@ -1525,16 +1424,16 @@ class MyDataScreen(QWidget):
                     first_ten = ", ".join(str(v) for v in unique_values[:10])
                     display_text = f"{first_ten}... ({value_count} total)"
 
-                # Update Column 8 (Unique Values)
-                unique_values_item = self.schema_table.item(row_index, 8)
+                # Update Column 7 (Unique Values)
+                unique_values_item = self.schema_table.item(row_index, 7)
                 if unique_values_item:
                     unique_values_item.setText(display_text)
                 else:
                     unique_values_item = QTableWidgetItem(display_text)
-                    self.schema_table.setItem(row_index, 8, unique_values_item)
+                    self.schema_table.setItem(row_index, 7, unique_values_item)
                 
                 # Store the full unique values list for later access (for double-click dialog)
-                unique_values_item = self.schema_table.item(row_index, 8)
+                unique_values_item = self.schema_table.item(row_index, 7)
                 unique_values_item.setData(Qt.ItemDataRole.UserRole, unique_values)
 
                 # Uncheck the "Find Unique" checkbox for this column
@@ -1571,15 +1470,11 @@ class MyDataScreen(QWidget):
         # Get the column name
         col_name = self.schema_table.item(row, 0).text()
         
-        # Get the field type from column 1
-        field_type_item = self.schema_table.item(row, 1)
-        field_type = field_type_item.text() if field_type_item else "string"
-        
         # Show dialog with all unique values
-        self.show_unique_values_dialog(col_name, unique_values, row, field_type)
+        self.show_unique_values_dialog(col_name, unique_values)
 
-    def show_unique_values_dialog(self, column_name: str, unique_values: list, row: int = None, field_type: str = "string"):
-        """Show a dialog displaying all unique values in a grid with data map options"""
+    def show_unique_values_dialog(self, column_name: str, unique_values: list):
+        """Show a dialog displaying all unique values in a grid"""
         from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem
         
         dialog = QDialog(self)
@@ -1599,19 +1494,23 @@ class MyDataScreen(QWidget):
         count_label.setStyleSheet("padding: 0 10px 10px 10px;")
         layout.addWidget(count_label)
         
-        # Table with unique values - single column, no "#"
+        # Table with unique values
         table = QTableWidget()
-        table.setColumnCount(1)
-        table.setHorizontalHeaderLabels(["Value"])
+        table.setColumnCount(2)
+        table.setHorizontalHeaderLabels(["#", "Value"])
         table.setRowCount(len(unique_values))
         
         # Populate table
         for i, value in enumerate(unique_values):
+            # Row number
+            table.setItem(i, 0, QTableWidgetItem(str(i + 1)))
+            
             # Value (convert to string, handle None)
             display_value = str(value) if value is not None else "(NULL)"
-            table.setItem(i, 0, QTableWidgetItem(display_value))
+            table.setItem(i, 1, QTableWidgetItem(display_value))
         
-        # Set column to stretch
+        # Set column widths
+        table.setColumnWidth(0, 60)
         table.horizontalHeader().setStretchLastSection(True)
         
         # Make read-only
@@ -1651,637 +1550,18 @@ class MyDataScreen(QWidget):
         
         layout.addWidget(table)
         
-        # Check if field is already mapped to a data map
-        assigned_map_id = None
-        assigned_map_name = None
-        if self.current_connection_id and self.current_table_name:
-            assigned_map_id = self.data_map_repo.get_field_data_map(
-                self.current_connection_id, 
-                self.current_table_name, 
-                column_name, 
-                self.current_schema_name
-            )
-            if assigned_map_id:
-                data_map = self.data_map_repo.get_data_map(assigned_map_id)
-                if data_map:
-                    assigned_map_name = data_map['map_name']
-        
-        # Add buttons
+        # Add close button
         from PyQt6.QtWidgets import QPushButton, QHBoxLayout
         button_layout = QHBoxLayout()
-        
-        # Set Data Map button - always visible
-        set_map_btn = QPushButton("📋 Set Data Map")
-        set_map_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1E3A8A;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-                font-size: 12px;
-                min-width: 120px;
-            }
-            QPushButton:hover {
-                background-color: #2E4A9A;
-            }
-            QPushButton:pressed {
-                background-color: #0E2A7A;
-            }
-        """)
-        set_map_btn.clicked.connect(lambda: self._show_set_data_map_dialog(column_name, dialog))
-        button_layout.addWidget(set_map_btn)
-        
-        # Create Data Map OR Show Data Map button
-        if assigned_map_id and assigned_map_name:
-            # Field is mapped - show "Show Data Map" button
-            show_map_btn = QPushButton(f"👁️ Show Data Map ({assigned_map_name})")
-            show_map_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #059669;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    padding: 8px 16px;
-                    font-weight: bold;
-                    font-size: 12px;
-                    min-width: 140px;
-                }
-                QPushButton:hover {
-                    background-color: #06B67A;
-                }
-                QPushButton:pressed {
-                    background-color: #048559;
-                }
-            """)
-            show_map_btn.clicked.connect(lambda: self._show_data_map_from_unique_dialog(assigned_map_id, dialog))
-            button_layout.addWidget(show_map_btn)
-        else:
-            # Field is not mapped - show "Create Data Map" button
-            create_map_btn = QPushButton("➕ Create Data Map")
-            create_map_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #FFD700;
-                    color: #1E3A8A;
-                    border: none;
-                    border-radius: 4px;
-                    padding: 8px 16px;
-                    font-weight: bold;
-                    font-size: 12px;
-                    min-width: 140px;
-                }
-                QPushButton:hover {
-                    background-color: #FFE033;
-                }
-                QPushButton:pressed {
-                    background-color: #E6C200;
-                }
-            """)
-            create_map_btn.clicked.connect(lambda: self._show_create_data_map_dialog(column_name, unique_values, field_type, row, dialog))
-            button_layout.addWidget(create_map_btn)
-        
         button_layout.addStretch()
         
-        # Close button - more distinct styling
         close_btn = QPushButton("Close")
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6B7280;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 20px;
-                font-weight: bold;
-                font-size: 12px;
-                min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #7B8290;
-            }
-            QPushButton:pressed {
-                background-color: #5B6270;
-            }
-        """)
         close_btn.clicked.connect(dialog.accept)
         button_layout.addWidget(close_btn)
         
         layout.addLayout(button_layout)
         
         dialog.exec()
-
-    def _show_set_data_map_dialog(self, column_name: str, parent_dialog: QDialog):
-        """Show dialog to select and assign a data map to the field"""
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem, QPushButton, QHBoxLayout
-        
-        dialog = QDialog(parent_dialog)
-        dialog.setWindowTitle(f"Set Data Map - {column_name}")
-        dialog.setMinimumWidth(350)
-        dialog.setMinimumHeight(400)
-        
-        layout = QVBoxLayout(dialog)
-        
-        # Header
-        header = QLabel(f"Select a data map for: {column_name}")
-        header.setStyleSheet("font-weight: bold; font-size: 13px; padding: 10px;")
-        layout.addWidget(header)
-        
-        # Tree widget showing folders and data maps
-        tree = QTreeWidget()
-        tree.setHeaderHidden(True)
-        tree.setStyleSheet("""
-            QTreeWidget {
-                border: 1px solid #d0d0d0;
-                border-radius: 4px;
-            }
-            QTreeWidget::item {
-                padding: 4px;
-            }
-            QTreeWidget::item:selected {
-                background-color: #1E3A8A;
-                color: white;
-            }
-        """)
-        
-        # Add "None" option at top
-        none_item = QTreeWidgetItem(tree)
-        none_item.setText(0, "(None) - Remove assignment")
-        none_item.setData(0, Qt.ItemDataRole.UserRole, None)
-        
-        # Load folders and data maps
-        all_folders = self.data_map_repo.get_all_folders()
-        all_maps = self.data_map_repo.get_all_data_maps()
-        
-        # Organize maps by folder
-        maps_by_folder = {}
-        for data_map in all_maps:
-            folder_id = data_map.get('folder_id')
-            if folder_id not in maps_by_folder:
-                maps_by_folder[folder_id] = []
-            maps_by_folder[folder_id].append(data_map)
-        
-        # Add folders with their maps
-        for folder in all_folders:
-            folder_id = folder['folder_id']
-            folder_maps = maps_by_folder.get(folder_id, [])
-            
-            if folder_maps:
-                folder_item = QTreeWidgetItem(tree)
-                folder_item.setText(0, f"📁 {folder['folder_name']}")
-                folder_item.setData(0, Qt.ItemDataRole.UserRole, "folder")
-                folder_item.setExpanded(True)
-                
-                for data_map in folder_maps:
-                    map_item = QTreeWidgetItem(folder_item)
-                    map_item.setText(0, data_map['map_name'])
-                    map_item.setData(0, Qt.ItemDataRole.UserRole, data_map['data_map_id'])
-        
-        layout.addWidget(tree)
-        
-        # Buttons
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-        
-        assign_btn = QPushButton("Assign")
-        assign_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1E3A8A;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 20px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #2E4A9A; }
-        """)
-        
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6B7280;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 20px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #7B8290; }
-        """)
-        
-        def do_assign():
-            selected = tree.currentItem()
-            if not selected:
-                return
-            
-            data_map_id = selected.data(0, Qt.ItemDataRole.UserRole)
-            if data_map_id == "folder":
-                return  # Can't select a folder
-            
-            try:
-                if data_map_id is None:
-                    # Remove assignment (set to None)
-                    self.data_map_repo.assign_data_map_to_field(
-                        self.current_connection_id,
-                        self.current_table_name,
-                        column_name,
-                        self.current_schema_name,
-                        None
-                    )
-                    logger.info(f"Removed data map assignment from {column_name}")
-                else:
-                    # Assign selected data map
-                    self.data_map_repo.assign_data_map_to_field(
-                        self.current_connection_id,
-                        self.current_table_name,
-                        column_name,
-                        self.current_schema_name,
-                        data_map_id
-                    )
-                    logger.info(f"Assigned data map {data_map_id} to {column_name}")
-                
-                # Refresh the schema table to show updated assignment
-                self._refresh_data_map_button(column_name, data_map_id)
-                
-                dialog.accept()
-                parent_dialog.accept()  # Close the unique values dialog too
-            except Exception as e:
-                logger.error(f"Error assigning data map: {e}")
-                QMessageBox.critical(dialog, "Error", f"Failed to assign data map:\n{str(e)}")
-        
-        assign_btn.clicked.connect(do_assign)
-        cancel_btn.clicked.connect(dialog.reject)
-        
-        btn_layout.addWidget(assign_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
-        
-        dialog.exec()
-
-    def _refresh_data_map_button(self, column_name: str, data_map_id: int = None):
-        """Refresh the data map button in schema table for a specific column"""
-        # Find the row for this column
-        for row in range(self.schema_table.rowCount()):
-            field_item = self.schema_table.item(row, 0)
-            if field_item and field_item.text() == column_name:
-                # Get the button widget in column 4
-                widget = self.schema_table.cellWidget(row, 4)
-                if widget and isinstance(widget, QPushButton):
-                    if data_map_id:
-                        data_map = self.data_map_repo.get_data_map(data_map_id)
-                        widget.setText(data_map['map_name'] if data_map else "(None)")
-                    else:
-                        widget.setText("(None)")
-                break
-
-    def _show_data_map_from_unique_dialog(self, data_map_id: int, parent_dialog: QDialog):
-        """Show the data map editor in the right panel and close the unique values dialog"""
-        parent_dialog.accept()
-        self._show_data_map_editor_in_panel(data_map_id)
-
-    def _show_create_data_map_dialog(self, column_name: str, unique_values: list, field_type: str, row: int, parent_dialog: QDialog):
-        """Show dialog to create a new data map pre-populated with unique values"""
-        from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                                     QLineEdit, QComboBox, QTextEdit, QTableWidget, 
-                                     QTableWidgetItem, QPushButton, QHeaderView)
-        
-        dialog = QDialog(parent_dialog)
-        dialog.setWindowTitle(f"Create Data Map from {column_name}")
-        dialog.setMinimumWidth(600)
-        dialog.setMinimumHeight(550)
-        
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
-        
-        # Title
-        title = QLabel(f"Create Data Map: {column_name}")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1E3A8A;")
-        layout.addWidget(title)
-        
-        # Map name
-        name_layout = QHBoxLayout()
-        name_label = QLabel("Map Name:")
-        name_label.setStyleSheet("font-weight: bold;")
-        name_layout.addWidget(name_label)
-        name_input = QLineEdit()
-        name_input.setText(column_name)  # Default to column name
-        name_input.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #d0d0d0;
-                border-radius: 4px;
-                padding: 6px;
-                background: #E8F0FF;
-            }
-            QLineEdit:focus {
-                border: 2px solid #1E3A8A;
-            }
-        """)
-        name_layout.addWidget(name_input)
-        layout.addLayout(name_layout)
-        
-        # Data types
-        types_layout = QHBoxLayout()
-        
-        key_type_label = QLabel("Key Data Type:")
-        key_type_label.setStyleSheet("font-weight: bold;")
-        types_layout.addWidget(key_type_label)
-        
-        key_type_combo = QComboBox()
-        key_type_combo.addItems(['string', 'integer', 'decimal', 'date', 'boolean'])
-        # Try to infer key type from field type
-        inferred_type = self._infer_data_type(field_type)
-        key_type_combo.setCurrentText(inferred_type)
-        key_type_combo.setStyleSheet("""
-            QComboBox {
-                border: 1px solid #d0d0d0;
-                border-radius: 4px;
-                padding: 4px 8px;
-                background: #E8F0FF;
-            }
-        """)
-        types_layout.addWidget(key_type_combo)
-        
-        types_layout.addSpacing(30)
-        
-        value_type_label = QLabel("Value Data Type:")
-        value_type_label.setStyleSheet("font-weight: bold;")
-        types_layout.addWidget(value_type_label)
-        
-        value_type_combo = QComboBox()
-        value_type_combo.addItems(['string', 'integer', 'decimal', 'date', 'boolean'])
-        value_type_combo.setCurrentText('string')  # Default to string
-        value_type_combo.setStyleSheet("""
-            QComboBox {
-                border: 1px solid #d0d0d0;
-                border-radius: 4px;
-                padding: 4px 8px;
-                background: #E8F0FF;
-            }
-        """)
-        types_layout.addWidget(value_type_combo)
-        types_layout.addStretch()
-        layout.addLayout(types_layout)
-        
-        # Notes
-        notes_label = QLabel("Notes / Description:")
-        notes_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(notes_label)
-        
-        notes_input = QTextEdit()
-        notes_input.setPlaceholderText("Enter notes or description...")
-        notes_input.setMaximumHeight(60)
-        notes_input.setStyleSheet("""
-            QTextEdit {
-                border: 1px solid #d0d0d0;
-                border-radius: 4px;
-                padding: 4px;
-            }
-        """)
-        layout.addWidget(notes_input)
-        
-        # Key-Value table label
-        kv_label = QLabel("Key-Value Mappings:")
-        kv_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(kv_label)
-        
-        # Buttons above table
-        table_btn_layout = QHBoxLayout()
-        
-        add_row_btn = QPushButton("➕ Add Row")
-        add_row_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #059669;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #06B67A; }
-        """)
-        table_btn_layout.addWidget(add_row_btn)
-        
-        delete_btn = QPushButton("🗑️ Delete Selected")
-        delete_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #DC2626;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #EF4444; }
-        """)
-        table_btn_layout.addWidget(delete_btn)
-        table_btn_layout.addStretch()
-        layout.addLayout(table_btn_layout)
-        
-        # Table with Key and Value columns
-        entries_table = QTableWidget()
-        entries_table.setColumnCount(3)
-        entries_table.setHorizontalHeaderLabels(['Key', 'Value', 'Comment'])
-        entries_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        entries_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
-        
-        # Allow user to resize columns - Interactive mode
-        header = entries_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setStretchLastSection(True)
-        
-        # Set initial column widths
-        entries_table.setColumnWidth(0, 80)
-        entries_table.setColumnWidth(1, 200)
-        entries_table.setColumnWidth(2, 150)
-        
-        # Enable word wrap for cells
-        entries_table.setWordWrap(True)
-        
-        # Style the table - clean cells with NO padding, subtle selection
-        entries_table.setStyleSheet("""
-            QHeaderView::section {
-                background-color: #1E3A8A;
-                color: white;
-                padding: 6px;
-                border: 1px solid #0E2A7A;
-                font-weight: bold;
-            }
-            QTableWidget {
-                gridline-color: #d0d0d0;
-                selection-background-color: #E0E7F1;
-                selection-color: #000000;
-            }
-            QTableWidget::item {
-                padding: 0px;
-                margin: 0px;
-                border: none;
-            }
-            QTableWidget::item:selected {
-                background-color: #E0E7F1;
-                color: #000000;
-            }
-            QLineEdit {
-                padding: 0px;
-                margin: 0px;
-                border: none;
-                background: white;
-            }
-        """)
-        
-        # Pre-populate with unique values
-        entries_table.setRowCount(len(unique_values))
-        for i, value in enumerate(unique_values):
-            # Key (from unique value)
-            key_text = str(value) if value is not None else ""
-            key_item = QTableWidgetItem(key_text)
-            entries_table.setItem(i, 0, key_item)
-            
-            # Value (blank - ready for user input)
-            value_item = QTableWidgetItem("")
-            entries_table.setItem(i, 1, value_item)
-            
-            # Comment (blank)
-            comment_item = QTableWidgetItem("")
-            entries_table.setItem(i, 2, comment_item)
-        
-        layout.addWidget(entries_table)
-        
-        # Connect table button handlers
-        def add_empty_row():
-            row_idx = entries_table.rowCount()
-            entries_table.insertRow(row_idx)
-            entries_table.setItem(row_idx, 0, QTableWidgetItem(''))
-            entries_table.setItem(row_idx, 1, QTableWidgetItem(''))
-            entries_table.setItem(row_idx, 2, QTableWidgetItem(''))
-        
-        def delete_selected_rows():
-            selected_rows = set()
-            for item in entries_table.selectedItems():
-                selected_rows.add(item.row())
-            for row_idx in sorted(selected_rows, reverse=True):
-                entries_table.removeRow(row_idx)
-        
-        add_row_btn.clicked.connect(add_empty_row)
-        delete_btn.clicked.connect(delete_selected_rows)
-        
-        # Bottom buttons
-        bottom_btn_layout = QHBoxLayout()
-        bottom_btn_layout.addStretch()
-        
-        save_btn = QPushButton("💾 Save Data Map")
-        save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #FFD700;
-                color: #1E3A8A;
-                border: none;
-                border-radius: 4px;
-                padding: 10px 24px;
-                font-weight: bold;
-                font-size: 13px;
-                min-width: 140px;
-            }
-            QPushButton:hover { background-color: #FFE033; }
-            QPushButton:pressed { background-color: #E6C200; }
-        """)
-        
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6B7280;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 10px 24px;
-                font-weight: bold;
-                font-size: 13px;
-            }
-            QPushButton:hover { background-color: #7B8290; }
-        """)
-        
-        def save_new_data_map():
-            map_name = name_input.text().strip()
-            if not map_name:
-                QMessageBox.warning(dialog, "Validation Error", "Please enter a map name")
-                return
-            
-            # Check for unique name
-            if not self.data_map_repo.is_map_name_unique(map_name):
-                QMessageBox.warning(dialog, "Duplicate Name", 
-                    f"A data map named '{map_name}' already exists.\n"
-                    "Data map names must be unique across all groups.")
-                return
-            
-            try:
-                # Create the data map
-                data_map_id = self.data_map_repo.create_data_map(
-                    map_name=map_name,
-                    key_data_type=key_type_combo.currentText(),
-                    value_data_type=value_type_combo.currentText(),
-                    notes=notes_input.toPlainText().strip() or None
-                )
-                
-                # Add all entries
-                for row_idx in range(entries_table.rowCount()):
-                    key = entries_table.item(row_idx, 0).text().strip()
-                    value = entries_table.item(row_idx, 1).text().strip()
-                    comment = entries_table.item(row_idx, 2).text().strip() or None
-                    
-                    if key:  # Only add entries with non-empty keys
-                        self.data_map_repo.add_map_entry(
-                            data_map_id,
-                            key_value=key,
-                            mapped_value=value or None,
-                            comment=comment
-                        )
-                
-                # Assign the new data map to the field
-                self.data_map_repo.assign_data_map_to_field(
-                    self.current_connection_id,
-                    self.current_table_name,
-                    column_name,
-                    self.current_schema_name,
-                    data_map_id
-                )
-                
-                # Refresh UI
-                self._refresh_data_map_button(column_name, data_map_id)
-                self._load_data_maps()  # Refresh data maps tree
-                
-                QMessageBox.information(dialog, "Success", 
-                    f"Data map '{map_name}' created and assigned to {column_name}!")
-                
-                dialog.accept()
-                parent_dialog.accept()  # Close unique values dialog
-                
-                logger.info(f"Created and assigned data map '{map_name}' to {column_name}")
-                
-            except Exception as e:
-                logger.error(f"Error creating data map: {e}")
-                QMessageBox.critical(dialog, "Error", f"Failed to create data map:\n{str(e)}")
-        
-        save_btn.clicked.connect(save_new_data_map)
-        cancel_btn.clicked.connect(dialog.reject)
-        
-        bottom_btn_layout.addWidget(save_btn)
-        bottom_btn_layout.addWidget(cancel_btn)
-        layout.addLayout(bottom_btn_layout)
-        
-        dialog.exec()
-
-    def _infer_data_type(self, field_type: str) -> str:
-        """Infer a data map key type from a database field type"""
-        field_type_lower = field_type.lower()
-        
-        if any(t in field_type_lower for t in ['int', 'smallint', 'bigint', 'tinyint']):
-            return 'integer'
-        elif any(t in field_type_lower for t in ['decimal', 'numeric', 'float', 'double', 'real']):
-            return 'decimal'
-        elif any(t in field_type_lower for t in ['date', 'time', 'timestamp']):
-            return 'date'
-        elif any(t in field_type_lower for t in ['bool', 'bit']):
-            return 'boolean'
-        else:
-            return 'string'
 
     def preview_table(self):
         """Preview table data (first 100 rows)"""
@@ -2301,12 +1581,6 @@ class MyDataScreen(QWidget):
                 self.current_schema_name,
                 limit=10000
             )
-            
-            # Debug logging to check data structure
-            logger.info(f"Preview data retrieved: {len(columns)} columns, {len(data)} rows")
-            if data and len(data) > 0:
-                logger.info(f"First row type: {type(data[0])}, length: {len(data[0]) if hasattr(data[0], '__len__') else 'N/A'}")
-                logger.info(f"First row sample: {data[0][:5] if hasattr(data[0], '__getitem__') else data[0]}")
 
             # Show preview dialog with connection info for reloading capability
             dialog = PreviewDialog(
@@ -2318,7 +1592,7 @@ class MyDataScreen(QWidget):
                 schema_name=self.current_schema_name,
                 schema_discovery=self.schema_discovery
             )
-            dialog.show()  # Modeless - allows interaction with main app
+            dialog.exec()
 
         except Exception as e:
             logger.error(f"Error previewing table: {e}")
@@ -2929,193 +2203,64 @@ class MyDataScreen(QWidget):
                 QMessageBox.warning(self, "Error", "Data map not found")
                 return
             
-            # Get folder/group name
-            folder = self.data_map_repo.get_folder(data_map.get('folder_id'))
-            group_name = folder['folder_name'] if folder else "General"
-            
-            # Create editor widget with clean styling
+            # Create editor widget
             editor_widget = QWidget()
-            editor_widget.setStyleSheet("""
-                QWidget {
-                    background-color: #F8FAFC;
-                }
-                QLabel {
-                    background-color: transparent;
-                }
-                QLineEdit, QComboBox, QTextEdit {
-                    background-color: white;
-                    border: 1px solid #CBD5E1;
-                    border-radius: 4px;
-                    padding: 6px 10px;
-                    font-size: 12px;
-                }
-                QLineEdit:focus, QComboBox:focus, QTextEdit:focus {
-                    border: 2px solid #2563EB;
-                }
-                QComboBox {
-                    padding: 4px 8px;
-                }
-            """)
             editor_layout = QVBoxLayout(editor_widget)
-            editor_layout.setContentsMargins(16, 16, 16, 16)
-            editor_layout.setSpacing(16)
-            
-            # === HEADER SECTION ===
-            header_widget = QWidget()
-            header_widget.setStyleSheet("""
-                QWidget {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                                stop:0 #1E3A8A, stop:1 #2563EB);
-                    border-radius: 8px;
-                }
-                QLabel {
-                    color: white;
-                    background: transparent;
-                }
-            """)
-            header_layout = QVBoxLayout(header_widget)
-            header_layout.setContentsMargins(16, 12, 16, 12)
-            header_layout.setSpacing(4)
+            editor_layout.setContentsMargins(10, 10, 10, 10)
             
             # Title
-            title = QLabel(data_map['map_name'])
-            title.setStyleSheet("font-size: 18px; font-weight: bold;")
-            header_layout.addWidget(title)
+            title = QLabel(f"Edit Data Map: {data_map['map_name']}")
+            title.setStyleSheet("font-size: 14px; font-weight: bold; color: #0078d4;")
+            editor_layout.addWidget(title)
             
-            # Group subtitle
-            group_subtitle = QLabel(f"📁 {group_name}")
-            group_subtitle.setStyleSheet("font-size: 12px; color: #FFD700;")
-            header_layout.addWidget(group_subtitle)
-            
-            editor_layout.addWidget(header_widget)
-            
-            # === DETAILS CARD ===
-            details_card = QWidget()
-            details_card.setStyleSheet("""
-                QWidget#details_card {
-                    background-color: white;
-                    border: 1px solid #E2E8F0;
-                    border-radius: 8px;
-                }
-                QLabel {
-                    background: transparent;
-                }
-            """)
-            details_card.setObjectName("details_card")
-            details_layout = QVBoxLayout(details_card)
-            details_layout.setContentsMargins(16, 16, 16, 16)
-            details_layout.setSpacing(12)
-            
-            # Section title
-            details_title = QLabel("Details")
-            details_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #1E3A8A;")
-            details_layout.addWidget(details_title)
-            
-            # Map name row
-            name_row = QHBoxLayout()
-            name_label = QLabel("Name:")
-            name_label.setFixedWidth(100)
-            name_label.setStyleSheet("font-weight: 500; color: #64748B;")
-            name_row.addWidget(name_label)
+            # Map name
+            name_layout = QHBoxLayout()
+            name_layout.addWidget(QLabel("Map Name:"))
             name_input = QLineEdit()
             name_input.setText(data_map['map_name'])
-            name_row.addWidget(name_input)
-            details_layout.addLayout(name_row)
+            name_layout.addWidget(name_input)
+            editor_layout.addLayout(name_layout)
             
-            # Data types row
-            types_row = QHBoxLayout()
-            
-            key_label = QLabel("Key Type:")
-            key_label.setFixedWidth(100)
-            key_label.setStyleSheet("font-weight: 500; color: #64748B;")
-            types_row.addWidget(key_label)
+            # Data types
+            types_layout = QHBoxLayout()
+            types_layout.addWidget(QLabel("Key Data Type:"))
             key_type_combo = QComboBox()
             key_type_combo.addItems(['string', 'integer', 'decimal', 'date', 'boolean'])
             key_type_combo.setCurrentText(data_map['key_data_type'])
-            key_type_combo.setFixedWidth(100)
-            types_row.addWidget(key_type_combo)
+            types_layout.addWidget(key_type_combo)
             
-            types_row.addSpacing(20)
-            
-            value_label = QLabel("Value Type:")
-            value_label.setStyleSheet("font-weight: 500; color: #64748B;")
-            types_row.addWidget(value_label)
+            types_layout.addSpacing(20)
+            types_layout.addWidget(QLabel("Value Data Type:"))
             value_type_combo = QComboBox()
             value_type_combo.addItems(['string', 'integer', 'decimal', 'date', 'boolean'])
             value_type_combo.setCurrentText(data_map['value_data_type'])
-            value_type_combo.setFixedWidth(100)
-            types_row.addWidget(value_type_combo)
-            types_row.addStretch()
-            details_layout.addLayout(types_row)
+            types_layout.addWidget(value_type_combo)
+            types_layout.addStretch()
+            editor_layout.addLayout(types_layout)
             
-            # Notes row
-            notes_label = QLabel("Notes:")
-            notes_label.setStyleSheet("font-weight: 500; color: #64748B;")
-            details_layout.addWidget(notes_label)
+            # Notes
+            editor_layout.addWidget(QLabel("Notes / Description:"))
             notes_input = QTextEdit()
-            notes_input.setPlaceholderText("Optional description or notes...")
-            notes_input.setMaximumHeight(60)
-            notes_input.setStyleSheet("QTextEdit { background-color: white; }")
+            notes_input.setPlaceholderText("Enter notes or description...")
+            notes_input.setMaximumHeight(80)
             if data_map['notes']:
                 notes_input.setPlainText(data_map['notes'])
-            details_layout.addWidget(notes_input)
+            editor_layout.addWidget(notes_input)
             
-            editor_layout.addWidget(details_card)
+            # Entries table
+            editor_layout.addWidget(QLabel("Key-Value Mappings:"))
             
-            # === MAPPINGS CARD ===
-            mappings_card = QWidget()
-            mappings_card.setStyleSheet("""
-                QWidget#mappings_card {
-                    background-color: white;
-                    border: 1px solid #E2E8F0;
-                    border-radius: 8px;
-                }
-                QLabel {
-                    background: transparent;
-                }
-            """)
-            mappings_card.setObjectName("mappings_card")
-            mappings_layout = QVBoxLayout(mappings_card)
-            mappings_layout.setContentsMargins(16, 16, 16, 16)
-            mappings_layout.setSpacing(12)
+            # Buttons above table
+            table_buttons_layout = QHBoxLayout()
             
-            # Section header with buttons
-            mappings_header = QHBoxLayout()
-            mappings_title = QLabel("Key-Value Mappings")
-            mappings_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #1E3A8A;")
-            mappings_header.addWidget(mappings_title)
-            mappings_header.addStretch()
+            add_row_btn = QPushButton("➕ Add Row")
+            table_buttons_layout.addWidget(add_row_btn)
             
-            add_row_btn = QPushButton("+ Add")
-            add_row_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #10B981;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    padding: 6px 12px;
-                    font-weight: bold;
-                    font-size: 11px;
-                }
-                QPushButton:hover { background-color: #059669; }
-            """)
-            mappings_header.addWidget(add_row_btn)
+            delete_rows_btn = QPushButton("🗑️ Delete Selected")
+            table_buttons_layout.addWidget(delete_rows_btn)
             
-            delete_rows_btn = QPushButton("Delete")
-            delete_rows_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #EF4444;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    padding: 6px 12px;
-                    font-weight: bold;
-                    font-size: 11px;
-                }
-                QPushButton:hover { background-color: #DC2626; }
-            """)
-            mappings_header.addWidget(delete_rows_btn)
-            mappings_layout.addLayout(mappings_header)
+            table_buttons_layout.addStretch()
+            editor_layout.addLayout(table_buttons_layout)
             
             # Table
             entries_table = QTableWidget()
@@ -3124,48 +2269,12 @@ class MyDataScreen(QWidget):
             entries_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
             entries_table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
             
-            # Allow user to resize columns
+            # Set column widths
             header = entries_table.horizontalHeader()
-            header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-            header.setStretchLastSection(True)
-            entries_table.setColumnWidth(0, 70)
-            entries_table.setColumnWidth(1, 140)
-            entries_table.setColumnWidth(2, 100)
-            entries_table.setColumnWidth(3, 130)
-            
-            entries_table.setWordWrap(True)
-            entries_table.setStyleSheet("""
-                QTableWidget {
-                    border: 1px solid #E2E8F0;
-                    border-radius: 4px;
-                    gridline-color: #E2E8F0;
-                    selection-background-color: #EFF6FF;
-                    selection-color: #1E3A8A;
-                    background-color: white;
-                }
-                QHeaderView::section {
-                    background-color: #1E3A8A;
-                    color: white;
-                    padding: 8px 4px;
-                    border: none;
-                    font-weight: bold;
-                    font-size: 11px;
-                }
-                QTableWidget::item {
-                    padding: 0px;
-                    margin: 0px;
-                }
-                QTableWidget::item:selected {
-                    background-color: #EFF6FF;
-                    color: #1E3A8A;
-                }
-                QLineEdit {
-                    border: none;
-                    padding: 0px;
-                    margin: 0px;
-                    background: white;
-                }
-            """)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
             
             # Load entries
             entries = self.data_map_repo.get_map_entries(data_map_id)
@@ -3193,8 +2302,7 @@ class MyDataScreen(QWidget):
                 # Store entry_id
                 entries_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, entry['entry_id'])
             
-            mappings_layout.addWidget(entries_table, 1)  # Give table stretch priority
-            editor_layout.addWidget(mappings_card, 1)  # Give mappings card stretch priority
+            editor_layout.addWidget(entries_table)
             
             # Connect cell changed handler to update Last Updated timestamp
             def on_cell_changed(row, column):
@@ -3241,46 +2349,16 @@ class MyDataScreen(QWidget):
             add_row_btn.clicked.connect(add_empty_row)
             delete_rows_btn.clicked.connect(delete_selected_rows)
             
-            # === ACTION BUTTONS ===
+            # Bottom buttons
             buttons_layout = QHBoxLayout()
             buttons_layout.addStretch()
             
-            cancel_btn = QPushButton("Cancel")
-            cancel_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #F1F5F9;
-                    color: #475569;
-                    border: 1px solid #CBD5E1;
-                    border-radius: 6px;
-                    padding: 10px 24px;
-                    font-weight: bold;
-                    font-size: 12px;
-                }
-                QPushButton:hover {
-                    background-color: #E2E8F0;
-                    border-color: #94A3B8;
-                }
-            """)
-            buttons_layout.addWidget(cancel_btn)
-            
-            save_btn = QPushButton("💾 Save Changes")
-            save_btn.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                                stop:0 #FFD700, stop:1 #F59E0B);
-                    color: #1E3A8A;
-                    border: none;
-                    border-radius: 6px;
-                    padding: 10px 24px;
-                    font-weight: bold;
-                    font-size: 12px;
-                }
-                QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                                stop:0 #FDE047, stop:1 #FFD700);
-                }
-            """)
+            save_btn = QPushButton("💾 Save Data Map")
+            save_btn.setObjectName("gold_button")
             buttons_layout.addWidget(save_btn)
+            
+            cancel_btn = QPushButton("Cancel")
+            buttons_layout.addWidget(cancel_btn)
             
             editor_layout.addLayout(buttons_layout)
             
@@ -3290,13 +2368,6 @@ class MyDataScreen(QWidget):
                     map_name = name_input.text().strip()
                     if not map_name:
                         QMessageBox.warning(self, "Validation Error", "Please enter a map name")
-                        return
-                    
-                    # Check for unique name (excluding current data map)
-                    if not self.data_map_repo.is_map_name_unique(map_name, exclude_data_map_id=data_map_id):
-                        QMessageBox.warning(self, "Duplicate Name", 
-                            f"A data map named '{map_name}' already exists.\n"
-                            "Data map names must be unique across all groups.")
                         return
                     
                     # Update data map

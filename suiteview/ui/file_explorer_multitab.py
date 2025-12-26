@@ -9,19 +9,20 @@ import sys
 import subprocess
 from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, 
-                              QPushButton, QLabel, QFrame, QMenu, QLineEdit, QTreeView, QStyle, QTabBar, QToolButton)
-from PyQt6.QtCore import Qt, pyqtSignal, QEvent
+                              QPushButton, QLabel, QFrame, QMenu, QLineEdit, QTreeView, QStyle, QTabBar, QToolButton,
+                              QListWidget, QListWidgetItem, QSplitter)
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QSize
 from PyQt6.QtGui import QAction, QCursor, QMouseEvent
 
 # Import the base FileExplorerCore
-from suiteview.ui.file_explorer_core import FileExplorerCore
+from suiteview.ui.file_explorer_core import FileExplorerCore, DropTreeView
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-class NavigableTreeView(QTreeView):
-    """Custom QTreeView that emits signals for back/forward mouse buttons"""
+class NavigableTreeView(DropTreeView):
+    """Custom QTreeView that emits signals for back/forward mouse buttons and supports file drops"""
     
     back_button_clicked = pyqtSignal()
     forward_button_clicked = pyqtSignal()
@@ -76,6 +77,7 @@ class ClickableBreadcrumb(QWidget):
         
         # Breadcrumb display widget (shows clickable segments)
         self.breadcrumb_display = QWidget()
+        self.breadcrumb_display.setStyleSheet("background-color: #FFFDE7;")
         self.breadcrumb_layout = QHBoxLayout(self.breadcrumb_display)
         self.breadcrumb_layout.setContentsMargins(2, 0, 2, 0)
         self.breadcrumb_layout.setSpacing(0)
@@ -85,7 +87,7 @@ class ClickableBreadcrumb(QWidget):
         self.path_input = QLineEdit()
         self.path_input.setStyleSheet("""
             QLineEdit {
-                background-color: #ffffff;
+                background-color: #FFFDE7;
                 border: 1px solid #ced4da;
                 border-radius: 2px;
                 padding: 2px 6px;
@@ -105,9 +107,13 @@ class ClickableBreadcrumb(QWidget):
         
         self.setStyleSheet("""
             ClickableBreadcrumb {
-                background-color: #ffffff;
-                border: 1px solid #ced4da;
-                border-radius: 2px;
+                background-color: #FFFDE7;
+                border: 2px solid #6B8DC9;
+                border-radius: 3px;
+                padding: 1px;
+            }
+            ClickableBreadcrumb:hover {
+                border-color: #2563EB;
             }
         """)
     
@@ -172,7 +178,7 @@ class ClickableBreadcrumb(QWidget):
                 btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
                 btn.setStyleSheet("""
                     QPushButton {
-                        background-color: transparent;
+                        background-color: #FFFDE7;
                         border: none;
                         padding: 2px 6px;
                         text-align: left;
@@ -181,7 +187,7 @@ class ClickableBreadcrumb(QWidget):
                         color: #0066cc;
                     }
                     QPushButton:hover {
-                        background-color: #e5f1fb;
+                        background-color: #FFFDE7;
                         text-decoration: underline;
                     }
                 """)
@@ -221,9 +227,16 @@ class FileExplorerTab(FileExplorerCore):
         
         self.current_directory = self.starting_path
         
-        # Navigation history for back/forward buttons
-        self.nav_history = []  # List of visited paths
-        self.nav_history_index = -1  # Current position in history
+        # Two separate history tracking systems:
+        # 1. Current Path - browser-style with back/forward, truncates on branch
+        self.current_path_history = []  # List of visited paths (truncates on branch)
+        self.current_path_index = -1  # Current position in current path
+        
+        # 2. Full History - complete log of everywhere visited (never truncates)
+        self.full_history = []  # List of all visited paths
+        
+        # Which history view is active in the panel
+        self.history_view_mode = "current_path"  # "current_path" or "full_history"
         
         # Replace the parent's tree views with our custom NavigableTreeView
         # to catch mouse button events
@@ -242,6 +255,34 @@ class FileExplorerTab(FileExplorerCore):
         else:
             # Stay at root level - don't navigate anywhere
             self.update_breadcrumb("Quick Links")
+        
+        # Set up keyboard shortcuts
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts for navigation"""
+        modifiers = event.modifiers()
+        key = event.key()
+        
+        # Alt+Left = Back
+        if key == Qt.Key.Key_Left and (modifiers & Qt.KeyboardModifier.AltModifier):
+            self.navigate_back()
+            event.accept()
+            return
+        
+        # Alt+Right = Forward
+        if key == Qt.Key.Key_Right and (modifiers & Qt.KeyboardModifier.AltModifier):
+            self.navigate_forward()
+            event.accept()
+            return
+        
+        # Backspace = Go up one level (like Windows Explorer)
+        if key == Qt.Key.Key_Backspace and not modifiers:
+            self.go_up_one_level()
+            event.accept()
+            return
+        
+        super().keyPressEvent(event)
     
     def _setup_dual_pane(self):
         """Set up a second folder tree view for dual-pane mode (on the right)"""
@@ -270,10 +311,13 @@ class FileExplorerTab(FileExplorerCore):
         folders_label = QLabel("Folders")
         folders_label.setStyleSheet("""
             QLabel {
-                background-color: #f8f9fa;
-                padding: 8px;
-                font-weight: bold;
-                border-bottom: 1px solid #dee2e6;
+                background-color: #C0D4F0;
+                padding: 4px 8px;
+                font-weight: 600;
+                font-size: 10pt;
+                color: #1A3A6E;
+                border: none;
+                border-bottom: 1px solid #A0B8D8;
             }
         """)
         panel_layout.addWidget(folders_label)
@@ -291,6 +335,13 @@ class FileExplorerTab(FileExplorerCore):
         self.tree_view_2.setSelectionMode(self.tree_view.selectionMode())
         self.tree_view_2.setContextMenuPolicy(self.tree_view.contextMenuPolicy())
         
+        # Copy stylesheet from first tree view
+        self.tree_view_2.setStyleSheet(self.tree_view.styleSheet())
+        
+        # Apply NoFocusDelegate to remove focus rectangle
+        from suiteview.ui.file_explorer_core import NoFocusDelegate
+        self.tree_view_2.setItemDelegate(NoFocusDelegate(self.tree_view_2))
+        
         # Hide all columns except the first (Name) - same as left tree
         for col in range(1, 4):
             self.tree_view_2.setColumnHidden(col, True)
@@ -305,6 +356,10 @@ class FileExplorerTab(FileExplorerCore):
         self.tree_view_2.customContextMenuRequested.connect(self.show_tree_context_menu)
         self.tree_view_2.back_button_clicked.connect(self.navigate_back)
         self.tree_view_2.forward_button_clicked.connect(self.navigate_forward)
+        
+        # Connect drag/drop for second tree view
+        self.tree_view_2.set_file_explorer(self)
+        self.tree_view_2.files_dropped.connect(self.handle_dropped_files)
         
         panel_layout.addWidget(self.tree_view_2)
         
@@ -338,6 +393,8 @@ class FileExplorerTab(FileExplorerCore):
     
     def _replace_views_with_navigable(self):
         """Replace parent's QTreeView instances with NavigableTreeView"""
+        from suiteview.ui.file_explorer_core import NoFocusDelegate
+        
         # Get the parent's splitter that contains the views
         splitter = self.findChild(QWidget.__class__, "")  # Find splitter
         
@@ -365,6 +422,12 @@ class FileExplorerTab(FileExplorerCore):
         new_tree.setSelectionMode(old_tree.selectionMode())
         new_tree.setContextMenuPolicy(old_tree.contextMenuPolicy())
         
+        # Copy stylesheet from old tree view
+        new_tree.setStyleSheet(old_tree.styleSheet())
+        
+        # Apply NoFocusDelegate to remove focus rectangle
+        new_tree.setItemDelegate(NoFocusDelegate(new_tree))
+        
         # Copy properties from old details view to new one  
         new_details.setModel(old_details.model())
         new_details.setAnimated(old_details.isAnimated())
@@ -375,6 +438,17 @@ class FileExplorerTab(FileExplorerCore):
         new_details.setSortingEnabled(old_details.isSortingEnabled())
         new_details.setAlternatingRowColors(old_details.alternatingRowColors())
         new_details.setContextMenuPolicy(old_details.contextMenuPolicy())
+
+        # Preserve styling and remove the focus rectangle on selected items.
+        # (Without this, Windows styles can draw a visible focus "halo" around the text.)
+        new_details.setStyleSheet(old_details.styleSheet())
+        new_details.setItemDelegate(NoFocusDelegate(new_details))
+        
+        # Copy sort column and order from old view (default to Name ascending)
+        old_header = old_details.header()
+        sort_column = old_header.sortIndicatorSection()
+        sort_order = old_header.sortIndicatorOrder()
+        new_details.sortByColumn(sort_column, sort_order)
         
         # Replace in layouts
         if tree_layout:
@@ -409,6 +483,17 @@ class FileExplorerTab(FileExplorerCore):
         self.tree_view.forward_button_clicked.connect(self.navigate_forward)
         self.details_view.back_button_clicked.connect(self.navigate_back)
         self.details_view.forward_button_clicked.connect(self.navigate_forward)
+        
+        # Connect drag/drop signals for tree view (left panel)
+        self.tree_view.set_file_explorer(self)
+        self.tree_view.files_dropped.connect(self.handle_dropped_files)
+        
+        # Connect drag/drop signals for details view (middle panel)
+        self.details_view.set_file_explorer(self)
+        self.details_view.files_dropped.connect(self.handle_dropped_files)
+        
+        # Reinstall event filter for keyboard shortcuts (F2, Delete, Ctrl+C/V/X)
+        self.details_view.installEventFilter(self)
     
     def insert_breadcrumb_bar(self):
         """Insert breadcrumb navigation bar above the tree"""
@@ -417,24 +502,57 @@ class FileExplorerTab(FileExplorerCore):
         
         # Create breadcrumb widget with fixed height
         breadcrumb_frame = QFrame()
+        breadcrumb_frame.setObjectName("breadcrumbFrame")
         breadcrumb_frame.setFrameShape(QFrame.Shape.StyledPanel)
         breadcrumb_frame.setFixedHeight(32)  # Fixed height for breadcrumb bar
         breadcrumb_frame.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 3px;
+            QFrame#breadcrumbFrame {
+                background-color: #FFFDE7;
+                border: 2px solid #6B8DC9;
+                border-radius: 4px;
+            }
+            QFrame#breadcrumbFrame:hover {
+                border-color: #2563EB;
             }
         """)
         
         breadcrumb_layout = QHBoxLayout(breadcrumb_frame)
         breadcrumb_layout.setContentsMargins(4, 3, 4, 3)
         breadcrumb_layout.setSpacing(4)
+
+        # History panel toggle button (left of navigation buttons)
+        history_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
+        self.history_btn = QPushButton()
+        self.history_btn.setIcon(history_icon)
+        self.history_btn.setToolTip("Toggle History Panel")
+        self.history_btn.setFixedSize(24, 24)
+        self.history_btn.setCheckable(True)
+        self.history_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #E0ECFF;
+                border: 1px solid #2563EB;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #C9DAFF;
+            }
+            QPushButton:checked {
+                background-color: #1E3A8A;
+                border: 1px solid #FFD700;
+            }
+        """)
+        self.history_btn.clicked.connect(self.toggle_history_panel)
+        breadcrumb_layout.addWidget(self.history_btn)
         
-        # Home button - go to OneDrive instead of user folder
-        home_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DirHomeIcon)
-        self.home_btn = self._create_nav_button(home_icon, "Go to OneDrive", self.go_to_onedrive_home)
-        breadcrumb_layout.addWidget(self.home_btn)
+        # Back button
+        back_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack)
+        self.back_btn = self._create_nav_button(back_icon, "Go Back (Alt+Left)", self.navigate_back)
+        breadcrumb_layout.addWidget(self.back_btn)
+        
+        # Forward button
+        forward_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward)
+        self.forward_btn = self._create_nav_button(forward_icon, "Go Forward (Alt+Right)", self.navigate_forward)
+        breadcrumb_layout.addWidget(self.forward_btn)
         
         # Up/Back button
         up_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp)
@@ -447,16 +565,18 @@ class FileExplorerTab(FileExplorerCore):
         breadcrumb_layout.addWidget(self.breadcrumb_widget, 1)
         
         # Dual pane toggle button
-        self.dual_pane_btn = QPushButton("⇄")
+        self.dual_pane_btn = QPushButton()
         self.dual_pane_btn.setToolTip("Toggle Dual Pane View")
         self.dual_pane_btn.setFixedSize(24, 24)
         self.dual_pane_btn.setCheckable(True)
+        list_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogListView)
+        self.dual_pane_btn.setIcon(list_icon)
+        self.dual_pane_btn.setIconSize(QSize(14, 14))
         self.dual_pane_btn.setStyleSheet("""
             QPushButton {
                 background-color: #E0ECFF;
                 border: 1px solid #2563EB;
                 border-radius: 4px;
-                font-size: 13px;
                 color: #0A1E5E;
             }
             QPushButton:hover {
@@ -464,7 +584,6 @@ class FileExplorerTab(FileExplorerCore):
             }
             QPushButton:checked {
                 background-color: #1E3A8A;
-                color: #FFD700;
                 border: 1px solid #FFD700;
             }
         """)
@@ -520,20 +639,29 @@ class FileExplorerTab(FileExplorerCore):
             
             # Add to navigation history if requested (not when using back/forward)
             if add_to_history:
-                # If we're not at the end of history, remove everything after current position
-                if self.nav_history_index < len(self.nav_history) - 1:
-                    self.nav_history = self.nav_history[:self.nav_history_index + 1]
+                # Current Path History - browser-style with truncation
+                # If we're not at the end, truncate everything after current position
+                if self.current_path_index < len(self.current_path_history) - 1:
+                    self.current_path_history = self.current_path_history[:self.current_path_index + 1]
                 
-                # Add new path if it's different from current
-                if not self.nav_history or self.nav_history[-1] != path_str:
-                    self.nav_history.append(path_str)
-                    self.nav_history_index = len(self.nav_history) - 1
-                    print(f"Added to history: {path_str}")
-                    print(f"History: {self.nav_history}")
-                    print(f"Index: {self.nav_history_index}")
+                # Add new path if different from current
+                if not self.current_path_history or self.current_path_history[-1] != path_str:
+                    self.current_path_history.append(path_str)
+                    self.current_path_index = len(self.current_path_history) - 1
+                
+                # Full History - always append, never truncate
+                if not self.full_history or self.full_history[-1] != path_str:
+                    self.full_history.append(path_str)
+                
+                print(f"Added to history: {path_str}")
+                print(f"Current Path: {self.current_path_history}, index={self.current_path_index}")
+                print(f"Full History: {self.full_history}")
             
             # Update breadcrumb
             self.update_breadcrumb(path_str)
+            
+            # Update navigation button states
+            self._update_nav_button_states()
             
             # Load in the details pane (right side) instead of tree
             self.load_folder_contents_in_details(path_obj)
@@ -541,24 +669,314 @@ class FileExplorerTab(FileExplorerCore):
         except Exception as e:
             logger.error(f"Failed to navigate to {path}: {e}")
     
+    def _update_nav_button_states(self):
+        """Update enabled/disabled state of back/forward buttons based on current path history"""
+        if hasattr(self, 'back_btn'):
+            self.back_btn.setEnabled(self.current_path_index > 0)
+        if hasattr(self, 'forward_btn'):
+            self.forward_btn.setEnabled(self.current_path_index < len(self.current_path_history) - 1)
+        # Update history panel if visible
+        if hasattr(self, 'history_panel') and self.history_panel.isVisible():
+            self._update_history_panel()
+    
+    def toggle_history_panel(self):
+        """Toggle the history panel on/off"""
+        if not hasattr(self, 'history_panel'):
+            self._create_history_panel()
+        
+        if self.history_panel.isVisible():
+            self.history_panel.hide()
+            self.history_btn.setChecked(False)
+        else:
+            self._update_history_panel()
+            self.history_panel.show()
+            self.history_btn.setChecked(True)
+    
+    def _create_history_panel(self):
+        """Create the history panel widget"""
+        from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QButtonGroup, QToolButton
+        
+        # Create panel frame
+        self.history_panel = QFrame(self)
+        self.history_panel.setFrameShape(QFrame.Shape.StyledPanel)
+        self.history_panel.setStyleSheet("""
+            QFrame {
+                background-color: #FFFDE7;
+                border: 1px solid #94BBD9;
+                border-radius: 4px;
+            }
+        """)
+        
+        panel_layout = QVBoxLayout(self.history_panel)
+        panel_layout.setContentsMargins(6, 4, 6, 6)
+        panel_layout.setSpacing(4)
+        
+        # Header with close button
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_label = QLabel("History")
+        header_label.setStyleSheet(
+            "font-weight: bold; font-size: 11px; color: #1A3A6E; background: transparent; border: none; padding: 0px; margin: 0px;"
+        )
+        header_layout.addWidget(header_label)
+        header_layout.addStretch()
+        
+        # Close button
+        close_btn = QToolButton()
+        close_btn.setText("x")
+        close_btn.setFixedSize(18, 18)
+        close_btn.setToolTip("Close")
+        close_btn.setStyleSheet("""
+            QToolButton {
+                background-color: transparent;
+                border: none;
+                font-size: 12px;
+                font-weight: bold;
+                color: #B00020;
+                padding: 0px;
+                margin: 0px;
+            }
+            QToolButton:hover {
+                background-color: rgba(176, 0, 32, 0.12);
+                border-radius: 3px;
+            }
+        """)
+        close_btn.clicked.connect(lambda: (self.history_panel.hide(), self.history_btn.setChecked(False)))
+        header_layout.addWidget(close_btn)
+        panel_layout.addLayout(header_layout)
+        
+        # Toggle buttons for Current Path vs Full History
+        toggle_layout = QHBoxLayout()
+        toggle_layout.setSpacing(2)
+        
+        toggle_btn_style = """
+            QPushButton {
+                background-color: transparent;
+                border: 1px solid #94BBD9;
+                border-radius: 3px;
+                padding: 3px 6px;
+                font-size: 9px;
+                color: #1A3A6E;
+            }
+            QPushButton:hover {
+                background-color: #C0DAF0;
+            }
+            QPushButton:checked {
+                background-color: #1A3A6E;
+                color: white;
+                border: 1px solid #1A3A6E;
+            }
+        """
+        
+        self.current_path_btn = QPushButton("Current Path")
+        self.current_path_btn.setCheckable(True)
+        self.current_path_btn.setChecked(True)
+        self.current_path_btn.setStyleSheet(toggle_btn_style)
+        self.current_path_btn.clicked.connect(lambda: self._set_history_view("current_path"))
+        toggle_layout.addWidget(self.current_path_btn)
+        
+        self.full_history_btn = QPushButton("Full History")
+        self.full_history_btn.setCheckable(True)
+        self.full_history_btn.setStyleSheet(toggle_btn_style)
+        self.full_history_btn.clicked.connect(lambda: self._set_history_view("full_history"))
+        toggle_layout.addWidget(self.full_history_btn)
+        
+        panel_layout.addLayout(toggle_layout)
+        
+        # History list
+        self.history_list = QListWidget()
+        self.history_list.setStyleSheet("""
+            QListWidget {
+                background-color: transparent;
+                border: none;
+                font-size: 10px;
+            }
+            QListWidget::item {
+                padding: 4px 8px;
+                border-bottom: 1px solid #A8C8E8;
+                background: transparent;
+            }
+            QListWidget::item:selected {
+                background-color: #A0C4E8;
+                color: #1A3A6E;
+            }
+            QListWidget::item:hover {
+                background-color: #C0DAF0;
+            }
+        """)
+        self.history_list.itemClicked.connect(self._on_history_item_clicked)
+        panel_layout.addWidget(self.history_list)
+        
+        # Clear button
+        clear_btn = QPushButton("Clear")
+        clear_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: 1px solid #94BBD9;
+                border-radius: 3px;
+                padding: 4px 8px;
+                font-size: 10px;
+                color: #0066cc;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #B8D4EC;
+            }
+        """)
+        clear_btn.clicked.connect(self._clear_history)
+        panel_layout.addWidget(clear_btn)
+        
+        # Position panel on the left side
+        self.history_panel.setFixedWidth(200)
+        self.history_panel.hide()
+        
+        # Insert into main layout at the left
+        main_layout = self.layout()
+        # Find the splitter and insert panel before it
+        for i in range(main_layout.count()):
+            widget = main_layout.itemAt(i).widget()
+            if isinstance(widget, QSplitter):
+                # Create a horizontal layout to hold history panel and splitter
+                container = QWidget()
+                container_layout = QHBoxLayout(container)
+                container_layout.setContentsMargins(0, 0, 0, 0)
+                container_layout.setSpacing(4)
+                
+                # Add history panel
+                container_layout.addWidget(self.history_panel)
+                
+                # Move splitter to container
+                main_layout.removeWidget(widget)
+                container_layout.addWidget(widget)
+                
+                # Add container back to main layout
+                main_layout.insertWidget(i, container)
+                break
+    
+    def _set_history_view(self, mode):
+        """Switch between current path and full history views"""
+        self.history_view_mode = mode
+        
+        # Update button states
+        self.current_path_btn.setChecked(mode == "current_path")
+        self.full_history_btn.setChecked(mode == "full_history")
+        
+        # Refresh the list
+        self._update_history_panel()
+    
+    def _update_history_panel(self):
+        """Update the history list widget with current history"""
+        if not hasattr(self, 'history_list'):
+            return
+        
+        self.history_list.clear()
+        
+        # Choose which history to display
+        if self.history_view_mode == "current_path":
+            history = self.current_path_history
+            current_index = self.current_path_index
+        else:
+            history = self.full_history
+            current_index = len(self.full_history) - 1 if self.full_history else -1
+        
+        if not history:
+            item = QListWidgetItem("No history yet")
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            self.history_list.addItem(item)
+            return
+        
+        # Show history with most recent at top
+        for i, path in enumerate(reversed(history)):
+            actual_index = len(history) - 1 - i
+            path_obj = Path(path)
+            
+            # Create display name (folder name or drive letter)
+            if path_obj.name:
+                display_name = path_obj.name
+            else:
+                display_name = str(path_obj)
+            
+            # Mark current position (only for current path view)
+            if self.history_view_mode == "current_path" and actual_index == current_index:
+                display_name = f"● {display_name}"
+            
+            item = QListWidgetItem(display_name)
+            item.setToolTip(path)
+            item.setData(Qt.ItemDataRole.UserRole, actual_index)
+            self.history_list.addItem(item)
+    
+    def _on_history_item_clicked(self, item):
+        """Handle click on history list item"""
+        index = item.data(Qt.ItemDataRole.UserRole)
+        if index is None:
+            return
+        
+        if self.history_view_mode == "current_path":
+            # Current Path view: jump to that position (like back/forward)
+            if 0 <= index < len(self.current_path_history):
+                self.current_path_index = index
+                path = self.current_path_history[index]
+                # Also add to full history
+                if not self.full_history or self.full_history[-1] != path:
+                    self.full_history.append(path)
+                self.navigate_to_path(path, add_to_history=False)
+        else:
+            # Full History view: navigate there as a new entry
+            if 0 <= index < len(self.full_history):
+                path = self.full_history[index]
+                self.navigate_to_path(path, add_to_history=True)
+                
+    def _jump_to_history_index(self, index):
+        """Jump to a specific index in the current path history"""
+        if 0 <= index < len(self.current_path_history):
+            self.current_path_index = index
+            path = self.current_path_history[index]
+            self.navigate_to_path(path, add_to_history=False)
+    
+    def _clear_history(self):
+        """Clear navigation history based on current view mode"""
+        if self.history_view_mode == "current_path":
+            # Clear current path, keep only current location
+            if self.current_path_history and 0 <= self.current_path_index < len(self.current_path_history):
+                current = self.current_path_history[self.current_path_index]
+                self.current_path_history = [current]
+                self.current_path_index = 0
+            else:
+                self.current_path_history = []
+                self.current_path_index = -1
+        else:
+            # Clear full history, keep only current location
+            if self.current_path_history and 0 <= self.current_path_index < len(self.current_path_history):
+                current = self.current_path_history[self.current_path_index]
+                self.full_history = [current]
+            else:
+                self.full_history = []
+        self._update_nav_button_states()
+    
     def navigate_back(self):
-        """Navigate to previous folder in history"""
-        print(f"navigate_back called: index={self.nav_history_index}, history={self.nav_history}")
-        if self.nav_history_index > 0:
-            self.nav_history_index -= 1
-            path = self.nav_history[self.nav_history_index]
+        """Navigate to previous folder in current path history"""
+        print(f"navigate_back called: index={self.current_path_index}, history={self.current_path_history}")
+        if self.current_path_index > 0:
+            self.current_path_index -= 1
+            path = self.current_path_history[self.current_path_index]
             print(f"Going back to: {path}")
+            # Also add to full history
+            if not self.full_history or self.full_history[-1] != path:
+                self.full_history.append(path)
             self.navigate_to_path(path, add_to_history=False)
         else:
             print("Already at beginning of history")
     
     def navigate_forward(self):
-        """Navigate to next folder in history"""
-        print(f"navigate_forward called: index={self.nav_history_index}, history={self.nav_history}")
-        if self.nav_history_index < len(self.nav_history) - 1:
-            self.nav_history_index += 1
-            path = self.nav_history[self.nav_history_index]
+        """Navigate to next folder in current path history"""
+        print(f"navigate_forward called: index={self.current_path_index}, history={self.current_path_history}")
+        if self.current_path_index < len(self.current_path_history) - 1:
+            self.current_path_index += 1
+            path = self.current_path_history[self.current_path_index]
             print(f"Going forward to: {path}")
+            # Also add to full history
+            if not self.full_history or self.full_history[-1] != path:
+                self.full_history.append(path)
             self.navigate_to_path(path, add_to_history=False)
         else:
             print("Already at end of history")
@@ -638,31 +1056,25 @@ class FileExplorerTab(FileExplorerCore):
         
         if current.parent != current:  # Not at root
             parent_path = str(current.parent)
-            # Load parent folder in details view
-            self.load_folder_contents_in_details(Path(parent_path))
-            # Update breadcrumb
-            self.update_breadcrumb(parent_path)
-            self.current_directory = parent_path
+            # Use navigate_to_path which handles history
+            self.navigate_to_path(parent_path)
     
     def on_tree_item_clicked(self, index):
-        """Override parent method to update breadcrumb when tree item is clicked"""
-        # Call parent implementation to load folder contents
-        super().on_tree_item_clicked(index)
+        """Override parent method to use navigate_to_path for history tracking"""
+        # Get the path from the clicked item
+        item = self.model.itemFromIndex(index)
+        if not item:
+            return
         
-        # Update breadcrumb if we have current_details_folder set
-        if hasattr(self, 'current_details_folder') and self.current_details_folder:
-            self.update_breadcrumb(self.current_details_folder)
-            self.current_directory = self.current_details_folder
+        path = item.data(Qt.ItemDataRole.UserRole)
+        if path:
+            # Use navigate_to_path which handles history
+            self.navigate_to_path(path)
     
     def navigate_to_bookmark_folder(self, folder_path):
-        """Override parent method to update breadcrumb when navigating from bookmark"""
-        # Call parent implementation to load folder contents
-        super().navigate_to_bookmark_folder(folder_path)
-        
-        # Update breadcrumb if navigation was successful
-        if hasattr(self, 'current_details_folder') and self.current_details_folder:
-            self.update_breadcrumb(self.current_details_folder)
-            self.current_directory = self.current_details_folder
+        """Override parent method to use navigate_to_path for history tracking"""
+        # Use navigate_to_path which handles history
+        self.navigate_to_path(folder_path)
     
     def on_item_double_clicked(self, index):
         """Override to update breadcrumb when navigating into folders"""
@@ -737,12 +1149,42 @@ class FileExplorerMultiTab(QWidget):
         # Ctrl+Shift+Tab: Previous tab
     
     def show_tab_bar_context_menu(self, pos):
-        """Show context menu for adding new tabs."""
+        """Show context menu for the tab bar.
+
+        - Right-click a tab: offer Duplicate (open new tab at same folder)
+        - Right-click empty space: offer New Tab
+        """
+        tab_bar = self.tab_widget.tabBar()
+        tab_index = tab_bar.tabAt(pos)
+
         menu = QMenu(self)
-        new_tab_action = QAction("New Tab", self)
-        new_tab_action.triggered.connect(lambda _: self.add_new_tab())
-        menu.addAction(new_tab_action)
-        menu.exec(self.tab_widget.tabBar().mapToGlobal(pos))
+        if tab_index >= 0:
+            duplicate_action = QAction("Duplicate", self)
+            duplicate_action.triggered.connect(lambda _: self.duplicate_tab(tab_index))
+            menu.addAction(duplicate_action)
+        else:
+            new_tab_action = QAction("New Tab", self)
+            new_tab_action.triggered.connect(lambda _: self.add_new_tab())
+            menu.addAction(new_tab_action)
+
+        menu.exec(tab_bar.mapToGlobal(pos))
+
+    def duplicate_tab(self, index: int) -> None:
+        """Duplicate the given tab into a new tab at the same folder."""
+        try:
+            widget = self.tab_widget.widget(index)
+            if widget is None:
+                return
+
+            # Prefer the tab's current directory (kept in sync with breadcrumb)
+            path = getattr(widget, 'current_directory', None)
+            if not path:
+                path = getattr(widget, 'current_details_folder', None)
+
+            title = self.tab_widget.tabText(index)
+            self.add_new_tab(path=path, title=title)
+        except Exception as e:
+            logger.error(f"Failed to duplicate tab: {e}")
 
     def add_new_tab(self, path=None, title=None):
         """Add a new tab"""

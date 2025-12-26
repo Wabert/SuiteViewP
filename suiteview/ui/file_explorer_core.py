@@ -8,6 +8,7 @@ import sys
 import shutil
 import subprocess
 import json
+import time
 from pathlib import Path
 from datetime import datetime
 from PyQt6.QtWidgets import (QTreeView, QVBoxLayout, QHBoxLayout, QWidget, 
@@ -15,9 +16,10 @@ from PyQt6.QtWidgets import (QTreeView, QVBoxLayout, QHBoxLayout, QWidget,
                               QTextEdit, QPushButton, QSplitter, QLabel, QMenu,
                               QDialog, QDialogButtonBox, QCheckBox, QLineEdit,
                               QProgressDialog, QFileDialog, QFrame, QSizePolicy,
-                              QFileIconProvider, QToolButton, QStyle)
-from PyQt6.QtGui import QIcon, QAction, QStandardItemModel, QStandardItem
-from PyQt6.QtCore import Qt, QModelIndex, QThread, pyqtSignal, QSortFilterProxyModel, QEvent, QFileInfo, QSize
+                              QFileIconProvider, QToolButton, QStyle, QStyledItemDelegate,
+                              QApplication)
+from PyQt6.QtGui import QIcon, QAction, QStandardItemModel, QStandardItem, QDragEnterEvent, QDropEvent, QDragMoveEvent, QDrag
+from PyQt6.QtCore import Qt, QModelIndex, QThread, pyqtSignal, QSortFilterProxyModel, QEvent, QFileInfo, QSize, QUrl, QMimeData, QRegularExpression
 
 import logging
 
@@ -51,6 +53,227 @@ class FileSortProxyModel(QSortFilterProxyModel):
             right_text = ""
             
         return str(left_text).lower() < str(right_text).lower()
+
+
+class NoFocusDelegate(QStyledItemDelegate):
+    """Custom delegate that removes the focus rectangle from items"""
+    
+    def paint(self, painter, option, index):
+        # Remove focus indicator - this removes the dotted focus rectangle
+        option.state = option.state & ~QStyle.StateFlag.State_HasFocus
+        super().paint(painter, option, index)
+
+
+class DropTreeView(QTreeView):
+    """Custom QTreeView that accepts file drops and supports dragging files out"""
+    
+    # Signal emitted when files are dropped (list of paths, destination folder)
+    files_dropped = pyqtSignal(list, str)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QTreeView.DragDropMode.DragDrop)
+        self.setDropIndicatorShown(True)
+        self.setDefaultDropAction(Qt.DropAction.CopyAction)
+        self._file_explorer = None  # Reference to FileExplorerCore for getting folder paths
+        self._current_folder = None  # Current folder being displayed
+    
+    def set_file_explorer(self, explorer):
+        """Set reference to the file explorer for accessing current folder"""
+        self._file_explorer = explorer
+    
+    def set_current_folder(self, folder_path):
+        """Set the current folder path"""
+        self._current_folder = folder_path
+    
+    def startDrag(self, supportedActions):
+        """Start drag operation with selected files"""
+        indexes = self.selectedIndexes()
+        if not indexes:
+            return
+        
+        # Get unique file paths from selected rows
+        paths = []
+        seen_rows = set()
+        for index in indexes:
+            row = index.row()
+            if row not in seen_rows:
+                seen_rows.add(row)
+                # Get path from column 0
+                col0_index = index.sibling(row, 0)
+                path = self.model().data(col0_index, Qt.ItemDataRole.UserRole)
+                if path and os.path.exists(path):
+                    paths.append(path)
+        
+        if not paths:
+            return
+        
+        # Create mime data with file URLs
+        mime_data = QMimeData()
+        urls = [QUrl.fromLocalFile(path) for path in paths]
+        mime_data.setUrls(urls)
+        
+        # Create and execute drag
+        drag = QDrag(self)
+        drag.setMimeData(mime_data)
+        drag.exec(Qt.DropAction.CopyAction)
+    
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """Handle drag enter - accept if it contains file URLs"""
+        if event.mimeData().hasUrls():
+            # Check if any URLs are local files
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+    
+    def dragMoveEvent(self, event: QDragMoveEvent):
+        """Handle drag move - highlight target folder if hovering over one"""
+        if event.mimeData().hasUrls():
+            # Check if hovering over a folder item
+            index = self.indexAt(event.position().toPoint())
+            if index.isValid():
+                # Get the path from the model
+                path = self.model().data(index, Qt.ItemDataRole.UserRole)
+                if not path:
+                    # Try column 0
+                    col0_index = index.sibling(index.row(), 0)
+                    path = self.model().data(col0_index, Qt.ItemDataRole.UserRole)
+                
+                if path and os.path.isdir(path):
+                    # Hovering over a folder - will drop into it
+                    event.acceptProposedAction()
+                    return
+            
+            # Not over a folder item - will drop into current folder
+            if self._current_folder and os.path.isdir(self._current_folder):
+                event.acceptProposedAction()
+                return
+        
+        event.ignore()
+    
+    def dropEvent(self, event: QDropEvent):
+        """Handle drop - copy files to target folder"""
+        if not event.mimeData().hasUrls():
+            event.ignore()
+            return
+        
+        # Get dropped file paths
+        dropped_files = []
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                file_path = url.toLocalFile()
+                if os.path.exists(file_path):
+                    dropped_files.append(file_path)
+        
+        if not dropped_files:
+            event.ignore()
+            return
+        
+        # Determine destination folder
+        dest_folder = None
+        index = self.indexAt(event.position().toPoint())
+        
+        if index.isValid():
+            # Get the path from the model
+            path = self.model().data(index, Qt.ItemDataRole.UserRole)
+            if not path:
+                # Try column 0
+                col0_index = index.sibling(index.row(), 0)
+                path = self.model().data(col0_index, Qt.ItemDataRole.UserRole)
+            
+            if path:
+                if os.path.isdir(path):
+                    dest_folder = path
+                else:
+                    # Dropped on a file - use its parent folder
+                    dest_folder = str(Path(path).parent)
+        
+        # If no folder from drop target, use current folder
+        if not dest_folder:
+            dest_folder = self._current_folder
+        
+        if dest_folder and os.path.isdir(dest_folder):
+            # Emit signal with dropped files and destination
+            self.files_dropped.emit(dropped_files, dest_folder)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+
+class DropFolderTreeView(QTreeView):
+    """Custom QTreeView for folder navigation that accepts file drops"""
+    
+    # Signal emitted when files are dropped (list of paths, destination folder)
+    files_dropped = pyqtSignal(list, str)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QTreeView.DragDropMode.DropOnly)
+        self.setDropIndicatorShown(True)
+        self._file_explorer = None
+    
+    def set_file_explorer(self, explorer):
+        """Set reference to the file explorer for handling drops"""
+        self._file_explorer = explorer
+    
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """Handle drag enter - accept if it contains file URLs"""
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+    
+    def dragMoveEvent(self, event: QDragMoveEvent):
+        """Handle drag move - only accept if over a folder"""
+        if event.mimeData().hasUrls():
+            index = self.indexAt(event.position().toPoint())
+            if index.isValid():
+                # Get the path - try UserRole first
+                path = self.model().data(index, Qt.ItemDataRole.UserRole)
+                if path and os.path.isdir(path):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+    
+    def dropEvent(self, event: QDropEvent):
+        """Handle drop - copy files to target folder"""
+        if not event.mimeData().hasUrls():
+            event.ignore()
+            return
+        
+        # Get dropped file paths
+        dropped_files = []
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                file_path = url.toLocalFile()
+                if os.path.exists(file_path):
+                    dropped_files.append(file_path)
+        
+        if not dropped_files:
+            event.ignore()
+            return
+        
+        # Get destination folder from drop target
+        index = self.indexAt(event.position().toPoint())
+        if not index.isValid():
+            event.ignore()
+            return
+        
+        path = self.model().data(index, Qt.ItemDataRole.UserRole)
+        if not path or not os.path.isdir(path):
+            event.ignore()
+            return
+        
+        # Emit signal with dropped files and destination
+        self.files_dropped.emit(dropped_files, path)
+        event.acceptProposedAction()
 
 
 class DirectoryExportThread(QThread):
@@ -249,7 +472,8 @@ class PrintDirectoryDialog(QDialog):
         
         # Include subdirectories checkbox
         self.include_subdirs_cb = QCheckBox("Include all subdirectories and files (recursive)")
-        self.include_subdirs_cb.setChecked(True)
+        # Default OFF: recursive exports can be extremely large/slow on network paths
+        self.include_subdirs_cb.setChecked(False)
         layout.addWidget(self.include_subdirs_cb)
         
         info_label = QLabel("📝 The directory listing will open directly in Excel as an unsaved workbook.")
@@ -290,16 +514,48 @@ class FileExplorerCore(QWidget):
     - File preview pane with mainframe upload button
     """
     
+    # Icon cache by extension - loaded once, reused for all files
+    _icon_cache = {}
+    _folder_icon = None
+    
+    # Extension to icon type mapping for fast lookups
+    ICON_TYPES = {
+        # Documents
+        '.xlsx': 'excel', '.xls': 'excel', '.xlsm': 'excel', '.xlsb': 'excel',
+        '.docx': 'word', '.doc': 'word', '.docm': 'word',
+        '.pptx': 'powerpoint', '.ppt': 'powerpoint', '.pptm': 'powerpoint',
+        '.pdf': 'pdf',
+        '.txt': 'text', '.log': 'text', '.md': 'text', '.csv': 'text',
+        # Data
+        '.accdb': 'database', '.mdb': 'database', '.db': 'database', '.sqlite': 'database',
+        '.laccdb': 'database',
+        # Code
+        '.py': 'code', '.js': 'code', '.java': 'code', '.cpp': 'code', '.c': 'code',
+        '.html': 'code', '.css': 'code', '.json': 'code', '.xml': 'code',
+        # Images
+        '.jpg': 'image', '.jpeg': 'image', '.png': 'image', '.gif': 'image',
+        '.bmp': 'image', '.ico': 'image', '.svg': 'image',
+        # Archives
+        '.zip': 'archive', '.rar': 'archive', '.7z': 'archive', '.tar': 'archive', '.gz': 'archive',
+        # Executables
+        '.exe': 'exe', '.msi': 'exe', '.bat': 'exe', '.cmd': 'exe', '.ps1': 'exe',
+        # Shortcuts
+        '.lnk': 'shortcut', '.url': 'shortcut',
+    }
+    
     def __init__(self):
         super().__init__()
         
-        # Initialize icon provider for Windows system icons
+        # Initialize icon provider for Windows system icons (used sparingly)
         self.icon_provider = QFileIconProvider()
+        
+        # Pre-cache common icons on first instance
+        self._init_icon_cache()
         
         self.current_file_path = None
         self.current_file_content = None
         self.current_details_folder = None  # Track current folder in details view
-        self.clipboard = {"path": None, "operation": None}
+        self.clipboard = {"paths": [], "operation": None}
         
         # Load custom quick links
         self.quick_links_file = Path.home() / ".suiteview" / "quick_links.json"
@@ -314,6 +570,48 @@ class FileExplorerCore(QWidget):
         self.column_widths = self.load_column_widths()
         
         self.init_ui()
+    
+    def _init_icon_cache(self):
+        """Initialize icon cache with common file type icons"""
+        if FileExplorerCore._folder_icon is not None:
+            return  # Already initialized
+        
+        # Get folder icon once
+        FileExplorerCore._folder_icon = self.icon_provider.icon(QFileIconProvider.IconType.Folder)
+        
+        # Get standard icons from style for common types
+        style = self.style()
+        
+        # Cache file icon as default
+        FileExplorerCore._icon_cache['_default'] = self.icon_provider.icon(QFileIconProvider.IconType.File)
+    
+    def _get_cached_icon(self, path: Path, is_directory: bool = False):
+        """Get icon from cache or create it - fast path for common extensions"""
+        if is_directory:
+            return FileExplorerCore._folder_icon
+        
+        suffix = path.suffix.lower()
+        
+        # Check cache first
+        if suffix in FileExplorerCore._icon_cache:
+            return FileExplorerCore._icon_cache[suffix]
+        
+        # For local files, get the actual icon and cache it
+        path_str = str(path)
+        is_network = path_str.startswith('\\\\')
+        
+        if not is_network:
+            # Local file - get real icon and cache by extension
+            try:
+                file_info = QFileInfo(path_str)
+                icon = self.icon_provider.icon(file_info)
+                FileExplorerCore._icon_cache[suffix] = icon
+                return icon
+            except:
+                pass
+        
+        # Network file or error - use default file icon
+        return FileExplorerCore._icon_cache.get('_default', FileExplorerCore._folder_icon)
         
     def init_ui(self):
         """Initialize the UI"""
@@ -353,15 +651,11 @@ class FileExplorerCore(QWidget):
         self.bookmarks_action.triggered.connect(self.open_bookmarks_dialog)
         self.toolbar.addAction(self.bookmarks_action)
         
-        self.toolbar.addSeparator()
-        
         # Print Directory to Excel
         print_dir_action = QAction("Print Directory", self)
         print_dir_action.setToolTip("Export directory structure to Excel")
         print_dir_action.triggered.connect(self.print_directory_to_excel)
         self.toolbar.addAction(print_dir_action)
-        
-        self.toolbar.addSeparator()
         
         # Batch Rename
         batch_rename_action = QAction("Batch Rename", self)
@@ -391,20 +685,37 @@ class FileExplorerCore(QWidget):
             """
             QToolBar#fileExplorerToolbar {
                 padding: 0px 6px;
-                spacing: 3px;
+                spacing: 6px;
                 min-height: 26px;
                 background: #E3EDFF;
                 border: none;
             }
             QToolBar#fileExplorerToolbar QToolButton {
-                padding: 2px 8px;
+                padding: 3px 10px;
+                border: 1px solid #4A6FA5;
+                border-bottom: 2px solid #3A5A8A;
                 border-radius: 4px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                            stop:0 #FFFFFF,
+                                            stop:0.45 #F0F5FF,
+                                            stop:1 #D0E3FF);
                 color: #0A1E5E;
                 font-weight: 600;
                 font-size: 10px;
             }
             QToolBar#fileExplorerToolbar QToolButton:hover {
-                background-color: #D0E3FF;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                            stop:0 #FFFFFF,
+                                            stop:0.35 #E3EDFF,
+                                            stop:1 #B8D0F0);
+                border-color: #2563EB;
+            }
+            QToolBar#fileExplorerToolbar QToolButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                            stop:0 #B8D0F0,
+                                            stop:1 #E3EDFF);
+                border: 1px solid #3A5A8A;
+                border-top: 2px solid #3A5A8A;
             }
             """
         )
@@ -438,7 +749,8 @@ class FileExplorerCore(QWidget):
         """Create the tree view with custom model (folders only, name column only)"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
         # Header
         header = QLabel("📁 Folders")
@@ -448,36 +760,81 @@ class FileExplorerCore(QWidget):
                 padding: 4px 8px;
                 font-weight: 600;
                 font-size: 10pt;
-                background-color: #D8E8FF;
-                border: 1px solid #B0C8E8;
-                border-radius: 4px;
+                background-color: #C0D4F0;
+                color: #1A3A6E;
+                border: none;
+                border-bottom: 1px solid #A0B8D8;
             }
             """
         )
         layout.addWidget(header)
         
-        # Create tree view
-        self.tree_view = QTreeView()
+        # Create tree view with drop support
+        self.tree_view = DropFolderTreeView()
+        self.tree_view.set_file_explorer(self)
+        self.tree_view.files_dropped.connect(self.handle_dropped_files)
         self.tree_view.setAnimated(True)
         self.tree_view.setIndentation(20)
         self.tree_view.setHeaderHidden(True)  # Hide header for tree view
         self.tree_view.setSelectionMode(QTreeView.SelectionMode.SingleSelection)
         self.tree_view.setStyleSheet(
             """
+            QTreeView {
+                outline: none;
+                border: none;
+                background-color: transparent;
+            }
+            QTreeView::item {
+                padding: 2px 6px;
+                margin: 0px;
+                border: none;
+                border-radius: 0px;
+                background-color: transparent;
+                min-height: 20px;
+            }
+            QTreeView::item:hover {
+                background-color: #C8DCF0;
+                border: none;
+            }
+            QTreeView::item:selected {
+                background-color: #B0C8E8;
+                color: #0A1E5E;
+                border: none;
+            }
+            QTreeView::item:selected:!active {
+                background-color: #B0C8E8;
+                color: #0A1E5E;
+                border: none;
+            }
+            QTreeView::item:focus {
+                border: none;
+                outline: none;
+            }
+            QTreeView::branch {
+                background-color: transparent;
+                border-image: none;
+                image: none;
+            }
+            QTreeView::branch:selected {
+                background-color: #B0C8E8;
+            }
             QTreeView::branch:has-children:!has-siblings:closed,
-            QTreeView::branch:closed:has-children:has-siblings,
-            QTreeView::branch:has-children:!has-siblings:closed:!has-children,
-            QTreeView::branch:closed:has-children:has-siblings:!has-children {
-                image: url(:/qt-project.org/styles/commonstyle/images/branch-closed.png);
+            QTreeView::branch:closed:has-children:has-siblings {
+                border-image: none;
+                image: none;
+                background: qradialgradient(cx:0.5, cy:0.5, radius:0.3, fx:0.5, fy:0.5, stop:0 #0078d4, stop:0.7 #0078d4, stop:0.71 transparent);
             }
             QTreeView::branch:has-children:!has-siblings:open,
-            QTreeView::branch:open:has-children:has-siblings,
-            QTreeView::branch:has-children:!has-siblings:open:!has-children,
-            QTreeView::branch:open:has-children:has-siblings:!has-children {
-                image: url(:/qt-project.org/styles/commonstyle/images/branch-open.png);
+            QTreeView::branch:open:has-children:has-siblings {
+                border-image: none;
+                image: none;
+                background: qradialgradient(cx:0.5, cy:0.5, radius:0.3, fx:0.5, fy:0.5, stop:0 #0078d4, stop:0.7 #0078d4, stop:0.71 transparent);
             }
             """
         )
+        
+        # Apply no-focus delegate to remove focus rectangle
+        self.tree_view.setItemDelegate(NoFocusDelegate(self.tree_view))
         
         # Create custom model
         self.model = QStandardItemModel()
@@ -650,9 +1007,8 @@ class FileExplorerCore(QWidget):
         """Create a row of items for a folder"""
         path = Path(path)
         
-        # Get Windows system icon using QFileIconProvider
-        file_info = QFileInfo(str(path))
-        system_icon = self.icon_provider.icon(file_info)
+        # Get cached folder icon (fast - no network round-trips)
+        system_icon = self._get_cached_icon(path, is_directory=True)
         
         # Name column with system icon
         name_item = QStandardItem(system_icon, path.name if path.name else str(path))
@@ -702,9 +1058,8 @@ class FileExplorerCore(QWidget):
         """Create a row of items for a file"""
         path = Path(path)
         
-        # Get Windows system icon using QFileIconProvider
-        file_info = QFileInfo(str(path))
-        icon = self.icon_provider.icon(file_info)
+        # Get cached icon by extension (fast - avoids network round-trips)
+        icon = self._get_cached_icon(path, is_directory=False)
         
         # Get suffix for type column
         suffix = path.suffix.lower()
@@ -808,26 +1163,63 @@ class FileExplorerCore(QWidget):
         """Create the details view panel (right side) for folder contents"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
-        # Header
+        # Header row: search box (filter) + current folder name
+        header_widget = QWidget()
+        header_widget.setStyleSheet(
+            """
+            QWidget {
+                background-color: #C0D4F0;
+                border: none;
+                border-bottom: 1px solid #A0B8D8;
+            }
+            """
+        )
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(8, 4, 8, 4)
+        header_layout.setSpacing(8)
+
+        self.details_search = QLineEdit()
+        self.details_search.setPlaceholderText("Search...")
+        self.details_search.setClearButtonEnabled(True)
+        self.details_search.setMaximumWidth(240)
+        self.details_search.setMaximumHeight(24)
+        self.details_search.setStyleSheet(
+            """
+            QLineEdit {
+                padding: 3px 8px;
+                border: 1px solid #A0B8D8;
+                border-radius: 3px;
+                background: white;
+                color: #1A3A6E;
+            }
+            """
+        )
+        self.details_search.textChanged.connect(self.on_details_search_changed)
+        header_layout.addWidget(self.details_search)
+
         self.details_header = QLabel("Contents")
         self.details_header.setStyleSheet(
             """
             QLabel {
-                padding: 4px 8px;
                 font-weight: 600;
                 font-size: 10pt;
-                background-color: #D8E8FF;
-                border: 1px solid #B0C8E8;
-                border-radius: 4px;
+                color: #1A3A6E;
+                background: transparent;
             }
             """
         )
-        layout.addWidget(self.details_header)
+        header_layout.addWidget(self.details_header)
+        header_layout.addStretch()
+
+        layout.addWidget(header_widget)
         
-        # Create details tree view
-        self.details_view = QTreeView()
+        # Create details tree view with drop support
+        self.details_view = DropTreeView()
+        self.details_view.set_file_explorer(self)
+        self.details_view.files_dropped.connect(self.handle_dropped_files)
         self.details_view.setAnimated(False)
         self.details_view.setRootIsDecorated(False)  # No expand arrows
         self.details_view.setIndentation(0)
@@ -835,6 +1227,58 @@ class FileExplorerCore(QWidget):
         self.details_view.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)  # Multi-select
         self.details_view.setSortingEnabled(True)
         self.details_view.setEditTriggers(QTreeView.EditTrigger.EditKeyPressed)  # Enable F2 editing
+        
+        # Style the details view to look like tree view (no borders, no padding)
+        self.details_view.setStyleSheet(
+            """
+            QTreeView {
+                outline: none;
+                border: none;
+                background-color: transparent;
+            }
+            QTreeView::item {
+                padding: 2px 6px;
+                margin: 0px;
+                border: none;
+                border-radius: 0px;
+                background-color: transparent;
+                min-height: 20px;
+                outline: none;
+            }
+            QTreeView::item:hover {
+                background-color: #C8DCF0;
+                border: none;
+                outline: none;
+            }
+            QTreeView::item:selected {
+                background-color: #B0C8E8;
+                color: #0A1E5E;
+                border: none;
+                outline: none;
+            }
+            QTreeView::item:selected:!active {
+                background-color: #B0C8E8;
+                color: #0A1E5E;
+                border: none;
+                outline: none;
+            }
+            QTreeView::item:focus {
+                border: none;
+                outline: none;
+            }
+            QTreeView:focus {
+                border: none;
+                outline: none;
+            }
+            """
+        )
+        
+        # Disable focus frame/rectangle
+        self.details_view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.details_view.setFrameShape(QFrame.Shape.NoFrame)
+        
+        # Use NoFocusDelegate to remove focus rectangle from items
+        self.details_view.setItemDelegate(NoFocusDelegate(self.details_view))
         
         # Install event filter for F2 key
         self.details_view.installEventFilter(self)
@@ -846,9 +1290,11 @@ class FileExplorerCore(QWidget):
         # Connect to handle renames
         self.details_model.itemChanged.connect(self.on_item_renamed)
         
-        # Create sort proxy model for proper sorting
+        # Create sort/filter proxy model (sorting + search filtering)
         self.details_sort_proxy = FileSortProxyModel()
         self.details_sort_proxy.setSourceModel(self.details_model)
+        self.details_sort_proxy.setFilterKeyColumn(0)  # Name column
+        self.details_sort_proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         
         # Set the proxy model on the view
         self.details_view.setModel(self.details_sort_proxy)
@@ -859,12 +1305,25 @@ class FileExplorerCore(QWidget):
         header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        header_view.setMinimumSectionSize(60)
+        header_view.setDefaultSectionSize(100)
+        header_view.setFixedHeight(22)
         header_view.setStyleSheet(
             """
+            QHeaderView {
+                background-color: #E0E0E0;
+            }
             QHeaderView::section {
-                padding: 4px 6px;
-                font-size: 10px;
+                background-color: #E0E0E0;
+                padding: 1px 6px;
+                font-size: 11px;
                 font-weight: 600;
+                color: #333333;
+                border: none;
+                border-right: 1px solid #C0C0C0;
+            }
+            QHeaderView::section:last {
+                border-right: none;
             }
             """
         )
@@ -891,6 +1350,21 @@ class FileExplorerCore(QWidget):
         layout.addWidget(self.details_view)
         
         return widget
+
+    def on_details_search_changed(self, text: str) -> None:
+        """Filter the details view contents in real time."""
+        if not hasattr(self, 'details_sort_proxy'):
+            return
+
+        query = (text or "").strip()
+        if not query:
+            self.details_sort_proxy.setFilterRegularExpression(QRegularExpression())
+            return
+
+        # Treat user input as a literal substring match (case-insensitive)
+        escaped = QRegularExpression.escape(query)
+        regex = QRegularExpression(escaped, QRegularExpression.PatternOption.CaseInsensitiveOption)
+        self.details_sort_proxy.setFilterRegularExpression(regex)
     
     def on_tree_item_clicked(self, index):
         """Handle click on tree item - load folder contents in details view"""
@@ -903,9 +1377,12 @@ class FileExplorerCore(QWidget):
             self.load_folder_contents_in_details(Path(path))
     
     def eventFilter(self, obj, event):
-        """Handle F2 key press for renaming in details view"""
+        """Handle keyboard shortcuts in details view (F2 for rename, Ctrl+V for paste, Delete)"""
         if obj == self.details_view and event.type() == event.Type.KeyPress:
-            if event.key() == Qt.Key.Key_F2:
+            modifiers = event.modifiers()
+            key = event.key()
+            
+            if key == Qt.Key.Key_F2:
                 # Get selected item
                 indexes = self.details_view.selectedIndexes()
                 if indexes:
@@ -913,6 +1390,22 @@ class FileExplorerCore(QWidget):
                     name_index = self.details_view.model().index(indexes[0].row(), 0)
                     self.details_view.edit(name_index)
                     return True
+            elif key == Qt.Key.Key_Delete:
+                # Delete key - delete selected file(s)
+                self.delete_file()
+                return True
+            elif key == Qt.Key.Key_V and (modifiers & Qt.KeyboardModifier.ControlModifier):
+                # Ctrl+V - Paste
+                self.paste_file()
+                return True
+            elif key == Qt.Key.Key_C and (modifiers & Qt.KeyboardModifier.ControlModifier):
+                # Ctrl+C - Copy
+                self.copy_file()
+                return True
+            elif key == Qt.Key.Key_X and (modifiers & Qt.KeyboardModifier.ControlModifier):
+                # Ctrl+X - Cut
+                self.cut_file()
+                return True
         
         return super().eventFilter(obj, event)
     
@@ -1007,6 +1500,9 @@ class FileExplorerCore(QWidget):
             # Store current folder for breadcrumb and other operations
             self.current_details_folder = str(dir_path)
             
+            # Update the details view's current folder for drag/drop
+            self.details_view.set_current_folder(str(dir_path))
+            
             # Update header
             self.details_header.setText(f"📂 {dir_path.name or str(dir_path)}")
             
@@ -1057,6 +1553,12 @@ class FileExplorerCore(QWidget):
                 except (PermissionError, OSError):
                     # Skip items we can't access
                     continue
+            
+            # Re-apply current sort order (default: Name ascending)
+            header = self.details_view.header()
+            sort_column = header.sortIndicatorSection()
+            sort_order = header.sortIndicatorOrder()
+            self.details_sort_proxy.sort(sort_column, sort_order)
                     
         except (PermissionError, OSError) as e:
             self.details_model.clear()
@@ -1098,6 +1600,17 @@ class FileExplorerCore(QWidget):
         
         path_obj = Path(path)
         
+        # Handle .lnk shortcut files - resolve target and navigate if it's a folder
+        if path_obj.suffix.lower() == '.lnk' and path_obj.is_file():
+            target_path = self._resolve_shortcut(str(path_obj))
+            if target_path:
+                target_obj = Path(target_path)
+                if target_obj.exists() and target_obj.is_dir():
+                    # Navigate to the folder target within File Nav
+                    self.load_folder_contents_in_details(target_obj)
+                    return
+            # If we can't resolve or it's not a folder, fall through to open normally
+        
         if path_obj.is_dir():
             # Navigate into folder - update tree selection and load in details
             self.load_folder_contents_in_details(path_obj)
@@ -1115,6 +1628,30 @@ class FileExplorerCore(QWidget):
                 logger.error(f"Failed to open file: {e}")
                 QMessageBox.warning(self, "Cannot Open File", f"Failed to open {path_obj.name}\n\nError: {str(e)}")
     
+    def _resolve_shortcut(self, lnk_path):
+        """Resolve a Windows .lnk shortcut file to get its target path"""
+        try:
+            import win32com.client
+            shell = win32com.client.Dispatch("WScript.Shell")
+            shortcut = shell.CreateShortCut(lnk_path)
+            return shortcut.Targetpath
+        except ImportError:
+            # win32com not available, try alternative method
+            try:
+                # Use PowerShell as fallback
+                result = subprocess.run(
+                    ['powershell', '-Command', 
+                     f"(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk_path}').TargetPath"],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip()
+            except Exception as e:
+                logger.error(f"Failed to resolve shortcut via PowerShell: {e}")
+        except Exception as e:
+            logger.error(f"Failed to resolve shortcut: {e}")
+        return None
+
     def show_tree_context_menu(self, position):
         """Show context menu for tree view"""
         index = self.tree_view.indexAt(position)
@@ -1218,12 +1755,18 @@ class FileExplorerCore(QWidget):
                         upload_action = menu.addAction("⬆️ Upload to Mainframe")
                         upload_action.triggered.connect(self.upload_to_mainframe)
         
-        # Paste (always available if clipboard has content)
-        if self.clipboard["path"]:
+        # Paste (always available if clipboard has content - internal or Windows)
+        if self.has_clipboard_content():
             if index.isValid():
                 menu.addSeparator()
             paste_action = menu.addAction("📌 Paste")
             paste_action.triggered.connect(self.paste_file)
+        elif self.current_details_folder:
+            # Show disabled paste option when in a folder but no clipboard content
+            if index.isValid():
+                menu.addSeparator()
+            paste_action = menu.addAction("📌 Paste")
+            paste_action.setEnabled(False)
         
         # Show menu
         menu.exec(self.details_view.viewport().mapToGlobal(position))
@@ -1526,45 +2069,211 @@ class FileExplorerCore(QWidget):
         return paths
         
     def cut_file(self):
-        """Cut selected file/folder"""
-        path = self.get_selected_path()
-        if path:
-            self.clipboard = {"path": path, "operation": "cut"}
-            logger.info(f"Cut: {path}")
+        """Cut selected file(s)/folder(s)"""
+        paths = self.get_selected_paths()
+        if paths:
+            self.clipboard = {"paths": paths, "operation": "cut"}
+            # Also set system clipboard so files can be pasted in Windows Explorer
+            self._set_system_clipboard(paths)
+            logger.info(f"Cut: {len(paths)} item(s)")
             
     def copy_file(self):
-        """Copy selected file/folder"""
-        path = self.get_selected_path()
-        if path:
-            self.clipboard = {"path": path, "operation": "copy"}
-            logger.info(f"Copy: {path}")
+        """Copy selected file(s)/folder(s)"""
+        paths = self.get_selected_paths()
+        if paths:
+            self.clipboard = {"paths": paths, "operation": "copy"}
+            # Also set system clipboard so files can be pasted in Windows Explorer
+            self._set_system_clipboard(paths)
+            logger.info(f"Copy: {len(paths)} item(s)")
+    
+    def _set_system_clipboard(self, paths):
+        """Set file paths to the system clipboard for use with Windows Explorer"""
+        clipboard = QApplication.clipboard()
+        mime_data = QMimeData()
+        
+        # Convert paths to QUrl list
+        urls = [QUrl.fromLocalFile(path) for path in paths]
+        mime_data.setUrls(urls)
+        
+        clipboard.setMimeData(mime_data)
             
+    def get_clipboard_files(self):
+        """Get list of file paths from Windows clipboard"""
+        clipboard = QApplication.clipboard()
+        mime_data = clipboard.mimeData()
+        
+        files = []
+        if mime_data.hasUrls():
+            for url in mime_data.urls():
+                if url.isLocalFile():
+                    file_path = url.toLocalFile()
+                    if os.path.exists(file_path):
+                        files.append(file_path)
+        
+        return files
+    
+    def has_clipboard_content(self):
+        """Check if there's pasteable content in clipboard (internal or Windows)"""
+        # Check internal clipboard
+        if self.clipboard.get("paths"):
+            return True
+        # Check Windows clipboard for files
+        return len(self.get_clipboard_files()) > 0
+    
     def paste_file(self):
-        """Paste cut/copied file/folder"""
-        if not self.clipboard["path"]:
-            return
-        
+        """Paste cut/copied file/folder from internal clipboard or Windows clipboard"""
+        # Determine destination folder
         dest_path = self.get_selected_path()
+        
+        # If selected item is a file, use its parent folder
+        if dest_path and os.path.isfile(dest_path):
+            dest_path = str(Path(dest_path).parent)
+        
+        # If no selection or invalid, use current details folder
         if not dest_path or not os.path.isdir(dest_path):
-            QMessageBox.warning(self, "Paste", "Please select a destination folder")
+            if hasattr(self, 'current_details_folder') and self.current_details_folder:
+                dest_path = self.current_details_folder
+            else:
+                QMessageBox.warning(self, "Paste", "No destination folder available")
+                return
+        
+        # Check internal clipboard first
+        if self.clipboard.get("paths"):
+            success_count = 0
+            error_count = 0
+            
+            for source_path in self.clipboard["paths"]:
+                source = Path(source_path)
+                dest = Path(dest_path) / source.name
+                
+                try:
+                    # Handle existing file/folder
+                    if dest.exists():
+                        dest = self._get_unique_dest_path(dest)
+                    
+                    if self.clipboard["operation"] == "cut":
+                        shutil.move(str(source), str(dest))
+                    else:
+                        if source.is_dir():
+                            shutil.copytree(str(source), str(dest))
+                        else:
+                            shutil.copy2(str(source), str(dest))
+                    success_count += 1
+                    logger.info(f"Pasted {source.name} to {dest_path}")
+                except Exception as e:
+                    error_count += 1
+                    logger.error(f"Failed to paste {source.name}: {e}")
+            
+            # Clear clipboard after cut operation
+            if self.clipboard["operation"] == "cut":
+                self.clipboard = {"paths": [], "operation": None}
+            
+            # Refresh the details view
+            if hasattr(self, 'current_details_folder') and self.current_details_folder:
+                self.load_folder_contents_in_details(Path(self.current_details_folder))
+            
+            if error_count > 0:
+                QMessageBox.warning(
+                    self, "Paste Results",
+                    f"Pasted {success_count} item(s).\n{error_count} item(s) failed."
+                )
             return
         
-        source = Path(self.clipboard["path"])
-        dest = Path(dest_path) / source.name
+        # Check Windows clipboard for files
+        clipboard_files = self.get_clipboard_files()
+        if clipboard_files:
+            success_count = 0
+            error_count = 0
+            
+            for file_path in clipboard_files:
+                source = Path(file_path)
+                dest = Path(dest_path) / source.name
+                
+                try:
+                    # Handle existing file/folder
+                    if dest.exists():
+                        dest = self._get_unique_dest_path(dest)
+                    
+                    if source.is_dir():
+                        shutil.copytree(str(source), str(dest))
+                    else:
+                        shutil.copy2(str(source), str(dest))
+                    success_count += 1
+                    logger.info(f"Pasted {source.name} to {dest_path}")
+                except Exception as e:
+                    error_count += 1
+                    logger.error(f"Failed to paste {source.name}: {e}")
+            
+            # Refresh the details view
+            if hasattr(self, 'current_details_folder') and self.current_details_folder:
+                self.load_folder_contents_in_details(Path(self.current_details_folder))
+            
+            if error_count > 0:
+                QMessageBox.warning(
+                    self, "Paste Results", 
+                    f"Pasted {success_count} file(s).\n{error_count} file(s) failed."
+                )
+            return
         
-        try:
-            if self.clipboard["operation"] == "cut":
-                shutil.move(str(source), str(dest))
-            else:
+        # No content to paste
+        QMessageBox.information(self, "Paste", "No files in clipboard to paste")
+    
+    def _get_unique_dest_path(self, dest: Path) -> Path:
+        """Get a unique destination path by adding (1), (2), etc. if file exists"""
+        if not dest.exists():
+            return dest
+        
+        base = dest.stem
+        ext = dest.suffix
+        parent = dest.parent
+        counter = 1
+        
+        while True:
+            new_name = f"{base} ({counter}){ext}"
+            new_dest = parent / new_name
+            if not new_dest.exists():
+                return new_dest
+            counter += 1
+    
+    def handle_dropped_files(self, file_paths: list, dest_folder: str):
+        """Handle files dropped from external sources (Windows Explorer, desktop, etc.)"""
+        if not file_paths or not dest_folder:
+            return
+        
+        success_count = 0
+        error_count = 0
+        
+        for file_path in file_paths:
+            source = Path(file_path)
+            dest = Path(dest_folder) / source.name
+            
+            try:
+                # Handle existing file/folder
+                if dest.exists():
+                    dest = self._get_unique_dest_path(dest)
+                
                 if source.is_dir():
                     shutil.copytree(str(source), str(dest))
                 else:
                     shutil.copy2(str(source), str(dest))
-            
-            self.refresh_tree()
-            QMessageBox.information(self, "Success", f"Pasted to {dest}")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Paste failed: {e}")
+                success_count += 1
+                logger.info(f"Copied {source.name} to {dest_folder}")
+            except Exception as e:
+                error_count += 1
+                logger.error(f"Failed to copy {source.name}: {e}")
+        
+        # Refresh the details view
+        if hasattr(self, 'current_details_folder') and self.current_details_folder:
+            self.load_folder_contents_in_details(Path(self.current_details_folder))
+        
+        # Show result message for multiple files or errors
+        if error_count > 0:
+            QMessageBox.warning(
+                self, "Copy Results", 
+                f"Copied {success_count} file(s).\n{error_count} file(s) failed."
+            )
+        elif success_count > 1:
+            logger.info(f"Successfully copied {success_count} files to {dest_folder}")
             
     def rename_file(self):
         """Rename selected file/folder"""
@@ -1588,29 +2297,49 @@ class FileExplorerCore(QWidget):
                 QMessageBox.critical(self, "Error", f"Rename failed: {e}")
                 
     def delete_file(self):
-        """Delete selected file/folder"""
-        path = self.get_selected_path()
-        if not path:
+        """Delete selected file(s)/folder(s)"""
+        paths = self.get_selected_paths()
+        if not paths:
             return
+        
+        # Build confirmation message
+        if len(paths) == 1:
+            message = f"Delete '{Path(paths[0]).name}'?"
+        else:
+            message = f"Delete {len(paths)} selected items?"
         
         reply = QMessageBox.question(
             self, "Confirm Delete",
-            f"Delete '{Path(path).name}'?",
+            message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            try:
-                path_obj = Path(path)
-                if path_obj.is_dir():
-                    shutil.rmtree(path)
-                else:
-                    path_obj.unlink()
-                
-                self.refresh_tree()
-                QMessageBox.information(self, "Success", "Deleted successfully")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Delete failed: {e}")
+            deleted_count = 0
+            error_count = 0
+            
+            for path in paths:
+                try:
+                    path_obj = Path(path)
+                    if path_obj.is_dir():
+                        shutil.rmtree(path)
+                    else:
+                        path_obj.unlink()
+                    deleted_count += 1
+                    logger.info(f"Deleted: {path}")
+                except Exception as e:
+                    error_count += 1
+                    logger.error(f"Failed to delete {path}: {e}")
+            
+            # Refresh the details view to show files are gone
+            if hasattr(self, 'current_details_folder') and self.current_details_folder:
+                self.load_folder_contents_in_details(Path(self.current_details_folder))
+            
+            if error_count > 0:
+                QMessageBox.warning(
+                    self, "Delete Results",
+                    f"Deleted {deleted_count} item(s).\n{error_count} item(s) failed."
+                )
                 
     def refresh_tree(self):
         """Refresh the tree view"""
@@ -1909,9 +2638,20 @@ class FileExplorerCore(QWidget):
         QMessageBox.information(self, "Quick Links", f"Added to Quick Links:\n{Path(path).name}")
     
     def open_bookmarks_dialog(self):
-        """Open the Bookmarks panel dialog"""
+        """Open/close the Bookmarks panel dialog (toggle)"""
         from suiteview.ui.dialogs.shortcuts_dialog import BookmarksDialog
         from PyQt6.QtCore import QPoint
+        
+        # Check if dialog is already open - if so, close it
+        if hasattr(self, '_bookmarks_dialog') and self._bookmarks_dialog is not None:
+            try:
+                if self._bookmarks_dialog.isVisible():
+                    self._bookmarks_dialog.close()
+                    self._bookmarks_dialog = None
+                    return
+            except RuntimeError:
+                # Dialog was deleted
+                self._bookmarks_dialog = None
         
         # Calculate position right under the Bookmarks button
         if hasattr(self, 'toolbar'):
@@ -1920,18 +2660,22 @@ class FileExplorerCore(QWidget):
             toolbar_global = self.toolbar.mapToGlobal(QPoint(0, 0))
             # Position dialog at start of toolbar, below it
             button_pos = QPoint(toolbar_global.x(), toolbar_global.y() + toolbar_geo.height())
-            dialog = BookmarksDialog(self, button_pos)
+            self._bookmarks_dialog = BookmarksDialog(self, button_pos)
         else:
-            dialog = BookmarksDialog(self)
+            self._bookmarks_dialog = BookmarksDialog(self)
             # Fallback positioning
             if self.parent():
                 parent_geo = self.parent().geometry()
-                dialog.move(parent_geo.left() + 10, parent_geo.top() + 50)
+                self._bookmarks_dialog.move(parent_geo.left() + 10, parent_geo.top() + 50)
         
         # Connect folder navigation signal
-        dialog.navigate_to_path.connect(self.navigate_to_bookmark_folder)
+        self._bookmarks_dialog.navigate_to_path.connect(self.navigate_to_bookmark_folder)
         
-        dialog.exec()
+        # Clear reference when dialog closes
+        self._bookmarks_dialog.finished.connect(lambda: setattr(self, '_bookmarks_dialog', None))
+        
+        # Use show() instead of exec() so it's non-blocking and can be toggled
+        self._bookmarks_dialog.show()
     
     def navigate_to_bookmark_folder(self, folder_path):
         """Navigate to a folder from bookmark click"""
@@ -1981,13 +2725,15 @@ class FileExplorerCore(QWidget):
         dialog = PrintDirectoryDialog(path, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             options = dialog.get_options()
-            
-            # Create progress dialog
-            progress = QProgressDialog("Collecting directory information...", "Cancel", 0, 100, self)
+
+            # Create progress dialog (indeterminate; recursive scope isn't known up-front)
+            progress = QProgressDialog("Collecting directory information...", "Cancel", 0, 0, self)
             progress.setWindowTitle("Print Directory")
             progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setMinimumDuration(0)
             progress.setValue(0)
+            progress.setAutoClose(False)
+            progress.setAutoReset(False)
             
             # Collect data in current thread (faster for small directories)
             try:
@@ -1995,20 +2741,46 @@ class FileExplorerCore(QWidget):
                 
                 root = Path(path)
                 data = []
+                files_scanned = 0
+                folders_scanned = 0
+                last_ui_update = 0.0
+                t0 = time.monotonic()
+                canceled = False
                 
                 # Headers
                 headers = ['Level', 'Type', 'Name', 'Full Path', 'Size', 'Modified', 'Extension']
                 data.append(headers)
                 
-                progress.setLabelText("Scanning directory...")
+                def _maybe_update_progress(status: str) -> None:
+                    nonlocal last_ui_update
+                    now = time.monotonic()
+                    # Throttle UI updates to keep scanning fast
+                    if (now - last_ui_update) < 0.15:
+                        return
+                    last_ui_update = now
+                    progress.setLabelText(status)
+                    QApplication.processEvents()
                 
                 if options['include_subdirs']:
+                    # Use os.walk for speed; compute a real-time estimate using the pending directory count.
+                    progress.setLabelText("Scanning folders...")
+
                     for dirpath, dirnames, filenames in os.walk(root):
                         current = Path(dirpath)
                         level = len(current.relative_to(root).parts)
+
+                        if progress.wasCanceled():
+                            canceled = True
+                            # Prevent descending into more folders, and stop walking.
+                            dirnames[:] = []
+                            filenames[:] = []
+                            break
                         
                         # Add directories
                         for dirname in sorted(dirnames):
+                            if progress.wasCanceled():
+                                canceled = True
+                                break
                             folder_path = current / dirname
                             try:
                                 stat = folder_path.stat()
@@ -2021,11 +2793,20 @@ class FileExplorerCore(QWidget):
                                     datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
                                     ''
                                 ])
+                                folders_scanned += 1
                             except:
                                 pass
+
+                        if canceled:
+                            dirnames[:] = []
+                            filenames[:] = []
+                            break
                         
                         # Add files
                         for filename in sorted(filenames):
+                            if progress.wasCanceled():
+                                canceled = True
+                                break
                             file_path = current / filename
                             try:
                                 stat = file_path.stat()
@@ -2040,15 +2821,32 @@ class FileExplorerCore(QWidget):
                                     datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
                                     file_path.suffix
                                 ])
+                                files_scanned += 1
                             except:
                                 pass
-                        
-                        progress.setLabelText(f"Scanned {len(data)} items...")
-                        if progress.wasCanceled():
-                            return
+
+                        if canceled:
+                            dirnames[:] = []
+                            filenames[:] = []
+                            break
+
+                        status = f"Scanning... {folders_scanned:,} folders, {files_scanned:,} files"
+                        _maybe_update_progress(status)
+
+                        if canceled:
+                            break
                 else:
                     # Just immediate contents
-                    for item in sorted(root.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+                    try:
+                        items = list(root.iterdir())
+                    except Exception:
+                        items = []
+                    items = sorted(items, key=lambda x: (not x.is_dir(), x.name.lower()))
+
+                    for item in items:
+                        if progress.wasCanceled():
+                            canceled = True
+                            break
                         try:
                             stat = item.stat()
                             if item.is_dir():
@@ -2056,6 +2854,7 @@ class FileExplorerCore(QWidget):
                                     0, 'Folder', item.name, str(item), '',
                                     datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"), ''
                                 ])
+                                folders_scanned += 1
                             else:
                                 size = stat.st_size
                                 size_str = f"{size:,} B" if size < 1024 else f"{size/1024:.1f} KB" if size < 1024*1024 else f"{size/(1024*1024):.1f} MB"
@@ -2063,11 +2862,19 @@ class FileExplorerCore(QWidget):
                                     0, 'File', item.name, str(item), size_str,
                                     datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"), item.suffix
                                 ])
+                                files_scanned += 1
                         except:
                             pass
+
+                        status = f"Scanning... {folders_scanned:,} folders, {files_scanned:,} files"
+                        _maybe_update_progress(status)
                 
-                progress.setLabelText("Opening Excel...")
-                progress.setValue(50)
+                # Scanning finished (possibly canceled)
+                if canceled:
+                    progress.setLabelText("Canceled — opening Excel with partial results...")
+                else:
+                    progress.setLabelText("Opening Excel...")
+                QApplication.processEvents()
                 
                 # Open Excel using COM automation (Windows only)
                 if os.name == 'nt':
@@ -2097,7 +2904,7 @@ class FileExplorerCore(QWidget):
                             # Write entire data array at once
                             ws.Range(range_address).Value = data
                             
-                            progress.setValue(80)
+                            QApplication.processEvents()
                         
                         # Format headers
                         header_range = ws.Range(ws.Cells(1, 1), ws.Cells(1, len(headers)))
@@ -2106,7 +2913,8 @@ class FileExplorerCore(QWidget):
                         header_range.Interior.Color = 0x926636  # Dark blue
                         header_range.HorizontalAlignment = -4108  # xlCenter
                         
-                        progress.setValue(90)
+                        progress.setLabelText("Formatting...")
+                        QApplication.processEvents()
                         
                         # Auto-fit columns
                         ws.Columns.AutoFit()
@@ -2118,7 +2926,6 @@ class FileExplorerCore(QWidget):
                         # Select cell A1
                         ws.Range("A1").Select()
                         
-                        progress.setValue(100)
                         progress.close()
                         
                         # Don't show message box - just let Excel open

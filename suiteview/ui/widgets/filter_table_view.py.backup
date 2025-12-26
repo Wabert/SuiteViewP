@@ -1,21 +1,15 @@
 """FilterTableView - Excel-style filterable table view for DataFrames"""
 
 import logging
-import time
 from typing import Optional, Dict, Set, List, Any
 import pandas as pd
-from functools import reduce
-import operator
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView, QListView, QAbstractItemView,
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView, 
                               QHeaderView, QLineEdit, QPushButton, QMenu, 
-                              QCheckBox, QScrollArea, QLabel, QFrame, QWidgetAction, QStyleOptionHeader, QStyle, QMessageBox)
-from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QRect, QPoint, QTimer, QThread, QStringListModel
+                              QCheckBox, QScrollArea, QLabel, QFrame, QWidgetAction, QStyleOptionHeader, QStyle)
+from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QRect, QPoint
 from PyQt6.QtGui import QFont, QAction, QPainter, QColor
 
 logger = logging.getLogger(__name__)
-
-# Performance optimization: Limit displayed rows for large datasets
-MAX_DISPLAY_ROWS = 50000  # Configurable maximum rows to display
 
 
 class ClickableHeaderView(QHeaderView):
@@ -226,25 +220,25 @@ class ClickableHeaderView(QHeaderView):
 
 
 class PandasTableModel(QAbstractTableModel):
-    """Table model for displaying filtered Pandas DataFrame - optimized to use index-based filtering"""
+    """Table model for displaying filtered Pandas DataFrame"""
 
     def __init__(self, df: pd.DataFrame):
         super().__init__()
-        self._original_df = df  # Keep original (no copy!)
-        self._filtered_indices = df.index  # Indices after column filters
-        self._display_indices = df.index   # Indices after global search
+        self._original_df = df.copy()  # Keep original
+        self._filtered_df = df.copy()  # Working filtered copy
+        self._display_df = df.copy()   # After global search
 
-    def set_filtered_indices(self, indices: pd.Index):
-        """Update the filtered indices (after column filters)"""
+    def set_filtered_data(self, df: pd.DataFrame):
+        """Update the filtered dataset"""
         self.beginResetModel()
-        self._filtered_indices = indices
-        self._display_indices = indices
+        self._filtered_df = df.copy()
+        self._display_df = df.copy()
         self.endResetModel()
 
-    def set_display_indices(self, indices: pd.Index):
-        """Update the display indices (after global search)"""
+    def set_display_data(self, df: pd.DataFrame):
+        """Update the display dataset (after global search)"""
         self.beginResetModel()
-        self._display_indices = indices
+        self._display_df = df.copy()
         self.endResetModel()
 
     def get_original_data(self) -> pd.DataFrame:
@@ -253,26 +247,24 @@ class PandasTableModel(QAbstractTableModel):
 
     def get_filtered_data(self) -> pd.DataFrame:
         """Get the filtered data (after column filters, before search)"""
-        return self._original_df.loc[self._filtered_indices]
+        return self._filtered_df
 
     def get_display_data(self) -> pd.DataFrame:
         """Get the currently displayed data"""
-        return self._original_df.loc[self._display_indices]
+        return self._display_df
 
     def rowCount(self, parent=QModelIndex()):
-        return len(self._display_indices)
+        return len(self._display_df)
 
     def columnCount(self, parent=QModelIndex()):
-        return len(self._original_df.columns)
+        return len(self._display_df.columns)
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
 
         if role == Qt.ItemDataRole.DisplayRole:
-            # Use display indices to get actual row
-            actual_row = self._display_indices[index.row()]
-            value = self._original_df.iloc[self._original_df.index.get_loc(actual_row), index.column()]
+            value = self._display_df.iloc[index.row(), index.column()]
             if pd.isna(value):
                 return ""
             return str(value)
@@ -282,48 +274,43 @@ class PandasTableModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if role == Qt.ItemDataRole.DisplayRole:
             if orientation == Qt.Orientation.Horizontal:
-                return str(self._original_df.columns[section])
+                return str(self._display_df.columns[section])
             else:
                 return str(section + 1)
         return None
 
 
-
 class FilterPopup(QMenu):
-    """Optimized popup menu for column filtering using QListView instead of 10,000+ QCheckBox widgets"""
+    """Popup menu for column filtering with checkbox list"""
 
     filter_changed = pyqtSignal(str, set)  # column_name, selected_values
     
+    MAX_DISPLAY_VALUES = 10000  # Maximum values to show at once
+
     def __init__(self, column_name: str, unique_values: List[Any], 
                  current_selection: Optional[Set[Any]] = None, parent=None):
         super().__init__(parent)
         self.column_name = column_name
         
-        init_start = time.perf_counter()
-        
-        # Write timing to file to avoid terminal Unicode issues
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"\n[FILTER] FilterPopup.__init__ started for {column_name} with {len(unique_values)} values\n")
-        
         # Convert and sort unique values
-        sort_start = time.perf_counter()
         self.all_unique_values = sorted([str(v) if not pd.isna(v) else "(Blanks)" 
                                          for v in unique_values])
-        sort_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - Sort {len(unique_values)} values: {(sort_time - sort_start)*1000:.2f}ms\n")
+        
+        # Check if we have too many values
+        self.has_many_values = len(self.all_unique_values) > self.MAX_DISPLAY_VALUES
+        
+        # For large datasets, initially show only first MAX_DISPLAY_VALUES
+        if self.has_many_values:
+            self.unique_values = self.all_unique_values[:self.MAX_DISPLAY_VALUES]
+            self.showing_partial = True
+        else:
+            self.unique_values = self.all_unique_values
+            self.showing_partial = False
         
         self.current_selection = current_selection if current_selection else set(self.all_unique_values)
         
-        ui_start = time.perf_counter()
+        self.checkboxes = {}
         self.init_ui()
-        ui_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - init_ui completed: {(ui_time - ui_start)*1000:.2f}ms\n")
-        
-        init_total = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER] TOTAL FilterPopup creation time: {(init_total - init_start)*1000:.2f}ms\n")
 
     def init_ui(self):
         """Initialize the filter popup UI"""
@@ -359,10 +346,10 @@ class FilterPopup(QMenu):
         top_bar.addStretch()
         layout.addLayout(top_bar)
 
-        # Search box
+        # Search box - compact style
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("🔍 Search values...")
-        self.search_box.setFixedHeight(24)
+        self.search_box.setFixedHeight(24)  # More compact height
         self.search_box.setStyleSheet("""
             QLineEdit {
                 padding: 2px 6px;
@@ -374,126 +361,82 @@ class FilterPopup(QMenu):
                 border: 1px solid #3498db;
             }
         """)
-        self.search_box.textChanged.connect(self.filter_list)
-        self.search_box.returnPressed.connect(self.apply_filter)
+        self.search_box.textChanged.connect(self.filter_checkbox_list)
+        self.search_box.returnPressed.connect(self.apply_filter)  # Apply filter on Enter key
         layout.addWidget(self.search_box)
 
-        # Control buttons row
-        button_row = QHBoxLayout()
-        button_row.setSpacing(4)
-        
-        # (Clear Filter) button
-        clear_btn = QPushButton("Clear Filter")
-        clear_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #e74c3c;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                padding: 3px 8px;
-                font-size: 9px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #c0392b;
-            }
-        """)
-        clear_btn.clicked.connect(self.clear_filter)
-        button_row.addWidget(clear_btn)
-        
-        # Select All button
-        select_all_btn = QPushButton("All")
-        select_all_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3498db;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                padding: 3px 8px;
-                font-size: 9px;
-            }
-            QPushButton:hover {
-                background-color: #2980b9;
-            }
-        """)
-        select_all_btn.clicked.connect(self.select_all)
-        button_row.addWidget(select_all_btn)
-        
-        # Deselect All button
-        deselect_all_btn = QPushButton("None")
-        deselect_all_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #95a5a6;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                padding: 3px 8px;
-                font-size: 9px;
-            }
-            QPushButton:hover {
-                background-color: #7f8c8d;
-            }
-        """)
-        deselect_all_btn.clicked.connect(self.deselect_all)
-        button_row.addWidget(deselect_all_btn)
-        
-        button_row.addStretch()
-        layout.addLayout(button_row)
+        # Scrollable checkbox area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMinimumWidth(200)
+        scroll.setMaximumWidth(400)
+        scroll.setMinimumHeight(200)
+        scroll.setMaximumHeight(400)
 
-        # Create QStringListModel for efficient handling of large lists
-        create_model_start = time.perf_counter()
-        self.string_model = QStringListModel(self.all_unique_values)
-        create_model_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - QStringListModel created with {len(self.all_unique_values)} items in {(create_model_time - create_model_start)*1000:.2f}ms\n")
+        checkbox_container = QWidget()
+        self.checkbox_layout = QVBoxLayout(checkbox_container)
+        self.checkbox_layout.setSpacing(1)  # Tighter spacing
+        self.checkbox_layout.setContentsMargins(2, 2, 2, 2)
         
-        # Create proxy model for search filtering
-        proxy_start = time.perf_counter()
-        self.proxy_model = QSortFilterProxyModel()
-        self.proxy_model.setSourceModel(self.string_model)
-        self.proxy_model.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        proxy_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - Proxy model created: {(proxy_time - proxy_start)*1000:.2f}ms\n")
+        # Add (Clear) button at the top
+        clear_cb = QCheckBox("(Clear Filter)")
+        clear_cb.setStyleSheet("""
+            QCheckBox {
+                font-weight: bold;
+                color: #e74c3c;
+                font-size: 10px;
+                padding: 1px;
+            }
+        """)
+        clear_cb.stateChanged.connect(self.clear_filter)
+        self.checkbox_layout.addWidget(clear_cb)
+        self.clear_checkbox = clear_cb
         
-        # Create multi-select list view with virtual rendering
-        view_start = time.perf_counter()
-        self.list_view = QListView()
-        view_created = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - QListView created: {(view_created - view_start)*1000:.2f}ms\n")
+        # Add (All) checkbox
+        all_cb = QCheckBox("(All)")
+        all_cb.setChecked(len(self.current_selection) == len(self.all_unique_values))
+        all_cb.setStyleSheet("""
+            QCheckBox {
+                font-weight: bold;
+                color: #2c3e50;
+                font-size: 10px;
+                padding: 1px;
+            }
+        """)
+        all_cb.stateChanged.connect(self.toggle_all)
+        self.checkbox_layout.addWidget(all_cb)
+        self.all_checkbox = all_cb
         
-        # Configure list view BEFORE setting model (faster)
-        self.list_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.list_view.setMinimumWidth(200)
-        self.list_view.setMaximumWidth(400)
-        self.list_view.setMinimumHeight(250)
-        self.list_view.setMaximumHeight(400)
+        # Add separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #bdc3c7; max-height: 1px;")
+        self.checkbox_layout.addWidget(separator)
         
-        # CRITICAL: Enable uniform item sizes to avoid expensive layout calculations
-        # With 50k items, Qt calculating individual heights is extremely slow
-        self.list_view.setUniformItemSizes(True)
-        
-        # REMOVED expensive setStyleSheet() - was taking 510ms with 50k items!
-        # Use default Qt styling which is much faster
-        
-        # KEY OPTIMIZATION: Add widget to layout BEFORE setting model
-        # This way Qt adds an empty list view (fast), then we populate it
-        add_widget_start = time.perf_counter()
-        layout.addWidget(self.list_view)
-        add_widget_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - addWidget(empty list_view) to layout: {(add_widget_time - add_widget_start)*1000:.2f}ms\n")
-        
-        # Now set the model after the widget is in the layout
-        set_model_start = time.perf_counter()
-        self.list_view.setModel(self.proxy_model)
-        set_model_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - setModel() called AFTER addWidget: {(set_model_time - set_model_start)*1000:.2f}ms\n")
+        # Add value checkboxes with tighter spacing
+        for value in self.unique_values:
+            cb = QCheckBox(value)
+            cb.setChecked(value in self.current_selection)
+            cb.setStyleSheet("""
+                QCheckBox {
+                    font-size: 10px;
+                    padding: 1px;
+                }
+                QCheckBox::indicator {
+                    width: 13px;
+                    height: 13px;
+                }
+            """)
+            cb.stateChanged.connect(self.on_checkbox_changed)
+            self.checkbox_layout.addWidget(cb)
+            self.checkboxes[value] = cb
+
+        self.checkbox_layout.addStretch()
+        scroll.setWidget(checkbox_container)
+        layout.addWidget(scroll)
 
         # Info label
-        self.info_label = QLabel(f"Showing all {len(self.all_unique_values):,} values")
+        self.info_label = QLabel(f"Showing {len(self.unique_values):,} of {len(self.all_unique_values):,} values")
         self.info_label.setStyleSheet("font-size: 9px; color: #666; padding: 2px;")
         layout.addWidget(self.info_label)
 
@@ -520,140 +463,139 @@ class FilterPopup(QMenu):
         action.setDefaultWidget(container)
         self.addAction(action)
 
-        # REMOVED menu stylesheet - not needed and may slow down rendering
+        self.setStyleSheet("""
+            QMenu {
+                background-color: white;
+                border: 2px solid #3498db;
+                border-radius: 5px;
+            }
+        """)
         
         # Auto-focus the search box when the popup opens
+        QTimer = self.search_box.__class__.__bases__[0].__bases__[0].__module__
+        from PyQt6.QtCore import QTimer
         QTimer.singleShot(0, self.search_box.setFocus)
 
-    def filter_list(self, search_text: str):
-        """Filter the list based on search text using proxy model"""
-        self.proxy_model.setFilterFixedString(search_text)
+    def create_checkboxes(self, values: List[str]):
+        """Create checkboxes for given values"""
+        for value in values:
+            cb = QCheckBox(str(value))
+            cb.setChecked(value in self.current_selection)
+            cb.stateChanged.connect(self.on_checkbox_changed)
+            self.checkboxes[value] = cb
+            self.checkbox_layout.addWidget(cb)
+    
+    def filter_checkbox_list(self, search_text: str):
+        """Filter the checkbox list based on search text - show/hide for efficiency"""
+        search_text = search_text.lower().strip()
         
-        visible_count = self.proxy_model.rowCount()
-        
-        # Update info label
         if search_text:
+            # When user starts typing, uncheck (All) and uncheck all non-matching items
+            self.all_checkbox.setChecked(False)
+            
+            # Hide/show checkboxes based on search
+            visible_count = 0
+            for value, cb in self.checkboxes.items():
+                matches = search_text in str(value).lower()
+                cb.setVisible(matches)
+                if matches:
+                    # Check all matching items
+                    cb.setChecked(True)
+                    visible_count += 1
+                    # Move matching items to the top
+                    self.checkbox_layout.removeWidget(cb)
+                    # Insert after separator (index 2: all_checkbox, separator, then matches)
+                    self.checkbox_layout.insertWidget(2, cb)
+                else:
+                    # Uncheck non-matching items so they won't be included in filter
+                    cb.setChecked(False)
+            
+            self.showing_partial = False
             self.info_label.setText(f"Showing {visible_count:,} of {len(self.all_unique_values):,} values")
         else:
-            self.info_label.setText(f"Showing all {len(self.all_unique_values):,} values")
+            # No search - show all checkboxes in original order
+            for cb in self.checkboxes.values():
+                cb.setVisible(True)
+            
+            # Update (All) checkbox state based on current selections
+            all_checked = all(cb.isChecked() for cb in self.checkboxes.values())
+            self.all_checkbox.setChecked(all_checked)
+            
+            if self.has_many_values and len(self.checkboxes) < len(self.all_unique_values):
+                self.showing_partial = True
+                self.info_label.setText(
+                    f"Showing {len(self.checkboxes):,} of {len(self.all_unique_values):,} values\n"
+                    f"Use search to find specific values"
+                )
+            else:
+                self.showing_partial = False
+                self.info_label.setText(f"Showing all {len(self.all_unique_values):,} values")
     
-    def clear_filter(self):
-        """Clear the filter (emit all values without selecting UI items)"""
-        start_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER] Clear Filter clicked for column: {self.column_name}")
+    def update_info_label(self):
+        """Update the info label"""
+        visible_count = len(self.checkboxes)
+        total_count = len(self.all_unique_values)
         
-        # Don't select items in UI - just emit all values directly (instant!)
-        # Selecting 100k items in QListWidget takes 2+ minutes
-        all_values_set = set(self.all_unique_values)
-        
-        emit_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER]   - Created set of {len(all_values_set)} values in {(emit_time - start_time)*1000:.2f}ms")
-        
-        self.filter_changed.emit(self.column_name, all_values_set)
-        
-        signal_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER]   - Emit signal completed in {(signal_time - emit_time)*1000:.2f}ms")
-        
-        self.close()
-        
-        end_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER] TOTAL Clear Filter time: {(end_time - start_time)*1000:.2f}ms")
+        if self.showing_partial:
+            self.info_label.setText(
+                f"Showing {visible_count:,} of {total_count:,} values\n"
+                f"Use search to find specific values"
+            )
+        else:
+            self.info_label.setText(f"Showing all {total_count:,} values")
     
-    def select_all(self):
-        """Select all visible items in the filtered view"""
-        self.list_view.selectAll()
-    
-    def deselect_all(self):
-        """Deselect all items"""
-        self.list_view.clearSelection()
-    
+    def clear_filter(self, state):
+        """Clear the filter when (Clear Filter) is clicked"""
+        if state == 2:  # Qt.CheckState.Checked = 2
+            # Check all items and uncheck the clear checkbox
+            self.all_checkbox.setChecked(True)
+            self.clear_checkbox.setChecked(False)
+            # Apply the filter (which will clear it since all are selected)
+            self.apply_filter()
+
+    def toggle_all(self, state):
+        """Toggle all checkboxes based on (All) checkbox state"""
+        is_checked = (state == 2)  # Qt.CheckState.Checked = 2
+        
+        # Block signals temporarily to avoid recursive updates
+        for cb in self.checkboxes.values():
+            cb.blockSignals(True)
+            cb.setChecked(is_checked)
+            cb.blockSignals(False)
+        
+        # Update current_selection
+        if is_checked:
+            self.current_selection = set(self.all_unique_values)
+        else:
+            self.current_selection.clear()
+
+    def on_checkbox_changed(self, state):
+        """Handle checkbox state change - update current_selection and (All) checkbox"""
+        sender = self.sender()
+        for value, cb in self.checkboxes.items():
+            if cb == sender:
+                if cb.isChecked():
+                    self.current_selection.add(value)
+                else:
+                    self.current_selection.discard(value)
+                break
+        
+        # Update (All) checkbox state based on whether all items are selected
+        if hasattr(self, 'all_checkbox'):
+            all_selected = len(self.current_selection) == len(self.all_unique_values)
+            self.all_checkbox.blockSignals(True)
+            self.all_checkbox.setChecked(all_selected)
+            self.all_checkbox.blockSignals(False)
+
     def apply_filter(self):
         """Apply the filter and emit signal"""
-        start_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER] Apply Filter (OK clicked) for column: {self.column_name}")
-        
-        # Get selected items from the view
-        selected_values = set()
-        selected_indexes = self.list_view.selectionModel().selectedIndexes()
-        for index in selected_indexes:
-            # Get the actual string value from the model
-            value = self.proxy_model.data(index, Qt.ItemDataRole.DisplayRole)
-            selected_values.add(value)
-        
-        get_values_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER]   - Get selected values: {len(selected_values)} items in {(get_values_time - start_time)*1000:.2f}ms")
-        
-        # If nothing is selected, select all (clear filter)
-        if not selected_values:
-            selected_values = set(self.all_unique_values)
-            logger.info(f"⏱️ [FILTER]   - No selection, defaulting to all {len(selected_values)} values")
-        
-        emit_time = time.perf_counter()
-        self.filter_changed.emit(self.column_name, selected_values)
-        after_emit = time.perf_counter()
-        logger.info(f"⏱️ [FILTER]   - Emit signal completed in {(after_emit - emit_time)*1000:.2f}ms")
-        
+        # Emit current selection (includes items not currently visible)
+        self.filter_changed.emit(self.column_name, self.current_selection)
         self.close()
-        end_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER] TOTAL Apply Filter time: {(end_time - start_time)*1000:.2f}ms")
-    
+
     def get_selected_values(self) -> Set[str]:
         """Get currently selected values"""
-        selected_values = set()
-        selected_indexes = self.list_view.selectionModel().selectedIndexes()
-        for index in selected_indexes:
-            value = self.proxy_model.data(index, Qt.ItemDataRole.DisplayRole)
-            selected_values.add(value)
-        return selected_values if selected_values else set(self.all_unique_values)
-
-
-class SearchWorker(QThread):
-    """Background worker for global search operations"""
-    
-    search_completed = pyqtSignal(pd.Index)  # Emits matching indices
-    
-    def __init__(self, df: pd.DataFrame, indices: pd.Index, search_text: str):
-        super().__init__()
-        self.df = df
-        self.indices = indices
-        self.search_text = search_text.lower().strip()
-        self._is_cancelled = False
-    
-    def run(self):
-        """Perform vectorized search across all columns"""
-        try:
-            if self._is_cancelled:
-                return
-            
-            # Get the subset DataFrame
-            subset = self.df.loc[self.indices]
-            
-            # Vectorized search: convert each column to lowercase strings and check for match
-            column_masks = []
-            for col in subset.columns:
-                if self._is_cancelled:
-                    return
-                # Convert column to string, fill NaN, lowercase, and check if contains search text
-                col_str = subset[col].fillna("").astype(str).str.lower()
-                column_masks.append(col_str.str.contains(self.search_text, regex=False, na=False))
-            
-            # Combine all column masks with OR logic
-            if column_masks:
-                combined_mask = reduce(operator.or_, column_masks)
-                matching_indices = subset[combined_mask].index
-            else:
-                matching_indices = pd.Index([])
-            
-            if not self._is_cancelled:
-                self.search_completed.emit(matching_indices)
-                
-        except Exception as e:
-            logger.error(f"Search error: {e}")
-            self.search_completed.emit(pd.Index([]))
-    
-    def cancel(self):
-        """Cancel the search operation"""
-        self._is_cancelled = True
+        return {value for value, cb in self.checkboxes.items() if cb.isChecked()}
 
 
 class FilterTableView(QWidget):
@@ -666,16 +608,6 @@ class FilterTableView(QWidget):
         self.column_filters: Dict[str, Set[Any]] = {}  # column_name -> selected_values
         self.filtered_columns: Set[str] = set()  # Columns with active filters
         self.sort_order = {}  # column_index -> Qt.SortOrder
-        
-        # Performance optimizations
-        self._unique_values_cache: Dict[str, List[Any]] = {}  # Cache unique values per column
-        self._string_columns_cache: Dict[str, pd.Series] = {}  # Pre-converted string columns
-        self._all_unique_values: Dict[str, List[Any]] = {}  # Pre-computed unique values per column
-        self._search_worker: Optional[SearchWorker] = None  # Background search thread
-        self._search_debounce_timer = QTimer()
-        self._search_debounce_timer.setSingleShot(True)
-        self._search_debounce_timer.timeout.connect(self._execute_search)
-        self._pending_search_text = ""
         
         self.init_ui()
 
@@ -808,52 +740,14 @@ class FilterTableView(QWidget):
 
     def set_dataframe(self, df: pd.DataFrame):
         """Set the DataFrame to display"""
-        # Check if dataset exceeds MAX_DISPLAY_ROWS
-        original_row_count = len(df)
-        if original_row_count > MAX_DISPLAY_ROWS:
-            reply = QMessageBox.question(
-                self,
-                "Large Dataset Detected",
-                f"This dataset has {original_row_count:,} rows.\n\n"
-                f"For optimal performance, it's recommended to limit display to {MAX_DISPLAY_ROWS:,} rows.\n\n"
-                f"Load first {MAX_DISPLAY_ROWS:,} rows (recommended) or load all rows?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                df = df.head(MAX_DISPLAY_ROWS)
-                logger.info(f"Limited dataset to {MAX_DISPLAY_ROWS:,} rows (original: {original_row_count:,})")
-            else:
-                logger.warning(f"Loading full dataset with {original_row_count:,} rows - performance may be impacted")
-        
-        # Store reference (no copy - saves memory!)
-        self.df = df
-        
-        # Pre-compute string conversions for ALL columns (do once, use many times)
-        logger.info("Pre-computing string columns for fast filtering...")
-        self._string_columns_cache.clear()
-        self._all_unique_values.clear()
-        for col in df.columns:
-            # Convert to string once and cache
-            self._string_columns_cache[col] = df[col].fillna("(Blanks)").astype(str)
-            # Pre-compute unique values for instant filter popup
-            self._all_unique_values[col] = df[col].unique().tolist()
-        logger.info(f"Pre-computation complete for {len(df.columns)} columns")
-        
+        self.df = df.copy()
         self.model = PandasTableModel(self.df)
         self.table_view.setModel(self.model)
         
-        # Reset filters and caches
+        # Reset filters
         self.column_filters.clear()
         self.filtered_columns.clear()
         self.global_search_box.clear()
-        self._unique_values_cache.clear()  # Clear unique values cache
-        
-        # Cancel any pending search
-        if self._search_worker and self._search_worker.isRunning():
-            self._search_worker.cancel()
-            self._search_worker.wait()
         
         # Update info
         self.update_info_label()
@@ -896,80 +790,56 @@ class FilterTableView(QWidget):
         self.update_header_indicators()
     
     def apply_sort(self, column_index: int, sort_order):
-        """Sort the displayed data using index-based operations"""
+        """Sort the displayed data"""
         if self.model is None:
             return
         
         column_name = self.df.columns[column_index]
+        display_df = self.model.get_display_data()
         
-        # Get current display indices
-        current_indices = self.model._display_indices
-        
-        # Sort the data using these indices
+        # Sort the dataframe
         ascending = (sort_order == Qt.SortOrder.AscendingOrder)
-        sorted_data = self.df.loc[current_indices].sort_values(by=column_name, ascending=ascending)
+        sorted_df = display_df.sort_values(by=column_name, ascending=ascending)
         
-        # Update model with sorted indices
-        self.model.set_display_indices(sorted_data.index)
+        self.model.set_display_data(sorted_df)
         self.update_info_label()
 
     def _get_filtered_unique_values(self, column_name: str) -> List[Any]:
         """Get unique values for a column, considering all OTHER active filters (Excel cascading behavior)"""
-        # If no other filters are active, return pre-computed unique values (instant!)
-        if not any(col != column_name for col in self.column_filters.keys()):
-            return self._all_unique_values.get(column_name, [])
+        # Start with original data
+        filtered_df = self.df.copy()
         
-        # Check cache for filtered scenario
-        cache_key = f"{column_name}_{'_'.join(sorted([c for c in self.column_filters.keys() if c != column_name]))}"
-        if cache_key in self._unique_values_cache:
-            return self._unique_values_cache[cache_key]
-        
-        # Start with full index
-        filtered_indices = self.df.index
-        
-        # Apply all column filters EXCEPT for the current column using pre-computed string columns
+        # Apply all column filters EXCEPT for the current column
+        # This gives us the values that are available given OTHER filters
         for col_name, selected_values in self.column_filters.items():
             if col_name != column_name:  # Skip current column's filter
-                # Use pre-computed string column (no conversion needed!)
-                col_str = self._string_columns_cache[col_name]
-                mask = col_str.isin(selected_values)
-                filtered_indices = filtered_indices[mask[filtered_indices]]
+                # Apply filter for this column
+                mask = filtered_df[col_name].apply(
+                    lambda x: (str(x) if not pd.isna(x) else "(Blanks)") in selected_values
+                )
+                filtered_df = filtered_df[mask]
         
-        # Get unique values from the filtered data
-        unique_vals = self.df.loc[filtered_indices, column_name].unique().tolist()
-        
-        # Cache the result
-        self._unique_values_cache[cache_key] = unique_vals
-        
-        return unique_vals
+        # Return unique values from the filtered data
+        return filtered_df[column_name].unique()
     
     def show_filter_popup(self, column_index: int):
         """Show filter popup for a column (triggered by clicking filter icon)"""
-        start_time = time.perf_counter()
-        
         logger.debug(f"show_filter_popup called for column {column_index}")
         if self.model is None:
             logger.debug("No model - returning")
             return
 
         column_name = self.df.columns[column_index]
-        logger.info(f"⏱️ [FILTER] Opening filter box for column: {column_name}")
+        logger.debug(f"Showing filter popup for column: {column_name}")
         
         # Get unique values considering OTHER filters (Excel cascading behavior)
-        get_unique_start = time.perf_counter()
         unique_values = self._get_filtered_unique_values(column_name)
-        get_unique_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER]   - Get unique values: {len(unique_values)} items in {(get_unique_time - get_unique_start)*1000:.2f}ms")
         
         # Get current selection for this column (default to all)
         current_selection = self.column_filters.get(column_name, None)
         
         # Create and show popup
-        create_popup_start = time.perf_counter()
         popup = FilterPopup(column_name, unique_values, current_selection, self)
-        create_popup_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER]   - Create FilterPopup widget in {(create_popup_time - create_popup_start)*1000:.2f}ms")
-        
         popup.filter_changed.connect(self.apply_column_filter)
         
         # Position popup below the clicked column header
@@ -985,52 +855,31 @@ class FilterTableView(QWidget):
         from PyQt6.QtCore import QPoint
         popup_position = QPoint(popup_x, popup_y)
         
-        before_exec = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER] TOTAL time to open filter box: {(before_exec - start_time)*1000:.2f}ms\n")
-        
         popup.exec(popup_position)
 
     def apply_column_filter(self, column_name: str, selected_values: Set[str]):
         """Apply filter to a specific column"""
-        start_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER] apply_column_filter called for column: {column_name} with {len(selected_values)} values")
-        
         if self.model is None:
             return
 
         # Get the values that are actually available considering OTHER filters (cascading)
-        get_available_start = time.perf_counter()
         available_values = set(str(v) if not pd.isna(v) else "(Blanks)" 
                               for v in self._get_filtered_unique_values(column_name))
-        get_available_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER]   - Get available values in {(get_available_time - get_available_start)*1000:.2f}ms")
         
         if selected_values == available_values:
             # All available values selected = no filter for this column
             if column_name in self.column_filters:
                 del self.column_filters[column_name]
             self.filtered_columns.discard(column_name)
-            logger.info(f"⏱️ [FILTER]   - All values selected, removing filter for {column_name}")
         else:
             self.column_filters[column_name] = selected_values
             self.filtered_columns.add(column_name)
-            logger.info(f"⏱️ [FILTER]   - Filter set for {column_name}: {len(selected_values)} values")
         
         # Apply all column filters
-        apply_start = time.perf_counter()
         self.apply_all_filters()
-        apply_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER]   - apply_all_filters completed in {(apply_time - apply_start)*1000:.2f}ms")
         
         # Update header to show filter indicator
-        header_start = time.perf_counter()
         self.update_header_indicators()
-        header_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER]   - update_header_indicators completed in {(header_time - header_start)*1000:.2f}ms")
-        
-        end_time = time.perf_counter()
-        logger.info(f"⏱️ [FILTER] TOTAL apply_column_filter time: {(end_time - start_time)*1000:.2f}ms")
     
     def update_header_indicators(self):
         """Update header sections to show filter and sort indicators"""
@@ -1066,94 +915,68 @@ class FilterTableView(QWidget):
         self.header.viewport().update()
 
     def apply_all_filters(self):
-        """Apply all column filters using pre-computed string columns"""
+        """Apply all column filters to the DataFrame"""
         if self.model is None:
             return
 
-        # Start with all indices
-        filtered_indices = self.df.index
+        # Start with original data
+        filtered_df = self.df.copy()
 
-        # Apply each column filter using pre-computed string columns
+        # Apply each column filter
         for column_name, selected_values in self.column_filters.items():
-            # Use pre-computed string column (no conversion needed!)
-            col_str = self._string_columns_cache[column_name]
-            mask = col_str.isin(selected_values)
-            # Filter the indices
-            filtered_indices = filtered_indices[mask[filtered_indices]]
+            # Convert column values to strings for comparison (handle blanks)
+            mask = filtered_df[column_name].apply(
+                lambda x: (str(x) if not pd.isna(x) else "(Blanks)") in selected_values
+            )
+            filtered_df = filtered_df[mask]
 
-        # Update model with filtered indices (no DataFrame copy!)
-        self.model.set_filtered_indices(filtered_indices)
-        
-        # Invalidate cascading filter cache since filters changed
-        self._unique_values_cache.clear()
+        # Update model
+        self.model.set_filtered_data(filtered_df)
         
         # Re-apply global search if active
         if self.global_search_box.text():
             self.apply_global_search(self.global_search_box.text())
         else:
-            self.model.set_display_indices(filtered_indices)
+            self.model.set_display_data(filtered_df)
         
         self.update_info_label()
         
-        logger.info(f"Filters applied: {len(filtered_indices)} rows visible")
+        logger.info(f"Filters applied: {len(filtered_df)} rows visible")
 
     def apply_global_search(self, search_text: str):
-        """Apply global search with debouncing to avoid blocking on every keystroke"""
+        """Apply global search across all columns"""
         if self.model is None:
             return
-        
-        # Cancel any running search
-        if self._search_worker and self._search_worker.isRunning():
-            self._search_worker.cancel()
-        
-        # Store pending search and start debounce timer
-        self._pending_search_text = search_text
-        self._search_debounce_timer.start(300)  # 300ms debounce
-    
-    def _execute_search(self):
-        """Execute the search after debounce period"""
-        search_text = self._pending_search_text.lower().strip()
+
+        search_text = search_text.lower().strip()
         
         if not search_text:
             # No search - show filtered data
-            self.model.set_display_indices(self.model._filtered_indices)
-            self.update_info_label()
-            return
+            self.model.set_display_data(self.model.get_filtered_data())
+        else:
+            # Search within filtered data
+            filtered_df = self.model.get_filtered_data()
+            
+            # Create mask for rows containing search text in any column
+            mask = filtered_df.apply(
+                lambda row: any(search_text in str(val).lower() for val in row),
+                axis=1
+            )
+            
+            search_results = filtered_df[mask]
+            self.model.set_display_data(search_results)
         
-        # Start background search
-        self._search_worker = SearchWorker(
-            self.df,
-            self.model._filtered_indices,
-            search_text
-        )
-        self._search_worker.search_completed.connect(self._on_search_completed)
-        self._search_worker.start()
-        
-        # Show searching indicator
-        self.info_label.setText("🔍 Searching...")
-    
-    def _on_search_completed(self, matching_indices: pd.Index):
-        """Handle search completion"""
-        if self.model:
-            self.model.set_display_indices(matching_indices)
-            self.update_info_label()
+        self.update_info_label()
 
     def clear_all_filters(self):
         """Clear all filters and reset to original data"""
         self.column_filters.clear()
         self.filtered_columns.clear()
         self.global_search_box.clear()
-        self._unique_values_cache.clear()  # Clear cache
-        
-        # Cancel any running search
-        if self._search_worker and self._search_worker.isRunning():
-            self._search_worker.cancel()
         
         if self.model:
-            # Reset to all indices
-            all_indices = self.df.index
-            self.model.set_filtered_indices(all_indices)
-            self.model.set_display_indices(all_indices)
+            self.model.set_filtered_data(self.df)
+            self.model.set_display_data(self.df)
         
         self.update_header_indicators()
         self.update_info_label()
@@ -1258,8 +1081,8 @@ class FilterTableView(QWidget):
         
         from PyQt6.QtWidgets import QApplication
         
-        # Use reference to original DataFrame (no copy needed for export)
-        df_to_copy = self.df
+        # Get the original full DataFrame
+        df_to_copy = self.df.copy()
         
         # Convert to tab-separated string (Excel-friendly)
         # Include headers

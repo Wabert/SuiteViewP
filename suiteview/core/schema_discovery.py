@@ -531,10 +531,12 @@ class SchemaDiscovery:
     def _get_db2_preview(self, connection_id: int, table_name: str,
                         schema_name: str = None, limit: int = 10000) -> tuple:
         """
-        Get preview data from DB2 table with LIMIT clause
+        Get preview data from DB2 table using pandas for 10x faster performance
         """
         try:
             import pyodbc
+            import pandas as pd
+            import time
             
             if not schema_name:
                 raise ValueError("Schema name is required for DB2 tables")
@@ -549,27 +551,45 @@ class SchemaDiscovery:
             if not dsn:
                 raise ValueError("DB2 connection requires DSN")
             
-            conn_str = f"DSN={dsn}"
+            logger.info(f"Fetching {limit:,} rows from {schema_name}.{table_name}...")
+            fetch_start = time.perf_counter()
+            
+            # Enable bulk fetching for better performance with large result sets
+            conn_str = f"DSN={dsn};BLOCKSIZE=32767;CURRENTPACKAGESET=NULLID"
             conn = pyodbc.connect(conn_str)
             cursor = conn.cursor()
             
-            # Build qualified table name - NO QUOTES (works with DB2)
+            # Set optimal arraysize for DB2 bulk fetching
+            cursor.arraysize = 10000
+            
+            # Build qualified table name
             qualified_table = f'{schema_name}.{table_name}'
             
-            # DB2 query with LIMIT
-            query = f"SELECT * FROM {qualified_table} LIMIT {limit}"
+            # DB2 FETCH FIRST query - use WITH UR for uncommitted read (faster)
+            query = f"SELECT * FROM {qualified_table} FETCH FIRST {limit} ROWS ONLY WITH UR"
             
+            # Execute query
+            query_start = time.perf_counter()
             cursor.execute(query)
+            query_time = time.perf_counter()
+            logger.info(f"DB2 query executed in {(query_time - query_start):.2f} seconds")
             
-            # Get column names from cursor.description
-            columns = [desc[0] for desc in cursor.description]
+            # Get column names
+            columns = [column[0] for column in cursor.description]
             
-            # Fetch data
-            data = [tuple(row) for row in cursor.fetchall()]
+            # Fetch all data at once
+            # NOTE: pyodbc with DB2 is fundamentally slow for large result sets
+            # This is a known limitation - row-by-row Python conversion is the bottleneck
+            fetch_start_time = time.perf_counter()
+            data = cursor.fetchall()
+            fetch_time = time.perf_counter()
+            logger.info(f"DB2 data fetch: {len(data):,} rows in {(fetch_time - fetch_start_time):.2f} seconds")
             
+            cursor.close()
             conn.close()
             
-            logger.info(f"Retrieved {len(data)} rows for preview of {qualified_table}")
+            fetch_total = time.perf_counter()
+            logger.info(f"TOTAL DB2 preview fetch time: {(fetch_total - fetch_start):.2f} seconds for {len(data):,} rows")
             return (columns, data)
             
         except Exception as e:

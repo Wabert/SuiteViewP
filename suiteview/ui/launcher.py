@@ -50,6 +50,8 @@ class LauncherWindow(QWidget):
         # Store references to opened windows
         self.db_window = None
         self.file_nav_window = None
+        self.mainframe_window = None
+        self.email_nav_window = None
         
         # Settings file for persistence
         from pathlib import Path
@@ -257,6 +259,52 @@ class LauncherWindow(QWidget):
         self.file_nav_btn.clicked.connect(self.open_file_navigator)
         button_layout.addWidget(self.file_nav_btn)
         
+        # Mainframe button
+        self.mainframe_btn = QPushButton("💻")  # Laptop/Terminal icon
+        self.mainframe_btn.setToolTip("Mainframe Tools")
+        self.mainframe_btn.setFixedSize(32, 32)
+        self.mainframe_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                border: 2px solid #0078d4;
+                border-radius: 6px;
+                font-size: 18px;
+                padding: 2px;
+            }
+            QPushButton:hover {
+                background-color: #e3f2fd;
+                border-color: #005a9e;
+            }
+            QPushButton:pressed {
+                background-color: #bbdefb;
+            }
+        """)
+        self.mainframe_btn.clicked.connect(self.open_mainframe_window)
+        button_layout.addWidget(self.mainframe_btn)
+        
+        # Email Navigator button
+        self.email_nav_btn = QPushButton("📧")  # Email icon
+        self.email_nav_btn.setToolTip("Email Navigator")
+        self.email_nav_btn.setFixedSize(32, 32)
+        self.email_nav_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                border: 2px solid #0078d4;
+                border-radius: 6px;
+                font-size: 18px;
+                padding: 2px;
+            }
+            QPushButton:hover {
+                background-color: #e3f2fd;
+                border-color: #005a9e;
+            }
+            QPushButton:pressed {
+                background-color: #bbdefb;
+            }
+        """)
+        self.email_nav_btn.clicked.connect(self.open_email_navigator)
+        button_layout.addWidget(self.email_nav_btn)
+        
         # Add stretch to keep buttons on the left
         button_layout.addStretch()
         
@@ -310,6 +358,10 @@ class LauncherWindow(QWidget):
         show_action.triggered.connect(self.show)
         tray_menu.addAction(show_action)
         
+        position_action = QAction("📍 Position at Tray", self)
+        position_action.triggered.connect(self.position_at_tray)
+        tray_menu.addAction(position_action)
+        
         tray_menu.addSeparator()
         
         db_action = QAction("🗄️ Data Manager", self)
@@ -319,6 +371,14 @@ class LauncherWindow(QWidget):
         file_action = QAction("📁 File Navigator", self)
         file_action.triggered.connect(self.open_file_navigator)
         tray_menu.addAction(file_action)
+        
+        mainframe_action = QAction("💻 Mainframe Tools", self)
+        mainframe_action.triggered.connect(self.open_mainframe_window)
+        tray_menu.addAction(mainframe_action)
+        
+        email_action = QAction("📧 Email Navigator", self)
+        email_action.triggered.connect(self.open_email_navigator)
+        tray_menu.addAction(email_action)
         
         tray_menu.addSeparator()
         
@@ -335,10 +395,49 @@ class LauncherWindow(QWidget):
         
     def tray_icon_activated(self, reason):
         """Handle tray icon clicks"""
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            # Left click - show window
+        try:
+            # Handle both PyQt6 enum and raw int comparison
+            trigger_value = QSystemTrayIcon.ActivationReason.Trigger
+            if reason == trigger_value or (hasattr(reason, 'value') and reason.value == trigger_value.value):
+                # Left click - show window
+                self.show()
+                self.activateWindow()
+        except Exception as e:
+            # Fallback: if comparison fails, try showing on any click
+            logger.warning(f"Tray activation comparison issue: {e}")
             self.show()
             self.activateWindow()
+    
+    def position_at_tray(self):
+        """Position the launcher window right above the system tray"""
+        # Get the tray icon geometry
+        tray_geometry = self.tray_icon.geometry()
+        
+        if tray_geometry.isValid() and not tray_geometry.isNull():
+            # Position above the tray icon, centered horizontally
+            x = tray_geometry.x() + (tray_geometry.width() // 2) - (self.width() // 2)
+            y = tray_geometry.y() - self.height() - 10  # 10px gap above tray
+        else:
+            # Fallback: use screen geometry to position at bottom-right
+            screen = QApplication.primaryScreen()
+            if screen:
+                screen_geo = screen.availableGeometry()
+                x = screen_geo.right() - self.width() - 20
+                y = screen_geo.bottom() - self.height() - 50  # Above taskbar
+            else:
+                x, y = 100, 100
+        
+        # Ensure window stays on screen
+        screen = QApplication.screenAt(QPoint(x, y))
+        if screen:
+            screen_geo = screen.availableGeometry()
+            x = max(screen_geo.left(), min(x, screen_geo.right() - self.width()))
+            y = max(screen_geo.top(), min(y, screen_geo.bottom() - self.height()))
+        
+        self.move(x, y)
+        self.show()
+        self.activateWindow()
+        logger.info(f"Positioned launcher at tray: ({x}, {y})")
             
     def hide_to_tray(self):
         """Hide window to system tray"""
@@ -355,11 +454,31 @@ class LauncherWindow(QWidget):
         # Save window state before quitting
         self.save_window_state()
         
-        # Close all child windows
+        # Close all child windows - need to properly cleanup, not just hide
         if self.db_window:
+            # Disconnect mainframe terminals if connected
+            if hasattr(self.db_window, 'mainframe_terminal_screen'):
+                terminal = self.db_window.mainframe_terminal_screen
+                if terminal:
+                    # Handle DualTerminalScreen
+                    if hasattr(terminal, 'disconnect_all'):
+                        terminal.disconnect_all()
+                    # Handle single MainframeTerminalScreen (legacy)
+                    elif hasattr(terminal, 'disconnect_from_mainframe'):
+                        terminal.disconnect_from_mainframe()
             self.db_window.close()
         if self.file_nav_window:
             self.file_nav_window.close()
+        if self.mainframe_window:
+            # Disconnect terminals if connected
+            if hasattr(self.mainframe_window, 'mainframe_terminal_screen'):
+                terminal = self.mainframe_window.mainframe_terminal_screen
+                if terminal:
+                    if hasattr(terminal, 'disconnect_all'):
+                        terminal.disconnect_all()
+                    elif hasattr(terminal, 'disconnect_from_mainframe'):
+                        terminal.disconnect_from_mainframe()
+            self.mainframe_window.close()
             
         self.tray_icon.hide()
         QApplication.quit()
@@ -423,6 +542,63 @@ class LauncherWindow(QWidget):
             self.file_nav_window.show()
             self.file_nav_window.activateWindow()
             self.file_nav_window.raise_()
+
+    def open_mainframe_window(self):
+        """Open the Mainframe Tools window - maintains state throughout session"""
+        if self.mainframe_window is None:
+            # Create window only once - first time
+            try:
+                from suiteview.ui.mainframe_window import MainframeWindow
+                self.mainframe_window = MainframeWindow()
+                
+                # Override close event to hide instead of closing
+                original_close = self.mainframe_window.closeEvent
+                def hide_on_close(event):
+                    event.ignore()
+                    self.mainframe_window.hide()
+                self.mainframe_window.closeEvent = hide_on_close
+                
+                self.mainframe_window.show()
+                logger.info("Created Mainframe Window (persists for session)")
+            except Exception as e:
+                logger.error(f"Failed to open Mainframe Window: {e}")
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Error", f"Could not open Mainframe Window:\n{e}")
+        else:
+            # Window already exists - just show and activate it
+            self.mainframe_window.show()
+            self.mainframe_window.activateWindow()
+            self.mainframe_window.raise_()
+    
+    def open_email_navigator(self):
+        """Open the Email Navigator window - maintains state throughout session"""
+        if self.email_nav_window is None:
+            # Create window only once - first time
+            try:
+                from suiteview.ui.email_navigator_window import EmailNavigatorWindow
+                self.email_nav_window = EmailNavigatorWindow()
+                self.email_nav_window.launcher = self  # Pass launcher reference
+                self.email_nav_window.setWindowTitle("SuiteView - Email Navigator")
+                self.email_nav_window.resize(600, 500)
+                
+                # Override close event to hide instead of closing
+                original_close = self.email_nav_window.closeEvent
+                def hide_on_close(event):
+                    event.ignore()
+                    self.email_nav_window.hide()
+                self.email_nav_window.closeEvent = hide_on_close
+                
+                self.email_nav_window.show()
+                logger.info("Created Email Navigator (persists for session)")
+            except Exception as e:
+                logger.error(f"Failed to open Email Navigator: {e}")
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Error", f"Could not open Email Navigator:\n{e}")
+        else:
+            # Window already exists - just show and activate it
+            self.email_nav_window.show()
+            self.email_nav_window.activateWindow()
+            self.email_nav_window.raise_()
     
     def paintEvent(self, event):
         """Custom paint to draw rounded background with gradient blue and gold border"""

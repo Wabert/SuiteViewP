@@ -37,6 +37,14 @@ class AddConnectionDialog(QDialog):
         "Mainframe FTP"
     ]
 
+    DATABASE_TYPE_OPTIONS = [
+        "DB2",
+        "SQL_SERVER",
+        "ACCESS",
+        "EXCEL",
+        "CSV",
+    ]
+
     def __init__(self, parent=None, connection_data=None):
         super().__init__(parent)
         self.connection_data = None
@@ -207,8 +215,12 @@ class AddConnectionDialog(QDialog):
         row += 1
 
         self.db_type_label = QLabel("Database Type:")
-        self.db_type_value = QLineEdit()
-        self.db_type_value.setReadOnly(True)
+        self.db_type_value = QComboBox()
+        self.db_type_value.setEditable(True)
+        self.db_type_value.addItems(self.DATABASE_TYPE_OPTIONS)
+        # Start blank so we can suggest defaults based on the selected connection type/DSN
+        self.db_type_value.setCurrentIndex(-1)
+        self.db_type_value.setCurrentText("")
         self.form_grid.addWidget(self.db_type_label, row, 0)
         self.form_grid.addWidget(self.db_type_value, row, 1)
         row += 1
@@ -386,10 +398,17 @@ class AddConnectionDialog(QDialog):
         self.hide_all_fields()
 
         # Show common field (with safety checks)
+        if hasattr(self, 'db_type_label'):
+            self.db_type_label.setVisible(True)
+        if hasattr(self, 'db_type_value'):
+            self.db_type_value.setVisible(True)
         if hasattr(self, 'conn_name_label'):
             self.conn_name_label.setVisible(True)
         if hasattr(self, 'conn_name_edit'):
             self.conn_name_edit.setVisible(True)
+
+        # Suggest a default database type based on the selected connection mechanism
+        self._suggest_default_database_type(conn_type)
 
         if conn_type == "Local ODBC":
             if hasattr(self, 'odbc_dsn_label'):
@@ -400,10 +419,6 @@ class AddConnectionDialog(QDialog):
                 self.driver_name_label.setVisible(True)
             if hasattr(self, 'driver_name_value'):
                 self.driver_name_value.setVisible(True)
-            if hasattr(self, 'db_type_label'):
-                self.db_type_label.setVisible(True)
-            if hasattr(self, 'db_type_value'):
-                self.db_type_value.setVisible(True)
 
         elif conn_type in ["Excel File", "MS Access"]:
             for attr in ['file_label', 'file_path_edit', 'pick_file_btn',
@@ -463,6 +478,30 @@ class AddConnectionDialog(QDialog):
             if hasattr(self, attr):
                 getattr(self, attr).setVisible(False)
 
+    def _suggest_default_database_type(self, conn_type: str):
+        """Set a sensible default for the Database Type field without clobbering user input."""
+        if not hasattr(self, 'db_type_value'):
+            return
+
+        current = (self.db_type_value.currentText() or "").strip()
+        # Don't override if the user already typed something meaningful
+        if current and current.lower() != 'unknown':
+            return
+
+        defaults = {
+            "SQL Server": "SQL_SERVER",
+            "Excel File": "EXCEL",
+            "MS Access": "ACCESS",
+            "CSV File": "CSV",
+            "Fixed Width File": "FIXED_WIDTH",
+            "Mainframe FTP": "MAINFRAME_FTP",
+            # Local ODBC is detected from DSN/driver; leave as-is here
+        }
+
+        suggested = defaults.get(conn_type, "")
+        if suggested:
+            self.db_type_value.setCurrentText(suggested)
+
     def populate_odbc_dsn_list(self):
         """Populate ODBC DSN combo with available User DSNs"""
         if not PYODBC_AVAILABLE:
@@ -493,14 +532,17 @@ class AddConnectionDialog(QDialog):
                 # Determine database type from driver name
                 driver_lower = driver.lower()
                 if 'sql server' in driver_lower or 'mssql' in driver_lower:
-                    db_type = 'SQL'
+                    db_type = 'SQL_SERVER'
                 elif 'db2' in driver_lower or 'datadirect' in driver_lower or 'shadow' in driver_lower:
                     # DB2 or DataDirect Shadow Client (used for DB2)
                     db_type = 'DB2'
                 else:
                     db_type = 'Unknown'
 
-                self.db_type_value.setText(db_type)
+                # Only auto-set if the user hasn't typed a custom database type
+                existing = (self.db_type_value.currentText() or "").strip()
+                if not existing or existing.lower() == 'unknown':
+                    self.db_type_value.setCurrentText(db_type)
                 
                 # Only set connection name if it's empty (for new connections)
                 if not self.conn_name_edit.text().strip():
@@ -656,7 +698,7 @@ class AddConnectionDialog(QDialog):
             driver_name = ""
             
             if hasattr(self, 'db_type_value'):
-                db_type = self.db_type_value.text()
+                db_type = (self.db_type_value.currentText() or "").strip() or None
             
             if hasattr(self, 'driver_name_value'):
                 driver_name = self.driver_name_value.text()
@@ -950,14 +992,15 @@ class AddConnectionDialog(QDialog):
             self.connection_data.update({
                 "dsn": self.odbc_dsn_combo.currentText(),
                 "driver": self.driver_name_value.text(),
-                "database_type": self.db_type_value.text()
+                "database_type": self.db_type_value.currentText().strip()
             })
         elif conn_type == "SQL Server":
             auth_type = self.sql_auth_combo.currentIndex()  # 0 = Windows, 1 = SQL Server
             self.connection_data.update({
                 "server": self.sql_server_edit.text().strip(),
                 "database": self.sql_database_edit.text().strip() or "master",
-                "auth_type": "Windows" if auth_type == 0 else "SQL Server"
+                "auth_type": "Windows" if auth_type == 0 else "SQL Server",
+                "database_type": self.db_type_value.currentText().strip() or "SQL_SERVER"
             })
             # Only store username/password for SQL Server Authentication
             if auth_type == 1:
@@ -971,13 +1014,15 @@ class AddConnectionDialog(QDialog):
                 "ftp_port": int(self.ftp_port_edit.text().strip() or "21"),
                 "ftp_username": self.ftp_username_edit.text().strip(),
                 "ftp_password": self.ftp_password_edit.text().strip(),
-                "ftp_initial_path": self.ftp_initial_path_edit.text().strip()
+                "ftp_initial_path": self.ftp_initial_path_edit.text().strip(),
+                "database_type": self.db_type_value.currentText().strip() or "MAINFRAME_FTP"
             })
         elif conn_type in ["Excel File", "MS Access", "CSV File", "Fixed Width File"]:
             self.connection_data.update({
                 "file_path": self.file_path_edit.text(),
                 "folder": self.folder_value.text(),
-                "filename": self.filename_value.text()
+                "filename": self.filename_value.text(),
+                "database_type": self.db_type_value.currentText().strip()
             })
 
             if conn_type == "CSV File":
@@ -1044,6 +1089,11 @@ class AddConnectionDialog(QDialog):
         
         # Populate connection name
         self.conn_name_edit.setText(conn.get('connection_name', ''))
+
+        # Populate database type (if stored)
+        existing_db_type = (conn.get('database_type') or '').strip()
+        if existing_db_type and hasattr(self, 'db_type_value'):
+            self.db_type_value.setCurrentText(existing_db_type)
         
         # Populate type-specific fields
         if conn_type in ['SQL_SERVER', 'DB2']:
@@ -1059,6 +1109,10 @@ class AddConnectionDialog(QDialog):
             # Trigger the DSN selection to populate driver and database type
             if dsn:
                 self.on_odbc_dsn_changed(dsn)
+
+            # If DB type was explicitly stored, keep it (don't overwrite with auto-detect)
+            if existing_db_type and hasattr(self, 'db_type_value'):
+                self.db_type_value.setCurrentText(existing_db_type)
                 
         elif conn_type in ['EXCEL', 'ACCESS', 'CSV', 'FIXED_WIDTH']:
             # File-based connections

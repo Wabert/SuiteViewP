@@ -39,6 +39,7 @@ class ConnectionsScreen(QWidget):
         self.current_table = None
         self.current_schema = None
         self._updating_checkboxes = False  # Flag to prevent reload loops
+        self._preview_dialogs = []  # Keep references to prevent garbage collection
 
         self.init_ui()
         self.load_connections()
@@ -238,49 +239,48 @@ class ConnectionsScreen(QWidget):
             # Filter out MAINFRAME_FTP connections (managed in Mainframe Nav screen)
             connections = [c for c in connections if c.get('connection_type') not in ['MAINFRAME_FTP', 'Mainframe FTP']]
 
-            # Map connection types to display categories
-            type_mapping = {
-                'Local ODBC': 'SQL_SERVER',
-                'DB2': 'DB2',
-                'MS Access': 'ACCESS',
-                'ACCESS': 'ACCESS',
-                'Excel File': 'EXCEL',
-                'EXCEL': 'EXCEL',
-                'CSV File': 'CSV',
-                'CSV': 'CSV',
-                'Fixed Width File': 'FIXED_WIDTH',
-                'FIXED_WIDTH': 'FIXED_WIDTH'
-            }
+            def normalize_group_type(value: str) -> str:
+                if not value:
+                    return ""
+                raw = value.strip()
+                # Canonicalize common values but preserve custom inputs
+                upper = raw.upper().replace(" ", "_")
+                canonical = {
+                    "SQL": "SQL_SERVER",
+                    "SQLSERVER": "SQL_SERVER",
+                    "SQL_SERVER": "SQL_SERVER",
+                    "DB2": "DB2",
+                    "ACCESS": "ACCESS",
+                    "EXCEL": "EXCEL",
+                    "CSV": "CSV",
+                }
+                return canonical.get(upper, raw)
 
-            # Group connections by normalized type (don't merge types)
+            # Group connections by database_type (preferred) falling back to connection_type
             connections_by_type = {}
             for conn in connections:
-                conn_type = conn['connection_type']
-                
-                # Normalize the connection type
-                normalized_type = type_mapping.get(conn_type, conn_type)
-                
-                if normalized_type not in connections_by_type:
-                    connections_by_type[normalized_type] = []
-                connections_by_type[normalized_type].append(conn)
+                group_type = normalize_group_type(conn.get('database_type') or conn.get('connection_type') or '')
+                if not group_type:
+                    group_type = "(Uncategorized)"
+                connections_by_type.setdefault(group_type, []).append(conn)
 
-            # Define the display order (removed MAINFRAME_FTP)
-            type_order = ['DB2', 'SQL_SERVER', 'ACCESS', 'EXCEL', 'CSV', 'FIXED_WIDTH']
-            
-            # Add connection groups in the specified order
-            for group_type in type_order:
-                if group_type not in connections_by_type:
-                    continue
-                    
-                group_conns = connections_by_type[group_type]
-                
-                # Create type group item at root level
+            # Define the display order for common types; append any custom types automatically
+            preferred_order = ['DB2', 'SQL_SERVER', 'ACCESS', 'EXCEL', 'CSV']
+            ordered_types = [t for t in preferred_order if t in connections_by_type]
+            custom_types = sorted(
+                [t for t in connections_by_type.keys() if t not in preferred_order],
+                key=lambda s: s.lower()
+            )
+            ordered_types.extend(custom_types)
+
+            for group_type in ordered_types:
+                group_conns = connections_by_type.get(group_type, [])
+
                 type_item = QTreeWidgetItem(self.conn_tree)
                 type_item.setText(0, group_type)
                 type_item.setData(0, Qt.ItemDataRole.UserRole + 1, "group")
                 type_item.setExpanded(True)
 
-                # Add connections under type
                 for conn in sorted(group_conns, key=lambda x: x['connection_name']):
                     conn_item = QTreeWidgetItem(type_item)
                     conn_item.setText(0, conn['connection_name'])
@@ -740,21 +740,28 @@ class ConnectionsScreen(QWidget):
                 self.unsetCursor()
                 
                 if df is not None and not df.empty:
-                    # Create dialog with FilterTableView
-                    from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+                    # Create independent window with FilterTableView
+                    from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
                     
-                    dialog = QDialog(self)
+                    # Create as QWidget (not QDialog) for true modeless behavior
+                    window = QWidget()
+                    window.setWindowFlags(Qt.WindowType.Window)  # Make it a top-level window
+                    window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
                     full_name = f"{self.current_schema}.{self.current_table}" if self.current_schema else self.current_table
                     
                     # Set title based on whether it's limited or showing all
                     if limit:
-                        dialog.setWindowTitle(f"Preview: {full_name} (First {limit} rows)")
+                        window.setWindowTitle(f"Preview: {full_name} (First {limit} rows)")
                     else:
-                        dialog.setWindowTitle(f"{full_name} (All rows)")
+                        window.setWindowTitle(f"{full_name} (All rows)")
                     
-                    dialog.setMinimumSize(1000, 600)
+                    window.setMinimumSize(1000, 600)
                     
-                    layout = QVBoxLayout(dialog)
+                    # Store reference to prevent garbage collection
+                    self._preview_dialogs.append(window)
+                    window.destroyed.connect(lambda: self._preview_dialogs.remove(window) if window in self._preview_dialogs else None)
+                    
+                    layout = QVBoxLayout(window)
                     
                     # Info label
                     if limit:
@@ -787,15 +794,15 @@ class ConnectionsScreen(QWidget):
                             background-color: #7f8c8d;
                         }
                     """)
-                    close_btn.clicked.connect(dialog.close)
+                    close_btn.clicked.connect(window.close)
                     button_layout.addWidget(close_btn)
                     
                     layout.addLayout(button_layout)
                     
                     logger.info(f"Preview loaded: {len(df)} rows")
                     
-                    # Show dialog
-                    dialog.exec()
+                    # Show window as independent, non-blocking
+                    window.show()
                 else:
                     self.unsetCursor()
                     QMessageBox.information(self, "No Data", "No data found in table.")
@@ -955,6 +962,7 @@ class ConnectionsScreen(QWidget):
                 try:
                     conn_type = conn_data['connection_type']
                     conn_name = conn_data['connection_name']
+                    selected_db_type = (conn_data.get('database_type') or '').strip()
 
                     # Map dialog types to storage types
                     type_storage_map = {
@@ -983,7 +991,8 @@ class ConnectionsScreen(QWidget):
                             auth_type='NONE',
                             encrypted_username=None,
                             encrypted_password=None,
-                            connection_string=file_path
+                            connection_string=file_path,
+                            database_type=selected_db_type or storage_type
                         )
 
                         logger.info(f"Added file-based connection: {conn_name} (ID: {connection_id})")
@@ -991,7 +1000,7 @@ class ConnectionsScreen(QWidget):
                     elif conn_type == "Local ODBC":
                         # Handle ODBC connections - determine if SQL_SERVER or DB2
                         dsn = conn_data.get('dsn', '')
-                        db_type = conn_data.get('database_type', 'SQL')
+                        db_type = selected_db_type or conn_data.get('database_type', 'SQL_SERVER')
 
                         # Map database_type to storage type
                         storage_type = 'DB2' if db_type == 'DB2' else 'SQL_SERVER'
@@ -1004,7 +1013,8 @@ class ConnectionsScreen(QWidget):
                             auth_type='WINDOWS',  # ODBC typically uses Windows auth
                             encrypted_username=None,
                             encrypted_password=None,
-                            connection_string=f"DSN={dsn}"
+                            connection_string=f"DSN={dsn}",
+                            database_type=selected_db_type or db_type or storage_type
                         )
 
                         logger.info(f"Added ODBC connection: {conn_name} (ID: {connection_id})")
@@ -1041,7 +1051,8 @@ class ConnectionsScreen(QWidget):
                             auth_type=auth_type.upper(),
                             encrypted_username=encrypted_username,
                             encrypted_password=encrypted_password,
-                            connection_string=conn_string
+                            connection_string=conn_string,
+                            database_type=selected_db_type or "SQL_SERVER"
                         )
                         
                         logger.info(f"Added SQL Server connection: {conn_name} (ID: {connection_id})")
@@ -1072,7 +1083,8 @@ class ConnectionsScreen(QWidget):
                             auth_type='PASSWORD',
                             encrypted_username=encrypted_username,
                             encrypted_password=encrypted_password,
-                            connection_string=conn_string
+                            connection_string=conn_string,
+                            database_type=selected_db_type or "MAINFRAME_FTP"
                         )
                         
                         logger.info(f"Added Mainframe FTP connection: {conn_name} (ID: {connection_id})")
@@ -1324,6 +1336,8 @@ class ConnectionsScreen(QWidget):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 # Get the updated connection data from the dialog
                 updated_data = dialog.get_connection_data()
+
+                selected_db_type = (updated_data.get('database_type') or '').strip()
                 
                 # Map dialog types to storage types
                 type_storage_map = {
@@ -1341,7 +1355,7 @@ class ConnectionsScreen(QWidget):
                     storage_type = type_storage_map[conn_type]
                 elif conn_type == "Local ODBC":
                     # Determine SQL_SERVER vs DB2 based on database_type
-                    db_type = updated_data.get('database_type', 'SQL')
+                    db_type = selected_db_type or updated_data.get('database_type', 'SQL_SERVER')
                     storage_type = 'DB2' if db_type == 'DB2' else 'SQL_SERVER'
                 else:
                     # Already a storage type (editing existing)
@@ -1364,6 +1378,7 @@ class ConnectionsScreen(QWidget):
                     connection_string=conn_string,
                     server_name=updated_data.get('server', ''),
                     database_name=updated_data.get('database_name', ''),
+                    database_type=selected_db_type or storage_type,
                     username=updated_data.get('username', ''),
                     password=updated_data.get('password', '')
                 )

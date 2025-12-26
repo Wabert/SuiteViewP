@@ -293,6 +293,24 @@ class Database:
             conn.commit()
             print("Migration completed: notes column added")
 
+        # Migration 6: Add database_type column to connections if it doesn't exist
+        # This is used for UI grouping (DB2, SQL_SERVER, etc.) and can be user-defined.
+        try:
+            cursor.execute("SELECT database_type FROM connections LIMIT 1")
+        except:
+            print("Running migration: Adding database_type column to connections")
+            cursor.execute("""
+                ALTER TABLE connections ADD COLUMN database_type TEXT
+            """)
+            # Backfill existing rows so UI grouping stays consistent
+            cursor.execute("""
+                UPDATE connections
+                SET database_type = connection_type
+                WHERE database_type IS NULL OR database_type = ''
+            """)
+            conn.commit()
+            print("Migration completed: database_type column added")
+
     def execute(self, query: str, params: tuple = ()):
         """Execute a query and return cursor"""
         conn = self.connect()

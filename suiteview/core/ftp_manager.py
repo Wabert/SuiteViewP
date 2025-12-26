@@ -145,16 +145,23 @@ class MainframeFTPManager:
             lines = []
             self.ftp.retrlines('LIST', lines.append)
             
+            logger.debug(f"Raw FTP listing returned {len(lines)} lines")
+            # Log first few raw lines to help debug date parsing
+            for i, raw_line in enumerate(lines[:5]):
+                logger.info(f"FTP raw line {i}: '{raw_line}'")
+            
             for line in lines:
                 item = self._parse_mvs_listing(line)
                 if item:
                     items.append(item)
+                else:
+                    logger.debug(f"Skipped unparseable line: {line[:80]}")
             
             # Return to original path if we changed
             if original_path:
                 self.ftp.cwd(original_path)
             
-            logger.info(f"Listed {len(items)} items at path: {path or 'current directory'}")
+            logger.info(f"Listed {len(items)} items at path: {path or 'current directory'} (from {len(lines)} raw lines)")
             return items
             
         except Exception as e:
@@ -169,8 +176,12 @@ class MainframeFTPManager:
         -rw-r--r--   1 user     group       10 10 Jan 01 2007 AC
         drwxr-xr-x   2 user     group        0     Oct 01 2008 SUBDIR
         
-        Or classic MVS format:
-        AC                       01.02   2007/10/01  2008/07/22  10:10    0       ZAB7Y4
+        Or classic MVS/ISPF format with stats:
+        EXECULC3  01.00 2025/12/02 2025/12/02 10:12 28990 28990     0 AD9G44
+        (NAME  VV.MM CREATED CHANGED TIME SIZE INIT MOD ID)
+        
+        Or simple member list without stats:
+        CLTG1                                         604 40604     0 AD9G44
         
         Returns:
             Dict with parsed information or None if line can't be parsed
@@ -178,6 +189,12 @@ class MainframeFTPManager:
         line = line.strip()
         if not line:
             return None
+        
+        # Skip header lines that contain column titles
+        line_upper = line.upper()
+        if any(header in line_upper for header in ['NAME', 'CHANGED', 'SIZE', 'INIT', 'MOD', 'ID', '-----']):
+            if 'VV' in line_upper or 'MM' in line_upper or 'CREATED' in line_upper:
+                return None
         
         try:
             parts = line.split()
@@ -195,7 +212,7 @@ class MainframeFTPManager:
                     'vv_mm': ''
                 }
             elif line.startswith('-'):
-                # File/member
+                # File/member - Unix style
                 return {
                     'name': parts[-1],
                     'type': 'member',
@@ -204,26 +221,73 @@ class MainframeFTPManager:
                     'vv_mm': ''
                 }
             
-            # Try classic MVS format: NAME VV.MM CREATED MODIFIED ...
-            elif len(parts) >= 2:
-                # Classic MVS listing
-                name = parts[0]
-                vv_mm = parts[1] if len(parts) > 1 else ''
-                created = parts[2] if len(parts) > 2 else ''
-                modified = parts[3] if len(parts) > 3 else ''
-                size = int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0
-                
-                return {
-                    'name': name,
-                    'type': 'member',
-                    'size': size,
-                    'modified': modified,
-                    'created': created,
-                    'vv_mm': vv_mm
-                }
+            # Classic MVS/ISPF format
+            name = parts[0]
+            
+            # Validate that name looks like a valid member name
+            if not name or name.startswith('*') or name.startswith('-'):
+                return None
+            
+            # Try to extract other fields if they exist
+            vv_mm = ''
+            modified = ''
+            created = ''
+            size = 0
+            
+            if len(parts) >= 2:
+                # Check if second field looks like VV.MM format (e.g., 01.00, 01.02)
+                # This indicates full ISPF statistics are present
+                if '.' in parts[1] and len(parts[1]) <= 6 and parts[1].replace('.', '').isdigit():
+                    vv_mm = parts[1]
+                    # Full format: NAME VV.MM CREATED CHANGED TIME SIZE INIT MOD ID
+                    if len(parts) >= 3 and '/' in parts[2]:
+                        created = parts[2]
+                    if len(parts) >= 4 and '/' in parts[3]:
+                        modified = parts[3]
+                        # Include time if present
+                        if len(parts) >= 5 and ':' in parts[4]:
+                            modified = f"{parts[3]} {parts[4]}"
+                            # Size is at index 5
+                            if len(parts) >= 6 and parts[5].isdigit():
+                                size = int(parts[5])
+                        elif len(parts) >= 5 and parts[4].isdigit():
+                            # No time, size at index 4
+                            size = int(parts[4])
+                    logger.debug(f"Parsed ISPF member '{name}' VV.MM={vv_mm} modified='{modified}'")
+                else:
+                    # Simple format without ISPF stats - just name and some numbers
+                    # Try to find size (usually a larger number)
+                    for p in parts[1:]:
+                        if p.isdigit():
+                            size = int(p)
+                            break
+                    logger.debug(f"Parsed simple member '{name}' (no ISPF stats)")
+            
+            return {
+                'name': name,
+                'type': 'member',
+                'size': size,
+                'modified': modified,
+                'created': created,
+                'vv_mm': vv_mm
+            }
             
         except Exception as e:
             logger.debug(f"Could not parse MVS listing line: {line} - {e}")
+            # Even if parsing fails, try to return at least the name if we can extract it
+            try:
+                parts = line.split()
+                if parts and parts[0] and not parts[0].startswith(('-', '*')):
+                    return {
+                        'name': parts[0],
+                        'type': 'member',
+                        'size': 0,
+                        'modified': '',
+                        'created': '',
+                        'vv_mm': ''
+                    }
+            except:
+                pass
         
         return None
     
@@ -243,34 +307,31 @@ class MainframeFTPManager:
             return "", 0
         
         try:
-            # First pass: count total lines in dataset
-            total_lines = 0
-            def count_lines(line):
-                nonlocal total_lines
-                total_lines += 1
-            
-            # Count all lines first
-            try:
-                self.ftp.retrlines(f"RETR '{dataset_name}'", count_lines)
-            except Exception as e:
-                logger.error(f"Failed to count lines in {dataset_name}: {e}")
-                return "", 0
-            
-            # Second pass: read requested number of lines
+            # Read all lines first, then trim if needed
+            # This avoids issues with aborting transfers mid-stream
             lines = []
+            
             def collect_line(line):
                 """Callback to collect lines"""
                 lines.append(line)
-                # Stop if we've reached max_lines
-                if max_lines and len(lines) >= max_lines:
-                    raise StopIteration()
             
             # Download dataset using retrlines for ASCII text
             try:
                 self.ftp.retrlines(f"RETR '{dataset_name}'", collect_line)
-            except StopIteration:
-                # Expected when we hit max_lines
-                pass
+            except Exception as e:
+                logger.error(f"Failed to read dataset {dataset_name}: {e}")
+                # Try to recover the connection
+                try:
+                    self.ftp.voidcmd('NOOP')
+                except:
+                    pass
+                return "", 0
+            
+            total_lines = len(lines)
+            
+            # Trim to max_lines if specified
+            if max_lines and len(lines) > max_lines:
+                lines = lines[:max_lines]
             
             content = '\n'.join(lines)
             
@@ -404,8 +465,8 @@ class MainframeFTPManager:
             # Set ASCII mode
             self.ftp.sendcmd('TYPE A')
             
-            # Read local file as text
-            with open(local_file_path, 'r', encoding='utf-8', errors='ignore') as file:
+            # Read local file as binary (storlines requires binary mode)
+            with open(local_file_path, 'rb') as file:
                 # Store lines
                 self.ftp.storlines(f'STOR {remote_dataset_name}', file)
             
@@ -424,6 +485,76 @@ class MainframeFTPManager:
             
         except Exception as e:
             error_msg = f"Upload failed: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
+    
+    def delete_member(self, member_path: str) -> Tuple[bool, str]:
+        """
+        Delete a member from a PDS
+        
+        Args:
+            member_path: Full member path like 'D03.AA0139.CKAS.PLANIAF(MEMBER)'
+        
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        if not self.connected:
+            logger.error("Not connected to FTP server")
+            return False, "Not connected to FTP server"
+        
+        try:
+            # Use DELE command to delete
+            self.ftp.delete(f"'{member_path}'")
+            
+            logger.info(f"Successfully deleted {member_path}")
+            return True, f"Successfully deleted {member_path}"
+            
+        except ftplib.error_perm as e:
+            error_msg = f"Permission denied or member not found: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
+            
+        except Exception as e:
+            error_msg = f"Delete failed: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
+    
+    def write_content(self, member_path: str, content: str) -> Tuple[bool, str]:
+        """
+        Write content to a member (for editing)
+        
+        Args:
+            member_path: Full member path like 'D03.AA0139.CKAS.PLANIAF(MEMBER)'
+            content: Text content to write
+        
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        if not self.connected:
+            logger.error("Not connected to FTP server")
+            return False, "Not connected to FTP server"
+        
+        try:
+            # Set ASCII mode for text
+            self.ftp.sendcmd('TYPE A')
+            
+            # Convert content to bytes for storlines
+            from io import BytesIO
+            content_bytes = BytesIO(content.encode('utf-8'))
+            
+            # Store the content
+            self.ftp.storlines(f"STOR '{member_path}'", content_bytes)
+            
+            logger.info(f"Successfully wrote content to {member_path}")
+            return True, f"Successfully saved {member_path}"
+            
+        except ftplib.error_perm as e:
+            error_msg = f"Permission denied: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
+            
+        except Exception as e:
+            error_msg = f"Write failed: {str(e)}"
             logger.error(error_msg)
             return False, error_msg
     

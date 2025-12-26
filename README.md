@@ -68,7 +68,6 @@ python -m suiteview.main
 
 ```
 SuiteViewP/
-├── CLAUDE.md              # Product Requirements Document
 ├── README.md              # This file
 ├── requirements.txt       # Python dependencies
 ├── run.sh                 # Convenience run script
@@ -180,4 +179,4 @@ Proprietary - Internal use only
 
 ## Contact
 
-For questions or support, refer to CLAUDE.md for project details.
+For questions or support, please contact the development team.

@@ -50,7 +50,8 @@ class ConnectionManager:
             database_name=database,
             auth_type=auth_type,
             encrypted_username=encrypted_username,
-            encrypted_password=encrypted_password
+            encrypted_password=encrypted_password,
+            database_type=conn_type
         )
 
         logger.info(f"Added connection: {name} (ID: {connection_id})")

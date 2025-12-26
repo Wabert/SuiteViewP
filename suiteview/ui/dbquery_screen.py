@@ -5,7 +5,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitte
                               QTreeWidget, QTreeWidgetItem, QTabWidget, QPushButton,
                               QScrollArea, QFrame, QLineEdit, QComboBox, QCheckBox,
                               QMessageBox, QInputDialog, QToolBar, QDateEdit, QSizePolicy,
-                              QMenu, QToolButton, QLayout, QProgressDialog, QApplication)
+                              QMenu, QToolButton, QLayout, QProgressDialog, QApplication,
+                              QTextEdit)
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QDate, QRect, QSize, QPoint
 from PyQt6.QtGui import QDrag, QAction
 
@@ -363,11 +364,11 @@ class DBQueryScreen(QWidget):
         self.add_all_btn.clicked.connect(self.add_all_fields_to_display)
         buttons_layout.addWidget(self.add_all_btn)
 
-        self.add_common_btn = QPushButton("Add Common")
-        self.add_common_btn.setObjectName("gold_button")
-        self.add_common_btn.setMinimumHeight(30)
-        self.add_common_btn.clicked.connect(self.add_common_fields_to_display)
-        buttons_layout.addWidget(self.add_common_btn)
+        self.add_new_field_btn = QPushButton("New Field")
+        self.add_new_field_btn.setObjectName("gold_button")
+        self.add_new_field_btn.setMinimumHeight(30)
+        self.add_new_field_btn.clicked.connect(self.add_expression_field)
+        buttons_layout.addWidget(self.add_new_field_btn)
 
         panel_layout.addLayout(buttons_layout)
 
@@ -654,6 +655,10 @@ class DBQueryScreen(QWidget):
         self.tables_tab = self._create_tables_tab()
         self.query_tabs.addTab(self.tables_tab, "Tables")
 
+        # Query Statement tab
+        self.sql_tab = self._create_sql_tab()
+        self.query_tabs.addTab(self.sql_tab, "Query Statement")
+
         # Connect tab change signal to update field indicators
         self.query_tabs.currentChanged.connect(self._on_query_tab_changed)
 
@@ -813,6 +818,1021 @@ class DBQueryScreen(QWidget):
         layout.addWidget(join_scroll, 1)  # Add stretch factor to expand
 
         return tab
+
+    def _create_sql_tab(self) -> QWidget:
+        """Create Query Statement tab with SQL generation and editing"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # Generate button at top
+        btn_layout = QHBoxLayout()
+        
+        self.generate_sql_btn = QPushButton("⚡ Generate SQL")
+        self.generate_sql_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #2ecc71;
+            }
+            QPushButton:pressed {
+                background-color: #1e8449;
+            }
+        """)
+        self.generate_sql_btn.clicked.connect(self._generate_sql_statement)
+        btn_layout.addWidget(self.generate_sql_btn)
+        
+        # Generate UI from SQL button
+        self.generate_ui_btn = QPushButton("🔄 Generate UI from SQL")
+        self.generate_ui_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9b59b6;
+                color: white;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #a569bd;
+            }
+            QPushButton:pressed {
+                background-color: #7d3c98;
+            }
+        """)
+        self.generate_ui_btn.setToolTip("Parse the SQL and build UI elements (Display fields, Criteria, JOINs)")
+        self.generate_ui_btn.clicked.connect(self._generate_ui_from_sql)
+        btn_layout.addWidget(self.generate_ui_btn)
+        
+        btn_layout.addStretch()
+        
+        # Copy button
+        self.copy_sql_btn = QPushButton("📋 Copy")
+        self.copy_sql_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #5dade2;
+            }
+        """)
+        self.copy_sql_btn.clicked.connect(self._copy_sql_to_clipboard)
+        btn_layout.addWidget(self.copy_sql_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        # SQL text editor
+        self.sql_edit = QTextEdit()
+        self.sql_edit.setPlaceholderText("Click 'Generate SQL' to generate the query statement based on your selections...\n\nOr paste/type SQL here and click 'Generate UI from SQL' to build the query builder UI from it.")
+        self.sql_edit.setStyleSheet("""
+            QTextEdit {
+                font-family: Consolas, 'Courier New', monospace;
+                font-size: 12px;
+                background-color: #1e1e1e;
+                color: #d4d4d4;
+                border: 1px solid #3c3c3c;
+                border-radius: 4px;
+                padding: 10px;
+            }
+        """)
+        layout.addWidget(self.sql_edit, 1)  # Stretch to fill space
+        
+        # Info label
+        info_label = QLabel("💡 You can edit the SQL directly, then click 'Generate UI from SQL' to update the query builder.")
+        info_label.setStyleSheet("color: #7f8c8d; font-size: 10px; font-style: italic; padding: 5px;")
+        layout.addWidget(info_label)
+        
+        return tab
+
+    def _generate_sql_statement(self):
+        """Generate SQL statement from current query configuration"""
+        try:
+            # Build query object from UI state
+            query = self._build_query_object()
+            
+            # Validate we have something to generate
+            if not query.display_fields:
+                self.sql_edit.setPlainText("-- No display fields selected.\n-- Add fields to the Display tab first.")
+                return
+            
+            # Generate SQL using query executor's preview_sql method
+            sql = self.query_executor.preview_sql(query)
+            
+            # Display in editor
+            self.sql_edit.setPlainText(sql)
+            
+            logger.info("Generated SQL statement")
+            
+        except Exception as e:
+            logger.error(f"Error generating SQL: {e}")
+            self.sql_edit.setPlainText(f"-- Error generating SQL:\n-- {str(e)}")
+
+    def _copy_sql_to_clipboard(self):
+        """Copy SQL text to clipboard"""
+        sql_text = self.sql_edit.toPlainText()
+        if sql_text:
+            from PyQt6.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
+            clipboard.setText(sql_text)
+            # Brief visual feedback could be added here
+            logger.info("SQL copied to clipboard")
+
+    def _generate_ui_from_sql(self):
+        """Parse SQL and generate UI elements (Display fields, Criteria, JOINs)"""
+        import re
+        
+        sql_text = self.sql_edit.toPlainText().strip()
+        if not sql_text:
+            QMessageBox.warning(self, "No SQL", "Please enter SQL text first.")
+            return
+        
+        try:
+            # Parse the SQL
+            parsed = self._parse_sql(sql_text)
+            
+            if not parsed:
+                QMessageBox.warning(self, "Parse Error", "Could not parse the SQL statement.")
+                return
+            
+            # Confirm with user before clearing existing UI
+            if self.display_fields or self.criteria_widgets or self.joins:
+                reply = QMessageBox.question(
+                    self, "Clear Existing Query?",
+                    "This will replace the current query configuration with the parsed SQL.\n\nContinue?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+            
+            # Preserve the SQL text before clearing
+            preserved_sql = sql_text
+            
+            # Clear existing UI
+            self._clear_query_ui()
+            
+            # Restore the SQL text after clearing
+            self.sql_edit.setPlainText(preserved_sql)
+            
+            # Build UI from parsed SQL
+            self._build_ui_from_parsed_sql(parsed)
+            
+            # Switch to Display tab to show results
+            self.query_tabs.setCurrentIndex(0)
+            
+            QMessageBox.information(
+                self, "UI Generated",
+                f"Generated UI from SQL:\n"
+                f"• {len(parsed.get('select_fields', []))} display field(s)\n"
+                f"• {len(parsed.get('joins', []))} join(s)\n"
+                f"• {len(parsed.get('where_conditions', []))} criteria filter(s)"
+            )
+            
+            logger.info(f"Generated UI from SQL: {len(parsed.get('select_fields', []))} fields, "
+                       f"{len(parsed.get('joins', []))} joins, {len(parsed.get('where_conditions', []))} criteria")
+            
+        except Exception as e:
+            logger.error(f"Error generating UI from SQL: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error", f"Failed to parse SQL:\n{str(e)}")
+
+    def _parse_sql(self, sql: str) -> dict:
+        """Parse SQL statement into components.
+        
+        Returns dict with:
+        - select_fields: list of {field_name, table_name, alias, aggregation, expression}
+        - from_table: str
+        - from_schema: str
+        - joins: list of {join_type, table_name, schema_name, on_conditions}
+        - where_conditions: list of {table_name, field_name, operator, value}
+        - order_by: list of {field_name, table_name, direction}
+        - group_by: list of field references
+        """
+        import re
+        
+        result = {
+            'select_fields': [],
+            'from_table': '',
+            'from_schema': '',
+            'from_alias': '',
+            'joins': [],
+            'where_conditions': [],
+            'order_by': [],
+            'group_by': []
+        }
+        
+        # Normalize SQL - remove extra whitespace, make keywords uppercase for parsing
+        sql = ' '.join(sql.split())  # Normalize whitespace
+        
+        # Extract major clauses using regex
+        # Pattern to find SELECT ... FROM
+        select_match = re.search(r'\bSELECT\b\s+(.*?)\s+\bFROM\b', sql, re.IGNORECASE | re.DOTALL)
+        if not select_match:
+            logger.warning("Could not find SELECT...FROM in SQL")
+            return None
+        
+        select_clause = select_match.group(1).strip()
+        
+        # Find FROM clause and everything after
+        from_onwards = sql[select_match.end():].strip()
+        
+        # Parse FROM clause - get the main table
+        # FROM schema.table alias or FROM schema.table
+        from_match = re.match(r'^\s*(\w+(?:\.\w+)?)\s*(\w+)?\s*', from_onwards, re.IGNORECASE)
+        if from_match:
+            from_table_full = from_match.group(1)
+            from_alias = from_match.group(2) or ''
+            
+            # Split schema.table
+            if '.' in from_table_full:
+                parts = from_table_full.split('.')
+                result['from_schema'] = parts[0]
+                result['from_table'] = parts[1]
+            else:
+                result['from_table'] = from_table_full
+            
+            result['from_alias'] = from_alias
+        
+        # Parse SELECT fields
+        result['select_fields'] = self._parse_select_fields(select_clause)
+        
+        # Parse JOINs
+        result['joins'] = self._parse_joins(from_onwards)
+        
+        # Parse WHERE clause
+        where_match = re.search(r'\bWHERE\b\s+(.*?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bHAVING\b|\bLIMIT\b|$)', 
+                                sql, re.IGNORECASE | re.DOTALL)
+        if where_match:
+            where_clause = where_match.group(1).strip()
+            result['where_conditions'] = self._parse_where_clause(where_clause)
+        
+        # Parse ORDER BY
+        order_match = re.search(r'\bORDER\s+BY\b\s+(.*?)(?:\bLIMIT\b|$)', sql, re.IGNORECASE | re.DOTALL)
+        if order_match:
+            order_clause = order_match.group(1).strip()
+            result['order_by'] = self._parse_order_by(order_clause)
+        
+        # Parse GROUP BY
+        group_match = re.search(r'\bGROUP\s+BY\b\s+(.*?)(?:\bHAVING\b|\bORDER\s+BY\b|\bLIMIT\b|$)', 
+                                sql, re.IGNORECASE | re.DOTALL)
+        if group_match:
+            group_clause = group_match.group(1).strip()
+            result['group_by'] = [f.strip() for f in group_clause.split(',')]
+        
+        return result
+
+    def _parse_select_fields(self, select_clause: str) -> list:
+        """Parse SELECT clause into field list."""
+        import re
+        
+        fields = []
+        
+        # Split by comma, but respect parentheses (for functions/expressions)
+        parts = self._split_respecting_parens(select_clause, ',')
+        
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            
+            field_info = {
+                'field_name': '',
+                'table_name': '',
+                'alias': '',
+                'aggregation': 'None',
+                'is_expression': False,
+                'expression': ''
+            }
+            
+            # Check for AS alias
+            as_match = re.search(r'\s+AS\s+(\w+)\s*$', part, re.IGNORECASE)
+            if as_match:
+                field_info['alias'] = as_match.group(1)
+                part = part[:as_match.start()].strip()
+            
+            # Check for aggregation functions
+            agg_match = re.match(r'^(SUM|COUNT|AVG|MIN|MAX)\s*\(\s*(.*?)\s*\)\s*$', part, re.IGNORECASE)
+            if agg_match:
+                field_info['aggregation'] = agg_match.group(1).upper()
+                part = agg_match.group(2).strip()
+            
+            # Check if it's an expression (has operators, functions, or is wrapped in parens)
+            if re.search(r'[\+\-\*\/\|\|]|^\(.*\)$', part) or re.search(r'\w+\s*\(', part):
+                field_info['is_expression'] = True
+                field_info['expression'] = part
+                # Use alias as field name, or generate one
+                if field_info['alias']:
+                    field_info['field_name'] = field_info['alias']
+                else:
+                    field_info['field_name'] = f"EXPR_{len(fields)+1}"
+                    field_info['alias'] = field_info['field_name']
+            else:
+                # Regular field - check for table.field format
+                if '.' in part:
+                    table_field = part.split('.')
+                    field_info['table_name'] = table_field[0]
+                    field_info['field_name'] = table_field[1]
+                else:
+                    field_info['field_name'] = part
+                
+                # If no alias, use field name
+                if not field_info['alias']:
+                    field_info['alias'] = field_info['field_name']
+            
+            fields.append(field_info)
+        
+        return fields
+
+    def _parse_joins(self, from_clause: str) -> list:
+        """Parse JOIN clauses from the FROM onwards portion of SQL."""
+        import re
+        
+        joins = []
+        
+        # Pattern to match JOINs: (INNER|LEFT|RIGHT|FULL|CROSS)? JOIN table ON conditions
+        join_pattern = r'(INNER\s+JOIN|LEFT\s+(?:OUTER\s+)?JOIN|RIGHT\s+(?:OUTER\s+)?JOIN|FULL\s+(?:OUTER\s+)?JOIN|CROSS\s+JOIN|JOIN)\s+(\w+(?:\.\w+)?)\s+(\w+)?\s*(?:ON\s+(.*?))?(?=INNER\s+JOIN|LEFT\s+|RIGHT\s+|FULL\s+|CROSS\s+JOIN|JOIN\s+|WHERE\s|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|$)'
+        
+        for match in re.finditer(join_pattern, from_clause, re.IGNORECASE | re.DOTALL):
+            join_type_raw = match.group(1).upper()
+            table_full = match.group(2)
+            table_alias = match.group(3) or ''
+            on_clause = match.group(4) or ''
+            
+            # Normalize join type
+            if 'LEFT' in join_type_raw:
+                join_type = 'LEFT JOIN'
+            elif 'RIGHT' in join_type_raw:
+                join_type = 'RIGHT JOIN'
+            elif 'FULL' in join_type_raw:
+                join_type = 'FULL OUTER JOIN'
+            elif 'CROSS' in join_type_raw:
+                join_type = 'CROSS JOIN'
+            else:
+                join_type = 'INNER JOIN'
+            
+            # Parse schema.table
+            schema_name = ''
+            table_name = table_full
+            if '.' in table_full:
+                parts = table_full.split('.')
+                schema_name = parts[0]
+                table_name = parts[1]
+            
+            # Parse ON conditions
+            on_conditions = []
+            if on_clause:
+                on_conditions = self._parse_on_conditions(on_clause.strip())
+            
+            joins.append({
+                'join_type': join_type,
+                'table_name': table_name,
+                'schema_name': schema_name,
+                'alias': table_alias,
+                'on_conditions': on_conditions
+            })
+        
+        return joins
+
+    def _parse_on_conditions(self, on_clause: str) -> list:
+        """Parse ON clause conditions."""
+        import re
+        
+        conditions = []
+        
+        # Split by AND (simple approach - doesn't handle nested ANDs in subqueries)
+        parts = re.split(r'\s+AND\s+', on_clause, flags=re.IGNORECASE)
+        
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            
+            # Parse left = right (or left <op> right)
+            cond_match = re.match(r'(\S+)\s*(=|<>|!=|<=|>=|<|>)\s*(\S+)', part)
+            if cond_match:
+                conditions.append({
+                    'left_field': cond_match.group(1),
+                    'operator': cond_match.group(2),
+                    'right_field': cond_match.group(3)
+                })
+        
+        return conditions
+
+    def _parse_where_clause(self, where_clause: str) -> list:
+        """Parse WHERE clause into conditions."""
+        import re
+        
+        conditions = []
+        
+        # Split by AND (simple approach)
+        parts = re.split(r'\s+AND\s+', where_clause, flags=re.IGNORECASE)
+        
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            
+            condition = self._parse_single_condition(part)
+            if condition:
+                conditions.append(condition)
+        
+        return conditions
+
+    def _parse_single_condition(self, condition_str: str) -> dict:
+        """Parse a single WHERE condition."""
+        import re
+        
+        condition_str = condition_str.strip()
+        
+        result = {
+            'table_name': '',
+            'field_name': '',
+            'operator': '=',
+            'value': '',
+            'match_type': 'exact',
+            'function_wrapper': ''
+        }
+        
+        def extract_field_and_function(field_expr: str) -> tuple:
+            """Extract field name and function wrapper from expression like RTRIM(table.field).
+            
+            Returns (table_name, field_name, function_wrapper)
+            """
+            # Check for function wrapper pattern: FUNCTION(field) or FUNCTION(table.field)
+            func_match = re.match(r'^(\w+)\s*\(\s*(\w+(?:\.\w+)?)\s*\)$', field_expr)
+            if func_match:
+                func_name = func_match.group(1).upper()
+                inner_field = func_match.group(2)
+                if '.' in inner_field:
+                    parts = inner_field.split('.')
+                    return (parts[0], parts[1], func_name)
+                else:
+                    return ('', inner_field, func_name)
+            
+            # No function wrapper - regular field
+            if '.' in field_expr:
+                parts = field_expr.split('.')
+                return (parts[0], parts[1], '')
+            else:
+                return ('', field_expr, '')
+        
+        # Try to match different patterns
+        
+        # Pattern: FUNC(field) LIKE 'value' or field LIKE 'value'
+        like_match = re.match(r"(\w+\s*\([^)]+\)|\S+)\s+(LIKE|NOT\s+LIKE)\s+'([^']*)'", condition_str, re.IGNORECASE)
+        if like_match:
+            field_expr = like_match.group(1)
+            op = like_match.group(2).upper()
+            value = like_match.group(3)
+            
+            table_name, field_name, func_wrapper = extract_field_and_function(field_expr)
+            result['table_name'] = table_name
+            result['field_name'] = field_name
+            result['function_wrapper'] = func_wrapper
+            
+            result['operator'] = 'LIKE' if 'NOT' not in op else 'NOT LIKE'
+            result['value'] = value
+            
+            # If there's a function wrapper, treat as Expression mode
+            if func_wrapper:
+                # Keep the LIKE pattern as Expression value
+                result['operator'] = 'EXPRESSION'
+                result['value'] = f"LIKE '{value}'"
+                return result
+            
+            # Determine match type from LIKE pattern
+            if value.startswith('%') and value.endswith('%'):
+                result['match_type'] = 'contains'
+                result['value'] = value[1:-1]  # Remove %
+            elif value.startswith('%'):
+                result['match_type'] = 'ends_with'
+                result['value'] = value[1:]
+            elif value.endswith('%'):
+                result['match_type'] = 'starts_with'
+                result['value'] = value[:-1]
+            else:
+                result['match_type'] = 'exact'
+            
+            return result
+        
+        # Pattern: FUNC(field) IN (values) or field IN (values)
+        in_match = re.match(r"(\w+\s*\([^)]+\)|\S+)\s+(IN|NOT\s+IN)\s*\(([^)]+)\)", condition_str, re.IGNORECASE)
+        if in_match:
+            field_expr = in_match.group(1)
+            op = in_match.group(2).upper()
+            values = in_match.group(3)
+            
+            table_name, field_name, func_wrapper = extract_field_and_function(field_expr)
+            result['table_name'] = table_name
+            result['field_name'] = field_name
+            result['function_wrapper'] = func_wrapper
+            
+            # If there's a function wrapper, treat as Expression mode
+            if func_wrapper:
+                result['operator'] = 'EXPRESSION'
+                result['value'] = f"IN ({values})"
+                return result
+            
+            result['operator'] = 'IN' if 'NOT' not in op else 'NOT IN'
+            result['value'] = values
+            return result
+        
+        # Pattern: field BETWEEN val1 AND val2
+        between_match = re.match(r"(\w+\s*\([^)]+\)|\S+)\s+BETWEEN\s+(.+?)\s+AND\s+(.+)", condition_str, re.IGNORECASE)
+        if between_match:
+            field_expr = between_match.group(1)
+            val1 = between_match.group(2).strip()
+            val2 = between_match.group(3).strip()
+            
+            table_name, field_name, func_wrapper = extract_field_and_function(field_expr)
+            result['table_name'] = table_name
+            result['field_name'] = field_name
+            result['function_wrapper'] = func_wrapper
+            
+            # If there's a function wrapper, treat as Expression mode
+            if func_wrapper:
+                result['operator'] = 'EXPRESSION'
+                result['value'] = f"BETWEEN {val1} AND {val2}"
+                return result
+            
+            result['operator'] = 'BETWEEN'
+            result['value'] = f"{val1} AND {val2}"
+            return result
+        
+        # Pattern: field IS NULL / IS NOT NULL
+        null_match = re.match(r"(\w+\s*\([^)]+\)|\S+)\s+(IS\s+NULL|IS\s+NOT\s+NULL)", condition_str, re.IGNORECASE)
+        if null_match:
+            field_expr = null_match.group(1)
+            op = null_match.group(2).upper()
+            
+            table_name, field_name, func_wrapper = extract_field_and_function(field_expr)
+            result['table_name'] = table_name
+            result['field_name'] = field_name
+            result['function_wrapper'] = func_wrapper
+            
+            result['operator'] = 'IS NULL' if 'NOT' not in op else 'IS NOT NULL'
+            result['value'] = ''
+            return result
+        
+        # Pattern: FUNC(field) <op> 'value' or field <op> value
+        op_match = re.match(r"(\w+\s*\([^)]+\)|\S+)\s*(=|<>|!=|<=|>=|<|>)\s*'?([^']*)'?", condition_str, re.IGNORECASE)
+        if op_match:
+            field_expr = op_match.group(1)
+            op = op_match.group(2)
+            value = op_match.group(3).strip("'")
+            
+            table_name, field_name, func_wrapper = extract_field_and_function(field_expr)
+            result['table_name'] = table_name
+            result['field_name'] = field_name
+            result['function_wrapper'] = func_wrapper
+            
+            result['operator'] = op
+            result['value'] = value
+            return result
+        
+        return None
+
+    def _parse_order_by(self, order_clause: str) -> list:
+        """Parse ORDER BY clause."""
+        import re
+        
+        result = []
+        parts = order_clause.split(',')
+        
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            
+            # Parse field ASC/DESC
+            match = re.match(r'(\S+)\s*(ASC|DESC)?', part, re.IGNORECASE)
+            if match:
+                field = match.group(1)
+                direction = (match.group(2) or 'ASC').upper()
+                
+                table_name = ''
+                field_name = field
+                if '.' in field:
+                    parts_f = field.split('.')
+                    table_name = parts_f[0]
+                    field_name = parts_f[1]
+                
+                result.append({
+                    'table_name': table_name,
+                    'field_name': field_name,
+                    'direction': direction
+                })
+        
+        return result
+
+    def _split_respecting_parens(self, text: str, delimiter: str) -> list:
+        """Split text by delimiter, but respect parentheses nesting."""
+        result = []
+        current = []
+        depth = 0
+        
+        for char in text:
+            if char == '(':
+                depth += 1
+                current.append(char)
+            elif char == ')':
+                depth -= 1
+                current.append(char)
+            elif char == delimiter and depth == 0:
+                result.append(''.join(current))
+                current = []
+            else:
+                current.append(char)
+        
+        if current:
+            result.append(''.join(current))
+        
+        return result
+
+    def _build_ui_from_parsed_sql(self, parsed: dict):
+        """Build UI elements from parsed SQL structure."""
+        
+        # Set FROM table first
+        from_table = parsed.get('from_table', '')
+        from_schema = parsed.get('from_schema', '')
+        
+        if from_table:
+            # Add to tables involved
+            if not hasattr(self, 'tables_involved') or self.tables_involved is None:
+                self.tables_involved = set()
+            self.tables_involved.add(from_table)
+            
+            # Update schema if provided
+            if from_schema:
+                self.current_schema_name = from_schema
+        
+        # Collect all tables from JOINs
+        for join in parsed.get('joins', []):
+            join_table = join.get('table_name', '')
+            if join_table:
+                self.tables_involved.add(join_table)
+        
+        # Collect tables from SELECT fields
+        for field in parsed.get('select_fields', []):
+            table = field.get('table_name', '')
+            if table:
+                self.tables_involved.add(table)
+        
+        # Update FROM combo
+        self.from_table_combo.clear()
+        for table in sorted(self.tables_involved):
+            self.from_table_combo.addItem(table)
+        
+        if from_table:
+            idx = self.from_table_combo.findText(from_table)
+            if idx >= 0:
+                self.from_table_combo.setCurrentIndex(idx)
+        
+        # Update tables involved label
+        if self.tables_involved:
+            self.tables_involved_label.setText(", ".join(sorted(self.tables_involved)))
+        
+        # Create display fields
+        for field_info in parsed.get('select_fields', []):
+            if field_info.get('is_expression'):
+                # Create expression field
+                self._add_expression_field_from_parsed(field_info)
+            else:
+                # Create regular display field
+                self._add_display_field_from_parsed(field_info)
+        
+        # Create JOINs
+        for join_info in parsed.get('joins', []):
+            self._add_join_from_parsed(join_info)
+        
+        # Create criteria filters
+        for condition in parsed.get('where_conditions', []):
+            self._add_criteria_from_parsed(condition)
+        
+        # Apply ORDER BY to display fields
+        for order_info in parsed.get('order_by', []):
+            self._apply_order_to_field(order_info)
+        
+        # Update UI
+        self.update_tables_involved()
+        self.update_query_buttons()
+
+    def _add_display_field_from_parsed(self, field_info: dict):
+        """Add a display field widget from parsed SQL field info."""
+        table_name = field_info.get('table_name', '')
+        field_name = field_info.get('field_name', '')
+        
+        # Try to look up data type from cached metadata
+        data_type = self._get_field_data_type(table_name, field_name)
+        
+        field_data = {
+            'table_name': table_name,
+            'field_name': field_name,
+            'data_type': data_type,
+            'schema_name': self.current_schema_name
+        }
+        
+        self.display_fields.append(field_data)
+        
+        # Create widget
+        display_widget = DisplayFieldWidget(field_data, self)
+        display_widget.remove_requested.connect(lambda w=display_widget: self.remove_display_field(w))
+        self.display_layout.addWidget(display_widget)
+        self.display_widgets.append(display_widget)
+        
+        # Set alias if different from field name
+        alias = field_info.get('alias', '')
+        if alias and alias != field_info.get('field_name', ''):
+            display_widget.alias_input.setText(alias)
+        
+        # Set aggregation
+        agg = field_info.get('aggregation', 'None')
+        if agg and agg != 'None':
+            idx = display_widget.agg_combo.findText(agg)
+            if idx >= 0:
+                display_widget.agg_combo.setCurrentIndex(idx)
+
+    def _add_expression_field_from_parsed(self, field_info: dict):
+        """Add an expression field widget from parsed SQL expression."""
+        # Use the add_expression_field method
+        self.add_expression_field()
+        
+        # Get the last added expression widget
+        if self.expression_widgets:
+            expr_widget = self.expression_widgets[-1]
+            
+            # Set the name
+            name = field_info.get('alias', field_info.get('field_name', ''))
+            expr_widget.name_input.setText(name)
+            
+            # Set the expression
+            expression = field_info.get('expression', '')
+            expr_widget.expression_input.setText(expression)
+
+    def _add_join_from_parsed(self, join_info: dict):
+        """Add a JOIN widget from parsed SQL join info."""
+        # Update tables involved first
+        self.update_tables_involved()
+        
+        # Create join widget
+        join_widget = JoinWidget(list(self.tables_involved), self)
+        join_widget.remove_requested.connect(lambda w=join_widget: self.remove_join(w))
+        self.joins_layout.addWidget(join_widget)
+        self.joins.append(join_widget)
+        
+        # Set join type
+        join_type = join_info.get('join_type', 'INNER JOIN')
+        idx = join_widget.join_type_combo.findText(join_type)
+        if idx >= 0:
+            join_widget.join_type_combo.setCurrentIndex(idx)
+        
+        # Set join table
+        join_table = join_info.get('table_name', '')
+        idx = join_widget.join_table_combo.findText(join_table)
+        if idx >= 0:
+            join_widget.join_table_combo.setCurrentIndex(idx)
+        
+        # Set ON conditions
+        on_conditions = join_info.get('on_conditions', [])
+        for i, condition in enumerate(on_conditions):
+            # Add more rows if needed (first row already exists)
+            if i >= len(join_widget.on_condition_rows):
+                if hasattr(join_widget, '_add_on_condition_row'):
+                    join_widget._add_on_condition_row()
+            
+            # Make sure we have the row
+            if i < len(join_widget.on_condition_rows):
+                row = join_widget.on_condition_rows[i]
+                
+                # Set left field - strip table prefix if present (e.g., "LH_BAS_POL.TCH_POL_ID" -> "TCH_POL_ID")
+                left_field = condition.get('left_field', '')
+                if '.' in left_field:
+                    left_field = left_field.split('.')[-1]
+                idx = row['left_field_combo'].findText(left_field)
+                if idx >= 0:
+                    row['left_field_combo'].setCurrentIndex(idx)
+                
+                # Set operator
+                operator = condition.get('operator', '=')
+                if 'operator_combo' in row:
+                    idx = row['operator_combo'].findText(operator)
+                    if idx >= 0:
+                        row['operator_combo'].setCurrentIndex(idx)
+                
+                # Set right field - strip table prefix if present
+                right_field = condition.get('right_field', '')
+                if '.' in right_field:
+                    right_field = right_field.split('.')[-1]
+                idx = row['right_field_combo'].findText(right_field)
+                if idx >= 0:
+                    row['right_field_combo'].setCurrentIndex(idx)
+
+    def _add_criteria_from_parsed(self, condition: dict):
+        """Add a criteria filter widget from parsed SQL condition."""
+        table_name = condition.get('table_name', '')
+        field_name = condition.get('field_name', '')
+        
+        # Try to look up data type from cached metadata
+        data_type = self._get_field_data_type(table_name, field_name)
+        
+        field_data = {
+            'table_name': table_name,
+            'field_name': field_name,
+            'data_type': data_type,
+            'schema_name': self.current_schema_name
+        }
+        
+        # Create filter widget
+        filter_widget = CriteriaFilterWidget(field_data, self)
+        filter_widget.remove_requested.connect(lambda w=filter_widget: self.remove_criteria_filter(w))
+        self.criteria_layout.addWidget(filter_widget)
+        self.criteria_widgets.append(filter_widget)
+        
+        # Set the filter value based on condition type
+        operator = condition.get('operator', '=')
+        value = condition.get('value', '')
+        match_type = condition.get('match_type', 'exact')
+        
+        # Handle IN operator - set up List mode with selected values
+        if operator == 'IN' or operator == 'NOT IN':
+            # Parse the IN values
+            in_values = self._parse_in_values(value)
+            
+            # Set up list mode
+            if hasattr(filter_widget, 'match_type_combo'):
+                idx = filter_widget.match_type_combo.findText('List')
+                if idx >= 0:
+                    filter_widget.match_type_combo.setCurrentIndex(idx)
+            
+            # Set the selected values
+            if in_values:
+                filter_widget.selected_values = in_values
+                # Also set unique_values if not already loaded (so list button works)
+                if not hasattr(filter_widget, 'unique_values') or not filter_widget.unique_values:
+                    filter_widget.unique_values = in_values[:]
+                
+                # Update the list button style to show filtering is active
+                if hasattr(filter_widget, '_update_list_button_style'):
+                    filter_widget._update_list_button_style()
+                
+                # Show the IN expression in the filter input (read-only)
+                if hasattr(filter_widget, 'filter_input') and hasattr(filter_widget, '_build_in_expression'):
+                    in_expr = filter_widget._build_in_expression()
+                    filter_widget.filter_input.setText(in_expr)
+                    filter_widget.filter_input.setReadOnly(True)
+                    filter_widget.filter_input.setStyleSheet("""
+                        QLineEdit {
+                            background-color: #E8F4FC;
+                            color: #2980b9;
+                            font-size: 10px;
+                            padding: 2px 4px;
+                        }
+                    """)
+                    # Make sure the input row is visible
+                    if hasattr(filter_widget, 'string_input_widget'):
+                        filter_widget.string_input_widget.setVisible(True)
+            
+            return
+        
+        # Handle comparison operators (>, <, >=, <=, <>, !=) as Expression mode
+        expression_operators = ['>', '<', '>=', '<=', '<>', '!=']
+        if operator in expression_operators:
+            # Set match type to Expression
+            if hasattr(filter_widget, 'match_type_combo'):
+                idx = filter_widget.match_type_combo.findText('Expression')
+                if idx >= 0:
+                    filter_widget.match_type_combo.setCurrentIndex(idx)
+            
+            # Build the full expression like "> 30" or "<= 100"
+            expression_value = f"{operator} {value}"
+            
+            # Set expression in the filter input
+            if hasattr(filter_widget, 'filter_input'):
+                filter_widget.filter_input.setText(expression_value)
+            elif hasattr(filter_widget, 'value_input'):
+                filter_widget.value_input.setText(expression_value)
+            
+            # Set function wrapper if present
+            function_wrapper = condition.get('function_wrapper', '')
+            if function_wrapper:
+                filter_widget.function_wrapper = function_wrapper
+                if hasattr(filter_widget, 'function_wrapper_input'):
+                    filter_widget.function_wrapper_input.setText(function_wrapper)
+            
+            return
+        
+        # Map parsed match_type to combo box text
+        match_type_map = {
+            'exact': 'Exact',
+            'contains': 'Contains',
+            'starts_with': 'Starts',
+            'ends_with': 'Ends',
+            'expression': 'Expression'
+        }
+        combo_text = match_type_map.get(match_type, 'Contains')
+        
+        # Set match type in combo if available
+        if hasattr(filter_widget, 'match_type_combo'):
+            idx = filter_widget.match_type_combo.findText(combo_text)
+            if idx >= 0:
+                filter_widget.match_type_combo.setCurrentIndex(idx)
+        
+        # Set value in the appropriate input field
+        if hasattr(filter_widget, 'filter_input'):
+            filter_widget.filter_input.setText(str(value))
+        elif hasattr(filter_widget, 'value_input'):
+            filter_widget.value_input.setText(str(value))
+        
+        # Set function wrapper if present (for expression mode)
+        function_wrapper = condition.get('function_wrapper', '')
+        if function_wrapper:
+            filter_widget.function_wrapper = function_wrapper
+            if hasattr(filter_widget, 'function_wrapper_input'):
+                filter_widget.function_wrapper_input.setText(function_wrapper)
+    
+    def _parse_in_values(self, in_clause_content: str) -> list:
+        """Parse values from an IN clause content (the part inside parentheses).
+        
+        Args:
+            in_clause_content: String like "'A', 'B', 'C'" or "1, 2, 3"
+        
+        Returns:
+            List of values with quotes stripped.
+        """
+        import re
+        
+        values = []
+        # Split by comma, respecting quoted strings
+        parts = re.split(r",\s*", in_clause_content.strip())
+        
+        for part in parts:
+            part = part.strip()
+            # Remove surrounding quotes if present
+            if (part.startswith("'") and part.endswith("'")) or \
+               (part.startswith('"') and part.endswith('"')):
+                part = part[1:-1]
+            if part:
+                values.append(part)
+        
+        return values
+    
+    def _get_field_data_type(self, table_name: str, field_name: str) -> str:
+        """Look up field data type from cached metadata."""
+        if not table_name or not field_name:
+            return 'CHAR'  # Default to string type
+        
+        try:
+            # Get or create metadata entry for the table
+            metadata_id = self.metadata_cache_repo.get_or_create_metadata(
+                self.current_connection_id,
+                table_name,
+                self.current_schema_name or ''
+            )
+            
+            # Get cached columns
+            cached_columns = self.metadata_cache_repo.get_cached_columns(metadata_id)
+            if cached_columns:
+                for col in cached_columns:
+                    col_name = col.get('name') or col.get('column_name')
+                    if col_name and col_name.upper() == field_name.upper():
+                        return col.get('type') or col.get('data_type') or 'CHAR'
+        except Exception as e:
+            logger.warning(f"Could not look up data type for {table_name}.{field_name}: {e}")
+        
+        return 'CHAR'  # Default to string type if lookup fails
+
+    def _apply_order_to_field(self, order_info: dict):
+        """Apply ORDER BY direction to matching display field."""
+        target_field = order_info.get('field_name', '')
+        target_table = order_info.get('table_name', '')
+        direction = order_info.get('direction', 'ASC')
+        
+        # Find matching display widget
+        for widget in self.display_widgets:
+            field_data = widget.field_data
+            if field_data.get('field_name') == target_field:
+                # Check table if specified
+                if target_table and field_data.get('table_name') != target_table:
+                    continue
+                
+                # Set order
+                order_text = 'Ascend' if direction == 'ASC' else 'Descend'
+                idx = widget.order_combo.findText(order_text)
+                if idx >= 0:
+                    widget.order_combo.setCurrentIndex(idx)
+                break
 
     def load_data_sources(self):
         """Load all data sources into cascading menu list and populate DB Queries tree"""
@@ -1190,7 +2210,8 @@ class DBQueryScreen(QWidget):
             'from_table': self.from_table_combo.currentText() if self.from_table_combo.currentText() else None,
             'display_fields': self.display_fields.copy(),
             'criteria': [],
-            'joins': []
+            'joins': [],
+            'custom_sql': self.sql_edit.toPlainText() if hasattr(self, 'sql_edit') else ''
         }
         
         # Capture criteria widget states
@@ -2069,9 +3090,44 @@ class DBQueryScreen(QWidget):
             logger.error(f"Error adding common fields: {e}")
             QMessageBox.critical(self, "Error", f"Failed to add common fields:\n{str(e)}")
 
+    def add_expression_field(self):
+        """Add a new expression field (computed column) to Display tab"""
+        # Create expression field widget
+        expression_widget = ExpressionFieldWidget(self)
+        expression_widget.remove_requested.connect(lambda: self.remove_expression_field(expression_widget))
+        
+        # Add to the end (bottom) of the layout
+        self.display_layout.addWidget(expression_widget)
+        self.display_widgets.append(expression_widget)
+        
+        # Update query buttons
+        self.update_query_buttons()
+        
+        # Mark query as dirty
+        self._mark_query_dirty()
+        
+        logger.info("Added new expression field")
+
+    def remove_expression_field(self, widget):
+        """Remove an expression field from display tab"""
+        # Remove from widget list
+        if widget in self.display_widgets:
+            self.display_widgets.remove(widget)
+        
+        # Remove widget
+        self.display_layout.removeWidget(widget)
+        widget.deleteLater()
+        
+        # Update query buttons
+        self.update_query_buttons()
+        
+        # Mark query as dirty
+        self._mark_query_dirty()
+
     def update_query_buttons(self):
         """Enable/disable query buttons based on query state"""
-        has_display_fields = len(self.display_fields) > 0
+        # Check both regular display fields and expression fields in widgets
+        has_display_fields = len(self.display_fields) > 0 or len(self.display_widgets) > 0
         self.run_query_btn.setEnabled(has_display_fields)
         self.run_options_btn.setEnabled(has_display_fields)
         self.preview_action.setEnabled(has_display_fields)
@@ -2275,8 +3331,8 @@ class DBQueryScreen(QWidget):
                 # Add preview indicator to window title
                 results_dialog.setWindowTitle(f"Query Results - PREVIEW (First 100 Rows) - {self.query_name_label.text()}")
                 logger.info("Showing preview results dialog...")
-                results_dialog.exec()
-                logger.info("Preview results dialog closed")
+                results_dialog.show()  # Modeless - allows interaction with main app
+                logger.info("Preview results dialog opened")
 
             except Exception as e:
                 progress.close()
@@ -2443,8 +3499,8 @@ class DBQueryScreen(QWidget):
                     self
                 )
                 logger.info("Showing results dialog...")
-                results_dialog.exec()
-                logger.info("Results dialog closed")
+                results_dialog.show()  # Modeless - allows interaction with main app
+                logger.info("Results dialog opened")
 
             except Exception as e:
                 progress.close()
@@ -2609,20 +3665,50 @@ class DBQueryScreen(QWidget):
         # Display fields - collect current state from widgets
         display_fields_with_config = []
         for widget in self.display_widgets:
-            field_config = widget.field_data.copy()
-            # Add UI state
-            field_config['alias'] = widget.alias_input.text()
-            field_config['aggregation'] = widget.agg_combo.currentText()
-            field_config['order'] = widget.order_combo.currentText()
-            field_config['having'] = widget.having_input.text()
-            field_config['is_expanded'] = widget.is_expanded
+            # Check if this is an expression field
+            if hasattr(widget, 'is_expression') and widget.is_expression:
+                # Expression field widget
+                field_config = widget.get_field_data()
+                field_config['alias'] = widget.get_alias()
+                field_config['aggregation'] = widget.get_aggregation()
+                field_config['order'] = widget.get_order()
+                field_config['having'] = ''
+                field_config['is_expanded'] = False
+            else:
+                # Regular display field widget
+                field_config = widget.field_data.copy()
+                # Add UI state
+                field_config['alias'] = widget.alias_input.text()
+                field_config['aggregation'] = widget.agg_combo.currentText()
+                field_config['order'] = widget.order_combo.currentText()
+                field_config['having'] = widget.having_input.text()
+                field_config['is_expanded'] = widget.is_expanded
             display_fields_with_config.append(field_config)
         
         query.display_fields = display_fields_with_config
         
+        # Debug: Log the field data to understand schema issue
+        logger.info(f"Building query - from_table_combo: '{self.from_table_combo.currentText()}'")
+        logger.info(f"Building query - current_schema_name: '{self.current_schema_name}'")
+        for i, field in enumerate(display_fields_with_config):
+            logger.info(f"  Field {i}: table={field.get('table_name')}, schema={field.get('schema_name')}, field={field.get('field_name')}")
+        
         # FROM clause
         query.from_table = self.from_table_combo.currentText()
         query.from_schema = self.current_schema_name
+        
+        # If from_schema is not set, try to derive it from display fields
+        # This handles cases where current_schema_name wasn't properly set
+        if not query.from_schema and query.from_table and display_fields_with_config:
+            # Look for a field that matches the from_table and has a schema
+            for field in display_fields_with_config:
+                if (field.get('table_name') == query.from_table and 
+                    field.get('schema_name')):
+                    query.from_schema = field.get('schema_name')
+                    logger.info(f"Derived from_schema '{query.from_schema}' from display field")
+                    break
+        
+        logger.info(f"Final query.from_table: '{query.from_table}', query.from_schema: '{query.from_schema}'")
         
         # Criteria
         query.criteria = []
@@ -2647,6 +3733,9 @@ class DBQueryScreen(QWidget):
                     # Expression mode - user provides the entire condition (e.g., "> 100", "LIKE 'A%'")
                     criterion['operator'] = 'EXPRESSION'
                     criterion['value'] = filter_value.get('value', '')
+                    # Include function wrapper if specified (e.g., RTRIM, UPPER)
+                    if filter_value.get('function_wrapper'):
+                        criterion['function_wrapper'] = filter_value.get('function_wrapper')
                     
                 elif filter_type == 'checkbox_list':
                     # Handle checkbox list - convert to IN clause
@@ -2845,7 +3934,8 @@ class DBQueryScreen(QWidget):
                 'from_schema': query.from_schema,
                 'display_fields': query.display_fields,
                 'criteria': query.criteria,
-                'joins': query.joins
+                'joins': query.joins,
+                'custom_sql': self.sql_edit.toPlainText() if hasattr(self, 'sql_edit') else ''
             }
             
             # Save to database
@@ -3084,6 +4174,11 @@ class DBQueryScreen(QWidget):
             # NOW clear the loading flag (after all updates are complete)
             self._loading_query = False
 
+            # Restore custom SQL text if saved
+            custom_sql = query_dict.get('custom_sql', '')
+            if custom_sql and hasattr(self, 'sql_edit'):
+                self.sql_edit.setPlainText(custom_sql)
+
             # Refresh debug panel
             if hasattr(self, '_update_join_debug_panel'):
                 self._update_join_debug_panel()
@@ -3232,6 +4327,11 @@ class DBQueryScreen(QWidget):
             if hasattr(self, '_update_join_debug_panel'):
                 self._update_join_debug_panel()
             
+            # Restore custom SQL text if saved
+            custom_sql = state.get('custom_sql', '')
+            if custom_sql and hasattr(self, 'sql_edit'):
+                self.sql_edit.setPlainText(custom_sql)
+            
             logger.info(f"Restored unsaved state for query {query_id}")
             
         except Exception as e:
@@ -3266,6 +4366,10 @@ class DBQueryScreen(QWidget):
         
         # Reset FROM table
         self.from_table_combo.clear()
+        
+        # Clear the Query Statement SQL text
+        if hasattr(self, 'sql_edit') and self.sql_edit:
+            self.sql_edit.clear()
         
         # Note: We don't clear tables_tree or database_name_label here
         # Those will be updated when loading the new query's connection
@@ -3333,6 +4437,17 @@ class DBQueryScreen(QWidget):
                 'match_type': match_type,
                 'value': value or ''
             }
+        
+        # EXPRESSION operator means expression mode with possible function wrapper
+        elif operator == 'EXPRESSION':
+            result = {
+                'type': 'expression',
+                'value': value or ''
+            }
+            # Include function wrapper if present
+            if criterion.get('function_wrapper'):
+                result['function_wrapper'] = criterion.get('function_wrapper')
+            return result
         
         # IN operator means checkbox list
         elif operator == 'IN':
@@ -3430,57 +4545,122 @@ class DBQueryScreen(QWidget):
                     filter_widget.match_type_combo.setCurrentText(display_text)
                     filter_widget.filter_input.setText(filter_config.get('value', ''))
             
+            elif filter_type == 'expression':
+                if hasattr(filter_widget, 'match_type_combo'):
+                    filter_widget.match_type_combo.setCurrentText('Expression')
+                if hasattr(filter_widget, 'filter_input'):
+                    filter_widget.filter_input.setText(filter_config.get('value', ''))
+                # Restore function wrapper if present
+                if filter_config.get('function_wrapper'):
+                    filter_widget.function_wrapper = filter_config.get('function_wrapper', '')
+                    if hasattr(filter_widget, 'function_input'):
+                        filter_widget.function_input.setText(filter_config.get('function_wrapper', ''))
+                # Show function row for Expression mode
+                if hasattr(filter_widget, 'function_row_widget'):
+                    filter_widget.function_row_widget.setVisible(True)
+                # Trigger mode change to show expression UI
+                if hasattr(filter_widget, '_on_numeric_mode_changed'):
+                    filter_widget._on_numeric_mode_changed('Expression')
+                elif hasattr(filter_widget, '_on_date_mode_changed'):
+                    filter_widget._on_date_mode_changed('Expression')
+            
             elif filter_type == 'numeric_exact':
-                if hasattr(filter_widget, 'exact_input'):
+                if hasattr(filter_widget, 'match_type_combo'):
+                    filter_widget.match_type_combo.setCurrentText('Exact')
+                if hasattr(filter_widget, 'exact_input') and isinstance(filter_widget.exact_input, QLineEdit):
                     filter_widget.exact_input.setText(str(filter_config.get('value', '')))
+                # Trigger mode change to show correct UI
+                if hasattr(filter_widget, '_on_numeric_mode_changed'):
+                    filter_widget._on_numeric_mode_changed('Exact')
             
             elif filter_type == 'numeric_range':
+                if hasattr(filter_widget, 'match_type_combo'):
+                    filter_widget.match_type_combo.setCurrentText('Range')
                 if hasattr(filter_widget, 'range_low_input') and hasattr(filter_widget, 'range_high_input'):
                     filter_widget.range_low_input.setText(str(filter_config.get('low', '')))
                     filter_widget.range_high_input.setText(str(filter_config.get('high', '')))
+                # Trigger mode change to show correct UI
+                if hasattr(filter_widget, '_on_numeric_mode_changed'):
+                    filter_widget._on_numeric_mode_changed('Range')
             
             elif filter_type == 'date_exact':
-                if hasattr(filter_widget, 'exact_date_input'):
-                    from PyQt6.QtCore import QDate
-                    date_str = filter_config.get('value', '')
-                    if date_str:
-                        date = QDate.fromString(date_str, 'yyyy-MM-dd')
-                        filter_widget.exact_date_input.setDate(date)
+                if hasattr(filter_widget, 'match_type_combo'):
+                    filter_widget.match_type_combo.setCurrentText('Exact')
+                if hasattr(filter_widget, 'exact_date_input') and isinstance(filter_widget.exact_date_input, QLineEdit):
+                    filter_widget.exact_date_input.setText(filter_config.get('value', ''))
+                # Trigger mode change to show correct UI
+                if hasattr(filter_widget, '_on_date_mode_changed'):
+                    filter_widget._on_date_mode_changed('Exact')
             
             elif filter_type == 'date_range':
+                if hasattr(filter_widget, 'match_type_combo'):
+                    filter_widget.match_type_combo.setCurrentText('Range')
                 if hasattr(filter_widget, 'date_range_start') and hasattr(filter_widget, 'date_range_end'):
-                    from PyQt6.QtCore import QDate
-                    start_str = filter_config.get('start', '')
-                    end_str = filter_config.get('end', '')
-                    if start_str:
-                        start_date = QDate.fromString(start_str, 'yyyy-MM-dd')
-                        filter_widget.date_range_start.setDate(start_date)
-                    if end_str:
-                        end_date = QDate.fromString(end_str, 'yyyy-MM-dd')
-                        filter_widget.date_range_end.setDate(end_date)
+                    if isinstance(filter_widget.date_range_start, QLineEdit):
+                        filter_widget.date_range_start.setText(filter_config.get('start', ''))
+                        filter_widget.date_range_end.setText(filter_config.get('end', ''))
+                # Trigger mode change to show correct UI
+                if hasattr(filter_widget, '_on_date_mode_changed'):
+                    filter_widget._on_date_mode_changed('Range')
             
             elif filter_type == 'checkbox_list':
                 selected_values = filter_config.get('selected_values', [])
-                # Store selected values directly (no checkboxes anymore)
-                if hasattr(filter_widget, 'selected_values'):
-                    filter_widget.selected_values = selected_values
-                else:
-                    filter_widget.selected_values = selected_values
+                filter_widget.selected_values = selected_values
+                # Also set unique_values if not already set (so list button knows the count)
+                if not filter_widget.unique_values:
+                    filter_widget.unique_values = selected_values[:]
+                
+                # Add "List" option to combo if not present
+                if hasattr(filter_widget, 'match_type_combo'):
+                    combo = filter_widget.match_type_combo
+                    # Check if "List" is in the combo
+                    list_index = combo.findText('List')
+                    if list_index < 0:
+                        # Add List at the beginning
+                        combo.insertItem(0, 'List')
+                    combo.setCurrentText('List')
+                    combo.setEnabled(False)
+                
+                # Create list button if it doesn't exist
+                if not filter_widget.list_button and hasattr(filter_widget, 'match_type_combo'):
+                    from PyQt6.QtWidgets import QPushButton
+                    filter_widget.list_button = QPushButton("☰")
+                    filter_widget.list_button.setFixedSize(20, 20)
+                    filter_widget.list_button.setToolTip(f"Select Values ({len(selected_values)} selected)")
+                    filter_widget.list_button.clicked.connect(filter_widget._open_value_selection_popup)
+                    # Find the combo's parent layout and add the button after it
+                    combo_parent = filter_widget.match_type_combo.parent()
+                    if combo_parent and combo_parent.layout():
+                        # Insert after combo
+                        layout = combo_parent.layout()
+                        combo_idx = layout.indexOf(filter_widget.match_type_combo)
+                        if combo_idx >= 0:
+                            layout.insertWidget(combo_idx + 1, filter_widget.list_button)
                 
                 # Update list button style to reflect loaded state
                 if hasattr(filter_widget, '_update_list_button_style'):
                     filter_widget._update_list_button_style()
                 
-                # IMPORTANT: Update the combobox and input box state to show "List" and disabled styling
-                if hasattr(filter_widget, '_update_selected_values') and hasattr(filter_widget, 'unique_values'):
-                    # Call the update method to apply the UI state
-                    filter_widget._update_selected_values(selected_values)
+                # Apply List mode UI (hide inputs)
+                if hasattr(filter_widget, '_apply_list_mode_ui'):
+                    filter_widget._apply_list_mode_ui(True)
                 
-                # Also restore text filter if present
-                if 'text_value' in filter_config and hasattr(filter_widget, 'filter_input'):
-                    filter_widget.filter_input.setText(filter_config.get('text_value', ''))
-                if 'text_match' in filter_config and hasattr(filter_widget, 'match_type_combo'):
-                    filter_widget.match_type_combo.setCurrentText(filter_config.get('text_match', 'Exact'))
+                # Show the IN expression in the filter input (read-only)
+                if selected_values and hasattr(filter_widget, 'filter_input') and hasattr(filter_widget, '_build_in_expression'):
+                    in_expr = filter_widget._build_in_expression()
+                    filter_widget.filter_input.setText(in_expr)
+                    filter_widget.filter_input.setReadOnly(True)
+                    filter_widget.filter_input.setStyleSheet("""
+                        QLineEdit {
+                            background-color: #E8F4FC;
+                            color: #2980b9;
+                            font-size: 10px;
+                            padding: 2px 4px;
+                        }
+                    """)
+                    # Make sure the input row is visible
+                    if hasattr(filter_widget, 'string_input_widget'):
+                        filter_widget.string_input_widget.setVisible(True)
             
             elif filter_type == 'text':
                 if hasattr(filter_widget, 'filter_input'):
@@ -3924,27 +5104,7 @@ class CriteriaFilterWidget(QFrame):
         self.list_button = None
         self.custom_criteria_button = None
         self.custom_criteria_text = ""  # Store custom criteria
-
-        # Reset button (clears filter values but keeps widget)
-        reset_btn = QPushButton("↻")
-        reset_btn.setFixedSize(18, 18)
-        reset_btn.setToolTip("Reset filter values")
-        reset_btn.setStyleSheet("""
-            QPushButton {
-                background: #3498db;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 0px;
-            }
-            QPushButton:hover {
-                background: #2980b9;
-            }
-        """)
-        reset_btn.clicked.connect(self._reset_filter_values)
-        header_layout.addWidget(reset_btn)
+        self.function_wrapper = ""  # Store function wrapper (e.g., RTRIM, UPPER)
 
         # Remove button with X (subtle)
         remove_btn = QPushButton("×")
@@ -4159,19 +5319,24 @@ class CriteriaFilterWidget(QFrame):
                 """)
         
         if hasattr(self, 'filter_input'):
-            self.filter_input.setEnabled(all_selected)
             if not all_selected:
-                # Set light grey background for disabled state
+                # Show IN expression in the filter input (read-only)
+                in_expr = self._build_in_expression()
+                self.filter_input.setText(in_expr)
+                self.filter_input.setReadOnly(True)
+                # Set light grey background for read-only state
                 self.filter_input.setStyleSheet("""
                     QLineEdit {
-                        background-color: #E0E0E0;
-                        color: #808080;
+                        background-color: #E8F4FC;
+                        color: #2980b9;
                         font-size: 10px;
                         padding: 2px 4px;
                     }
                 """)
             else:
-                # Restore normal styling
+                # Restore normal editable state
+                self.filter_input.setReadOnly(False)
+                self.filter_input.clear()
                 self.filter_input.setStyleSheet("""
                     QLineEdit {
                         font-size: 10px;
@@ -4179,6 +5344,19 @@ class CriteriaFilterWidget(QFrame):
                         background: white;
                     }
                 """)
+    
+    def _build_in_expression(self) -> str:
+        """Build an IN clause expression from selected values."""
+        if not hasattr(self, 'selected_values') or not self.selected_values:
+            return ''
+        
+        # Build IN ('val1', 'val2', ...)
+        quoted_values = [f"'{v}'" for v in self.selected_values]
+        if len(quoted_values) <= 5:
+            return f"IN ({', '.join(quoted_values)})"
+        else:
+            # Truncate for display
+            return f"IN ({', '.join(quoted_values[:5])}, ... +{len(quoted_values)-5} more)"
     
     def _open_custom_criteria_dialog(self):
         """Open dialog to enter custom criteria - works for all combo box modes"""
@@ -4260,8 +5438,13 @@ class CriteriaFilterWidget(QFrame):
         
         # Match type dropdown (compact with reduced height)
         self.match_type_combo = QComboBox()
-        self.match_type_combo.addItems(["None", "Exact", "Starts", "Ends", "Contains", "Expression"])
-        self.match_type_combo.setCurrentText("Exact")  # Default to Exact, not None
+        # Add List option if unique values exist
+        if self.unique_values:
+            self.match_type_combo.addItems(["List", "Exact", "Starts", "Ends", "Contains", "Expression"])
+            self.match_type_combo.setCurrentText("List")  # Default to List when unique values exist
+        else:
+            self.match_type_combo.addItems(["None", "Exact", "Starts", "Ends", "Contains", "Expression"])
+            self.match_type_combo.setCurrentText("Exact")  # Default to Exact, not None
         self.match_type_combo.setMinimumWidth(80)
         self.match_type_combo.setMaximumWidth(90)
         self.match_type_combo.setMaximumHeight(22)
@@ -4344,19 +5527,140 @@ class CriteriaFilterWidget(QFrame):
         input_widget.setStyleSheet("background: transparent;")
         input_widget.setLayout(input_row)
         self.controls_layout.addWidget(input_widget)
+        
+        # Store reference to input widget for List mode hiding
+        self.string_input_widget = input_widget
+        
+        # Third row: Function wrapper (only visible in Expression mode)
+        fn_row = QHBoxLayout()
+        fn_row.setSpacing(4)
+        fn_row.setContentsMargins(0, 0, 0, 0)
+        
+        fn_label = QLabel("Fn:")
+        fn_label.setStyleSheet("font-size: 10px; color: #7f8c8d; background: transparent;")
+        fn_label.setFixedWidth(20)
+        fn_row.addWidget(fn_label)
+        
+        self.function_input = QLineEdit()
+        self.function_input.setPlaceholderText("e.g., RTRIM, UPPER")
+        self.function_input.setMinimumWidth(100)
+        self.function_input.setMaximumWidth(140)
+        self.function_input.setMaximumHeight(22)
+        self.function_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: #fff3e0;
+                border: 1px solid #ff9800;
+            }
+        """)
+        self.function_input.setToolTip("Wrap field in function (e.g., RTRIM, UPPER, SUBSTR)")
+        self.function_input.textChanged.connect(self._on_function_input_changed)
+        fn_row.addWidget(self.function_input)
+        
+        fn_row.addStretch()
+        
+        # Add function row to layout
+        self.function_row_widget = QWidget()
+        self.function_row_widget.setStyleSheet("background: transparent;")
+        self.function_row_widget.setLayout(fn_row)
+        self.function_row_widget.setVisible(False)  # Hidden by default
+        self.controls_layout.addWidget(self.function_row_widget)
+    
+    def _on_function_input_changed(self, text):
+        """Handle function input changes"""
+        self.function_wrapper = text.strip().upper()
     
     def _on_match_type_changed(self, text):
         """Handle match type combobox changes"""
-        if not hasattr(self, 'filter_input'):
-            return
-        
-        # Update placeholder text based on mode
-        if text == "Expression":
-            self.filter_input.setPlaceholderText("Enter custom criteria (e.g., >100, LIKE 'A%')...")
+        # Handle List mode - show IN expression instead of hiding
+        if text == "List":
+            if hasattr(self, 'string_input_widget'):
+                self.string_input_widget.setVisible(True)
+            if hasattr(self, 'filter_input'):
+                # Show IN expression if we have selected values
+                if hasattr(self, 'selected_values') and hasattr(self, '_build_in_expression'):
+                    in_expr = self._build_in_expression()
+                    self.filter_input.setText(in_expr)
+                    self.filter_input.setReadOnly(True)
+                    self.filter_input.setStyleSheet("""
+                        QLineEdit {
+                            background-color: #E8F4FC;
+                            color: #2980b9;
+                            font-size: 10px;
+                            padding: 2px 4px;
+                        }
+                    """)
+                else:
+                    self.filter_input.setText("")
+                    self.filter_input.setPlaceholderText("Click list button to select values...")
         else:
-            self.filter_input.setPlaceholderText("Enter text...")
+            # Non-list mode - show editable input
+            if hasattr(self, 'string_input_widget'):
+                self.string_input_widget.setVisible(True)
+            if hasattr(self, 'filter_input'):
+                self.filter_input.setReadOnly(False)
+                self.filter_input.setStyleSheet("""
+                    QLineEdit {
+                        font-size: 10px;
+                        padding: 2px 4px;
+                        background: white;
+                    }
+                """)
+                # Update placeholder text based on mode
+                if text == "Expression":
+                    self.filter_input.setPlaceholderText("Enter custom criteria (e.g., >100, LIKE 'A%')...")
+                else:
+                    self.filter_input.setPlaceholderText("Enter text...")
+        
+        # Show/hide function wrapper row based on Expression mode
+        if hasattr(self, 'function_row_widget'):
+            self.function_row_widget.setVisible(text == "Expression")
         
         # Pen button is always visible now - removed visibility toggle
+    
+    def _apply_list_mode_ui(self, is_list_mode: bool):
+        """Apply List mode UI state - disable combo and show IN expression or hide inputs"""
+        # Disable combo box when in List mode
+        if hasattr(self, 'match_type_combo'):
+            self.match_type_combo.setEnabled(not is_list_mode)
+            if is_list_mode:
+                self.match_type_combo.setCurrentText('List')
+        
+        if is_list_mode:
+            # In List mode: show IN expression in filter_input (read-only)
+            if self.selected_values and hasattr(self, 'filter_input') and hasattr(self, '_build_in_expression'):
+                in_expr = self._build_in_expression()
+                self.filter_input.setText(in_expr)
+                self.filter_input.setReadOnly(True)
+                self.filter_input.setStyleSheet("""
+                    QLineEdit {
+                        background-color: #E8F4FC;
+                        color: #2980b9;
+                        font-size: 10px;
+                        padding: 2px 4px;
+                    }
+                """)
+                # Make sure the string input widget is visible
+                if hasattr(self, 'string_input_widget'):
+                    self.string_input_widget.setVisible(True)
+            else:
+                # No selected values yet - hide inputs
+                if hasattr(self, 'string_input_widget'):
+                    self.string_input_widget.setVisible(False)
+            # Hide numeric/date inputs
+            if hasattr(self, 'numeric_input_container'):
+                self.numeric_input_container.setVisible(False)
+            if hasattr(self, 'date_input_container'):
+                self.date_input_container.setVisible(False)
+        else:
+            # Not List mode: show appropriate input widgets
+            if hasattr(self, 'string_input_widget'):
+                self.string_input_widget.setVisible(True)
+            if hasattr(self, 'numeric_input_container'):
+                self.numeric_input_container.setVisible(True)
+            if hasattr(self, 'date_input_container'):
+                self.date_input_container.setVisible(True)
     
     def _on_filter_input_changed(self, text):
         """Handle filter input text changes - sync with custom_criteria_text in Expression mode"""
@@ -4365,78 +5669,94 @@ class CriteriaFilterWidget(QFrame):
             self.custom_criteria_text = text
 
     def _add_numeric_filter_compact(self):
-        """Add compact numeric filter controls in horizontal layout"""
-        # Create horizontal layout for the range inputs
-        range_layout = QHBoxLayout()
-        range_layout.setSpacing(4)
-        range_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Exact value input at the top
-        exact_layout = QHBoxLayout()
-        exact_layout.setSpacing(4)
-        exact_layout.setContentsMargins(0, 0, 0, 0)
-
-        # If we have unique values, use a combobox instead of line edit
+        """Add compact numeric filter controls matching string filter style"""
+        # First row: Mode dropdown with list button
+        combo_row = QHBoxLayout()
+        combo_row.setSpacing(4)
+        combo_row.setContentsMargins(0, 0, 0, 0)
+        
+        # Mode dropdown (compact with reduced height)
+        self.match_type_combo = QComboBox()
         if self.unique_values:
-            # Initialize with all values selected by default
+            self.match_type_combo.addItems(["List", "Exact", "Range", "Expression"])
+            self.match_type_combo.setCurrentText("List")
+        else:
+            self.match_type_combo.addItems(["Exact", "Range", "Expression"])
+            self.match_type_combo.setCurrentText("Exact")
+        self.match_type_combo.setMinimumWidth(80)
+        self.match_type_combo.setMaximumWidth(90)
+        self.match_type_combo.setMaximumHeight(22)
+        self.match_type_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: white;
+            }
+        """)
+        self.match_type_combo.currentTextChanged.connect(self._on_numeric_mode_changed)
+        combo_row.addWidget(self.match_type_combo)
+        
+        # List button next to combobox (if unique values exist)
+        if self.unique_values:
             self.selected_values = self.unique_values[:]
-
-            # Sort numeric values properly
-            sorted_values = sorted(self.unique_values, key=lambda x: float(x) if str(x).replace('.','',1).replace('-','',1).isdigit() else 0)
-
-            self.exact_input = QComboBox()
-            self.exact_input.setEditable(True)
-            self.exact_input.addItem("None")  # Default option
-            for val in sorted_values:
-                self.exact_input.addItem(str(val))
-            self.exact_input.setCurrentText("None")
-            self.exact_input.setMaximumHeight(22)
-            self.exact_input.setMinimumWidth(120)
-            self.exact_input.setMaximumWidth(260)
-            self.exact_input.setStyleSheet("""
-                QComboBox {
-                    font-size: 10px;
-                    padding: 2px 4px;
-                    background: white;
-                }
-            """)
-            exact_layout.addWidget(self.exact_input)
-
-            # Add list button for value selection
+            
             self.list_button = QPushButton("☰")
             self.list_button.setFixedSize(20, 20)
             self.list_button.setToolTip(f"Select Values ({len(self.unique_values)} available)")
             self._update_list_button_style()
             self.list_button.clicked.connect(self._open_value_selection_popup)
-            exact_layout.addWidget(self.list_button)
-        else:
-            # No unique values - use regular line edit
-            self.exact_input = QLineEdit()
-            self.exact_input.setPlaceholderText("Exact value")
-            self.exact_input.setMaximumHeight(22)
-            self.exact_input.setStyleSheet("""
-                QLineEdit {
-                    font-size: 10px;
-                    padding: 2px 4px;
-                    background: white;
-                }
-            """)
-            exact_layout.addWidget(self.exact_input)
-
-        exact_widget = QWidget()
-        exact_widget.setStyleSheet("background: transparent;")
-        exact_widget.setLayout(exact_layout)
-        self.controls_layout.addWidget(exact_widget)
+            combo_row.addWidget(self.list_button)
         
-        # Or label
-        # or_label = QLabel("or")
-        # or_label.setStyleSheet("font-size: 9px; color: #7f8c8d; background: transparent;")
-        # self.controls_layout.addWidget(or_label)
+        combo_row.addStretch()
         
-        # Range inputs in one line: Min [____] to [____] Max
+        # Add combo row to layout
+        combo_widget = QWidget()
+        combo_widget.setStyleSheet("background: transparent;")
+        combo_widget.setLayout(combo_row)
+        self.controls_layout.addWidget(combo_widget)
+        
+        # Second row: Input area (changes based on mode)
+        self.numeric_input_container = QWidget()
+        self.numeric_input_container.setStyleSheet("background: transparent;")
+        self.numeric_input_layout = QHBoxLayout(self.numeric_input_container)
+        self.numeric_input_layout.setSpacing(4)
+        self.numeric_input_layout.setContentsMargins(0, 0, 0, 0)
+        self.controls_layout.addWidget(self.numeric_input_container)
+        
+        # Create all input widgets (will show/hide based on mode)
+        self._create_numeric_inputs()
+        
+        # Set initial visibility based on mode
+        self._on_numeric_mode_changed(self.match_type_combo.currentText())
+    
+    def _create_numeric_inputs(self):
+        """Create all numeric input widgets"""
+        # Exact value input
+        self.exact_input = QLineEdit()
+        self.exact_input.setPlaceholderText("Enter value")
+        self.exact_input.setMaximumHeight(22)
+        self.exact_input.setMinimumWidth(120)
+        self.exact_input.setMaximumWidth(160)
+        self.exact_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: white;
+            }
+        """)
+        self.numeric_input_layout.addWidget(self.exact_input)
+        
+        # Range container
+        self.range_container = QWidget()
+        self.range_container.setStyleSheet("background: transparent;")
+        range_layout = QHBoxLayout(self.range_container)
+        range_layout.setSpacing(4)
+        range_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.range_low_input = QLineEdit()
         self.range_low_input.setPlaceholderText("Min")
         self.range_low_input.setMaximumHeight(22)
+        self.range_low_input.setMaximumWidth(60)
         self.range_low_input.setStyleSheet("""
             QLineEdit {
                 font-size: 10px;
@@ -4445,16 +5765,15 @@ class CriteriaFilterWidget(QFrame):
             }
         """)
         range_layout.addWidget(self.range_low_input)
-
-        # To label
+        
         to_label = QLabel("to")
         to_label.setStyleSheet("font-size: 9px; color: #7f8c8d; background: transparent;")
         range_layout.addWidget(to_label)
-
-        # Range high
+        
         self.range_high_input = QLineEdit()
         self.range_high_input.setPlaceholderText("Max")
         self.range_high_input.setMaximumHeight(22)
+        self.range_high_input.setMaximumWidth(60)
         self.range_high_input.setStyleSheet("""
             QLineEdit {
                 font-size: 10px;
@@ -4464,74 +5783,234 @@ class CriteriaFilterWidget(QFrame):
         """)
         range_layout.addWidget(self.range_high_input)
         
-        # Add range layout as a widget
-        range_widget = QWidget()
-        range_widget.setStyleSheet("background: transparent;")
-        range_widget.setLayout(range_layout)
-        self.controls_layout.addWidget(range_widget)
+        self.numeric_input_layout.addWidget(self.range_container)
+        
+        # Expression input with pen button
+        self.expression_container = QWidget()
+        self.expression_container.setStyleSheet("background: transparent;")
+        expr_layout = QHBoxLayout(self.expression_container)
+        expr_layout.setSpacing(4)
+        expr_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("Enter expression...")
+        self.filter_input.setMaximumHeight(22)
+        self.filter_input.setMinimumWidth(120)
+        self.filter_input.setMaximumWidth(140)
+        self.filter_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: white;
+            }
+        """)
+        expr_layout.addWidget(self.filter_input)
+        
+        self.custom_criteria_button = QPushButton("🖊")
+        self.custom_criteria_button.setFixedSize(20, 20)
+        self.custom_criteria_button.setToolTip("Open larger editor")
+        self.custom_criteria_button.setStyleSheet("""
+            QPushButton {
+                background: white;
+                color: #ff9800;
+                border: 2px solid #ff9800;
+                border-radius: 3px;
+                font-size: 12px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background: #fff3e0;
+            }
+        """)
+        self.custom_criteria_button.clicked.connect(self._open_custom_criteria_dialog)
+        expr_layout.addWidget(self.custom_criteria_button)
+        
+        self.numeric_input_layout.addWidget(self.expression_container)
+        self.numeric_input_layout.addStretch()
+    
+    def _on_numeric_mode_changed(self, text):
+        """Handle numeric mode combobox changes"""
+        # Hide all input containers based on mode
+        # In List mode, hide all inputs (use list button only)
+        if hasattr(self, 'exact_input'):
+            self.exact_input.setVisible(text == "Exact")
+        if hasattr(self, 'range_container'):
+            self.range_container.setVisible(text == "Range")
+        if hasattr(self, 'expression_container'):
+            self.expression_container.setVisible(text == "Expression")
+        # In List mode, all are hidden (nothing to show)
 
     def _add_date_filter_compact(self):
-        """Add compact date filter controls"""
-        # Exact date (reduced height)
-        self.exact_date_input = QDateEdit()
-        self.exact_date_input.setCalendarPopup(True)
-        self.exact_date_input.setDate(QDate.currentDate())
+        """Add compact date filter controls matching string filter style"""
+        # First row: Mode dropdown with list button
+        combo_row = QHBoxLayout()
+        combo_row.setSpacing(4)
+        combo_row.setContentsMargins(0, 0, 0, 0)
+        
+        # Mode dropdown (compact with reduced height)
+        self.match_type_combo = QComboBox()
+        if self.unique_values:
+            self.match_type_combo.addItems(["List", "Exact", "Range", "Expression"])
+            self.match_type_combo.setCurrentText("List")
+        else:
+            self.match_type_combo.addItems(["Exact", "Range", "Expression"])
+            self.match_type_combo.setCurrentText("Exact")
+        self.match_type_combo.setMinimumWidth(80)
+        self.match_type_combo.setMaximumWidth(90)
+        self.match_type_combo.setMaximumHeight(22)
+        self.match_type_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: white;
+            }
+        """)
+        self.match_type_combo.currentTextChanged.connect(self._on_date_mode_changed)
+        combo_row.addWidget(self.match_type_combo)
+        
+        # List button next to combobox (if unique values exist)
+        if self.unique_values:
+            self.selected_values = self.unique_values[:]
+            
+            self.list_button = QPushButton("☰")
+            self.list_button.setFixedSize(20, 20)
+            self.list_button.setToolTip(f"Select Values ({len(self.unique_values)} available)")
+            self._update_list_button_style()
+            self.list_button.clicked.connect(self._open_value_selection_popup)
+            combo_row.addWidget(self.list_button)
+        
+        combo_row.addStretch()
+        
+        # Add combo row to layout
+        combo_widget = QWidget()
+        combo_widget.setStyleSheet("background: transparent;")
+        combo_widget.setLayout(combo_row)
+        self.controls_layout.addWidget(combo_widget)
+        
+        # Second row: Input area (changes based on mode)
+        self.date_input_container = QWidget()
+        self.date_input_container.setStyleSheet("background: transparent;")
+        self.date_input_layout = QHBoxLayout(self.date_input_container)
+        self.date_input_layout.setSpacing(4)
+        self.date_input_layout.setContentsMargins(0, 0, 0, 0)
+        self.controls_layout.addWidget(self.date_input_container)
+        
+        # Create all input widgets (will show/hide based on mode)
+        self._create_date_inputs()
+        
+        # Set initial visibility based on mode
+        self._on_date_mode_changed(self.match_type_combo.currentText())
+    
+    def _create_date_inputs(self):
+        """Create all date input widgets"""
+        # Exact date input (text field, not date picker)
+        self.exact_date_input = QLineEdit()
+        self.exact_date_input.setPlaceholderText("YYYY-MM-DD")
+        self.exact_date_input.setMaximumHeight(22)
         self.exact_date_input.setMinimumWidth(100)
         self.exact_date_input.setMaximumWidth(120)
-        self.exact_date_input.setMaximumHeight(22)
-        self.exact_date_input.setDisplayFormat("MM/dd/yyyy")
         self.exact_date_input.setStyleSheet("""
-            QDateEdit {
+            QLineEdit {
                 font-size: 10px;
                 padding: 2px 4px;
                 background: white;
             }
         """)
-        self.controls_layout.addWidget(self.exact_date_input)
-
-        # Or label
-        or_label = QLabel("or")
-        or_label.setStyleSheet("font-size: 10px; color: #7f8c8d; background: transparent;")
-        self.controls_layout.addWidget(or_label)
-
-        # Date range start (reduced height)
-        self.date_range_start = QDateEdit()
-        self.date_range_start.setCalendarPopup(True)
-        self.date_range_start.setDate(QDate.currentDate())
-        self.date_range_start.setMinimumWidth(100)
-        self.date_range_start.setMaximumWidth(120)
+        self.date_input_layout.addWidget(self.exact_date_input)
+        
+        # Range container
+        self.date_range_container = QWidget()
+        self.date_range_container.setStyleSheet("background: transparent;")
+        range_layout = QHBoxLayout(self.date_range_container)
+        range_layout.setSpacing(4)
+        range_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.date_range_start = QLineEdit()
+        self.date_range_start.setPlaceholderText("Min")
         self.date_range_start.setMaximumHeight(22)
-        self.date_range_start.setDisplayFormat("MM/dd/yyyy")
+        self.date_range_start.setMaximumWidth(80)
         self.date_range_start.setStyleSheet("""
-            QDateEdit {
+            QLineEdit {
                 font-size: 10px;
                 padding: 2px 4px;
                 background: white;
             }
         """)
-        self.controls_layout.addWidget(self.date_range_start)
-
-        # To label
+        range_layout.addWidget(self.date_range_start)
+        
         to_label = QLabel("to")
-        to_label.setStyleSheet("font-size: 10px; color: #7f8c8d; background: transparent;")
-        self.controls_layout.addWidget(to_label)
-
-        # Date range end (reduced height)
-        self.date_range_end = QDateEdit()
-        self.date_range_end.setCalendarPopup(True)
-        self.date_range_end.setDate(QDate.currentDate())
-        self.date_range_end.setMinimumWidth(100)
-        self.date_range_end.setMaximumWidth(120)
+        to_label.setStyleSheet("font-size: 9px; color: #7f8c8d; background: transparent;")
+        range_layout.addWidget(to_label)
+        
+        self.date_range_end = QLineEdit()
+        self.date_range_end.setPlaceholderText("Max")
         self.date_range_end.setMaximumHeight(22)
-        self.date_range_end.setDisplayFormat("MM/dd/yyyy")
+        self.date_range_end.setMaximumWidth(80)
         self.date_range_end.setStyleSheet("""
-            QDateEdit {
+            QLineEdit {
                 font-size: 10px;
                 padding: 2px 4px;
                 background: white;
             }
         """)
-        self.controls_layout.addWidget(self.date_range_end)
+        range_layout.addWidget(self.date_range_end)
+        
+        self.date_input_layout.addWidget(self.date_range_container)
+        
+        # Expression input with pen button
+        self.date_expression_container = QWidget()
+        self.date_expression_container.setStyleSheet("background: transparent;")
+        expr_layout = QHBoxLayout(self.date_expression_container)
+        expr_layout.setSpacing(4)
+        expr_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("Enter expression...")
+        self.filter_input.setMaximumHeight(22)
+        self.filter_input.setMinimumWidth(120)
+        self.filter_input.setMaximumWidth(140)
+        self.filter_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 10px;
+                padding: 2px 4px;
+                background: white;
+            }
+        """)
+        expr_layout.addWidget(self.filter_input)
+        
+        self.custom_criteria_button = QPushButton("🖊")
+        self.custom_criteria_button.setFixedSize(20, 20)
+        self.custom_criteria_button.setToolTip("Open larger editor")
+        self.custom_criteria_button.setStyleSheet("""
+            QPushButton {
+                background: white;
+                color: #ff9800;
+                border: 2px solid #ff9800;
+                border-radius: 3px;
+                font-size: 12px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background: #fff3e0;
+            }
+        """)
+        self.custom_criteria_button.clicked.connect(self._open_custom_criteria_dialog)
+        expr_layout.addWidget(self.custom_criteria_button)
+        
+        self.date_input_layout.addWidget(self.date_expression_container)
+        self.date_input_layout.addStretch()
+    
+    def _on_date_mode_changed(self, text):
+        """Handle date mode combobox changes"""
+        # Hide all input containers based on mode
+        # In List mode, hide all inputs (use list button only)
+        if hasattr(self, 'exact_date_input'):
+            self.exact_date_input.setVisible(text == "Exact")
+        if hasattr(self, 'date_range_container'):
+            self.date_range_container.setVisible(text == "Range")
+        if hasattr(self, 'date_expression_container'):
+            self.date_expression_container.setVisible(text == "Expression")
+        # In List mode, all are hidden (nothing to show)
 
     def _add_default_filter_compact(self):
         """Add simple text input for unknown types"""
@@ -4548,143 +6027,103 @@ class CriteriaFilterWidget(QFrame):
             }
         """)
         self.controls_layout.addWidget(self.filter_input)
-        self.date_range_end.setCalendarPopup(True)
-        self.date_range_end.setDate(QDate.currentDate())
-        self.date_range_end.setMinimumWidth(100)
-        self.date_range_end.setMaximumWidth(120)
-        self.date_range_end.setStyleSheet("font-size: 10px;")
-        self.date_range_end.setDisplayFormat("MM/dd/yyyy")
-        self.controls_layout.addWidget(self.date_range_end)
-
-    def _add_default_filter_compact(self):
-        """Add compact default text input filter"""
-        self.filter_input = QLineEdit()
-        self.filter_input.setPlaceholderText("Enter value...")
-        self.filter_input.setMinimumWidth(150)
-        self.filter_input.setMaximumWidth(250)
-        self.filter_input.setStyleSheet("font-size: 10px;")
-        self.controls_layout.addWidget(self.filter_input)
 
     def get_filter_value(self):
         """Get the current filter configuration"""
         data_type = self.field_data['data_type'].upper()
         result = None
+        
+        # Determine data type category
+        is_string = any(t in data_type for t in ['CHAR', 'VARCHAR', 'TEXT', 'STRING'])
+        is_numeric = any(t in data_type for t in ['INT', 'DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE', 'REAL', 'NUMBER'])
+        is_date = any(t in data_type for t in ['DATE', 'TIME', 'TIMESTAMP'])
 
         # Check if "None" is selected - return None to skip this filter
         if hasattr(self, 'match_type_combo') and self.match_type_combo.currentText() == "None":
             return None
-
-        # Checkbox list mode - only include if "List" is showing in combobox (meaning actively filtering)
-        # OR if we have list_button (numeric with unique values) and not all are selected
-        if hasattr(self, 'selected_values') and self.selected_values is not None:
-            # Check if we're using a list button (numeric unique values) AND not all are selected
+        
+        # Get current mode from combo box
+        mode = self.match_type_combo.currentText() if hasattr(self, 'match_type_combo') else "Exact"
+        
+        # Handle List mode (for all types with unique values)
+        if mode == "List" and hasattr(self, 'selected_values') and self.selected_values is not None:
+            # Only filter if not all values are selected
             if hasattr(self, 'list_button') and len(self.selected_values) < len(self.unique_values):
                 result = {
                     'type': 'checkbox_list',
                     'selected_values': self.selected_values
                 }
-            # Only return list filter if combobox shows "List" (indicating active filtering)
-            elif hasattr(self, 'match_type_combo') and self.match_type_combo.currentText() == "List":
+            else:
+                # All selected, no filter needed
                 result = {
                     'type': 'checkbox_list',
                     'selected_values': self.selected_values
                 }
-            # If "List" is not showing, check for text input instead
-            elif hasattr(self, 'filter_input') and self.filter_input.text():
-                if hasattr(self, 'match_type_combo'):
-                    match_types = {
-                        'Exact': 'exact',
-                        'Starts': 'starts_with',
-                        'Ends': 'ends_with',
-                        'Contains': 'contains',
-                        'Expression': 'expression'
-                    }
-                    match_type = self.match_type_combo.currentText()
-                    
-                    if match_type == 'Expression':
-                        result = {
-                            'type': 'expression',
-                            'value': self.filter_input.text()
-                        }
-                    else:
-                        result = {
-                            'type': 'string',
-                            'match_type': match_types.get(match_type, 'exact'),
-                            'value': self.filter_input.text()
-                        }
-
-        # String mode
-        elif hasattr(self, 'match_type_combo'):
+        
+        # Handle Expression mode (for all types)
+        elif mode == "Expression":
+            expr_value = ""
+            if hasattr(self, 'filter_input'):
+                expr_value = self.filter_input.text()
+            result = {
+                'type': 'expression',
+                'value': expr_value,
+                'function_wrapper': getattr(self, 'function_wrapper', '')
+            }
+        
+        # Handle string-specific modes
+        elif is_string:
             match_types = {
                 'Exact': 'exact',
                 'Starts': 'starts_with',
                 'Ends': 'ends_with',
-                'Contains': 'contains',
-                'Expression': 'expression'
+                'Contains': 'contains'
             }
-            match_type = self.match_type_combo.currentText()
-            
-            # If Expression mode, treat the filter_input as custom criteria
-            if match_type == 'Expression':
-                result = {
-                    'type': 'expression',
-                    'value': self.filter_input.text() if hasattr(self, 'filter_input') else ''
-                }
-            else:
-                result = {
-                    'type': 'string',
-                    'match_type': match_types.get(match_type, 'exact'),
-                    'value': self.filter_input.text() if hasattr(self, 'filter_input') else ''
-                }
-
-        # Numeric mode (check which input has value)
-        elif hasattr(self, 'exact_input'):
-            # Handle both QLineEdit (text()) and QComboBox (currentText())
-            if isinstance(self.exact_input, QComboBox):
-                exact_val = self.exact_input.currentText().strip()
-            else:
+            result = {
+                'type': 'string',
+                'match_type': match_types.get(mode, 'exact'),
+                'value': self.filter_input.text() if hasattr(self, 'filter_input') else ''
+            }
+        
+        # Handle numeric modes
+        elif is_numeric:
+            if mode == "Exact" and hasattr(self, 'exact_input'):
                 exact_val = self.exact_input.text().strip()
-
-            low_val = self.range_low_input.text().strip() if hasattr(self, 'range_low_input') else ''
-            high_val = self.range_high_input.text().strip() if hasattr(self, 'range_high_input') else ''
-
-            # Skip if exact value is "None"
-            if exact_val and exact_val != "None":
-                result = {
-                    'type': 'numeric_exact',
-                    'value': exact_val
-                }
-            elif low_val or high_val:
-                result = {
-                    'type': 'numeric_range',
-                    'low': low_val,
-                    'high': high_val
-                }
-
-        # Date mode (check which input to use)
-        elif hasattr(self, 'exact_date_input'):
-            # Check if range inputs have been modified from default
-            if hasattr(self, 'date_range_start') and hasattr(self, 'date_range_end'):
-                start_date = self.date_range_start.date().toString('yyyy-MM-dd')
-                end_date = self.date_range_end.date().toString('yyyy-MM-dd')
-                exact_date = self.exact_date_input.date().toString('yyyy-MM-dd')
-                
-                # If range dates differ from current date, use range
-                if start_date != exact_date or end_date != exact_date:
+                if exact_val:
+                    result = {
+                        'type': 'numeric_exact',
+                        'value': exact_val
+                    }
+            elif mode == "Range" and hasattr(self, 'range_low_input') and hasattr(self, 'range_high_input'):
+                low_val = self.range_low_input.text().strip()
+                high_val = self.range_high_input.text().strip()
+                if low_val or high_val:
+                    result = {
+                        'type': 'numeric_range',
+                        'low': low_val,
+                        'high': high_val
+                    }
+        
+        # Handle date modes
+        elif is_date:
+            if mode == "Exact" and hasattr(self, 'exact_date_input'):
+                exact_val = self.exact_date_input.text().strip()
+                if exact_val:
+                    result = {
+                        'type': 'date_exact',
+                        'value': exact_val
+                    }
+            elif mode == "Range" and hasattr(self, 'date_range_start') and hasattr(self, 'date_range_end'):
+                start_val = self.date_range_start.text().strip()
+                end_val = self.date_range_end.text().strip()
+                if start_val or end_val:
                     result = {
                         'type': 'date_range',
-                        'start': start_date,
-                        'end': end_date
+                        'start': start_val,
+                        'end': end_val
                     }
-            
-            # Otherwise use exact date
-            if not result:
-                result = {
-                    'type': 'date_exact',
-                    'value': self.exact_date_input.date().toString('yyyy-MM-dd')
-                }
-
-        # Default mode
+        
+        # Default fallback
         elif hasattr(self, 'filter_input'):
             result = {
                 'type': 'text',
@@ -4765,32 +6204,33 @@ class CriteriaFilterWidget(QFrame):
 
     def _reset_filter_values(self):
         """Reset all filter values to defaults"""
-        # Reset string filter
+        # Reset match type combo to appropriate default
         if hasattr(self, 'match_type_combo'):
-            self.match_type_combo.setCurrentText("Exact")
-        if hasattr(self, 'filter_input'):
-            if isinstance(self.filter_input, QLineEdit):
-                self.filter_input.clear()
+            # If List is available (has unique values), default to List, otherwise Exact
+            if self.unique_values:
+                self.match_type_combo.setCurrentText("List")
+            else:
+                self.match_type_combo.setCurrentText("Exact")
+        
+        # Reset text filter input
+        if hasattr(self, 'filter_input') and isinstance(self.filter_input, QLineEdit):
+            self.filter_input.clear()
 
         # Reset numeric filter
-        if hasattr(self, 'exact_input'):
-            if isinstance(self.exact_input, QComboBox):
-                self.exact_input.setCurrentText("None")
-            elif isinstance(self.exact_input, QLineEdit):
-                self.exact_input.clear()
-
+        if hasattr(self, 'exact_input') and isinstance(self.exact_input, QLineEdit):
+            self.exact_input.clear()
         if hasattr(self, 'range_low_input'):
             self.range_low_input.clear()
         if hasattr(self, 'range_high_input'):
             self.range_high_input.clear()
 
         # Reset date filter
-        if hasattr(self, 'exact_date_input'):
-            self.exact_date_input.setDate(QDate.currentDate())
-        if hasattr(self, 'date_range_start'):
-            self.date_range_start.setDate(QDate.currentDate())
-        if hasattr(self, 'date_range_end'):
-            self.date_range_end.setDate(QDate.currentDate())
+        if hasattr(self, 'exact_date_input') and isinstance(self.exact_date_input, QLineEdit):
+            self.exact_date_input.clear()
+        if hasattr(self, 'date_range_start') and isinstance(self.date_range_start, QLineEdit):
+            self.date_range_start.clear()
+        if hasattr(self, 'date_range_end') and isinstance(self.date_range_end, QLineEdit):
+            self.date_range_end.clear()
 
         # Reset selected values to all (if unique values exist)
         if hasattr(self, 'unique_values') and self.unique_values:
@@ -5241,6 +6681,339 @@ class DisplayFieldWidget(QFrame):
                     source_widget.show()
                     
             event.acceptProposedAction()
+
+
+class DroppableExpressionLineEdit(QLineEdit):
+    """QLineEdit that accepts field drops and appends field name to expression"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+    
+    def dragEnterEvent(self, event):
+        """Accept drag if it contains field data"""
+        if event.mimeData().hasText():
+            try:
+                import json
+                data = json.loads(event.mimeData().text())
+                if 'field_name' in data:
+                    event.acceptProposedAction()
+                    # Visual feedback - highlight border
+                    self.setStyleSheet(self.styleSheet() + "border: 2px solid #1a5c1a !important;")
+                    return
+            except (json.JSONDecodeError, KeyError):
+                pass
+        event.ignore()
+    
+    def dragLeaveEvent(self, event):
+        """Remove highlight when drag leaves"""
+        # Reset to normal style
+        self.setStyleSheet(self.styleSheet().replace("border: 2px solid #1a5c1a !important;", ""))
+    
+    def dropEvent(self, event):
+        """Append field name to expression"""
+        if event.mimeData().hasText():
+            try:
+                import json
+                data = json.loads(event.mimeData().text())
+                field_name = data.get('field_name', '')
+                if field_name:
+                    # Append field name to current text
+                    current = self.text()
+                    if current and not current.endswith(' '):
+                        current += ' '
+                    self.setText(current + field_name)
+                    event.acceptProposedAction()
+                    # Reset style
+                    self.setStyleSheet(self.styleSheet().replace("border: 2px solid #1a5c1a !important;", ""))
+                    return
+            except (json.JSONDecodeError, KeyError):
+                pass
+        event.ignore()
+
+
+class DroppableExpressionTextEdit(QTextEdit):
+    """QTextEdit that accepts field drops and appends field name to expression"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+    
+    def dragEnterEvent(self, event):
+        """Accept drag if it contains field data"""
+        if event.mimeData().hasText():
+            try:
+                import json
+                data = json.loads(event.mimeData().text())
+                if 'field_name' in data:
+                    event.acceptProposedAction()
+                    # Visual feedback - highlight border
+                    self.setStyleSheet(self.styleSheet() + "border: 2px solid #1a5c1a !important;")
+                    return
+            except (json.JSONDecodeError, KeyError):
+                pass
+        event.ignore()
+    
+    def dragLeaveEvent(self, event):
+        """Remove highlight when drag leaves"""
+        # Reset to normal style
+        self.setStyleSheet(self.styleSheet().replace("border: 2px solid #1a5c1a !important;", ""))
+    
+    def dropEvent(self, event):
+        """Append field name at cursor position or end"""
+        if event.mimeData().hasText():
+            try:
+                import json
+                data = json.loads(event.mimeData().text())
+                field_name = data.get('field_name', '')
+                if field_name:
+                    # Insert at cursor position
+                    cursor = self.textCursor()
+                    # Add space before if needed
+                    if cursor.position() > 0:
+                        cursor.movePosition(cursor.MoveOperation.Left, cursor.MoveMode.KeepAnchor, 1)
+                        char_before = cursor.selectedText()
+                        cursor.movePosition(cursor.MoveOperation.Right, cursor.MoveMode.MoveAnchor, 1)
+                        if char_before and char_before not in ' \n\t(':
+                            field_name = ' ' + field_name
+                    cursor.insertText(field_name)
+                    event.acceptProposedAction()
+                    # Reset style
+                    self.setStyleSheet(self.styleSheet().replace("border: 2px solid #1a5c1a !important;", ""))
+                    return
+            except (json.JSONDecodeError, KeyError):
+                pass
+        event.ignore()
+
+
+class ExpressionFieldWidget(QFrame):
+    """Widget for a user-defined expression field (computed column)"""
+
+    remove_requested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.is_expression = True  # Mark as expression field
+        self.init_ui()
+
+    def init_ui(self):
+        """Initialize UI"""
+        self.setFrameStyle(QFrame.Shape.Box)
+        
+        # Dark green border to distinguish from regular fields
+        self.setStyleSheet("""
+            ExpressionFieldWidget {
+                border: 2px solid #1a5c1a;
+                border-radius: 6px;
+                background: white;
+                padding: 0px;
+            }
+        """)
+        
+        # Fixed width for tile layout - match DisplayFieldWidget width
+        self.setFixedWidth(200)
+        self.setFixedHeight(90)  # Taller to fit expression input
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(2)
+        layout.setContentsMargins(4, 3, 4, 3)
+
+        # Header row: Column name input and remove button
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(3)
+        
+        # Column name label
+        name_label = QLabel("Name:")
+        name_label.setStyleSheet("font-size: 9px; color: #7f8c8d; background: transparent;")
+        header_layout.addWidget(name_label)
+        
+        # Column name input (editable)
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Column name")
+        self.name_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 10px;
+                font-weight: bold;
+                padding: 2px 4px;
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 2px;
+                color: #2c3e50;
+            }
+            QLineEdit:focus {
+                border-color: #1a5c1a;
+            }
+        """)
+        self.name_input.setMaximumHeight(18)
+        header_layout.addWidget(self.name_input, 1)
+        
+        # Subtle remove button with X
+        remove_btn = QPushButton("×")
+        remove_btn.setFixedSize(14, 14)
+        remove_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #999;
+                border: none;
+                font-size: 16px;
+                font-weight: normal;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                color: #e74c3c;
+            }
+        """)
+        remove_btn.clicked.connect(self.remove_requested.emit)
+        header_layout.addWidget(remove_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        
+        layout.addLayout(header_layout)
+        
+        # Expression row: Expression input with edit button
+        expr_layout = QHBoxLayout()
+        expr_layout.setSpacing(2)
+        
+        expr_label = QLabel("Expr:")
+        expr_label.setStyleSheet("font-size: 9px; color: #7f8c8d; background: transparent;")
+        expr_layout.addWidget(expr_label)
+        
+        # Expression input - use droppable line edit
+        self.expression_input = DroppableExpressionLineEdit()
+        self.expression_input.setPlaceholderText("e.g., UNITS * VAL_PER_UNIT")
+        self.expression_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 9px;
+                padding: 2px 4px;
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 2px;
+            }
+            QLineEdit:focus {
+                border-color: #1a5c1a;
+            }
+        """)
+        self.expression_input.setMaximumHeight(18)
+        expr_layout.addWidget(self.expression_input, 1)
+        
+        # Pen button to expand/edit expression
+        self.edit_btn = QPushButton("✏")
+        self.edit_btn.setFixedSize(18, 18)
+        self.edit_btn.setToolTip("Edit expression")
+        self.edit_btn.setStyleSheet("""
+            QPushButton {
+                background: #1a5c1a;
+                color: white;
+                border: none;
+                font-size: 10px;
+                padding: 0px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background: #2d8a2d;
+            }
+        """)
+        self.edit_btn.clicked.connect(self.edit_expression)
+        expr_layout.addWidget(self.edit_btn)
+        
+        layout.addLayout(expr_layout)
+        
+        # Data type row
+        type_layout = QHBoxLayout()
+        type_layout.setSpacing(2)
+        
+        type_label = QLabel("Type:")
+        type_label.setStyleSheet("font-size: 9px; color: #7f8c8d; background: transparent;")
+        type_layout.addWidget(type_label)
+        
+        # Data type combobox
+        self.type_combo = QComboBox()
+        self.type_combo.addItems([
+            "DECIMAL(15,2)", "INTEGER", "BIGINT", "SMALLINT",
+            "FLOAT", "DOUBLE", "CHAR(50)", "VARCHAR(100)", 
+            "DATE", "TIMESTAMP"
+        ])
+        self.type_combo.setEditable(True)  # Allow custom types
+        self.type_combo.setStyleSheet("""
+            QComboBox {
+                font-size: 9px;
+                padding: 1px 2px;
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 2px;
+            }
+            QComboBox:focus {
+                border-color: #1a5c1a;
+            }
+        """)
+        self.type_combo.setMaximumHeight(18)
+        type_layout.addWidget(self.type_combo, 1)
+        
+        layout.addLayout(type_layout)
+    
+    def edit_expression(self):
+        """Open a dialog to edit the expression with more space"""
+        from PyQt6.QtWidgets import QDialog, QDialogButtonBox
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Edit Expression")
+        dialog.setMinimumSize(400, 200)
+        
+        dlg_layout = QVBoxLayout(dialog)
+        
+        # Expression text area - use droppable text edit
+        text_edit = DroppableExpressionTextEdit()
+        text_edit.setPlainText(self.expression_input.text())
+        text_edit.setStyleSheet("""
+            QTextEdit {
+                font-family: Consolas, monospace;
+                font-size: 12px;
+                padding: 8px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+        """)
+        dlg_layout.addWidget(text_edit)
+        
+        # Hint label
+        hint = QLabel("Enter SQL expression. Drag fields from the Fields panel to add them.")
+        hint.setStyleSheet("color: #666; font-size: 10px; font-style: italic;")
+        dlg_layout.addWidget(hint)
+        
+        # Button box
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        dlg_layout.addWidget(button_box)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Get expression (join lines if multiline)
+            expression = text_edit.toPlainText().replace('\n', ' ').strip()
+            self.expression_input.setText(expression)
+    
+    def get_field_data(self) -> dict:
+        """Get field data for query building"""
+        return {
+            'field_name': self.name_input.text().strip() or 'UNNAMED',
+            'expression': self.expression_input.text().strip(),
+            'data_type': self.type_combo.currentText(),
+            'is_expression': True,
+            'table_name': '',  # Expression fields don't belong to a specific table
+            'schema_name': ''
+        }
+    
+    def get_alias(self) -> str:
+        """Get the column alias (same as field name for expressions)"""
+        return self.name_input.text().strip() or 'UNNAMED'
+    
+    def get_order(self) -> str:
+        """Expression fields don't have ordering in this version"""
+        return "None"
+    
+    def get_aggregation(self) -> str:
+        """Expression fields don't have aggregation in this version"""
+        return "None"
 
 
 class JoinWidget(QFrame):
