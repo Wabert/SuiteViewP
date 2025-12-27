@@ -207,3 +207,25 @@
 [FILTER]   - init_ui completed: 59.58ms
 [FILTER] TOTAL FilterPopup creation time: 131.82ms
 [FILTER] TOTAL time to open filter box: 151.29ms
+
+[FILTER] FilterPopup.__init__ started for TCH_POL_ID with 99794 values
+[FILTER]   - Sort 99794 values: 51.50ms
+[FILTER]   - QStringListModel created with 99794 items in 34.08ms
+[FILTER]   - Proxy model created: 0.73ms
+[FILTER]   - QListView created: 0.67ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.11ms
+[FILTER]   - setModel() called AFTER addWidget: 2.65ms
+[FILTER]   - init_ui completed: 59.72ms
+[FILTER] TOTAL FilterPopup creation time: 133.08ms
+[FILTER] TOTAL time to open filter box: 148.50ms
+
+[FILTER] FilterPopup.__init__ started for CK_POLICY_NBR with 99794 values
+[FILTER]   - Sort 99794 values: 45.97ms
+[FILTER]   - QStringListModel created with 99794 items in 23.46ms
+[FILTER]   - Proxy model created: 0.18ms
+[FILTER]   - QListView created: 0.40ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.15ms
+[FILTER]   - setModel() called AFTER addWidget: 2.35ms
+[FILTER]   - init_ui completed: 45.08ms
+[FILTER] TOTAL FilterPopup creation time: 115.48ms
+[FILTER] TOTAL time to open filter box: 128.16ms

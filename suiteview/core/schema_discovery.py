@@ -554,42 +554,60 @@ class SchemaDiscovery:
             logger.info(f"Fetching {limit:,} rows from {schema_name}.{table_name}...")
             fetch_start = time.perf_counter()
             
-            # Enable bulk fetching for better performance with large result sets
-            conn_str = f"DSN={dsn};BLOCKSIZE=32767;CURRENTPACKAGESET=NULLID"
-            conn = pyodbc.connect(conn_str)
+            # OPTIMIZED CONNECTION STRING for maximum DB2 performance
+            # BLOCKSIZE=65535: Maximum packet size (64KB) for bulk data transfer (default=32KB)
+            # MAXLOBSIZE=0: Skip LOB (CLOB/BLOB) columns in preview for faster transfer
+            # DEFERREDPREPARE=1: Defer SQL statement preparation until execute (reduces overhead)
+            # CURRENTPACKAGESET=NULLID: Use default package set
+            # autocommit=True: Avoid transaction overhead for read-only operations
+            conn_str = f"DSN={dsn};BLOCKSIZE=65535;MAXLOBSIZE=0;DEFERREDPREPARE=1;CURRENTPACKAGESET=NULLID"
+            
+            conn_start = time.perf_counter()
+            conn = pyodbc.connect(conn_str, autocommit=True)
+            conn_time = time.perf_counter()
+            logger.info(f"DB2 connection established in {(conn_time - conn_start):.3f} seconds")
+            
             cursor = conn.cursor()
             
-            # Set optimal arraysize for DB2 bulk fetching
-            cursor.arraysize = 10000
+            # Set optimal arraysize for DB2 bulk fetching (match expected row count)
+            cursor.arraysize = min(limit, 10000)
+            logger.info(f"Cursor arraysize set to {cursor.arraysize}")
             
             # Build qualified table name
             qualified_table = f'{schema_name}.{table_name}'
             
-            # DB2 FETCH FIRST query - use WITH UR for uncommitted read (faster)
-            query = f"SELECT * FROM {qualified_table} FETCH FIRST {limit} ROWS ONLY WITH UR"
+            # OPTIMIZED QUERY with OPTIMIZE FOR clause
+            # WITH UR: Uncommitted read (faster, no locking)
+            # OPTIMIZE FOR N ROWS: Hints DB2 optimizer to prioritize first N rows (better access path)
+            query = f"SELECT * FROM {qualified_table} FETCH FIRST {limit} ROWS ONLY WITH UR OPTIMIZE FOR {limit} ROWS"
             
             # Execute query
             query_start = time.perf_counter()
             cursor.execute(query)
             query_time = time.perf_counter()
-            logger.info(f"DB2 query executed in {(query_time - query_start):.2f} seconds")
+            logger.info(f"DB2 query executed in {(query_time - query_start):.3f} seconds")
             
             # Get column names
+            columns_start = time.perf_counter()
             columns = [column[0] for column in cursor.description]
+            columns_time = time.perf_counter()
+            logger.info(f"Retrieved {len(columns)} column names in {(columns_time - columns_start):.3f} seconds")
             
-            # Fetch all data at once
-            # NOTE: pyodbc with DB2 is fundamentally slow for large result sets
-            # This is a known limitation - row-by-row Python conversion is the bottleneck
+            # Fetch all data at once with timing
+            # NOTE: pyodbc row-by-row Python object conversion is a known bottleneck
+            # The optimized connection parameters above should improve this significantly
             fetch_start_time = time.perf_counter()
             data = cursor.fetchall()
             fetch_time = time.perf_counter()
             logger.info(f"DB2 data fetch: {len(data):,} rows in {(fetch_time - fetch_start_time):.2f} seconds")
+            logger.info(f"Fetch rate: {len(data) / (fetch_time - fetch_start_time):.0f} rows/second")
             
             cursor.close()
             conn.close()
             
             fetch_total = time.perf_counter()
             logger.info(f"TOTAL DB2 preview fetch time: {(fetch_total - fetch_start):.2f} seconds for {len(data):,} rows")
+            logger.info(f"Overall rate: {len(data) / (fetch_total - fetch_start):.0f} rows/second")
             return (columns, data)
             
         except Exception as e:
