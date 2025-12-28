@@ -450,16 +450,22 @@ class DataSetScreen(QWidget):
         header_layout.setContentsMargins(10, 10, 10, 10)
         header_layout.setSpacing(10)
         
-        # Dataset name (big and bold in the middle)
-        self.dataset_name_label = QLabel("New Package")
+        # Dataset name (big and bold in the middle - clickable to edit)
+        self.dataset_name_label = QLabel("New Data Set")
         self.dataset_name_label.setStyleSheet("""
             QLabel {
                 font-size: 18pt;
                 font-weight: bold;
                 color: #0A1E5E;
             }
+            QLabel:hover {
+                color: #0056b3;
+                text-decoration: underline;
+            }
         """)
         self.dataset_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.dataset_name_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.dataset_name_label.mousePressEvent = lambda event: self.edit_dataset_name()
         header_layout.addStretch()
         header_layout.addWidget(self.dataset_name_label)
         header_layout.addStretch()
@@ -538,65 +544,16 @@ class DataSetScreen(QWidget):
             }
         """)
         
-        # Script Builder Tab
-        script_tab = self._create_script_tab()
-        self.tab_widget.addTab(script_tab, "Script Builder")
-        
-        # Signatures Tab
-        signatures_tab = self._create_signatures_tab()
-        self.tab_widget.addTab(signatures_tab, "Signatures")
-        
-        # Calling Tab
-        calling_tab = self._create_calling_tab()
-        self.tab_widget.addTab(calling_tab, "Calling")
-        
-        # SQL Tab
-        sql_tab = self._create_sql_tab()
-        self.tab_widget.addTab(sql_tab, "SQL")
+        # Create tab content using the existing _create_script_tab method
+        # which creates all tabs internally
+        self._create_tabs_content()
         
         panel_layout.addWidget(self.tab_widget)
         
         return panel
 
-    def _create_script_tab(self) -> QWidget:
-        """Create Script Builder tab"""
-        script_tab = QWidget()
-        script_layout = QVBoxLayout(script_tab)
-        script_layout.setContentsMargins(5, 5, 5, 5)
-        
-        # Tab widget for Script / Parameters / Display
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #d0d0d0;
-                background-color: white;
-                top: -1px;
-            }
-            QTabBar::tab {
-                background-color: #f0f0f0;
-                color: #333;
-                padding: 6px 16px;
-                border: 1px solid #d0d0d0;
-                border-bottom: none;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background-color: white;
-                border-bottom: 1px solid white;
-                font-weight: bold;
-            }
-            QTabBar::tab:hover {
-                background-color: #e8e8e8;
-            }
-            QTabWidget {
-                background-color: transparent;
-            }
-            QTabBar {
-                background-color: transparent;
-            }
-        """)
-        
-        # Script Builder Tab
+    def _create_tabs_content(self):
+        """Create all tab content (Script Builder, Signatures, Calling, SQL)"""
         script_tab = QWidget()
         script_layout = QVBoxLayout(script_tab)
         script_layout.setContentsMargins(5, 5, 5, 5)
@@ -946,15 +903,36 @@ class DataSetScreen(QWidget):
         sql_layout.addWidget(self.sql_display)
         
         self.tab_widget.addTab(sql_tab, "SQL")
+    
+    def edit_dataset_name(self):
+        """Edit the current dataset name"""
+        if not self.current_dataset:
+            return
         
-        right_layout.addWidget(self.tab_widget)
+        from PyQt6.QtWidgets import QInputDialog
+        new_name, ok = QInputDialog.getText(
+            self, "Edit Dataset Name", 
+            "Dataset name:",
+            text=self.current_dataset.name
+        )
         
-        main_splitter.addWidget(right_panel)
-        
-        # Set splitter sizes (20% list, 80% editor)
-        main_splitter.setSizes([200, 800])
-        
-        layout.addWidget(main_splitter)
+        if ok and new_name.strip():
+            old_name = self.current_dataset.name
+            self.current_dataset.name = new_name.strip()
+            self.dataset_name_label.setText(self.current_dataset.name)
+            
+            # If this is a saved dataset, we may need to rename the file
+            old_filename = self.datasets_dir / f"{old_name}.json"
+            if old_filename.exists():
+                # Save with new name and delete old file
+                self.save_dataset()
+                try:
+                    old_filename.unlink()
+                    logger.info(f"Renamed dataset from '{old_name}' to '{new_name}'")
+                except Exception as e:
+                    logger.error(f"Could not delete old file {old_filename}: {e}")
+                
+                self.load_datasets_list()
     
     def new_dataset(self):
         """Create a new Data Set"""
@@ -1130,13 +1108,13 @@ sql = build_query(
     def load_dataset_to_ui(self):
         """Load current Data Set into UI"""
         if not self.current_dataset:
-            self.name_input.clear()
             self.script_editor.clear()
             self.params_table.setRowCount(0)
             self.display_table.setRowCount(0)
+            self.dataset_name_label.setText("")
             return
         
-        self.name_input.setText(self.current_dataset.name)
+        self.dataset_name_label.setText(self.current_dataset.name)
         self.script_editor.setPlainText(self.current_dataset.script_code)
         
         # Parameters table (2 columns: Name, DataType)
@@ -1166,7 +1144,7 @@ sql = build_query(
         if not self.current_dataset:
             return
         
-        self.current_dataset.name = self.name_input.text().strip()
+        # Name is managed separately (from dataset_name_label or prompts), not edited inline
         self.current_dataset.script_code = self.script_editor.toPlainText()
         
         # Display fields from table (2 columns: Name, DataType)
@@ -1189,11 +1167,8 @@ sql = build_query(
         if not self.current_dataset:
             return False
         
-        # Simple check: compare UI values with saved dataset
-        return (
-            self.name_input.text().strip() != self.current_dataset.name or
-            self.script_editor.toPlainText() != self.current_dataset.script_code
-        )
+        # Simple check: compare UI script with saved dataset script
+        return self.script_editor.toPlainText() != self.current_dataset.script_code
     
     def validate_script(self):
         """Validate the Python script (just check syntax)"""
