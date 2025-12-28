@@ -614,6 +614,102 @@ class SchemaDiscovery:
             logger.error(f"Failed to get DB2 preview for {table_name}: {e}")
             raise
 
+    def get_db2_preview_chunked(self, connection_id: int, table_name: str,
+                                schema_name: str = None, limit: int = 10000, 
+                                chunk_size: int = 10000):
+        """
+        Get preview data from DB2 table in chunks (generator for progressive loading)
+        
+        Yields tuples of (columns, chunk_data, progress_info):
+        - columns: List of column names (only in first chunk)
+        - chunk_data: List of row tuples for this chunk
+        - progress_info: Dict with {rows_fetched, total_rows, is_last_chunk}
+        
+        This allows UI to display data progressively as it's fetched
+        """
+        try:
+            import pyodbc
+            import time
+            
+            if not schema_name:
+                raise ValueError("Schema name is required for DB2 tables")
+            
+            # Get connection details
+            connection = self.conn_manager.get_connection(connection_id)
+            if not connection:
+                raise ValueError(f"Connection {connection_id} not found")
+            
+            # Build pyodbc connection string from DSN
+            dsn = connection.get('connection_string', '').replace('DSN=', '')
+            if not dsn:
+                raise ValueError("DB2 connection requires DSN")
+            
+            logger.info(f"Starting chunked fetch: {limit:,} rows from {schema_name}.{table_name} in {chunk_size:,} row chunks")
+            
+            # Optimized connection string
+            conn_str = f"DSN={dsn};BLOCKSIZE=65535;MAXLOBSIZE=0;DEFERREDPREPARE=1;CURRENTPACKAGESET=NULLID"
+            conn = pyodbc.connect(conn_str, autocommit=True)
+            
+            cursor = conn.cursor()
+            cursor.arraysize = chunk_size
+            
+            # Build qualified table name and query
+            qualified_table = f'{schema_name}.{table_name}'
+            query = f"SELECT * FROM {qualified_table} FETCH FIRST {limit} ROWS ONLY WITH UR OPTIMIZE FOR {limit} ROWS"
+            
+            # Execute query
+            cursor.execute(query)
+            
+            # Get column names
+            columns = [column[0] for column in cursor.description]
+            
+            # Fetch data in chunks
+            total_fetched = 0
+            chunk_num = 0
+            fetch_start = time.perf_counter()
+            
+            while total_fetched < limit:
+                chunk_start = time.perf_counter()
+                chunk = cursor.fetchmany(chunk_size)
+                
+                if not chunk:
+                    break
+                
+                chunk_time = time.perf_counter() - chunk_start
+                total_fetched += len(chunk)
+                chunk_num += 1
+                is_last = (len(chunk) < chunk_size) or (total_fetched >= limit)
+                
+                logger.info(f"Chunk {chunk_num}: fetched {len(chunk):,} rows in {chunk_time:.2f}s (total: {total_fetched:,})")
+                
+                # Yield chunk with progress info
+                progress = {
+                    'rows_fetched': total_fetched,
+                    'total_rows': limit,
+                    'chunk_number': chunk_num,
+                    'is_last_chunk': is_last,
+                    'elapsed_time': time.perf_counter() - fetch_start
+                }
+                
+                # First chunk includes column names
+                if chunk_num == 1:
+                    yield (columns, chunk, progress)
+                else:
+                    yield (None, chunk, progress)
+                
+                if is_last:
+                    break
+            
+            cursor.close()
+            conn.close()
+            
+            total_time = time.perf_counter() - fetch_start
+            logger.info(f"Chunked fetch complete: {total_fetched:,} rows in {total_time:.2f}s ({total_fetched/total_time:.0f} rows/sec)")
+            
+        except Exception as e:
+            logger.error(f"Failed chunked DB2 preview for {table_name}: {e}")
+            raise
+
     def _get_csv_table(self, connection: Dict) -> List[Dict]:
         """Get tables from CSV folder (each CSV file is a table)"""
         import os

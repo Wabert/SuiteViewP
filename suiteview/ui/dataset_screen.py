@@ -256,45 +256,215 @@ class DataSetScreen(QWidget):
         self.load_datasets_list()
     
     def init_ui(self):
-        """Initialize the user interface"""
+        """Initialize the user interface with 3-panel layout like Data Package screen"""
         layout = QVBoxLayout(self)
-        layout.setSpacing(5)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Create horizontal splitter for panels (like Data Package screen)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+
+        # Panel 1 - Saved Data Sets (left side list)
+        panel1 = self._create_datasets_panel()
+        panel1.setMinimumWidth(150)
+        splitter.addWidget(panel1)
+
+        # Panel 2 - Data Source (cascading dropdown + tables)
+        panel2 = self._create_data_source_panel()
+        panel2.setMinimumWidth(150)
+        splitter.addWidget(panel2)
+
+        # Panel 3 - Fields
+        panel3 = self._create_fields_panel()
+        panel3.setMinimumWidth(150)
+        splitter.addWidget(panel3)
+
+        # Panel 4 - Content area with dataset name + tabs
+        panel4 = self._create_content_panel()
+        panel4.setMinimumWidth(400)
+        splitter.addWidget(panel4)
+
+        # Set initial sizes
+        splitter.setSizes([180, 180, 180, 700])
+
+        layout.addWidget(splitter)
+
+    def _create_datasets_panel(self) -> QWidget:
+        """Create left panel with saved data sets list"""
+        panel = QWidget()
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(0)
+
+        # Header - styled like Data Package screen
+        header = QPushButton("SAVED DATA SETS")
+        header.setObjectName("section_header")
+        header.setEnabled(False)  # Just a label, not clickable
+        panel_layout.addWidget(header)
         
-        # Top toolbar - compact header with name inline
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(8)
+        # New button row
+        new_btn_container = QWidget()
+        new_btn_layout = QHBoxLayout(new_btn_container)
+        new_btn_layout.setContentsMargins(4, 4, 4, 4)
+        new_btn_layout.setSpacing(0)
         
-        # Name input (left side)
-        toolbar.addWidget(QLabel("Name:"))
-        self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("Enter Data Set name...")
-        self.name_input.setFixedWidth(250)
-        toolbar.addWidget(self.name_input)
-        
-        # Buttons in middle
-        new_btn = QPushButton("➕ New")
-        new_btn.clicked.connect(self.new_dataset)
-        new_btn.setFixedWidth(80)
+        new_btn = QPushButton("+ New")
         new_btn.setStyleSheet("""
             QPushButton {
-                background-color: #ffffff;
-                color: #0078d4;
-                padding: 4px 8px;
+                background-color: #FFD700;
+                color: #0A1E5E;
+                padding: 4px 12px;
+                border-radius: 3px;
                 font-weight: bold;
-                border: 2px solid #0078d4;
-                border-radius: 4px;
+                font-size: 11px;
+                border: none;
             }
             QPushButton:hover {
-                background-color: #e3f2fd;
-                border-color: #005a9e;
-            }
-            QPushButton:pressed {
-                background-color: #bbdefb;
+                background-color: #FFC107;
             }
         """)
-        toolbar.addWidget(new_btn)
+        new_btn.clicked.connect(self.new_dataset)
+        new_btn_layout.addWidget(new_btn)
+        new_btn_layout.addStretch()
+        panel_layout.addWidget(new_btn_container)
+
+        # Datasets list
+        self.datasets_list = QListWidget()
+        self.datasets_list.setObjectName("sidebar_tree")
+        self.datasets_list.currentItemChanged.connect(self.on_dataset_selected)
+        panel_layout.addWidget(self.datasets_list)
+
+        return panel
+
+    def _create_data_source_panel(self) -> QWidget:
+        """Create panel with cascading data source selection and tables"""
+        panel = QWidget()
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(0)
+
+        # Header
+        header = QPushButton("DATA SOURCE")
+        header.setObjectName("section_header")
+        header.setEnabled(False)
+        panel_layout.addWidget(header)
+
+        # Type dropdown
+        type_container = QWidget()
+        type_layout = QVBoxLayout(type_container)
+        type_layout.setContentsMargins(4, 4, 4, 4)
+        type_layout.setSpacing(2)
         
+        type_label = QLabel("Type:")
+        type_label.setStyleSheet("font-size: 9pt; color: #555; font-weight: bold;")
+        type_layout.addWidget(type_label)
+        
+        self.type_combo = QComboBox()
+        self.type_combo.setObjectName("data_source_combo")
+        type_layout.addWidget(self.type_combo)
+        panel_layout.addWidget(type_container)
+
+        # Connection dropdown
+        conn_container = QWidget()
+        conn_layout = QVBoxLayout(conn_container)
+        conn_layout.setContentsMargins(4, 4, 4, 4)
+        conn_layout.setSpacing(2)
+        
+        conn_label = QLabel("Conn:")
+        conn_label.setStyleSheet("font-size: 9pt; color: #555; font-weight: bold;")
+        conn_layout.addWidget(conn_label)
+        
+        self.connection_combo = QComboBox()
+        self.connection_combo.setObjectName("data_source_combo")
+        conn_layout.addWidget(self.connection_combo)
+        panel_layout.addWidget(conn_container)
+
+        # Search box for tables
+        search_container = QWidget()
+        search_layout = QVBoxLayout(search_container)
+        search_layout.setContentsMargins(4, 4, 4, 4)
+        search_layout.setSpacing(0)
+        
+        self.table_search = QLineEdit()
+        self.table_search.setPlaceholderText("Search tables...")
+        self.table_search.setObjectName("search_box")
+        search_layout.addWidget(self.table_search)
+        panel_layout.addWidget(search_container)
+
+        # Tables list
+        self.tables_list = QListWidget()
+        self.tables_list.setObjectName("sidebar_tree")
+        panel_layout.addWidget(self.tables_list)
+
+        return panel
+
+    def _create_fields_panel(self) -> QWidget:
+        """Create fields panel"""
+        panel = QWidget()
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(0)
+
+        # Header
+        header = QPushButton("FIELDS")
+        header.setObjectName("section_header")
+        header.setEnabled(False)
+        panel_layout.addWidget(header)
+
+        # Search box
+        search_container = QWidget()
+        search_layout = QVBoxLayout(search_container)
+        search_layout.setContentsMargins(4, 4, 4, 4)
+        search_layout.setSpacing(0)
+        
+        self.field_search = QLineEdit()
+        self.field_search.setPlaceholderText("Search fields...")
+        self.field_search.setObjectName("search_box")
+        search_layout.addWidget(self.field_search)
+        panel_layout.addWidget(search_container)
+
+        # Fields list
+        self.fields_list = QListWidget()
+        self.fields_list.setObjectName("sidebar_tree")
+        panel_layout.addWidget(self.fields_list)
+
+        return panel
+
+    def _create_content_panel(self) -> QWidget:
+        """Create content panel with dataset name header and tabs"""
+        panel = QWidget()
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(0)
+
+        # Header with dataset name, save, and delete buttons
+        header_container = QWidget()
+        header_container.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-bottom: 2px solid #0A1E5E;
+            }
+        """)
+        header_layout = QHBoxLayout(header_container)
+        header_layout.setContentsMargins(10, 10, 10, 10)
+        header_layout.setSpacing(10)
+        
+        # Dataset name (big and bold in the middle)
+        self.dataset_name_label = QLabel("New Package")
+        self.dataset_name_label.setStyleSheet("""
+            QLabel {
+                font-size: 18pt;
+                font-weight: bold;
+                color: #0A1E5E;
+            }
+        """)
+        self.dataset_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_layout.addStretch()
+        header_layout.addWidget(self.dataset_name_label)
+        header_layout.addStretch()
+        
+        # Save button (right side)
         save_btn = QPushButton("💾 Save")
         save_btn.clicked.connect(self.save_dataset)
         save_btn.setFixedWidth(80)
@@ -315,8 +485,9 @@ class DataSetScreen(QWidget):
                 background-color: #bbdefb;
             }
         """)
-        toolbar.addWidget(save_btn)
+        header_layout.addWidget(save_btn)
         
+        # Delete button
         delete_btn = QPushButton("🗑️ Delete")
         delete_btn.clicked.connect(self.delete_dataset)
         delete_btn.setFixedWidth(80)
@@ -337,83 +508,61 @@ class DataSetScreen(QWidget):
                 background-color: #f5c6cb;
             }
         """)
-        toolbar.addWidget(delete_btn)
+        header_layout.addWidget(delete_btn)
         
-        toolbar.addStretch()
-        
-        run_btn = QPushButton("▶️ Run Data Set")
-        run_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #28a745;
-                color: white;
-                padding: 6px 16px;
-                font-weight: bold;
-                border: 2px solid #28a745;
-                border-radius: 4px;
+        panel_layout.addWidget(header_container)
+
+        # Tab widget for Script / Signatures / Calling / SQL
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #d0d0d0;
+                background-color: white;
+                top: -1px;
             }
-            QPushButton:hover {
-                background-color: #218838;
-                border-color: #1e7e34;
-            }
-            QPushButton:pressed {
-                background-color: #1e7e34;
-            }
-        """)
-        run_btn.clicked.connect(self.run_dataset)
-        toolbar.addWidget(run_btn)
-        
-        layout.addLayout(toolbar)
-        
-        # Main splitter: saved datasets list | editor
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        
-        # Left panel: Saved Data Sets list
-        left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        
-        left_header = QLabel("SAVED DATA SETS")
-        left_header.setStyleSheet("""
-            QLabel {
-                background-color: #0A1E5E;
-                color: white;
-                padding: 8px;
-                font-weight: bold;
-                font-size: 11pt;
-            }
-        """)
-        left_layout.addWidget(left_header)
-        
-        self.datasets_list = QListWidget()
-        self.datasets_list.currentItemChanged.connect(self.on_dataset_selected)
-        self.datasets_list.setStyleSheet("""
-            QListWidget {
-                background-color: #D6E9FF;
-                border: 1px solid #ccc;
-            }
-            QListWidget::item {
-                padding: 8px 12px;
-                font-size: 10pt;
-                font-weight: bold;
+            QTabBar::tab {
+                background-color: #f0f0f0;
                 color: #333;
-                background-color: #D6E9FF;
+                padding: 6px 16px;
+                border: 1px solid #d0d0d0;
+                border-bottom: none;
+                margin-right: 2px;
             }
-            QListWidget::item:selected {
-                background-color: #2563EB;
-                color: white;
+            QTabBar::tab:selected {
+                background-color: white;
+                border-bottom: 1px solid white;
+                font-weight: bold;
             }
-            QListWidget::item:hover {
-                background-color: #C0DDFF;
+            QTabBar::tab:hover {
+                background-color: #e8e8e8;
             }
         """)
-        left_layout.addWidget(self.datasets_list)
         
-        main_splitter.addWidget(left_panel)
+        # Script Builder Tab
+        script_tab = self._create_script_tab()
+        self.tab_widget.addTab(script_tab, "Script Builder")
         
-        # Right panel: Editor
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
+        # Signatures Tab
+        signatures_tab = self._create_signatures_tab()
+        self.tab_widget.addTab(signatures_tab, "Signatures")
+        
+        # Calling Tab
+        calling_tab = self._create_calling_tab()
+        self.tab_widget.addTab(calling_tab, "Calling")
+        
+        # SQL Tab
+        sql_tab = self._create_sql_tab()
+        self.tab_widget.addTab(sql_tab, "SQL")
+        
+        panel_layout.addWidget(self.tab_widget)
+        
+        return panel
+
+    def _create_script_tab(self) -> QWidget:
+        """Create Script Builder tab"""
+        script_tab = QWidget()
+        script_layout = QVBoxLayout(script_tab)
+        script_layout.setContentsMargins(5, 5, 5, 5)
         
         # Tab widget for Script / Parameters / Display
         self.tab_widget = QTabWidget()

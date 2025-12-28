@@ -808,24 +808,11 @@ class FilterTableView(QWidget):
 
     def set_dataframe(self, df: pd.DataFrame):
         """Set the DataFrame to display"""
-        # Check if dataset exceeds MAX_DISPLAY_ROWS
+        # Auto-limit large datasets for optimal performance
         original_row_count = len(df)
         if original_row_count > MAX_DISPLAY_ROWS:
-            reply = QMessageBox.question(
-                self,
-                "Large Dataset Detected",
-                f"This dataset has {original_row_count:,} rows.\n\n"
-                f"For optimal performance, it's recommended to limit display to {MAX_DISPLAY_ROWS:,} rows.\n\n"
-                f"Load first {MAX_DISPLAY_ROWS:,} rows (recommended) or load all rows?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                df = df.head(MAX_DISPLAY_ROWS)
-                logger.info(f"Limited dataset to {MAX_DISPLAY_ROWS:,} rows (original: {original_row_count:,})")
-            else:
-                logger.warning(f"Loading full dataset with {original_row_count:,} rows - performance may be impacted")
+            df = df.head(MAX_DISPLAY_ROWS)
+            logger.info(f"Limited dataset to {MAX_DISPLAY_ROWS:,} rows (original: {original_row_count:,})")
         
         # Store reference (no copy - saves memory!)
         self.df = df
