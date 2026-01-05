@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (QTreeView, QVBoxLayout, QHBoxLayout, QWidget,
                               QDialog, QDialogButtonBox, QCheckBox, QLineEdit,
                               QProgressDialog, QFileDialog, QFrame, QSizePolicy,
                               QFileIconProvider, QToolButton, QStyle, QStyledItemDelegate,
-                              QApplication)
+                              QApplication, QComboBox)
 from PyQt6.QtGui import QIcon, QAction, QStandardItemModel, QStandardItem, QDragEnterEvent, QDropEvent, QDragMoveEvent, QDrag
 from PyQt6.QtCore import Qt, QModelIndex, QThread, pyqtSignal, QSortFilterProxyModel, QEvent, QFileInfo, QSize, QUrl, QMimeData, QRegularExpression
 
@@ -274,6 +274,112 @@ class DropFolderTreeView(QTreeView):
         # Emit signal with dropped files and destination
         self.files_dropped.emit(dropped_files, path)
         event.acceptProposedAction()
+
+
+class DepthScanWorker(QThread):
+    """Background thread for scanning folders at specified depth"""
+    progress = pyqtSignal(int, str)
+    finished = pyqtSignal(list)
+    
+    def __init__(self, root_path, depth_level):
+        super().__init__()
+        self.root_path = root_path
+        self.depth_level = depth_level
+        self._cancelled = False
+        
+    def cancel(self):
+        """Request cancellation of the scan"""
+        self._cancelled = True
+        
+    def run(self):
+        """Scan folders up to specified depth and return results"""
+        results = []
+        
+        try:
+            root = Path(self.root_path)
+            
+            # Scan folders recursively up to depth_level
+            self._scan_folder(root, "", 0, results)
+            
+        except Exception as e:
+            logger.error(f"Error during depth scan: {e}")
+        
+        # Emit results
+        self.finished.emit(results)
+    
+    def _scan_folder(self, folder_path: Path, relative_path: str, current_depth: int, results: list):
+        """Recursively scan folder up to specified depth"""
+        # Check if cancelled
+        if self._cancelled:
+            return
+        
+        # If depth_level is -1 (Max), scan everything; otherwise check depth limit
+        if self.depth_level != -1 and current_depth >= self.depth_level:
+            return
+        
+        try:
+            # Get all items in this folder
+            with os.scandir(str(folder_path)) as entries:
+                folders = []
+                files = []
+                
+                for entry in entries:
+                    try:
+                        if entry.name.startswith('.'):
+                            continue
+                        
+                        is_dir = entry.is_dir()
+                        item_path = Path(entry.path)
+                        
+                        # Build display name with pipe delimiters
+                        if relative_path:
+                            display_name = f"{relative_path} | {entry.name}"
+                        else:
+                            display_name = entry.name
+                        
+                        # Get file stats (if not network drive)
+                        size = 0
+                        modified = ""
+                        accessed = ""
+                        
+                        try:
+                            stat_info = entry.stat()
+                            size = stat_info.st_size if not is_dir else 0
+                            modified = datetime.fromtimestamp(stat_info.st_mtime).strftime("%Y-%m-%d %H:%M")
+                            accessed = datetime.fromtimestamp(stat_info.st_atime).strftime("%Y-%m-%d %H:%M")
+                        except:
+                            pass
+                        
+                        # Add to results
+                        item_data = {
+                            'path': str(item_path),
+                            'display_name': display_name,
+                            'is_dir': is_dir,
+                            'depth': current_depth + 1,
+                            'size': size,
+                            'modified': modified,
+                            'accessed': accessed
+                        }
+                        
+                        if is_dir:
+                            folders.append((item_path, display_name))
+                        
+                        results.append(item_data)
+                        
+                        # Emit progress every 50 items
+                        if len(results) % 50 == 0:
+                            self.progress.emit(len(results), f"Scanning depth {current_depth + 1}...")
+                        
+                    except (PermissionError, OSError):
+                        continue
+                
+                # Recursively scan subfolders if we haven't reached max depth (or if Max mode)
+                if self.depth_level == -1 or current_depth + 1 < self.depth_level:
+                    for subfolder_path, subfolder_display in folders:
+                        self._scan_folder(subfolder_path, subfolder_display, current_depth + 1, results)
+                        
+        except (PermissionError, OSError):
+            pass
 
 
 class DirectoryExportThread(QThread):
@@ -557,6 +663,13 @@ class FileExplorerCore(QWidget):
         self.current_details_folder = None  # Track current folder in details view
         self.clipboard = {"paths": [], "operation": None}
         
+        # Depth search feature
+        self.depth_search_enabled = False
+        self.depth_search_cache = {}  # Cache: {folder_path: {depth_level: [items]}}
+        self.depth_search_folder = None  # Folder where depth search was initiated
+        self.depth_search_locked = False  # True when depth search is active and locked
+        self.depth_search_active_results = None  # Currently displayed depth results
+        
         # Load custom quick links
         self.quick_links_file = Path.home() / ".suiteview" / "quick_links.json"
         self.custom_quick_links = self.load_quick_links()
@@ -568,6 +681,10 @@ class FileExplorerCore(QWidget):
         # Column width settings file
         self.column_widths_file = Path.home() / ".suiteview" / "column_widths.json"
         self.column_widths = self.load_column_widths()
+        
+        # Panel widths persistence
+        self.panel_widths_file = Path.home() / '.suiteview' / 'file_explorer_panel_widths.json'
+        self.panel_widths = self.load_panel_widths()
         
         self.init_ui()
     
@@ -624,20 +741,34 @@ class FileExplorerCore(QWidget):
         main_layout.addWidget(toolbar)
         
         # Create splitter for tree (left) and details (right)
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #A0B8D8;
+                width: 2px;
+            }
+            QSplitter::handle:hover {
+                background-color: #7DA3CC;
+            }
+        """)
         
         # Create tree panel (left side - folder navigation only)
         tree_panel = self.create_tree_panel()
-        splitter.addWidget(tree_panel)
+        self.main_splitter.addWidget(tree_panel)
         
         # Create details panel (right side - folder contents with details)
         details_panel = self.create_details_panel()
-        splitter.addWidget(details_panel)
+        self.main_splitter.addWidget(details_panel)
         
-        # Set initial sizes (30% tree, 70% details)
-        splitter.setSizes([300, 700])
+        # Set initial sizes from saved values or defaults (30% tree, 70% details)
+        saved_left = self.panel_widths.get('left_panel', 300)
+        saved_middle = self.panel_widths.get('middle_panel', 700)
+        self.main_splitter.setSizes([saved_left, saved_middle])
         
-        main_layout.addWidget(splitter)
+        # Connect splitter moved signal to save panel widths
+        self.main_splitter.splitterMoved.connect(self.on_splitter_moved)
+        
+        main_layout.addWidget(self.main_splitter)
         
     def create_toolbar(self):
         """Create toolbar with file operations"""
@@ -666,6 +797,7 @@ class FileExplorerCore(QWidget):
         # Add spacer to push "Open in Explorer" to the right
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        spacer.setStyleSheet("background: transparent;")
         self.toolbar.addWidget(spacer)
         
         # Open in Explorer (moved to far right)
@@ -675,22 +807,25 @@ class FileExplorerCore(QWidget):
         
         return self.toolbar
 
-    def _apply_compact_toolbar_style(self, toolbar: QToolBar) -> None:
-        """Shrink the file explorer toolbar footprint."""
+    def _apply_compact_toolbar_style(self, toolbar: QToolBar, locked: bool = False) -> None:
+        """Apply toolbar styling with optional orange background when locked."""
 
         toolbar.setObjectName("fileExplorerToolbar")
         toolbar.setIconSize(QSize(16, 16))
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        
+        bg_color = "#FFB366" if locked else "#E3EDFF"  # Orange when locked, blue otherwise
+        
         toolbar.setStyleSheet(
-            """
-            QToolBar#fileExplorerToolbar {
+            f"""
+            QToolBar#fileExplorerToolbar {{
                 padding: 0px 6px;
                 spacing: 6px;
                 min-height: 26px;
-                background: #E3EDFF;
+                background: {bg_color};
                 border: none;
-            }
-            QToolBar#fileExplorerToolbar QToolButton {
+            }}
+            QToolBar#fileExplorerToolbar QToolButton {{
                 padding: 3px 10px;
                 border: 1px solid #4A6FA5;
                 border-bottom: 2px solid #3A5A8A;
@@ -702,21 +837,21 @@ class FileExplorerCore(QWidget):
                 color: #0A1E5E;
                 font-weight: 600;
                 font-size: 10px;
-            }
-            QToolBar#fileExplorerToolbar QToolButton:hover {
+            }}
+            QToolBar#fileExplorerToolbar QToolButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                             stop:0 #FFFFFF,
                                             stop:0.35 #E3EDFF,
                                             stop:1 #B8D0F0);
                 border-color: #2563EB;
-            }
-            QToolBar#fileExplorerToolbar QToolButton:pressed {
+            }}
+            QToolBar#fileExplorerToolbar QToolButton:pressed {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                             stop:0 #B8D0F0,
                                             stop:1 #E3EDFF);
                 border: 1px solid #3A5A8A;
                 border-top: 2px solid #3A5A8A;
-            }
+            }}
             """
         )
 
@@ -863,6 +998,22 @@ class FileExplorerCore(QWidget):
         self.tree_view.customContextMenuRequested.connect(self.show_tree_context_menu)
         
         layout.addWidget(self.tree_view)
+        
+        # Add footer
+        footer = QLabel("")
+        footer.setStyleSheet("""
+            QLabel {
+                background-color: #E0E0E0;
+                padding: 2px 8px;
+                font-size: 9pt;
+                color: #555555;
+                border: none;
+                border-top: 1px solid #A0B8D8;
+            }
+        """)
+        footer.setFixedHeight(20)
+        layout.addWidget(footer)
+        self.tree_footer = footer
         
         return widget
         
@@ -1044,15 +1195,31 @@ class FileExplorerCore(QWidget):
         # Store timestamp for proper sorting
         date_item.setData(mtime, Qt.ItemDataRole.UserRole + 1)
         
+        # Date accessed
+        try:
+            if str(path).startswith('\\\\'):
+                adate_str = ""  # Skip date on network drives
+                atime = 0
+            else:
+                atime = path.stat().st_atime
+                adate_str = datetime.fromtimestamp(atime).strftime("%Y-%m-%d %H:%M")
+        except:
+            adate_str = ""
+            atime = 0
+        adate_item = QStandardItem(adate_str)
+        adate_item.setEditable(False)
+        adate_item.setData(atime, Qt.ItemDataRole.UserRole + 1)
+        
         # Add placeholder child to make it expandable
         name_item.appendRow([
             QStandardItem("Loading..."),
             QStandardItem(""),
             QStandardItem(""),
+            QStandardItem(""),
             QStandardItem("")
         ])
         
-        return [name_item, size_item, type_item, date_item]
+        return [name_item, size_item, type_item, date_item, adate_item]
         
     def create_file_item(self, path):
         """Create a row of items for a file"""
@@ -1118,7 +1285,22 @@ class FileExplorerCore(QWidget):
         # Store timestamp for proper sorting
         date_item.setData(mtime, Qt.ItemDataRole.UserRole + 1)
         
-        return [name_item, size_item, type_item, date_item]
+        # Date accessed
+        try:
+            if str(path).startswith('\\\\'):
+                adate_str = ""  # Skip date on network drives
+                atime = 0
+            else:
+                atime = path.stat().st_atime
+                adate_str = datetime.fromtimestamp(atime).strftime("%Y-%m-%d %H:%M")
+        except:
+            adate_str = ""
+            atime = 0
+        adate_item = QStandardItem(adate_str)
+        adate_item.setEditable(False)
+        adate_item.setData(atime, Qt.ItemDataRole.UserRole + 1)
+        
+        return [name_item, size_item, type_item, date_item, adate_item]
         
     def on_item_expanded(self, index):
         """Load directory contents when expanded"""
@@ -1199,6 +1381,66 @@ class FileExplorerCore(QWidget):
         )
         self.details_search.textChanged.connect(self.on_details_search_changed)
         header_layout.addWidget(self.details_search)
+        
+        # Depth Level combo box (always visible, default 1)
+        self.depth_level_combo = QComboBox()
+        self.depth_level_combo.addItems(["1", "2", "3", "4", "5", "6", "7", "8", "Max"])
+        self.depth_level_combo.setCurrentText("1")
+        self.depth_level_combo.setMaximumWidth(60)
+        self.depth_level_combo.setMaximumHeight(24)
+        self.depth_level_combo.setToolTip("Depth level for subfolder search")
+        self.depth_level_combo.setStyleSheet("""
+            QComboBox {
+                padding: 2px 4px;
+                border: 1px solid #A0B8D8;
+                border-radius: 3px;
+                background: white;
+                color: #1A3A6E;
+                font-size: 9pt;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #1A3A6E;
+                margin-right: 5px;
+            }
+            QComboBox QAbstractItemView {
+                border: 2px solid #2563EB;
+                background-color: white;
+                selection-background-color: #C9DAFF;
+                selection-color: #1A3A6E;
+            }
+        """)
+        self.depth_level_combo.currentTextChanged.connect(self.on_depth_level_changed)
+        header_layout.addWidget(self.depth_level_combo)
+        
+        # On/Off toggle button for depth search
+        self.depth_toggle_btn = QPushButton("On")
+        self.depth_toggle_btn.setCheckable(False)
+        self.depth_toggle_btn.setMaximumWidth(50)
+        self.depth_toggle_btn.setMaximumHeight(24)
+        self.depth_toggle_btn.setToolTip("Activate depth search")
+        self.depth_toggle_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #E0ECFF;
+                border: 1px solid #2563EB;
+                border-radius: 3px;
+                padding: 2px 6px;
+                font-size: 9pt;
+                color: #1A3A6E;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #C9DAFF;
+            }
+        """)
+        self.depth_toggle_btn.clicked.connect(self.toggle_depth_search)
+        header_layout.addWidget(self.depth_toggle_btn)
 
         self.details_header = QLabel("Contents")
         self.details_header.setStyleSheet(
@@ -1285,7 +1527,7 @@ class FileExplorerCore(QWidget):
         
         # Create details model
         self.details_model = QStandardItemModel()
-        self.details_model.setHorizontalHeaderLabels(['Name', 'Size', 'Type', 'Date Modified'])
+        self.details_model.setHorizontalHeaderLabels(['Name', 'Size', 'Type', 'Date Modified', 'Date Accessed'])
         
         # Connect to handle renames
         self.details_model.itemChanged.connect(self.on_item_renamed)
@@ -1305,6 +1547,7 @@ class FileExplorerCore(QWidget):
         header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        header_view.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
         header_view.setMinimumSectionSize(60)
         header_view.setDefaultSectionSize(100)
         header_view.setFixedHeight(22)
@@ -1332,8 +1575,8 @@ class FileExplorerCore(QWidget):
         self.details_view.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         
         # Apply saved column widths or use defaults
-        default_widths = [350, 100, 120, 150]
-        for col in range(4):
+        default_widths = [350, 100, 120, 150, 150]  # Name, Size, Type, Date Modified, Date Accessed
+        for col in range(5):
             width = self.column_widths.get(f'col_{col}', default_widths[col])
             self.details_view.setColumnWidth(col, width)
         
@@ -1349,6 +1592,27 @@ class FileExplorerCore(QWidget):
         
         layout.addWidget(self.details_view)
         
+        # Add footer with item count
+        footer = QLabel("")
+        footer.setStyleSheet("""
+            QLabel {
+                background-color: #E0E0E0;
+                padding: 2px 8px;
+                font-size: 9pt;
+                color: #555555;
+                border: none;
+                border-top: 1px solid #A0B8D8;
+            }
+        """)
+        footer.setFixedHeight(20)
+        layout.addWidget(footer)
+        self.details_footer = footer
+        
+        # Connect model change signal to update footer count
+        self.details_sort_proxy.rowsInserted.connect(self.update_details_footer)
+        self.details_sort_proxy.rowsRemoved.connect(self.update_details_footer)
+        self.details_sort_proxy.modelReset.connect(self.update_details_footer)
+        
         return widget
 
     def on_details_search_changed(self, text: str) -> None:
@@ -1357,6 +1621,8 @@ class FileExplorerCore(QWidget):
             return
 
         query = (text or "").strip()
+        
+        # Standard search using proxy filter (works for both normal and depth results)
         if not query:
             self.details_sort_proxy.setFilterRegularExpression(QRegularExpression())
             return
@@ -1366,8 +1632,438 @@ class FileExplorerCore(QWidget):
         regex = QRegularExpression(escaped, QRegularExpression.PatternOption.CaseInsensitiveOption)
         self.details_sort_proxy.setFilterRegularExpression(regex)
     
+    def toggle_depth_search(self):
+        """Toggle depth search on/off based on button state"""
+        if self.depth_search_enabled:
+            # Currently ON, turn it OFF
+            self.depth_search_enabled = False
+            self.depth_search_locked = False
+            self.depth_search_active_results = None
+            self.depth_toggle_btn.setText("On")
+            self.depth_toggle_btn.setToolTip("Activate depth search")
+            self.depth_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #E0ECFF;
+                    border: 1px solid #2563EB;
+                    border-radius: 3px;
+                    padding: 2px 6px;
+                    font-size: 9pt;
+                    color: #1A3A6E;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #C9DAFF;
+                }
+            """)
+            
+            # Re-enable tree panel
+            if hasattr(self, 'tree_view'):
+                self.tree_view.setEnabled(True)
+            
+            # Restore normal toolbar color
+            self._apply_compact_toolbar_style(self.toolbar, locked=False)
+            
+            # Clear cache and search folder
+            self.depth_search_cache.clear()
+            self.depth_search_folder = None
+            
+            # Reset combo to 1
+            self.depth_level_combo.setCurrentText("1")
+            
+            # Clear search and restore normal view
+            self.details_search.clear()
+            if self.current_details_folder:
+                self.load_folder_contents_in_details(Path(self.current_details_folder))
+        else:
+            # Currently OFF, turn it ON
+            depth_level = self.depth_level_combo.currentText()
+            
+            if depth_level == "1":
+                # Depth 1 doesn't need async scan, just notify user
+                QMessageBox.information(self, "Depth Search", 
+                    "Depth level 1 shows only current folder items.\n\n"
+                    "Set depth to 2 or higher for subfolder search.")
+                return
+            
+            # Start depth scan
+            if not self.current_details_folder:
+                return
+            
+            self.depth_search_enabled = True
+            self.perform_depth_scan_and_populate(depth_level)
+    
+    def on_depth_level_changed(self, level_text):
+        """Handle depth level change - clear cache"""
+        self.depth_search_cache.clear()
+        
+        # If depth search is active and user changes level, turn it off
+        if self.depth_search_enabled:
+            self.depth_search_enabled = False
+            self.depth_search_locked = False
+            self.depth_search_active_results = None
+            self.depth_toggle_btn.setText("On")
+            self.depth_toggle_btn.setToolTip("Activate depth search")
+            self.depth_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #E0ECFF;
+                    border: 1px solid #2563EB;
+                    border-radius: 3px;
+                    padding: 2px 6px;
+                    font-size: 9pt;
+                    color: #1A3A6E;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #C9DAFF;
+                }
+            """)
+            self.depth_search_folder = None
+            
+            # Re-enable tree panel
+            if hasattr(self, 'tree_view'):
+                self.tree_view.setEnabled(True)
+            
+            # Restore normal toolbar color
+            self._apply_compact_toolbar_style(self.toolbar, locked=False)
+            
+            # Restore normal view
+            if self.current_details_folder:
+                self.load_folder_contents_in_details(Path(self.current_details_folder))
+    
+    def perform_depth_scan_and_populate(self, depth_level):
+        """Perform depth scan and populate all results (no search filter)"""
+        if not self.current_details_folder:
+            return
+        
+        # Convert "Max" to -1 for unlimited depth
+        if depth_level == "Max":
+            depth_level_int = -1
+        else:
+            depth_level_int = int(depth_level)
+        
+        search_folder = self.current_details_folder
+        
+        # Check if we have cached results for this folder and depth
+        cache_key = search_folder
+        if (cache_key in self.depth_search_cache and 
+            depth_level_int in self.depth_search_cache[cache_key]):
+            # Use cached results
+            self._populate_depth_results(self.depth_search_cache[cache_key][depth_level_int])
+            self.depth_toggle_btn.setText("Off")
+            self.depth_toggle_btn.setToolTip("Deactivate depth search")
+            self.depth_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #FFB366;
+                    border: 1px solid #FF8C00;
+                    border-radius: 3px;
+                    padding: 2px 6px;
+                    font-size: 9pt;
+                    color: #1A3A6E;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #FFC080;
+                }
+            """)
+            return
+        
+        # Start async scan
+        self.depth_search_folder = search_folder
+        
+        # Create and start worker thread
+        self.depth_scan_worker = DepthScanWorker(search_folder, depth_level_int)
+        self.depth_scan_worker.finished.connect(self._on_depth_scan_complete)
+        self.depth_scan_worker.progress.connect(self._on_depth_scan_progress)
+        
+        # Create progress dialog with 3 second delay and actual progress bar
+        self.depth_progress_dialog = QProgressDialog("Scanning subfolders...", "Stop", 0, 100, self)
+        self.depth_progress_dialog.setWindowTitle("Loading Depth Search")
+        self.depth_progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.depth_progress_dialog.setMinimumDuration(3000)  # Show after 3 seconds
+        self.depth_progress_dialog.setAutoClose(False)
+        self.depth_progress_dialog.setAutoReset(False)
+        self.depth_progress_dialog.setValue(0)  # Start at 0
+        self.depth_progress_dialog.canceled.connect(self._on_depth_scan_cancelled)
+        
+        # Store start time for progress calculation
+        self.depth_scan_start_count = 0
+        
+        # Start worker
+        self.depth_scan_worker.start()
+    
+    def _on_depth_scan_progress(self, count: int, message: str):
+        """Update progress dialog during depth scan"""
+        if hasattr(self, 'depth_progress_dialog') and self.depth_progress_dialog:
+            # Calculate a rough progress percentage (we don't know total, so use logarithmic scale)
+            # This gives a sense of progress even without knowing the total
+            if count > 0:
+                # Use logarithmic scale for smoother progress: log(count+1) / log(10000+1) * 100
+                # Caps at ~100% around 10000 items
+                import math
+                progress = min(99, int((math.log(count + 1) / math.log(10000 + 1)) * 100))
+                self.depth_progress_dialog.setValue(progress)
+            
+            self.depth_progress_dialog.setLabelText(f"{message}\n{count} items found")
+    
+    def _on_depth_scan_cancelled(self):
+        """Handle cancellation of depth scan"""
+        if hasattr(self, 'depth_scan_worker') and self.depth_scan_worker:
+            # Request worker to stop
+            self.depth_scan_worker.cancel()
+            
+            # Wait a bit for worker to finish current iteration
+            self.depth_scan_worker.wait(1000)  # Wait up to 1 second
+            
+            # The worker will emit finished signal with partial results
+            # Just close the progress dialog
+            if hasattr(self, 'depth_progress_dialog') and self.depth_progress_dialog:
+                self.depth_progress_dialog.close()
+    
+    def _on_depth_scan_complete(self, results: list):
+        """Handle completion of depth scan"""
+        if not hasattr(self, 'depth_progress_dialog'):
+            return
+        
+        # Check if scan was cancelled (partial results)
+        was_cancelled = hasattr(self, 'depth_scan_worker') and self.depth_scan_worker._cancelled
+        
+        # Cache the results (even if partial from cancellation)
+        search_folder = self.depth_search_folder
+        depth_level_text = self.depth_level_combo.currentText()
+        
+        # Convert to cache key
+        if depth_level_text == "Max":
+            depth_level_key = -1
+        else:
+            depth_level_key = int(depth_level_text)
+        
+        # Only cache if not cancelled (partial results shouldn't be cached)
+        if not was_cancelled:
+            if search_folder not in self.depth_search_cache:
+                self.depth_search_cache[search_folder] = {}
+            self.depth_search_cache[search_folder][depth_level_key] = results
+        
+        # Close progress dialog
+        if self.depth_progress_dialog:
+            self.depth_progress_dialog.close()
+        
+        # If no results, don't proceed
+        if not results:
+            self.depth_search_enabled = False
+            self.depth_toggle_btn.setText("On")
+            self.depth_toggle_btn.setToolTip("Activate depth search")
+            self.depth_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #E0ECFF;
+                    border: 1px solid #2563EB;
+                    border-radius: 3px;
+                    padding: 2px 6px;
+                    font-size: 9pt;
+                    color: #1A3A6E;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #C9DAFF;
+                }
+            """)
+            return
+        
+        # Check if we're still in the search folder
+        currently_in_search_folder = (self.current_details_folder == search_folder)
+        
+        if currently_in_search_folder:
+            # Populate all results (partial or complete)
+            self._populate_depth_results(results)
+            
+            # Enable lock mode
+            self.depth_search_locked = True
+            self.depth_search_active_results = results
+            
+            # Disable tree panel navigation
+            if hasattr(self, 'tree_view'):
+                self.tree_view.setEnabled(False)
+            
+            # Change toolbar to orange
+            self._apply_compact_toolbar_style(self.toolbar, locked=True)
+            
+            # Change button to "Off"
+            self.depth_toggle_btn.setText("Off")
+            self.depth_toggle_btn.setToolTip("Deactivate depth search (locked to search folder)")
+            self.depth_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #FFB366;
+                    border: 1px solid #FF8C00;
+                    border-radius: 3px;
+                    padding: 2px 6px;
+                    font-size: 9pt;
+                    color: #1A3A6E;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #FFC080;
+                }
+            """)
+        else:
+            # Show dialog with "Go to search folder" button
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Depth Search Complete")
+            msg_box.setText(f"Found {len(results)} items at depth {depth_level_text}")
+            msg_box.setInformativeText(f"Search folder: {search_folder}")
+            
+            # Add "Go to search folder" button
+            go_button = msg_box.addButton("Go to search folder", QMessageBox.ButtonRole.AcceptRole)
+            close_button = msg_box.addButton("Close", QMessageBox.ButtonRole.RejectRole)
+            
+            msg_box.exec()
+            
+            # Check which button was clicked
+            if msg_box.clickedButton() == go_button:
+                # Navigate to search folder and populate results
+                self.load_folder_contents_in_details(Path(search_folder))
+                self._populate_depth_results(results)
+                
+                # Enable lock mode
+                self.depth_search_locked = True
+                self.depth_search_active_results = results
+                
+                # Disable tree panel navigation
+                if hasattr(self, 'tree_view'):
+                    self.tree_view.setEnabled(False)
+                
+                # Change toolbar to orange
+                self._apply_compact_toolbar_style(self.toolbar, locked=True)
+                
+                # Change button to "Off"
+                self.depth_toggle_btn.setText("Off")
+                self.depth_toggle_btn.setToolTip("Deactivate depth search (locked to search folder)")
+                self.depth_toggle_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #FFB366;
+                        border: 1px solid #FF8C00;
+                        border-radius: 3px;
+                        padding: 2px 6px;
+                        font-size: 9pt;
+                        color: #1A3A6E;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background-color: #FFC080;
+                    }
+                """)
+            else:
+                # User closed dialog, turn off depth search
+                self.depth_search_enabled = False
+                self.depth_toggle_btn.setText("On")
+                self.depth_toggle_btn.setToolTip("Activate depth search")
+                self.depth_toggle_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #E0ECFF;
+                        border: 1px solid #2563EB;
+                        border-radius: 3px;
+                        padding: 2px 6px;
+                        font-size: 9pt;
+                        color: #1A3A6E;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background-color: #C9DAFF;
+                    }
+                """)
+    
+    def _populate_depth_results(self, depth_items: list):
+        """Populate view with all depth search results (no filtering)"""
+        if not depth_items:
+            return
+        
+        # Clear the model
+        self.details_model.clear()
+        self.details_model.setHorizontalHeaderLabels(['Name', 'Size', 'Type', 'Date Modified', 'Date Accessed'])
+        
+        # Restore column widths
+        header_view = self.details_view.header()
+        try:
+            header_view.sectionResized.disconnect(self.on_column_resized)
+        except:
+            pass
+        
+        default_widths = [350, 100, 120, 150, 150]
+        for col in range(5):
+            width = self.column_widths.get(f'col_{col}', default_widths[col])
+            self.details_view.setColumnWidth(col, width)
+        
+        header_view.sectionResized.connect(self.on_column_resized)
+        
+        # Sort by depth level then alphabetically
+        sorted_items = sorted(depth_items, key=lambda x: (x['depth'], x['display_name'].lower()))
+        
+        # Add all items to view
+        for item in sorted_items:
+            row_items = self._create_depth_search_item(item)
+            self.details_model.appendRow(row_items)
+        
+        # Update footer
+        self.update_details_footer()
+    
+    def _create_depth_search_item(self, item_data: dict):
+        """Create a row item for depth search results"""
+        display_name = item_data['display_name']
+        full_path = item_data['path']
+        is_dir = item_data['is_dir']
+        depth = item_data['depth']
+        size = item_data.get('size', 0)
+        modified = item_data.get('modified', '')
+        accessed = item_data.get('accessed', '')
+        
+        # Create name item with icon
+        name_item = QStandardItem(display_name)
+        path_obj = Path(full_path)
+        icon = self._get_cached_icon(path_obj, is_dir)
+        name_item.setIcon(icon)
+        name_item.setData(full_path, Qt.ItemDataRole.UserRole)
+        
+        # Set sort data (depth prefix for proper sorting)
+        sort_prefix = f"{depth}_{'0' if is_dir else '1'}_"
+        name_item.setData(sort_prefix + display_name.lower(), Qt.ItemDataRole.UserRole + 1)
+        
+        # Size item
+        size_item = QStandardItem()
+        if not is_dir and size > 0:
+            if size < 1024:
+                size_str = f"{size} B"
+            elif size < 1024 * 1024:
+                size_str = f"{size / 1024:.1f} KB"
+            elif size < 1024 * 1024 * 1024:
+                size_str = f"{size / (1024 * 1024):.1f} MB"
+            else:
+                size_str = f"{size / (1024 * 1024 * 1024):.2f} GB"
+            size_item.setText(size_str)
+            size_item.setData(size, Qt.ItemDataRole.UserRole + 1)
+        else:
+            size_item.setData(0, Qt.ItemDataRole.UserRole + 1)
+        
+        # Type item
+        type_item = QStandardItem("Folder" if is_dir else path_obj.suffix.upper().lstrip('.'))
+        type_item.setData(full_path, Qt.ItemDataRole.UserRole)
+        
+        # Modified item
+        modified_item = QStandardItem(modified)
+        modified_item.setData(full_path, Qt.ItemDataRole.UserRole)
+        
+        # Accessed item
+        accessed_item = QStandardItem(accessed)
+        accessed_item.setData(full_path, Qt.ItemDataRole.UserRole)
+        
+        return [name_item, size_item, type_item, modified_item, accessed_item]
+    
     def on_tree_item_clicked(self, index):
         """Handle click on tree item - load folder contents in details view"""
+        # Block navigation if depth search is locked
+        if self.depth_search_locked:
+            QMessageBox.warning(self, "Navigation Locked", 
+                "Folder navigation is locked while depth search is active.\n\n"
+                "Turn off depth search to navigate to other folders.")
+            return
+        
         item = self.model.itemFromIndex(index)
         if not item:
             return
@@ -1494,6 +2190,27 @@ class FileExplorerCore(QWidget):
     
     def load_folder_contents_in_details(self, dir_path):
         """Load folder contents into the details view - optimized for network drives"""
+        # Check if we're returning to the depth search folder while locked
+        if (self.depth_search_locked and 
+            self.depth_search_folder and 
+            str(dir_path) == self.depth_search_folder and
+            self.depth_search_active_results):
+            # Restore depth search results instead of loading normal contents
+            self.current_details_folder = str(dir_path)
+            self.details_view.set_current_folder(str(dir_path))
+            self.details_header.setText(f"📂 {dir_path.name or str(dir_path)}")
+            self._populate_depth_results(self.depth_search_active_results)
+            return
+        
+        # Start timing and show loading indicator
+        import time
+        start_time = time.perf_counter()
+        
+        if hasattr(self, 'details_footer'):
+            self.details_footer.setText("...loading")
+            # Force UI update to show loading message
+            QApplication.processEvents()
+        
         try:
             dir_path = Path(dir_path)
             
@@ -1508,13 +2225,23 @@ class FileExplorerCore(QWidget):
             
             # Clear details model BUT preserve column widths
             self.details_model.clear()
-            self.details_model.setHorizontalHeaderLabels(['Name', 'Size', 'Type', 'Date Modified'])
+            self.details_model.setHorizontalHeaderLabels(['Name', 'Size', 'Type', 'Date Modified', 'Date Accessed'])
+            
+            # Temporarily disconnect resize signal to prevent saving while we restore widths
+            header_view = self.details_view.header()
+            try:
+                header_view.sectionResized.disconnect(self.on_column_resized)
+            except:
+                pass  # Might not be connected yet
             
             # Restore column widths after clearing
-            default_widths = [350, 100, 120, 150]
-            for col in range(4):
+            default_widths = [350, 100, 120, 150, 150]
+            for col in range(5):
                 width = self.column_widths.get(f'col_{col}', default_widths[col])
                 self.details_view.setColumnWidth(col, width)
+            
+            # Reconnect resize signal
+            header_view.sectionResized.connect(self.on_column_resized)
             
             # Check if it's a network path
             is_network = str(dir_path).startswith('\\\\')
@@ -1559,20 +2286,38 @@ class FileExplorerCore(QWidget):
             sort_column = header.sortIndicatorSection()
             sort_order = header.sortIndicatorOrder()
             self.details_sort_proxy.sort(sort_column, sort_order)
+            
+            # Calculate elapsed time and update footer with timing
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            self.update_details_footer(timing_ms=elapsed_ms)
                     
         except (PermissionError, OSError) as e:
             self.details_model.clear()
-            self.details_model.setHorizontalHeaderLabels(['Name', 'Size', 'Type', 'Date Modified'])
+            self.details_model.setHorizontalHeaderLabels(['Name', 'Size', 'Type', 'Date Modified', 'Date Accessed'])
+            
+            # Temporarily disconnect resize signal
+            header_view = self.details_view.header()
+            try:
+                header_view.sectionResized.disconnect(self.on_column_resized)
+            except:
+                pass
             
             # Restore column widths even on error
-            default_widths = [350, 100, 120, 150]
-            for col in range(4):
+            default_widths = [350, 100, 120, 150, 150]
+            for col in range(5):
                 width = self.column_widths.get(f'col_{col}', default_widths[col])
                 self.details_view.setColumnWidth(col, width)
             
+            # Reconnect resize signal
+            header_view.sectionResized.connect(self.on_column_resized)
+            
             error_item = QStandardItem(f"❌ Access denied: {str(e)}")
             error_item.setEnabled(False)
-            self.details_model.appendRow([error_item, QStandardItem(""), QStandardItem(""), QStandardItem("")])
+            self.details_model.appendRow([error_item, QStandardItem(""), QStandardItem(""), QStandardItem(""), QStandardItem("")])
+            
+            # Update footer even on error
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            self.update_details_footer(timing_ms=elapsed_ms)
     
     def on_details_item_double_clicked(self, index):
         """Handle double click in details view"""
@@ -1737,6 +2482,12 @@ class FileExplorerCore(QWidget):
                     
                     delete_action = menu.addAction("🗑️ Delete")
                     delete_action.triggered.connect(self.delete_file)
+                    
+                    menu.addSeparator()
+                    
+                    # Copy Full Path
+                    copy_path_action = menu.addAction("📄 Copy Full Path")
+                    copy_path_action.triggered.connect(lambda: self.copy_full_path_to_clipboard(path))
                     
                     menu.addSeparator()
                     
@@ -2085,6 +2836,12 @@ class FileExplorerCore(QWidget):
             # Also set system clipboard so files can be pasted in Windows Explorer
             self._set_system_clipboard(paths)
             logger.info(f"Copy: {len(paths)} item(s)")
+    
+    def copy_full_path_to_clipboard(self, path):
+        """Copy the full path of a file or folder to clipboard as text"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(str(path))
+        logger.info(f"Copied path to clipboard: {path}")
     
     def _set_system_clipboard(self, paths):
         """Set file paths to the system clipboard for use with Windows Explorer"""
@@ -2570,6 +3327,64 @@ class FileExplorerCore(QWidget):
         """Handle column resize event - save new width"""
         self.column_widths[f'col_{logical_index}'] = new_size
         self.save_column_widths()
+    
+    def load_panel_widths(self):
+        """Load panel widths from JSON file"""
+        try:
+            if self.panel_widths_file.exists():
+                with open(self.panel_widths_file, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load panel widths: {e}")
+        return {}
+    
+    def save_panel_widths(self):
+        """Save panel widths to JSON file"""
+        try:
+            # Ensure directory exists
+            self.panel_widths_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.panel_widths_file, 'w') as f:
+                json.dump(self.panel_widths, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save panel widths: {e}")
+    
+    def on_splitter_moved(self, pos, index):
+        """Handle splitter moved event - save panel widths"""
+        if hasattr(self, 'main_splitter'):
+            sizes = self.main_splitter.sizes()
+            if len(sizes) >= 2:
+                self.panel_widths['left_panel'] = sizes[0]
+                self.panel_widths['middle_panel'] = sizes[1]
+                if len(sizes) >= 3:
+                    self.panel_widths['right_panel'] = sizes[2]
+                self.save_panel_widths()
+    
+    def update_details_footer(self, timing_ms=None):
+        """Update the details footer with item count and optional timing"""
+        if hasattr(self, 'details_footer') and hasattr(self, 'details_sort_proxy'):
+            count = self.details_sort_proxy.rowCount()
+            
+            # Left side: item count
+            if count == 0:
+                left_text = ""
+            elif count == 1:
+                left_text = "1 item"
+            else:
+                left_text = f"{count} items"
+            
+            # Right side: timing info
+            if timing_ms is not None:
+                right_text = f"Loaded in {timing_ms}ms"
+            else:
+                right_text = ""
+            
+            # Combine with spacing
+            if left_text and right_text:
+                full_text = f"{left_text}" + " " * 20 + right_text
+            else:
+                full_text = left_text + right_text
+            
+            self.details_footer.setText(full_text)
     
     def add_to_quick_access(self):
         """Add selected item to Quick Access"""

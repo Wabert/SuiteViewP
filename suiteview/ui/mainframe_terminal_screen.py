@@ -528,6 +528,7 @@ class TerminalSettingsDialog(QDialog):
     
     def __init__(self, parent=None, host="PRODESA", port=992, ssl=True, term_type="IBM-3278-2-E", userid="", password=""):
         super().__init__(parent)
+        self.parent_screen = parent  # Store parent to access connection manager
         self.setWindowTitle("Terminal Settings")
         self.setModal(True)
         self.setMinimumWidth(420)
@@ -637,29 +638,20 @@ class TerminalSettingsDialog(QDialog):
         conn_group.setLayout(conn_form)
         layout.addWidget(conn_group)
         
-        # Credentials Group
-        cred_group = QGroupBox("Credentials (Auto-Login)")
-        cred_form = QFormLayout()
-        cred_form.setSpacing(12)
-        cred_form.setContentsMargins(15, 20, 15, 15)
-        
-        # User ID input
-        self.userid_input = QLineEdit()
-        self.userid_input.setText(userid)
-        self.userid_input.setPlaceholderText("TSO User ID")
-        self.userid_input.setStyleSheet(input_style)
-        cred_form.addRow("User ID:", self.userid_input)
-        
-        # Password input
-        self.password_input = QLineEdit()
-        self.password_input.setText(password)
-        self.password_input.setPlaceholderText("Password")
-        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_input.setStyleSheet(input_style)
-        cred_form.addRow("Password:", self.password_input)
-        
-        cred_group.setLayout(cred_form)
-        layout.addWidget(cred_group)
+        # Note about credentials
+        cred_note = QLabel("💡 Use the 'User' button at the bottom of the window to set your credentials.")
+        cred_note.setStyleSheet("""
+            QLabel {
+                color: #666;
+                font-style: italic;
+                padding: 10px;
+                background-color: #f0f8ff;
+                border-radius: 4px;
+                border: 1px solid #cce5ff;
+            }
+        """)
+        cred_note.setWordWrap(True)
+        layout.addWidget(cred_note)
         
         # Port Scanner Group
         scan_group = QGroupBox("Port Scanner")
@@ -723,6 +715,23 @@ class TerminalSettingsDialog(QDialog):
                 border-radius: 4px;
                 background-color: white;
                 font-size: 11px;
+                outline: none;
+            }
+            QTableWidget::item {
+                padding: 0px;
+                margin: 0px;
+                border: none;
+                outline: none;
+            }
+            QTableWidget::item:selected {
+                background-color: #0078d4;
+                color: white;
+                border: none;
+                outline: none;
+            }
+            QTableWidget::item:focus {
+                border: none;
+                outline: none;
             }
             QHeaderView::section {
                 background-color: #e2e8f0;
@@ -805,13 +814,23 @@ class TerminalSettingsDialog(QDialog):
     
     def get_settings(self):
         """Return the current settings"""
+        # Get credentials from MAINFRAME_USER connection
+        userid = ""
+        password = ""
+        if self.parent_screen and hasattr(self.parent_screen, 'conn_manager'):
+            user_conn = self.parent_screen.conn_manager.get_connection("MAINFRAME_USER")
+            if user_conn:
+                userid = user_conn.get('username', '')
+                if user_conn.get('password'):
+                    password = self.parent_screen.cred_manager.decrypt_password(user_conn.get('password', ''))
+        
         return {
             'host': self.host_input.text(),
             'port': self.port_input.value(),
             'ssl': self.ssl_checkbox.isChecked(),
             'term_type': self.term_type_combo.currentText(),
-            'userid': self.userid_input.text(),
-            'password': self.password_input.text()
+            'userid': userid,
+            'password': password
         }
     
     def start_port_scan(self):

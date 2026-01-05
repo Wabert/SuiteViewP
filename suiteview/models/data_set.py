@@ -67,6 +67,7 @@ class DataSet:
     name: str
     description: str = ""
     script_code: str = ""
+    calling_code: str = ""  # Calling code from Calling tab
     connection_type: str = "SQL Server"  # For future XDB integration
     connection_name: str = ""  # For future XDB integration
     parameters: List[DataSetParameter] = field(default_factory=list)
@@ -80,6 +81,7 @@ class DataSet:
             'name': self.name,
             'description': self.description,
             'script_code': self.script_code,
+            'calling_code': self.calling_code,
             'connection_type': self.connection_type,
             'connection_name': self.connection_name,
             'parameters': [p.to_dict() for p in self.parameters],
@@ -95,6 +97,7 @@ class DataSet:
             name=data['name'],
             description=data.get('description', ''),
             script_code=data.get('script_code', ''),
+            calling_code=data.get('calling_code', ''),
             connection_type=data.get('connection_type', 'SQL Server'),
             connection_name=data.get('connection_name', ''),
             parameters=[DataSetParameter.from_dict(p) for p in data.get('parameters', [])],

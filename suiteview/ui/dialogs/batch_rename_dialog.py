@@ -30,19 +30,80 @@ class BatchRenameDialog(QDialog):
     def init_ui(self):
         """Initialize UI"""
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(3)
         
-        # Info
-        info_label = QLabel(f"<b>Renaming {len(self.file_paths)} files</b>")
-        info_label.setStyleSheet("font-size: 11pt; padding: 5px;")
-        layout.addWidget(info_label)
+        # Compact stylesheet for all input controls
+        compact_input_style = """
+            QDialog {
+                background-color: white;
+            }
+            QLineEdit, QSpinBox, QComboBox {
+                padding: 2px 5px;
+                margin: 0px;
+                height: 22px;
+                background-color: white;
+                color: black;
+                border: 1px solid #A0A0A0;
+                border-radius: 2px;
+            }
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
+                background-color: white;
+                border: 1px solid #0078d4;
+            }
+            QSpinBox {
+                padding-right: 18px;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 16px;
+                background-color: #E0E0E0;
+                border: 1px solid #A0A0A0;
+            }
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+                background-color: #C8DCF0;
+            }
+            QSpinBox::up-arrow {
+                image: none;
+                width: 0px;
+                height: 0px;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-bottom: 5px solid #404040;
+            }
+            QSpinBox::down-arrow {
+                image: none;
+                width: 0px;
+                height: 0px;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #404040;
+            }
+            QLabel {
+                color: black;
+                background-color: transparent;
+            }
+            QGroupBox {
+                background-color: white;
+                border: 1px solid #CCCCCC;
+                border-radius: 3px;
+                margin-top: 3px;
+                padding-top: 3px;
+            }
+            QRadioButton {
+                background-color: transparent;
+                spacing: 3px;
+            }
+            QCheckBox {
+                background-color: transparent;
+            }
+        """
+        self.setStyleSheet(compact_input_style)
         
         # Rename options
-        options_group = QGroupBox("Rename Options")
+        options_group = QGroupBox()
         options_layout = QVBoxLayout(options_group)
-        
-        # Mode selection
-        mode_label = QLabel("<b>Rename Mode:</b>")
-        options_layout.addWidget(mode_label)
+        options_layout.setContentsMargins(8, 6, 8, 6)
+        options_layout.setSpacing(4)
         
         self.mode_group = QButtonGroup(self)
         
@@ -53,12 +114,17 @@ class BatchRenameDialog(QDialog):
         options_layout.addWidget(self.replace_mode)
         
         replace_layout = QHBoxLayout()
-        replace_layout.addSpacing(20)
-        replace_layout.addWidget(QLabel("Find:"))
+        replace_layout.setContentsMargins(20, 1, 0, 1)
+        replace_layout.setSpacing(6)
+        find_label = QLabel("Find:")
+        find_label.setMinimumWidth(80)
+        replace_layout.addWidget(find_label)
         self.find_text = QLineEdit()
         self.find_text.setPlaceholderText("Text to find")
         replace_layout.addWidget(self.find_text)
-        replace_layout.addWidget(QLabel("Replace with:"))
+        replace_with_label = QLabel("Replace with:")
+        replace_with_label.setMinimumWidth(90)
+        replace_layout.addWidget(replace_with_label)
         self.replace_text = QLineEdit()
         self.replace_text.setPlaceholderText("Replacement text")
         replace_layout.addWidget(self.replace_text)
@@ -70,12 +136,17 @@ class BatchRenameDialog(QDialog):
         options_layout.addWidget(self.prefix_suffix_mode)
         
         prefix_layout = QHBoxLayout()
-        prefix_layout.addSpacing(20)
-        prefix_layout.addWidget(QLabel("Prefix:"))
+        prefix_layout.setContentsMargins(20, 1, 0, 1)
+        prefix_layout.setSpacing(6)
+        prefix_label = QLabel("Prefix:")
+        prefix_label.setMinimumWidth(80)
+        prefix_layout.addWidget(prefix_label)
         self.prefix_text = QLineEdit()
         self.prefix_text.setPlaceholderText("Add to beginning")
         prefix_layout.addWidget(self.prefix_text)
-        prefix_layout.addWidget(QLabel("Suffix:"))
+        suffix_label = QLabel("Suffix:")
+        suffix_label.setMinimumWidth(90)
+        prefix_layout.addWidget(suffix_label)
         self.suffix_text = QLineEdit()
         self.suffix_text.setPlaceholderText("Add before extension")
         prefix_layout.addWidget(self.suffix_text)
@@ -87,20 +158,31 @@ class BatchRenameDialog(QDialog):
         options_layout.addWidget(self.number_mode)
         
         number_layout = QHBoxLayout()
-        number_layout.addSpacing(20)
-        number_layout.addWidget(QLabel("Base name:"))
+        number_layout.setContentsMargins(20, 1, 0, 1)
+        number_layout.setSpacing(6)
+        base_label = QLabel("Base name:")
+        base_label.setMinimumWidth(80)
+        number_layout.addWidget(base_label)
         self.base_name = QLineEdit()
         self.base_name.setPlaceholderText("e.g., File")
         number_layout.addWidget(self.base_name)
-        number_layout.addWidget(QLabel("Start number:"))
+        start_label = QLabel("Start number:")
+        start_label.setMinimumWidth(90)
+        number_layout.addWidget(start_label)
         self.start_number = QSpinBox()
         self.start_number.setRange(0, 9999)
         self.start_number.setValue(1)
+        self.start_number.setMinimumWidth(80)
+        self.start_number.setAlignment(Qt.AlignmentFlag.AlignRight)
         number_layout.addWidget(self.start_number)
-        number_layout.addWidget(QLabel("Digits:"))
+        digits_label = QLabel("Digits:")
+        digits_label.setMinimumWidth(50)
+        number_layout.addWidget(digits_label)
         self.num_digits = QSpinBox()
         self.num_digits.setRange(1, 6)
         self.num_digits.setValue(3)
+        self.num_digits.setMinimumWidth(70)
+        self.num_digits.setAlignment(Qt.AlignmentFlag.AlignRight)
         number_layout.addWidget(self.num_digits)
         options_layout.addLayout(number_layout)
         
@@ -110,10 +192,14 @@ class BatchRenameDialog(QDialog):
         options_layout.addWidget(self.case_mode)
         
         case_layout = QHBoxLayout()
-        case_layout.addSpacing(20)
-        case_layout.addWidget(QLabel("Convert to:"))
+        case_layout.setContentsMargins(20, 1, 0, 1)
+        case_layout.setSpacing(6)
+        case_label = QLabel("Convert to:")
+        case_label.setMinimumWidth(80)
+        case_layout.addWidget(case_label)
         self.case_combo = QComboBox()
         self.case_combo.addItems(["lowercase", "UPPERCASE", "Title Case", "Sentence case"])
+        self.case_combo.setMinimumWidth(150)
         case_layout.addWidget(self.case_combo)
         case_layout.addStretch()
         options_layout.addLayout(case_layout)
@@ -127,11 +213,25 @@ class BatchRenameDialog(QDialog):
         
         # Preview button
         preview_btn = QPushButton("🔍 Update Preview")
+        preview_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0078d4;
+                color: white;
+                padding: 4px 12px;
+                border: none;
+                border-radius: 3px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #005a9e;
+            }
+        """)
         preview_btn.clicked.connect(self.update_preview)
         layout.addWidget(preview_btn)
         
         # Preview table
         preview_label = QLabel("<b>Preview:</b>")
+        preview_label.setStyleSheet("padding: 2px;")
         layout.addWidget(preview_label)
         
         self.preview_table = QTableWidget()
@@ -140,12 +240,26 @@ class BatchRenameDialog(QDialog):
         self.preview_table.horizontalHeader().setStretchLastSection(True)
         self.preview_table.setColumnWidth(0, 300)
         self.preview_table.setColumnWidth(1, 30)
+        self.preview_table.verticalHeader().setDefaultSectionSize(20)  # Compact rows
         layout.addWidget(self.preview_table)
         
         # Buttons
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        button_box.setStyleSheet("""
+            QPushButton {
+                background-color: #0078d4;
+                color: white;
+                padding: 4px 16px;
+                border: none;
+                border-radius: 3px;
+                min-width: 60px;
+            }
+            QPushButton:hover {
+                background-color: #005a9e;
+            }
+        """)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)

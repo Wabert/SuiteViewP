@@ -14,22 +14,37 @@ def build_windows_exe():
     print("SuiteView Data Manager - Windows Build Script")
     print("=" * 60)
 
+    # Determine the Python interpreter (use venv if available)
+    if os.path.exists("venv_window/Scripts/python.exe"):
+        python_exe = os.path.abspath("venv_window/Scripts/python.exe")
+        pyinstaller_exe = os.path.abspath("venv_window/Scripts/pyinstaller.exe")
+        print(f"\nUsing virtual environment: {python_exe}")
+    else:
+        python_exe = sys.executable
+        pyinstaller_exe = "pyinstaller"
+        print(f"\nUsing system Python: {python_exe}")
+
     # Check if PyInstaller is installed
-    try:
-        import PyInstaller
-    except ImportError:
+    if not os.path.exists(pyinstaller_exe):
         print("\nPyInstaller not found. Installing...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
+        subprocess.check_call([python_exe, "-m", "pip", "install", "pyinstaller"])
+        # Update pyinstaller path after installation
+        if os.path.exists("venv_window/Scripts/pyinstaller.exe"):
+            pyinstaller_exe = os.path.abspath("venv_window/Scripts/pyinstaller.exe")
 
     # Build command
     build_cmd = [
-        "pyinstaller",
+        pyinstaller_exe,
         "--name=SuiteView Data Manager",
         "--windowed",  # No console window
         "--onefile",  # Single executable
         "--icon=resources/icons/app.ico" if os.path.exists("resources/icons/app.ico") else "",
         # Add data files
         "--add-data=suiteview/ui/styles.qss;suiteview/ui",
+        # Exclude other Qt bindings
+        "--exclude-module=PyQt5",
+        "--exclude-module=PySide6",
+        "--exclude-module=PySide2",
         # Hidden imports
         "--hidden-import=PyQt6",
         "--hidden-import=PyQt6.QtCore",

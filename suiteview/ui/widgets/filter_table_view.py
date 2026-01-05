@@ -806,11 +806,16 @@ class FilterTableView(QWidget):
         self.info_label.setStyleSheet("color: #666; font-size: 10px; padding: 2px;")
         layout.addWidget(self.info_label)
 
-    def set_dataframe(self, df: pd.DataFrame):
-        """Set the DataFrame to display"""
-        # Auto-limit large datasets for optimal performance
+    def set_dataframe(self, df: pd.DataFrame, limit_rows: bool = True):
+        """Set the DataFrame to display
+        
+        Args:
+            df: DataFrame to display
+            limit_rows: If True, limit to MAX_DISPLAY_ROWS for performance. Set to False for query results.
+        """
+        # Auto-limit large datasets for optimal performance (only if limit_rows=True)
         original_row_count = len(df)
-        if original_row_count > MAX_DISPLAY_ROWS:
+        if limit_rows and original_row_count > MAX_DISPLAY_ROWS:
             df = df.head(MAX_DISPLAY_ROWS)
             logger.info(f"Limited dataset to {MAX_DISPLAY_ROWS:,} rows (original: {original_row_count:,})")
         

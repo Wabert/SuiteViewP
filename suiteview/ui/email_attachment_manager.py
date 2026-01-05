@@ -24,9 +24,9 @@ from typing import List, Dict
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTabWidget, QMessageBox, QFileDialog, QDialog, QTextEdit,
-    QSplitter, QListWidget, QListWidgetItem
+    QSplitter, QListWidget, QListWidgetItem, QProgressDialog, QApplication
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QPixmap
 
 import pandas as pd
@@ -105,12 +105,6 @@ class EmailAttachmentManager(QWidget):
         title_layout.addWidget(title)
         
         title_layout.addStretch()
-        
-        # Refresh button
-        refresh_btn = QPushButton("🔄 Refresh")
-        refresh_btn.setFixedHeight(30)
-        refresh_btn.clicked.connect(self.load_data)
-        title_layout.addWidget(refresh_btn)
         
         layout.addLayout(title_layout)
         
@@ -304,6 +298,30 @@ class EmailAttachmentManager(QWidget):
         # Load timeline
         self.load_timeline()
     
+    def reconnect_outlook(self):
+        """Attempt to reconnect to Outlook"""
+        # Try to reconnect
+        success = self.outlook.reconnect()
+        
+        if success:
+            QMessageBox.information(
+                self,
+                "Outlook Connected",
+                "Successfully connected to Outlook!\n\n"
+                "You can now open attachments."
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Connection Failed",
+                "Failed to connect to Outlook.\n\n"
+                "Please ensure:\n"
+                "1. Microsoft Outlook is installed\n"
+                "2. Outlook is running (try starting it manually)\n"
+                "3. You have permission to access Outlook\n\n"
+                "After starting Outlook, click 'Reconnect Outlook' again."
+            )
+    
     def load_duplicates(self):
         """Load duplicate attachments"""
         duplicates = self.repo.get_duplicate_attachments()
@@ -350,10 +368,18 @@ class EmailAttachmentManager(QWidget):
         col = index.column()
         row = index.row()
         
-        if row < 0 or row >= len(self.attachment_data):
-            return
-        
-        attachment = self.attachment_data.iloc[row]
+        # Map filtered view row to original data row
+        if hasattr(self.attachments_grid, 'model') and self.attachments_grid.model:
+            display_indices = self.attachments_grid.model._display_indices
+            if row < 0 or row >= len(display_indices):
+                return
+            actual_index = display_indices[row]
+            attachment = self.attachment_data.loc[actual_index]
+        else:
+            # Fallback if no filtering is active
+            if row < 0 or row >= len(self.attachment_data):
+                return
+            attachment = self.attachment_data.iloc[row]
         
         # Column 0 is Email Subject - open email
         if col == 0:
@@ -376,7 +402,21 @@ class EmailAttachmentManager(QWidget):
     def open_email(self, email_id: str):
         """Open email in Outlook"""
         if not self.outlook.is_connected():
-            QMessageBox.warning(self, "Outlook Error", "Not connected to Outlook")
+            # Show helpful error with reconnect option
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Outlook Not Connected")
+            msg.setText("Not connected to Outlook")
+            msg.setInformativeText(
+                "To open emails, Outlook must be connected.\n\n"
+                "Please ensure Microsoft Outlook is running, then click 'Reconnect'."
+            )
+            reconnect_btn = msg.addButton("Reconnect", QMessageBox.ButtonRole.AcceptRole)
+            cancel_btn = msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            msg.exec()
+            
+            if msg.clickedButton() == reconnect_btn:
+                self.reconnect_outlook()
             return
         
         success = self.outlook.open_email(email_id)
@@ -399,16 +439,36 @@ class EmailAttachmentManager(QWidget):
     def open_attachment(self, email_id: str, attachment_index: int):
         """Open attachment with default application"""
         if not self.outlook.is_connected():
-            QMessageBox.warning(self, "Outlook Error", "Not connected to Outlook")
+            # Show helpful error with reconnect option
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Outlook Not Connected")
+            msg.setText("Not connected to Outlook")
+            msg.setInformativeText(
+                "To open attachments, Outlook must be connected.\n\n"
+                "Please ensure Microsoft Outlook is running, then try reconnecting."
+            )
+            msg.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
+            msg.exec()
             return
         
-        # Get temp path for preview
-        temp_path = self.outlook.get_attachment_preview_path(email_id, attachment_index)
+        # Show progress cursor
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
         
-        if temp_path and os.path.exists(temp_path):
-            os.startfile(temp_path)
-        else:
-            QMessageBox.warning(self, "Error", "Failed to open attachment")
+        try:
+            # Get temp path (runs on main thread - required for COM)
+            temp_path = self.outlook.get_attachment_preview_path(email_id, attachment_index)
+            
+            QApplication.restoreOverrideCursor()
+            
+            if temp_path and os.path.exists(temp_path):
+                os.startfile(temp_path)
+            else:
+                QMessageBox.warning(self, "Error", "Failed to retrieve attachment")
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Error", f"Failed to open attachment: {e}")
     
     def preview_selected_attachment(self):
         """Preview selected attachment (for images/PDFs)"""
@@ -430,14 +490,24 @@ class EmailAttachmentManager(QWidget):
             )
             return
         
-        # Get temp path
-        temp_path = self.outlook.get_attachment_preview_path(attach['email_id'], attach['attachment_index'])
+        # Show progress cursor
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
         
-        if temp_path and os.path.exists(temp_path):
-            dialog = ImagePreviewDialog(temp_path, self)
-            dialog.exec()
-        else:
-            QMessageBox.warning(self, "Error", "Failed to load preview")
+        try:
+            # Get temp path (runs on main thread - required for COM)
+            temp_path = self.outlook.get_attachment_preview_path(attach['email_id'], attach['attachment_index'])
+            
+            QApplication.restoreOverrideCursor()
+            
+            if temp_path and os.path.exists(temp_path):
+                dialog = ImagePreviewDialog(temp_path, self)
+                dialog.exec()
+            else:
+                QMessageBox.warning(self, "Error", "Failed to load preview")
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Error", f"Failed to load preview: {e}")
     
     def copy_selected_to_downloads(self):
         """Copy selected attachments to Downloads folder"""
@@ -616,13 +686,23 @@ class EmailAttachmentManager(QWidget):
         
         # Extract unique row numbers from selected indexes
         selected_row_nums = set(index.row() for index in selected_indexes)
-        logger.debug(f"Selected rows: {selected_row_nums}")
+        logger.debug(f"Selected rows (filtered view): {selected_row_nums}")
         
+        # Map filtered view rows to original data rows
         attachments = []
-        for row in sorted(selected_row_nums):
-            if row >= 0 and row < len(self.attachment_data):
-                attach_dict = self.attachment_data.iloc[row].to_dict()
-                attachments.append(attach_dict)
+        if hasattr(self.attachments_grid, 'model') and self.attachments_grid.model:
+            display_indices = self.attachments_grid.model._display_indices
+            for row in sorted(selected_row_nums):
+                if row >= 0 and row < len(display_indices):
+                    actual_index = display_indices[row]
+                    attach_dict = self.attachment_data.loc[actual_index].to_dict()
+                    attachments.append(attach_dict)
+        else:
+            # Fallback if no filtering is active
+            for row in sorted(selected_row_nums):
+                if row >= 0 and row < len(self.attachment_data):
+                    attach_dict = self.attachment_data.iloc[row].to_dict()
+                    attachments.append(attach_dict)
         
         logger.info(f"Found {len(attachments)} selected attachments")
         return attachments

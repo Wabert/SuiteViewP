@@ -7,6 +7,10 @@ from pathlib import Path
 import json
 import re
 from typing import Optional, Dict, Any
+import sqlparse
+import sys
+from datetime import datetime
+import psutil
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                               QLabel, QLineEdit, QTextEdit, QTabWidget,
@@ -14,13 +18,140 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                               QDialogButtonBox, QFormLayout, QTableWidget,
                               QTableWidgetItem, QHeaderView, QAbstractItemView,
                               QComboBox, QCheckBox, QFrame, QGroupBox, QListWidgetItem,
-                              QSpinBox, QScrollArea)
-from PyQt6.QtCore import Qt, pyqtSignal
+                              QSpinBox, QScrollArea, QApplication, QMenu)
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QTime
 from PyQt6.QtGui import QFont, QColor, QSyntaxHighlighter, QTextCharFormat
 
 from suiteview.models.data_set import DataSet, DataSetParameter, DataSetField
+from suiteview.data.repositories import SavedTableRepository, ConnectionRepository, get_metadata_cache_repository
+from suiteview.core.schema_discovery import SchemaDiscovery
+from suiteview.core.query_executor import QueryExecutor
+from suiteview.ui.dialogs.query_results_dialog import QueryResultsDialog
+from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 logger = logging.getLogger(__name__)
+
+
+class UndoRedoManager:
+    """Helper class to manage undo/redo functionality for text editors"""
+    
+    def __init__(self, text_edit: QTextEdit):
+        self.text_edit = text_edit
+        self.undo_btn = None
+        self.redo_btn = None
+        
+        # Connect to document signals to update button states
+        self.text_edit.undoAvailable.connect(self._update_undo_state)
+        self.text_edit.redoAvailable.connect(self._update_redo_state)
+    
+    def create_toolbar_buttons(self) -> tuple:
+        """Create and return undo/redo buttons for toolbar"""
+        button_style = """
+            QPushButton {
+                background-color: #ffffff;
+                color: #0078d4;
+                padding: 2px 6px;
+                font-size: 9pt;
+                border: 1px solid #0078d4;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #e3f2fd;
+            }
+            QPushButton:disabled {
+                background-color: #f5f5f5;
+                color: #cccccc;
+                border-color: #cccccc;
+            }
+        """
+        
+        self.undo_btn = QPushButton("↶ Undo")
+        self.undo_btn.setFixedWidth(70)
+        self.undo_btn.setFixedHeight(26)
+        self.undo_btn.setStyleSheet(button_style)
+        self.undo_btn.clicked.connect(self.text_edit.undo)
+        self.undo_btn.setEnabled(False)
+        
+        self.redo_btn = QPushButton("↷ Redo")
+        self.redo_btn.setFixedWidth(70)
+        self.redo_btn.setFixedHeight(26)
+        self.redo_btn.setStyleSheet(button_style)
+        self.redo_btn.clicked.connect(self.text_edit.redo)
+        self.redo_btn.setEnabled(False)
+        
+        return self.undo_btn, self.redo_btn
+    
+    def _update_undo_state(self, available: bool):
+        """Update undo button enabled state"""
+        if self.undo_btn:
+            self.undo_btn.setEnabled(available)
+    
+    def _update_redo_state(self, available: bool):
+        """Update redo button enabled state"""
+        if self.redo_btn:
+            self.redo_btn.setEnabled(available)
+
+
+class SQLHighlighter(QSyntaxHighlighter):
+    """SQL syntax highlighter with color formatting"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        # Define formats for different SQL elements
+        self.keyword_format = QTextCharFormat()
+        self.keyword_format.setForeground(QColor("#0000FF"))  # Blue
+        self.keyword_format.setFontWeight(QFont.Weight.Bold)
+        
+        self.function_format = QTextCharFormat()
+        self.function_format.setForeground(QColor("#FF00FF"))  # Magenta
+        
+        self.string_format = QTextCharFormat()
+        self.string_format.setForeground(QColor("#00AA00"))  # Green
+        
+        self.number_format = QTextCharFormat()
+        self.number_format.setForeground(QColor("#FF6600"))  # Orange
+        
+        # SQL keywords
+        self.keywords = [
+            'SELECT', 'FROM', 'WHERE', 'INNER', 'JOIN', 'LEFT', 'RIGHT', 'OUTER',
+            'ON', 'AND', 'OR', 'NOT', 'IN', 'LIKE', 'BETWEEN', 'IS', 'NULL',
+            'AS', 'ORDER', 'BY', 'GROUP', 'HAVING', 'LIMIT', 'OFFSET', 'FETCH',
+            'FIRST', 'ROWS', 'ONLY', 'UNION', 'ALL', 'DISTINCT', 'ASC', 'DESC',
+            'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE',
+            'TABLE', 'ALTER', 'DROP', 'INDEX', 'VIEW', 'CASE', 'WHEN', 'THEN',
+            'ELSE', 'END', 'WITH'
+        ]
+        
+        # SQL functions
+        self.functions = [
+            'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'ROUND', 'REAL', 'LEFT', 'RIGHT',
+            'SUBSTRING', 'TRIM', 'RTRIM', 'LTRIM', 'UPPER', 'LOWER', 'CAST',
+            'COALESCE', 'NULLIF', 'LENGTH', 'CONCAT'
+        ]
+    
+    def highlightBlock(self, text):
+        """Apply syntax highlighting to a block of text"""
+        
+        # Highlight keywords
+        for keyword in self.keywords:
+            pattern = r'\b' + keyword + r'\b'
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                self.setFormat(match.start(), match.end() - match.start(), self.keyword_format)
+        
+        # Highlight functions
+        for function in self.functions:
+            pattern = r'\b' + function + r'\s*\('
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                self.setFormat(match.start(), len(function), self.function_format)
+        
+        # Highlight strings (single quotes)
+        for match in re.finditer(r"'[^']*'", text):
+            self.setFormat(match.start(), match.end() - match.start(), self.string_format)
+        
+        # Highlight numbers
+        for match in re.finditer(r'\b\d+\.?\d*\b', text):
+            self.setFormat(match.start(), match.end() - match.start(), self.number_format)
 
 
 class PythonSyntaxHighlighter(QSyntaxHighlighter):
@@ -74,6 +205,24 @@ class PythonSyntaxHighlighter(QSyntaxHighlighter):
         # Numbers
         for match in re.finditer(r'\b\d+\.?\d*\b', text):
             self.setFormat(match.start(), match.end() - match.start(), self.number_format)
+
+
+class DataSetParametersDialog(QDialog):
+    """Dialog for entering Data Set parameter values at runtime"""
+    
+    def __init__(self, parent, dataset: DataSet):
+        super().__init__(parent)
+        self.dataset = dataset
+        self.param_widgets = {}
+        
+        self.setWindowTitle(f"Run Data Set: {dataset.name}")
+        self.setModal(True)
+        self.setMinimumWidth(500)
+        
+        self.init_ui()
+
+
+
 
 
 class DataSetParametersDialog(QDialog):
@@ -252,8 +401,28 @@ class DataSetScreen(QWidget):
         self.datasets_dir = Path.home() / '.suiteview' / 'datasets'
         self.datasets_dir.mkdir(parents=True, exist_ok=True)
         
+        # In-memory dataset storage: {dataset_name: {'dataframe': df, 'executed_time': datetime, 'memory_bytes': int}}
+        self.loaded_datasets: Dict[str, Dict[str, Any]] = {}
+        
+        # Memory tracking (8GB max for laptops)
+        self.max_memory_bytes = 8 * 1024 * 1024 * 1024  # 8 GB
+        self.memory_footer_label = None  # Will be created in UI
+        
+        # Initialize repositories and discovery
+        self.saved_table_repo = SavedTableRepository()
+        self.conn_repo = ConnectionRepository()
+        self.schema_discovery = SchemaDiscovery()
+        self.metadata_cache_repo = get_metadata_cache_repository()
+        self.query_executor = QueryExecutor()
+        
+        # Track current state
+        self.current_connection_id = None
+        self.current_table_name = None
+        self.current_schema_name = None
+        
         self.init_ui()
         self.load_datasets_list()
+        self.load_data_sources()
     
     def init_ui(self):
         """Initialize the user interface with 3-panel layout like Data Package screen"""
@@ -329,11 +498,45 @@ class DataSetScreen(QWidget):
         new_btn_layout.addStretch()
         panel_layout.addWidget(new_btn_container)
 
+        # Search box - compact
+        self.datasets_search = QLineEdit()
+        self.datasets_search.setPlaceholderText("Search datasets...")
+        self.datasets_search.setStyleSheet("padding: 3px 6px; margin: 2px 4px; font-size: 11px;")
+        self.datasets_search.textChanged.connect(self._filter_datasets)
+        panel_layout.addWidget(self.datasets_search)
+
+        # Separator
+        from PyQt6.QtWidgets import QFrame
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #B0C8E8; max-height: 1px;")
+        panel_layout.addWidget(separator)
+
         # Datasets list
         self.datasets_list = QListWidget()
         self.datasets_list.setObjectName("sidebar_tree")
         self.datasets_list.currentItemChanged.connect(self.on_dataset_selected)
+        self.datasets_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.datasets_list.customContextMenuRequested.connect(self.show_dataset_context_menu)
         panel_layout.addWidget(self.datasets_list)
+        
+        # Memory footer
+        self.memory_footer_label = QLabel("Memory: Calculating...")
+        self.memory_footer_label.setStyleSheet("""
+            QLabel {
+                background-color: #D8E8FF;
+                color: #0A1E5E;
+                padding: 4px 6px;
+                font-size: 10px;
+                font-weight: bold;
+                border-top: 1px solid #B0C8E8;
+            }
+        """)
+        self.memory_footer_label.setWordWrap(True)
+        panel_layout.addWidget(self.memory_footer_label)
+        
+        # Update memory display initially
+        self.update_memory_display()
 
         return panel
 
@@ -350,51 +553,91 @@ class DataSetScreen(QWidget):
         header.setEnabled(False)
         panel_layout.addWidget(header)
 
-        # Type dropdown
-        type_container = QWidget()
-        type_layout = QVBoxLayout(type_container)
-        type_layout.setContentsMargins(4, 4, 4, 4)
-        type_layout.setSpacing(2)
-        
+        # Compact style for combos
+        compact_combo_style = """
+            QComboBox {
+                padding: 2px 4px;
+                min-height: 18px;
+                font-size: 11px;
+            }
+            QLabel {
+                font-size: 11px;
+            }
+        """
+
+        # Cascading dropdowns container - compact
+        dropdown_container = QWidget()
+        dropdown_layout = QVBoxLayout(dropdown_container)
+        dropdown_layout.setContentsMargins(4, 4, 4, 4)
+        dropdown_layout.setSpacing(2)
+
+        # Type dropdown (horizontal layout)
+        type_row = QHBoxLayout()
+        type_row.setSpacing(4)
         type_label = QLabel("Type:")
-        type_label.setStyleSheet("font-size: 9pt; color: #555; font-weight: bold;")
-        type_layout.addWidget(type_label)
-        
+        type_label.setFixedWidth(35)
+        type_label.setStyleSheet("font-size: 11px;")
         self.type_combo = QComboBox()
-        self.type_combo.setObjectName("data_source_combo")
-        type_layout.addWidget(self.type_combo)
-        panel_layout.addWidget(type_container)
+        self.type_combo.setStyleSheet(compact_combo_style)
+        type_row.addWidget(type_label)
+        type_row.addWidget(self.type_combo)
+        dropdown_layout.addLayout(type_row)
 
-        # Connection dropdown
-        conn_container = QWidget()
-        conn_layout = QVBoxLayout(conn_container)
-        conn_layout.setContentsMargins(4, 4, 4, 4)
-        conn_layout.setSpacing(2)
-        
+        # Connection dropdown (horizontal layout)
+        conn_row = QHBoxLayout()
+        conn_row.setSpacing(4)
         conn_label = QLabel("Conn:")
-        conn_label.setStyleSheet("font-size: 9pt; color: #555; font-weight: bold;")
-        conn_layout.addWidget(conn_label)
-        
+        conn_label.setFixedWidth(35)
+        conn_label.setStyleSheet("font-size: 11px;")
         self.connection_combo = QComboBox()
-        self.connection_combo.setObjectName("data_source_combo")
-        conn_layout.addWidget(self.connection_combo)
-        panel_layout.addWidget(conn_container)
+        self.connection_combo.setStyleSheet(compact_combo_style)
+        conn_row.addWidget(conn_label)
+        conn_row.addWidget(self.connection_combo)
+        dropdown_layout.addLayout(conn_row)
 
-        # Search box for tables
-        search_container = QWidget()
-        search_layout = QVBoxLayout(search_container)
-        search_layout.setContentsMargins(4, 4, 4, 4)
-        search_layout.setSpacing(0)
-        
+        panel_layout.addWidget(dropdown_container)
+
+        # Separator line
+        from PyQt6.QtWidgets import QFrame
+        separator1 = QFrame()
+        separator1.setFrameShape(QFrame.Shape.HLine)
+        separator1.setStyleSheet("background-color: #B0C8E8; max-height: 1px;")
+        panel_layout.addWidget(separator1)
+
+        # Search box - compact
         self.table_search = QLineEdit()
         self.table_search.setPlaceholderText("Search tables...")
-        self.table_search.setObjectName("search_box")
-        search_layout.addWidget(self.table_search)
-        panel_layout.addWidget(search_container)
+        self.table_search.setStyleSheet("padding: 3px 6px; margin: 2px 4px; font-size: 11px;")
+        panel_layout.addWidget(self.table_search)
+
+        # Another separator
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.Shape.HLine)
+        separator2.setStyleSheet("background-color: #B0C8E8; max-height: 1px;")
+        panel_layout.addWidget(separator2)
 
         # Tables list
         self.tables_list = QListWidget()
-        self.tables_list.setObjectName("sidebar_tree")
+        self.tables_list.setStyleSheet("""
+            QListWidget {
+                background-color: #E8F0FF;
+                border: none;
+                font-size: 11px;
+                outline: 0;
+            }
+            QListWidget::item {
+                padding: 2px 4px;
+                border: none;
+                background-color: transparent;
+            }
+            QListWidget::item:hover {
+                background-color: #D8E8FF;
+            }
+            QListWidget::item:selected {
+                background-color: #2563EB;
+                color: #FFD700;
+            }
+        """)
         panel_layout.addWidget(self.tables_list)
 
         return panel
@@ -412,21 +655,47 @@ class DataSetScreen(QWidget):
         header.setEnabled(False)
         panel_layout.addWidget(header)
 
-        # Search box
-        search_container = QWidget()
-        search_layout = QVBoxLayout(search_container)
-        search_layout.setContentsMargins(4, 4, 4, 4)
-        search_layout.setSpacing(0)
-        
+        # Separator
+        from PyQt6.QtWidgets import QFrame
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #B0C8E8; max-height: 1px;")
+        panel_layout.addWidget(separator)
+
+        # Search box - compact
         self.field_search = QLineEdit()
         self.field_search.setPlaceholderText("Search fields...")
-        self.field_search.setObjectName("search_box")
-        search_layout.addWidget(self.field_search)
-        panel_layout.addWidget(search_container)
+        self.field_search.setStyleSheet("padding: 3px 6px; margin: 2px 4px; font-size: 11px;")
+        panel_layout.addWidget(self.field_search)
+
+        # Separator
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.Shape.HLine)
+        separator2.setStyleSheet("background-color: #B0C8E8; max-height: 1px;")
+        panel_layout.addWidget(separator2)
 
         # Fields list
         self.fields_list = QListWidget()
-        self.fields_list.setObjectName("sidebar_tree")
+        self.fields_list.setStyleSheet("""
+            QListWidget {
+                background-color: #E8F0FF;
+                border: none;
+                font-size: 11px;
+                outline: 0;
+            }
+            QListWidget::item {
+                padding: 2px 4px;
+                border: none;
+                background-color: transparent;
+            }
+            QListWidget::item:hover {
+                background-color: #D8E8FF;
+            }
+            QListWidget::item:selected {
+                background-color: #2563EB;
+                color: #FFD700;
+            }
+        """)
         panel_layout.addWidget(self.fields_list)
 
         return panel
@@ -438,7 +707,7 @@ class DataSetScreen(QWidget):
         panel_layout.setContentsMargins(0, 0, 0, 0)
         panel_layout.setSpacing(0)
 
-        # Header with dataset name, save, and delete buttons
+        # Header with dataset name, timer, run, and save buttons
         header_container = QWidget()
         header_container.setStyleSheet("""
             QWidget {
@@ -447,41 +716,102 @@ class DataSetScreen(QWidget):
             }
         """)
         header_layout = QHBoxLayout(header_container)
-        header_layout.setContentsMargins(10, 10, 10, 10)
-        header_layout.setSpacing(10)
+        header_layout.setContentsMargins(2, 2, 2, 2)
+        header_layout.setSpacing(2)
         
-        # Dataset name (big and bold in the middle - clickable to edit)
-        self.dataset_name_label = QLabel("New Data Set")
+        # Dataset name (left side - clickable to edit)
+        self.dataset_name_label = QLineEdit("New Data Set")
+        self.dataset_name_label.setReadOnly(True)
+        self.dataset_name_label.setFrame(False)
+        self.dataset_name_label.setMinimumHeight(40)  # Ensure height accommodates large font
+        self.dataset_name_label.setTextMargins(0, 0, 0, 0)
+        self.dataset_name_label.setContentsMargins(0, 0, 0, 0)
         self.dataset_name_label.setStyleSheet("""
-            QLabel {
-                font-size: 18pt;
-                font-weight: bold;
+            QLineEdit {
                 color: #0A1E5E;
+                background: transparent;
+                border: none;
+                font-size: 20pt;
+                font-weight: bold;
+                padding: 0px;
+                margin: 0px;
             }
-            QLabel:hover {
+            QLineEdit:hover {
                 color: #0056b3;
-                text-decoration: underline;
             }
         """)
-        self.dataset_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.dataset_name_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self.dataset_name_label.mousePressEvent = lambda event: self.edit_dataset_name()
-        header_layout.addStretch()
-        header_layout.addWidget(self.dataset_name_label)
+        header_layout.addWidget(self.dataset_name_label, 0)  # Give it stretch factor of 0 but let it expand naturally
+        
         header_layout.addStretch()
         
-        # Save button (right side)
-        save_btn = QPushButton("💾 Save")
-        save_btn.clicked.connect(self.save_dataset)
-        save_btn.setFixedWidth(80)
-        save_btn.setStyleSheet("""
+        # Timer label (middle)
+        self.timer_label = QLineEdit("")
+        self.timer_label.setReadOnly(True)
+        self.timer_label.setMinimumWidth(300)
+        timer_font = QFont()
+        timer_font.setPointSize(9)
+        self.timer_label.setFont(timer_font)
+        self.timer_label.setFrame(False)
+        self.timer_label.setStyleSheet("""
+            QLineEdit {
+                color: #888888;
+                background: transparent;
+                border: none;
+            }
+        """)
+        self.timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_layout.addWidget(self.timer_label)
+        
+        header_layout.addStretch()
+        
+        # 2x2 Button Grid Layout
+        button_grid = QVBoxLayout()
+        button_grid.setSpacing(4)
+        
+        # Top row: Run | Save
+        top_row = QHBoxLayout()
+        top_row.setSpacing(4)
+        
+        # Run button (yellow background, blue text)
+        self.run_btn = QPushButton("▶ Run")
+        self.run_btn.clicked.connect(self.run_sql_query)
+        self.run_btn.setFixedSize(65, 26)
+        self.run_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FFD700;
+                color: #0A1E5E;
+                font-weight: bold;
+                font-size: 10px;
+                border: none;
+                border-radius: 3px;
+                padding: 0px;
+                margin: 0px;
+            }
+            QPushButton:hover {
+                background-color: #FFC107;
+            }
+            QPushButton:pressed {
+                background-color: #FFB300;
+            }
+        """)
+        top_row.addWidget(self.run_btn)
+        
+        # Save button
+        self.save_btn = QPushButton("💾 Save")
+        self.save_btn.clicked.connect(self.save_dataset)
+        self.save_btn.setFixedSize(65, 26)
+        self.save_btn.setStyleSheet("""
             QPushButton {
                 background-color: #ffffff;
                 color: #0078d4;
-                padding: 4px 8px;
                 font-weight: bold;
+                font-size: 10px;
                 border: 2px solid #0078d4;
-                border-radius: 4px;
+                border-radius: 3px;
+                padding: 0px;
+                margin: 0px;
             }
             QPushButton:hover {
                 background-color: #e3f2fd;
@@ -491,30 +821,53 @@ class DataSetScreen(QWidget):
                 background-color: #bbdefb;
             }
         """)
-        header_layout.addWidget(save_btn)
+        top_row.addWidget(self.save_btn)
         
-        # Delete button
-        delete_btn = QPushButton("🗑️ Delete")
-        delete_btn.clicked.connect(self.delete_dataset)
-        delete_btn.setFixedWidth(80)
-        delete_btn.setStyleSheet("""
+        button_grid.addLayout(top_row)
+        
+        # Bottom row: (blank) | Reload
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(4)
+        
+        # Blank space on left
+        blank_spacer = QWidget()
+        blank_spacer.setFixedSize(65, 26)
+        bottom_row.addWidget(blank_spacer)
+        
+        # Reload button
+        self.reload_btn = QPushButton("↻ Reload")
+        self.reload_btn.clicked.connect(self.reload_dataset)
+        self.reload_btn.setFixedSize(65, 26)
+        self.reload_btn.setStyleSheet("""
             QPushButton {
                 background-color: #ffffff;
-                color: #dc3545;
-                padding: 4px 8px;
+                color: #28a745;
                 font-weight: bold;
-                border: 2px solid #dc3545;
-                border-radius: 4px;
+                font-size: 10px;
+                border: 2px solid #28a745;
+                border-radius: 3px;
+                padding: 0px;
+                margin: 0px;
             }
             QPushButton:hover {
-                background-color: #f8d7da;
-                border-color: #bd2130;
+                background-color: #d4edda;
+                border-color: #1e7e34;
             }
             QPushButton:pressed {
-                background-color: #f5c6cb;
+                background-color: #c3e6cb;
             }
         """)
-        header_layout.addWidget(delete_btn)
+        bottom_row.addWidget(self.reload_btn)
+        
+        button_grid.addLayout(bottom_row)
+        
+        header_layout.addLayout(button_grid)
+        
+        # Initialize timer
+        from PyQt6.QtCore import QTimer, QTime
+        self.query_timer = QTimer()
+        self.query_timer.timeout.connect(self.update_timer)
+        self.query_start_time = None
         
         panel_layout.addWidget(header_container)
 
@@ -522,25 +875,33 @@ class DataSetScreen(QWidget):
         self.tab_widget = QTabWidget()
         self.tab_widget.setStyleSheet("""
             QTabWidget::pane {
-                border: 1px solid #d0d0d0;
-                background-color: white;
-                top: -1px;
+                border: 1px solid #B0C8E8;
+                background-color: #E8F0FF;
+            }
+            QTabBar {
+                background-color: #E8F0FF;
             }
             QTabBar::tab {
-                background-color: #f0f0f0;
-                color: #333;
-                padding: 6px 16px;
-                border: 1px solid #d0d0d0;
-                border-bottom: none;
+                padding: 6px 14px;
                 margin-right: 2px;
+                background-color: #D8E8FF;
+                color: #0A1E5E;
+                font-weight: 600;
+                font-size: 11px;
+                border: 1px solid #B0C8E8;
+                border-bottom: none;
             }
             QTabBar::tab:selected {
-                background-color: white;
-                border-bottom: 1px solid white;
-                font-weight: bold;
+                background-color: #6BA3E8;
+                border-bottom: 2px solid #FFD700;
+                color: #0A1E5E;
+            }
+            QTabBar::tab:!selected {
+                background-color: #D8E8FF;
+                color: #5a6c7d;
             }
             QTabBar::tab:hover {
-                background-color: #e8e8e8;
+                background-color: #C8DFFF;
             }
         """)
         
@@ -580,6 +941,30 @@ class DataSetScreen(QWidget):
         """)
         script_toolbar.addWidget(validate_btn)
         
+        # Template button
+        template_btn = QPushButton("📋 Template")
+        template_btn.clicked.connect(self.load_script_template)
+        template_btn.setFixedWidth(95)
+        template_btn.setFixedHeight(26)
+        template_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                color: #28a745;
+                padding: 2px 6px;
+                font-size: 9pt;
+                border: 1px solid #28a745;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #d4edda;
+            }
+        """)
+        script_toolbar.addWidget(template_btn)
+        
+        # Undo/Redo buttons (will be created after text editor is initialized)
+        # Placeholder for now
+        self._script_undo_placeholder = script_toolbar
+        
         # Text size controls
         size_label = QLabel("Size:")
         size_label.setStyleSheet("color: #333; font-size: 9pt;")
@@ -589,23 +974,35 @@ class DataSetScreen(QWidget):
         self.text_size_spinner.setRange(8, 20)
         self.text_size_spinner.setValue(11)
         self.text_size_spinner.setSuffix(" pt")
-        self.text_size_spinner.setFixedWidth(65)
-        self.text_size_spinner.setFixedHeight(24)
+        self.text_size_spinner.setFixedWidth(70)
+        self.text_size_spinner.setFixedHeight(26)
+        self.text_size_spinner.setButtonSymbols(QSpinBox.ButtonSymbols.UpDownArrows)
         self.text_size_spinner.setStyleSheet("""
             QSpinBox {
                 background-color: white;
                 color: #333;
                 border: 1px solid #0078d4;
                 border-radius: 3px;
-                padding: 2px;
+                padding: 2px 4px;
                 font-size: 9pt;
             }
-            QSpinBox::up-button, QSpinBox::down-button {
-                width: 14px;
+            QSpinBox::up-button {
+                width: 16px;
                 background-color: #e3f2fd;
+                border-left: 1px solid #0078d4;
+                border-top-right-radius: 2px;
             }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
-                background-color: #bbdefb;
+            QSpinBox::up-button:hover {
+                background-color: #0078d4;
+            }
+            QSpinBox::down-button {
+                width: 16px;
+                background-color: #e3f2fd;
+                border-left: 1px solid #0078d4;
+                border-bottom-right-radius: 2px;
+            }
+            QSpinBox::down-button:hover {
+                background-color: #0078d4;
             }
         """)
         self.text_size_spinner.valueChanged.connect(self.change_text_size)
@@ -632,16 +1029,13 @@ class DataSetScreen(QWidget):
         # Add syntax highlighter
         self.highlighter = PythonSyntaxHighlighter(self.script_editor.document())
         
-        script_layout.addWidget(self.script_editor)
+        # Create undo/redo manager and add buttons to toolbar
+        self.script_undo_manager = UndoRedoManager(self.script_editor)
+        undo_btn, redo_btn = self.script_undo_manager.create_toolbar_buttons()
+        self._script_undo_placeholder.addWidget(undo_btn)
+        self._script_undo_placeholder.addWidget(redo_btn)
         
-        # Help text
-        help_text = QLabel(
-            "💡 Tip: Define a function named 'build_query' that takes parameters and returns a SQL string.\n"
-            "Parameters will be auto-detected from the function signature."
-        )
-        help_text.setStyleSheet("color: #888; font-size: 10pt; font-style: italic; padding: 5px;")
-        help_text.setWordWrap(True)
-        script_layout.addWidget(help_text)
+        script_layout.addWidget(self.script_editor)
         
         self.tab_widget.addTab(script_tab, "Script Builder")
         
@@ -826,6 +1220,30 @@ class DataSetScreen(QWidget):
         """)
         calling_toolbar.addWidget(run_calling_btn)
         
+        # Populate button
+        populate_btn = QPushButton("📝 Populate")
+        populate_btn.clicked.connect(self.populate_calling_template)
+        populate_btn.setFixedWidth(95)
+        populate_btn.setFixedHeight(26)
+        populate_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                color: #17a2b8;
+                padding: 2px 6px;
+                font-size: 9pt;
+                font-weight: bold;
+                border: 1px solid #17a2b8;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #d1ecf1;
+            }
+        """)
+        calling_toolbar.addWidget(populate_btn)
+        
+        # Placeholder for undo/redo buttons
+        self._calling_undo_placeholder = calling_toolbar
+        
         calling_toolbar.addStretch()
         
         calling_layout.addLayout(calling_toolbar)
@@ -847,6 +1265,12 @@ class DataSetScreen(QWidget):
         # Add syntax highlighter for calling editor
         self.calling_highlighter = PythonSyntaxHighlighter(self.calling_editor.document())
         
+        # Create undo/redo manager and add buttons to toolbar
+        self.calling_undo_manager = UndoRedoManager(self.calling_editor)
+        undo_btn, redo_btn = self.calling_undo_manager.create_toolbar_buttons()
+        self._calling_undo_placeholder.addWidget(undo_btn)
+        self._calling_undo_placeholder.addWidget(redo_btn)
+        
         calling_layout.addWidget(self.calling_editor)
         
         # Help text
@@ -866,40 +1290,72 @@ class DataSetScreen(QWidget):
         sql_layout.setContentsMargins(5, 5, 5, 5)
         
         sql_toolbar = QHBoxLayout()
+        sql_toolbar.setSpacing(6)
         
         copy_sql_btn = QPushButton("📋 Copy SQL")
         copy_sql_btn.clicked.connect(self.copy_sql_to_clipboard)
+        copy_sql_btn.setFixedHeight(26)
         copy_sql_btn.setStyleSheet("""
             QPushButton {
-                background-color: #ffffff;
-                color: #0078d4;
+                background-color: #2563EB;
+                color: white;
                 padding: 4px 12px;
                 font-weight: bold;
-                border: 2px solid #0078d4;
-                border-radius: 4px;
+                font-size: 11px;
+                border: none;
+                border-radius: 3px;
             }
             QPushButton:hover {
-                background-color: #e3f2fd;
+                background-color: #1d4ed8;
+            }
+            QPushButton:pressed {
+                background-color: #1e40af;
             }
         """)
         sql_toolbar.addWidget(copy_sql_btn)
+        
+        format_sql_btn = QPushButton("✨ Format")
+        format_sql_btn.clicked.connect(self.format_sql_display)
+        format_sql_btn.setFixedHeight(26)
+        format_sql_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10B981;
+                color: white;
+                padding: 4px 12px;
+                font-weight: bold;
+                font-size: 11px;
+                border: none;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+            }
+            QPushButton:pressed {
+                background-color: #047857;
+            }
+        """)
+        sql_toolbar.addWidget(format_sql_btn)
+        
         sql_toolbar.addStretch()
         
         sql_layout.addLayout(sql_toolbar)
         
         self.sql_display = QTextEdit()
         self.sql_display.setReadOnly(True)
+        self.sql_display.setFont(QFont("Consolas", 10))
         self.sql_display.setStyleSheet("""
             QTextEdit {
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 11pt;
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-                border: 2px solid #3c3c3c;
+                background-color: #FFFFFF;
+                color: #000000;
+                border: 1px solid #d0d0d0;
                 border-radius: 4px;
                 padding: 8px;
             }
         """)
+        
+        # Add SQL syntax highlighter
+        self.sql_highlighter = SQLHighlighter(self.sql_display.document())
+        
         sql_layout.addWidget(self.sql_display)
         
         self.tab_widget.addTab(sql_tab, "SQL")
@@ -978,7 +1434,10 @@ class DataSetScreen(QWidget):
     
     return sql
 '''
-        self.script_editor.setPlainText(script_template)
+        # Use text cursor to set initial content (preserves undo stack)
+        cursor = self.script_editor.textCursor()
+        cursor.select(cursor.SelectionType.Document)
+        cursor.insertText(script_template)
         
         # Auto-populate Calling tab with template
         calling_template = '''# Call the build_query function with parameter values
@@ -990,7 +1449,9 @@ sql = build_query(
     as_of_date='2024-12-31'
 )
 '''
-        self.calling_editor.setPlainText(calling_template)
+        cursor = self.calling_editor.textCursor()
+        cursor.select(cursor.SelectionType.Document)
+        cursor.insertText(calling_template)
     
     def save_dataset(self):
         """Save the current Data Set"""
@@ -1023,6 +1484,17 @@ sql = build_query(
             logger.error(f"Error saving Data Set: {e}")
             QMessageBox.critical(self, "Error", f"Failed to save Data Set:\n{e}")
     
+    def show_dataset_context_menu(self, position):
+        """Show context menu for dataset list"""
+        item = self.datasets_list.itemAt(position)
+        if not item:
+            return
+        
+        menu = QMenu(self)
+        delete_action = menu.addAction("Delete Dataset")
+        delete_action.triggered.connect(self.delete_dataset)
+        menu.exec(self.datasets_list.mapToGlobal(position))
+    
     def delete_dataset(self):
         """Delete the selected Data Set"""
         current_item = self.datasets_list.currentItem()
@@ -1030,7 +1502,10 @@ sql = build_query(
             QMessageBox.warning(self, "No Selection", "Please select a Data Set to delete")
             return
         
-        dataset_name = current_item.text()
+        # Get actual dataset name from UserRole
+        dataset_name = current_item.data(Qt.ItemDataRole.UserRole)
+        if not dataset_name:
+            dataset_name = current_item.text().replace("🟢 ", "")  # Fallback
         
         reply = QMessageBox.question(
             self, "Confirm Delete",
@@ -1047,6 +1522,11 @@ sql = build_query(
             filename.unlink()
             logger.info(f"Deleted Data Set: {filename}")
             
+            # Also remove from memory if loaded
+            if dataset_name in self.loaded_datasets:
+                del self.loaded_datasets[dataset_name]
+                self.update_memory_display()
+            
             if self.current_dataset and self.current_dataset.name == dataset_name:
                 self.current_dataset = None
                 self.load_dataset_to_ui()
@@ -1058,11 +1538,28 @@ sql = build_query(
             QMessageBox.critical(self, "Error", f"Failed to delete Data Set:\n{e}")
     
     def load_datasets_list(self):
-        """Load the list of saved Data Sets"""
+        """Load the list of saved Data Sets with green indicators for loaded datasets"""
         self.datasets_list.clear()
         
         for file in sorted(self.datasets_dir.glob("*.json")):
-            self.datasets_list.addItem(file.stem)
+            dataset_name = file.stem
+            
+            # Add green indicator if dataset is loaded in memory
+            if self.is_dataset_loaded(dataset_name):
+                display_name = f"🟢 {dataset_name}"
+            else:
+                display_name = dataset_name
+            
+            item = QListWidgetItem(display_name)
+            item.setData(Qt.ItemDataRole.UserRole, dataset_name)  # Store actual name
+            self.datasets_list.addItem(item)
+    
+    def _filter_datasets(self, text: str):
+        """Filter datasets list based on search text"""
+        search_text = text.lower()
+        for i in range(self.datasets_list.count()):
+            item = self.datasets_list.item(i)
+            item.setHidden(search_text not in item.text().lower())
     
     def on_dataset_selected(self, current, previous):
         """Handle Data Set selection from list"""
@@ -1085,7 +1582,11 @@ sql = build_query(
                 self.datasets_list.blockSignals(False)
                 return
         
-        dataset_name = current.text()
+        # Get actual dataset name from UserRole (since display text may have green indicator)
+        dataset_name = current.data(Qt.ItemDataRole.UserRole)
+        if not dataset_name:
+            dataset_name = current.text().replace("🟢 ", "")  # Fallback
+        
         self.load_dataset_from_file(dataset_name)
     
     def load_dataset_from_file(self, name: str):
@@ -1109,13 +1610,34 @@ sql = build_query(
         """Load current Data Set into UI"""
         if not self.current_dataset:
             self.script_editor.clear()
+            self.calling_editor.clear()
             self.params_table.setRowCount(0)
             self.display_table.setRowCount(0)
             self.dataset_name_label.setText("")
             return
         
         self.dataset_name_label.setText(self.current_dataset.name)
-        self.script_editor.setPlainText(self.current_dataset.script_code)
+        
+        # Restore data source type and connection
+        if self.current_dataset.connection_type:
+            index = self.type_combo.findText(self.current_dataset.connection_type)
+            if index >= 0:
+                self.type_combo.setCurrentIndex(index)
+        
+        if self.current_dataset.connection_name:
+            index = self.connection_combo.findText(self.current_dataset.connection_name)
+            if index >= 0:
+                self.connection_combo.setCurrentIndex(index)
+        
+        # Use text cursor to load script (preserves undo stack)
+        cursor = self.script_editor.textCursor()
+        cursor.select(cursor.SelectionType.Document)
+        cursor.insertText(self.current_dataset.script_code)
+        
+        # Use text cursor to load calling code (preserves undo stack)
+        calling_cursor = self.calling_editor.textCursor()
+        calling_cursor.select(calling_cursor.SelectionType.Document)
+        calling_cursor.insertText(self.current_dataset.calling_code or '')
         
         # Parameters table (2 columns: Name, DataType)
         self.params_table.setRowCount(len(self.current_dataset.parameters))
@@ -1146,6 +1668,11 @@ sql = build_query(
         
         # Name is managed separately (from dataset_name_label or prompts), not edited inline
         self.current_dataset.script_code = self.script_editor.toPlainText()
+        self.current_dataset.calling_code = self.calling_editor.toPlainText()
+        
+        # Save data source type and connection
+        self.current_dataset.connection_type = self.type_combo.currentText()
+        self.current_dataset.connection_name = self.connection_combo.currentText()
         
         # Display fields from table (2 columns: Name, DataType)
         fields = []
@@ -1260,19 +1787,10 @@ sql = build_query(
     return sql
 '''
         
-        if self.script_editor.toPlainText().strip():
-            reply = QMessageBox.question(
-                self, "Replace Script?",
-                "This will replace your current script. Continue?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if reply != QMessageBox.StandardButton.Yes:
-                return
-        
-        self.script_editor.setPlainText(template)
-        QMessageBox.information(self, "Template Loaded",
-                              "Template loaded successfully!\nClick 'Validate Script' to parse parameters.")
+        # Use text cursor to replace content (preserves undo stack)
+        cursor = self.script_editor.textCursor()
+        cursor.select(cursor.SelectionType.Document)  # Select all text
+        cursor.insertText(template)  # Replace with template (creates undo command)
     
     def auto_detect_fields(self):
         """Auto-detect display fields from generated SQL"""
@@ -1343,30 +1861,22 @@ sql = build_query(
             self.display_table.removeRow(current_row)
     
     def format_sql(self, sql):
-        """Format SQL for better readability"""
+        """Format SQL for better readability using sqlparse"""
         if not sql:
             return sql
         
-        # Simple SQL formatter - add line breaks for major keywords
-        formatted = sql
-        
-        # Replace major SQL keywords with newline + keyword
-        keywords = ['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'ORDER BY', 'GROUP BY', 'HAVING']
-        
-        for keyword in keywords:
-            if keyword == 'SELECT':
-                # SELECT stays on first line
-                formatted = formatted.replace(keyword, keyword)
-            elif keyword == 'FROM':
-                formatted = formatted.replace(' ' + keyword + ' ', '\n' + keyword + ' ')
-            elif keyword == 'WHERE':
-                formatted = formatted.replace(' ' + keyword + ' ', '\n' + keyword + ' ')
-            elif keyword in ['AND', 'OR']:
-                formatted = formatted.replace(' ' + keyword + ' ', '\n  ' + keyword + ' ')
-            else:
-                formatted = formatted.replace(' ' + keyword + ' ', '\n' + keyword + ' ')
-        
-        return formatted
+        try:
+            # Format SQL with sqlparse
+            formatted = sqlparse.format(
+                sql,
+                reindent=True,
+                keyword_case='upper',
+                indent_width=3
+            )
+            return formatted
+        except Exception as e:
+            logger.error(f"Failed to format SQL: {e}")
+            return sql
     
     def change_text_size(self, size):
         """Change the script editor font size"""
@@ -1397,6 +1907,54 @@ sql = build_query(
                 return
         
         self.calling_editor.setPlainText(template)
+    
+    def populate_calling_template(self):
+        """Generate calling code template based on the script's function signature"""
+        if not self.current_dataset:
+            self.current_dataset = DataSet(name="New Data Set")
+        
+        # Update script from editor
+        self.current_dataset.script_code = self.script_editor.toPlainText()
+        
+        # Parse the script to get parameters
+        params, error = self.current_dataset.parse_script()
+        
+        if error:
+            QMessageBox.warning(self, "Parse Error", 
+                              f"Could not parse script to extract parameters:\n{error}\n\nPlease fix the script first.")
+            return
+        
+        if not params:
+            QMessageBox.information(self, "No Parameters", 
+                                  "The build_query function has no parameters.\n\nTemplate: sql = build_query()")
+            template = "# Call the build_query function\n\nsql = build_query()\nprint(sql)\n"
+        else:
+            # Build calling code with parameter placeholders
+            param_lines = []
+            for param in params:
+                if param.param_type == "list":
+                    param_lines.append(f"    {param.name}=['value1', 'value2'],  # List of values")
+                elif param.param_type == "bool":
+                    param_lines.append(f"    {param.name}=True,  # Boolean")
+                elif param.param_type == "number":
+                    param_lines.append(f"    {param.name}=123,  # Number")
+                else:
+                    param_lines.append(f"    {param.name}='value',  # String")
+            
+            params_str = "\n".join(param_lines)
+            template = f"""# Call the build_query function with parameter values
+
+sql = build_query(
+{params_str}
+)
+
+print(sql)
+"""
+        
+        # Use text cursor to insert template (preserves undo)
+        cursor = self.calling_editor.textCursor()
+        cursor.select(cursor.SelectionType.Document)
+        cursor.insertText(template)
     
     def run_calling_code(self):
         """Execute the calling code to generate SQL and populate signatures"""
@@ -1483,9 +2041,6 @@ sql = build_query(
             # Switch to SQL tab to show results
             self.tab_widget.setCurrentIndex(3)
             
-            QMessageBox.information(self, "Success", 
-                                  f"SQL generated successfully!\n\nParameters: {len(params)}\nFields: {len(self.current_dataset.display_fields)}")
-            
         except Exception as e:
             QMessageBox.critical(self, "Execution Error", f"Error running calling code:\n\n{str(e)}")
     
@@ -1501,11 +2056,118 @@ sql = build_query(
         """Copy the generated SQL to clipboard"""
         sql = self.sql_display.toPlainText()
         if sql:
-            from PyQt6.QtWidgets import QApplication
             QApplication.clipboard().setText(sql)
-            QMessageBox.information(self, "Copied", "SQL copied to clipboard")
         else:
-            QMessageBox.warning(self, "No SQL", "Generate SQL first")
+            QMessageBox.warning(self, "No SQL", "Generate SQL first by running the Calling code")
+    
+    def format_sql_display(self):
+        """Format the SQL in the display using sqlparse"""
+        try:
+            current_sql = self.sql_display.toPlainText()
+            if current_sql.strip():
+                # Format SQL with sqlparse
+                formatted_sql = sqlparse.format(
+                    current_sql,
+                    reindent=True,
+                    keyword_case='upper',
+                    indent_width=3,
+                    comma_first=False
+                )
+                self.sql_display.setPlainText(formatted_sql)
+        except Exception as e:
+            logger.error(f"Failed to format SQL: {e}")
+            QMessageBox.warning(self, "Format Error", f"Could not format SQL: {e}")
+    
+    def update_timer(self):
+        """Update the timer label to show elapsed time"""
+        if self.query_start_time:
+            from PyQt6.QtCore import QTime
+            elapsed = self.query_start_time.msecsTo(QTime.currentTime())
+            seconds = elapsed // 1000
+            minutes = seconds // 60
+            secs = seconds % 60
+            self.timer_label.setText(f"Running: {minutes}m {secs}s")
+    
+    def run_sql_query(self):
+        """Execute the SQL from the SQL tab using the selected data source connection"""
+        if not self.current_dataset:
+            QMessageBox.warning(self, "No Dataset", "Please create or load a Data Set first")
+            return
+        
+        # Check memory before running
+        if not self.check_memory_before_query():
+            return
+        
+        # First, generate SQL from calling code if available
+        calling_code = self.calling_editor.toPlainText().strip()
+        if calling_code:
+            # Generate SQL from calling code
+            self.run_calling_code()
+        
+        # Now get the SQL to execute
+        sql = self.sql_display.toPlainText().strip()
+        if not sql:
+            QMessageBox.warning(self, "No SQL", "No SQL query to execute. Generate SQL first by writing code in the Calling tab.")
+            return
+        
+        # Get selected connection ID from Data Source panel (stored as currentData)
+        connection_id = self.connection_combo.currentData()
+        if not connection_id:
+            QMessageBox.warning(self, "No Connection", "Please select a data source connection first.")
+            return
+        
+        # Start main timer
+        self.query_start_time = QTime.currentTime()
+        self.timer_label.setText("Running...")
+        self.query_timer.start(100)  # Update every 100ms
+        QApplication.processEvents()
+        
+        try:
+            # Execute query
+            import time
+            start_time = time.time()
+            execution_start = datetime.now()
+            df = self.query_executor.execute_sql(connection_id, sql)
+            execution_time_ms = int((time.time() - start_time) * 1000)
+            
+            # Stop timer
+            self.query_timer.stop()
+            
+            # Calculate memory usage
+            memory_bytes = self.get_dataframe_memory_bytes(df)
+            
+            # Store in memory (replace if already exists)
+            dataset_name = self.current_dataset.name
+            self.loaded_datasets[dataset_name] = {
+                'dataframe': df,
+                'executed_time': execution_start,
+                'memory_bytes': memory_bytes
+            }
+            
+            # Get stats
+            record_count = len(df)
+            column_count = len(df.columns)
+            
+            # Show final time with rows x columns
+            final_seconds = self.query_start_time.msecsTo(QTime.currentTime()) // 1000
+            final_minutes = final_seconds // 60
+            final_secs = final_seconds % 60
+            self.timer_label.setText(f"Completed: {final_minutes}m {final_secs}s ({record_count:,} rows x {column_count} columns)")
+            
+            # Create or update Data tab
+            self.create_or_update_data_tab(df, execution_start, memory_bytes)
+            
+            # Update memory display and dataset list (to show green indicator)
+            self.update_memory_display()
+            self.load_datasets_list()
+            
+            logger.info(f"Query executed and stored in memory: {dataset_name}, {self.format_memory_size(memory_bytes)}")
+            
+        except Exception as e:
+            self.query_timer.stop()
+            self.timer_label.setText("")
+            logger.error(f"Failed to execute SQL: {e}")
+            QMessageBox.critical(self, "SQL Execution Error", f"Failed to execute SQL:\n\n{str(e)}")
     
     def run_dataset(self):
         """Run the current Data Set (prompt for parameters and execute)"""
@@ -1544,3 +2206,364 @@ sql = build_query(
         
         QMessageBox.information(self, "Query Generated",
                               f"SQL generated successfully!\n\n{sql[:200]}{'...' if len(sql) > 200 else ''}")
+    
+    def load_data_sources(self):
+        """Load available data sources into the cascading dropdowns"""
+        # Get all connections grouped by type
+        connections = self.conn_repo.get_all_connections()
+        
+        # Group by connection type
+        self.connections_by_type = {}
+        for conn in connections:
+            conn_type = conn['connection_type']
+            if conn_type not in self.connections_by_type:
+                self.connections_by_type[conn_type] = []
+            self.connections_by_type[conn_type].append(conn)
+        
+        # Populate type dropdown
+        self.type_combo.clear()
+        self.type_combo.addItem("")  # Empty first item
+        for conn_type in sorted(self.connections_by_type.keys()):
+            self.type_combo.addItem(conn_type)
+        
+        # Connect signals
+        self.type_combo.currentTextChanged.connect(self._on_db_type_changed)
+        self.connection_combo.currentTextChanged.connect(self._on_connection_changed)
+        self.tables_list.itemClicked.connect(self._on_table_clicked)
+    
+    def _on_db_type_changed(self, db_type: str):
+        """Handle database type selection"""
+        self.connection_combo.clear()
+        self.connection_combo.addItem("")
+        
+        if db_type and db_type in self.connections_by_type:
+            for conn in self.connections_by_type[db_type]:
+                self.connection_combo.addItem(conn['connection_name'], conn['connection_id'])
+    
+    def _on_connection_changed(self, conn_name: str):
+        """Handle connection selection - load tables"""
+        self.tables_list.clear()
+        
+        if not conn_name:
+            return
+        
+        # Get connection ID
+        conn_id = self.connection_combo.currentData()
+        if not conn_id:
+            return
+        
+        self.current_connection_id = conn_id
+        
+        # Load tables for this connection
+        try:
+            # Get saved tables for this connection
+            saved_tables = self.saved_table_repo.get_saved_tables(conn_id)
+            
+            if not saved_tables:
+                return
+            
+            for table in saved_tables:
+                table_name = table['table_name']
+                schema_name = table.get('schema_name', '')
+                
+                # Display name
+                display_name = f"{schema_name}.{table_name}" if schema_name else table_name
+                
+                item = QListWidgetItem(display_name)
+                item.setData(Qt.ItemDataRole.UserRole, {
+                    'table_name': table_name,
+                    'schema_name': schema_name,
+                    'connection_id': conn_id
+                })
+                self.tables_list.addItem(item)
+            
+        except Exception as e:
+            logger.error(f"Error loading tables: {e}")
+    
+    def _on_table_clicked(self, item):
+        """Handle table selection - load fields"""
+        self.fields_list.clear()
+        
+        table_data = item.data(Qt.ItemDataRole.UserRole)
+        if not table_data:
+            return
+        
+        self.current_table_name = table_data['table_name']
+        self.current_schema_name = table_data.get('schema_name', '')
+        
+        # Load fields for this table
+        try:
+            fields = self.schema_discovery.get_columns(
+                table_data['connection_id'],
+                table_data['table_name'],
+                table_data.get('schema_name')
+            )
+            
+            for field in fields:
+                field_name = field.get('column_name') or field.get('COLUMN_NAME')
+                data_type = field.get('data_type') or field.get('DATA_TYPE') or ''
+                
+                display_text = f"{field_name} ({data_type})" if data_type else field_name
+                
+                field_item = QListWidgetItem(display_text)
+                field_item.setData(Qt.ItemDataRole.UserRole, field_name)
+                self.fields_list.addItem(field_item)
+            
+        except Exception as e:
+            logger.error(f"Error loading fields: {e}")
+    
+    # ========== Memory Management and In-Memory Dataset Methods ==========
+    
+    def get_dataframe_memory_bytes(self, df) -> int:
+        """Calculate memory usage of a pandas DataFrame in bytes"""
+        try:
+            return int(df.memory_usage(deep=True).sum())
+        except:
+            # Fallback estimation
+            return sys.getsizeof(df)
+    
+    def get_total_datasets_memory(self) -> int:
+        """Get total memory used by all loaded datasets in bytes"""
+        total = 0
+        for dataset_info in self.loaded_datasets.values():
+            total += dataset_info.get('memory_bytes', 0)
+        return total
+    
+    def get_available_system_memory(self) -> int:
+        """Get available system memory in bytes"""
+        try:
+            return psutil.virtual_memory().available
+        except:
+            return 0
+    
+    def format_memory_size(self, bytes_size: int) -> str:
+        """Format bytes into human-readable string"""
+        if bytes_size < 1024:
+            return f"{bytes_size} B"
+        elif bytes_size < 1024 * 1024:
+            return f"{bytes_size / 1024:.1f} KB"
+        elif bytes_size < 1024 * 1024 * 1024:
+            return f"{bytes_size / (1024 * 1024):.1f} MB"
+        else:
+            return f"{bytes_size / (1024 * 1024 * 1024):.2f} GB"
+    
+    def update_memory_display(self):
+        """Update the memory footer label"""
+        if not self.memory_footer_label:
+            return
+        
+        datasets_memory = self.get_total_datasets_memory()
+        available_memory = self.get_available_system_memory()
+        
+        datasets_str = self.format_memory_size(datasets_memory)
+        available_str = self.format_memory_size(available_memory)
+        
+        self.memory_footer_label.setText(
+            f"Datasets: {datasets_str} | Available: {available_str}"
+        )
+    
+    def check_memory_before_query(self, estimated_size: int = 0) -> bool:
+        """Check if there's enough memory for a new query. Returns True if OK to proceed."""
+        current_usage = self.get_total_datasets_memory()
+        available = self.get_available_system_memory()
+        
+        # Warn if we're using more than 6GB for datasets or available memory is low
+        if current_usage > (6 * 1024 * 1024 * 1024):  # 6 GB
+            reply = QMessageBox.warning(
+                self,
+                "High Memory Usage",
+                f"Datasets are using {self.format_memory_size(current_usage)} of memory.\n\n"
+                f"Available system memory: {self.format_memory_size(available)}\n\n"
+                "You may need to dump some datasets to free memory.\n\n"
+                "Continue with query execution?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            return reply == QMessageBox.StandardButton.Yes
+        
+        if available < (1 * 1024 * 1024 * 1024):  # Less than 1 GB available
+            reply = QMessageBox.warning(
+                self,
+                "Low System Memory",
+                f"System memory is low: {self.format_memory_size(available)} available\n\n"
+                "You may need to dump some datasets or close other applications.\n\n"
+                "Continue with query execution?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            return reply == QMessageBox.StandardButton.Yes
+        
+        return True
+    
+    def is_dataset_loaded(self, dataset_name: str) -> bool:
+        """Check if a dataset has data loaded in memory"""
+        return dataset_name in self.loaded_datasets
+    
+    def reload_dataset(self):
+        """Reload the current dataset from file, resetting all fields"""
+        if not self.current_dataset:
+            QMessageBox.warning(self, "No Data Set", "No Data Set to reload")
+            return
+        
+        dataset_name = self.current_dataset.name
+        
+        # Confirm if there are unsaved changes
+        if self.is_modified():
+            reply = QMessageBox.question(
+                self, "Unsaved Changes",
+                "Current Data Set has unsaved changes. Reload will discard them.\n\nContinue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        
+        # Reload from file
+        self.load_dataset_from_file(dataset_name)
+        
+        logger.info(f"Reloaded Data Set: {dataset_name}")
+        QMessageBox.information(self, "Reloaded", f"Data Set '{dataset_name}' reloaded from file")
+    
+    def dump_dataset_data(self, dataset_name: str):
+        """Remove a dataset's data from memory"""
+        if dataset_name in self.loaded_datasets:
+            del self.loaded_datasets[dataset_name]
+            logger.info(f"Dumped dataset from memory: {dataset_name}")
+            
+            # Update UI
+            self.update_memory_display()
+            self.load_datasets_list()  # Refresh to update green indicators
+            
+            # Clear the data tab if it's the current dataset
+            if self.current_dataset and self.current_dataset.name == dataset_name:
+                self.clear_data_tab()
+    
+    def clear_data_tab(self):
+        """Clear the data tab and show empty state"""
+        # Find the Data tab
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.tabText(i) == "Data":
+                # Get the tab widget
+                data_tab = self.tab_widget.widget(i)
+                
+                # Clear the FilterTableView by setting empty DataFrame
+                if hasattr(self, 'data_filter_view'):
+                    import pandas as pd
+                    empty_df = pd.DataFrame()
+                    self.data_filter_view.set_dataframe(empty_df, limit_rows=False)
+                
+                # Update info label
+                if hasattr(self, 'data_info_label'):
+                    self.data_info_label.setText("No data loaded. Run query to load data.")
+                
+                break
+    
+    def remove_data_tab(self):
+        """Remove the Data tab from tab widget"""
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.tabText(i) == "Data":
+                self.tab_widget.removeTab(i)
+                break
+    
+    def create_or_update_data_tab(self, df, executed_time: datetime, memory_bytes: int):
+        """Create or update the Data tab with query results"""
+        # Check if Data tab already exists
+        data_tab_index = -1
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.tabText(i) == "Data":
+                data_tab_index = i
+                break
+        
+        if data_tab_index == -1:
+            # Create new Data tab
+            data_tab = QWidget()
+            data_layout = QVBoxLayout(data_tab)
+            data_layout.setContentsMargins(5, 5, 5, 5)
+            data_layout.setSpacing(5)
+            
+            # Info panel at top
+            info_panel = QWidget()
+            info_layout = QHBoxLayout(info_panel)
+            info_layout.setContentsMargins(5, 5, 5, 5)
+            info_layout.setSpacing(10)
+            
+            # Info label
+            self.data_info_label = QLabel()
+            self.data_info_label.setStyleSheet("""
+                QLabel {
+                    color: #0A1E5E;
+                    font-size: 11px;
+                    font-weight: bold;
+                }
+            """)
+            info_layout.addWidget(self.data_info_label)
+            
+            info_layout.addStretch()
+            
+            # Dump button
+            dump_btn = QPushButton("🗑 Dump")
+            dump_btn.clicked.connect(self.dump_current_dataset)
+            dump_btn.setFixedSize(80, 28)
+            dump_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #ffffff;
+                    color: #dc3545;
+                    font-weight: bold;
+                    font-size: 10px;
+                    border: 2px solid #dc3545;
+                    border-radius: 3px;
+                    padding: 0px;
+                }
+                QPushButton:hover {
+                    background-color: #f8d7da;
+                    border-color: #c82333;
+                }
+                QPushButton:pressed {
+                    background-color: #f5c6cb;
+                }
+            """)
+            info_layout.addWidget(dump_btn)
+            
+            data_layout.addWidget(info_panel)
+            
+            # FilterTableView
+            self.data_filter_view = FilterTableView()
+            data_layout.addWidget(self.data_filter_view)
+            
+            # Add tab
+            data_tab_index = self.tab_widget.addTab(data_tab, "Data")
+        
+        # Update info label
+        time_str = executed_time.strftime("%Y-%m-%d %H:%M:%S")
+        memory_str = self.format_memory_size(memory_bytes)
+        row_count = len(df)
+        col_count = len(df.columns)
+        
+        self.data_info_label.setText(
+            f"Executed: {time_str} | Memory: {memory_str} | {row_count:,} rows × {col_count} columns"
+        )
+        
+        # Load data into FilterTableView (use limit_rows=False for query results)
+        self.data_filter_view.set_dataframe(df, limit_rows=False)
+        
+        # Switch to Data tab
+        self.tab_widget.setCurrentIndex(data_tab_index)
+    
+    def dump_current_dataset(self):
+        """Dump the current dataset from memory"""
+        if not self.current_dataset:
+            return
+        
+        dataset_name = self.current_dataset.name
+        
+        if dataset_name not in self.loaded_datasets:
+            QMessageBox.information(self, "No Data", "This dataset has no data loaded in memory")
+            return
+        
+        reply = QMessageBox.question(
+            self,
+            "Dump Dataset",
+            f"Remove '{dataset_name}' data from memory?\n\nThe dataset definition will remain, but the query results will be cleared.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.dump_dataset_data(dataset_name)

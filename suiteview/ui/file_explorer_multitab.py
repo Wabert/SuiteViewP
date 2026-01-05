@@ -184,6 +184,7 @@ class ClickableBreadcrumb(QWidget):
                         text-align: left;
                         font-family: Segoe UI;
                         font-size: 9pt;
+                        font-weight: bold;
                         color: #0066cc;
                     }
                     QPushButton:hover {
@@ -363,6 +364,22 @@ class FileExplorerTab(FileExplorerCore):
         
         panel_layout.addWidget(self.tree_view_2)
         
+        # Add footer to right tree panel
+        footer_2 = QLabel("")
+        footer_2.setStyleSheet("""
+            QLabel {
+                background-color: #E0E0E0;
+                padding: 2px 8px;
+                font-size: 9pt;
+                color: #555555;
+                border: none;
+                border-top: 1px solid #A0B8D8;
+            }
+        """)
+        footer_2.setFixedHeight(20)
+        panel_layout.addWidget(footer_2)
+        self.tree_footer_2 = footer_2
+        
         # Add to the RIGHT side of the splitter (after details view)
         self.main_splitter.addWidget(tree_panel_2)
         
@@ -380,14 +397,20 @@ class FileExplorerTab(FileExplorerCore):
             self.tree_panel_2.setVisible(self.dual_pane_active)
             
             # Adjust splitter sizes when toggling
+            # IMPORTANT: Preserve the left panel width
+            current_sizes = self.main_splitter.sizes()
+            left_width = current_sizes[0] if current_sizes else 300  # Keep current left width
+            
             if self.dual_pane_active:
-                # Three panes: left tree, details (middle), right tree
-                total = self.main_splitter.width()
-                self.main_splitter.setSizes([total // 4, total // 2, total // 4])
+                # Three panes: left tree (keep size), details (middle), right tree
+                total_available = self.main_splitter.width() - left_width
+                middle_width = int(total_available * 0.67)  # 67% of remaining
+                right_width = total_available - middle_width  # Rest goes to right
+                self.main_splitter.setSizes([left_width, middle_width, right_width])
             else:
-                # Two panes: left tree, details
-                total = self.main_splitter.width()
-                self.main_splitter.setSizes([total // 3, total * 2 // 3, 0])
+                # Two panes: left tree (keep size), details (take rest)
+                details_width = self.main_splitter.width() - left_width
+                self.main_splitter.setSizes([left_width, details_width, 0])
         
         print(f"Dual pane {'enabled' if self.dual_pane_active else 'disabled'}")
     
@@ -1129,11 +1152,52 @@ class FileExplorerMultiTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
+        # Create header bar (app-level header above tabs)
+        header_widget = QWidget()
+        header_widget.setFixedHeight(8)
+        header_widget.setStyleSheet("""
+            QWidget {
+                background-color: #1E5BA8;
+            }
+        """)
+        layout.addWidget(header_widget)
+        
         # Create tab widget
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.setMovable(True)
         self.tab_widget.setDocumentMode(True)
+        self.tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #B0C8E8;
+                background-color: #E8F0FF;
+            }
+            QTabBar {
+                background-color: #F5F8FC;
+            }
+            QTabBar::tab {
+                padding: 8px 16px;
+                margin-right: 2px;
+                background-color: #D8E8FF;
+                color: #0A1E5E;
+                font-weight: 600;
+                font-size: 11px;
+                border: 1px solid #B0C8E8;
+                border-bottom: none;
+            }
+            QTabBar::tab:selected {
+                background-color: #6BA3E8;
+                border-bottom: 3px solid #FFD700;
+                color: #0A1E5E;
+            }
+            QTabBar::tab:!selected {
+                background-color: #D8E8FF;
+                color: #5a6c7d;
+            }
+            QTabBar::tab:hover {
+                background-color: #C8DFFF;
+            }
+        """)
         self.tab_widget.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tab_widget.tabBar().customContextMenuRequested.connect(self.show_tab_bar_context_menu)
         

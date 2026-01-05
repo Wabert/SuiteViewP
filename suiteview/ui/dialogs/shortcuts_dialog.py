@@ -822,6 +822,7 @@ class BookmarksDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Bookmarks")
         self.button_pos = button_pos  # Store button position for placement
+        self.drag_position = None  # For window dragging
         
         # Calculate width based on parent window
         parent_width = 800  # Default width
@@ -838,21 +839,24 @@ class BookmarksDialog(QDialog):
             self.resize(parent_width, 400)  # Match parent window width
         self.setMinimumSize(400, 200)  # Minimum size for resizing
         
-        # Make dialog resizable with standard window controls
+        # Remove Windows title bar but keep resize functionality
         self.setWindowFlags(
-            Qt.WindowType.Dialog | 
-            Qt.WindowType.WindowCloseButtonHint | 
-            Qt.WindowType.WindowMinMaxButtonsHint
+            Qt.WindowType.FramelessWindowHint | 
+            Qt.WindowType.Window
         )
         
-        # Add prominent border and distinct background to stand out from File Nav
-        self.setStyleSheet("""
-            QDialog {
-                border: 4px solid #1A3A6E;
-                border-radius: 8px;
-                background-color: #FFFDE7;
-            }
-        """)
+        # Initialize resize tracking variables
+        self.resizing = False
+        self.resize_edge = None
+        self.resize_start_pos = None
+        self.resize_start_geometry = None
+        self.edge_margin = 10  # Pixels from edge to detect resize
+        
+        # Enable mouse tracking for resize cursor updates
+        self.setMouseTracking(True)
+        
+        # Install event filter to handle mouse tracking on child widgets
+        self.installEventFilter(self)
         
         # Load bookmarks data
         self.bookmarks_file = Path.home() / ".suiteview" / "bookmarks.json"
@@ -869,28 +873,173 @@ class BookmarksDialog(QDialog):
         BookmarksDialog._saved_size = self.size()
         super().closeEvent(event)
     
+    def eventFilter(self, obj, event):
+        """Event filter to handle mouse tracking across child widgets"""
+        if event.type() == event.Type.MouseMove:
+            # Get global position and convert to dialog coordinates
+            if hasattr(event, 'globalPosition'):
+                global_pos = event.globalPosition().toPoint()
+            else:
+                global_pos = event.globalPos()
+            
+            local_pos = self.mapFromGlobal(global_pos)
+            
+            # Only update cursor if not currently dragging/resizing
+            if not self.resizing and self.drag_position is None:
+                edge = self.get_resize_edge(local_pos)
+                self.update_cursor(edge)
+        
+        return super().eventFilter(obj, event)
+    
+    def get_resize_edge(self, pos):
+        """Determine which edge of the window the cursor is near"""
+        rect = self.rect()
+        margin = self.edge_margin
+        
+        left = pos.x() <= margin
+        right = pos.x() >= rect.width() - margin
+        top = pos.y() <= margin
+        bottom = pos.y() >= rect.height() - margin
+        
+        if top and left:
+            return 'top_left'
+        elif top and right:
+            return 'top_right'
+        elif bottom and left:
+            return 'bottom_left'
+        elif bottom and right:
+            return 'bottom_right'
+        elif top:
+            return 'top'
+        elif bottom:
+            return 'bottom'
+        elif left:
+            return 'left'
+        elif right:
+            return 'right'
+        return None
+    
+    def update_cursor(self, edge):
+        """Update cursor shape based on resize edge"""
+        if edge == 'top_left' or edge == 'bottom_right':
+            self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        elif edge == 'top_right' or edge == 'bottom_left':
+            self.setCursor(Qt.CursorShape.SizeBDiagCursor)
+        elif edge == 'top' or edge == 'bottom':
+            self.setCursor(Qt.CursorShape.SizeVerCursor)
+        elif edge == 'left' or edge == 'right':
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press for window dragging and resizing"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            edge = self.get_resize_edge(event.pos())
+            if edge:
+                # Start resizing
+                self.resizing = True
+                self.resize_edge = edge
+                self.resize_start_pos = event.globalPosition().toPoint()
+                self.resize_start_geometry = self.geometry()
+                event.accept()
+            else:
+                # Start dragging
+                self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                event.accept()
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move for window dragging and resizing"""
+        if event.buttons() == Qt.MouseButton.LeftButton:
+            if self.resizing and self.resize_edge:
+                # Handle resizing
+                delta = event.globalPosition().toPoint() - self.resize_start_pos
+                geo = self.resize_start_geometry
+                new_geo = self.geometry()  # Use current geometry as base
+                
+                # Handle horizontal resizing
+                if 'right' in self.resize_edge:
+                    new_width = max(self.minimumWidth(), geo.width() + delta.x())
+                    new_geo.setWidth(new_width)
+                elif 'left' in self.resize_edge:
+                    new_width = max(self.minimumWidth(), geo.width() - delta.x())
+                    if new_width >= self.minimumWidth():
+                        new_geo.setLeft(geo.left() + delta.x())
+                        new_geo.setWidth(new_width)
+                
+                # Handle vertical resizing
+                if 'bottom' in self.resize_edge:
+                    new_height = max(self.minimumHeight(), geo.height() + delta.y())
+                    new_geo.setHeight(new_height)
+                elif 'top' in self.resize_edge:
+                    new_height = max(self.minimumHeight(), geo.height() - delta.y())
+                    if new_height >= self.minimumHeight():
+                        new_geo.setTop(geo.top() + delta.y())
+                        new_geo.setHeight(new_height)
+                
+                self.setGeometry(new_geo)
+                event.accept()
+            elif self.drag_position is not None:
+                # Handle dragging
+                self.move(event.globalPosition().toPoint() - self.drag_position)
+                event.accept()
+        else:
+            # Update cursor when hovering over edges (no button pressed)
+            edge = self.get_resize_edge(event.pos())
+            self.update_cursor(edge)
+            event.accept()
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release to end dragging or resizing"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_position = None
+            self.resizing = False
+            self.resize_edge = None
+            self.resize_start_pos = None
+            self.resize_start_geometry = None
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept()
+    
     def init_ui(self):
         """Initialize the UI - compact layout"""
-        layout = QVBoxLayout(self)
+        # Main container with blue border
+        main_container = QFrame(self)
+        main_container.setStyleSheet("""
+            QFrame {
+                border: 5px solid #0078d4;
+                background-color: #FFFDE7;
+            }
+        """)
+        main_container.setMouseTracking(True)
+        main_container.installEventFilter(self)
+        
+        container_layout = QVBoxLayout(self)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(main_container)
+        
+        layout = QVBoxLayout(main_container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
         # Header with buttons - compact
-        header_widget = QFrame()
-        header_widget.setStyleSheet("""
+        self.header_widget = QFrame()
+        self.header_widget.setStyleSheet("""
             QFrame {
                 background-color: #0078d4;
                 border-bottom: 1px solid #005a9e;
             }
         """)
-        header_layout = QHBoxLayout(header_widget)
+        self.header_widget.setMouseTracking(True)
+        self.header_widget.installEventFilter(self)
+        header_layout = QHBoxLayout(self.header_widget)
         header_layout.setContentsMargins(6, 4, 6, 4)
         header_layout.setSpacing(4)
         
         # Menu button for category management (left side)
-        menu_btn = QPushButton("☰")
-        menu_btn.setToolTip("Category menu")
-        menu_btn.setFixedSize(24, 24)
+        menu_btn = QPushButton("☰ ▼")
+        menu_btn.setToolTip("Manage bookmark groups")
+        menu_btn.setFixedSize(40, 24)
         menu_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
@@ -898,13 +1047,20 @@ class BookmarksDialog(QDialog):
                 border: 1px solid white;
                 border-radius: 2px;
                 font-weight: bold;
-                font-size: 14pt;
+                font-size: 10pt;
             }
             QPushButton:hover {
                 background-color: #005a9e;
             }
+            QPushButton::menu-indicator {
+                image: none;
+            }
         """)
-        menu_btn.clicked.connect(self.show_category_menu)
+        # Create and set menu
+        category_menu = QMenu(self)
+        menu_btn.setMenu(category_menu)
+        # Populate menu when button is clicked
+        menu_btn.clicked.connect(lambda: self.populate_category_menu(category_menu))
         header_layout.addWidget(menu_btn)
         
         # Add bookmark button (green, longer)
@@ -935,34 +1091,43 @@ class BookmarksDialog(QDialog):
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         
-        # Close button (X)
-        close_btn = QPushButton("✕")
+        # Close button with blue X on gold background
+        close_btn = QPushButton("X")
         close_btn.setToolTip("Close bookmarks")
-        close_btn.setFixedSize(24, 24)
+        close_btn.setFixedSize(28, 24)
         close_btn.setStyleSheet("""
             QPushButton {
-                background-color: transparent;
-                color: white;
-                border: 1px solid white;
-                border-radius: 2px;
+                background-color: #FFD700;
+                color: #0078d4;
+                border: 2px solid #0078d4;
+                border-radius: 3px;
                 font-weight: bold;
-                font-size: 10pt;
+                font-size: 14pt;
+                font-family: Arial;
+                padding: 0px;
             }
             QPushButton:hover {
-                background-color: #dc3545;
+                background-color: #FFC700;
+                color: #005a9e;
+                border-color: #005a9e;
+            }
+            QPushButton:pressed {
+                background-color: #FFB700;
             }
         """)
         close_btn.clicked.connect(self.accept)
         header_layout.addWidget(close_btn)
         
-        layout.addWidget(header_widget)
+        layout.addWidget(self.header_widget)
         
         # Scroll area for categories - horizontal layout
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setStyleSheet("""
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setMouseTracking(True)
+        self.scroll.installEventFilter(self)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll.setStyleSheet("""
             QScrollArea {
                 border: none;
                 background-color: #FFFDE7;
@@ -971,13 +1136,15 @@ class BookmarksDialog(QDialog):
         
         self.content_widget = QWidget()
         self.content_widget.setStyleSheet("background-color: #FFFDE7;")
+        self.content_widget.setMouseTracking(True)
+        self.content_widget.installEventFilter(self)
         self.content_layout = QHBoxLayout(self.content_widget)  # HORIZONTAL layout for columns
         self.content_layout.setContentsMargins(2, 2, 2, 2)
         self.content_layout.setSpacing(2)
         self.content_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         
-        scroll.setWidget(self.content_widget)
-        layout.addWidget(scroll)
+        self.scroll.setWidget(self.content_widget)
+        layout.addWidget(self.scroll)
         
         # Populate categories
         self.refresh_categories()
@@ -1034,6 +1201,31 @@ class BookmarksDialog(QDialog):
     def close_on_bookmark_click(self):
         """Close dialog when bookmark is clicked"""
         self.accept()
+    
+    def populate_category_menu(self, menu):
+        """Populate the category menu dynamically"""
+        menu.clear()
+        
+        add_action = QAction("➕ Add Category", self)
+        add_action.triggered.connect(self.add_category)
+        menu.addAction(add_action)
+        
+        menu.addSeparator()
+        
+        # List existing categories for removal/rename
+        categories = list(self.bookmarks_data['categories'].keys())
+        if categories:
+            for category_name in categories:
+                if category_name not in ['General', 'Favorites']:
+                    cat_menu = menu.addMenu(f"📁 {category_name}")
+                    
+                    rename_action = QAction("✏️ Rename", self)
+                    rename_action.triggered.connect(lambda checked, cat=category_name: self.rename_category(cat))
+                    cat_menu.addAction(rename_action)
+                    
+                    remove_action = QAction("🗑️ Remove", self)
+                    remove_action.triggered.connect(lambda checked, cat=category_name: self.remove_category_confirm(cat))
+                    cat_menu.addAction(remove_action)
     
     def show_category_menu(self):
         """Show category management menu"""

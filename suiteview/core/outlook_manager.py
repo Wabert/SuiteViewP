@@ -57,22 +57,73 @@ class OutlookManager:
         self._initialize_outlook()
     
     def _initialize_outlook(self):
-        """Initialize connection to Outlook"""
+        """Initialize connection to Outlook with retry logic"""
         try:
             import win32com.client
-            self.outlook = win32com.client.Dispatch("Outlook.Application")
-            self.namespace = self.outlook.GetNamespace("MAPI")
-            self.connected = True
-            logger.info("Successfully connected to Outlook")
-        except ImportError:
+            import pythoncom
+            import time
+            
+            # Try to connect with retries
+            max_retries = 3
+            retry_delay = 2  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    # Initialize COM for this thread
+                    pythoncom.CoInitialize()
+                    
+                    # Try to get existing instance first, fall back to creating new one
+                    try:
+                        self.outlook = win32com.client.GetActiveObject("Outlook.Application")
+                        logger.info("Connected to existing Outlook instance")
+                    except:
+                        logger.info("Starting new Outlook instance...")
+                        self.outlook = win32com.client.Dispatch("Outlook.Application")
+                        # Give Outlook time to fully start
+                        time.sleep(2)
+                    
+                    self.namespace = self.outlook.GetNamespace("MAPI")
+                    
+                    # Verify connection by accessing a folder
+                    _ = self.namespace.Folders.Count
+                    
+                    self.connected = True
+                    logger.info("Successfully connected to Outlook")
+                    return
+                    
+                except Exception as e:
+                    logger.warning(f"Outlook connection attempt {attempt + 1}/{max_retries} failed: {e}")
+                    if attempt < max_retries - 1:
+                        logger.info(f"Retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
+                    else:
+                        raise
+                        
+        except ImportError as e:
             logger.error("pywin32 not installed. Install with: pip install pywin32")
+            logger.error(f"Import error details: {e}")
             self.connected = False
         except Exception as e:
-            logger.error(f"Failed to connect to Outlook: {e}")
+            logger.error(f"Failed to connect to Outlook after {max_retries} attempts: {e}")
+            logger.error("Please ensure Outlook is installed and you have permission to access it.")
+            logger.error("Try manually starting Outlook and then restart this application.")
             self.connected = False
     
     def is_connected(self) -> bool:
         """Check if connected to Outlook"""
+        return self.connected
+    
+    def reconnect(self) -> bool:
+        """Attempt to reconnect to Outlook
+        
+        Returns:
+            True if reconnection successful, False otherwise
+        """
+        logger.info("Attempting to reconnect to Outlook...")
+        self.connected = False
+        self.outlook = None
+        self.namespace = None
+        self._initialize_outlook()
         return self.connected
     
     def get_folder_tree(self) -> List[Dict]:
@@ -423,16 +474,54 @@ class OutlookManager:
                         if item.Class != 43 or item.Attachments.Count == 0:
                             continue
                         
-                        # Get sender email
+                        # Get sender information with failsafe handling
+                        display_sender = "(Unknown Sender)"
+                        
                         try:
-                            sender_email = item.SenderEmailAddress
-                            if sender_email.startswith('/O='):
-                                try:
-                                    sender_email = item.Sender.GetExchangeUser().PrimarySmtpAddress
-                                except:
-                                    sender_email = item.SenderName
-                        except:
-                            sender_email = item.SenderName or "(Unknown)"
+                            sender_email = ""
+                            sender_name = ""
+                            
+                            # Try multiple approaches to get sender info
+                            try:
+                                # Approach 1: SenderName property
+                                raw_sender_name = item.SenderName
+                                if raw_sender_name is not None:
+                                    sender_name = str(raw_sender_name).strip()
+                            except:
+                                pass
+                            
+                            try:
+                                # Approach 2: SenderEmailAddress property
+                                raw_sender_email = item.SenderEmailAddress
+                                if raw_sender_email is not None:
+                                    sender_email = str(raw_sender_email).strip()
+                                    
+                                    # Handle Exchange addresses
+                                    if sender_email and sender_email.startswith('/O='):
+                                        try:
+                                            if item.Sender:
+                                                exchange_user = item.Sender.GetExchangeUser()
+                                                if exchange_user and exchange_user.PrimarySmtpAddress:
+                                                    sender_email = str(exchange_user.PrimarySmtpAddress).strip()
+                                        except:
+                                            pass
+                            except:
+                                pass
+                            
+                            try:
+                                # Approach 3: Sender.Name
+                                if not sender_name and item.Sender and item.Sender.Name:
+                                    sender_name = str(item.Sender.Name).strip()
+                            except:
+                                pass
+                            
+                            # Use whatever we found
+                            display_sender = sender_name or sender_email or "(Unknown Sender)"
+                            
+                        except Exception as e:
+                            # If all sender extraction fails, log and continue with Unknown
+                            logger.warning(f"Sender extraction failed for {item.Subject}: {e}")
+                            display_sender = "(Unknown Sender)"
                         
                         # Process each attachment
                         for idx, attachment in enumerate(item.Attachments, 1):
@@ -465,7 +554,7 @@ class OutlookManager:
                                 attach_info = EmailAttachment(
                                     email_id=item.EntryID,
                                     email_subject=item.Subject or "(No Subject)",
-                                    email_sender=sender_email,
+                                    email_sender=display_sender,
                                     email_date=item.ReceivedTime,
                                     attachment_name=attachment.FileName,
                                     attachment_type=file_ext or 'unknown',
@@ -756,16 +845,53 @@ class OutlookManager:
             try:
                 item = self.namespace.GetItemFromID(email.email_id)
                 
-                # Get sender email
+                # Get sender information with failsafe handling
+                display_sender = "(Unknown Sender)"
+                
                 try:
-                    sender_email = item.SenderEmailAddress
-                    if sender_email.startswith('/O='):
-                        try:
-                            sender_email = item.Sender.GetExchangeUser().PrimarySmtpAddress
-                        except:
-                            sender_email = item.SenderName
-                except:
-                    sender_email = email.sender_email or "(Unknown)"
+                    sender_email = ""
+                    sender_name = ""
+                    
+                    # Try to get sender info
+                    try:
+                        raw_sender_name = item.SenderName
+                        if raw_sender_name is not None:
+                            sender_name = str(raw_sender_name).strip()
+                    except:
+                        pass
+                    
+                    try:
+                        raw_sender_email = item.SenderEmailAddress
+                        if raw_sender_email is not None:
+                            sender_email = str(raw_sender_email).strip()
+                            if sender_email and sender_email.startswith('/O='):
+                                try:
+                                    if item.Sender:
+                                        exchange_user = item.Sender.GetExchangeUser()
+                                        if exchange_user and exchange_user.PrimarySmtpAddress:
+                                            sender_email = str(exchange_user.PrimarySmtpAddress).strip()
+                                except:
+                                    pass
+                    except:
+                        pass
+                    
+                    try:
+                        if not sender_name and item.Sender and item.Sender.Name:
+                            sender_name = str(item.Sender.Name).strip()
+                    except:
+                        pass
+                    
+                    # Fallback to email info
+                    if not sender_name and hasattr(email, 'sender') and email.sender:
+                        sender_name = str(email.sender).strip()
+                    if not sender_email and hasattr(email, 'sender_email') and email.sender_email:
+                        sender_email = str(email.sender_email).strip()
+                    
+                    display_sender = sender_name or sender_email or "(Unknown Sender)"
+                    
+                except Exception as e:
+                    logger.warning(f"Sender extraction failed for {item.Subject}: {e}")
+                    display_sender = "(Unknown Sender)"
                 
                 # Process each attachment
                 for idx, attachment in enumerate(item.Attachments, 1):
@@ -797,7 +923,7 @@ class OutlookManager:
                         attach_info = EmailAttachment(
                             email_id=item.EntryID,
                             email_subject=item.Subject or "(No Subject)",
-                            email_sender=sender_email,
+                            email_sender=display_sender,
                             email_date=item.ReceivedTime,
                             attachment_name=attachment.FileName,
                             attachment_type=file_ext or 'unknown',

@@ -106,7 +106,7 @@ class QueryResultsDialog(QWidget):
 
         # FilterTableView - Excel-style filterable table
         self.filter_table = FilterTableView()
-        self.filter_table.set_dataframe(self.df)
+        self.filter_table.set_dataframe(self.df, limit_rows=False)  # Show all rows for query results
         
         # Style the table headers with standard grey and narrower height
         self.filter_table.setStyleSheet("""

@@ -29,7 +29,10 @@ class MainframeFTPManager:
         self.initial_path = initial_path.strip("'\"")  # Remove quotes if present
         self.ftp: Optional[ftplib.FTP] = None
         self.connected = False
-        
+        self.keepalive_timer = None
+        # Note: May need to pause keepalive during active transfers if we see interference
+        self.on_reconnect_callback = None  # Optional callback for status updates
+    
     def connect(self) -> bool:
         """
         Connect to mainframe FTP server
@@ -43,13 +46,17 @@ class MainframeFTPManager:
         try:
             self.ftp = ftplib.FTP()
             logger.info(f"Attempting to connect to {self.host}:{self.port}...")
-            self.ftp.connect(self.host, self.port, timeout=30)
+            # 5-minute timeout to prevent premature disconnects
+            self.ftp.connect(self.host, self.port, timeout=300)
             
             logger.info(f"Logging in as {self.username}...")
             self.ftp.login(self.username, self.password)
             
             # Set to ASCII mode for mainframe text datasets
             self.ftp.sendcmd('TYPE A')
+            
+            # Start keepalive timer to prevent idle timeout
+            self._start_keepalive()
             
             # Navigate to initial path if specified
             if self.initial_path:
@@ -100,6 +107,14 @@ class MainframeFTPManager:
     
     def disconnect(self):
         """Disconnect from FTP server"""
+        # Stop keepalive timer
+        if self.keepalive_timer:
+            try:
+                self.keepalive_timer.stop()
+                self.keepalive_timer = None
+            except:
+                pass
+        
         if self.ftp:
             try:
                 self.ftp.quit()
@@ -109,8 +124,91 @@ class MainframeFTPManager:
                 except:
                     pass
             self.ftp = None
+        self.connected = False
+        logger.info("Disconnected from mainframe FTP")
+    
+    def _start_keepalive(self):
+        """Start keepalive timer to prevent connection timeout"""
+        try:
+            from PyQt6.QtCore import QTimer
+            if self.keepalive_timer:
+                self.keepalive_timer.stop()
+            
+            self.keepalive_timer = QTimer()
+            self.keepalive_timer.timeout.connect(self._send_keepalive)
+            self.keepalive_timer.start(300000)  # 5 minutes
+            logger.debug("Keepalive timer started (5 min interval)")
+        except Exception as e:
+            logger.warning(f"Could not start keepalive timer: {e}")
+    
+    def _send_keepalive(self):
+        """Send NOOP to keep connection alive"""
+        try:
+            if self.ftp and self.connected:
+                self.ftp.voidcmd('NOOP')
+                logger.debug("Sent keepalive NOOP")
+        except Exception as e:
+            logger.warning(f"Keepalive failed: {e}")
             self.connected = False
-            logger.info("Disconnected from mainframe FTP")
+    
+    def _ensure_connected(self) -> bool:
+        """
+        Ensure connection is alive, reconnect if needed.
+        
+        Returns:
+            True if connected, False if reconnection failed
+        """
+        if not self.connected or not self.ftp:
+            logger.warning("Not connected, attempting to reconnect...")
+            return self._attempt_reconnect()
+        
+        try:
+            self.ftp.voidcmd('NOOP')
+            return True
+        except:
+            logger.warning("Connection lost, attempting to reconnect...")
+            return self._attempt_reconnect()
+    
+    def _attempt_reconnect(self) -> bool:
+        """Attempt to reconnect to FTP server"""
+        try:
+            self.disconnect()
+            success = self.connect()
+            
+            if success and self.on_reconnect_callback:
+                # Notify UI of reconnection (non-blocking footer status)
+                try:
+                    self.on_reconnect_callback("Reconnected to mainframe")
+                except Exception as e:
+                    logger.debug(f"Reconnect callback failed: {e}")
+            
+            return success
+        except Exception as e:
+            logger.error(f"Reconnection failed: {e}")
+            return False
+    
+    def is_alive(self) -> bool:
+        """
+        Check if FTP connection is still alive
+        
+        Returns:
+            bool: True if connection is alive, False otherwise
+        """
+        if not self.connected or not self.ftp:
+            return False
+        
+        try:
+            # Send NOOP command to check if connection is alive
+            self.ftp.voidcmd("NOOP")
+            return True
+        except (ftplib.error_temp, ftplib.error_perm, OSError, EOFError) as e:
+            logger.warning(f"Connection check failed: {e}")
+            self.connected = False
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error checking connection: {e}")
+            self.connected = False
+            return False
     
     def list_datasets(self, path: str = '') -> List[Dict[str, any]]:
         """
@@ -133,33 +231,81 @@ class MainframeFTPManager:
             return []
         
         try:
+            # Ensure connection is alive (auto-reconnect if needed)
+            if not self._ensure_connected():
+                logger.error("Cannot list datasets - connection unavailable")
+                return []
+            
             # Navigate to path if specified
             original_path = None
             if path:
-                original_path = self.ftp.pwd()
-                # Mainframe datasets need quotes around path
-                self.ftp.cwd(f"'{path}'")
+                try:
+                    original_path = self.ftp.pwd()
+                    # Mainframe datasets need quotes around path
+                    self.ftp.cwd(f"'{path}'")
+                    logger.debug(f"Changed to path: {path}")
+                except Exception as e:
+                    logger.error(f"Failed to change to path {path}: {e}")
+                    return []
             
             # Get directory listing
             items = []
             lines = []
-            self.ftp.retrlines('LIST', lines.append)
-            
-            logger.debug(f"Raw FTP listing returned {len(lines)} lines")
-            # Log first few raw lines to help debug date parsing
-            for i, raw_line in enumerate(lines[:5]):
-                logger.info(f"FTP raw line {i}: '{raw_line}'")
-            
-            for line in lines:
-                item = self._parse_mvs_listing(line)
-                if item:
-                    items.append(item)
+            try:
+                self.ftp.retrlines('LIST', lines.append)
+                logger.debug(f"Raw FTP listing returned {len(lines)} lines")
+            except ftplib.error_perm as e:
+                error_msg = str(e)
+                # FTP success codes (200, 226, 250) are sometimes returned as exceptions
+                if any(code in error_msg for code in ['200', '226', '250']):
+                    logger.debug(f"FTP success message: {error_msg}")
+                    # Data was transferred successfully, continue
                 else:
-                    logger.debug(f"Skipped unparseable line: {line[:80]}")
+                    logger.error(f"Permission error during LIST: {error_msg}")
+                    if original_path:
+                        try:
+                            self.ftp.cwd(original_path)
+                        except:
+                            pass
+                    return []
+            except (EOFError, OSError, ConnectionError) as e:
+                logger.error(f"Connection lost during LIST: {e}")
+                self.connected = False
+                if original_path:
+                    try:
+                        self.ftp.cwd(original_path)
+                    except:
+                        pass
+                return []
+            except Exception as e:
+                logger.error(f"Error during LIST command: {e}")
+                if original_path:
+                    try:
+                        self.ftp.cwd(original_path)
+                    except:
+                        pass
+                return []
+            
+            # Parse all lines - they could be dataset attributes OR members
+            for line in lines:
+                # Try to parse as dataset attribute line first
+                dataset_attr = self._parse_dataset_attributes(line)
+                if dataset_attr:
+                    # This is a dataset attribute line
+                    items.append(dataset_attr)
+                else:
+                    # Try to parse as member
+                    item = self._parse_mvs_listing(line)
+                    if item:
+                        items.append(item)
             
             # Return to original path if we changed
             if original_path:
-                self.ftp.cwd(original_path)
+                try:
+                    self.ftp.cwd(original_path)
+                    logger.debug(f"Returned to original path: {original_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to return to original path: {e}")
             
             logger.info(f"Listed {len(items)} items at path: {path or 'current directory'} (from {len(lines)} raw lines)")
             return items
@@ -167,6 +313,108 @@ class MainframeFTPManager:
         except Exception as e:
             logger.error(f"Failed to list datasets at {path}: {e}")
             return []
+    
+    def _parse_dataset_attributes(self, line: str) -> Optional[Dict[str, any]]:
+        """
+        Parse dataset attribute line from MVS FTP listing
+        
+        Format: Volume Unit Referred Ext Used Recfm Lrecl BlkSz Dsorg Dsname
+        Example: A8C201 3390 2025/12/29 1 15 FBA 133 13300 PS UTABLES
+        
+        Returns:
+            Dict with dataset attributes or None if not a dataset attribute line
+        """
+        line = line.strip()
+        if not line:
+            return None
+        
+        # Skip header lines
+        if any(keyword in line.upper() for keyword in ['VOLUME', 'UNIT', 'REFERRED', 'DSORG', 'DSNAME', '-----']):
+            return None
+        
+        parts = line.split()
+        if len(parts) < 2:
+            return None
+        
+        # The dataset name is ALWAYS the last field on the line
+        dsname = parts[-1]
+        
+        # Check if this looks like a dataset attribute line
+        # Must have device type (3390, 3380, etc.) or Dsorg (PO, PS, GDG, etc.) or "Migrated"
+        has_device = any(dev in parts for dev in ['3390', '3380', '3350', 'Tape'])
+        has_dsorg = any(org in parts for org in ['PO', 'PS', 'DA', 'IS', 'VS', 'GDG'])
+        has_migrated = 'Migrated' in parts
+        
+        if not (has_device or has_dsorg or has_migrated):
+            return None
+        
+        try:
+            # Initialize all fields with defaults
+            volume = ''
+            unit = ''
+            referred = ''
+            ext = ''
+            used = ''
+            recfm = ''
+            lrecl = ''
+            blksz = ''
+            dsorg = ''
+            
+            # If we have 10+ parts, it's a full dataset attribute line
+            if len(parts) >= 10:
+                volume = parts[0]
+                unit = parts[1]
+                referred = parts[2] if '/' in parts[2] else ''
+                ext = parts[3] if parts[3].isdigit() else ''
+                used = parts[4] if parts[4].isdigit() else ''
+                recfm = parts[5]
+                lrecl = parts[6] if parts[6].isdigit() else ''
+                blksz = parts[7] if parts[7].isdigit() else ''
+                dsorg = parts[8]
+            # If we have 2 parts, it's likely "GDG DSNAME" or "Migrated DSNAME"
+            elif len(parts) == 2:
+                if parts[0] == 'GDG':
+                    dsorg = 'GDG'
+                elif parts[0] == 'Migrated':
+                    volume = 'Migrated'
+                    # Try to determine dsorg from dataset name pattern
+                    if '.G' in dsname and 'V00' in dsname:
+                        dsorg = 'GDG'  # GDG generation
+            # If we have more than 2 but less than 10, try to extract what we can
+            elif len(parts) > 2:
+                # Check for common patterns
+                if 'GDG' in parts:
+                    dsorg = 'GDG'
+                if 'Migrated' in parts:
+                    volume = 'Migrated'
+                # Look for device types
+                for dev in ['3390', '3380', '3350', 'Tape']:
+                    if dev in parts:
+                        unit = dev
+                        break
+                # Look for date pattern
+                for part in parts:
+                    if '/' in part and len(part) == 10:
+                        referred = part
+                        break
+            
+            return {
+                'name': dsname,
+                'type': 'dataset',
+                'volume': volume,
+                'unit': unit,
+                'referred': referred,
+                'ext': ext,
+                'used': used,
+                'recfm': recfm,
+                'lrecl': lrecl,
+                'blksz': blksz,
+                'dsorg': dsorg,
+                'is_dataset': True
+            }
+        except Exception as e:
+            logger.debug(f"Failed to parse dataset attributes from: {line} - {e}")
+            return None
     
     def _parse_mvs_listing(self, line: str) -> Optional[Dict[str, any]]:
         """
@@ -190,11 +438,33 @@ class MainframeFTPManager:
         if not line:
             return None
         
-        # Skip header lines that contain column titles
+        # Skip header lines that contain column titles or dataset information
         line_upper = line.upper()
-        if any(header in line_upper for header in ['NAME', 'CHANGED', 'SIZE', 'INIT', 'MOD', 'ID', '-----']):
-            if 'VV' in line_upper or 'MM' in line_upper or 'CREATED' in line_upper:
-                return None
+        
+        # First check: Skip obvious header/separator lines
+        if any(keyword in line_upper for keyword in ['-----', 'NAME', 'VV.MM', 'CREATED', 'CHANGED']):
+            return None
+        
+        # Second check: Skip dataset-level information lines (Volume info, Unit info, etc.)
+        # These appear before member listings in MVS FTP responses
+        if any(keyword in line_upper for keyword in ['VOLUME', 'UNIT', 'REFERRED', 'RECFM', 'LRECL', 'BLKSZ', 'DSORG', 'DSNAME']):
+            logger.debug(f"Skipping dataset info line: {line}")
+            return None
+        
+        # Third check: Skip dataset attribute lines (these have device types and org)
+        # Example: "A8C201 3390   2025/12/29  1  45  FB      80  6160  PO  D03.AA0139.RESTART.SMOPRT"
+        if any(device in line_upper for device in ['3390', '3380', '3350']):  # DASD device types
+            logger.debug(f"Skipping dataset attribute line (device type): {line}")
+            return None
+        
+        # Check for dataset organization types (PO, PS, DA, etc.) in typical attribute positions
+        parts_check = line.split()
+        if len(parts_check) > 2:
+            # Look for record formats (FB, VB, U, etc.) and dataset orgs (PO, PS, DA)
+            for part in parts_check:
+                if part.upper() in ['FB', 'VB', 'VBS', 'FBA', 'U', 'PO', 'PS', 'DA', 'IS', 'VS']:
+                    logger.debug(f"Skipping dataset attribute line (found {part}): {line}")
+                    return None
         
         try:
             parts = line.split()
@@ -226,6 +496,24 @@ class MainframeFTPManager:
             
             # Validate that name looks like a valid member name
             if not name or name.startswith('*') or name.startswith('-'):
+                return None
+            
+            # MVS member names must be 1-8 characters and follow naming rules:
+            # - Start with letter or national char (@, #, $)
+            # - Contain only alphanumeric or national chars
+            # - Max 8 characters
+            if len(name) > 8:
+                logger.debug(f"Skipping '{name}' - too long for member name (>{len(name)} chars)")
+                return None
+            
+            # Check if first character is valid (letter or @#$)
+            if not (name[0].isalpha() or name[0] in '@#$'):
+                logger.debug(f"Skipping '{name}' - invalid first character")
+                return None
+            
+            # Check if all characters are valid
+            if not all(c.isalnum() or c in '@#$' for c in name):
+                logger.debug(f"Skipping '{name}' - contains invalid characters")
                 return None
             
             # Try to extract other fields if they exist
@@ -306,28 +594,91 @@ class MainframeFTPManager:
             logger.error("Not connected to FTP server")
             return "", 0
         
+        # Save current directory to restore later
+        original_dir = None
         try:
-            # Read all lines first, then trim if needed
-            # This avoids issues with aborting transfers mid-stream
+            original_dir = self.ftp.pwd()
+            logger.debug(f"Saved current directory: {original_dir}")
+        except Exception as e:
+            logger.warning(f"Could not get current directory: {e}")
+        
+        try:
+            # Ensure connection is alive (auto-reconnect if needed)
+            if not self._ensure_connected():
+                logger.error("Cannot read dataset - connection unavailable")
+                return "", 0
+            
+            # Read all lines - use retrlines which handles EBCDIC→ASCII conversion properly
             lines = []
             
             def collect_line(line):
                 """Callback to collect lines"""
                 lines.append(line)
             
-            # Download dataset using retrlines for ASCII text
+            # Download dataset using retrlines
             try:
-                self.ftp.retrlines(f"RETR '{dataset_name}'", collect_line)
-            except Exception as e:
-                logger.error(f"Failed to read dataset {dataset_name}: {e}")
-                # Try to recover the connection
+                # Log current directory for debugging
                 try:
-                    self.ftp.voidcmd('NOOP')
+                    current_dir = self.ftp.pwd()
+                    logger.debug(f"Current FTP directory: {current_dir}")
                 except:
                     pass
+                
+                logger.info(f"Attempting to read dataset: {dataset_name}")
+                
+                # Capture the response from the RETR command
+                ftp_response = []
+                original_callback = self.ftp.lastresp if hasattr(self.ftp, 'lastresp') else None
+                
+                self.ftp.retrlines(f"RETR '{dataset_name}'", collect_line)
+                
+                # Log the FTP server's response
+                if hasattr(self.ftp, 'lastresp'):
+                    logger.info(f"FTP server response: {self.ftp.lastresp}")
+                
+                logger.info(f"RETR completed: {len(lines)} lines")
+            except ftplib.error_perm as e:
+                error_msg = str(e)
+                # FTP success codes are sometimes returned as exceptions
+                if any(code in error_msg for code in ['200', '226', '250']):
+                    logger.debug(f"FTP success message: {error_msg}")
+                    # Data was transferred successfully
+                else:
+                    logger.error(f"Permission error reading {dataset_name}: {error_msg}")
+                    if '550' in error_msg or 'Not found' in error_msg:
+                        logger.warning(f"Dataset not found: {dataset_name}")
+                    
+                    # Critical: FTP state may be corrupted after failed RETR
+                    # Force reconnect to clear any pending state
+                    logger.warning("Forcing reconnect to clear FTP state after error")
+                    self._attempt_reconnect()
+                    
+                    return "", 0
+            except UnicodeDecodeError as e:
+                # This happens when retrlines() tries to decode bytes that aren't valid UTF-8
+                # The FTP connection is now in a bad state
+                logger.error(f"UTF-8 decode error reading {dataset_name}: {e}")
+                logger.warning("Dataset contains binary/non-text data - forcing reconnect")
+                
+                # Force reconnect to clear corrupted FTP state
+                self._attempt_reconnect()
+                
+                return "", 0
+            except (ftplib.error_temp, EOFError, OSError, ConnectionError) as e:
+                logger.error(f"Connection error reading {dataset_name}: {e}")
+                self.connected = False
+                return "", 0
+            except Exception as e:
+                logger.error(f"Failed to read dataset {dataset_name}: {e}")
                 return "", 0
             
             total_lines = len(lines)
+            
+            # Log results
+            if total_lines == 0:
+                logger.warning(f"Dataset {dataset_name} returned 0 lines (may be empty)")
+            else:
+                logger.info(f"Successfully read {total_lines} lines from {dataset_name}")
             
             # Trim to max_lines if specified
             if max_lines and len(lines) > max_lines:
@@ -335,11 +686,27 @@ class MainframeFTPManager:
             
             content = '\n'.join(lines)
             
-            logger.info(f"Read {len(lines)} lines from {dataset_name} (total lines: {total_lines})")
+            # Restore original directory
+            if original_dir:
+                try:
+                    self.ftp.cwd(original_dir)
+                    logger.debug(f"Restored directory to: {original_dir}")
+                except Exception as e:
+                    logger.warning(f"Could not restore directory: {e}")
+            
             return content, total_lines
             
         except Exception as e:
-            logger.error(f"Failed to read dataset {dataset_name}: {e}")
+            logger.error(f"Unexpected error reading dataset {dataset_name}: {e}")
+            
+            # Try to restore directory even on error
+            if original_dir:
+                try:
+                    self.ftp.cwd(original_dir)
+                    logger.debug(f"Restored directory after error to: {original_dir}")
+                except:
+                    pass
+            
             return "", 0
     def get_dataset_info(self, dataset_name: str) -> Optional[Dict[str, any]]:
         """
@@ -510,7 +877,13 @@ class MainframeFTPManager:
             return True, f"Successfully deleted {member_path}"
             
         except ftplib.error_perm as e:
-            error_msg = f"Permission denied or member not found: {str(e)}"
+            error_str = str(e)
+            if "User not authorized" in error_str or "not authorized" in error_str.lower():
+                error_msg = f"Access denied: You do not have permission to delete members in this dataset.\n\nMainframe Response: {error_str}"
+            elif "not found" in error_str.lower():
+                error_msg = f"Member not found: {member_path}\n\nMainframe Response: {error_str}"
+            else:
+                error_msg = f"Permission denied or member not found.\n\nMainframe Response: {error_str}"
             logger.error(error_msg)
             return False, error_msg
             
@@ -549,7 +922,13 @@ class MainframeFTPManager:
             return True, f"Successfully saved {member_path}"
             
         except ftplib.error_perm as e:
-            error_msg = f"Permission denied: {str(e)}"
+            error_str = str(e)
+            if "User not authorized" in error_str or "not authorized" in error_str.lower():
+                error_msg = f"Access denied: You do not have permission to modify members in this dataset.\n\nYour mainframe account may have read-only access.\n\nMainframe Response: {error_str}"
+            elif "not found" in error_str.lower():
+                error_msg = f"Member not found: {member_path}\n\nMainframe Response: {error_str}"
+            else:
+                error_msg = f"Permission denied.\n\nMainframe Response: {error_str}"
             logger.error(error_msg)
             return False, error_msg
             
