@@ -252,8 +252,18 @@ class DraggableBookmarkButton(QPushButton):
         self.drag_start_pos = None
 
 
+# =============================================================================
+# DEPRECATED: The following classes are no longer used.
+# They have been replaced by unified classes from bookmark_widgets.py:
+# - DraggableCategoryButton -> CategoryButton
+# - DraggableCategoryBookmark -> CategoryBookmarkButton  
+# - CategoryPopup -> UnifiedCategoryPopup (imported as CategoryPopup)
+# Keeping for reference until sidebar is also migrated.
+# =============================================================================
+
 class DraggableCategoryButton(QPushButton):
-    """Category button that supports dragging for reordering"""
+    """DEPRECATED: Use CategoryButton from bookmark_widgets.py instead.
+    Category button that supports dragging for reordering"""
     
     def __init__(self, bar_item_index, category_name, bookmarks, parent=None):
         super().__init__(f"🗄 {category_name} ▾", parent)
@@ -613,7 +623,8 @@ class DraggableCategoryButton(QPushButton):
 
 
 class DraggableCategoryBookmark(QPushButton):
-    """Draggable bookmark button for use inside category popups"""
+    """DEPRECATED: Use CategoryBookmarkButton from bookmark_widgets.py instead.
+    Draggable bookmark button for use inside category popups"""
     
     def __init__(self, bookmark_data, source_category, parent=None, popup=None, icon_provider=None):
         super().__init__(f" {bookmark_data['name']}", parent)
@@ -734,7 +745,8 @@ class DraggableCategoryBookmark(QPushButton):
 
 
 class CategoryPopup(QWidget):
-    """Custom popup widget for category bookmarks with drag-drop reordering"""
+    """DEPRECATED: Use CategoryPopup (as UnifiedCategoryPopup) from bookmark_widgets.py instead.
+    Custom popup widget for category bookmarks with drag-drop reordering"""
     
     bookmark_opened = pyqtSignal(dict)  # Signal when bookmark is clicked
     
