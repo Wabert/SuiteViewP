@@ -4,9 +4,10 @@ Test Attachment Manager loading and display
 
 import sys
 import os
+from pathlib import Path
 
-# Add suiteview to path
-sys.path.insert(0, os.path.dirname(__file__))
+# Add parent directory to path so we can import suiteview
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_attachment_manager_data_load():
     """Test loading attachment data without GUI"""

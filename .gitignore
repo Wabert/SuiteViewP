@@ -23,6 +23,7 @@ MANIFEST
 
 # Virtual Environment
 venv/
+venv_window/
 env/
 ENV/
 env.bak/
@@ -47,6 +48,9 @@ nul
 *.log
 logs/
 .suiteview/
+
+# pytest
+.pytest_cache/
 
 # Test data (optional - uncomment if you don't want to track test files)
 # test_data/

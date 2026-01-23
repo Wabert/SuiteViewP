@@ -35,6 +35,8 @@ class EmailSyncThread(QThread):
     
     def run(self):
         """Run email sync"""
+        thread_db = None
+        outlook = None
         try:
             logger.info("=== EMAIL SYNC STARTED ===")
             logger.info(f"Full sync: {self.full_sync}, Max limit: {self.max_limit}")
@@ -189,6 +191,18 @@ class EmailSyncThread(QThread):
         except Exception as e:
             logger.error(f"Error during email sync: {e}", exc_info=True)
             self.finished.emit(False, f"Error: {str(e)}")
+        
+        finally:
+            # Clean up resources
+            try:
+                if thread_db:
+                    logger.info("Closing thread database connection...")
+                    thread_db.close()
+                if outlook:
+                    logger.info("Cleaning up Outlook connection...")
+                    outlook.cleanup()
+            except Exception as e:
+                logger.error(f"Error during cleanup: {e}")
 
 
 class EmailNavigatorWindow(QWidget):

@@ -49,6 +49,10 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(config.app_name)
     app.setOrganizationName(config.organization_name)
+    
+    # Don't quit when last window is closed - we use system tray
+    app.setQuitOnLastWindowClosed(False)
+    
     apply_global_theme(app)
 
     logger.info("Qt application created")

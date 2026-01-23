@@ -3,10 +3,10 @@
 import os
 import sys
 import logging
+from pathlib import Path
 
-# Add project root to path
-project_root = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, project_root)
+# Add parent directory to path so we can import suiteview
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)

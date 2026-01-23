@@ -88,6 +88,19 @@ class DropTreeView(QTreeView):
         """Set the current folder path"""
         self._current_folder = folder_path
     
+    def mouseDoubleClickEvent(self, event):
+        """Override to prevent edit mode on double-click, but allow signal emission"""
+        # Get the index at the click position
+        index = self.indexAt(event.pos())
+        if index.isValid():
+            # Emit the doubleClicked signal manually
+            self.doubleClicked.emit(index)
+            # Accept the event to prevent further processing
+            event.accept()
+            return
+        # If no valid index, call parent handler
+        super().mouseDoubleClickEvent(event)
+    
     def startDrag(self, supportedActions):
         """Start drag operation with selected files"""
         indexes = self.selectedIndexes()
@@ -670,6 +683,9 @@ class FileExplorerCore(QWidget):
         self.depth_search_locked = False  # True when depth search is active and locked
         self.depth_search_active_results = None  # Currently displayed depth results
         
+        # Folder-specific search terms
+        self.folder_search_terms = {}  # Cache: {folder_path: search_text}
+        
         # Load custom quick links
         self.quick_links_file = Path.home() / ".suiteview" / "quick_links.json"
         self.custom_quick_links = self.load_quick_links()
@@ -702,6 +718,62 @@ class FileExplorerCore(QWidget):
         # Cache file icon as default
         FileExplorerCore._icon_cache['_default'] = self.icon_provider.icon(QFileIconProvider.IconType.File)
     
+    def get_emoji_icon_for_path(self, path):
+        """Get emoji icon based on file type - for Quick Links panel"""
+        path = Path(path) if isinstance(path, str) else path
+        
+        if path.is_dir():
+            # Check for special folder names
+            folder_name = path.name.lower()
+            if "onedrive" in folder_name:
+                return "☁️"
+            elif "desktop" in folder_name:
+                return "🖥️"
+            elif "documents" in folder_name:
+                return "📄"
+            elif "downloads" in folder_name:
+                return "⬇️"
+            elif "pictures" in folder_name or "photos" in folder_name:
+                return "🖼️"
+            elif "music" in folder_name:
+                return "🎵"
+            elif "videos" in folder_name:
+                return "🎬"
+            return "📁"
+        
+        # It's a file - get icon based on extension
+        suffix = path.suffix.lower()
+        
+        # Map extensions to emoji icons
+        emoji_map = {
+            # Excel
+            '.xlsx': '📊', '.xls': '📊', '.xlsm': '📊', '.xlsb': '📊', '.csv': '📊',
+            # Word
+            '.docx': '📝', '.doc': '📝', '.docm': '📝', '.rtf': '📝',
+            # PowerPoint
+            '.pptx': '📽️', '.ppt': '📽️', '.pptm': '📽️',
+            # PDF
+            '.pdf': '📕',
+            # Database / Access
+            '.accdb': '🗃️', '.mdb': '🗃️', '.db': '🗃️', '.sqlite': '🗃️', '.laccdb': '🗃️',
+            # Text
+            '.txt': '📄', '.log': '📄', '.md': '📄',
+            # Code
+            '.py': '🐍', '.js': '📜', '.java': '☕', '.cpp': '⚙️', '.c': '⚙️',
+            '.html': '🌐', '.css': '🎨', '.json': '📋', '.xml': '📋',
+            # Images
+            '.jpg': '🖼️', '.jpeg': '🖼️', '.png': '🖼️', '.gif': '🖼️',
+            '.bmp': '🖼️', '.ico': '🖼️', '.svg': '🖼️',
+            # Archives
+            '.zip': '📦', '.rar': '📦', '.7z': '📦', '.tar': '📦', '.gz': '📦',
+            # Executables
+            '.exe': '⚙️', '.msi': '⚙️', '.bat': '⚙️', '.cmd': '⚙️', '.ps1': '⚙️',
+            # Shortcuts
+            '.lnk': '🔗', '.url': '🔗',
+        }
+        
+        return emoji_map.get(suffix, '📄')
+    
     def _get_cached_icon(self, path: Path, is_directory: bool = False):
         """Get icon from cache or create it - fast path for common extensions"""
         if is_directory:
@@ -720,10 +792,27 @@ class FileExplorerCore(QWidget):
         if not is_network:
             # Local file - get real icon and cache by extension
             try:
-                file_info = QFileInfo(path_str)
-                icon = self.icon_provider.icon(file_info)
-                FileExplorerCore._icon_cache[suffix] = icon
-                return icon
+                # If file exists, get its icon directly
+                if path.exists():
+                    file_info = QFileInfo(path_str)
+                    icon = self.icon_provider.icon(file_info)
+                    FileExplorerCore._icon_cache[suffix] = icon
+                    return icon
+                else:
+                    # File doesn't exist - try to find another file with same extension
+                    # to get the icon from Windows shell
+                    import tempfile
+                    temp_file = Path(tempfile.gettempdir()) / f"_icon_temp{suffix}"
+                    try:
+                        temp_file.touch()
+                        file_info = QFileInfo(str(temp_file))
+                        icon = self.icon_provider.icon(file_info)
+                        FileExplorerCore._icon_cache[suffix] = icon
+                        temp_file.unlink()
+                        return icon
+                    except:
+                        if temp_file.exists():
+                            temp_file.unlink()
             except:
                 pass
         
@@ -739,6 +828,12 @@ class FileExplorerCore(QWidget):
         # Create toolbar
         toolbar = self.create_toolbar()
         main_layout.addWidget(toolbar)
+        
+        # Create bookmark bar (browser-style)
+        from suiteview.ui.dialogs.shortcuts_dialog import BookmarkBar
+        self.bookmark_bar = BookmarkBar(self)
+        self.bookmark_bar.navigate_to_path.connect(self.navigate_to_bookmark_folder)
+        main_layout.addWidget(self.bookmark_bar)
         
         # Create splitter for tree (left) and details (right)
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -775,12 +870,6 @@ class FileExplorerCore(QWidget):
         self.toolbar = QToolBar()
         self.toolbar.setMovable(False)
         self._apply_compact_toolbar_style(self.toolbar)
-        
-        # Bookmarks button (prominent at the start)
-        self.bookmarks_action = QAction("Bookmarks", self)
-        self.bookmarks_action.setToolTip("Open Bookmarks panel")
-        self.bookmarks_action.triggered.connect(self.open_bookmarks_dialog)
-        self.toolbar.addAction(self.bookmarks_action)
         
         # Print Directory to Excel
         print_dir_action = QAction("Print Directory", self)
@@ -1018,7 +1107,7 @@ class FileExplorerCore(QWidget):
         return widget
         
     def populate_tree_model(self):
-        """Populate tree with OneDrive, custom links, and system drives (folders only)"""
+        """Populate tree with OneDrive and system drives only (no quick links - those go in right panel)"""
         self.model.clear()
         self.model.setHorizontalHeaderLabels(['Name'])
         self.model.setColumnCount(1)  # Explicitly set to 1 column only
@@ -1030,17 +1119,8 @@ class FileExplorerCore(QWidget):
                 item = self.create_tree_folder_item(od_path, icon="⭐")
                 self.model.appendRow(item)
         
-        # Add custom quick links (only folders)
-        for link_path in self.custom_quick_links:
-            path = Path(link_path)
-            if path.exists() and path.is_dir():
-                item = self.create_tree_folder_item(path, icon="📌")
-                # Mark as custom link
-                item.setData("__CUSTOM_LINK__", Qt.ItemDataRole.UserRole + 1)
-                self.model.appendRow(item)
-        
-        # Add separator (visual only)
-        if onedrive_paths or self.custom_quick_links:
+        # Add separator (visual only) if we have OneDrive paths
+        if onedrive_paths:
             separator = QStandardItem("─" * 30)
             separator.setEnabled(False)
             self.model.appendRow(separator)
@@ -1055,6 +1135,43 @@ class FileExplorerCore(QWidget):
         for col in range(1, 10):
             self.tree_view.setColumnHidden(col, True)
         self.tree_view.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+    
+    def populate_quick_links_model(self, model):
+        """Populate a model with quick links only (for the right panel)"""
+        model.clear()
+        model.setHorizontalHeaderLabels(['Name'])
+        model.setColumnCount(1)
+        
+        # Add custom quick links with system icons (same as details panel)
+        for link_path in self.custom_quick_links:
+            path = Path(link_path)
+            if path.exists():
+                item = self.create_quick_link_item(path)
+                # Mark as custom link
+                item.setData("__QUICK_LINK__", Qt.ItemDataRole.UserRole + 1)
+                model.appendRow(item)
+    
+    def create_quick_link_item(self, path):
+        """Create a tree item for a quick link (file or folder) with system icon"""
+        path = Path(path)
+        
+        item = QStandardItem(path.name)
+        item.setData(str(path), Qt.ItemDataRole.UserRole)  # Store path
+        item.setEditable(False)
+        item.setToolTip(str(path))  # Show full path on hover
+        
+        # Use system icon (same as details panel)
+        is_dir = path.is_dir()
+        icon = self._get_cached_icon(path, is_dir)
+        item.setIcon(icon)
+        
+        # If it's a directory, add a placeholder for expansion
+        if is_dir:
+            placeholder = QStandardItem("Loading...")
+            placeholder.setEnabled(False)
+            item.appendRow(placeholder)
+        
+        return item
             
     def get_onedrive_paths(self):
         """Get all OneDrive paths (deduplicated)"""
@@ -1420,11 +1537,11 @@ class FileExplorerCore(QWidget):
         header_layout.addWidget(self.depth_level_combo)
         
         # On/Off toggle button for depth search
-        self.depth_toggle_btn = QPushButton("On")
+        self.depth_toggle_btn = QPushButton("Off")
         self.depth_toggle_btn.setCheckable(False)
         self.depth_toggle_btn.setMaximumWidth(50)
         self.depth_toggle_btn.setMaximumHeight(24)
-        self.depth_toggle_btn.setToolTip("Activate depth search")
+        self.depth_toggle_btn.setToolTip("Depth search is off")
         self.depth_toggle_btn.setStyleSheet("""
             QPushButton {
                 background-color: #E0ECFF;
@@ -1468,7 +1585,9 @@ class FileExplorerCore(QWidget):
         self.details_view.setHeaderHidden(False)
         self.details_view.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)  # Multi-select
         self.details_view.setSortingEnabled(True)
-        self.details_view.setEditTriggers(QTreeView.EditTrigger.EditKeyPressed)  # Enable F2 editing
+        self.details_view.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)  # Disable double-click editing
+        self.details_view.setDragEnabled(True)  # Enable dragging files out
+        self.details_view.setDragDropMode(QTreeView.DragDropMode.DragDrop)
         
         # Style the details view to look like tree view (no borders, no padding)
         self.details_view.setStyleSheet(
@@ -1622,6 +1741,42 @@ class FileExplorerCore(QWidget):
 
         query = (text or "").strip()
         
+        # Update search box border to indicate active filter
+        if query:
+            # Red border when filter is active
+            self.details_search.setStyleSheet(
+                """
+                QLineEdit {
+                    padding: 3px 8px;
+                    border: 3px solid #DC143C;
+                    border-radius: 3px;
+                    background: white;
+                    color: #1A3A6E;
+                }
+                """
+            )
+        else:
+            # Normal border when no filter
+            self.details_search.setStyleSheet(
+                """
+                QLineEdit {
+                    padding: 3px 8px;
+                    border: 1px solid #A0B8D8;
+                    border-radius: 3px;
+                    background: white;
+                    color: #1A3A6E;
+                }
+                """
+            )
+        
+        # Save the search term for the current folder
+        if hasattr(self, 'current_details_folder') and self.current_details_folder:
+            if query:
+                self.folder_search_terms[self.current_details_folder] = query
+            elif self.current_details_folder in self.folder_search_terms:
+                # Remove empty search terms to keep dict clean
+                del self.folder_search_terms[self.current_details_folder]
+        
         # Standard search using proxy filter (works for both normal and depth results)
         if not query:
             self.details_sort_proxy.setFilterRegularExpression(QRegularExpression())
@@ -1634,13 +1789,21 @@ class FileExplorerCore(QWidget):
     
     def toggle_depth_search(self):
         """Toggle depth search on/off based on button state"""
+        # Guard against callback during widget deletion
+        try:
+            if not self.isVisible() or not hasattr(self, 'depth_search_enabled'):
+                return
+        except RuntimeError:
+            # Widget is being deleted
+            return
+        
         if self.depth_search_enabled:
             # Currently ON, turn it OFF
             self.depth_search_enabled = False
             self.depth_search_locked = False
             self.depth_search_active_results = None
-            self.depth_toggle_btn.setText("On")
-            self.depth_toggle_btn.setToolTip("Activate depth search")
+            self.depth_toggle_btn.setText("Off")
+            self.depth_toggle_btn.setToolTip("Depth search is off")
             self.depth_toggle_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #E0ECFF;
@@ -1694,6 +1857,14 @@ class FileExplorerCore(QWidget):
     
     def on_depth_level_changed(self, level_text):
         """Handle depth level change - clear cache"""
+        # Guard against callback during widget deletion
+        try:
+            if not self.isVisible() or not hasattr(self, 'depth_search_cache'):
+                return
+        except RuntimeError:
+            # Widget is being deleted
+            return
+        
         self.depth_search_cache.clear()
         
         # If depth search is active and user changes level, turn it off
@@ -1701,8 +1872,8 @@ class FileExplorerCore(QWidget):
             self.depth_search_enabled = False
             self.depth_search_locked = False
             self.depth_search_active_results = None
-            self.depth_toggle_btn.setText("On")
-            self.depth_toggle_btn.setToolTip("Activate depth search")
+            self.depth_toggle_btn.setText("Off")
+            self.depth_toggle_btn.setToolTip("Depth search is off")
             self.depth_toggle_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #E0ECFF;
@@ -1749,8 +1920,8 @@ class FileExplorerCore(QWidget):
             depth_level_int in self.depth_search_cache[cache_key]):
             # Use cached results
             self._populate_depth_results(self.depth_search_cache[cache_key][depth_level_int])
-            self.depth_toggle_btn.setText("Off")
-            self.depth_toggle_btn.setToolTip("Deactivate depth search")
+            self.depth_toggle_btn.setText("On")
+            self.depth_toggle_btn.setToolTip("Depth search is on")
             self.depth_toggle_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #FFB366;
@@ -1850,8 +2021,8 @@ class FileExplorerCore(QWidget):
         # If no results, don't proceed
         if not results:
             self.depth_search_enabled = False
-            self.depth_toggle_btn.setText("On")
-            self.depth_toggle_btn.setToolTip("Activate depth search")
+            self.depth_toggle_btn.setText("Off")
+            self.depth_toggle_btn.setToolTip("Depth search is off")
             self.depth_toggle_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #E0ECFF;
@@ -1886,9 +2057,9 @@ class FileExplorerCore(QWidget):
             # Change toolbar to orange
             self._apply_compact_toolbar_style(self.toolbar, locked=True)
             
-            # Change button to "Off"
-            self.depth_toggle_btn.setText("Off")
-            self.depth_toggle_btn.setToolTip("Deactivate depth search (locked to search folder)")
+            # Change button to "On"
+            self.depth_toggle_btn.setText("On")
+            self.depth_toggle_btn.setToolTip("Depth search is on (click to turn off)")
             self.depth_toggle_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #FFB366;
@@ -1933,9 +2104,9 @@ class FileExplorerCore(QWidget):
                 # Change toolbar to orange
                 self._apply_compact_toolbar_style(self.toolbar, locked=True)
                 
-                # Change button to "Off"
-                self.depth_toggle_btn.setText("Off")
-                self.depth_toggle_btn.setToolTip("Deactivate depth search (locked to search folder)")
+                # Change button to "On"
+                self.depth_toggle_btn.setText("On")
+                self.depth_toggle_btn.setToolTip("Depth search is on (click to turn off)")
                 self.depth_toggle_btn.setStyleSheet("""
                     QPushButton {
                         background-color: #FFB366;
@@ -1953,8 +2124,8 @@ class FileExplorerCore(QWidget):
             else:
                 # User closed dialog, turn off depth search
                 self.depth_search_enabled = False
-                self.depth_toggle_btn.setText("On")
-                self.depth_toggle_btn.setToolTip("Activate depth search")
+                self.depth_toggle_btn.setText("Off")
+                self.depth_toggle_btn.setToolTip("Depth search is off")
                 self.depth_toggle_btn.setStyleSheet("""
                     QPushButton {
                         background-color: #E0ECFF;
@@ -2199,6 +2370,49 @@ class FileExplorerCore(QWidget):
             self.current_details_folder = str(dir_path)
             self.details_view.set_current_folder(str(dir_path))
             self.details_header.setText(f"📂 {dir_path.name or str(dir_path)}")
+            
+            # Restore folder-specific search term for depth search folder too
+            if hasattr(self, 'details_search') and hasattr(self, 'folder_search_terms'):
+                folder_key = str(dir_path)
+                saved_search = self.folder_search_terms.get(folder_key, "")
+                
+                # Temporarily block signals to prevent triggering on_details_search_changed
+                self.details_search.blockSignals(True)
+                self.details_search.setText(saved_search)
+                self.details_search.blockSignals(False)
+                
+                # Update border styling based on whether there's a filter
+                if saved_search:
+                    # Red border when filter is active
+                    self.details_search.setStyleSheet(
+                        """
+                        QLineEdit {
+                            padding: 3px 8px;
+                            border: 3px solid #DC143C;
+                            border-radius: 3px;
+                            background: white;
+                            color: #1A3A6E;
+                        }
+                        """
+                    )
+                    escaped = QRegularExpression.escape(saved_search)
+                    regex = QRegularExpression(escaped, QRegularExpression.PatternOption.CaseInsensitiveOption)
+                    self.details_sort_proxy.setFilterRegularExpression(regex)
+                else:
+                    # Normal border when no filter
+                    self.details_search.setStyleSheet(
+                        """
+                        QLineEdit {
+                            padding: 3px 8px;
+                            border: 1px solid #A0B8D8;
+                            border-radius: 3px;
+                            background: white;
+                            color: #1A3A6E;
+                        }
+                        """
+                    )
+                    self.details_sort_proxy.setFilterRegularExpression(QRegularExpression())
+            
             self._populate_depth_results(self.depth_search_active_results)
             return
         
@@ -2222,6 +2436,48 @@ class FileExplorerCore(QWidget):
             
             # Update header
             self.details_header.setText(f"📂 {dir_path.name or str(dir_path)}")
+            
+            # Restore folder-specific search term (or clear if first visit)
+            if hasattr(self, 'details_search') and hasattr(self, 'folder_search_terms'):
+                folder_key = str(dir_path)
+                saved_search = self.folder_search_terms.get(folder_key, "")
+                
+                # Temporarily block signals to prevent triggering on_details_search_changed
+                self.details_search.blockSignals(True)
+                self.details_search.setText(saved_search)
+                self.details_search.blockSignals(False)
+                
+                # Update border styling and apply filter based on whether there's a saved search
+                if saved_search:
+                    # Red border when filter is active
+                    self.details_search.setStyleSheet(
+                        """
+                        QLineEdit {
+                            padding: 3px 8px;
+                            border: 3px solid #DC143C;
+                            border-radius: 3px;
+                            background: white;
+                            color: #1A3A6E;
+                        }
+                        """
+                    )
+                    escaped = QRegularExpression.escape(saved_search)
+                    regex = QRegularExpression(escaped, QRegularExpression.PatternOption.CaseInsensitiveOption)
+                    self.details_sort_proxy.setFilterRegularExpression(regex)
+                else:
+                    # Normal border when no filter
+                    self.details_search.setStyleSheet(
+                        """
+                        QLineEdit {
+                            padding: 3px 8px;
+                            border: 1px solid #A0B8D8;
+                            border-radius: 3px;
+                            background: white;
+                            color: #1A3A6E;
+                        }
+                        """
+                    )
+                    self.details_sort_proxy.setFilterRegularExpression(QRegularExpression())
             
             # Clear details model BUT preserve column widths
             self.details_model.clear()
@@ -2352,9 +2608,50 @@ class FileExplorerCore(QWidget):
                 target_obj = Path(target_path)
                 if target_obj.exists() and target_obj.is_dir():
                     # Navigate to the folder target within File Nav
+                    # If depth search is active, turn it off first
+                    if self.depth_search_enabled:
+                        self.depth_search_enabled = False
+                        self.depth_search_locked = False
+                        self.depth_search_active_results = None
+                        self.depth_toggle_btn.setText("Off")
+                        self.depth_toggle_btn.setToolTip("Depth search is off")
+                        self.depth_toggle_btn.setStyleSheet("""
+                            QPushButton {
+                                background-color: #E0ECFF;
+                                border: 1px solid #2563EB;
+                                border-radius: 3px;
+                                padding: 2px 6px;
+                                font-size: 9pt;
+                                color: #1A3A6E;
+                                font-weight: bold;
+                            }
+                            QPushButton:hover {
+                                background-color: #C9DAFF;
+                            }
+                        """)
+                        self.depth_search_folder = None
+                        # Re-enable tree panel
+                        if hasattr(self, 'tree_view'):
+                            self.tree_view.setEnabled(True)
+                        # Restore normal toolbar color
+                        self._apply_compact_toolbar_style(self.toolbar, locked=False)
+                    
                     self.load_folder_contents_in_details(target_obj)
                     return
-            # If we can't resolve or it's not a folder, fall through to open normally
+                elif target_obj.exists() and target_obj.is_file():
+                    # Shortcut points to a file, open it
+                    try:
+                        if os.name == 'nt':
+                            os.startfile(str(target_obj))
+                        elif sys.platform == 'darwin':
+                            subprocess.run(['open', str(target_obj)])
+                        else:
+                            subprocess.run(['xdg-open', str(target_obj)])
+                    except Exception as e:
+                        logger.error(f"Failed to open file: {e}")
+                        QMessageBox.warning(self, "Cannot Open File", f"Failed to open {target_obj.name}\n\nError: {str(e)}")
+                    return
+            # If we can't resolve or target doesn't exist, fall through to open the .lnk file itself
         
         if path_obj.is_dir():
             # Navigate into folder - update tree selection and load in details
@@ -2448,6 +2745,12 @@ class FileExplorerCore(QWidget):
         
         menu = QMenu()
         
+        # Add "New Folder" option at the top (always available when in a folder)
+        if self.current_details_folder:
+            new_folder_action = menu.addAction("📁 New Folder")
+            new_folder_action.triggered.connect(self.create_new_folder)
+            menu.addSeparator()
+        
         if index.isValid():
             # Get the data directly from the proxy model at the clicked index
             path = self.details_sort_proxy.data(index, Qt.ItemDataRole.UserRole)
@@ -2460,34 +2763,13 @@ class FileExplorerCore(QWidget):
             if path:
                     path_obj = Path(path)
                     
-                    # Open
-                    if path_obj.is_file():
-                        open_action = menu.addAction("📄 Open")
-                        open_action.triggered.connect(lambda: self.open_file(path))
-                    
-                    menu.addSeparator()
-                    
-                    # Cut, Copy, Paste operations
-                    cut_action = menu.addAction("✂️ Cut")
-                    cut_action.triggered.connect(self.cut_file)
-                    
-                    copy_action = menu.addAction("📋 Copy")
-                    copy_action.triggered.connect(self.copy_file)
-                    
-                    menu.addSeparator()
-                    
-                    # Rename, Delete
-                    rename_action = menu.addAction("✏️ Rename")
-                    rename_action.triggered.connect(self.rename_file)
-                    
-                    delete_action = menu.addAction("🗑️ Delete")
-                    delete_action.triggered.connect(self.delete_file)
-                    
-                    menu.addSeparator()
-                    
                     # Copy Full Path
                     copy_path_action = menu.addAction("📄 Copy Full Path")
                     copy_path_action.triggered.connect(lambda: self.copy_full_path_to_clipboard(path))
+                    
+                    # Open folder location (navigate to parent folder in File Nav)
+                    open_folder_action = menu.addAction("📂 Open Folder Location")
+                    open_folder_action.triggered.connect(lambda: self.open_folder_location_in_file_nav(path))
                     
                     menu.addSeparator()
                     
@@ -2501,10 +2783,19 @@ class FileExplorerCore(QWidget):
                     
                     menu.addSeparator()
                     
-                    # Upload to mainframe (files only)
-                    if path_obj.is_file():
-                        upload_action = menu.addAction("⬆️ Upload to Mainframe")
-                        upload_action.triggered.connect(self.upload_to_mainframe)
+                    # Cut, Copy operations
+                    cut_action = menu.addAction("✂️ Cut")
+                    cut_action.triggered.connect(self.cut_file)
+                    
+                    copy_action = menu.addAction("📋 Copy")
+                    copy_action.triggered.connect(self.copy_file)
+                    
+                    # Rename, Delete
+                    rename_action = menu.addAction("✏️ Rename")
+                    rename_action.triggered.connect(self.rename_file)
+                    
+                    delete_action = menu.addAction("🗑️ Delete")
+                    delete_action.triggered.connect(self.delete_file)
         
         # Paste (always available if clipboard has content - internal or Windows)
         if self.has_clipboard_content():
@@ -2843,6 +3134,47 @@ class FileExplorerCore(QWidget):
         clipboard.setText(str(path))
         logger.info(f"Copied path to clipboard: {path}")
     
+    def open_folder_location_in_file_nav(self, path):
+        """Navigate to the parent folder of the given path in File Nav"""
+        path_obj = Path(path)
+        parent_folder = path_obj.parent if path_obj.is_file() else path_obj
+        
+        # Check if this is a FileExplorerTab (has navigate_to_path for breadcrumb/history)
+        # or just the base FileExplorerCore
+        if hasattr(self, 'navigate_to_path'):
+            # Use navigate_to_path to update breadcrumb and history
+            self.navigate_to_path(str(parent_folder), add_to_history=True)
+        else:
+            # Fall back to direct loading (base FileExplorerCore)
+            self.load_folder_contents_in_details(parent_folder)
+        
+        # If this is a file, select it in the details view after loading
+        if path_obj.is_file():
+            # Small delay to ensure the model is populated
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(100, lambda: self.select_file_in_details(path))
+        
+        logger.info(f"Navigated to folder location: {parent_folder}")
+    
+    def select_file_in_details(self, file_path):
+        """Select a specific file in the details view"""
+        try:
+            file_name = Path(file_path).name
+            # Search through the model to find and select the file
+            for row in range(self.details_model.rowCount()):
+                item = self.details_model.item(row, 0)
+                if item and item.text() == file_name:
+                    # Get the index in the proxy model
+                    source_index = self.details_model.indexFromItem(item)
+                    proxy_index = self.details_sort_proxy.mapFromSource(source_index)
+                    
+                    # Select and scroll to the item
+                    self.details_view.setCurrentIndex(proxy_index)
+                    self.details_view.scrollTo(proxy_index)
+                    break
+        except Exception as e:
+            logger.error(f"Failed to select file in details: {e}")
+    
     def _set_system_clipboard(self, paths):
         """Set file paths to the system clipboard for use with Windows Explorer"""
         clipboard = QApplication.clipboard()
@@ -2997,11 +3329,32 @@ class FileExplorerCore(QWidget):
         if not file_paths or not dest_folder:
             return
         
+        # Check if all files are from the same folder as the destination
+        # If so, ignore the operation (don't create copies)
+        all_from_same_folder = True
+        for file_path in file_paths:
+            source = Path(file_path)
+            source_parent = str(source.parent)
+            if source_parent != dest_folder:
+                all_from_same_folder = False
+                break
+        
+        if all_from_same_folder:
+            # All files are being dropped in their own folder - ignore operation
+            logger.info(f"Ignored drop operation - files dropped in same folder")
+            return
+        
         success_count = 0
         error_count = 0
         
         for file_path in file_paths:
             source = Path(file_path)
+            
+            # Skip if source and destination are the same
+            if str(source.parent) == dest_folder:
+                logger.info(f"Skipping {source.name} - already in destination folder")
+                continue
+            
             dest = Path(dest_folder) / source.name
             
             try:
@@ -3101,6 +3454,43 @@ class FileExplorerCore(QWidget):
     def refresh_tree(self):
         """Refresh the tree view"""
         self.populate_tree_model()
+    
+    def refresh_details_view(self):
+        """Refresh the current folder contents in the details view"""
+        if self.current_details_folder:
+            self.load_folder_contents_in_details(Path(self.current_details_folder))
+        else:
+            logger.warning("No current folder to refresh")
+    
+    def create_new_folder(self):
+        """Create a new folder in the current directory"""
+        if not self.current_details_folder:
+            QMessageBox.warning(self, "Error", "No folder selected")
+            return
+        
+        # Prompt for folder name
+        folder_name, ok = QInputDialog.getText(
+            self, "New Folder", 
+            "Enter folder name:",
+            QLineEdit.EchoMode.Normal,
+            "New Folder"
+        )
+        
+        if ok and folder_name:
+            try:
+                new_folder_path = Path(self.current_details_folder) / folder_name
+                new_folder_path.mkdir(parents=False, exist_ok=False)
+                logger.info(f"Created folder: {new_folder_path}")
+                
+                # Refresh the details view to show the new folder
+                self.load_folder_contents_in_details(Path(self.current_details_folder))
+                
+                QMessageBox.information(self, "Success", f"Folder '{folder_name}' created successfully")
+            except FileExistsError:
+                QMessageBox.warning(self, "Error", f"Folder '{folder_name}' already exists")
+            except Exception as e:
+                logger.error(f"Failed to create folder: {e}")
+                QMessageBox.warning(self, "Error", f"Failed to create folder:\n{str(e)}")
         
     def open_in_explorer(self):
         """Open selected path in Windows Explorer"""
@@ -3124,10 +3514,9 @@ class FileExplorerCore(QWidget):
         """Show context menu with quick link options"""
         menu = QMenu()
         
-        # Check if item is a custom quick link and if it's a file
+        # Check if item is a custom quick link
         indexes = self.tree_view.selectedIndexes()
         is_custom_link = False
-        is_file = False
         selected_path = None
         
         if indexes:
@@ -3136,33 +3525,26 @@ class FileExplorerCore(QWidget):
                 if item.data(Qt.ItemDataRole.UserRole + 1) == "__CUSTOM_LINK__":
                     is_custom_link = True
                 selected_path = item.data(Qt.ItemDataRole.UserRole)
-                if selected_path and Path(selected_path).is_file():
-                    is_file = True
         
-        # Standard actions
-        cut_action = menu.addAction("✂️ Cut")
-        copy_action = menu.addAction("📋 Copy")
-        paste_action = menu.addAction("📌 Paste")
-        menu.addSeparator()
-        rename_action = menu.addAction("✏️ Rename")
-        delete_action = menu.addAction("🗑️ Delete")
-        menu.addSeparator()
-        
-        # Mainframe upload (only for files)
-        upload_action = None
-        if is_file:
-            upload_action = menu.addAction("⬆️ Upload to Mainframe")
-            menu.addSeparator()
-        
-        # Quick link actions
-        add_to_quick = menu.addAction("⭐ Add to Quick Access")
+        # Quick link and explorer actions first
+        add_to_quick = menu.addAction("📌 Add to Quick Links")
         if is_custom_link:
-            remove_from_quick = menu.addAction("❌ Remove from Quick Access")
+            remove_from_quick = menu.addAction("❌ Remove from Quick Links")
         else:
             remove_from_quick = None
         
-        menu.addSeparator()
         explorer_action = menu.addAction("📂 Open in Explorer")
+        
+        menu.addSeparator()
+        
+        # File operations at the bottom
+        cut_action = menu.addAction("✂️ Cut")
+        copy_action = menu.addAction("📋 Copy")
+        rename_action = menu.addAction("✏️ Rename")
+        delete_action = menu.addAction("🗑️ Delete")
+        
+        menu.addSeparator()
+        paste_action = menu.addAction("📌 Paste")
         
         action = menu.exec(self.tree_view.viewport().mapToGlobal(position))
         
@@ -3176,8 +3558,6 @@ class FileExplorerCore(QWidget):
             self.rename_file()
         elif action == delete_action:
             self.delete_file()
-        elif action == upload_action:
-            self.upload_to_mainframe()
         elif action == add_to_quick:
             self.add_to_quick_access()
         elif action == remove_from_quick:
@@ -3252,14 +3632,56 @@ class FileExplorerCore(QWidget):
             )
     
     def load_quick_links(self):
-        """Load custom quick links from JSON file"""
+        """Load custom quick links from JSON file
+        
+        New structured format:
+        {
+            'categories': {'Category Name': [{'name': '...', 'path': '...', 'type': 'file|folder'}, ...]},
+            'items': [
+                {'type': 'bookmark', 'data': {'name': '...', 'path': '...', 'type': 'file|folder'}},
+                {'type': 'category', 'name': 'Category Name'}
+            ]
+        }
+        """
         try:
             if self.quick_links_file.exists():
                 with open(self.quick_links_file, 'r') as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    
+                    # Check if it's the old format (simple list of paths)
+                    if isinstance(data, list):
+                        # Migrate old format to new structured format
+                        items = []
+                        for path in data:
+                            path_obj = Path(path)
+                            items.append({
+                                'type': 'bookmark',
+                                'data': {
+                                    'name': path_obj.name,
+                                    'path': path,
+                                    'type': 'folder' if path_obj.is_dir() else 'file'
+                                }
+                            })
+                        return {
+                            'categories': {},
+                            'items': items
+                        }
+                    
+                    # Ensure structure has required keys
+                    if 'categories' not in data:
+                        data['categories'] = {}
+                    if 'items' not in data:
+                        data['items'] = []
+                    
+                    return data
         except Exception as e:
             logger.error(f"Failed to load quick links: {e}")
-        return []
+        
+        # Default structure
+        return {
+            'categories': {},
+            'items': []
+        }
     
     def save_quick_links(self):
         """Save custom quick links to JSON file"""
@@ -3270,6 +3692,138 @@ class FileExplorerCore(QWidget):
                 json.dump(self.custom_quick_links, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save quick links: {e}")
+    
+    def get_quick_links_paths(self):
+        """Get flat list of paths from quick links for compatibility"""
+        paths = []
+        for item in self.custom_quick_links.get('items', []):
+            if item.get('type') == 'bookmark':
+                path = item.get('data', {}).get('path')
+                if path:
+                    paths.append(path)
+        return paths
+    
+    def is_path_in_quick_links(self, path):
+        """Check if a path is already in quick links (at top level or in any category)"""
+        path_str = str(Path(path).resolve())
+        
+        # Check top-level items
+        for item in self.custom_quick_links.get('items', []):
+            if item.get('type') == 'bookmark':
+                if item.get('data', {}).get('path') == path_str:
+                    return True
+        
+        # Check items in categories
+        for cat_name, cat_items in self.custom_quick_links.get('categories', {}).items():
+            for item in cat_items:
+                if item.get('path') == path_str:
+                    return True
+        
+        return False
+    
+    def add_bookmark_to_quick_links(self, path, insert_at=None):
+        """Add a bookmark path to Quick Links items"""
+        path_str = str(Path(path).resolve())
+        path_obj = Path(path_str)
+        
+        # Check if already exists
+        if self.is_path_in_quick_links(path_str):
+            return False
+        
+        new_item = {
+            'type': 'bookmark',
+            'data': {
+                'name': path_obj.name,
+                'path': path_str,
+                'type': 'folder' if path_obj.is_dir() else 'file'
+            }
+        }
+        
+        if insert_at is not None and 0 <= insert_at <= len(self.custom_quick_links.get('items', [])):
+            self.custom_quick_links['items'].insert(insert_at, new_item)
+        else:
+            self.custom_quick_links['items'].append(new_item)
+        
+        self.save_quick_links()
+        return True
+    
+    def remove_bookmark_from_quick_links(self, path):
+        """Remove a bookmark from Quick Links by path"""
+        path_str = str(Path(path).resolve())
+        
+        # Check top-level items
+        items = self.custom_quick_links.get('items', [])
+        for i, item in enumerate(items):
+            if item.get('type') == 'bookmark':
+                if item.get('data', {}).get('path') == path_str:
+                    items.pop(i)
+                    self.save_quick_links()
+                    return True
+        
+        return False
+    
+    def add_category_to_quick_links(self, category_name, category_items=None, insert_at=None):
+        """Add a category to Quick Links"""
+        # Check if category already exists
+        if category_name in self.custom_quick_links.get('categories', {}):
+            return False
+        
+        # Add to categories dict
+        self.custom_quick_links['categories'][category_name] = category_items or []
+        
+        # Add to items list
+        new_item = {'type': 'category', 'name': category_name}
+        
+        if insert_at is not None and 0 <= insert_at <= len(self.custom_quick_links.get('items', [])):
+            self.custom_quick_links['items'].insert(insert_at, new_item)
+        else:
+            self.custom_quick_links['items'].append(new_item)
+        
+        self.save_quick_links()
+        return True
+    
+    def remove_category_from_quick_links(self, category_name):
+        """Remove a category from Quick Links"""
+        # Remove from categories dict
+        if category_name in self.custom_quick_links.get('categories', {}):
+            del self.custom_quick_links['categories'][category_name]
+        
+        # Remove from items list
+        items = self.custom_quick_links.get('items', [])
+        for i, item in enumerate(items):
+            if item.get('type') == 'category' and item.get('name') == category_name:
+                items.pop(i)
+                break
+        
+        self.save_quick_links()
+        return True
+    
+    def rename_category_in_quick_links(self, old_name, new_name):
+        """Rename a category in Quick Links"""
+        if old_name == new_name:
+            return False
+        
+        # Check if new name already exists
+        if new_name in self.custom_quick_links.get('categories', {}):
+            return False
+        
+        # Rename in categories dict
+        if old_name in self.custom_quick_links.get('categories', {}):
+            self.custom_quick_links['categories'][new_name] = self.custom_quick_links['categories'].pop(old_name)
+            
+            # Update category field in all bookmarks within the category
+            for bookmark in self.custom_quick_links['categories'][new_name]:
+                bookmark['category'] = new_name
+        
+        # Update in items list
+        items = self.custom_quick_links.get('items', [])
+        for item in items:
+            if item.get('type') == 'category' and item.get('name') == old_name:
+                item['name'] = new_name
+                break
+        
+        self.save_quick_links()
+        return True
     
     def load_hidden_onedrive(self):
         """Load hidden OneDrive paths from JSON file"""
@@ -3392,19 +3946,11 @@ class FileExplorerCore(QWidget):
         if not path:
             return
         
-        path_str = str(Path(path).resolve())
-        
-        # Check if already in quick links
-        if path_str in self.custom_quick_links:
-            QMessageBox.information(self, "Quick Access", "This item is already in Quick Access")
-            return
-        
-        # Add to quick links
-        self.custom_quick_links.append(path_str)
-        self.save_quick_links()
-        self.refresh_tree()
-        
-        QMessageBox.information(self, "Quick Access", f"Added to Quick Access:\n{Path(path).name}")
+        # Use the new helper method
+        if self.add_bookmark_to_quick_links(path):
+            # Refresh Quick Links panel if it exists
+            if hasattr(self, 'refresh_quick_links'):
+                self.refresh_quick_links()
     
     def remove_from_quick_access(self):
         """Remove selected item from Quick Access"""
@@ -3412,45 +3958,35 @@ class FileExplorerCore(QWidget):
         if not path:
             return
         
-        path_str = str(Path(path).resolve())
-        
-        if path_str in self.custom_quick_links:
-            self.custom_quick_links.remove(path_str)
-            self.save_quick_links()
-            self.refresh_tree()
-            
-            QMessageBox.information(self, "Quick Access", f"Removed from Quick Access:\n{Path(path).name}")
+        if self.is_path_in_quick_links(path):
+            if self.remove_bookmark_from_quick_links(path):
+                # Refresh Quick Links panel if it exists
+                if hasattr(self, 'refresh_quick_links'):
+                    self.refresh_quick_links()
+                QMessageBox.information(self, "Quick Links", f"Removed from Quick Links:\n{Path(path).name}")
         else:
-            QMessageBox.warning(self, "Quick Access", "This item is not in Quick Access")
+            QMessageBox.warning(self, "Quick Links", "This item is not in Quick Links")
     
     def remove_quick_link_by_path(self, path):
-        """Remove a specific path from Quick Access (used by context menu)"""
-        path_str = str(Path(path).resolve())
+        """Remove a specific path from Quick Links (used by context menu)"""
+        from suiteview.ui.dialogs.shortcuts_dialog import show_compact_confirm
         
-        if path_str in self.custom_quick_links:
-            self.custom_quick_links.remove(path_str)
-            self.save_quick_links()
-            self.refresh_tree()
-            
-            QMessageBox.information(self, "Quick Access", f"Removed from Quick Links:\n{Path(path).name}")
-        else:
-            QMessageBox.warning(self, "Quick Access", "This item is not in Quick Links")
+        if self.is_path_in_quick_links(path):
+            # Show confirmation dialog
+            if show_compact_confirm(self, "Remove Quick Link", f"Remove '{Path(path).name}'?"):
+                self.remove_bookmark_from_quick_links(path)
+                
+                # Refresh Quick Links panel if it exists
+                if hasattr(self, 'refresh_quick_links'):
+                    self.refresh_quick_links()
     
-    def add_to_quick_links(self, path):
+    def add_to_quick_links(self, path, insert_at=None):
         """Add a path to Quick Links"""
-        path_str = str(Path(path).resolve())
-        
-        # Check if already in quick links
-        if path_str in self.custom_quick_links:
-            QMessageBox.information(self, "Quick Links", "This item is already in Quick Links")
-            return
-        
-        # Add to quick links
-        self.custom_quick_links.append(path_str)
-        self.save_quick_links()
-        self.refresh_tree()
-        
-        QMessageBox.information(self, "Quick Links", f"Added to Quick Links:\n{Path(path).name}")
+        # Use the new helper method
+        if self.add_bookmark_to_quick_links(path, insert_at=insert_at):
+            # Refresh Quick Links panel if it exists
+            if hasattr(self, 'refresh_quick_links'):
+                self.refresh_quick_links()
     
     def open_bookmarks_dialog(self):
         """Open/close the Bookmarks panel dialog (toggle)"""
@@ -3503,17 +4039,44 @@ class FileExplorerCore(QWidget):
             logger.error(f"Failed to navigate to bookmark folder: {e}")
     
     def add_to_bookmarks(self, path, name=None):
-        """Add a path to Bookmarks via dialog"""
-        from suiteview.ui.dialogs.shortcuts_dialog import BookmarksDialog
-        
-        # If no name provided, use the file/folder name
-        if not name:
-            name = Path(path).name
-        
-        # Open bookmarks dialog and add the item
-        dialog = BookmarksDialog(self)
-        dialog.add_bookmark_to_category(name, path)
-        dialog.exec()
+        """Add a path to Bookmarks via the bookmark bar"""
+        # Use the bookmark bar's add functionality
+        if hasattr(self, 'bookmark_bar'):
+            # Pre-populate the dialog if it's a specific path
+            from suiteview.ui.dialogs.shortcuts_dialog import AddBookmarkDialog
+            
+            categories = list(self.bookmark_bar.bookmarks_data['categories'].keys())
+            categories.insert(0, "📌 Quick Access (Bar)")
+            
+            dialog = AddBookmarkDialog(categories, self)
+            
+            # Pre-fill with the path
+            if name:
+                dialog.name_input.setText(name)
+            else:
+                dialog.name_input.setText(Path(path).name)
+            dialog.path_input.setText(str(path))
+            
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                bookmark = dialog.get_bookmark_data()
+                if bookmark['name'] and bookmark['path']:
+                    category = bookmark['category']
+                    del bookmark['category']
+                    
+                    if category == "📌 Quick Access (Bar)":
+                        # Add to bar_items as a bookmark item
+                        bar_item = {
+                            'type': 'bookmark',
+                            'data': bookmark
+                        }
+                        self.bookmark_bar.bookmarks_data['bar_items'].append(bar_item)
+                    else:
+                        if category not in self.bookmark_bar.bookmarks_data['categories']:
+                            self.bookmark_bar.bookmarks_data['categories'][category] = []
+                        self.bookmark_bar.bookmarks_data['categories'][category].append(bookmark)
+                    
+                    self.bookmark_bar.save_bookmarks()
+                    self.bookmark_bar.refresh_bookmarks()
     
     def print_directory_to_excel(self):
         """Export current directory structure directly to Excel (no file saved)"""

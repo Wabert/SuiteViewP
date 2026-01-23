@@ -52,6 +52,7 @@ class LauncherWindow(QWidget):
         self.file_nav_window = None
         self.mainframe_window = None
         self.email_nav_window = None
+        self.screenshot_window = None
         
         # Settings file for persistence
         from pathlib import Path
@@ -305,6 +306,29 @@ class LauncherWindow(QWidget):
         self.email_nav_btn.clicked.connect(self.open_email_navigator)
         button_layout.addWidget(self.email_nav_btn)
         
+        # Screenshot Manager button
+        self.screenshot_btn = QPushButton("📸")  # Camera icon
+        self.screenshot_btn.setToolTip("Screen Shot Manager")
+        self.screenshot_btn.setFixedSize(32, 32)
+        self.screenshot_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                border: 2px solid #0078d4;
+                border-radius: 6px;
+                font-size: 18px;
+                padding: 2px;
+            }
+            QPushButton:hover {
+                background-color: #e3f2fd;
+                border-color: #005a9e;
+            }
+            QPushButton:pressed {
+                background-color: #bbdefb;
+            }
+        """)
+        self.screenshot_btn.clicked.connect(self.open_screenshot_manager)
+        button_layout.addWidget(self.screenshot_btn)
+        
         # Add stretch to keep buttons on the left
         button_layout.addStretch()
         
@@ -479,6 +503,8 @@ class LauncherWindow(QWidget):
                     elif hasattr(terminal, 'disconnect_from_mainframe'):
                         terminal.disconnect_from_mainframe()
             self.mainframe_window.close()
+        if self.screenshot_window:
+            self.screenshot_window.close()
             
         self.tray_icon.hide()
         QApplication.quit()
@@ -599,6 +625,33 @@ class LauncherWindow(QWidget):
             self.email_nav_window.show()
             self.email_nav_window.activateWindow()
             self.email_nav_window.raise_()
+    
+    def open_screenshot_manager(self):
+        """Open the Screenshot Manager window - maintains state throughout session"""
+        if self.screenshot_window is None:
+            # Create window only once - first time
+            try:
+                from suiteview.ui.screenshot_manager_window import ScreenShotManagerWindow
+                self.screenshot_window = ScreenShotManagerWindow()
+                
+                # Override close event to hide instead of closing
+                original_close = self.screenshot_window.closeEvent
+                def hide_on_close(event):
+                    event.ignore()
+                    self.screenshot_window.hide()
+                self.screenshot_window.closeEvent = hide_on_close
+                
+                self.screenshot_window.show()
+                logger.info("Created Screenshot Manager (persists for session)")
+            except Exception as e:
+                logger.error(f"Failed to open Screenshot Manager: {e}")
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Error", f"Could not open Screenshot Manager:\n{e}")
+        else:
+            # Window already exists - just show and activate it
+            self.screenshot_window.show()
+            self.screenshot_window.activateWindow()
+            self.screenshot_window.raise_()
     
     def paintEvent(self, event):
         """Custom paint to draw rounded background with gradient blue and gold border"""

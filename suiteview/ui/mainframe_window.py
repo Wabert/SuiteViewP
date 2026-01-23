@@ -48,6 +48,10 @@ class MainframeWindow(QMainWindow):
         # Create screens
         self.mainframe_nav_screen = MainframeNavScreen(self.conn_manager)
         self.mainframe_terminal_screen = DualTerminalScreen()
+        
+        # Set parent_screen reference so terminals can access conn_manager and cred_manager
+        self.mainframe_terminal_screen.terminal_left.parent_screen = self
+        self.mainframe_terminal_screen.terminal_right.parent_screen = self
 
         # Add tabs - Terminal first
         self.tab_widget.addTab(self.mainframe_terminal_screen, "Mainframe Terminal")
@@ -172,31 +176,33 @@ class MainframeWindow(QMainWindow):
             for conn in all_connections:
                 if conn.get('connection_name') == "MAINFRAME_USER":
                     existing_conn = conn
-                    conn_id = conn.get('id')
+                    conn_id = conn.get('connection_id')  # Use connection_id, not id
                     break
             
             # Encrypt password
             encrypted_password = self.cred_manager.encrypt(password)
+            encrypted_username = self.cred_manager.encrypt(username)
             
             if existing_conn:
                 # Update existing connection
-                self.conn_manager.update_connection(
+                self.conn_manager.repo.update_connection(
                     conn_id,
-                    connection_name="MAINFRAME_USER",
-                    encrypted_username=self.cred_manager.encrypt(username),
+                    encrypted_username=encrypted_username,
                     encrypted_password=encrypted_password
                 )
+                logger.info(f"Updated MAINFRAME_USER credentials for: {username}")
             else:
                 # Create new connection
-                self.conn_manager.add_connection(
-                    name="MAINFRAME_USER",
-                    conn_type="Generic",
-                    server="",
-                    database="",
+                self.conn_manager.repo.create_connection(
+                    connection_name="MAINFRAME_USER",
+                    connection_type="Generic",
+                    server_name="",
+                    database_name="",
                     auth_type="SQL_AUTH",
-                    username=username,
-                    password=password
+                    encrypted_username=encrypted_username,
+                    encrypted_password=encrypted_password
                 )
+                logger.info(f"Created MAINFRAME_USER credentials for: {username}")
             
             QMessageBox.information(dialog, "Credentials Saved", 
                                   "Your credentials have been saved successfully.\n\n"

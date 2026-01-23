@@ -24,45 +24,16 @@ A native Python desktop application for visual, low-code access to diverse data 
 
 ### Windows Users (Recommended Platform)
 
-**Method 1: VSCode with WSL (Best for Development)**
-1. Install VSCode "WSL" extension
-2. In VSCode, press `Ctrl+K Ctrl+O` and open:
-   ```
-   \\wsl.localhost\Ubuntu-22.04\home\obert\SuiteViewProjects\SuiteViewP
-   ```
-3. Open a **WSL terminal** (click dropdown next to `+` → select "Ubuntu-22.04")
-4. Run:
-   ```bash
-   ./run_from_vscode.sh
-   ```
-   Or manually:
-   ```bash
-   source venv/bin/activate
-   python -m suiteview.main
-   ```
-
-**Method 2: Standalone on Windows**
 1. Make sure Python 3.13+ is installed ([download here](https://www.python.org/downloads/))
-2. Copy project folder to Windows
-3. Double-click `run_windows.bat`
+2. Double-click `run_windows.bat`
 
-**See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for complete Windows setup guide.**
-
-### Linux/WSL Users
-
-**Prerequisites:**
-- Python 3.10+
-- X11 server (for WSL users)
-
-**Running:**
-```bash
-# Easy way
-./run.sh
-
-# Or manually
-source venv/bin/activate
+Or manually:
+```powershell
+.\venv_window\Scripts\Activate.ps1
 python -m suiteview.main
 ```
+
+**See [docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md) for complete Windows setup guide.**
 
 ## Project Structure
 
@@ -70,28 +41,47 @@ python -m suiteview.main
 SuiteViewP/
 ├── README.md              # This file
 ├── requirements.txt       # Python dependencies
-├── run.sh                 # Convenience run script
-├── venv/                  # Virtual environment
+├── setup.py               # Package setup
+├── suiteview.spec         # PyInstaller build spec
+├── build_windows.py       # Build script for Windows executable
+├── run_windows.bat        # Windows launcher script
+├── venv_window/           # Virtual environment (Windows)
+│
 ├── suiteview/             # Main application package
 │   ├── main.py            # Application entry point
 │   ├── ui/                # UI layer (PyQt6 widgets)
 │   │   ├── main_window.py
+│   │   ├── launcher.py
 │   │   ├── connections_screen.py
 │   │   ├── mydata_screen.py
 │   │   ├── dbquery_screen.py
 │   │   ├── xdbquery_screen.py
 │   │   ├── styles.qss     # Qt Style Sheets
-│   │   └── widgets/       # Reusable custom widgets
+│   │   ├── dialogs/       # Dialog windows
+│   │   ├── widgets/       # Reusable custom widgets
+│   │   └── helpers/       # UI helper utilities
 │   ├── core/              # Business logic layer
 │   ├── data/              # Data access layer
 │   │   └── database.py    # SQLite initialization
+│   ├── models/            # Data models
 │   └── utils/             # Utility modules
 │       ├── config.py
 │       └── logger.py
-├── resources/             # Application resources
-│   ├── icons/
-│   └── images/
-└── tests/                 # Test suite
+│
+├── scripts/               # Utility scripts & standalone launchers
+│   ├── run_launcher.py
+│   ├── run_file_explorer.py
+│   ├── run_screenshot_manager.py
+│   ├── icon_picker.py
+│   └── verify_setup.py
+│
+├── tests/                 # Test suite
+│
+└── docs/                  # Documentation
+    ├── QUICK_START.md
+    ├── WINDOWS_SETUP.md
+    ├── guides/            # Feature guides
+    └── planning/          # Planning documents
 ```
 
 ## Application Data

@@ -6,6 +6,10 @@ Tests Outlook connection and email sync
 import sys
 import os
 import logging
+from pathlib import Path
+
+# Add parent directory to path so we can import suiteview
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Setup logging
 logging.basicConfig(
@@ -13,9 +17,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Add suiteview to path
-sys.path.insert(0, os.path.dirname(__file__))
 
 def test_outlook_connection():
     """Test basic Outlook connection"""

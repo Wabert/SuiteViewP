@@ -1,4 +1,10 @@
 """Test SQL Server connection"""
+import sys
+from pathlib import Path
+
+# Add parent directory to path so we can import suiteview
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from suiteview.core.connection_manager import get_connection_manager
 
 conn_mgr = get_connection_manager()

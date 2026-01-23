@@ -1,4 +1,4 @@
-"""
+﻿"""
 Bookmarks Panel Dialog
 Displays categorized bookmarks to folders, files, SharePoint sites, and URLs
 Similar to browser bookmarks bar
@@ -9,16 +9,95 @@ import sys
 import json
 import subprocess
 import webbrowser
+import time
 from pathlib import Path
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QWidget,
                               QPushButton, QLabel, QScrollArea, QFrame,
                               QInputDialog, QMessageBox, QLineEdit, QComboBox,
-                              QMenu, QGridLayout, QSizePolicy)
-from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QPoint
+                              QMenu, QGridLayout, QSizePolicy, QFileIconProvider)
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QPoint, QTimer, QFileInfo
 from PyQt6.QtGui import QIcon, QAction, QCursor, QDrag
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+def show_compact_confirm(parent, title, message):
+    """Show a compact confirmation dialog near the cursor"""
+    from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QCursor
+    
+    dialog = QDialog(parent)
+    dialog.setWindowTitle(title)
+    dialog.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+    
+    dialog.setStyleSheet("""
+        QDialog {
+            background-color: #FFFFFF;
+            border: 1px solid #888888;
+            border-radius: 4px;
+        }
+    """)
+    
+    layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(10, 8, 10, 8)
+    layout.setSpacing(8)
+    
+    # Message
+    label = QLabel(message)
+    label.setStyleSheet("color: #333333; font-size: 9pt;")
+    label.setWordWrap(True)
+    layout.addWidget(label)
+    
+    # Buttons
+    btn_layout = QHBoxLayout()
+    btn_layout.setSpacing(6)
+    
+    no_btn = QPushButton("Cancel")
+    no_btn.setFixedHeight(22)
+    no_btn.setStyleSheet("""
+        QPushButton {
+            background-color: #E0E0E0;
+            border: 1px solid #AAAAAA;
+            border-radius: 3px;
+            color: #333333;
+            font-size: 8pt;
+            padding: 2px 10px;
+        }
+        QPushButton:hover { background-color: #D0D0D0; }
+        QPushButton:pressed { background-color: #C0C0C0; }
+    """)
+    no_btn.clicked.connect(dialog.reject)
+    
+    yes_btn = QPushButton("Delete")
+    yes_btn.setFixedHeight(22)
+    yes_btn.setStyleSheet("""
+        QPushButton {
+            background-color: #DC3545;
+            border: 1px solid #B02A37;
+            border-radius: 3px;
+            color: white;
+            font-size: 8pt;
+            font-weight: 600;
+            padding: 2px 10px;
+        }
+        QPushButton:hover { background-color: #BB2D3B; }
+        QPushButton:pressed { background-color: #A52834; }
+    """)
+    yes_btn.clicked.connect(dialog.accept)
+    
+    btn_layout.addStretch()
+    btn_layout.addWidget(no_btn)
+    btn_layout.addWidget(yes_btn)
+    layout.addLayout(btn_layout)
+    
+    # Position near cursor
+    cursor_pos = QCursor.pos()
+    dialog.adjustSize()
+    dialog.move(cursor_pos.x() - dialog.width() // 2, cursor_pos.y() - 20)
+    
+    return dialog.exec() == QDialog.DialogCode.Accepted
 
 
 def detect_sharepoint_type(url):
@@ -54,6 +133,841 @@ def detect_sharepoint_type(url):
     return 'url'
 
 
+class DraggableBookmarkButton(QPushButton):
+    """Bookmark button that supports dragging for reordering"""
+    
+    drag_started = pyqtSignal(int)  # Emits bookmark index when drag starts
+    
+    def __init__(self, bookmark_index, bookmark_data, parent=None, source_category=None):
+        super().__init__(" " + bookmark_data['name'], parent)
+        
+        # Set real file icon using QFileIconProvider (like sidebar does)
+        if parent and hasattr(parent, 'get_real_icon'):
+            icon = parent.get_real_icon(bookmark_data)
+            if icon:
+                self.setIcon(icon)
+        
+        self.bookmark_index = bookmark_index
+        self.bookmark_data = bookmark_data
+        self.parent_bar = parent
+        self.drag_start_pos = None
+        self.source_category = source_category  # None for bar bookmarks, category name for category bookmarks
+        
+        self.setToolTip(bookmark_data['path'])
+        self.setMaximumWidth(200)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: 1px solid #D0D0D0;
+                border-radius: 10px;
+                padding: 3px 8px;
+                text-align: left;
+                font-size: 9pt;
+                font-weight: normal;
+                color: #202124;
+            }
+            QPushButton:hover {
+                background-color: #E8EAED;
+                border-color: #A0A0A0;
+            }
+            QPushButton:pressed {
+                background-color: #D2E3FC;
+            }
+            QToolTip {
+                background-color: #FFFFDD;
+                color: #333333;
+                border: 1px solid #888888;
+                padding: 4px;
+                font-size: 9pt;
+            }
+        """)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press - start drag tracking"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_pos = event.pos()
+            logger.debug(f"Left click on bookmark: {self.bookmark_data['name']}")
+        elif event.button() == Qt.MouseButton.RightButton:
+            # Let the parent handle right-click
+            logger.debug(f"Right click on bookmark: {self.bookmark_data['name']}")
+        super().mousePressEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release - clear drag tracking"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_pos = None
+        super().mouseReleaseEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move - initiate drag if threshold exceeded"""
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        
+        if self.drag_start_pos is None:
+            return
+        
+        # Check if we've moved far enough to start a drag
+        distance = (event.pos() - self.drag_start_pos).manhattanLength()
+        if distance < 10:
+            return
+        
+        logger.debug(f"Starting drag for bookmark: {self.bookmark_data['name']}, distance: {distance}")
+        
+        # Start drag operation
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        
+        import json
+        
+        # Always include bookmark data for Quick Links to accept
+        drag_data = {
+            'bookmark': self.bookmark_data,
+            'source_category': self.source_category if self.source_category else '__BAR__'
+        }
+        mime_data.setData('application/x-bookmark-move', json.dumps(drag_data).encode())
+        
+        # Store bookmark data - if from category, use different mime type to allow moving between categories
+        if self.source_category:
+            # Bookmark from a category - can be moved to other categories or bar
+            mime_data.setText(f"Move: {self.bookmark_data['name']}")
+        else:
+            # Bookmark from bar - also use bar-item-index for reordering within bar
+            mime_data.setText(str(self.bookmark_index))
+            mime_data.setData('application/x-bar-item-index', str(self.bookmark_index).encode())
+        
+        drag.setMimeData(mime_data)
+        
+        # Execute drag
+        logger.info(f"Executing drag for bookmark: {self.bookmark_data['name']}, index: {self.bookmark_index}")
+        result = drag.exec(Qt.DropAction.MoveAction)
+        logger.debug(f"Drag result: {result}")
+        
+        self.drag_start_pos = None
+
+
+class DraggableCategoryButton(QPushButton):
+    """Category button that supports dragging for reordering"""
+    
+    def __init__(self, bar_item_index, category_name, bookmarks, parent=None):
+        super().__init__(f"🗄 {category_name} ▾", parent)
+        
+        self.bar_item_index = bar_item_index
+        self.category_name = category_name
+        self.bookmarks = bookmarks
+        self.parent_bar = parent
+        self.drag_start_pos = None
+        self.dragging = False
+        
+        self.setToolTip(f"{len(bookmarks)} bookmark(s) - Drop bookmarks or files here to add to this category")
+        self.setMaximumWidth(200)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setProperty('category_name', category_name)
+        
+        self.setStyleSheet("""
+            QPushButton {
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #E8D4F8, stop:1 #C9A8E8);
+                border: 1px solid #A080C0;
+                border-top-color: #D0B8E8;
+                border-left-color: #D0B8E8;
+                border-bottom-color: #8060A0;
+                border-right-color: #8060A0;
+                border-radius: 10px;
+                padding: 3px 10px;
+                text-align: left;
+                font-size: 9pt;
+                font-weight: normal;
+                color: #202124;
+            }
+            QPushButton:hover {
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #DCC8F0, stop:1 #B898D8);
+                border-color: #8060A0;
+            }
+            QPushButton:pressed {
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #B898D8, stop:1 #DCC8F0);
+                border-top-color: #8060A0;
+                border-left-color: #8060A0;
+                border-bottom-color: #D0B8E8;
+                border-right-color: #D0B8E8;
+            }
+            QPushButton::menu-indicator {
+                image: none;
+            }
+            QToolTip {
+                background-color: #FFFFDD;
+                color: #333333;
+                border: 1px solid #888888;
+                padding: 4px;
+                font-size: 9pt;
+            }
+        """)
+        
+        # Enable drag-drop
+        self.setAcceptDrops(True)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press - start drag tracking"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_pos = event.pos()
+            self.dragging = False
+            logger.debug(f"Left click on category: {self.category_name}")
+        elif event.button() == Qt.MouseButton.RightButton:
+            logger.debug(f"Right click on category: {self.category_name}")
+            self._show_context_menu(event.pos())
+        # Don't call super() to prevent automatic menu popup
+    
+    def _show_context_menu(self, pos):
+        """Show context menu with Rename and Remove options"""
+        from PyQt6.QtWidgets import QMenu, QInputDialog, QMessageBox, QLineEdit
+        
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #ffffff;
+                border: 1px solid #c0c0c0;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 6px 20px;
+                background-color: transparent;
+            }
+            QMenu::item:selected {
+                background-color: #e0e0e0;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #d0d0d0;
+                margin: 4px 8px;
+            }
+        """)
+        
+        # Rename action
+        rename_action = menu.addAction("✏️ Rename")
+        
+        menu.addSeparator()
+        
+        # Remove action
+        remove_action = menu.addAction("🗑️ Remove")
+        
+        action = menu.exec(self.mapToGlobal(pos))
+        
+        if action == rename_action:
+            self._rename_category()
+        elif action == remove_action:
+            self._remove_category()
+    
+    def _rename_category(self):
+        """Rename this category"""
+        from PyQt6.QtWidgets import QInputDialog, QMessageBox, QLineEdit
+        
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Rename Category",
+            f"Enter new name for '{self.category_name}':",
+            QLineEdit.EchoMode.Normal,
+            self.category_name
+        )
+        
+        if ok and new_name:
+            new_name = new_name.strip()
+            if new_name == self.category_name:
+                return
+            
+            if self.parent_bar and hasattr(self.parent_bar, 'bookmarks_data'):
+                # Check for duplicate
+                if new_name in self.parent_bar.bookmarks_data.get('categories', {}):
+                    QMessageBox.warning(self, "Duplicate", f"Category '{new_name}' already exists.")
+                    return
+                
+                # Rename in categories dict
+                categories = self.parent_bar.bookmarks_data.get('categories', {})
+                if self.category_name in categories:
+                    categories[new_name] = categories.pop(self.category_name)
+                
+                # Update bar_items
+                for item in self.parent_bar.bookmarks_data.get('bar_items', []):
+                    if item.get('type') == 'category' and item.get('name') == self.category_name:
+                        item['name'] = new_name
+                        break
+                
+                self.parent_bar.save_bookmarks()
+                self.parent_bar.refresh_bookmarks()
+    
+    def _remove_category(self):
+        """Remove this category with confirmation"""
+        from PyQt6.QtWidgets import QMessageBox
+        
+        # Build message with list of items
+        if self.bookmarks:
+            items_list = "\n".join([f"  • {item.get('name', item.get('path', 'Unknown'))}" for item in self.bookmarks])
+            message = f"Are you sure you want to remove the category '{self.category_name}'?\n\nThe following {len(self.bookmarks)} bookmark(s) will be deleted:\n{items_list}"
+        else:
+            message = f"Are you sure you want to remove the empty category '{self.category_name}'?"
+        
+        reply = QMessageBox.question(
+            self,
+            "Remove Category",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.parent_bar and hasattr(self.parent_bar, 'bookmarks_data'):
+                # Remove from categories dict
+                categories = self.parent_bar.bookmarks_data.get('categories', {})
+                if self.category_name in categories:
+                    del categories[self.category_name]
+                
+                # Remove from bar_items
+                bar_items = self.parent_bar.bookmarks_data.get('bar_items', [])
+                for i, item in enumerate(bar_items):
+                    if item.get('type') == 'category' and item.get('name') == self.category_name:
+                        bar_items.pop(i)
+                        break
+                
+                self.parent_bar.save_bookmarks()
+                self.parent_bar.refresh_bookmarks()
+
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release - show popup if not dragging"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            was_click = not self.dragging and self.drag_start_pos is not None
+            
+            # Reset state
+            self.drag_start_pos = None
+            self.dragging = False
+            
+            if was_click:
+                logger.debug(f"Category button release (click): {self.category_name}")
+                self.show_category_popup()
+        super().mouseReleaseEvent(event)
+    
+    def show_category_popup(self):
+        """Show the category popup menu"""
+        if hasattr(self.parent_bar, 'show_category_popup'):
+            self.parent_bar.show_category_popup(self.category_name, self)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move - initiate drag if threshold exceeded"""
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        
+        if self.drag_start_pos is None:
+            return
+        
+        # Check if we've moved far enough to start a drag
+        distance = (event.pos() - self.drag_start_pos).manhattanLength()
+        if distance < 10:
+            return
+        
+        self.dragging = True
+        logger.debug(f"Starting drag for category: {self.category_name}, distance: {distance}")
+        
+        # Start drag operation
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        
+        # Store bar item index for internal reordering
+        mime_data.setText(str(self.bar_item_index))
+        mime_data.setData('application/x-bar-item-index', str(self.bar_item_index).encode())
+        
+        # Also include full category data for cross-panel moves (to Quick Links)
+        import json
+        category_data = {
+            'name': self.category_name,
+            'items': self.bookmarks,
+            'source': 'bookmark_bar',
+            'bar_item_index': self.bar_item_index
+        }
+        mime_data.setData('application/x-category-move', json.dumps(category_data).encode())
+        
+        drag.setMimeData(mime_data)
+        
+        # Execute drag
+        logger.info(f"Executing drag for category: {self.category_name}, index: {self.bar_item_index}")
+        result = drag.exec(Qt.DropAction.MoveAction)
+        logger.debug(f"Drag result: {result}")
+        
+        self.drag_start_pos = None
+        self.dragging = False
+    
+    def dragEnterEvent(self, event):
+        """Accept drops of bookmarks onto this category"""
+        mime = event.mimeData()
+        # Accept bookmark moves (from bar or other categories)
+        if mime.hasFormat('application/x-bookmark-move'):
+            event.acceptProposedAction()
+            logger.debug(f"Category '{self.category_name}' accepting bookmark drop")
+        # Accept file/folder URLs
+        elif mime.hasUrls():
+            event.acceptProposedAction()
+            logger.debug(f"Category '{self.category_name}' accepting URL drop")
+        else:
+            event.ignore()
+    
+    def dragLeaveEvent(self, event):
+        """Handle drag leave"""
+        event.accept()
+    
+    def dropEvent(self, event):
+        """Handle drops onto this category - add bookmark to category"""
+        import json
+        mime = event.mimeData()
+        
+        logger.debug(f"Drop on category '{self.category_name}'")
+        
+        # Handle bookmark move
+        if mime.hasFormat('application/x-bookmark-move'):
+            try:
+                drag_data = json.loads(mime.data('application/x-bookmark-move').data().decode())
+                bookmark = drag_data['bookmark']
+                source = drag_data.get('source_category', '__BAR__')
+                
+                logger.info(f"Dropping bookmark '{bookmark['name']}' into category '{self.category_name}' from source '{source}'")
+                
+                if self.parent_bar and hasattr(self.parent_bar, 'bookmarks_data'):
+                    # Add to this category
+                    if self.category_name not in self.parent_bar.bookmarks_data['categories']:
+                        self.parent_bar.bookmarks_data['categories'][self.category_name] = []
+                    
+                    # Check if already in this category
+                    existing = self.parent_bar.bookmarks_data['categories'][self.category_name]
+                    already_exists = any(
+                        b.get('path') == bookmark.get('path') 
+                        for b in existing
+                    )
+                    
+                    if not already_exists:
+                        self.parent_bar.bookmarks_data['categories'][self.category_name].append(bookmark)
+                        
+                        # Remove from source
+                        if source == '__BAR__':
+                            # Remove from bar_items
+                            bar_items = self.parent_bar.bookmarks_data.get('bar_items', [])
+                            for i, item in enumerate(bar_items):
+                                if item.get('type') == 'bookmark':
+                                    item_data = item.get('data', {})
+                                    if item_data.get('path') == bookmark.get('path'):
+                                        bar_items.pop(i)
+                                        logger.debug(f"Removed bookmark from bar_items at index {i}")
+                                        break
+                        elif source and source != self.category_name:
+                            # Remove from source category
+                            if source in self.parent_bar.bookmarks_data['categories']:
+                                src_list = self.parent_bar.bookmarks_data['categories'][source]
+                                for i, b in enumerate(src_list):
+                                    if b.get('path') == bookmark.get('path'):
+                                        src_list.pop(i)
+                                        logger.debug(f"Removed bookmark from category '{source}'")
+                                        break
+                        
+                        self.parent_bar.save_bookmarks()
+                        self.parent_bar.refresh_bookmarks()
+                        logger.info(f"Bookmark '{bookmark['name']}' added to category '{self.category_name}'")
+                    else:
+                        logger.debug(f"Bookmark already exists in category '{self.category_name}'")
+                
+                event.acceptProposedAction()
+                return
+            except Exception as e:
+                logger.error(f"Error handling bookmark drop: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Handle URL drops (files/folders)
+        elif mime.hasUrls():
+            try:
+                for url in mime.urls():
+                    path = url.toLocalFile()
+                    if path:
+                        name = Path(path).name
+                        bookmark = {'name': name, 'path': path}
+                        
+                        if self.parent_bar and hasattr(self.parent_bar, 'bookmarks_data'):
+                            if self.category_name not in self.parent_bar.bookmarks_data['categories']:
+                                self.parent_bar.bookmarks_data['categories'][self.category_name] = []
+                            
+                            # Check if already exists
+                            existing = self.parent_bar.bookmarks_data['categories'][self.category_name]
+                            if not any(b.get('path') == path for b in existing):
+                                self.parent_bar.bookmarks_data['categories'][self.category_name].append(bookmark)
+                
+                self.parent_bar.save_bookmarks()
+                self.parent_bar.refresh_bookmarks()
+                event.acceptProposedAction()
+                return
+            except Exception as e:
+                logger.error(f"Error handling URL drop: {e}")
+        
+        event.ignore()
+
+
+class DraggableCategoryBookmark(QPushButton):
+    """Draggable bookmark button for use inside category popups"""
+    
+    def __init__(self, bookmark_data, source_category, parent=None, popup=None, icon_provider=None):
+        super().__init__(f" {bookmark_data['name']}", parent)
+        
+        # Set real file icon using the icon provider (matching sidebar)
+        icon_source = icon_provider or parent
+        if icon_source and hasattr(icon_source, 'get_real_icon'):
+            icon = icon_source.get_real_icon(bookmark_data)
+            if icon:
+                self.setIcon(icon)
+        
+        self.bookmark_data = bookmark_data
+        self.source_category = source_category
+        self.parent_widget = popup or parent
+        self.icon_provider = icon_provider  # Store reference to BookmarkBar
+        self.drag_start_pos = None
+        
+        self.setToolTip(bookmark_data['path'])
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
+        self.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: 1px solid transparent;
+                border-radius: 2px;
+                padding: 2px 8px;
+                text-align: left;
+                font-size: 9pt;
+                font-weight: normal;
+                color: #202124;
+            }
+            QPushButton:hover {
+                background-color: #E8F0FE;
+            }
+            QPushButton:pressed {
+                background-color: #D2E3FC;
+            }
+            QToolTip {
+                background-color: #FFFFDD;
+                color: #333333;
+                border: 1px solid #888888;
+                padding: 4px;
+                font-size: 9pt;
+            }
+        """)
+    
+    def show_context_menu(self, pos):
+        """Show context menu for bookmark item"""
+        menu = QMenu(self)
+        
+        remove_action = QAction("🗑️ Remove from Bookmarks", self)
+        remove_action.triggered.connect(self.remove_bookmark)
+        menu.addAction(remove_action)
+        
+        menu.exec(self.mapToGlobal(pos))
+    
+    def remove_bookmark(self):
+        """Remove this bookmark from its category"""
+        try:
+            # Get the bookmark bar reference
+            bookmark_bar = self.icon_provider
+            if bookmark_bar and hasattr(bookmark_bar, 'bookmarks_data'):
+                # Remove from the category
+                if self.source_category in bookmark_bar.bookmarks_data['categories']:
+                    category_bookmarks = bookmark_bar.bookmarks_data['categories'][self.source_category]
+                    # Find and remove the bookmark
+                    for i, bm in enumerate(category_bookmarks):
+                        if bm.get('name') == self.bookmark_data.get('name') and bm.get('path') == self.bookmark_data.get('path'):
+                            category_bookmarks.pop(i)
+                            break
+                    bookmark_bar.save_bookmarks()
+                    # Close the popup and refresh
+                    if self.parent_widget:
+                        self.parent_widget.close()
+                    bookmark_bar.refresh_bookmarks()
+        except Exception as e:
+            logger.error(f"Error removing bookmark: {e}")
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_pos = event.pos()
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        
+        if self.drag_start_pos is None:
+            return
+        
+        distance = (event.pos() - self.drag_start_pos).manhattanLength()
+        if distance < 10:
+            return
+        
+        # Start drag
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        
+        import json
+        drag_data = {
+            'bookmark': self.bookmark_data,
+            'source_category': self.source_category
+        }
+        mime_data.setData('application/x-bookmark-move', json.dumps(drag_data).encode())
+        mime_data.setText(f"Move: {self.bookmark_data['name']}")
+        
+        drag.setMimeData(mime_data)
+        
+        logger.info(f"Dragging bookmark '{self.bookmark_data['name']}' from category '{self.source_category}'")
+        result = drag.exec(Qt.DropAction.MoveAction)
+        
+        self.drag_start_pos = None
+        
+        # Close parent popup if drag was successful
+        if result == Qt.DropAction.MoveAction and self.parent_widget:
+            self.parent_widget.close()
+
+
+class CategoryPopup(QWidget):
+    """Custom popup widget for category bookmarks with drag-drop reordering"""
+    
+    bookmark_opened = pyqtSignal(dict)  # Signal when bookmark is clicked
+    
+    def __init__(self, category_name, bookmarks, parent_bar, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.category_name = category_name
+        self.bookmarks = bookmarks
+        self.parent_bar = parent_bar
+        self.drop_indicator = None
+        
+        self.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border: 1px solid #DADCE0;
+                border-radius: 4px;
+            }
+        """)
+        
+        self.setMinimumWidth(200)
+        self.setMaximumWidth(400)
+        
+        # Enable drag-drop
+        self.setAcceptDrops(True)
+        
+        # Main layout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(0)
+        
+        # Scroll area for bookmarks
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setMaximumHeight(400)
+        
+        # Container for bookmark buttons
+        self.container = QWidget()
+        self.bookmarks_layout = QVBoxLayout(self.container)
+        self.bookmarks_layout.setContentsMargins(0, 0, 0, 0)
+        self.bookmarks_layout.setSpacing(0)
+        
+        self.refresh_bookmarks()
+        
+        scroll.setWidget(self.container)
+        layout.addWidget(scroll)
+    
+    def refresh_bookmarks(self):
+        """Refresh the bookmark list"""
+        # Clear existing
+        while self.bookmarks_layout.count():
+            item = self.bookmarks_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        # Add bookmark buttons
+        for bookmark in self.bookmarks:
+            btn = DraggableCategoryBookmark(
+                bookmark,
+                self.category_name,
+                parent=self,
+                popup=self,
+                icon_provider=self.parent_bar
+            )
+            btn.clicked.connect(lambda checked, b=bookmark: self.on_bookmark_clicked(b))
+            self.bookmarks_layout.addWidget(btn)
+        
+        # Add stretch to push items to top
+        self.bookmarks_layout.addStretch()
+    
+    def on_bookmark_clicked(self, bookmark):
+        """Handle bookmark click"""
+        self.bookmark_opened.emit(bookmark)
+        self.close()
+    
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat('application/x-bookmark-move'):
+            event.acceptProposedAction()
+    
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat('application/x-bookmark-move'):
+            event.acceptProposedAction()
+            pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+            self.show_drop_indicator(pos)
+    
+    def dragLeaveEvent(self, event):
+        self.hide_drop_indicator()
+    
+    def show_drop_indicator(self, pos):
+        """Show drop indicator line"""
+        if not self.drop_indicator:
+            self.drop_indicator = QFrame(self)
+            self.drop_indicator.setStyleSheet("background-color: #1a73e8;")
+            self.drop_indicator.setFixedHeight(2)
+        
+        # Find insertion point
+        drop_y = None
+        for i in range(self.bookmarks_layout.count()):
+            widget = self.bookmarks_layout.itemAt(i).widget()
+            if widget:
+                widget_geo = widget.geometry()
+                if pos.y() < widget_geo.center().y():
+                    drop_y = widget_geo.top()
+                    break
+        
+        if drop_y is None and self.bookmarks_layout.count() > 0:
+            last_widget = self.bookmarks_layout.itemAt(self.bookmarks_layout.count() - 1).widget()
+            if last_widget:
+                drop_y = last_widget.geometry().bottom()
+        
+        if drop_y is not None:
+            self.drop_indicator.setGeometry(5, drop_y, self.width() - 10, 2)
+            self.drop_indicator.show()
+            self.drop_indicator.raise_()
+    
+    def hide_drop_indicator(self):
+        if self.drop_indicator:
+            self.drop_indicator.hide()
+    
+    def dropEvent(self, event):
+        """Handle bookmark drop - reorder within category or move from another source"""
+        self.hide_drop_indicator()
+        
+        if event.mimeData().hasFormat('application/x-bookmark-move'):
+            try:
+                import json
+                drag_data = json.loads(event.mimeData().data('application/x-bookmark-move').data().decode())
+                bookmark = drag_data['bookmark']
+                source_category = drag_data.get('source_category', '')
+                source = drag_data.get('source', '')  # e.g., 'quick_links_category'
+                
+                # Find drop position
+                pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+                drop_index = len(self.bookmarks)
+                for i in range(self.bookmarks_layout.count()):
+                    widget = self.bookmarks_layout.itemAt(i).widget()
+                    if widget:
+                        widget_geo = widget.geometry()
+                        if pos.y() < widget_geo.center().y():
+                            drop_index = i
+                            break
+                
+                if source_category == self.category_name:
+                    # Reordering within same category - find by matching name and path
+                    old_index = -1
+                    for i, b in enumerate(self.bookmarks):
+                        if b.get('name') == bookmark.get('name') and b.get('path') == bookmark.get('path'):
+                            old_index = i
+                            break
+                    
+                    if old_index != -1 and old_index != drop_index:
+                        self.parent_bar.bookmarks_data['categories'][self.category_name].pop(old_index)
+                        if drop_index > old_index:
+                            drop_index -= 1
+                        self.parent_bar.bookmarks_data['categories'][self.category_name].insert(drop_index, bookmark)
+                        logger.info(f"Reordered bookmark in '{self.category_name}' from {old_index} to {drop_index}")
+                else:
+                    # Moving from another source - add to this category first
+                    self.parent_bar.bookmarks_data['categories'][self.category_name].insert(drop_index, bookmark)
+                    logger.info(f"Added bookmark to '{self.category_name}' from '{source_category}'")
+                    
+                    # Now remove from source
+                    removed = False
+                    
+                    # From another bar category
+                    if source_category in self.parent_bar.bookmarks_data.get('categories', {}):
+                        source_bookmarks = self.parent_bar.bookmarks_data['categories'][source_category]
+                        for i, b in enumerate(source_bookmarks):
+                            if b.get('path') == bookmark.get('path'):
+                                source_bookmarks.pop(i)
+                                removed = True
+                                logger.info(f"Removed from bar category '{source_category}'")
+                                break
+                    
+                    # From bar itself (not in a category)
+                    if not removed and source_category == '__BAR__':
+                        bar_items = self.parent_bar.bookmarks_data.get('bar_items', [])
+                        for i, item in enumerate(bar_items):
+                            if item.get('type') == 'bookmark':
+                                if item.get('data', {}).get('path') == bookmark.get('path'):
+                                    bar_items.pop(i)
+                                    removed = True
+                                    logger.info(f"Removed from bookmark bar")
+                                    break
+                    
+                    # From Quick Links sidebar
+                    if not removed and source_category == '__QUICK_LINKS__':
+                        if hasattr(self.parent_bar, 'file_explorer') and self.parent_bar.file_explorer:
+                            fe = self.parent_bar.file_explorer
+                            items = fe.custom_quick_links.get('items', [])
+                            for i, item in enumerate(items):
+                                if item.get('type') == 'bookmark':
+                                    if item.get('data', {}).get('path') == bookmark.get('path'):
+                                        items.pop(i)
+                                        fe.save_quick_links()
+                                        fe.refresh_quick_links_list()
+                                        removed = True
+                                        logger.info(f"Removed from Quick Links sidebar")
+                                        break
+                    
+                    # From Quick Links category
+                    if not removed and (source == 'quick_links_category' or source_category not in ('__BAR__', '__QUICK_LINKS__', '')):
+                        if hasattr(self.parent_bar, 'file_explorer') and self.parent_bar.file_explorer:
+                            fe = self.parent_bar.file_explorer
+                            categories = fe.custom_quick_links.get('categories', {})
+                            if source_category in categories:
+                                cat_items = categories[source_category]
+                                for i, item in enumerate(cat_items):
+                                    if item.get('path') == bookmark.get('path'):
+                                        cat_items.pop(i)
+                                        fe.save_quick_links()
+                                        fe.refresh_quick_links_list()
+                                        removed = True
+                                        logger.info(f"Removed from Quick Links category '{source_category}'")
+                                        break
+                
+                logger.debug(f"About to save bookmarks after category drop")
+                self.parent_bar.save_bookmarks()
+                logger.debug(f"Bookmarks saved, closing popup")
+                self.close()
+                logger.debug(f"Popup closed, scheduling refresh")
+                QTimer.singleShot(0, self.parent_bar.refresh_bookmarks)
+                event.acceptProposedAction()
+                logger.debug(f"Drop event completed")
+                
+            except Exception as e:
+                logger.error(f"Error in category popup drop: {e}")
+                import traceback
+                traceback.print_exc()
+                event.ignore()
+    
+    def closeEvent(self, event):
+        """Handle popup close - notify parent bar to track close time"""
+        # Record close time to prevent immediate reopen when clicking the same button
+        if self.parent_bar and hasattr(self.parent_bar, 'on_popup_closed'):
+            self.parent_bar.on_popup_closed(self)
+        super().closeEvent(event)
+
+
 class AddBookmarkDialog(QDialog):
     """Dialog to add a new bookmark"""
     
@@ -62,17 +976,92 @@ class AddBookmarkDialog(QDialog):
         self.categories = categories
         self.setWindowTitle("Add Bookmark")
         self.setModal(True)
-        self.resize(650, 240)
+        self.resize(500, 200)
+        
+        # Apply compact styling
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f5f5f5;
+            }
+            QLabel {
+                font-size: 9pt;
+                padding: 0px;
+                margin: 0px;
+            }
+            QLineEdit {
+                padding: 4px 6px;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                font-size: 9pt;
+            }
+            QLineEdit:focus {
+                border-color: #0078d4;
+            }
+            QComboBox {
+                padding: 4px 6px;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                font-size: 9pt;
+            }
+            QComboBox:focus {
+                border-color: #0078d4;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #666;
+                margin-right: 5px;
+            }
+            QCheckBox {
+                font-size: 9pt;
+                spacing: 4px;
+            }
+            QPushButton {
+                padding: 5px 16px;
+                border: 1px solid #c0c0c0;
+                border-radius: 3px;
+                background-color: #f0f0f0;
+                font-size: 9pt;
+                color: #333;
+                min-width: 70px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+                border-color: #a0a0a0;
+            }
+            QPushButton:pressed {
+                background-color: #d0d0d0;
+            }
+            QPushButton:default {
+                background-color: #0078d4;
+                color: white;
+                border-color: #0078d4;
+            }
+            QPushButton:default:hover {
+                background-color: #006cc1;
+            }
+        """)
         
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
         
         # Title
-        title_label = QLabel("<h3>Add New Bookmark</h3>")
+        title_label = QLabel("<b>Add New Bookmark</b>")
+        title_label.setStyleSheet("font-size: 11pt; margin-bottom: 4px;")
         layout.addWidget(title_label)
         
         # Name input
         name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("Name:"))
+        name_layout.setSpacing(8)
+        name_label = QLabel("Name:")
+        name_label.setFixedWidth(55)
+        name_layout.addWidget(name_label)
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Display name for the bookmark")
         name_layout.addWidget(self.name_input)
@@ -80,36 +1069,49 @@ class AddBookmarkDialog(QDialog):
         
         # Path/URL input
         path_layout = QHBoxLayout()
-        path_layout.addWidget(QLabel("Path/URL:"))
+        path_layout.setSpacing(8)
+        path_label = QLabel("Path/URL:")
+        path_label.setFixedWidth(55)
+        path_layout.addWidget(path_label)
         self.path_input = QLineEdit()
         self.path_input.setPlaceholderText("File path, folder path, URL, or SharePoint link")
         path_layout.addWidget(self.path_input)
         layout.addLayout(path_layout)
         
-        # Category selection
+        # Category selection with option to create new
         category_layout = QHBoxLayout()
-        category_layout.addWidget(QLabel("Category:"))
+        category_layout.setSpacing(8)
+        category_label = QLabel("Category:")
+        category_label.setFixedWidth(55)
+        category_layout.addWidget(category_label)
         self.category_combo = QComboBox()
+        self.category_combo.setEditable(True)  # Allow typing new category names
         self.category_combo.addItems(categories)
+        self.category_combo.lineEdit().setPlaceholderText("Select or type new category")
         category_layout.addWidget(self.category_combo)
         layout.addLayout(category_layout)
+        
+        # Hint for new category creation
+        category_hint = QLabel("💡 Type a new name to create a new category")
+        category_hint.setStyleSheet("color: #666; font-size: 8pt; margin-left: 63px;")
+        layout.addWidget(category_hint)
         
         # Open in App checkbox (for SharePoint files)
         from PyQt6.QtWidgets import QCheckBox
         self.open_in_app_checkbox = QCheckBox("Open in App (SharePoint files open in desktop app instead of browser)")
-        self.open_in_app_checkbox.setChecked(True)  # Default to checked
-        self.open_in_app_checkbox.setStyleSheet("margin-top: 5px;")
+        self.open_in_app_checkbox.setChecked(True)
         layout.addWidget(self.open_in_app_checkbox)
         
         # Type hint
         type_label = QLabel("💡 Tip: This can be a folder path, file path, SharePoint URL, or any web URL")
-        type_label.setStyleSheet("color: #0066cc; font-size: 9pt; margin-top: 10px;")
+        type_label.setStyleSheet("color: #0066cc; font-size: 8pt;")
         layout.addWidget(type_label)
         
         layout.addStretch()
         
         # Buttons
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
         button_layout.addStretch()
         
         cancel_btn = QPushButton("Cancel")
@@ -1217,7 +2219,7 @@ class BookmarksDialog(QDialog):
         if categories:
             for category_name in categories:
                 if category_name not in ['General', 'Favorites']:
-                    cat_menu = menu.addMenu(f"📁 {category_name}")
+                    cat_menu = menu.addMenu(f"🗄 {category_name}")
                     
                     rename_action = QAction("✏️ Rename", self)
                     rename_action.triggered.connect(lambda checked, cat=category_name: self.rename_category(cat))
@@ -1242,7 +2244,7 @@ class BookmarksDialog(QDialog):
         if categories:
             for category_name in categories:
                 if category_name not in ['General', 'Favorites']:
-                    cat_menu = menu.addMenu(f"📁 {category_name}")
+                    cat_menu = menu.addMenu(f"🗄 {category_name}")
                     
                     rename_action = QAction("✏️ Rename", self)
                     rename_action.triggered.connect(lambda checked, cat=category_name: self.rename_category(cat))
@@ -1295,8 +2297,13 @@ class BookmarksDialog(QDialog):
                 QMessageBox.warning(self, "Duplicate", f"Category '{category_name}' already exists.")
             else:
                 self.bookmarks_data['categories'][category_name] = []
+                # Add to bar_items
+                self.bookmarks_data['bar_items'].append({
+                    'type': 'category',
+                    'name': category_name
+                })
                 self.save_bookmarks()
-                self.refresh_categories()
+                self.refresh_bookmarks()
     
     def add_link(self):
         """Add a new link/bookmark using the AddBookmarkDialog"""
@@ -1592,3 +2599,1156 @@ class BookmarksDialog(QDialog):
             del self.bookmarks_data['categories'][category_name]
             self.save_bookmarks()
             self.refresh_categories()
+
+
+class BookmarkBar(QWidget):
+    """Browser-style bookmark bar - horizontal layout with category dropdowns and quick access bookmarks"""
+    
+    navigate_to_path = pyqtSignal(str)  # Signal to navigate file explorer to a path
+    
+    # Class-level icon cache for performance
+    _icon_cache = {}
+    _folder_icon = None
+    _file_icon = None
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.file_explorer = parent  # Reference to the FileExplorerCore for Quick Links operations
+        self.bookmarks_file = Path.home() / ".suiteview" / "bookmarks.json"
+        self.bookmarks_data = self.load_bookmarks()
+        
+        # Icon provider for real file icons (matching sidebar)
+        self.icon_provider = QFileIconProvider()
+        
+        # Initialize class-level icons if not done yet
+        if BookmarkBar._folder_icon is None:
+            BookmarkBar._folder_icon = self.icon_provider.icon(QFileIconProvider.IconType.Folder)
+        if BookmarkBar._file_icon is None:
+            BookmarkBar._file_icon = self.icon_provider.icon(QFileIconProvider.IconType.File)
+        
+        # Enable drag and drop
+        self.setAcceptDrops(True)
+        self.drag_start_index = None  # Track which bookmark is being dragged
+        self.drop_indicator = None  # Visual drop indicator line
+        self.dragging_bookmark = None  # Currently dragging bookmark
+        self.active_category_popup = None
+        self.active_category_button = None
+        self.category_popup_visible = False
+        self.popup_closed_time = {}  # Track when popup was closed per button, to prevent reopen flicker
+        
+        self.init_ui()
+        
+    def init_ui(self):
+        """Initialize the bookmark bar UI"""
+        # Set fixed height like browser bookmark bars
+        self.setFixedHeight(34)
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #F8F8F8;
+                border-bottom: 1px solid #D4D4D4;
+            }
+        """)
+        
+        # Main horizontal layout
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setSpacing(1)
+        
+        # [+] Add bookmark button at the very left (star icon)
+        add_btn = QPushButton("⭐")
+        add_btn.setToolTip("Add bookmark (Ctrl+D)")
+        add_btn.setFixedSize(28, 28)
+        add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: 1px solid transparent;
+                border-radius: 4px;
+                font-size: 13pt;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: #E0E0E0;
+                border-color: #C0C0C0;
+            }
+            QPushButton:pressed {
+                background-color: #D0D0D0;
+            }
+        """)
+        add_btn.clicked.connect(self.add_bookmark)
+        layout.addWidget(add_btn)
+        
+        # Small separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setStyleSheet("color: #D4D4D4; margin: 2px 4px;")
+        separator.setFixedWidth(1)
+        layout.addWidget(separator)
+        
+        # Scroll area for bookmarks (to handle overflow)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+        """)
+        
+        # Container widget for bookmarks
+        self.bookmarks_container = QWidget()
+        self.bookmarks_container.setStyleSheet("background-color: transparent;")
+        self.bookmarks_layout = QHBoxLayout(self.bookmarks_container)
+        self.bookmarks_layout.setContentsMargins(0, 0, 0, 0)
+        self.bookmarks_layout.setSpacing(1)
+        self.bookmarks_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        
+        # Add context menu for creating new categories (right-click on empty area)
+        self.scroll_area.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.scroll_area.customContextMenuRequested.connect(self._show_bar_context_menu)
+        self.bookmarks_container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.bookmarks_container.customContextMenuRequested.connect(self._show_bar_context_menu)
+        
+        self.scroll_area.setWidget(self.bookmarks_container)
+        layout.addWidget(self.scroll_area, 1)  # Take remaining space
+        
+        # Populate bookmarks
+        self.refresh_bookmarks()
+        
+    def load_bookmarks(self):
+        """Load bookmarks from JSON file"""
+        if self.bookmarks_file.exists():
+            try:
+                with open(self.bookmarks_file, 'r') as f:
+                    data = json.load(f)
+                    # Migrate old format to new format if needed
+                    if 'bar_items' not in data:
+                        # Convert old bar_bookmarks to new bar_items format
+                        bar_items = []
+                        # Add individual bookmarks
+                        for bookmark in data.get('bar_bookmarks', []):
+                            bar_items.append({
+                                'type': 'bookmark',
+                                'data': bookmark
+                            })
+                        # Add categories
+                        for category_name in data.get('categories', {}).keys():
+                            bar_items.append({
+                                'type': 'category',
+                                'name': category_name
+                            })
+                        data['bar_items'] = bar_items
+                        # Keep categories dict for category contents
+                        if 'categories' not in data:
+                            data['categories'] = {}
+                    return data
+            except Exception as e:
+                logger.error(f"Error loading bookmarks: {e}")
+        
+        # Default structure
+        return {
+            'categories': {
+                'General': [],
+                'Favorites': []
+            },
+            'bar_items': [  # Unified list of bookmarks and categories on the bar
+                {'type': 'category', 'name': 'General'},
+                {'type': 'category', 'name': 'Favorites'}
+            ]
+        }
+    
+    def save_bookmarks(self):
+        """Save bookmarks to JSON file"""
+        try:
+            self.bookmarks_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.bookmarks_file, 'w') as f:
+                json.dump(self.bookmarks_data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving bookmarks: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to save bookmarks: {str(e)}")
+    
+    def refresh_bookmarks(self):
+        """Refresh the bookmark bar display"""
+        try:
+            logger.debug(f"=== START refresh_bookmarks ===")
+            logger.debug(f"BookmarkBar widget visible: {self.isVisible()}")
+            logger.debug(f"BookmarkBar layout count before clear: {self.bookmarks_layout.count()}")
+            
+            # Clear existing buttons
+            while self.bookmarks_layout.count():
+                item = self.bookmarks_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            
+            logger.debug(f"Widgets cleared")
+            
+            # Add items in order from bar_items (can be bookmarks or categories)
+            bar_items = self.bookmarks_data.get('bar_items', [])
+            logger.debug(f"Refreshing bookmark bar with {len(bar_items)} items")
+            
+            for idx, item in enumerate(bar_items):
+                try:
+                    if item.get('type') == 'bookmark':
+                        # Individual bookmark button - pass idx as bar_item_index for reordering
+                        logger.debug(f"Adding bookmark {idx}: {item['data'].get('name')}")
+                        btn = self.create_bookmark_button(item['data'], bar_item_index=idx)
+                        self.bookmarks_layout.addWidget(btn)
+                        logger.debug(f"Bookmark button added, layout count: {self.bookmarks_layout.count()}")
+                    elif item.get('type') == 'category':
+                        # Category dropdown button
+                        category_name = item['name']
+                        bookmarks = self.bookmarks_data['categories'].get(category_name, [])
+                        logger.debug(f"Adding category {idx}: {category_name} with {len(bookmarks)} bookmarks")
+                        category_btn = self.create_category_button(category_name, bookmarks)
+                        self.bookmarks_layout.addWidget(category_btn)
+                        logger.debug(f"Category button added, layout count: {self.bookmarks_layout.count()}")
+                except Exception as e:
+                    logger.error(f"Error adding bar item: {e}, item: {item}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Add stretch to push everything to the left
+            self.bookmarks_layout.addStretch()
+            logger.debug(f"Final layout count: {self.bookmarks_layout.count()}")
+            logger.debug(f"BookmarkBar still visible: {self.isVisible()}")
+            logger.debug(f"=== END refresh_bookmarks ===")
+        except Exception as e:
+            logger.error(f"Error in refresh_bookmarks: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _show_bar_context_menu(self, pos):
+        """Show context menu for creating new categories on the bookmark bar"""
+        from PyQt6.QtWidgets import QMenu
+        
+        menu = QMenu(self)
+        new_category_action = menu.addAction("📁 New Category")
+        
+        # Map position to global coordinates
+        sender = self.sender()
+        global_pos = sender.mapToGlobal(pos)
+        
+        action = menu.exec(global_pos)
+        if action == new_category_action:
+            self._create_new_category()
+    
+    def _create_new_category(self):
+        """Create a new category on the bookmark bar"""
+        from PyQt6.QtWidgets import QInputDialog
+        
+        # Prompt for category name
+        name, ok = QInputDialog.getText(
+            self,
+            "New Category",
+            "Enter category name:",
+        )
+        
+        if ok and name.strip():
+            category_name = name.strip()
+            
+            # Check if category already exists
+            existing_categories = list(self.bookmarks_data.get('categories', {}).keys())
+            if category_name in existing_categories:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self,
+                    "Category Exists",
+                    f"A category named '{category_name}' already exists."
+                )
+                return
+            
+            # Add new category to bookmarks_data
+            if 'categories' not in self.bookmarks_data:
+                self.bookmarks_data['categories'] = {}
+            self.bookmarks_data['categories'][category_name] = []
+            
+            # Add to bar_items
+            if 'bar_items' not in self.bookmarks_data:
+                self.bookmarks_data['bar_items'] = []
+            self.bookmarks_data['bar_items'].append({
+                'type': 'category',
+                'name': category_name
+            })
+            
+            # Save and refresh
+            self.save_bookmarks()
+            self.refresh_bookmarks()
+            
+            logger.info(f"Created new category: {category_name}")
+
+    def create_bookmark_button(self, bookmark_data, bar_item_index=None):
+        """Create a button for a single bookmark"""
+        # Use provided index or find index for this bookmark in bar_items
+        bookmark_index = bar_item_index
+        if bookmark_index is None:
+            bookmark_index = -1
+            for i, item in enumerate(self.bookmarks_data.get('bar_items', [])):
+                if item['type'] == 'bookmark':
+                    item_data = item.get('data', {})
+                    if item_data.get('path') == bookmark_data.get('path'):
+                        bookmark_index = i
+                        break
+        
+        # Create draggable button
+        btn = DraggableBookmarkButton(bookmark_index, bookmark_data, self)
+        btn.clicked.connect(lambda: self.open_bookmark(bookmark_data))
+        
+        # Add context menu for editing/removing
+        btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        btn.customContextMenuRequested.connect(
+            lambda pos, b=bookmark_data: self.show_bookmark_context_menu(pos, b, btn, is_bar_bookmark=True)
+        )
+        
+        return btn
+    
+    def create_category_button(self, category_name, bookmarks):
+        """Create a dropdown button for a category"""
+        # Get index for this category in bar_items
+        bar_item_index = -1
+        for i, item in enumerate(self.bookmarks_data.get('bar_items', [])):
+            if item['type'] == 'category' and item['name'] == category_name:
+                bar_item_index = i
+                break
+        
+        # Create draggable category button - popup shown in mouseReleaseEvent
+        btn = DraggableCategoryButton(bar_item_index, category_name, bookmarks, self)
+        btn.installEventFilter(self)
+        
+        return btn
+    
+    def show_category_popup(self, category_name, button):
+        """Show the draggable category popup"""
+        # Check if this popup was just closed (within 300ms) - prevents flicker from
+        # Popup auto-closing on mouse down and reopening on mouse up
+        button_id = id(button)
+        if button_id in self.popup_closed_time:
+            elapsed = time.time() - self.popup_closed_time[button_id]
+            if elapsed < 0.3:  # 300ms threshold
+                logger.debug(f"Suppressing popup reopen for {category_name}, closed {elapsed*1000:.0f}ms ago")
+                del self.popup_closed_time[button_id]  # Clear the timestamp
+                return
+            # Clear old timestamp
+            del self.popup_closed_time[button_id]
+        
+        if self.active_category_popup and self.active_category_popup.isVisible():
+            # Toggle off when clicking the same category again
+            if self.active_category_button == button:
+                self.close_active_category_popup()
+                return
+            # Close any other open popup before opening a new one
+            self.close_active_category_popup()
+        
+        bookmarks = self.bookmarks_data['categories'].get(category_name, [])
+        popup = CategoryPopup(category_name, bookmarks, self, self)
+        popup.bookmark_opened.connect(self.open_bookmark)
+        popup.destroyed.connect(self._clear_active_category_popup)
+        
+        self.active_category_popup = popup
+        self.active_category_button = button
+        self.category_popup_visible = True
+        
+        # Position popup below the button
+        button_global_pos = button.mapToGlobal(button.rect().bottomLeft())
+        popup.move(button_global_pos)
+        popup.show()
+
+    def _clear_active_category_popup(self):
+        self.active_category_popup = None
+        self.active_category_button = None
+        self.category_popup_visible = False
+
+    def is_popup_open_for(self, button):
+        return self.active_category_popup is not None and self.active_category_popup.isVisible() and self.active_category_button == button
+
+    def close_active_category_popup(self):
+        if self.active_category_popup:
+            closed_button = self.active_category_button
+            self.category_popup_visible = False
+            self.active_category_popup.close()
+            self.active_category_popup = None
+            self.active_category_button = None
+            # Track when this button's popup was closed to prevent immediate reopen
+            if closed_button:
+                self.popup_closed_time[id(closed_button)] = time.time()
+                logger.debug(f"Recorded popup close time for button {closed_button.category_name}")
+
+    def on_popup_closed(self, popup):
+        """Called by CategoryPopup when it closes (including Qt auto-close for Popup windows)"""
+        # Record close time for the button associated with this popup
+        if self.active_category_button and self.active_category_popup == popup:
+            button_id = id(self.active_category_button)
+            self.popup_closed_time[button_id] = time.time()
+            logger.debug(f"Popup auto-closed, recorded time for button {self.active_category_button.category_name}")
+            # Clear the active popup state
+            self.active_category_popup = None
+            self.active_category_button = None
+            self.category_popup_visible = False
+
+    def toggle_category_popup(self, button):
+        """Toggle category popup visibility on mouse release."""
+        if self.is_popup_open_for(button):
+            self.close_active_category_popup()
+        else:
+            self.show_category_popup(button.category_name, button)
+    
+    def get_icon_for_type(self, bookmark_type):
+        """Get emoji icon for bookmark type"""
+        icons = {
+            'folder': '📁',
+            'file': '📄',
+            'url': '🌐',
+            'sharepoint': '🔗',
+            'path': '📂'
+        }
+        return icons.get(bookmark_type, '📌')
+    
+    def get_real_icon(self, bookmark_data):
+        """Get real file icon from system (matching sidebar icons)"""
+        bookmark_type = bookmark_data.get('type', '')
+        path = bookmark_data.get('path', '')
+        
+        # For URLs and SharePoint, return None (will use text only)
+        if bookmark_type in ['url', 'sharepoint']:
+            return None
+        
+        # For folders and files, get real icon
+        if path:
+            path_obj = Path(path)
+            
+            # Check if it's a directory
+            if bookmark_type == 'folder' or path_obj.is_dir():
+                return BookmarkBar._folder_icon
+            
+            # For files, try to get icon based on extension
+            suffix = path_obj.suffix.lower()
+            
+            # Check cache first
+            if suffix in BookmarkBar._icon_cache:
+                return BookmarkBar._icon_cache[suffix]
+            
+            # Try to get real icon for existing file
+            try:
+                if path_obj.exists():
+                    file_info = QFileInfo(str(path_obj))
+                    icon = self.icon_provider.icon(file_info)
+                    BookmarkBar._icon_cache[suffix] = icon
+                    return icon
+            except:
+                pass
+            
+            # Fallback to generic file icon
+            return BookmarkBar._file_icon
+        
+        return None
+    
+    def open_bookmark(self, bookmark_data):
+        """Open a bookmark"""
+        bookmark_type = bookmark_data['type']
+        path = bookmark_data['path']
+        
+        try:
+            if bookmark_type in ['url', 'sharepoint']:
+                # Handle SharePoint "Open in App" option
+                if bookmark_type == 'sharepoint' and bookmark_data.get('open_in_app', False):
+                    # Convert web URL to desktop app URL (ms-word:, ms-excel:, etc.)
+                    path = self.convert_to_app_url(path)
+                webbrowser.open(path)
+            elif bookmark_type == 'folder':
+                # Navigate to folder in file explorer
+                self.navigate_to_path.emit(path)
+            elif bookmark_type == 'file':
+                # Open file with default application
+                if sys.platform == 'win32':
+                    os.startfile(path)
+                elif sys.platform == 'darwin':
+                    subprocess.run(['open', path])
+                else:
+                    subprocess.run(['xdg-open', path])
+        except Exception as e:
+            logger.error(f"Failed to open bookmark: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to open bookmark:\n{str(e)}")
+    
+    def convert_to_app_url(self, web_url):
+        """Convert SharePoint web URL to Office app URL"""
+        # This is a simplified conversion - actual implementation may vary
+        if '.xlsx' in web_url or '.xls' in web_url:
+            return web_url.replace('https://', 'ms-excel:ofe|u|')
+        elif '.docx' in web_url or '.doc' in web_url:
+            return web_url.replace('https://', 'ms-word:ofe|u|')
+        elif '.pptx' in web_url or '.ppt' in web_url:
+            return web_url.replace('https://', 'ms-powerpoint:ofe|u|')
+        return web_url
+    
+    def add_bookmark(self):
+        """Show add bookmark dialog"""
+        categories = list(self.bookmarks_data['categories'].keys())
+        categories.insert(0, "📌 Quick Access (Bar)")  # Option to add directly to bar
+        
+        dialog = AddBookmarkDialog(categories, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            bookmark = dialog.get_bookmark_data()
+            if bookmark['name'] and bookmark['path']:
+                category = bookmark['category']
+                
+                # Remove the category from bookmark data for storage
+                del bookmark['category']
+                
+                if category == "📌 Quick Access (Bar)":
+                    # Add to bar items as individual bookmark
+                    self.bookmarks_data['bar_items'].append({
+                        'type': 'bookmark',
+                        'data': bookmark
+                    })
+                else:
+                    # Add to category (create if new)
+                    if category not in self.bookmarks_data['categories']:
+                        self.bookmarks_data['categories'][category] = []
+                        # Add category to bar_items if it's new
+                        self.bookmarks_data['bar_items'].append({
+                            'type': 'category',
+                            'name': category
+                        })
+                    self.bookmarks_data['categories'][category].append(bookmark)
+                
+                self.save_bookmarks()
+                self.refresh_bookmarks()
+    
+    def show_bookmark_context_menu(self, pos, bookmark_data, button, is_bar_bookmark=False):
+        """Show context menu for a bookmark button"""
+        logger.debug(f"Showing context menu for bookmark: {bookmark_data['name']}, is_bar_bookmark: {is_bar_bookmark}")
+        menu = QMenu(self)
+        
+        edit_action = QAction("✏️ Edit", self)
+        edit_action.triggered.connect(lambda: self.edit_bookmark(bookmark_data, is_bar_bookmark))
+        menu.addAction(edit_action)
+        
+        delete_action = QAction("🗑️ Delete", self)
+        delete_action.triggered.connect(lambda: self.delete_bookmark(bookmark_data, is_bar_bookmark))
+        menu.addAction(delete_action)
+        
+        # Add separator and category management for quick access items
+        if is_bar_bookmark:
+            menu.addSeparator()
+            manage_action = QAction("⚙️ Manage Categories", self)
+            manage_action.triggered.connect(self.show_category_management)
+            menu.addAction(manage_action)
+        
+        menu.exec(button.mapToGlobal(pos))
+    
+    def edit_bookmark(self, bookmark_data, is_bar_bookmark):
+        """Edit a bookmark"""
+        categories = list(self.bookmarks_data['categories'].keys())
+        categories.insert(0, "📌 Quick Access (Bar)")
+        
+        dialog = AddBookmarkDialog(categories, self)
+        dialog.setWindowTitle("Edit Bookmark")
+        dialog.name_input.setText(bookmark_data['name'])
+        dialog.path_input.setText(bookmark_data['path'])
+        
+        # Set current category
+        if is_bar_bookmark:
+            dialog.category_combo.setCurrentText("📌 Quick Access (Bar)")
+        else:
+            # Find which category this bookmark is in by matching name and path
+            for cat_name, bookmarks in self.bookmarks_data['categories'].items():
+                for b in bookmarks:
+                    if b.get('name') == bookmark_data.get('name') and b.get('path') == bookmark_data.get('path'):
+                        dialog.category_combo.setCurrentText(cat_name)
+                        break
+        
+        dialog.open_in_app_checkbox.setChecked(bookmark_data.get('open_in_app', True))
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            updated = dialog.get_bookmark_data()
+            
+            # Remove from old location
+            if is_bar_bookmark:
+                # Remove from bar_items
+                for item in self.bookmarks_data.get('bar_items', []):
+                    if item['type'] == 'bookmark' and item['data'].get('name') == bookmark_data.get('name') and item['data'].get('path') == bookmark_data.get('path'):
+                        self.bookmarks_data['bar_items'].remove(item)
+                        break
+            else:
+                # Remove from category by matching name and path
+                for cat_name, bookmarks in self.bookmarks_data['categories'].items():
+                    for i, b in enumerate(bookmarks):
+                        if b.get('name') == bookmark_data.get('name') and b.get('path') == bookmark_data.get('path'):
+                            bookmarks.pop(i)
+                            break
+            
+            # Add to new location
+            new_category = updated['category']
+            del updated['category']
+            
+            if new_category == "📌 Quick Access (Bar)":
+                # Add to bar_items
+                self.bookmarks_data['bar_items'].append({
+                    'type': 'bookmark',
+                    'data': updated
+                })
+            else:
+                if new_category not in self.bookmarks_data['categories']:
+                    self.bookmarks_data['categories'][new_category] = []
+                self.bookmarks_data['categories'][new_category].append(updated)
+            
+            self.save_bookmarks()
+            self.refresh_bookmarks()
+    
+    def delete_bookmark(self, bookmark_data, is_bar_bookmark):
+        """Delete a bookmark"""
+        if show_compact_confirm(self, "Delete Bookmark", f"Delete '{bookmark_data['name']}'?"):
+            if is_bar_bookmark:
+                # Remove from bar_items
+                for item in self.bookmarks_data.get('bar_items', []):
+                    if item['type'] == 'bookmark' and item['data'] == bookmark_data:
+                        self.bookmarks_data['bar_items'].remove(item)
+                        break
+            else:
+                # Remove from category
+                for cat_name, bookmarks in self.bookmarks_data['categories'].items():
+                    if bookmark_data in bookmarks:
+                        bookmarks.remove(bookmark_data)
+                        break
+            
+            self.save_bookmarks()
+            self.refresh_bookmarks()
+    
+    def show_category_management(self):
+        """Show category management menu"""
+        menu = QMenu(self)
+        
+        add_action = QAction("➕ Add Category", self)
+        add_action.triggered.connect(self.add_category)
+        menu.addAction(add_action)
+        
+        menu.addSeparator()
+        
+        # List existing categories for removal/rename
+        categories = list(self.bookmarks_data['categories'].keys())
+        if categories:
+            for category_name in categories:
+                if category_name not in ['General', 'Favorites']:
+                    cat_menu = menu.addMenu(f"🗄 {category_name}")
+                    
+                    rename_action = QAction("✏️ Rename", self)
+                    rename_action.triggered.connect(lambda checked, cat=category_name: self.rename_category(cat))
+                    cat_menu.addAction(rename_action)
+                    
+                    remove_action = QAction("🗑️ Remove", self)
+                    remove_action.triggered.connect(lambda checked, cat=category_name: self.remove_category_confirm(cat))
+                    cat_menu.addAction(remove_action)
+        
+        menu.exec(QCursor.pos())
+    
+    def manage_category(self, category_name):
+        """Show category management options"""
+        menu = QMenu(self)
+        
+        rename_action = QAction("✏️ Rename Category", self)
+        rename_action.triggered.connect(lambda: self.rename_category(category_name))
+        menu.addAction(rename_action)
+        
+        if category_name not in ['General', 'Favorites']:
+            delete_action = QAction("🗑️ Delete Category", self)
+            delete_action.triggered.connect(lambda: self.delete_category(category_name))
+            menu.addAction(delete_action)
+        
+        menu.exec(QCursor.pos())
+    
+    def rename_category(self, old_name):
+        """Rename a category"""
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Rename Category",
+            f"Enter new name for '{old_name}':",
+            QLineEdit.EchoMode.Normal,
+            old_name
+        )
+        
+        if ok and new_name:
+            new_name = new_name.strip()
+            if new_name == old_name:
+                return
+            
+            if new_name in self.bookmarks_data['categories']:
+                QMessageBox.warning(self, "Duplicate", f"Category '{new_name}' already exists.")
+            else:
+                # Update category dict
+                self.bookmarks_data['categories'][new_name] = self.bookmarks_data['categories'].pop(old_name)
+                # Update bar_items references
+                for item in self.bookmarks_data.get('bar_items', []):
+                    if item['type'] == 'category' and item['name'] == old_name:
+                        item['name'] = new_name
+                self.save_bookmarks()
+                self.refresh_bookmarks()
+    
+    def delete_category(self, category_name):
+        """Delete a category and its bookmarks"""
+        if show_compact_confirm(self, "Delete Category", f"Delete '{category_name}' and all bookmarks?"):
+            # Remove from categories dict
+            del self.bookmarks_data['categories'][category_name]
+            # Remove from bar_items
+            self.bookmarks_data['bar_items'] = [
+                item for item in self.bookmarks_data.get('bar_items', [])
+                if not (item['type'] == 'category' and item['name'] == category_name)
+            ]
+            self.save_bookmarks()
+            self.refresh_bookmarks()
+    
+    def move_all_bookmarks(self, source_category, target_category):
+        """Move all bookmarks from source category to target category"""
+        if source_category not in self.bookmarks_data['categories'] or target_category not in self.bookmarks_data['categories']:
+            return
+        
+        # Move all bookmarks
+        source_bookmarks = self.bookmarks_data['categories'][source_category]
+        if source_bookmarks:
+            self.bookmarks_data['categories'][target_category].extend(source_bookmarks)
+            self.bookmarks_data['categories'][source_category] = []
+            self.save_bookmarks()
+            self.refresh_bookmarks()
+            QMessageBox.information(self, "Moved", f"Moved {len(source_bookmarks)} bookmark(s) from '{source_category}' to '{target_category}'.")
+    
+    def dragEnterEvent(self, event):
+        """Handle drag enter event - accept file/folder drops, bookmark moves, and category moves"""
+        logger.debug(f"dragEnterEvent: hasUrls={event.mimeData().hasUrls()}, hasText={event.mimeData().hasText()}, hasFormat('application/x-bar-item-index')={event.mimeData().hasFormat('application/x-bar-item-index')}, hasFormat('application/x-bookmark-move')={event.mimeData().hasFormat('application/x-bookmark-move')}, hasFormat('application/x-category-move')={event.mimeData().hasFormat('application/x-category-move')}")
+        if event.mimeData().hasUrls():
+            # Files/folders being dragged from explorer
+            event.acceptProposedAction()
+            logger.debug("Accepted file/folder drag")
+        elif event.mimeData().hasFormat('application/x-category-move'):
+            # Category being moved from Quick Links
+            event.acceptProposedAction()
+            logger.debug("Accepted category move drag")
+        elif event.mimeData().hasFormat('application/x-bookmark-move'):
+            # Bookmark being moved between categories
+            event.acceptProposedAction()
+            logger.debug("Accepted bookmark move drag")
+        elif event.mimeData().hasText() or event.mimeData().hasFormat('application/x-bar-item-index'):
+            # Bar item being dragged for reordering
+            event.acceptProposedAction()
+            logger.debug("Accepted bar item drag (hasText)")
+        else:
+            event.ignore()
+            logger.debug("Ignored drag")
+    
+    def dragMoveEvent(self, event):
+        """Handle drag move event - show drop indicator"""
+        if event.mimeData().hasUrls() or event.mimeData().hasFormat('application/x-bar-item-index') or event.mimeData().hasFormat('application/x-bookmark-move') or event.mimeData().hasFormat('application/x-category-move'):
+            event.acceptProposedAction()
+            
+            # Show drop indicator for bar item reordering or category moves
+            if event.mimeData().hasFormat('application/x-bar-item-index') or event.mimeData().hasFormat('application/x-category-move'):
+                self.show_drop_indicator(event.position().toPoint() if hasattr(event, 'position') else event.pos())
+        else:
+            event.ignore()
+            self.hide_drop_indicator()
+    
+    def show_drop_indicator(self, pos):
+        """Show a visual line indicator where the bar item will be dropped"""
+        # Create indicator if it doesn't exist
+        if not self.drop_indicator:
+            self.drop_indicator = QFrame(self)
+            self.drop_indicator.setStyleSheet("""
+                background-color: #1a73e8;
+                border-radius: 1px;
+            """)
+            self.drop_indicator.setFixedWidth(2)
+        
+        # Find the best position for the indicator
+        drop_x = None
+        
+        # Map position to bookmarks container coordinates
+        container_pos = self.bookmarks_container.mapFrom(self, pos)
+        
+        # Find which widget we're hovering over (bookmark or category)
+        for i in range(self.bookmarks_layout.count()):
+            widget = self.bookmarks_layout.itemAt(i).widget()
+            if isinstance(widget, (DraggableBookmarkButton, DraggableCategoryButton)):
+                widget_geo = widget.geometry()
+                widget_center_x = widget_geo.center().x()
+                
+                if container_pos.x() < widget_center_x:
+                    # Drop before this widget
+                    drop_x = widget_geo.left()
+                    break
+        
+        # If no position found, drop at the end
+        if drop_x is None:
+            # Find the last draggable item
+            for i in range(self.bookmarks_layout.count() - 1, -1, -1):
+                widget = self.bookmarks_layout.itemAt(i).widget()
+                if isinstance(widget, (DraggableBookmarkButton, DraggableCategoryButton)):
+                    drop_x = widget.geometry().right() + 2
+                    break
+        
+        if drop_x is not None:
+            # Position the indicator
+            # Map back to bar coordinates
+            bar_x = self.bookmarks_container.mapTo(self, QPoint(drop_x, 0)).x()
+            self.drop_indicator.setGeometry(bar_x, 3, 2, 28)
+            self.drop_indicator.show()
+            self.drop_indicator.raise_()
+    
+    def _get_bar_drop_index(self, pos):
+        """Calculate the bar_items index where a dropped item should be inserted"""
+        # Map position to bookmarks container coordinates
+        container_pos = self.bookmarks_container.mapFrom(self, pos)
+        
+        # Find which bar item we're dropping before
+        bar_item_index = 0
+        for i in range(self.bookmarks_layout.count()):
+            widget = self.bookmarks_layout.itemAt(i).widget()
+            if isinstance(widget, (DraggableBookmarkButton, DraggableCategoryButton)):
+                widget_geo = widget.geometry()
+                widget_center_x = widget_geo.center().x()
+                
+                if container_pos.x() < widget_center_x:
+                    # Drop before this widget
+                    return bar_item_index
+                bar_item_index += 1
+        
+        # If no position found, drop at the end
+        return len(self.bookmarks_data.get('bar_items', []))
+    
+    def hide_drop_indicator(self):
+        """Hide the drop indicator"""
+        if self.drop_indicator:
+            self.drop_indicator.hide()
+    
+    def dragLeaveEvent(self, event):
+        """Hide drop indicator when drag leaves"""
+        self.hide_drop_indicator()
+        super().dragLeaveEvent(event)
+    
+    def dropEvent(self, event):
+        """Handle drop event - add dropped files/folders as bookmarks, reorder bar items, move bookmarks/categories"""
+        logger.debug(f"dropEvent: hasFormat('application/x-bar-item-index')={event.mimeData().hasFormat('application/x-bar-item-index')}, hasFormat('application/x-bookmark-move')={event.mimeData().hasFormat('application/x-bookmark-move')}, hasFormat('application/x-category-move')={event.mimeData().hasFormat('application/x-category-move')}, hasUrls={event.mimeData().hasUrls()}")
+        # Hide the drop indicator
+        self.hide_drop_indicator()
+        
+        # Calculate drop index based on position
+        drop_pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+        drop_index = self._get_bar_drop_index(drop_pos)
+        
+        # IMPORTANT: Check bar-item-index FIRST for internal reordering (before bookmark-move)
+        # This is because bar bookmarks set BOTH formats, and we want reordering to take priority
+        if event.mimeData().hasFormat('application/x-bar-item-index'):
+            logger.debug("Processing bar item reorder drop (priority check)")
+            
+            try:
+                old_index = int(event.mimeData().data('application/x-bar-item-index').data().decode())
+                
+                if old_index < 0 or old_index >= len(self.bookmarks_data.get('bar_items', [])):
+                    logger.error(f"Invalid bar item index: {old_index}")
+                    event.ignore()
+                    return
+                
+                # Reorder if position changed
+                if old_index != drop_index:
+                    logger.info(f"Reordering bar item from {old_index} to {drop_index}")
+                    bar_item = self.bookmarks_data['bar_items'].pop(old_index)
+                    # Adjust index if we're moving forward
+                    if drop_index > old_index:
+                        drop_index -= 1
+                    self.bookmarks_data['bar_items'].insert(drop_index, bar_item)
+                    self.save_bookmarks()
+                    self.refresh_bookmarks()
+                
+                event.acceptProposedAction()
+                return
+            except Exception as e:
+                logger.error(f"Error reordering bar item: {e}")
+                import traceback
+                traceback.print_exc()
+                event.ignore()
+                return
+        
+        # Check if it's a category being moved from Quick Links
+        if event.mimeData().hasFormat('application/x-category-move'):
+            logger.debug("Processing category move from Quick Links")
+            try:
+                import json
+                category_data = json.loads(event.mimeData().data('application/x-category-move').data().decode())
+                category_name = category_data.get('name', '')
+                category_items = category_data.get('items', [])
+                source = category_data.get('source', '')
+                
+                if category_name and source == 'quick_links':
+                    # Check if category already exists
+                    if category_name in self.bookmarks_data.get('categories', {}):
+                        logger.warning(f"Category '{category_name}' already exists in bookmark bar")
+                        event.ignore()
+                        return
+                    
+                    # Add category to bookmark bar at the drop position
+                    self.bookmarks_data['categories'][category_name] = category_items
+                    new_item = {
+                        'type': 'category',
+                        'name': category_name
+                    }
+                    
+                    # Insert at drop index or append at end
+                    if drop_index >= 0 and drop_index < len(self.bookmarks_data['bar_items']):
+                        self.bookmarks_data['bar_items'].insert(drop_index, new_item)
+                    else:
+                        self.bookmarks_data['bar_items'].append(new_item)
+                    
+                    self.save_bookmarks()
+                    self.refresh_bookmarks()
+                    
+                    # Remove from Quick Links (MOVE semantics) - notify parent
+                    if hasattr(self, 'file_explorer') and self.file_explorer:
+                        self.file_explorer.remove_category_from_quick_links(category_name)
+                        self.file_explorer.refresh_quick_links_list()
+                    
+                    logger.info(f"Moved category '{category_name}' from Quick Links to bookmark bar at position {drop_index}")
+                    event.acceptProposedAction()
+                    return
+            except Exception as e:
+                logger.error(f"Error handling category move: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Check if it's a bookmark being moved between categories
+        if event.mimeData().hasFormat('application/x-bookmark-move'):
+            logger.debug("Processing bookmark move between categories")
+            
+            try:
+                import json
+                drag_data = json.loads(event.mimeData().data('application/x-bookmark-move').data().decode())
+                bookmark = drag_data['bookmark']
+                source_category = drag_data['source_category']
+                
+                # Find which category button was dropped on
+                widget_at_pos = self.childAt(drop_pos)
+                target_category = None
+                
+                check_widget = widget_at_pos
+                while check_widget and check_widget != self:
+                    if isinstance(check_widget, DraggableCategoryButton):
+                        target_category = check_widget.category_name
+                        break
+                    check_widget = check_widget.parent()
+                
+                if target_category and target_category != source_category:
+                    # Move bookmark from source to target category
+                    logger.info(f"Moving bookmark '{bookmark['name']}' from '{source_category}' to '{target_category}'")
+                    
+                    # Remove from source category using field comparison (skip if from Quick Links)
+                    if source_category != '__QUICK_LINKS__' and source_category in self.bookmarks_data['categories']:
+                        source_bookmarks = self.bookmarks_data['categories'][source_category]
+                        for i, b in enumerate(source_bookmarks):
+                            if b.get('name') == bookmark.get('name') and b.get('path') == bookmark.get('path'):
+                                source_bookmarks.pop(i)
+                                break
+                    
+                    # Add to target category
+                    if target_category not in self.bookmarks_data['categories']:
+                        self.bookmarks_data['categories'][target_category] = []
+                    self.bookmarks_data['categories'][target_category].append(bookmark)
+                    
+                    logger.debug(f"About to save after cross-category move")
+                    self.save_bookmarks()
+                    logger.debug(f"Saved, now refreshing bar")
+                    self.refresh_bookmarks()
+                    logger.debug(f"Refresh completed")
+                    event.acceptProposedAction()
+                    return
+                elif source_category == '__QUICK_LINKS__' and not target_category:
+                    # Dropping from Quick Links sidebar onto the bar itself (not on a category)
+                    # Add as individual bookmark to the bar and REMOVE from Quick Links
+                    logger.info(f"Moving Quick Link '{bookmark['name']}' to bookmark bar")
+                    
+                    bar_item = {
+                        'type': 'bookmark',
+                        'data': bookmark
+                    }
+                    
+                    # Insert at drop position
+                    if drop_index >= 0 and drop_index < len(self.bookmarks_data['bar_items']):
+                        self.bookmarks_data['bar_items'].insert(drop_index, bar_item)
+                    else:
+                        self.bookmarks_data['bar_items'].append(bar_item)
+                    
+                    self.save_bookmarks()
+                    self.refresh_bookmarks()
+                    
+                    # Remove from Quick Links sidebar
+                    if hasattr(self, 'file_explorer') and self.file_explorer:
+                        items = self.file_explorer.custom_quick_links.get('items', [])
+                        for i, item in enumerate(items):
+                            if item.get('type') == 'bookmark':
+                                if item.get('data', {}).get('path') == bookmark.get('path'):
+                                    items.pop(i)
+                                    self.file_explorer.save_quick_links()
+                                    self.file_explorer.refresh_quick_links_list()
+                                    logger.info(f"Removed '{bookmark['name']}' from Quick Links sidebar")
+                                    break
+                    
+                    event.acceptProposedAction()
+                    return
+                elif drag_data.get('source') == 'quick_links_category' and not target_category:
+                    # Dropping from Quick Links category popup onto the bar itself
+                    # Add as individual bookmark to the bar and remove from Quick Links category
+                    logger.info(f"Moving bookmark '{bookmark['name']}' from Quick Links category '{source_category}' to bookmark bar")
+                    
+                    bar_item = {
+                        'type': 'bookmark',
+                        'data': bookmark
+                    }
+                    
+                    # Insert at drop position
+                    if drop_index >= 0 and drop_index < len(self.bookmarks_data['bar_items']):
+                        self.bookmarks_data['bar_items'].insert(drop_index, bar_item)
+                    else:
+                        self.bookmarks_data['bar_items'].append(bar_item)
+                    
+                    self.save_bookmarks()
+                    self.refresh_bookmarks()
+                    
+                    # Remove from Quick Links category
+                    if hasattr(self, 'file_explorer') and self.file_explorer:
+                        categories = self.file_explorer.custom_quick_links.get('categories', {})
+                        if source_category in categories:
+                            category_items = categories[source_category]
+                            for i, item in enumerate(category_items):
+                                if item.get('path') == bookmark.get('path'):
+                                    category_items.pop(i)
+                                    break
+                            self.file_explorer.save_quick_links()
+                            self.file_explorer.refresh_quick_links_list()
+                    
+                    event.acceptProposedAction()
+                    return
+                elif drag_data.get('source') == 'quick_links_category' and target_category:
+                    # Dropping from Quick Links category onto a bookmark bar category
+                    logger.info(f"Moving bookmark '{bookmark['name']}' from Quick Links category '{source_category}' to bookmark bar category '{target_category}'")
+                    
+                    # Add to target category
+                    if target_category not in self.bookmarks_data['categories']:
+                        self.bookmarks_data['categories'][target_category] = []
+                    self.bookmarks_data['categories'][target_category].append(bookmark)
+                    
+                    self.save_bookmarks()
+                    self.refresh_bookmarks()
+                    
+                    # Remove from Quick Links category
+                    if hasattr(self, 'file_explorer') and self.file_explorer:
+                        categories = self.file_explorer.custom_quick_links.get('categories', {})
+                        if source_category in categories:
+                            category_items = categories[source_category]
+                            for i, item in enumerate(category_items):
+                                if item.get('path') == bookmark.get('path'):
+                                    category_items.pop(i)
+                                    break
+                            self.file_explorer.save_quick_links()
+                            self.file_explorer.refresh_quick_links_list()
+                    
+                    event.acceptProposedAction()
+                    return
+                elif not target_category and source_category in self.bookmarks_data.get('categories', {}):
+                    # Dropping from a top bar category onto the bar itself (not on another category)
+                    # Add as individual bookmark to the bar and remove from the source category
+                    logger.info(f"Moving bookmark '{bookmark['name']}' from bar category '{source_category}' to bar")
+                    
+                    bar_item = {
+                        'type': 'bookmark',
+                        'data': bookmark
+                    }
+                    
+                    # Insert at drop position
+                    if drop_index >= 0 and drop_index < len(self.bookmarks_data['bar_items']):
+                        self.bookmarks_data['bar_items'].insert(drop_index, bar_item)
+                    else:
+                        self.bookmarks_data['bar_items'].append(bar_item)
+                    
+                    # Remove from source category
+                    source_bookmarks = self.bookmarks_data['categories'][source_category]
+                    for i, b in enumerate(source_bookmarks):
+                        if b.get('name') == bookmark.get('name') and b.get('path') == bookmark.get('path'):
+                            source_bookmarks.pop(i)
+                            break
+                    
+                    self.save_bookmarks()
+                    self.refresh_bookmarks()
+                    
+                    event.acceptProposedAction()
+                    return
+                else:
+                    logger.debug(f"No valid target category or same category, ignoring drop")
+                    event.ignore()
+                    return
+            except Exception as e:
+                logger.error(f"Error moving bookmark between categories: {e}")
+                import traceback
+                traceback.print_exc()
+                event.ignore()
+                return
+        
+        # NOTE: Bar item reordering is now handled at the START of dropEvent (priority check)
+        # Don't add another handler here!
+        
+        if event.mimeData().hasUrls():
+            # Files/folders dropped from explorer
+            urls = event.mimeData().urls()
+            
+            for url in urls:
+                file_path = url.toLocalFile()
+                if file_path:
+                    # Determine type
+                    path_obj = Path(file_path)
+                    if path_obj.is_dir():
+                        bookmark_type = 'folder'
+                    elif path_obj.is_file():
+                        bookmark_type = 'file'
+                    else:
+                        continue
+                    
+                    # Check which widget was dropped on
+                    drop_pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+                    widget_at_pos = self.childAt(drop_pos)
+                    
+                    # Try to find if dropped on a category button
+                    category_target = None
+                    if widget_at_pos:
+                        # Walk up the parent chain to find a category button
+                        check_widget = widget_at_pos
+                        while check_widget and check_widget != self:
+                            if isinstance(check_widget, DraggableCategoryButton):
+                                category_target = check_widget.category_name
+                                break
+                            check_widget = check_widget.parent()
+                    
+                    # Create bookmark
+                    bookmark = {
+                        'name': path_obj.name,
+                        'path': str(file_path),
+                        'type': bookmark_type,
+                        'open_in_app': False
+                    }
+                    
+                    # Add to appropriate location
+                    if category_target and category_target in self.bookmarks_data['categories']:
+                        # Add to specific category
+                        self.bookmarks_data['categories'][category_target].append(bookmark)
+                    else:
+                        # Add to quick access bar as individual bookmark
+                        self.bookmarks_data['bar_items'].append({
+                            'type': 'bookmark',
+                            'data': bookmark
+                        })
+                    
+                    self.save_bookmarks()
+            
+            self.refresh_bookmarks()
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+    
+    def eventFilter(self, obj, event):
+        """Handle events for category buttons - enable drag-drop on them"""
+        # Just handle category button events, bookmark dragging is handled differently
+        return super().eventFilter(obj, event)

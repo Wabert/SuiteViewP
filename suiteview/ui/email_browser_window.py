@@ -273,9 +273,9 @@ class EmailBrowserWindow(QWidget):
         # Unread indicator
         df['unread_flag'] = df['unread'].apply(lambda x: '✉️' if x else '')
         
-        # Select columns for display
+        # Select columns for display - use sender_email instead of sender for From column
         display_df = df[[
-            'unread_flag', 'subject', 'sender', 'date', 'size_kb', 'attachment_count'
+            'unread_flag', 'subject', 'sender_email', 'date', 'size_kb', 'attachment_count'
         ]].copy()
         
         display_df.columns = [

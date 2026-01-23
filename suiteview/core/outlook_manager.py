@@ -313,12 +313,15 @@ class OutlookManager:
                     # Get sender email
                     try:
                         sender_email = item.SenderEmailAddress
-                        # Handle Exchange addresses
-                        if sender_email.startswith('/O='):
+                        # Handle Exchange addresses (internal emails)
+                        # Only convert /O= addresses, keep regular SMTP addresses as-is
+                        if sender_email and sender_email.startswith('/O='):
                             try:
                                 sender_email = item.Sender.GetExchangeUser().PrimarySmtpAddress
                             except:
+                                # If GetExchangeUser fails, fall back to SenderName
                                 sender_email = item.SenderName
+                        # For external emails, sender_email should already be the SMTP address
                     except:
                         sender_email = ""
                     
@@ -522,6 +525,7 @@ class OutlookManager:
                             # If all sender extraction fails, log and continue with Unknown
                             logger.warning(f"Sender extraction failed for {item.Subject}: {e}")
                             display_sender = "(Unknown Sender)"
+                            sender_email = ""
                         
                         # Process each attachment
                         for idx, attachment in enumerate(item.Attachments, 1):
@@ -554,7 +558,7 @@ class OutlookManager:
                                 attach_info = EmailAttachment(
                                     email_id=item.EntryID,
                                     email_subject=item.Subject or "(No Subject)",
-                                    email_sender=display_sender,
+                                    email_sender=sender_email or display_sender,  # Use email address if available
                                     email_date=item.ReceivedTime,
                                     attachment_name=attachment.FileName,
                                     attachment_type=file_ext or 'unknown',
@@ -892,6 +896,7 @@ class OutlookManager:
                 except Exception as e:
                     logger.warning(f"Sender extraction failed for {item.Subject}: {e}")
                     display_sender = "(Unknown Sender)"
+                    sender_email = ""
                 
                 # Process each attachment
                 for idx, attachment in enumerate(item.Attachments, 1):
@@ -923,7 +928,7 @@ class OutlookManager:
                         attach_info = EmailAttachment(
                             email_id=item.EntryID,
                             email_subject=item.Subject or "(No Subject)",
-                            email_sender=display_sender,
+                            email_sender=sender_email or display_sender,  # Use email address if available
                             email_date=item.ReceivedTime,
                             attachment_name=attachment.FileName,
                             attachment_type=file_ext or 'unknown',

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Verify Phase 1 setup is complete and working"""
+"""Verify SuiteView setup is complete and working"""
 
 import sys
 from pathlib import Path
+
+# Add parent directory to path so we can import suiteview
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def check_file_exists(path: Path, description: str) -> bool:
@@ -89,31 +92,31 @@ def verify_database() -> bool:
 def main():
     """Run all verification checks"""
     print("=" * 60)
-    print("SuiteView Data Manager - Phase 1 Verification")
+    print("SuiteView Data Manager - Setup Verification")
     print("=" * 60)
 
     # Check project structure
     print("\n=== Verifying Project Structure ===")
-    base_path = Path(__file__).parent
+    base_path = Path(__file__).parent.parent  # Go up from scripts/ to project root
 
     checks = []
 
     # Main files
     checks.append(check_file_exists(base_path / "requirements.txt", "Requirements file"))
     checks.append(check_file_exists(base_path / "setup.py", "Setup file"))
-    checks.append(check_file_exists(base_path / "run.sh", "Run script"))
+    checks.append(check_file_exists(base_path / "run_windows.bat", "Run script"))
     checks.append(check_file_exists(base_path / "README.md", "README"))
-    checks.append(check_file_exists(base_path / "CLAUDE.md", "PRD"))
 
     # Directories
-    checks.append(check_directory_exists(base_path / "venv", "Virtual environment"))
+    checks.append(check_directory_exists(base_path / "venv_window", "Virtual environment"))
     checks.append(check_directory_exists(base_path / "suiteview", "Main package"))
     checks.append(check_directory_exists(base_path / "suiteview" / "ui", "UI package"))
     checks.append(check_directory_exists(base_path / "suiteview" / "core", "Core package"))
     checks.append(check_directory_exists(base_path / "suiteview" / "data", "Data package"))
     checks.append(check_directory_exists(base_path / "suiteview" / "utils", "Utils package"))
-    checks.append(check_directory_exists(base_path / "resources", "Resources directory"))
+    checks.append(check_directory_exists(base_path / "scripts", "Scripts directory"))
     checks.append(check_directory_exists(base_path / "tests", "Tests directory"))
+    checks.append(check_directory_exists(base_path / "docs", "Docs directory"))
 
     # Key Python files
     checks.append(check_file_exists(base_path / "suiteview" / "main.py", "Main entry point"))
@@ -143,11 +146,11 @@ def main():
     if passed == total:
         print(f"✓ ALL CHECKS PASSED ({passed}/{total})")
         print("=" * 60)
-        print("\nPhase 1 is complete and ready!")
+        print("\nSetup is complete and ready!")
         print("\nTo run the application:")
-        print("  ./run.sh")
+        print("  run_windows.bat")
         print("\nOr:")
-        print("  source venv/bin/activate")
+        print("  .\\venv_window\\Scripts\\Activate.ps1")
         print("  python -m suiteview.main")
         return 0
     else:

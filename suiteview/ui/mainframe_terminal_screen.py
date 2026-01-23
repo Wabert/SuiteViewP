@@ -818,11 +818,31 @@ class TerminalSettingsDialog(QDialog):
         userid = ""
         password = ""
         if self.parent_screen and hasattr(self.parent_screen, 'conn_manager'):
-            user_conn = self.parent_screen.conn_manager.get_connection("MAINFRAME_USER")
+            # Find MAINFRAME_USER connection by name
+            all_connections = self.parent_screen.conn_manager.get_connections()
+            user_conn = None
+            for conn in all_connections:
+                if conn.get('connection_name') == 'MAINFRAME_USER':
+                    user_conn = conn
+                    break
+            
             if user_conn:
-                userid = user_conn.get('username', '')
-                if user_conn.get('password'):
-                    password = self.parent_screen.cred_manager.decrypt_password(user_conn.get('password', ''))
+                # Decrypt username
+                encrypted_user = user_conn.get('encrypted_username')
+                if encrypted_user:
+                    try:
+                        userid = self.parent_screen.cred_manager.decrypt(encrypted_user)
+                    except Exception as e:
+                        logger.error(f"Failed to decrypt username: {e}")
+                
+                # Decrypt password
+                encrypted_pw = user_conn.get('encrypted_password')
+                if encrypted_pw:
+                    try:
+                        password = self.parent_screen.cred_manager.decrypt(encrypted_pw)
+                    except Exception as e:
+                        logger.error(f"Failed to decrypt password: {e}")
+
         
         return {
             'host': self.host_input.text(),
@@ -1466,8 +1486,46 @@ class MainframeTerminalScreen(QWidget):
         else:
             self.connect_to_mainframe()
     
+    def _reload_credentials_from_db(self):
+        """Reload credentials from MAINFRAME_USER connection in database"""
+        try:
+            if self.parent_screen and hasattr(self.parent_screen, 'conn_manager'):
+                # Find MAINFRAME_USER connection by name
+                all_connections = self.parent_screen.conn_manager.get_connections()
+                user_conn = None
+                for conn in all_connections:
+                    if conn.get('connection_name') == 'MAINFRAME_USER':
+                        user_conn = conn
+                        break
+                
+                if user_conn:
+                    # Decrypt username
+                    encrypted_user = user_conn.get('encrypted_username')
+                    if encrypted_user:
+                        try:
+                            self.conn_userid = self.parent_screen.cred_manager.decrypt(encrypted_user)
+                            logger.info(f"Reloaded username from database: {self.conn_userid}")
+                        except Exception as e:
+                            logger.error(f"Failed to decrypt username: {e}")
+                    
+                    # Decrypt password
+                    encrypted_pw = user_conn.get('encrypted_password')
+                    if encrypted_pw:
+                        try:
+                            self.conn_password = self.parent_screen.cred_manager.decrypt(encrypted_pw)
+                            logger.info("Reloaded password from database")
+                        except Exception as e:
+                            logger.error(f"Failed to decrypt password: {e}")
+                else:
+                    logger.warning("No MAINFRAME_USER connection found in database")
+        except Exception as e:
+            logger.error(f"Failed to reload credentials from database: {e}")
+    
     def connect_to_mainframe(self):
         """Establish connection to mainframe"""
+        # Reload credentials from database in case User button updated them
+        self._reload_credentials_from_db()
+        
         host = self.conn_host
         port = self.conn_port
         terminal_type = self.conn_term_type
