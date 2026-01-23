@@ -18,6 +18,12 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QWidget,
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QPoint, QTimer, QFileInfo
 from PyQt6.QtGui import QIcon, QAction, QCursor, QDrag
 
+# Import unified bookmark widgets
+from suiteview.ui.widgets.bookmark_widgets import (
+    CategoryButton, CategoryPopup as UnifiedCategoryPopup, CategoryBookmarkButton,
+    CATEGORY_BUTTON_STYLE, CONTEXT_MENU_STYLE
+)
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -2904,7 +2910,7 @@ class BookmarkBar(QWidget):
         return btn
     
     def create_category_button(self, category_name, bookmarks):
-        """Create a dropdown button for a category"""
+        """Create a dropdown button for a category using unified CategoryButton"""
         # Get index for this category in bar_items
         bar_item_index = -1
         for i, item in enumerate(self.bookmarks_data.get('bar_items', [])):
@@ -2912,14 +2918,28 @@ class BookmarkBar(QWidget):
                 bar_item_index = i
                 break
         
-        # Create draggable category button - popup shown in mouseReleaseEvent
-        btn = DraggableCategoryButton(bar_item_index, category_name, bookmarks, self)
+        # Create unified category button - handles popup internally
+        btn = CategoryButton(
+            category_name=category_name,
+            category_items=bookmarks,
+            item_index=bar_item_index,
+            parent=self,
+            data_manager=self,  # Pass self as data manager (has bookmarks_data, save_bookmarks, refresh_bookmarks)
+            source_location='bar',
+            orientation='horizontal'
+        )
+        btn.item_clicked.connect(self._on_category_item_clicked)
         btn.installEventFilter(self)
         
         return btn
     
+    def _on_category_item_clicked(self, path):
+        """Handle when an item inside a category popup is clicked"""
+        bookmark_data = {'path': path, 'name': Path(path).name}
+        self.open_bookmark(bookmark_data)
+    
     def show_category_popup(self, category_name, button):
-        """Show the draggable category popup"""
+        """Show the draggable category popup - LEGACY: CategoryButton now handles popup internally"""
         # Check if this popup was just closed (within 300ms) - prevents flicker from
         # Popup auto-closing on mouse down and reopening on mouse up
         button_id = id(button)
@@ -3366,7 +3386,7 @@ class BookmarkBar(QWidget):
         # Find which widget we're hovering over (bookmark or category)
         for i in range(self.bookmarks_layout.count()):
             widget = self.bookmarks_layout.itemAt(i).widget()
-            if isinstance(widget, (DraggableBookmarkButton, DraggableCategoryButton)):
+            if isinstance(widget, (DraggableBookmarkButton, CategoryButton)):
                 widget_geo = widget.geometry()
                 widget_center_x = widget_geo.center().x()
                 
@@ -3380,7 +3400,7 @@ class BookmarkBar(QWidget):
             # Find the last draggable item
             for i in range(self.bookmarks_layout.count() - 1, -1, -1):
                 widget = self.bookmarks_layout.itemAt(i).widget()
-                if isinstance(widget, (DraggableBookmarkButton, DraggableCategoryButton)):
+                if isinstance(widget, (DraggableBookmarkButton, CategoryButton)):
                     drop_x = widget.geometry().right() + 2
                     break
         
@@ -3401,7 +3421,7 @@ class BookmarkBar(QWidget):
         bar_item_index = 0
         for i in range(self.bookmarks_layout.count()):
             widget = self.bookmarks_layout.itemAt(i).widget()
-            if isinstance(widget, (DraggableBookmarkButton, DraggableCategoryButton)):
+            if isinstance(widget, (DraggableBookmarkButton, CategoryButton)):
                 widget_geo = widget.geometry()
                 widget_center_x = widget_geo.center().x()
                 
@@ -3528,7 +3548,7 @@ class BookmarkBar(QWidget):
                 
                 check_widget = widget_at_pos
                 while check_widget and check_widget != self:
-                    if isinstance(check_widget, DraggableCategoryButton):
+                    if isinstance(check_widget, CategoryButton):
                         target_category = check_widget.category_name
                         break
                     check_widget = check_widget.parent()
@@ -3717,7 +3737,7 @@ class BookmarkBar(QWidget):
                         # Walk up the parent chain to find a category button
                         check_widget = widget_at_pos
                         while check_widget and check_widget != self:
-                            if isinstance(check_widget, DraggableCategoryButton):
+                            if isinstance(check_widget, CategoryButton):
                                 category_target = check_widget.category_name
                                 break
                             check_widget = check_widget.parent()
