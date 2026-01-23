@@ -7,6 +7,8 @@ Wraps FileExplorerCore with tab support, breadcrumbs, and enhanced features
 import os
 import sys
 import subprocess
+import json
+import time
 from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, 
                               QPushButton, QLabel, QFrame, QMenu, QLineEdit, QTreeView, QStyle, QTabBar, QToolButton,
@@ -16,6 +18,12 @@ from PyQt6.QtGui import QAction, QCursor, QMouseEvent
 
 # Import the base FileExplorerCore
 from suiteview.ui.file_explorer_core import FileExplorerCore, DropTreeView
+
+# Import unified bookmark widgets for sidebar categories
+from suiteview.ui.widgets.bookmark_widgets import (
+    CategoryButton, CategoryPopup, CategoryBookmarkButton,
+    CATEGORY_BUTTON_STYLE_SIDEBAR, CONTEXT_MENU_STYLE
+)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -396,8 +404,18 @@ class DropScrollArea(QWidget):
         event.ignore()
 
 
+# =============================================================================
+# DEPRECATED: The following classes are no longer used for sidebar categories.
+# They have been replaced by unified classes from bookmark_widgets.py:
+# - QuickLinkCategoryWidget -> CategoryButton (with source_location='sidebar')
+# - QuickLinkCategoryPopup -> CategoryPopup (with source_location='sidebar')
+# - QuickLinkCategoryBookmarkButton -> CategoryBookmarkButton (with source_location='sidebar')
+# Keeping for reference. QuickLinkBookmarkButton is still used for standalone bookmarks.
+# =============================================================================
+
 class QuickLinkCategoryBookmarkButton(QPushButton):
-    """Draggable bookmark button for use inside Quick Links category popups"""
+    """DEPRECATED: Use CategoryBookmarkButton from bookmark_widgets.py instead.
+    Draggable bookmark button for use inside Quick Links category popups"""
     
     clicked_path = pyqtSignal(str)
     
@@ -690,7 +708,8 @@ class QuickLinkBookmarkButton(QPushButton):
 
 
 class QuickLinkCategoryPopup(QFrame):
-    """Popup window for Quick Links category items - matches top bar CategoryPopup behavior with reordering support"""
+    """DEPRECATED: Use CategoryPopup from bookmark_widgets.py instead.
+    Popup window for Quick Links category items - matches top bar CategoryPopup behavior with reordering support"""
     
     item_clicked = pyqtSignal(str)
     item_double_clicked = pyqtSignal(str)
@@ -921,7 +940,8 @@ class QuickLinkCategoryPopup(QFrame):
 
 
 class QuickLinkCategoryWidget(QWidget):
-    """Compact category button for Quick Links panel - shows popup on click with toggle support"""
+    """DEPRECATED: Use CategoryButton from bookmark_widgets.py instead.
+    Compact category button for Quick Links panel - shows popup on click with toggle support"""
     
     category_moved = pyqtSignal(str, dict)  # Emits (category_name, category_data) when dragged out
     item_clicked = pyqtSignal(str)  # Emits path when item is clicked
@@ -1634,33 +1654,26 @@ class FileExplorerTab(FileExplorerCore):
                     bookmark_count += 1
                     
             elif item_data.get('type') == 'category':
-                # Category with bookmarks inside
+                # Category with bookmarks inside - use unified CategoryButton
                 category_name = item_data.get('name', '')
                 if category_name and category_name in categories:
                     category_items = categories[category_name]
                     
-                    # Create category widget
-                    cat_widget = QuickLinkCategoryWidget(
-                        category_name, 
-                        category_items, 
+                    # Create unified category button (same as top bar)
+                    cat_btn = CategoryButton(
+                        category_name=category_name,
+                        category_items=category_items,
                         item_index=idx,
                         parent=self,
-                        icon_provider=self
+                        data_manager=self,  # FileExplorerTab has custom_quick_links, save_quick_links, refresh_quick_links_list
+                        source_location='sidebar',
+                        orientation='vertical'
                     )
                     
                     # Connect signals
-                    cat_widget.item_clicked.connect(self._on_category_item_clicked)
-                    cat_widget.item_double_clicked.connect(self._on_category_item_double_clicked)
-                    cat_widget.bookmark_dropped.connect(self._on_bookmark_dropped_to_category)
-                    cat_widget.category_moved.connect(self._on_category_moved_out)
+                    cat_btn.item_clicked.connect(self._on_category_item_clicked)
                     
-                    # Add context menu for category
-                    cat_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-                    cat_widget.customContextMenuRequested.connect(
-                        lambda pos, cw=cat_widget: self._show_category_context_menu(pos, cw)
-                    )
-                    
-                    self.quick_links_items_layout.addWidget(cat_widget)
+                    self.quick_links_items_layout.addWidget(cat_btn)
                     category_count += 1
                     bookmark_count += len(category_items)
         
