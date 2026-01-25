@@ -399,7 +399,7 @@ CATEGORY_BUTTON_STYLE_SIDEBAR = """
         font-size: 9pt;
         font-weight: normal;
         color: #202124;
-        margin: 1px 2px;
+        margin: 1px 0px;
     }
     QPushButton:hover {
         background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -545,6 +545,12 @@ def get_category_button_style(color, orientation='horizontal'):
     border_color = darken_color(color, 0.6)
     hover_color = lighten_color(color, 0.2)
     
+    # Sidebar (vertical) uses smaller margins
+    if orientation == 'vertical':
+        margin = "1px 0px"
+    else:
+        margin = "0px"
+    
     base_style = f"""
         QPushButton {{
             background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -552,6 +558,7 @@ def get_category_button_style(color, orientation='horizontal'):
             border: 2px solid {border_color};
             border-radius: 10px;
             padding: 3px 10px;
+            margin: {margin};
             text-align: left;
             font-size: 9pt;
             font-weight: normal;
@@ -1142,6 +1149,7 @@ class CategoryBookmarkButton(QPushButton):
         drag_data = {
             'bookmark': self.bookmark_data,
             'source_category': self.source_category,
+            'source_location': self.source_location,  # 'bar' or 'sidebar'
             'source': 'quick_links_category' if self.source_location == 'sidebar' else 'bar_category'
         }
         mime_data.setData('application/x-bookmark-move', json.dumps(drag_data).encode())
@@ -1558,6 +1566,12 @@ class CategoryButton(QPushButton):
         self.setProperty('category_name', category_name)
         self.setAcceptDrops(True)
         
+        # For vertical orientation (sidebar), set size policy to allow shrinking
+        # This ensures the button stays within the visible area and rounded corners are visible
+        if self.orientation == 'vertical':
+            from PyQt6.QtWidgets import QSizePolicy
+            self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        
         # Apply appropriate style (with custom color if provided)
         self._apply_style()
     
@@ -1632,6 +1646,7 @@ class CategoryButton(QPushButton):
         category_data = {
             'name': self.category_name,
             'items': self.category_items,
+            'source_location': self.source_location,  # 'bar' or 'sidebar'
             'source': 'bookmark_bar' if self.source_location == 'bar' else 'quick_links',
             'bar_item_index': self.item_index,
             'color': self.category_color  # Include color for transfer
@@ -2295,6 +2310,81 @@ class StandaloneBookmarkButton(QPushButton):
             self.container.remove_item(self.item_index)
 
 
+# =============================================================================
+# BookmarkContainer Registry - enables cross-bar communication
+# =============================================================================
+
+class BookmarkContainerRegistry:
+    """
+    Singleton registry that tracks all BookmarkContainer instances.
+    Enables cross-bar drag and drop operations by allowing containers
+    to find and communicate with each other.
+    """
+    _instance = None
+    _containers = {}  # location -> BookmarkContainer
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    @classmethod
+    def register(cls, location: str, container: 'BookmarkContainer'):
+        """Register a container by its location identifier"""
+        cls._containers[location] = container
+        logger.debug(f"BookmarkContainer registered: {location}")
+    
+    @classmethod
+    def unregister(cls, location: str):
+        """Unregister a container"""
+        if location in cls._containers:
+            del cls._containers[location]
+            logger.debug(f"BookmarkContainer unregistered: {location}")
+    
+    @classmethod
+    def get(cls, location: str) -> 'BookmarkContainer':
+        """Get a container by location"""
+        return cls._containers.get(location)
+    
+    @classmethod
+    def get_all(cls) -> dict:
+        """Get all registered containers"""
+        return cls._containers.copy()
+    
+    @classmethod
+    def get_other(cls, exclude_location: str) -> list:
+        """Get all containers except the specified one"""
+        return [c for loc, c in cls._containers.items() if loc != exclude_location]
+
+
+class DropForwardingWidget(QWidget):
+    """
+    A QWidget that accepts drops and forwards all drop events to its parent BookmarkContainer.
+    Used as the items_container inside BookmarkContainer to ensure drops are handled properly.
+    """
+    
+    def __init__(self, bookmark_container):
+        super().__init__()
+        self.bookmark_container = bookmark_container
+        self.setAcceptDrops(True)
+    
+    def dragEnterEvent(self, event):
+        """Forward to parent BookmarkContainer"""
+        self.bookmark_container.dragEnterEvent(event)
+    
+    def dragMoveEvent(self, event):
+        """Forward to parent BookmarkContainer"""
+        self.bookmark_container.dragMoveEvent(event)
+    
+    def dragLeaveEvent(self, event):
+        """Forward to parent BookmarkContainer"""
+        self.bookmark_container.dragLeaveEvent(event)
+    
+    def dropEvent(self, event):
+        """Forward to parent BookmarkContainer"""
+        self.bookmark_container.dropEvent(event)
+
+
 class BookmarkContainer(QWidget):
     """
     Unified container for bookmarks and categories.
@@ -2303,9 +2393,14 @@ class BookmarkContainer(QWidget):
     This class provides a standardized interface for:
     - Displaying bookmarks and categories
     - Drag and drop reordering
-    - Moving items between containers
+    - Moving items between containers (cross-bar support via registry)
     - Adding/removing items
     - Context menus
+    
+    Cross-bar drag and drop:
+    - All BookmarkContainer instances register with BookmarkContainerRegistry
+    - When an item is dropped from another container, it's automatically moved
+    - Source container is found via the registry and item is removed from it
     """
     
     # Signals
@@ -2345,6 +2440,9 @@ class BookmarkContainer(QWidget):
         self.items_key = items_key
         self.categories_key = categories_key
         self.colors_key = colors_key
+        
+        # Register with the global registry for cross-bar communication
+        BookmarkContainerRegistry.register(location, self)
         
         self.setAcceptDrops(True)
         
@@ -2389,9 +2487,10 @@ class BookmarkContainer(QWidget):
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setStyleSheet("QScrollArea { background-color: transparent; border: none; }")
+        self.scroll_area.setAcceptDrops(False)  # Let drops pass through
         
-        # Items container
-        self.items_container = QWidget()
+        # Items container - accepts drops and forwards to parent
+        self.items_container = DropForwardingWidget(self)
         self.items_container.setStyleSheet("background-color: transparent;")
         self.items_layout = QHBoxLayout(self.items_container)
         self.items_layout.setContentsMargins(0, 0, 0, 0)
@@ -2414,19 +2513,21 @@ class BookmarkContainer(QWidget):
         # Scroll area
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # Disable horizontal scrolling - buttons should shrink to fit, not extend beyond
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setStyleSheet("""
             QScrollArea { background-color: transparent; border: none; }
             QScrollArea > QWidget > QWidget { background-color: transparent; }
         """)
+        self.scroll_area.setAcceptDrops(False)  # Let drops pass through
         
-        # Items container
-        self.items_container = QWidget()
+        # Items container - accepts drops and forwards to parent
+        self.items_container = DropForwardingWidget(self)
         self.items_container.setStyleSheet("background-color: transparent;")
         self.items_layout = QVBoxLayout(self.items_container)
-        self.items_layout.setContentsMargins(2, 2, 2, 2)
+        self.items_layout.setContentsMargins(4, 2, 14, 2)  # Extra right margin (14px) for rounded corners
         self.items_layout.setSpacing(1)
         self.items_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
@@ -2436,6 +2537,29 @@ class BookmarkContainer(QWidget):
         # Context menu for empty space
         self.items_container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.items_container.customContextMenuRequested.connect(self._show_container_context_menu)
+    
+    def resizeEvent(self, event):
+        """Handle resize events - update button widths for vertical orientation"""
+        super().resizeEvent(event)
+        if self.orientation == 'vertical':
+            self._update_button_widths()
+    
+    def _update_button_widths(self):
+        """Update all button widths to fit within the container (for vertical/sidebar)"""
+        if self.orientation != 'vertical':
+            return
+        
+        # Calculate available width: container width minus minimal padding
+        available_width = self.width() - 4  # Just 4px to prevent clipping
+        if available_width < 50:
+            available_width = 50  # Minimum width
+        
+        # Update all widgets in the layout
+        for i in range(self.items_layout.count()):
+            item = self.items_layout.itemAt(i)
+            widget = item.widget()
+            if widget and isinstance(widget, (CategoryButton, StandaloneBookmarkButton)):
+                widget.setMaximumWidth(available_width)
     
     # -------------------------------------------------------------------------
     # Data Access Properties
@@ -2485,6 +2609,12 @@ class BookmarkContainer(QWidget):
         
         # Add stretch at the end
         self.items_layout.addStretch()
+        
+        # Update button widths for vertical orientation
+        if self.orientation == 'vertical':
+            # Use a timer to update after layout is complete
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self._update_button_widths)
     
     def add_bookmark(self, bookmark_data, insert_at=None):
         """Add a standalone bookmark to the container"""
@@ -2772,14 +2902,78 @@ class BookmarkContainer(QWidget):
         super().dragLeaveEvent(event)
     
     def dropEvent(self, event):
-        """Handle drop events - emits signals for external handlers to process complex moves"""
+        """
+        Handle drop events - supports internal reordering and cross-bar moves.
+        
+        Cross-bar moves are handled automatically via the BookmarkContainerRegistry.
+        When an item is dropped from another container, this method:
+        1. Adds the item to this container
+        2. Finds the source container via the registry
+        3. Removes the item from the source container
+        """
         self._hide_drop_indicator()
         mime = event.mimeData()
         
         # Calculate drop index based on position
         drop_index = self._calculate_drop_index(event.position().toPoint())
         
-        # Internal reordering (handle directly)
+        # Check for cross-bar moves FIRST (before internal reordering)
+        # This prevents x-container-item-index from catching cross-bar drops
+        
+        # Category move (check source location to determine if cross-bar)
+        if mime.hasFormat('application/x-category-move'):
+            try:
+                category_data = json.loads(mime.data('application/x-category-move').data().decode())
+                source_location = category_data.get('source_location', category_data.get('source', ''))
+                
+                # Determine if this is from a different container
+                is_cross_bar = self._is_cross_bar_source(source_location)
+                
+                if is_cross_bar:
+                    # Handle cross-bar move
+                    if self._handle_cross_bar_category_move(category_data, drop_index):
+                        event.acceptProposedAction()
+                        return
+                    # Fallback: emit signal
+                    category_data['_drop_index'] = drop_index
+                    self.category_dropped.emit(category_data)
+                    event.acceptProposedAction()
+                    return
+                # Not cross-bar - fall through to internal reorder
+            except Exception as e:
+                logger.error(f"Error handling category drop: {e}")
+        
+        # Bookmark move (check source location to determine if cross-bar)
+        if mime.hasFormat('application/x-bookmark-move'):
+            try:
+                drag_data = json.loads(mime.data('application/x-bookmark-move').data().decode())
+                source_location = drag_data.get('source_location', drag_data.get('source', ''))
+                source_category = drag_data.get('source_category', '')
+                
+                # Determine if this is from a different container
+                is_cross_bar = self._is_cross_bar_source(source_location)
+                # Also consider it cross-bar if coming from a category (even same container)
+                is_from_category = source_category and source_category != '__CONTAINER__'
+                
+                if is_cross_bar or is_from_category:
+                    bookmark = drag_data.get('bookmark', {})
+                    # Handle cross-bar or category-to-bar move
+                    if self._handle_cross_bar_bookmark_move(bookmark, source_category, source_location, drop_index):
+                        event.acceptProposedAction()
+                        return
+                    # Fallback: emit signal
+                    bookmark['_drop_index'] = drop_index
+                    bookmark['_source_category'] = source_category
+                    bookmark['source_category'] = source_category
+                    bookmark['source_location'] = source_location
+                    self.bookmark_dropped.emit(bookmark)
+                    event.acceptProposedAction()
+                    return
+                # Not cross-bar and not from category - fall through to internal reorder
+            except Exception as e:
+                logger.error(f"Error handling bookmark drop: {e}")
+        
+        # Internal reordering (same container, standalone items only)
         if mime.hasFormat('application/x-container-item-index'):
             try:
                 from_index = int(mime.data('application/x-container-item-index').data().decode())
@@ -2788,43 +2982,8 @@ class BookmarkContainer(QWidget):
                     self.item_reordered.emit(from_index, drop_index)
                 event.acceptProposedAction()
                 return
-            except:
-                pass
-        
-        # Bookmark from another location - emit signal for parent to handle
-        if mime.hasFormat('application/x-bookmark-move'):
-            try:
-                drag_data = json.loads(mime.data('application/x-bookmark-move').data().decode())
-                bookmark = drag_data.get('bookmark', {})
-                source_category = drag_data.get('source_category', '')
-                source_location = drag_data.get('source_location', drag_data.get('source', ''))
-                
-                # Add drop index and source info to the data for the handler
-                bookmark['_drop_index'] = drop_index
-                bookmark['_source_category'] = source_category
-                bookmark['source_category'] = source_category  # Compatibility
-                bookmark['source_location'] = source_location
-                bookmark['source'] = drag_data.get('source', '')  # e.g., 'quick_links_category'
-                
-                # Emit signal for parent to handle (includes source removal logic)
-                self.bookmark_dropped.emit(bookmark)
-                event.acceptProposedAction()
-                return
             except Exception as e:
-                logger.error(f"Error handling bookmark drop: {e}")
-        
-        # Category from another location - emit signal for parent to handle
-        if mime.hasFormat('application/x-category-move'):
-            try:
-                category_data = json.loads(mime.data('application/x-category-move').data().decode())
-                category_data['_drop_index'] = drop_index
-                
-                # Emit signal for parent to handle (includes source removal logic)
-                self.category_dropped.emit(category_data)
-                event.acceptProposedAction()
-                return
-            except Exception as e:
-                logger.error(f"Error handling category drop: {e}")
+                logger.error(f"Error in internal reorder: {e}")
         
         # File/folder drops - emit signal for parent to handle
         if mime.hasUrls():
@@ -2836,6 +2995,152 @@ class BookmarkContainer(QWidget):
             return
         
         event.ignore()
+    
+    def _is_cross_bar_source(self, source_location):
+        """
+        Check if the source location represents a different container than this one.
+        Returns True if the drag is from a different bar/sidebar.
+        """
+        if not source_location:
+            return False
+        
+        # Normalize the source location
+        if source_location in ('bar', 'sidebar'):
+            src_loc = source_location
+        elif 'sidebar' in str(source_location) or 'quick_links' in str(source_location):
+            src_loc = 'sidebar'
+        elif 'bar' in str(source_location):
+            src_loc = 'bar'
+        else:
+            return False
+        
+        # Compare with this container's location
+        return src_loc != self.location
+    
+    def _handle_cross_bar_bookmark_move(self, bookmark, source_category, source_location, drop_index):
+        """
+        Handle moving a bookmark from another container to this one.
+        Returns True if handled, False to fall back to signal emission.
+        """
+        # Determine the source container location
+        if source_location in ('bar', 'sidebar'):
+            src_container_location = source_location
+        elif 'bar' in str(source_location):
+            src_container_location = 'bar'
+        elif 'sidebar' in str(source_location) or 'quick_links' in str(source_location):
+            src_container_location = 'sidebar'
+        else:
+            return False  # Can't determine source
+        
+        # Check if this is a standalone bookmark (not from a category)
+        is_standalone = source_category in ('__CONTAINER__', '', None)
+        
+        # Don't process if source is same as target AND it's a standalone bookmark
+        # (internal reordering is handled separately via x-container-item-index)
+        if src_container_location == self.location and is_standalone:
+            return False
+        
+        # Get source container from registry
+        source_container = BookmarkContainerRegistry.get(src_container_location)
+        if not source_container:
+            logger.warning(f"Source container not found in registry: {src_container_location}")
+            return False
+        
+        # Create clean bookmark data
+        clean_bookmark = {
+            'name': bookmark.get('name', ''),
+            'path': bookmark.get('path', '')
+        }
+        
+        # Add to this container at the drop index
+        self.add_bookmark(clean_bookmark, insert_at=drop_index)
+        
+        # Remove from source
+        if not is_standalone:
+            # Remove from category in source container
+            source_container.remove_bookmark_from_category(source_category, bookmark.get('path', ''))
+        else:
+            # Remove standalone bookmark from source container
+            source_container.remove_item_by_path(bookmark.get('path', ''))
+        
+        logger.info(f"Moved bookmark '{clean_bookmark['name']}' from {src_container_location} to {self.location}")
+        return True
+    
+    def _handle_cross_bar_category_move(self, category_data, drop_index):
+        """
+        Handle moving a category from another container to this one.
+        Returns True if handled, False to fall back to signal emission.
+        """
+        source_location = category_data.get('source_location', category_data.get('source', ''))
+        category_name = category_data.get('name', '')
+        
+        if not category_name:
+            return False
+        
+        # Determine the source container location
+        if source_location in ('bar', 'sidebar'):
+            src_container_location = source_location
+        elif 'bar' in str(source_location):
+            src_container_location = 'bar'
+        elif 'sidebar' in str(source_location) or 'quick_links' in str(source_location):
+            src_container_location = 'sidebar'
+        else:
+            return False
+        
+        # Don't process if source is same as target
+        if src_container_location == self.location:
+            return False
+        
+        # Get source container from registry
+        source_container = BookmarkContainerRegistry.get(src_container_location)
+        if not source_container:
+            logger.warning(f"Source container not found in registry: {src_container_location}")
+            return False
+        
+        # Get category items from source
+        source_categories = source_container.data_store.get(source_container.categories_key, {})
+        category_items = source_categories.get(category_name, [])
+        
+        # Get category color from source
+        source_colors = source_container.data_store.get(source_container.colors_key, {})
+        category_color = source_colors.get(category_name)
+        
+        # Add category to this container
+        self.add_category(category_name, category_items=category_items, color=category_color, insert_at=drop_index)
+        
+        # Remove from source container
+        source_container.remove_category(category_name)
+        
+        logger.info(f"Moved category '{category_name}' from {src_container_location} to {self.location}")
+        return True
+    
+    def remove_bookmark_from_category(self, category_name, path):
+        """Remove a bookmark from a category by its path"""
+        categories = self.data_store.get(self.categories_key, {})
+        if category_name in categories:
+            items = categories[category_name]
+            for i, item in enumerate(items):
+                if item.get('path') == path:
+                    items.pop(i)
+                    break
+            if self.save_callback:
+                self.save_callback()
+            self.refresh()
+    
+    def remove_item_by_path(self, path):
+        """Remove an item from the bar_items list by its path"""
+        items = self.data_store.get(self.items_key, [])
+        for i, item in enumerate(items):
+            if item.get('type') == 'bookmark' and item.get('path') == path:
+                items.pop(i)
+                break
+            # Also check for nested bookmark data structure
+            if item.get('type') == 'bookmark' and item.get('data', {}).get('path') == path:
+                items.pop(i)
+                break
+        if self.save_callback:
+            self.save_callback()
+        self.refresh()
     
     def _calculate_drop_index(self, pos):
         """Calculate the index where an item should be inserted based on drop position"""

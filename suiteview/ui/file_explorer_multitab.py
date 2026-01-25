@@ -400,6 +400,13 @@ class FileExplorerTab(FileExplorerCore):
         # Add to the RIGHT side of the splitter (after details view)
         self.main_splitter.addWidget(quick_links_panel)
         
+        # Set stretch factors: left panel (0) and middle panel (0) stay fixed,
+        # only the rightmost panel (details when 2 panes, or quick_links when 3) stretches
+        # Index 0 = tree panel, Index 1 = details panel, Index 2 = quick links panel
+        self.main_splitter.setStretchFactor(0, 0)  # Tree panel doesn't stretch
+        self.main_splitter.setStretchFactor(1, 1)  # Details panel stretches (when no quick links)
+        self.main_splitter.setStretchFactor(2, 0)  # Quick links doesn't stretch
+        
         # Store reference to the panel (keep old name for compatibility)
         self.tree_panel_2 = quick_links_panel
         self.quick_links_panel = quick_links_panel
