@@ -3788,6 +3788,11 @@ class FileExplorerCore(QWidget):
         if category_name in self.custom_quick_links.get('categories', {}):
             del self.custom_quick_links['categories'][category_name]
         
+        # Remove color (it's been transferred elsewhere or deleted)
+        category_colors = self.custom_quick_links.get('category_colors', {})
+        if category_name in category_colors:
+            del category_colors[category_name]
+        
         # Remove from items list
         items = self.custom_quick_links.get('items', [])
         for i, item in enumerate(items):

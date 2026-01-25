@@ -98,6 +98,48 @@ The application stores its data in your home directory:
 - Modern, professional styling using Qt Style Sheets
 - Color-coded panels for easy identification
 
+### UI Conventions
+- **Context Menus:** 
+  - Item context menus: Blue border (`#0078d4`)
+  - Category context menus: Dynamic color matching the category's color (darkened)
+  - Compact styling with minimal padding for space efficiency
+  - Items include: Edit, Open folder location, Copy link, Remove (as applicable)
+
+- **UI Style Preference:**
+  - **Fast & responsive UI** is the top priority - minimize latency on all interactions
+  - Use async loading, database caching, and deferred operations to keep UI snappy
+  - Compact, space-efficient layouts preferred throughout the application
+  - Tight padding on menu items and buttons
+  - Minimal whitespace while maintaining readability
+
+- **Visual Design Preference:**
+  - **Rounded corners** on buttons, panels, and popups for a modern, friendly look
+  - **3D/dimensional effects** (gradients, subtle shadows, beveled borders) to draw attention to key controls
+  - Panel headers should have depth/dimension to stand out from content areas
+  - Styled message boxes and dialogs matching the app theme (not default OS style)
+
+- **Category Colors:**
+  - Categories can have custom colors from a 36-color palette
+  - Colors are persisted and transfer when moving categories between bar/sidebar
+  - Right-click category → "🎨 Change Color" to set color
+
+### Bookmark Architecture
+Both the **top bar** and **sidebar** now use the unified `BookmarkContainer` class:
+
+- **BookmarkContainer** (`suiteview/ui/widgets/bookmark_widgets.py`): 
+  Unified container class for bookmarks and categories supporting both horizontal (top bar) 
+  and vertical (sidebar) orientations with standardized data interface
+  - `location='bar'` + `orientation='horizontal'` → Top bookmark bar
+  - `location='sidebar'` + `orientation='vertical'` → Quick Links sidebar
+  
+- **CategoryButton**: Draggable button with dropdown popup for category contents
+- **StandaloneBookmarkButton**: Draggable button for individual bookmarks outside categories
+- **CategoryPopup**: Dropdown popup showing category items with drag/drop support
+
+Data storage:
+- Top bar: `~/.suiteview/bookmarks.json` (keys: `bar_items`, `categories`, `category_colors`)
+- Sidebar: `~/.suiteview/quick_links.json` (keys: `items`, `categories`, `category_colors`)
+
 ### Database
 - SQLite database with complete schema:
   - Connections table

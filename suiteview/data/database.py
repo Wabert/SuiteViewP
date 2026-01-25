@@ -211,6 +211,16 @@ class Database:
             )
         """)
 
+        # Bookmark icons cache - stores pre-fetched icons for fast loading
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bookmark_icons (
+                path TEXT PRIMARY KEY,
+                icon_data BLOB NOT NULL,
+                icon_type TEXT NOT NULL,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         conn.commit()
         print(f"Database initialized at: {self.db_path}")
         
@@ -310,6 +320,22 @@ class Database:
             """)
             conn.commit()
             print("Migration completed: database_type column added")
+
+        # Migration 7: Create bookmark_icons table if it doesn't exist
+        try:
+            cursor.execute("SELECT 1 FROM bookmark_icons LIMIT 1")
+        except:
+            print("Running migration: Creating bookmark_icons table")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS bookmark_icons (
+                    path TEXT PRIMARY KEY,
+                    icon_data BLOB NOT NULL,
+                    icon_type TEXT NOT NULL,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+            print("Migration completed: bookmark_icons table created")
 
     def execute(self, query: str, params: tuple = ()):
         """Execute a query and return cursor"""
