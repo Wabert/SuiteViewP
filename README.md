@@ -124,21 +124,39 @@ The application stores its data in your home directory:
   - Right-click category → "🎨 Change Color" to set color
 
 ### Bookmark Architecture
-Both the **top bar** and **sidebar** now use the unified `BookmarkContainer` class:
+All bookmark bars use the unified `BookmarkContainer` class with centralized data storage:
+
+- **BookmarkDataManager** (`suiteview/ui/widgets/bookmark_data_manager.py`):
+  Singleton manager providing unified data storage for all bookmark bars.
+  - Single JSON file: `~/.suiteview/bookmarks.json`
+  - Scalable design supports unlimited bookmark bars
+  - Each bar identified by unique string ID (e.g., `'top_bar'`, `'sidebar'`, `'toolbar_2'`)
+  - Automatic migration from legacy two-file format
 
 - **BookmarkContainer** (`suiteview/ui/widgets/bookmark_widgets.py`): 
   Unified container class for bookmarks and categories supporting both horizontal (top bar) 
   and vertical (sidebar) orientations with standardized data interface
-  - `location='bar'` + `orientation='horizontal'` → Top bookmark bar
+  - `location='top_bar'` + `orientation='horizontal'` → Top bookmark bar
   - `location='sidebar'` + `orientation='vertical'` → Quick Links sidebar
+  - `use_data_manager=True` → Auto-load/save via BookmarkDataManager
   
+- **BookmarkContainerRegistry**: Enables cross-bar drag/drop between any bookmark bars
+
 - **CategoryButton**: Draggable button with dropdown popup for category contents
 - **StandaloneBookmarkButton**: Draggable button for individual bookmarks outside categories
 - **CategoryPopup**: Dropdown popup showing category items with drag/drop support
 
-Data storage:
-- Top bar: `~/.suiteview/bookmarks.json` (keys: `bar_items`, `categories`, `category_colors`)
-- Sidebar: `~/.suiteview/quick_links.json` (keys: `items`, `categories`, `category_colors`)
+Data storage (unified):
+```json
+~/.suiteview/bookmarks.json
+{
+  "bars": {
+    "top_bar": {"items": [...], "categories": {...}, "category_colors": {...}},
+    "sidebar": {"items": [...], "categories": {...}, "category_colors": {...}}
+  },
+  "version": 2
+}
+```
 
 ### Database
 - SQLite database with complete schema:
@@ -148,6 +166,7 @@ Data storage:
   - Unique values cache
   - Saved queries
   - User preferences
+  - Bookmark icons cache
 
 ### Infrastructure
 - Logging system with file rotation

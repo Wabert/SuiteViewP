@@ -6,10 +6,18 @@ This module provides shared bookmark and category widgets used by both:
 - Quick Links sidebar (file_explorer_multitab.py)
 
 Classes:
+- BookmarkDataManager: Singleton for unified bookmark data storage
+- BookmarkContainerRegistry: Registry for cross-bar drag/drop communication
+- BookmarkContainer: Main container widget for bookmarks and categories
 - CategoryButton: Draggable category button with popup support
 - CategoryPopup: Popup window showing category contents
 - CategoryBookmarkButton: Bookmark button inside category popups
-- BookmarkButton: Standalone bookmark button (for bar or sidebar)
+- StandaloneBookmarkButton: Standalone bookmark button (for bar or sidebar)
+
+Scalable Architecture:
+- Bookmark bars are identified by unique string IDs (e.g., 'top_bar', 'sidebar', 'toolbar_2')
+- Single unified JSON file stores all bars: ~/.suiteview/bookmarks.json
+- BookmarkContainerRegistry enables cross-bar drag/drop between any bars
 """
 
 import json
@@ -17,6 +25,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import Optional, Dict, Any, Callable
 
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QFrame, QVBoxLayout, QHBoxLayout,
@@ -2401,6 +2410,16 @@ class BookmarkContainer(QWidget):
     - All BookmarkContainer instances register with BookmarkContainerRegistry
     - When an item is dropped from another container, it's automatically moved
     - Source container is found via the registry and item is removed from it
+    
+    Data Storage Modes:
+    1. Data Manager Mode (recommended for new code):
+       - Set use_data_manager=True
+       - Data is automatically loaded from/saved to the unified bookmarks.json
+       - The 'location' parameter becomes the bar_id in the data file
+    
+    2. Custom Data Store Mode (for backward compatibility):
+       - Provide data_store dict and save_callback
+       - Caller is responsible for loading/saving data
     """
     
     # Signals
@@ -2414,18 +2433,26 @@ class BookmarkContainer(QWidget):
     file_dropped = pyqtSignal(object)     # Emits path/dict when file dropped
     item_reordered = pyqtSignal(int, int) # Emits (old_index, new_index) when item reordered internally
     
-    def __init__(self, location, orientation='horizontal', parent=None,
-                 data_store=None, save_callback=None, items_key='items',
-                 categories_key='categories', colors_key='category_colors'):
+    def __init__(self, location: str, orientation: str = 'horizontal', parent=None,
+                 data_store: Optional[Dict] = None, save_callback: Optional[Callable] = None, 
+                 items_key: str = 'items', categories_key: str = 'categories', 
+                 colors_key: str = 'category_colors', use_data_manager: bool = False):
         """
         Args:
-            location: Identifier for this container ('bar' or 'sidebar')
+            location: Unique identifier for this container (e.g., 'top_bar', 'sidebar', 'toolbar_2')
+                      This becomes the bar_id when using the data manager.
             orientation: 'horizontal' or 'vertical'
             parent: Parent widget
-            data_store: Dict reference for storing data (e.g., bookmarks_data or custom_quick_links)
-            save_callback: Function to call after data changes (e.g., save to disk)
+            
+        Data Storage Options (choose one):
+            use_data_manager: If True, uses the centralized BookmarkDataManager
+                             Data is auto-loaded and auto-saved to ~/.suiteview/bookmarks.json
+                             
+            data_store: Dict reference for storing data (legacy mode)
+                       If provided with save_callback, uses custom storage
+            save_callback: Function to call after data changes (legacy mode)
             items_key: Key in data_store for the ordered items list
-            categories_key: Key in data_store for categories dict
+            categories_key: Key in data_store for categories dict  
             colors_key: Key in data_store for category colors dict
         """
         super().__init__(parent)
@@ -2435,11 +2462,26 @@ class BookmarkContainer(QWidget):
         
         self.location = location
         self.orientation = orientation
-        self.data_store = data_store or {}
-        self.save_callback = save_callback
-        self.items_key = items_key
-        self.categories_key = categories_key
-        self.colors_key = colors_key
+        self.use_data_manager = use_data_manager
+        self._data_manager = None
+        
+        # Set up data storage
+        if use_data_manager:
+            # Use the centralized data manager
+            from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+            self._data_manager = get_bookmark_manager()
+            self.data_store = self._data_manager.get_bar_data(location)
+            self.save_callback = self._data_manager.save
+            self.items_key = 'items'
+            self.categories_key = 'categories'
+            self.colors_key = 'category_colors'
+        else:
+            # Use custom data store (legacy mode)
+            self.data_store = data_store or {}
+            self.save_callback = save_callback
+            self.items_key = items_key
+            self.categories_key = categories_key
+            self.colors_key = colors_key
         
         # Register with the global registry for cross-bar communication
         BookmarkContainerRegistry.register(location, self)
@@ -2996,40 +3038,62 @@ class BookmarkContainer(QWidget):
         
         event.ignore()
     
-    def _is_cross_bar_source(self, source_location):
+    def _is_cross_bar_source(self, source_location: str) -> bool:
         """
         Check if the source location represents a different container than this one.
-        Returns True if the drag is from a different bar/sidebar.
+        Returns True if the drag is from a different bookmark bar.
+        
+        This method supports any bar ID string, not just predefined ones.
+        For backward compatibility, it also normalizes legacy location names.
         """
         if not source_location:
             return False
         
-        # Normalize the source location
-        if source_location in ('bar', 'sidebar'):
-            src_loc = source_location
-        elif 'sidebar' in str(source_location) or 'quick_links' in str(source_location):
-            src_loc = 'sidebar'
-        elif 'bar' in str(source_location):
-            src_loc = 'bar'
-        else:
-            return False
+        # Normalize the source location for backward compatibility
+        # Legacy code may use 'quick_links' or similar names
+        normalized_source = self._normalize_location(source_location)
+        normalized_self = self._normalize_location(self.location)
         
-        # Compare with this container's location
-        return src_loc != self.location
+        # Compare normalized locations
+        return normalized_source != normalized_self
+    
+    def _normalize_location(self, location: str) -> str:
+        """
+        Normalize a location string for comparison.
+        Handles legacy location names for backward compatibility.
+        
+        Returns the normalized location string (bar_id).
+        """
+        if not location:
+            return ''
+        
+        location_str = str(location).lower()
+        
+        # Legacy mappings for backward compatibility
+        # These map old names to new bar_id format
+        legacy_mappings = {
+            'bar': 'top_bar',
+            'sidebar': 'sidebar',
+            'quick_links': 'sidebar',
+        }
+        
+        # Check for legacy names
+        for legacy_name, bar_id in legacy_mappings.items():
+            if legacy_name in location_str:
+                return bar_id
+        
+        # Return as-is if not a legacy name (it's a new-style bar_id)
+        return location
     
     def _handle_cross_bar_bookmark_move(self, bookmark, source_category, source_location, drop_index):
         """
         Handle moving a bookmark from another container to this one.
         Returns True if handled, False to fall back to signal emission.
         """
-        # Determine the source container location
-        if source_location in ('bar', 'sidebar'):
-            src_container_location = source_location
-        elif 'bar' in str(source_location):
-            src_container_location = 'bar'
-        elif 'sidebar' in str(source_location) or 'quick_links' in str(source_location):
-            src_container_location = 'sidebar'
-        else:
+        # Normalize the source location to find the container
+        src_container_location = self._normalize_location(source_location)
+        
+        if not src_container_location:
             return False  # Can't determine source
         
         # Check if this is a standalone bookmark (not from a category)
@@ -3037,13 +3101,17 @@ class BookmarkContainer(QWidget):
         
         # Don't process if source is same as target AND it's a standalone bookmark
         # (internal reordering is handled separately via x-container-item-index)
-        if src_container_location == self.location and is_standalone:
+        normalized_self = self._normalize_location(self.location)
+        if src_container_location == normalized_self and is_standalone:
             return False
         
-        # Get source container from registry
-        source_container = BookmarkContainerRegistry.get(src_container_location)
+        # Get source container from registry - try normalized and original location
+        source_container = BookmarkContainerRegistry.get(source_location)
         if not source_container:
-            logger.warning(f"Source container not found in registry: {src_container_location}")
+            # Try with normalized location
+            source_container = BookmarkContainerRegistry.get(src_container_location)
+        if not source_container:
+            logger.warning(f"Source container not found in registry: {source_location} (normalized: {src_container_location})")
             return False
         
         # Create clean bookmark data
@@ -3063,7 +3131,7 @@ class BookmarkContainer(QWidget):
             # Remove standalone bookmark from source container
             source_container.remove_item_by_path(bookmark.get('path', ''))
         
-        logger.info(f"Moved bookmark '{clean_bookmark['name']}' from {src_container_location} to {self.location}")
+        logger.info(f"Moved bookmark '{clean_bookmark['name']}' from {source_location} to {self.location}")
         return True
     
     def _handle_cross_bar_category_move(self, category_data, drop_index):
@@ -3077,24 +3145,23 @@ class BookmarkContainer(QWidget):
         if not category_name:
             return False
         
-        # Determine the source container location
-        if source_location in ('bar', 'sidebar'):
-            src_container_location = source_location
-        elif 'bar' in str(source_location):
-            src_container_location = 'bar'
-        elif 'sidebar' in str(source_location) or 'quick_links' in str(source_location):
-            src_container_location = 'sidebar'
-        else:
+        # Normalize the source location
+        src_container_location = self._normalize_location(source_location)
+        
+        if not src_container_location:
             return False
         
         # Don't process if source is same as target
-        if src_container_location == self.location:
+        normalized_self = self._normalize_location(self.location)
+        if src_container_location == normalized_self:
             return False
         
-        # Get source container from registry
-        source_container = BookmarkContainerRegistry.get(src_container_location)
+        # Get source container from registry - try original and normalized location
+        source_container = BookmarkContainerRegistry.get(source_location)
         if not source_container:
-            logger.warning(f"Source container not found in registry: {src_container_location}")
+            source_container = BookmarkContainerRegistry.get(src_container_location)
+        if not source_container:
+            logger.warning(f"Source container not found in registry: {source_location} (normalized: {src_container_location})")
             return False
         
         # Get category items from source
