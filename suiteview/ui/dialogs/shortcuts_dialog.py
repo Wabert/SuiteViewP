@@ -142,12 +142,16 @@ def detect_sharepoint_type(url):
 class AddBookmarkDialog(QDialog):
     """Dialog to add a new bookmark"""
     
+    # Signal to highlight a bookmark bar (bar_id or -1 to clear)
+    highlight_bar = None  # Will be set as pyqtSignal
+    
     def __init__(self, categories, parent=None):
         super().__init__(parent)
         self.categories = categories
+        self.parent_widget = parent  # Store reference to parent for bar highlighting
         self.setWindowTitle("Add Bookmark")
         self.setModal(True)
-        self.resize(500, 200)
+        self.resize(500, 220)
         
         # Apply compact styling
         self.setStyleSheet("""
@@ -216,6 +220,21 @@ class AddBookmarkDialog(QDialog):
             QPushButton:default:hover {
                 background-color: #006cc1;
             }
+            QListWidget {
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                font-size: 9pt;
+            }
+            QListWidget::item {
+                padding: 4px 8px;
+            }
+            QListWidget::item:hover {
+                background-color: #e8f0fe;
+            }
+            QListWidget::item:selected {
+                background-color: #0078d4;
+                color: white;
+            }
         """)
         
         layout = QVBoxLayout(self)
@@ -249,23 +268,33 @@ class AddBookmarkDialog(QDialog):
         path_layout.addWidget(self.path_input)
         layout.addLayout(path_layout)
         
-        # Category selection with option to create new
-        category_layout = QHBoxLayout()
-        category_layout.setSpacing(8)
-        category_label = QLabel("Category:")
-        category_label.setFixedWidth(55)
-        category_layout.addWidget(category_label)
-        self.category_combo = QComboBox()
-        self.category_combo.setEditable(True)  # Allow typing new category names
-        self.category_combo.addItems(categories)
-        self.category_combo.lineEdit().setPlaceholderText("Select or type new category")
-        category_layout.addWidget(self.category_combo)
-        layout.addLayout(category_layout)
+        # Location selection (replaces Category)
+        location_layout = QHBoxLayout()
+        location_layout.setSpacing(8)
+        location_label = QLabel("Location:")
+        location_label.setFixedWidth(55)
+        location_layout.addWidget(location_label)
+        
+        # Use QComboBox with custom view for hover highlighting
+        self.location_combo = QComboBox()
+        self.location_combo.setEditable(True)
+        self.location_combo.lineEdit().setPlaceholderText("Select location or type new category")
+        
+        # Populate locations dynamically
+        self._populate_locations()
+        
+        # Connect to highlight bars on hover - enable mouse tracking for the view
+        self.location_combo.view().setMouseTracking(True)
+        self.location_combo.view().entered.connect(self._on_location_hover)
+        self.location_combo.view().viewport().installEventFilter(self)
+        
+        location_layout.addWidget(self.location_combo)
+        layout.addLayout(location_layout)
         
         # Hint for new category creation
-        category_hint = QLabel("💡 Type a new name to create a new category")
-        category_hint.setStyleSheet("color: #666; font-size: 8pt; margin-left: 63px;")
-        layout.addWidget(category_hint)
+        location_hint = QLabel("💡 Type a new name to create a new category")
+        location_hint.setStyleSheet("color: #666; font-size: 8pt; margin-left: 63px;")
+        layout.addWidget(location_hint)
         
         # Open in App checkbox (for SharePoint files)
         from PyQt6.QtWidgets import QCheckBox
@@ -296,12 +325,111 @@ class AddBookmarkDialog(QDialog):
         
         layout.addLayout(button_layout)
     
+    def _populate_locations(self):
+        """Populate location combo with all bars and categories dynamically"""
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        from suiteview.ui.widgets.bookmark_widgets import BookmarkContainerRegistry
+        
+        self.location_combo.clear()
+        self._bar_ids = []  # Track which items are bookmark bars
+        self._location_to_bar_id = {}  # Map location text to bar_id
+        
+        manager = get_bookmark_manager()
+        all_bar_ids = manager.get_all_bar_ids()
+        
+        # Add bookmark bars first (Bookmark 0, Bookmark 1, etc.)
+        for bar_id in sorted(all_bar_ids):
+            label = f"📌 Bookmark Bar {bar_id}"
+            self.location_combo.addItem(label)
+            self._bar_ids.append(self.location_combo.count() - 1)  # Track index
+            self._location_to_bar_id[label] = bar_id
+        
+        # Collect all unique categories from all bars
+        all_categories = set()
+        for bar_id in all_bar_ids:
+            bar_data = manager.get_bar_data(bar_id)
+            categories = bar_data.get('categories', {})
+            all_categories.update(categories.keys())
+        
+        # Add separator if we have both bars and categories
+        if all_bar_ids and all_categories:
+            self.location_combo.insertSeparator(self.location_combo.count())
+        
+        # Add categories in alphabetical order
+        for category in sorted(all_categories, key=str.lower):
+            self.location_combo.addItem(f"📁 {category}")
+    
+    def _on_location_hover(self, index):
+        """Handle hover over location items to highlight bookmark bars"""
+        item_index = index.row()
+        
+        # Check if this is a bookmark bar item
+        if item_index in self._bar_ids:
+            bar_id = list(self._location_to_bar_id.values())[self._bar_ids.index(item_index)]
+            self._highlight_bookmark_bar(bar_id)
+        else:
+            # Clear any highlight
+            self._highlight_bookmark_bar(-1)
+    
+    def _highlight_bookmark_bar(self, bar_id: int):
+        """Highlight a bookmark bar or clear highlight if bar_id is -1"""
+        from suiteview.ui.widgets.bookmark_widgets import BookmarkContainerRegistry
+        
+        # Clear all highlights first
+        for bid, container in BookmarkContainerRegistry.get_all().items():
+            if hasattr(container, 'set_highlight'):
+                container.set_highlight(False)
+        
+        # Apply highlight to specified bar
+        if bar_id >= 0:
+            container = BookmarkContainerRegistry.get(bar_id)
+            if container and hasattr(container, 'set_highlight'):
+                container.set_highlight(True)
+    
+    def eventFilter(self, obj, event):
+        """Event filter to clear highlight when mouse leaves combo popup"""
+        from PyQt6.QtCore import QEvent
+        if event.type() == QEvent.Type.Leave:
+            self._highlight_bookmark_bar(-1)
+        return super().eventFilter(obj, event)
+    
+    def hideEvent(self, event):
+        """Clear highlight when dialog is hidden"""
+        self._highlight_bookmark_bar(-1)
+        super().hideEvent(event)
+    
+    def closeEvent(self, event):
+        """Clear highlight when dialog is closed"""
+        self._highlight_bookmark_bar(-1)
+        super().closeEvent(event)
+    
     def get_bookmark_data(self):
         """Return the bookmark data"""
+        location_text = self.location_combo.currentText()
+        
+        # Determine if it's a bookmark bar or category
+        category = None
+        target_bar_id = None
+        
+        if location_text.startswith("📌 Bookmark Bar "):
+            # It's a bookmark bar - extract bar ID
+            try:
+                target_bar_id = int(location_text.replace("📌 Bookmark Bar ", ""))
+            except ValueError:
+                target_bar_id = 0  # Default to bar 0
+            category = "__BAR__"  # Special marker for bar items
+        elif location_text.startswith("📁 "):
+            # It's an existing category
+            category = location_text[2:].strip()  # Remove emoji prefix
+        else:
+            # It's a new category name (user typed it)
+            category = location_text.strip()
+        
         return {
             'name': self.name_input.text().strip(),
             'path': self.path_input.text().strip(),
-            'category': self.category_combo.currentText(),
+            'category': category,
+            'target_bar_id': target_bar_id,  # New field for bar selection
             'type': self.detect_type(self.path_input.text().strip()),
             'open_in_app': self.open_in_app_checkbox.isChecked()
         }
@@ -1031,9 +1159,11 @@ class BookmarksDialog(QDialog):
         # Install event filter to handle mouse tracking on child widgets
         self.installEventFilter(self)
         
-        # Load bookmarks data
-        self.bookmarks_file = Path.home() / ".suiteview" / "bookmarks.json"
-        self.bookmarks_data = self.load_bookmarks()
+        # Load bookmarks data via centralized manager
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        self._bookmark_manager = get_bookmark_manager()
+        # Bar 0 = horizontal top bar
+        self.bookmarks_data = self._bookmark_manager.get_bar_data(0)
         
         self.init_ui()
         
@@ -1340,11 +1470,9 @@ class BookmarksDialog(QDialog):
         }
     
     def save_bookmarks(self):
-        """Save bookmarks to JSON file"""
+        """Save bookmarks via centralized data manager"""
         try:
-            self.bookmarks_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.bookmarks_file, 'w') as f:
-                json.dump(self.bookmarks_data, f, indent=2)
+            self._bookmark_manager.save()
         except Exception as e:
             logger.error(f"Error saving bookmarks: {e}")
             QMessageBox.warning(self, "Error", f"Failed to save bookmarks: {str(e)}")
@@ -1773,7 +1901,7 @@ class BookmarksDialog(QDialog):
             self.refresh_categories()
 
 
-class BookmarkBar(QWidget):
+class BookmarkBar(QFrame):
     """Browser-style bookmark bar - horizontal layout with category dropdowns and quick access bookmarks"""
     
     navigate_to_path = pyqtSignal(str)  # Signal to navigate file explorer to a path
@@ -1813,11 +1941,16 @@ class BookmarkBar(QWidget):
     def init_ui(self):
         """Initialize the bookmark bar UI"""
         # Set fixed height like browser bookmark bars
-        self.setFixedHeight(34)
+        self.setFixedHeight(36)
+        self.setObjectName("bookmarkBar")
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setFrameShadow(QFrame.Shadow.Raised)
+        # Visible border to delineate the bookmark bar
         self.setStyleSheet("""
-            QWidget {
-                background-color: #F8F8F8;
-                border-bottom: 1px solid #D4D4D4;
+            QFrame#bookmarkBar {
+                background-color: #E8EEF5;
+                border: 2px solid #6B8DC9;
+                border-radius: 4px;
             }
         """)
         
@@ -1826,46 +1959,12 @@ class BookmarkBar(QWidget):
         layout.setContentsMargins(6, 3, 6, 3)
         layout.setSpacing(1)
         
-        # [+] Add bookmark button at the very left (star icon)
-        add_btn = QPushButton("⭐")
-        add_btn.setToolTip("Add bookmark (Ctrl+D)")
-        add_btn.setFixedSize(28, 28)
-        add_btn.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: 1px solid transparent;
-                border-radius: 4px;
-                font-size: 13pt;
-                padding: 0px;
-            }
-            QPushButton:hover {
-                background-color: #E0E0E0;
-                border-color: #C0C0C0;
-            }
-            QPushButton:pressed {
-                background-color: #D0D0D0;
-            }
-        """)
-        add_btn.clicked.connect(self.add_bookmark)
-        layout.addWidget(add_btn)
-        
-        # Small separator
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setStyleSheet("color: #D4D4D4; margin: 2px 4px;")
-        separator.setFixedWidth(1)
-        layout.addWidget(separator)
-        
         # Create unified BookmarkContainer for the bar
+        # Bar ID 0 = horizontal top bar (by convention)
         self.bookmark_container = BookmarkContainer(
-            location='bar',
+            bar_id=0,
             orientation='horizontal',
-            parent=self,
-            data_store=self.bookmarks_data,
-            save_callback=self.save_bookmarks,
-            items_key='bar_items',
-            categories_key='categories',
-            colors_key='category_colors'
+            parent=self
         )
         
         # Connect signals from BookmarkContainer
@@ -2065,6 +2164,18 @@ class BookmarkBar(QWidget):
             try:
                 with open(self.bookmarks_file, 'r') as f:
                     data = json.load(f)
+                    
+                    # Handle new unified format with 'bars' structure
+                    if 'bars' in data and 'top_bar' in data.get('bars', {}):
+                        top_bar_data = data['bars']['top_bar']
+                        # Convert 'items' to 'bar_items' for compatibility
+                        result = {
+                            'categories': top_bar_data.get('categories', {}),
+                            'category_colors': top_bar_data.get('category_colors', {}),
+                            'bar_items': top_bar_data.get('items', top_bar_data.get('bar_items', []))
+                        }
+                        return result
+                    
                     # Migrate old format to new format if needed
                     if 'bar_items' not in data:
                         # Convert old bar_bookmarks to new bar_items format
@@ -2102,11 +2213,30 @@ class BookmarkBar(QWidget):
         }
     
     def save_bookmarks(self):
-        """Save bookmarks to JSON file"""
+        """Save bookmarks to JSON file in unified format"""
         try:
             self.bookmarks_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Load existing file to preserve sidebar data
+            existing_data = {'bars': {}, 'version': 2}
+            if self.bookmarks_file.exists():
+                try:
+                    with open(self.bookmarks_file, 'r') as f:
+                        existing_data = json.load(f)
+                        if 'bars' not in existing_data:
+                            existing_data = {'bars': {}, 'version': 2}
+                except:
+                    pass
+            
+            # Update top_bar data in unified format
+            existing_data['bars']['top_bar'] = {
+                'items': self.bookmarks_data.get('bar_items', []),
+                'categories': self.bookmarks_data.get('categories', {}),
+                'category_colors': self.bookmarks_data.get('category_colors', {})
+            }
+            
             with open(self.bookmarks_file, 'w') as f:
-                json.dump(self.bookmarks_data, f, indent=2)
+                json.dump(existing_data, f, indent=2)
         except Exception as e:
             logger.error(f"Error saving bookmarks: {e}")
             QMessageBox.warning(self, "Error", f"Failed to save bookmarks: {str(e)}")
@@ -2382,25 +2512,42 @@ class BookmarkBar(QWidget):
     def add_bookmark(self):
         """Show add bookmark dialog"""
         categories = list(self.bookmarks_data['categories'].keys())
-        categories.insert(0, "📌 Quick Access (Bar)")  # Option to add directly to bar
         
         dialog = AddBookmarkDialog(categories, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             bookmark = dialog.get_bookmark_data()
             if bookmark['name'] and bookmark['path']:
                 category = bookmark['category']
+                target_bar_id = bookmark.get('target_bar_id')
                 
-                # Remove the category from bookmark data for storage
+                # Remove the category and target_bar_id from bookmark data for storage
                 del bookmark['category']
+                if 'target_bar_id' in bookmark:
+                    del bookmark['target_bar_id']
                 
-                if category == "📌 Quick Access (Bar)":
-                    # Add to bar items as individual bookmark
-                    self.bookmarks_data['bar_items'].append({
+                if category == "__BAR__" and target_bar_id is not None:
+                    # Add directly to a specific bookmark bar
+                    from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+                    from suiteview.ui.widgets.bookmark_widgets import BookmarkContainerRegistry
+                    
+                    manager = get_bookmark_manager()
+                    bar_data = manager.get_bar_data(target_bar_id)
+                    
+                    # Add to the bar's items
+                    if 'items' not in bar_data:
+                        bar_data['items'] = []
+                    bar_data['items'].append({
                         'type': 'bookmark',
                         'data': bookmark
                     })
+                    
+                    # Save and refresh the target bar
+                    manager.save()
+                    target_container = BookmarkContainerRegistry.get(target_bar_id)
+                    if target_container:
+                        target_container.refresh()
                 else:
-                    # Add to category (create if new)
+                    # Add to category (in the current bar, bar 0)
                     if category not in self.bookmarks_data['categories']:
                         self.bookmarks_data['categories'][category] = []
                         # Add category to bar_items if it's new
@@ -2409,9 +2556,9 @@ class BookmarkBar(QWidget):
                             'name': category
                         })
                     self.bookmarks_data['categories'][category].append(bookmark)
-                
-                self.save_bookmarks()
-                self.refresh_bookmarks()
+                    
+                    self.save_bookmarks()
+                    self.refresh_bookmarks()
     
     def show_bookmark_context_menu(self, pos, bookmark_data, button, is_bar_bookmark=False):
         """Show context menu for a bookmark button"""

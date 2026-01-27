@@ -169,7 +169,7 @@ class DropTreeView(QTreeView):
         event.ignore()
     
     def dropEvent(self, event: QDropEvent):
-        """Handle drop - copy files to target folder"""
+        """Handle drop - copy files to target folder, but ignore same-view drops entirely"""
         if not event.mimeData().hasUrls():
             event.ignore()
             return
@@ -185,6 +185,19 @@ class DropTreeView(QTreeView):
         if not dropped_files:
             event.ignore()
             return
+        
+        # SAFETY: If dropping within the same current folder view, ignore completely
+        # This prevents accidental copies/moves when dragging and dropping in details view
+        if self._current_folder:
+            current_folder_resolved = str(Path(self._current_folder).resolve()).lower()
+            
+            for dropped_path in dropped_files:
+                dropped_parent = str(Path(dropped_path).resolve().parent).lower()
+                
+                # If the dropped item came from the current folder, ignore the drop entirely
+                if dropped_parent == current_folder_resolved:
+                    event.ignore()
+                    return
         
         # Determine destination folder
         dest_folder = None
@@ -210,7 +223,30 @@ class DropTreeView(QTreeView):
             dest_folder = self._current_folder
         
         if dest_folder and os.path.isdir(dest_folder):
-            # Emit signal with dropped files and destination
+            # Additional safety checks
+            dest_folder_resolved = str(Path(dest_folder).resolve()).lower()
+            
+            for dropped_path in dropped_files:
+                dropped_resolved = str(Path(dropped_path).resolve()).lower()
+                dropped_parent = str(Path(dropped_path).resolve().parent).lower()
+                
+                # Case 1: Dropping item onto itself
+                if dropped_resolved == dest_folder_resolved:
+                    event.ignore()
+                    return
+                
+                # Case 2: Item is already in the destination folder
+                if dropped_parent == dest_folder_resolved:
+                    event.ignore()
+                    return
+                
+                # Case 3: Trying to drop a folder into itself (would cause recursion)
+                if os.path.isdir(dropped_path):
+                    if dest_folder_resolved.startswith(dropped_resolved + os.sep):
+                        event.ignore()
+                        return
+            
+            # Safe to proceed - emit signal with dropped files and destination
             self.files_dropped.emit(dropped_files, dest_folder)
             event.acceptProposedAction()
         else:
@@ -256,7 +292,7 @@ class DropFolderTreeView(QTreeView):
         event.ignore()
     
     def dropEvent(self, event: QDropEvent):
-        """Handle drop - copy files to target folder"""
+        """Handle drop - copy files to target folder, but ignore same-folder drops"""
         if not event.mimeData().hasUrls():
             event.ignore()
             return
@@ -284,8 +320,33 @@ class DropFolderTreeView(QTreeView):
             event.ignore()
             return
         
-        # Emit signal with dropped files and destination
-        self.files_dropped.emit(dropped_files, path)
+        dest_folder = path
+        
+        # SAFETY CHECK: Prevent same-folder drops to avoid accidental moves/copies
+        dest_folder_resolved = str(Path(dest_folder).resolve()).lower()
+        
+        for dropped_path in dropped_files:
+            dropped_resolved = str(Path(dropped_path).resolve()).lower()
+            dropped_parent = str(Path(dropped_path).resolve().parent).lower()
+            
+            # Case 1: Dropping item onto itself
+            if dropped_resolved == dest_folder_resolved:
+                event.ignore()
+                return
+            
+            # Case 2: Item is already in the destination folder
+            if dropped_parent == dest_folder_resolved:
+                event.ignore()
+                return
+            
+            # Case 3: Trying to drop a folder into itself (would cause recursion)
+            if os.path.isdir(dropped_path):
+                if dest_folder_resolved.startswith(dropped_resolved + os.sep):
+                    event.ignore()
+                    return
+        
+        # Safe to proceed - emit signal with dropped files and destination
+        self.files_dropped.emit(dropped_files, dest_folder)
         event.acceptProposedAction()
 
 
@@ -686,9 +747,11 @@ class FileExplorerCore(QWidget):
         # Folder-specific search terms
         self.folder_search_terms = {}  # Cache: {folder_path: search_text}
         
-        # Load custom quick links
-        self.quick_links_file = Path.home() / ".suiteview" / "quick_links.json"
-        self.custom_quick_links = self.load_quick_links()
+        # Load custom quick links via centralized bookmark manager
+        # Bar ID 1 = sidebar (by convention)
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        self._bookmark_manager = get_bookmark_manager()
+        self.custom_quick_links = self._bookmark_manager.get_bar_data(1)
         
         # Load hidden OneDrive paths
         self.hidden_onedrive_file = Path.home() / ".suiteview" / "hidden_onedrive.json"
@@ -871,6 +934,12 @@ class FileExplorerCore(QWidget):
         self.toolbar.setMovable(False)
         self._apply_compact_toolbar_style(self.toolbar)
         
+        # Add Bookmark (star icon) - first item on toolbar
+        add_bookmark_action = QAction("⭐ Add Bookmark", self)
+        add_bookmark_action.setToolTip("Add bookmark (Ctrl+D)")
+        add_bookmark_action.triggered.connect(self._add_bookmark)
+        self.toolbar.addAction(add_bookmark_action)
+        
         # Print Directory to Excel
         print_dir_action = QAction("Print Directory", self)
         print_dir_action.setToolTip("Export directory structure to Excel")
@@ -895,6 +964,11 @@ class FileExplorerCore(QWidget):
         self.toolbar.addAction(explorer_action)
         
         return self.toolbar
+
+    def _add_bookmark(self):
+        """Show add bookmark dialog (called from toolbar button)"""
+        if hasattr(self, 'bookmark_bar'):
+            self.bookmark_bar.add_bookmark()
 
     def _apply_compact_toolbar_style(self, toolbar: QToolBar, locked: bool = False) -> None:
         """Apply toolbar styling with optional orange background when locked."""
@@ -943,6 +1017,14 @@ class FileExplorerCore(QWidget):
             }}
             """
         )
+
+    def _apply_depth_search_locked_style(self, locked: bool = False) -> None:
+        """Apply locked/unlocked style for depth search.
+        
+        Base implementation does nothing. FileExplorerTab overrides this
+        to change the breadcrumb bar color when depth search is locked.
+        """
+        pass
 
     def _create_nav_button(self, icon: QIcon, tooltip: str, handler) -> QToolButton:
         """Build a breadcrumb-nav button with a clear icon."""
@@ -1174,9 +1256,10 @@ class FileExplorerCore(QWidget):
         return item
             
     def get_onedrive_paths(self):
-        """Get all OneDrive paths (deduplicated)"""
+        """Get all OneDrive paths (deduplicated, prefer business OneDrive)"""
         onedrive_paths = []
         seen_paths = set()
+        has_business_onedrive = False
         
         # Check environment variables - prioritize business OneDrive
         for env_var in ['OneDriveCommercial', 'OneDrive', 'OneDriveConsumer']:
@@ -1187,17 +1270,30 @@ class FileExplorerCore(QWidget):
                 if path_str not in seen_paths:
                     seen_paths.add(path_str)
                     onedrive_paths.append(path_obj)
+                    # Check if this is a business OneDrive (contains company name)
+                    if ' - ' in path_obj.name:
+                        has_business_onedrive = True
         
-        # Check common locations - only if not already found
+        # Check common locations - only if not already found via environment variables
         home = Path.home()
-        possible_paths = [
-            home / "OneDrive - American National Insurance Company",
-            home / "OneDrive",
-        ]
         
-        for path in possible_paths:
-            if path.exists():
-                path_resolved = path.resolve()
+        # First check for business OneDrive with company name pattern
+        business_onedrive_found = False
+        for item in home.iterdir():
+            if item.is_dir() and item.name.startswith("OneDrive - "):
+                path_resolved = item.resolve()
+                path_str = str(path_resolved).lower()
+                if path_str not in seen_paths:
+                    seen_paths.add(path_str)
+                    onedrive_paths.append(path_resolved)
+                    business_onedrive_found = True
+                    has_business_onedrive = True
+        
+        # Only add generic "OneDrive" if no business OneDrive was found
+        if not has_business_onedrive:
+            generic_onedrive = home / "OneDrive"
+            if generic_onedrive.exists():
+                path_resolved = generic_onedrive.resolve()
                 path_str = str(path_resolved).lower()
                 if path_str not in seen_paths:
                     seen_paths.add(path_str)
@@ -1823,8 +1919,8 @@ class FileExplorerCore(QWidget):
             if hasattr(self, 'tree_view'):
                 self.tree_view.setEnabled(True)
             
-            # Restore normal toolbar color
-            self._apply_compact_toolbar_style(self.toolbar, locked=False)
+            # Restore normal breadcrumb bar style
+            self._apply_depth_search_locked_style(locked=False)
             
             # Clear cache and search folder
             self.depth_search_cache.clear()
@@ -2054,24 +2150,24 @@ class FileExplorerCore(QWidget):
             if hasattr(self, 'tree_view'):
                 self.tree_view.setEnabled(False)
             
-            # Change toolbar to orange
-            self._apply_compact_toolbar_style(self.toolbar, locked=True)
+            # Change breadcrumb bar to red (if available in FileExplorerTab)
+            self._apply_depth_search_locked_style(locked=True)
             
-            # Change button to "On"
+            # Change button to "On" with red background
             self.depth_toggle_btn.setText("On")
             self.depth_toggle_btn.setToolTip("Depth search is on (click to turn off)")
             self.depth_toggle_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #FFB366;
-                    border: 1px solid #FF8C00;
+                    background-color: #FF6B6B;
+                    border: 1px solid #CC4444;
                     border-radius: 3px;
                     padding: 2px 6px;
                     font-size: 9pt;
-                    color: #1A3A6E;
+                    color: #FFFFFF;
                     font-weight: bold;
                 }
                 QPushButton:hover {
-                    background-color: #FFC080;
+                    background-color: #FF8888;
                 }
             """)
         else:
@@ -2101,24 +2197,24 @@ class FileExplorerCore(QWidget):
                 if hasattr(self, 'tree_view'):
                     self.tree_view.setEnabled(False)
                 
-                # Change toolbar to orange
-                self._apply_compact_toolbar_style(self.toolbar, locked=True)
+                # Change breadcrumb bar to red (if available in FileExplorerTab)
+                self._apply_depth_search_locked_style(locked=True)
                 
-                # Change button to "On"
+                # Change button to "On" with red background
                 self.depth_toggle_btn.setText("On")
                 self.depth_toggle_btn.setToolTip("Depth search is on (click to turn off)")
                 self.depth_toggle_btn.setStyleSheet("""
                     QPushButton {
-                        background-color: #FFB366;
-                        border: 1px solid #FF8C00;
+                        background-color: #FF6B6B;
+                        border: 1px solid #CC4444;
                         border-radius: 3px;
                         padding: 2px 6px;
                         font-size: 9pt;
-                        color: #1A3A6E;
+                        color: #FFFFFF;
                         font-weight: bold;
                     }
                     QPushButton:hover {
-                        background-color: #FFC080;
+                        background-color: #FF8888;
                     }
                 """)
             else:
@@ -2720,21 +2816,11 @@ class FileExplorerCore(QWidget):
         open_explorer_action = menu.addAction("📂 Open in File Explorer")
         open_explorer_action.triggered.connect(lambda: self.open_path_in_explorer(path))
         
-        menu.addSeparator()
-        
-        # Add to Quick Links (if not already a custom link and is top-level)
-        if not is_custom_link and is_top_level:
-            add_quick_link_action = menu.addAction("📌 Add to Quick Links")
-            add_quick_link_action.triggered.connect(lambda: self.add_to_quick_links(path))
-        
-        # Remove from Quick Links (only for top-level custom links)
+        # Remove from Sidebar Bookmarks (only for top-level custom links)
         if is_custom_link and is_top_level:
-            remove_action = menu.addAction("📌 Remove from Quick Links")
+            menu.addSeparator()
+            remove_action = menu.addAction("📌 Remove from Sidebar Bookmarks")
             remove_action.triggered.connect(lambda: self.remove_quick_link_by_path(path))
-        
-        # Add to Bookmarks (pass None for name to auto-derive without icon)
-        add_bookmark_action = menu.addAction("⭐ Add to Bookmarks")
-        add_bookmark_action.triggered.connect(lambda: self.add_to_bookmarks(path, None))
         
         # Show menu
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
@@ -2770,16 +2856,6 @@ class FileExplorerCore(QWidget):
                     # Open folder location (navigate to parent folder in File Nav)
                     open_folder_action = menu.addAction("📂 Open Folder Location")
                     open_folder_action.triggered.connect(lambda: self.open_folder_location_in_file_nav(path))
-                    
-                    menu.addSeparator()
-                    
-                    # Add to Quick Links
-                    add_quick_link_action = menu.addAction("📌 Add to Quick Links")
-                    add_quick_link_action.triggered.connect(lambda: self.add_to_quick_links(path))
-                    
-                    # Add to Bookmarks (pass None for name to auto-derive without icon)
-                    add_bookmark_action = menu.addAction("⭐ Add to Bookmarks")
-                    add_bookmark_action.triggered.connect(lambda: self.add_to_bookmarks(path, None))
                     
                     menu.addSeparator()
                     
@@ -3344,6 +3420,38 @@ class FileExplorerCore(QWidget):
             logger.info(f"Ignored drop operation - files dropped in same folder")
             return
         
+        # Check if any folders are being moved and ask for confirmation
+        folders_to_move = []
+        files_to_copy = []
+        for file_path in file_paths:
+            source = Path(file_path)
+            if source.is_dir():
+                folders_to_move.append(source)
+            else:
+                files_to_copy.append(source)
+        
+        # If folders are being moved, ask for confirmation
+        if folders_to_move:
+            dest_name = Path(dest_folder).name
+            if len(folders_to_move) == 1:
+                folder_name = folders_to_move[0].name
+                confirm_msg = f"Move folder '{folder_name}' into '{dest_name}'?"
+            else:
+                folder_names = ", ".join([f.name for f in folders_to_move[:3]])
+                if len(folders_to_move) > 3:
+                    folder_names += f", ... ({len(folders_to_move)} folders total)"
+                confirm_msg = f"Move folders {folder_names} into '{dest_name}'?"
+            
+            reply = QMessageBox.question(
+                self, "Confirm Folder Move",
+                confirm_msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            
+            if reply != QMessageBox.StandardButton.Yes:
+                logger.info("User cancelled folder move operation")
+                return
+        
         success_count = 0
         error_count = 0
         
@@ -3526,10 +3634,9 @@ class FileExplorerCore(QWidget):
                     is_custom_link = True
                 selected_path = item.data(Qt.ItemDataRole.UserRole)
         
-        # Quick link and explorer actions first
-        add_to_quick = menu.addAction("📌 Add to Quick Links")
+        # Remove from Sidebar Bookmarks (only for custom links)
         if is_custom_link:
-            remove_from_quick = menu.addAction("❌ Remove from Quick Links")
+            remove_from_quick = menu.addAction("❌ Remove from Sidebar Bookmarks")
         else:
             remove_from_quick = None
         
@@ -3558,8 +3665,6 @@ class FileExplorerCore(QWidget):
             self.rename_file()
         elif action == delete_action:
             self.delete_file()
-        elif action == add_to_quick:
-            self.add_to_quick_access()
         elif action == remove_from_quick:
             self.remove_from_quick_access()
         elif action == explorer_action:
@@ -3632,64 +3737,51 @@ class FileExplorerCore(QWidget):
             )
     
     def load_quick_links(self):
-        """Load custom quick links from JSON file
+        """Load sidebar quick links from unified bookmarks.json file
         
-        New structured format:
+        Reads from bars.sidebar in the unified format:
         {
-            'categories': {'Category Name': [{'name': '...', 'path': '...', 'type': 'file|folder'}, ...]},
-            'items': [
-                {'type': 'bookmark', 'data': {'name': '...', 'path': '...', 'type': 'file|folder'}},
-                {'type': 'category', 'name': 'Category Name'}
-            ]
+            'bars': {
+                'sidebar': {
+                    'categories': {'Category Name': [{'name': '...', 'path': '...', 'type': 'file|folder'}, ...]},
+                    'items': [...],
+                    'category_colors': {...}
+                }
+            },
+            'version': 2
         }
         """
         try:
-            if self.quick_links_file.exists():
-                with open(self.quick_links_file, 'r') as f:
+            if self.bookmarks_file.exists():
+                with open(self.bookmarks_file, 'r') as f:
                     data = json.load(f)
                     
-                    # Check if it's the old format (simple list of paths)
-                    if isinstance(data, list):
-                        # Migrate old format to new structured format
-                        items = []
-                        for path in data:
-                            path_obj = Path(path)
-                            items.append({
-                                'type': 'bookmark',
-                                'data': {
-                                    'name': path_obj.name,
-                                    'path': path,
-                                    'type': 'folder' if path_obj.is_dir() else 'file'
-                                }
-                            })
-                        return {
-                            'categories': {},
-                            'items': items
-                        }
+                    # Read from unified format: bars.sidebar
+                    if 'bars' in data and 'sidebar' in data['bars']:
+                        sidebar_data = data['bars']['sidebar']
+                        # Ensure structure has required keys
+                        if 'categories' not in sidebar_data:
+                            sidebar_data['categories'] = {}
+                        if 'items' not in sidebar_data:
+                            sidebar_data['items'] = []
+                        if 'category_colors' not in sidebar_data:
+                            sidebar_data['category_colors'] = {}
+                        return sidebar_data
                     
-                    # Ensure structure has required keys
-                    if 'categories' not in data:
-                        data['categories'] = {}
-                    if 'items' not in data:
-                        data['items'] = []
-                    
-                    return data
         except Exception as e:
             logger.error(f"Failed to load quick links: {e}")
         
         # Default structure
         return {
             'categories': {},
-            'items': []
+            'items': [],
+            'category_colors': {}
         }
     
     def save_quick_links(self):
-        """Save custom quick links to JSON file"""
+        """Save sidebar quick links via centralized bookmark manager"""
         try:
-            # Ensure directory exists
-            self.quick_links_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.quick_links_file, 'w') as f:
-                json.dump(self.custom_quick_links, f, indent=2)
+            self._bookmark_manager.save()
         except Exception as e:
             logger.error(f"Failed to save quick links: {e}")
     
@@ -3968,9 +4060,9 @@ class FileExplorerCore(QWidget):
                 # Refresh Quick Links panel if it exists
                 if hasattr(self, 'refresh_quick_links'):
                     self.refresh_quick_links()
-                QMessageBox.information(self, "Quick Links", f"Removed from Quick Links:\n{Path(path).name}")
+                QMessageBox.information(self, "Bookmarks", f"Removed from Bookmarks:\n{Path(path).name}")
         else:
-            QMessageBox.warning(self, "Quick Links", "This item is not in Quick Links")
+            QMessageBox.warning(self, "Bookmarks", "This item is not in Bookmarks")
     
     def remove_quick_link_by_path(self, path):
         """Remove a specific path from Quick Links (used by context menu)"""
@@ -3978,7 +4070,7 @@ class FileExplorerCore(QWidget):
         
         if self.is_path_in_quick_links(path):
             # Show confirmation dialog
-            if show_compact_confirm(self, "Remove Quick Link", f"Remove '{Path(path).name}'?"):
+            if show_compact_confirm(self, "Remove Bookmark", f"Remove '{Path(path).name}'?"):
                 self.remove_bookmark_from_quick_links(path)
                 
                 # Refresh Quick Links panel if it exists
@@ -4051,7 +4143,6 @@ class FileExplorerCore(QWidget):
             from suiteview.ui.dialogs.shortcuts_dialog import AddBookmarkDialog
             
             categories = list(self.bookmark_bar.bookmarks_data['categories'].keys())
-            categories.insert(0, "📌 Quick Access (Bar)")
             
             dialog = AddBookmarkDialog(categories, self)
             
@@ -4066,22 +4157,47 @@ class FileExplorerCore(QWidget):
                 bookmark = dialog.get_bookmark_data()
                 if bookmark['name'] and bookmark['path']:
                     category = bookmark['category']
-                    del bookmark['category']
+                    target_bar_id = bookmark.get('target_bar_id')
                     
-                    if category == "📌 Quick Access (Bar)":
-                        # Add to bar_items as a bookmark item
-                        bar_item = {
+                    # Remove the category and target_bar_id from bookmark data for storage
+                    del bookmark['category']
+                    if 'target_bar_id' in bookmark:
+                        del bookmark['target_bar_id']
+                    
+                    if category == "__BAR__" and target_bar_id is not None:
+                        # Add directly to a specific bookmark bar
+                        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+                        from suiteview.ui.widgets.bookmark_widgets import BookmarkContainerRegistry
+                        
+                        manager = get_bookmark_manager()
+                        bar_data = manager.get_bar_data(target_bar_id)
+                        
+                        # Add to the bar's items
+                        if 'items' not in bar_data:
+                            bar_data['items'] = []
+                        bar_data['items'].append({
                             'type': 'bookmark',
                             'data': bookmark
-                        }
-                        self.bookmark_bar.bookmarks_data['bar_items'].append(bar_item)
+                        })
+                        
+                        # Save and refresh the target bar
+                        manager.save()
+                        target_container = BookmarkContainerRegistry.get(target_bar_id)
+                        if target_container:
+                            target_container.refresh()
                     else:
+                        # Add to category (in the current bar, bar 0)
                         if category not in self.bookmark_bar.bookmarks_data['categories']:
                             self.bookmark_bar.bookmarks_data['categories'][category] = []
+                            # Add category to bar_items if it's new
+                            self.bookmark_bar.bookmarks_data['bar_items'].append({
+                                'type': 'category',
+                                'name': category
+                            })
                         self.bookmark_bar.bookmarks_data['categories'][category].append(bookmark)
-                    
-                    self.bookmark_bar.save_bookmarks()
-                    self.bookmark_bar.refresh_bookmarks()
+                        
+                        self.bookmark_bar.save_bookmarks()
+                        self.bookmark_bar.refresh_bookmarks()
     
     def print_directory_to_excel(self):
         """Export current directory structure directly to Excel (no file saved)"""

@@ -52,6 +52,9 @@ logs/
 # pytest
 .pytest_cache/
 
+# Node.js
+node_modules/
+
 # Test data (optional - uncomment if you don't want to track test files)
 # test_data/
 # *.xlsx

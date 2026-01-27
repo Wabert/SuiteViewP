@@ -258,12 +258,17 @@ class FileExplorerTab(FileExplorerCore):
         self.insert_breadcrumb_bar()
         
         # Only navigate if initial path is explicitly provided
-        # Otherwise, stay at root level with Quick Links
+        # Otherwise, navigate to OneDrive by default
         if initial_path:
             self.navigate_to_path(initial_path)
         else:
-            # Stay at root level - don't navigate anywhere
-            self.update_breadcrumb("Quick Links")
+            # Navigate to OneDrive as the default starting location
+            onedrive_paths = self.get_onedrive_paths()
+            if onedrive_paths:
+                self.navigate_to_path(str(onedrive_paths[0]))
+            else:
+                # Fallback to home directory if OneDrive not available
+                self.navigate_to_path(str(Path.home()))
         
         # Set up keyboard shortcuts
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -323,8 +328,8 @@ class FileExplorerTab(FileExplorerCore):
         panel_layout.setContentsMargins(0, 0, 0, 0)
         panel_layout.setSpacing(0)
         
-        # Add "Quick Links" header - matching other panel headers with 3D effect
-        header_label = QLabel("Quick Links")
+        # Add "Bookmarks" header - matching other panel headers with 3D effect
+        header_label = QLabel("Bookmarks")
         header_label.setStyleSheet("""
             QLabel {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -351,15 +356,11 @@ class FileExplorerTab(FileExplorerCore):
         self.quick_links_model.setHorizontalHeaderLabels(['Name'])
         
         # Create unified BookmarkContainer for the sidebar
+        # Bar ID 1 = vertical sidebar (by convention)
         self.bookmark_container = BookmarkContainer(
-            location='sidebar',
+            bar_id=1,
             orientation='vertical',
-            parent=quick_links_panel,
-            data_store=self.custom_quick_links,
-            save_callback=self.save_quick_links,
-            items_key='items',
-            categories_key='categories',
-            colors_key='category_colors'
+            parent=quick_links_panel
         )
         
         # Connect signals from BookmarkContainer
@@ -400,12 +401,12 @@ class FileExplorerTab(FileExplorerCore):
         # Add to the RIGHT side of the splitter (after details view)
         self.main_splitter.addWidget(quick_links_panel)
         
-        # Set stretch factors: left panel (0) and middle panel (0) stay fixed,
-        # only the rightmost panel (details when 2 panes, or quick_links when 3) stretches
+        # Set stretch factors: tree and details stay fixed size,
+        # Quick Links panel stretches when window is resized
         # Index 0 = tree panel, Index 1 = details panel, Index 2 = quick links panel
         self.main_splitter.setStretchFactor(0, 0)  # Tree panel doesn't stretch
-        self.main_splitter.setStretchFactor(1, 1)  # Details panel stretches (when no quick links)
-        self.main_splitter.setStretchFactor(2, 0)  # Quick links doesn't stretch
+        self.main_splitter.setStretchFactor(1, 0)  # Details panel doesn't stretch
+        self.main_splitter.setStretchFactor(2, 1)  # Quick links stretches on window resize
         
         # Store reference to the panel (keep old name for compatibility)
         self.tree_panel_2 = quick_links_panel
@@ -1155,11 +1156,11 @@ class FileExplorerTab(FileExplorerCore):
         main_layout = self.layout()
         
         # Create breadcrumb widget with fixed height
-        breadcrumb_frame = QFrame()
-        breadcrumb_frame.setObjectName("breadcrumbFrame")
-        breadcrumb_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        breadcrumb_frame.setFixedHeight(32)  # Fixed height for breadcrumb bar
-        breadcrumb_frame.setStyleSheet("""
+        self.breadcrumb_frame = QFrame()
+        self.breadcrumb_frame.setObjectName("breadcrumbFrame")
+        self.breadcrumb_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        self.breadcrumb_frame.setFixedHeight(32)  # Fixed height for breadcrumb bar
+        self.breadcrumb_frame.setStyleSheet("""
             QFrame#breadcrumbFrame {
                 background-color: #FFFDE7;
                 border: 2px solid #6B8DC9;
@@ -1170,7 +1171,7 @@ class FileExplorerTab(FileExplorerCore):
             }
         """)
         
-        breadcrumb_layout = QHBoxLayout(breadcrumb_frame)
+        breadcrumb_layout = QHBoxLayout(self.breadcrumb_frame)
         breadcrumb_layout.setContentsMargins(4, 3, 4, 3)
         breadcrumb_layout.setSpacing(4)
 
@@ -1249,8 +1250,9 @@ class FileExplorerTab(FileExplorerCore):
         self.dual_pane_btn.clicked.connect(self.toggle_dual_pane)
         breadcrumb_layout.addWidget(self.dual_pane_btn)
         
-        # Insert at position 1 (after toolbar)
-        main_layout.insertWidget(1, breadcrumb_frame)
+        # Insert at position 2 (after toolbar and bookmark bar)
+        # Order: toolbar(0), bookmark_bar(1), breadcrumb(2), splitter(3)
+        main_layout.insertWidget(2, self.breadcrumb_frame)
         
         # Update initial breadcrumb
         self.update_breadcrumb(self.current_directory)
@@ -1271,6 +1273,57 @@ class FileExplorerTab(FileExplorerCore):
         except Exception as e:
             logger.error(f"Failed to update breadcrumb: {e}")
             self.breadcrumb_widget.set_path(str(path))
+    
+    def _apply_depth_search_locked_style(self, locked: bool = False) -> None:
+        """Override to change breadcrumb bar color when depth search is locked."""
+        if not hasattr(self, 'breadcrumb_frame'):
+            return
+        
+        if locked:
+            # Red background when depth search is locked
+            self.breadcrumb_frame.setStyleSheet("""
+                QFrame#breadcrumbFrame {
+                    background-color: #FFCCCC;
+                    border: 2px solid #CC4444;
+                    border-radius: 4px;
+                }
+            """)
+            # Also update the breadcrumb widget inside
+            if hasattr(self, 'breadcrumb_widget'):
+                self.breadcrumb_widget.setStyleSheet("""
+                    ClickableBreadcrumb {
+                        background-color: #FFCCCC;
+                        border: none;
+                        padding: 1px;
+                    }
+                """)
+                self.breadcrumb_widget.breadcrumb_display.setStyleSheet("background-color: #FFCCCC;")
+        else:
+            # Normal yellow background
+            self.breadcrumb_frame.setStyleSheet("""
+                QFrame#breadcrumbFrame {
+                    background-color: #FFFDE7;
+                    border: 2px solid #6B8DC9;
+                    border-radius: 4px;
+                }
+                QFrame#breadcrumbFrame:hover {
+                    border-color: #2563EB;
+                }
+            """)
+            # Restore breadcrumb widget style
+            if hasattr(self, 'breadcrumb_widget'):
+                self.breadcrumb_widget.setStyleSheet("""
+                    ClickableBreadcrumb {
+                        background-color: #FFFDE7;
+                        border: 2px solid #6B8DC9;
+                        border-radius: 3px;
+                        padding: 1px;
+                    }
+                    ClickableBreadcrumb:hover {
+                        border-color: #2563EB;
+                    }
+                """)
+                self.breadcrumb_widget.breadcrumb_display.setStyleSheet("background-color: #FFFDE7;")
     
     def go_to_onedrive_home(self):
         """Navigate to the starting path (OneDrive folder where app opened)"""
@@ -1921,7 +1974,7 @@ class FileExplorerMultiTab(QWidget):
 
     def add_new_tab(self, path=None, title=None):
         """Add a new tab"""
-        # Create new tab - if no path specified, stay at root Quick Links level
+        # Create new tab - if no path specified, navigate to OneDrive
         explorer_tab = FileExplorerTab(initial_path=path)
         
         # Determine tab title
@@ -1930,7 +1983,7 @@ class FileExplorerMultiTab(QWidget):
                 path_obj = Path(path)
                 title = path_obj.name if path_obj.name else str(path)
             else:
-                title = "Quick Links"
+                title = "OneDrive"
         
         # Add tab
         index = self.tab_widget.addTab(explorer_tab, title)
