@@ -412,8 +412,20 @@ class FileExplorerTab(FileExplorerCore):
         self.tree_panel_2 = quick_links_panel
         self.quick_links_panel = quick_links_panel
         
-        # Store dual pane state
-        self.dual_pane_active = False
+        # Restore panel visibility and sizes from saved state
+        self.dual_pane_active = self.panel_widths.get('quick_links_visible', False)
+        quick_links_panel.setVisible(self.dual_pane_active)
+        
+        # Restore all 3 panel sizes (now that 3rd panel is added)
+        saved_left = self.panel_widths.get('left_panel', 300)
+        saved_middle = self.panel_widths.get('middle_panel', 700)
+        saved_right = self.panel_widths.get('right_panel', 200)
+        
+        if self.dual_pane_active:
+            self.main_splitter.setSizes([saved_left, saved_middle, saved_right])
+        else:
+            # Quick links hidden - give its space to middle panel
+            self.main_splitter.setSizes([saved_left, saved_middle + saved_right, 0])
     
     def show_quick_links_context_menu(self, position):
         """Show context menu for Quick Links panel items - DEPRECATED, using per-item menus now"""
@@ -477,6 +489,9 @@ class FileExplorerTab(FileExplorerCore):
         path_obj = Path(path)
         if path_obj.is_dir():
             self.navigate_to_path(path)
+        elif path_obj.is_file():
+            # Single click on file opens it
+            self.open_file(path)
     
     def _on_bookmark_double_clicked(self, path):
         """Handle double-click on bookmark button in Quick Links"""
@@ -1035,14 +1050,24 @@ class FileExplorerTab(FileExplorerCore):
             
             if self.dual_pane_active:
                 # Three panes: left tree (keep size), details (middle), right quick links
-                total_available = self.main_splitter.width() - left_width
-                right_width = max(200, int(total_available * 0.25))  # At least 200px or 25% for Quick Links
-                middle_width = total_available - right_width  # Rest goes to details
+                # Use saved right panel width if available, otherwise calculate
+                saved_right = self.panel_widths.get('right_panel', 0)
+                if saved_right > 0:
+                    right_width = saved_right
+                    middle_width = self.main_splitter.width() - left_width - right_width
+                else:
+                    total_available = self.main_splitter.width() - left_width
+                    right_width = max(200, int(total_available * 0.25))  # At least 200px or 25% for Quick Links
+                    middle_width = total_available - right_width  # Rest goes to details
                 self.main_splitter.setSizes([left_width, middle_width, right_width])
             else:
                 # Two panes: left tree (keep size), details (take rest)
                 details_width = self.main_splitter.width() - left_width
                 self.main_splitter.setSizes([left_width, details_width, 0])
+            
+            # Save visibility state
+            self.panel_widths['quick_links_visible'] = self.dual_pane_active
+            self.save_panel_widths()
         
         print(f"Dual pane {'enabled' if self.dual_pane_active else 'disabled'}")
     
@@ -1248,6 +1273,8 @@ class FileExplorerTab(FileExplorerCore):
             }
         """)
         self.dual_pane_btn.clicked.connect(self.toggle_dual_pane)
+        # Set initial checked state based on restored visibility
+        self.dual_pane_btn.setChecked(self.dual_pane_active)
         breadcrumb_layout.addWidget(self.dual_pane_btn)
         
         # Insert at position 2 (after toolbar and bookmark bar)

@@ -1821,6 +1821,7 @@ class CategoryButton(QPushButton):
                 drag_data = json.loads(mime.data('application/x-bookmark-move').data().decode())
                 bookmark = drag_data['bookmark']
                 source = drag_data.get('source_category', '__CONTAINER__')
+                source_bar_id = drag_data.get('source_bar_id')
                 
                 logger.info(f"Dropping bookmark '{bookmark.get('name')}' into category '{self.category_name}'")
                 
@@ -1828,7 +1829,7 @@ class CategoryButton(QPushButton):
                     event.ignore()
                     return
                 
-                self._handle_drop(bookmark, source)
+                self._handle_drop(bookmark, source, source_bar_id)
                 event.acceptProposedAction()
             except Exception as e:
                 logger.error(f"Error handling drop: {e}")
@@ -1850,8 +1851,14 @@ class CategoryButton(QPushButton):
         else:
             event.ignore()
     
-    def _handle_drop(self, bookmark, source):
-        """Handle drop onto this category - unified for all bar types"""
+    def _handle_drop(self, bookmark, source, source_bar_id=None):
+        """Handle drop onto this category - unified for all bar types
+        
+        Args:
+            bookmark: Bookmark data dict
+            source: Source category name, or '__CONTAINER__'/'__BAR__' for standalone, '__NEW__' for new
+            source_bar_id: Integer bar ID of source container (for cross-bar moves)
+        """
         if not self.data_manager:
             return
         
@@ -1875,18 +1882,36 @@ class CategoryButton(QPushButton):
         clean_bookmark = {k: v for k, v in bookmark.items() if not k.startswith('_')}
         existing.append(clean_bookmark)
         
+        # Determine if cross-bar move
+        is_cross_bar = source_bar_id is not None and source_bar_id != self.source_bar_id
+        
         # Remove from source
-        if source in ('__BAR__', '__CONTAINER__'):
-            # Item was standalone on the bar - remove from items list
-            self.data_manager.remove_item_by_path(path)
-        elif source and source != '__NEW__' and source != self.category_name:
-            # Remove from source category
-            if source in categories:
-                src_list = categories[source]
-                for i, b in enumerate(src_list):
-                    if b.get('path') == path:
-                        src_list.pop(i)
-                        break
+        if is_cross_bar:
+            # Cross-bar move: get source container from registry
+            source_container = BookmarkContainerRegistry.get(source_bar_id)
+            if source_container:
+                if source in ('__BAR__', '__CONTAINER__'):
+                    # Remove standalone from source bar
+                    source_container.remove_item_by_path(path)
+                elif source and source != '__NEW__' and source != self.category_name:
+                    # Remove from category in source bar
+                    source_container.remove_bookmark_from_category(source, path)
+                logger.info(f"Removed bookmark from source bar {source_bar_id}")
+            else:
+                logger.warning(f"Source container not found for bar_id={source_bar_id}")
+        else:
+            # Same bar move
+            if source in ('__BAR__', '__CONTAINER__'):
+                # Item was standalone on the bar - remove from items list
+                self.data_manager.remove_item_by_path(path)
+            elif source and source != '__NEW__' and source != self.category_name:
+                # Remove from source category
+                if source in categories:
+                    src_list = categories[source]
+                    for i, b in enumerate(src_list):
+                        if b.get('path') == path:
+                            src_list.pop(i)
+                            break
         
         self.data_manager._save_and_refresh()
 
