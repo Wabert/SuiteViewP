@@ -27,7 +27,65 @@ logger = logging.getLogger(__name__)
 
 
 class FileSortProxyModel(QSortFilterProxyModel):
-    """Custom sort proxy that uses UserRole+1 data for proper sorting"""
+    """Custom sort proxy that uses UserRole+1 data for proper sorting
+    
+    Also supports length-based filtering with formulas:
+    - =(len=9)     : Names exactly 9 characters
+    - =(len>10)    : Names longer than 10 characters  
+    - =(len<5)     : Names shorter than 5 characters
+    - =(len>=8)    : Names 8 or more characters
+    - =(len<=12)   : Names 12 or fewer characters
+    - =(len!=7)    : Names not 7 characters
+    """
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._length_filter = None  # Tuple of (operator, value) or None
+    
+    def setLengthFilter(self, operator: str, value: int):
+        """Set a length-based filter. operator is one of: =, >, <, >=, <=, !="""
+        self._length_filter = (operator, value)
+        self.invalidateFilter()
+    
+    def clearLengthFilter(self):
+        """Clear the length filter"""
+        self._length_filter = None
+        self.invalidateFilter()
+    
+    def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
+        """Override to apply length filter in addition to regex filter"""
+        # First check length filter if active
+        if self._length_filter:
+            operator, target_len = self._length_filter
+            # Get the name from column 0
+            index = self.sourceModel().index(source_row, 0, source_parent)
+            name = self.sourceModel().data(index, Qt.ItemDataRole.DisplayRole)
+            if name:
+                name_len = len(str(name))
+                # Apply operator comparison
+                if operator == '=':
+                    if name_len != target_len:
+                        return False
+                elif operator == '>':
+                    if name_len <= target_len:
+                        return False
+                elif operator == '<':
+                    if name_len >= target_len:
+                        return False
+                elif operator == '>=':
+                    if name_len < target_len:
+                        return False
+                elif operator == '<=':
+                    if name_len > target_len:
+                        return False
+                elif operator == '!=':
+                    if name_len == target_len:
+                        return False
+            else:
+                return False  # No name, filter out
+        
+        # Then apply the standard regex filter
+        return super().filterAcceptsRow(source_row, source_parent)
     
     def lessThan(self, left, right):
         """Compare items using custom sort data"""
@@ -169,7 +227,7 @@ class DropTreeView(QTreeView):
         event.ignore()
     
     def dropEvent(self, event: QDropEvent):
-        """Handle drop - copy files to target folder, but ignore same-view drops entirely"""
+        """Handle drop - copy FILES ONLY to target folder (folders are blocked to prevent accidents)"""
         if not event.mimeData().hasUrls():
             event.ignore()
             return
@@ -185,6 +243,13 @@ class DropTreeView(QTreeView):
         if not dropped_files:
             event.ignore()
             return
+        
+        # SAFETY: Reject any folders being dropped - only files allowed
+        # This prevents accidental folder moves/copies
+        for dropped_path in dropped_files:
+            if os.path.isdir(dropped_path):
+                event.ignore()
+                return
         
         # SAFETY: If dropping within the same current folder view, ignore completely
         # This prevents accidental copies/moves when dragging and dropping in details view
@@ -239,12 +304,6 @@ class DropTreeView(QTreeView):
                 if dropped_parent == dest_folder_resolved:
                     event.ignore()
                     return
-                
-                # Case 3: Trying to drop a folder into itself (would cause recursion)
-                if os.path.isdir(dropped_path):
-                    if dest_folder_resolved.startswith(dropped_resolved + os.sep):
-                        event.ignore()
-                        return
             
             # Safe to proceed - emit signal with dropped files and destination
             self.files_dropped.emit(dropped_files, dest_folder)
@@ -254,10 +313,12 @@ class DropTreeView(QTreeView):
 
 
 class DropFolderTreeView(QTreeView):
-    """Custom QTreeView for folder navigation that accepts file drops"""
+    """Custom QTreeView for folder navigation that accepts file drops and folder pins"""
     
     # Signal emitted when files are dropped (list of paths, destination folder)
     files_dropped = pyqtSignal(list, str)
+    # Signal emitted when a folder is dropped to be pinned
+    folder_pinned = pyqtSignal(str)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -280,74 +341,97 @@ class DropFolderTreeView(QTreeView):
         event.ignore()
     
     def dragMoveEvent(self, event: QDragMoveEvent):
-        """Handle drag move - only accept if over a folder"""
+        """Handle drag move - accept folders for pinning OR files for dropping into folders"""
         if event.mimeData().hasUrls():
-            index = self.indexAt(event.position().toPoint())
-            if index.isValid():
-                # Get the path - try UserRole first
-                path = self.model().data(index, Qt.ItemDataRole.UserRole)
-                if path and os.path.isdir(path):
-                    event.acceptProposedAction()
-                    return
+            # Check what's being dragged
+            dragging_folders_only = True
+            dragging_files = False
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    path = url.toLocalFile()
+                    if os.path.isdir(path):
+                        pass  # It's a folder
+                    else:
+                        dragging_folders_only = False
+                        dragging_files = True
+            
+            # If dragging only folders, accept anywhere (for pinning)
+            if dragging_folders_only:
+                event.acceptProposedAction()
+                return
+            
+            # If dragging files, only accept over a folder target
+            if dragging_files:
+                index = self.indexAt(event.position().toPoint())
+                if index.isValid():
+                    path = self.model().data(index, Qt.ItemDataRole.UserRole)
+                    if path and os.path.isdir(path):
+                        event.acceptProposedAction()
+                        return
         event.ignore()
     
     def dropEvent(self, event: QDropEvent):
-        """Handle drop - copy files to target folder, but ignore same-folder drops"""
+        """Handle drop - pin folders OR copy files to target folder"""
         if not event.mimeData().hasUrls():
             event.ignore()
             return
         
-        # Get dropped file paths
+        # Separate folders and files
+        dropped_folders = []
         dropped_files = []
         for url in event.mimeData().urls():
             if url.isLocalFile():
                 file_path = url.toLocalFile()
                 if os.path.exists(file_path):
-                    dropped_files.append(file_path)
+                    if os.path.isdir(file_path):
+                        dropped_folders.append(file_path)
+                    else:
+                        dropped_files.append(file_path)
         
-        if not dropped_files:
-            event.ignore()
+        # If only folders were dropped, pin them
+        if dropped_folders and not dropped_files:
+            for folder_path in dropped_folders:
+                self.folder_pinned.emit(folder_path)
+            event.acceptProposedAction()
             return
         
-        # Get destination folder from drop target
-        index = self.indexAt(event.position().toPoint())
-        if not index.isValid():
-            event.ignore()
-            return
-        
-        path = self.model().data(index, Qt.ItemDataRole.UserRole)
-        if not path or not os.path.isdir(path):
-            event.ignore()
-            return
-        
-        dest_folder = path
-        
-        # SAFETY CHECK: Prevent same-folder drops to avoid accidental moves/copies
-        dest_folder_resolved = str(Path(dest_folder).resolve()).lower()
-        
-        for dropped_path in dropped_files:
-            dropped_resolved = str(Path(dropped_path).resolve()).lower()
-            dropped_parent = str(Path(dropped_path).resolve().parent).lower()
-            
-            # Case 1: Dropping item onto itself
-            if dropped_resolved == dest_folder_resolved:
+        # If files were dropped, handle as before (copy to target folder)
+        if dropped_files:
+            # Get destination folder from drop target
+            index = self.indexAt(event.position().toPoint())
+            if not index.isValid():
                 event.ignore()
                 return
             
-            # Case 2: Item is already in the destination folder
-            if dropped_parent == dest_folder_resolved:
+            path = self.model().data(index, Qt.ItemDataRole.UserRole)
+            if not path or not os.path.isdir(path):
                 event.ignore()
                 return
             
-            # Case 3: Trying to drop a folder into itself (would cause recursion)
-            if os.path.isdir(dropped_path):
-                if dest_folder_resolved.startswith(dropped_resolved + os.sep):
+            dest_folder = path
+            
+            # SAFETY CHECK: Prevent same-folder drops
+            dest_folder_resolved = str(Path(dest_folder).resolve()).lower()
+            
+            for dropped_path in dropped_files:
+                dropped_resolved = str(Path(dropped_path).resolve()).lower()
+                dropped_parent = str(Path(dropped_path).resolve().parent).lower()
+                
+                # Case 1: Dropping item onto itself
+                if dropped_resolved == dest_folder_resolved:
                     event.ignore()
                     return
-        
-        # Safe to proceed - emit signal with dropped files and destination
-        self.files_dropped.emit(dropped_files, dest_folder)
-        event.acceptProposedAction()
+                
+                # Case 2: Item is already in the destination folder
+                if dropped_parent == dest_folder_resolved:
+                    event.ignore()
+                    return
+            
+            # Safe to proceed - emit signal with dropped files and destination
+            self.files_dropped.emit(dropped_files, dest_folder)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
 
 class DepthScanWorker(QThread):
@@ -757,6 +841,10 @@ class FileExplorerCore(QWidget):
         self.hidden_onedrive_file = Path.home() / ".suiteview" / "hidden_onedrive.json"
         self.hidden_onedrive_paths = self.load_hidden_onedrive()
         
+        # Load pinned folders for the Folders panel
+        self.pinned_folders_file = Path.home() / ".suiteview" / "pinned_folders.json"
+        self.pinned_folders = self.load_pinned_folders()
+        
         # Column width settings file
         self.column_widths_file = Path.home() / ".suiteview" / "column_widths.json"
         self.column_widths = self.load_column_widths()
@@ -1079,6 +1167,7 @@ class FileExplorerCore(QWidget):
         self.tree_view = DropFolderTreeView()
         self.tree_view.set_file_explorer(self)
         self.tree_view.files_dropped.connect(self.handle_dropped_files)
+        self.tree_view.folder_pinned.connect(self.pin_folder_to_tree)
         self.tree_view.setAnimated(True)
         self.tree_view.setIndentation(20)
         self.tree_view.setHeaderHidden(True)  # Hide header for tree view
@@ -1189,7 +1278,7 @@ class FileExplorerCore(QWidget):
         return widget
         
     def populate_tree_model(self):
-        """Populate tree with OneDrive and system drives only (no quick links - those go in right panel)"""
+        """Populate tree with OneDrive, pinned folders, and system drives"""
         self.model.clear()
         self.model.setHorizontalHeaderLabels(['Name'])
         self.model.setColumnCount(1)  # Explicitly set to 1 column only
@@ -1201,8 +1290,23 @@ class FileExplorerCore(QWidget):
                 item = self.create_tree_folder_item(od_path, icon="⭐")
                 self.model.appendRow(item)
         
-        # Add separator (visual only) if we have OneDrive paths
+        # Add separator after OneDrive if we have any
         if onedrive_paths:
+            separator = QStandardItem("─" * 30)
+            separator.setEnabled(False)
+            self.model.appendRow(separator)
+        
+        # Add pinned folders (📌 icon)
+        if self.pinned_folders:
+            for folder_path in self.pinned_folders:
+                path_obj = Path(folder_path)
+                if path_obj.exists():
+                    item = self.create_tree_folder_item(path_obj, icon="📌")
+                    # Mark as pinned so we can offer unpin in context menu
+                    item.setData("__PINNED__", Qt.ItemDataRole.UserRole + 2)
+                    self.model.appendRow(item)
+            
+            # Add separator after pinned folders
             separator = QStandardItem("─" * 30)
             separator.setEnabled(False)
             self.model.appendRow(separator)
@@ -1581,6 +1685,15 @@ class FileExplorerCore(QWidget):
         self.details_search.setClearButtonEnabled(True)
         self.details_search.setMaximumWidth(240)
         self.details_search.setMaximumHeight(24)
+        self.details_search.setToolTip(
+            "Search by name, or use length formulas:\n"
+            "  =(len=9)   - exactly 9 characters\n"
+            "  =(len>10)  - more than 10 characters\n"
+            "  =(len<5)   - less than 5 characters\n"
+            "  =(len>=8)  - 8 or more characters\n"
+            "  =(len<=12) - 12 or fewer characters\n"
+            "  =(len!=7)  - not 7 characters"
+        )
         self.details_search.setStyleSheet(
             """
             QLineEdit {
@@ -1831,7 +1944,16 @@ class FileExplorerCore(QWidget):
         return widget
 
     def on_details_search_changed(self, text: str) -> None:
-        """Filter the details view contents in real time."""
+        """Filter the details view contents in real time.
+        
+        Supports length formulas:
+        - =(len=9)     : Names exactly 9 characters
+        - =(len>10)    : Names longer than 10 characters  
+        - =(len<5)     : Names shorter than 5 characters
+        - =(len>=8)    : Names 8 or more characters
+        - =(len<=12)   : Names 12 or fewer characters
+        - =(len!=7)    : Names not 7 characters
+        """
         if not hasattr(self, 'details_sort_proxy'):
             return
 
@@ -1872,6 +1994,24 @@ class FileExplorerCore(QWidget):
             elif self.current_details_folder in self.folder_search_terms:
                 # Remove empty search terms to keep dict clean
                 del self.folder_search_terms[self.current_details_folder]
+        
+        # Check for length formula: =(len=9), =(len>10), etc.
+        import re
+        length_pattern = r'^=\s*\(\s*len\s*(=|>|<|>=|<=|!=)\s*(\d+)\s*\)$'
+        length_match = re.match(length_pattern, query, re.IGNORECASE)
+        
+        if length_match:
+            # Parse length formula
+            operator = length_match.group(1)
+            value = int(length_match.group(2))
+            
+            # Apply length filter (clear regex filter)
+            self.details_sort_proxy.setFilterRegularExpression(QRegularExpression())
+            self.details_sort_proxy.setLengthFilter(operator, value)
+            return
+        
+        # Clear length filter for normal searches
+        self.details_sort_proxy.clearLengthFilter()
         
         # Standard search using proxy filter (works for both normal and depth results)
         if not query:
@@ -2807,6 +2947,9 @@ class FileExplorerCore(QWidget):
         # Check if this is a custom quick link (only top-level items in Quick Links)
         is_custom_link = item.data(Qt.ItemDataRole.UserRole + 1) == "__CUSTOM_LINK__"
         
+        # Check if this is a pinned folder
+        is_pinned = item.data(Qt.ItemDataRole.UserRole + 2) == "__PINNED__"
+        
         # Also verify it's a top-level item (no parent except model root)
         is_top_level = item.parent() is None
         
@@ -2821,6 +2964,12 @@ class FileExplorerCore(QWidget):
             menu.addSeparator()
             remove_action = menu.addAction("📌 Remove from Sidebar Bookmarks")
             remove_action.triggered.connect(lambda: self.remove_quick_link_by_path(path))
+        
+        # Unpin option for pinned folders
+        if is_pinned and is_top_level:
+            menu.addSeparator()
+            unpin_action = menu.addAction("📌 Unpin from Folders")
+            unpin_action.triggered.connect(lambda: self.unpin_folder_from_tree(path))
         
         # Show menu
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
@@ -3953,6 +4102,53 @@ class FileExplorerCore(QWidget):
             # Refresh tree to remove it
             self.load_tree()
             QMessageBox.information(self, "OneDrive Hidden", f"Hidden from Quick Links:\n{Path(path).name}\n\nTo unhide, delete:\n{self.hidden_onedrive_file}")
+    
+    def load_pinned_folders(self):
+        """Load pinned folders from JSON file"""
+        try:
+            if self.pinned_folders_file.exists():
+                with open(self.pinned_folders_file, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load pinned folders: {e}")
+        return []
+    
+    def save_pinned_folders(self):
+        """Save pinned folders to JSON file"""
+        try:
+            # Ensure directory exists
+            self.pinned_folders_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.pinned_folders_file, 'w') as f:
+                json.dump(self.pinned_folders, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save pinned folders: {e}")
+    
+    def pin_folder_to_tree(self, folder_path):
+        """Pin a folder to the Folders panel"""
+        folder_path = str(Path(folder_path).resolve())
+        
+        # Check if already pinned (case-insensitive)
+        for pinned in self.pinned_folders:
+            if pinned.lower() == folder_path.lower():
+                return  # Already pinned
+        
+        self.pinned_folders.append(folder_path)
+        self.save_pinned_folders()
+        self.populate_tree_model()
+        logger.info(f"Pinned folder to Folders panel: {folder_path}")
+    
+    def unpin_folder_from_tree(self, folder_path):
+        """Unpin a folder from the Folders panel"""
+        folder_path_lower = str(Path(folder_path).resolve()).lower()
+        
+        # Find and remove (case-insensitive)
+        for i, pinned in enumerate(self.pinned_folders):
+            if pinned.lower() == folder_path_lower:
+                self.pinned_folders.pop(i)
+                self.save_pinned_folders()
+                self.populate_tree_model()
+                logger.info(f"Unpinned folder from Folders panel: {folder_path}")
+                return
     
     def load_column_widths(self):
         """Load column widths from JSON file"""

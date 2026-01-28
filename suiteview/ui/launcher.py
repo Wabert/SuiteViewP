@@ -53,15 +53,174 @@ class LauncherWindow(QWidget):
         self.mainframe_window = None
         self.email_nav_window = None
         self.screenshot_window = None
+        self.llm_chat_window = None
+        
+        # Beta features visibility (hidden by default)
+        self._dev_features_visible = False
         
         # Settings file for persistence
         from pathlib import Path
         self.settings_file = Path.home() / '.suiteview' / 'launcher_settings.json'
         
         self.init_ui()
+        self._update_dev_features_visibility()  # Hide beta features initially
         self.setup_system_tray()
         self.load_window_state()
+        self.start_ai_connection_monitor()
         
+    def start_ai_connection_monitor(self):
+        """Start monitoring AI bridge connection status"""
+        from PyQt6.QtCore import QTimer
+        
+        # Check AI connection every 5 seconds
+        self.ai_check_timer = QTimer(self)
+        self.ai_check_timer.timeout.connect(self.check_ai_connection)
+        self.ai_check_timer.start(5000)  # 5 seconds
+        
+        # Initial check
+        self.check_ai_connection()
+    
+    def check_ai_connection(self):
+        """Check if AI bridge is connected and update indicator"""
+        try:
+            import requests
+            response = requests.get("http://localhost:5678/health", timeout=1)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "ok":
+                    # Connected!
+                    self.update_ai_indicator(True)
+                    return
+        except:
+            pass
+        
+        # Not connected
+        self.update_ai_indicator(False)
+    
+    def update_ai_indicator(self, connected: bool):
+        """Update the AI connection indicator"""
+        if not hasattr(self, 'ai_indicator'):
+            return
+            
+        if connected:
+            self.ai_indicator.setStyleSheet("""
+                QLabel {
+                    background: transparent;
+                    border: none;
+                    color: #00FF00;
+                    font-size: 14px;
+                    padding: 0px;
+                }
+            """)
+            self.ai_status_text.setStyleSheet("""
+                QLabel {
+                    background: transparent;
+                    border: none;
+                    color: #00FF00;
+                    font-size: 10px;
+                    font-weight: bold;
+                    padding: 0px;
+                }
+            """)
+            self.ai_indicator.setToolTip("AI Bridge: Connected ✓")
+            self.ai_status_text.setToolTip("AI Bridge: Connected ✓")
+        else:
+            self.ai_indicator.setStyleSheet("""
+                QLabel {
+                    background: transparent;
+                    border: none;
+                    color: #666666;
+                    font-size: 14px;
+                    padding: 0px;
+                }
+            """)
+            self.ai_status_text.setStyleSheet("""
+                QLabel {
+                    background: transparent;
+                    border: none;
+                    color: #666666;
+                    font-size: 10px;
+                    font-weight: bold;
+                    padding: 0px;
+                }
+            """)
+            self.ai_indicator.setToolTip("AI Bridge: Disconnected")
+            self.ai_status_text.setToolTip("AI Bridge: Disconnected")
+    
+    def _update_toggle_style(self):
+        """Update the toggle button appearance based on state"""
+        if self.vscode_toggle_btn.isChecked():
+            # Checked = window visible (blue 3D raised square)
+            self.vscode_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #60A5FA, stop:0.4 #3B82F6, stop:0.6 #2563EB, stop:1 #1E3A8A);
+                    border: 1px solid #1E40AF;
+                    border-radius: 2px;
+                }
+                QPushButton:hover {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #93C5FD, stop:0.4 #60A5FA, stop:0.6 #3B82F6, stop:1 #2563EB);
+                }
+                QPushButton:pressed {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #1E3A8A, stop:0.4 #2563EB, stop:0.6 #3B82F6, stop:1 #60A5FA);
+                }
+            """)
+            self.vscode_toggle_btn.setText("")
+            self.vscode_toggle_btn.setToolTip("AI Bridge Window: Visible (click to hide)")
+        else:
+            # Unchecked = window hidden (gold 3D raised square)
+            self.vscode_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #FFE066, stop:0.4 #FFD700, stop:0.6 #D4AF37, stop:1 #B8941E);
+                    border: 1px solid #8B6914;
+                    border-radius: 2px;
+                }
+                QPushButton:hover {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #FFF59D, stop:0.4 #FFE066, stop:0.6 #FFD700, stop:1 #D4AF37);
+                }
+                QPushButton:pressed {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #B8941E, stop:0.4 #D4AF37, stop:0.6 #FFD700, stop:1 #FFE066);
+                }
+            """)
+            self.vscode_toggle_btn.setText("")
+            self.vscode_toggle_btn.setToolTip("AI Bridge Window: Hidden (click to show)")
+    
+    def _on_toggle_clicked(self):
+        """Handle toggle button click"""
+        self._update_toggle_style()
+        self.toggle_ai_bridge_window()
+    
+    def _toggle_dev_features_on_click(self, pos):
+        """Toggle developer/beta features directly on right-click (no menu)"""
+        self._toggle_dev_features()
+    
+    def _toggle_dev_features(self):
+        """Toggle visibility of beta/development features"""
+        self._dev_features_visible = not self._dev_features_visible
+        self._update_dev_features_visibility()
+    
+    def _update_dev_features_visibility(self):
+        """Update visibility of beta features based on toggle state"""
+        visible = self._dev_features_visible
+        
+        # Email Navigator button
+        self.email_nav_btn.setVisible(visible)
+        
+        # AI Chat button
+        self.llm_chat_btn.setVisible(visible)
+        
+        # AI indicator and status
+        self.ai_indicator.setVisible(visible)
+        self.ai_status_text.setVisible(visible)
+        
+        # Toggle button
+        self.vscode_toggle_btn.setVisible(visible)
+    
     def load_window_state(self):
         """Load window size and position from settings"""
         import json
@@ -160,9 +319,9 @@ class LauncherWindow(QWidget):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(2)
         
-        # SuiteView label at the top left in italics
-        suiteview_label = QLabel("SuiteView")
-        suiteview_label.setStyleSheet("""
+        # SuiteView label at the top left in italics (right-click to show hidden features)
+        self.suiteview_label = QLabel("SuiteView")
+        self.suiteview_label.setStyleSheet("""
             QLabel {
                 background: transparent;
                 border: none;
@@ -173,8 +332,11 @@ class LauncherWindow(QWidget):
                 padding: 0px;
             }
         """)
-        suiteview_label.setMaximumHeight(20)
-        top_layout.addWidget(suiteview_label)
+        self.suiteview_label.setMaximumHeight(20)
+        self.suiteview_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.suiteview_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.suiteview_label.customContextMenuRequested.connect(self._toggle_dev_features_on_click)
+        top_layout.addWidget(self.suiteview_label)
         
         # Add stretch to push close button to the right
         top_layout.addStretch()
@@ -329,11 +491,80 @@ class LauncherWindow(QWidget):
         self.screenshot_btn.clicked.connect(self.open_screenshot_manager)
         button_layout.addWidget(self.screenshot_btn)
         
+        # AI Chat button
+        self.llm_chat_btn = QPushButton("🤖")  # Robot icon
+        self.llm_chat_btn.setToolTip("AI Assistant")
+        self.llm_chat_btn.setFixedSize(32, 32)
+        self.llm_chat_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                border: 2px solid #0078d4;
+                border-radius: 6px;
+                font-size: 18px;
+                padding: 2px;
+            }
+            QPushButton:hover {
+                background-color: #e3f2fd;
+                border-color: #005a9e;
+            }
+            QPushButton:pressed {
+                background-color: #bbdefb;
+            }
+        """)
+        self.llm_chat_btn.clicked.connect(self.open_llm_chat)
+        button_layout.addWidget(self.llm_chat_btn)
+        
         # Add stretch to keep buttons on the left
         button_layout.addStretch()
         
         # Add button layout to main vertical layout
         main_layout.addLayout(button_layout)
+        
+        # Bottom row: AI status indicator on the left
+        bottom_layout = QHBoxLayout()
+        bottom_layout.setContentsMargins(4, 0, 4, 4)
+        bottom_layout.setSpacing(4)
+        
+        # AI Connection indicator (LED style with text)
+        self.ai_indicator = QLabel("●")
+        self.ai_indicator.setStyleSheet("""
+            QLabel {
+                background: transparent;
+                border: none;
+                color: #666666;
+                font-size: 12px;
+                padding: 0px;
+            }
+        """)
+        bottom_layout.addWidget(self.ai_indicator)
+        
+        self.ai_status_text = QLabel("AI Active")
+        self.ai_status_text.setStyleSheet("""
+            QLabel {
+                background: transparent;
+                border: none;
+                color: #666666;
+                font-size: 9px;
+                font-weight: bold;
+                padding: 0px;
+            }
+        """)
+        bottom_layout.addWidget(self.ai_status_text)
+        
+        # Push toggle to the right
+        bottom_layout.addStretch()
+        
+        # VS Code visibility toggle (tiny 3D gold square button) - bottom right
+        self.vscode_toggle_btn = QPushButton()
+        self.vscode_toggle_btn.setCheckable(True)
+        self.vscode_toggle_btn.setChecked(False)  # Start unchecked (window hidden)
+        self.vscode_toggle_btn.setFixedSize(10, 10)
+        self.vscode_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._update_toggle_style()
+        self.vscode_toggle_btn.clicked.connect(self._on_toggle_clicked)
+        bottom_layout.addWidget(self.vscode_toggle_btn)
+        
+        main_layout.addLayout(bottom_layout)
         
         # No stylesheet needed - we'll paint the background ourselves
         self.setStyleSheet("")
@@ -403,6 +634,10 @@ class LauncherWindow(QWidget):
         email_action = QAction("📧 Email Navigator", self)
         email_action.triggered.connect(self.open_email_navigator)
         tray_menu.addAction(email_action)
+        
+        llm_action = QAction("🤖 AI Assistant", self)
+        llm_action.triggered.connect(self.open_llm_chat)
+        tray_menu.addAction(llm_action)
         
         tray_menu.addSeparator()
         
@@ -505,6 +740,11 @@ class LauncherWindow(QWidget):
             self.mainframe_window.close()
         if self.screenshot_window:
             self.screenshot_window.close()
+        if self.llm_chat_window:
+            # Clean up VS Code session if it exists
+            if hasattr(self.llm_chat_window, 'cleanup_vscode_session'):
+                self.llm_chat_window.cleanup_vscode_session()
+            self.llm_chat_window.close()
             
         self.tray_icon.hide()
         QApplication.quit()
@@ -653,6 +893,49 @@ class LauncherWindow(QWidget):
             self.screenshot_window.activateWindow()
             self.screenshot_window.raise_()
     
+    def open_llm_chat(self):
+        """Open the LLM Chat window - maintains state throughout session"""
+        if self.llm_chat_window is None:
+            # Create window only once - first time
+            try:
+                from suiteview.ui.llm_chat_window import LLMChatWindow
+                # use_mock=False to use VS Code bridge, True for testing
+                self.llm_chat_window = LLMChatWindow(use_mock=False)
+                self.llm_chat_window.setWindowTitle("SuiteView - AI Assistant")
+                
+                # Override close event to hide instead of closing
+                original_close = self.llm_chat_window.closeEvent
+                def hide_on_close(event):
+                    event.ignore()
+                    self.llm_chat_window.hide()
+                self.llm_chat_window.closeEvent = hide_on_close
+                
+                self.llm_chat_window.show()
+                logger.info("Created LLM Chat Window (persists for session)")
+            except Exception as e:
+                logger.error(f"Failed to open LLM Chat: {e}")
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Error", f"Could not open AI Assistant:\n{e}")
+        else:
+            # Window already exists - just show and activate it
+            self.llm_chat_window.show()
+            self.llm_chat_window.activateWindow()
+            self.llm_chat_window.raise_()
+    
+    def toggle_ai_bridge_window(self):
+        """Toggle AI Bridge VS Code window visibility"""
+        try:
+            if self.llm_chat_window and hasattr(self.llm_chat_window, 'unhide_vscode_window'):
+                if self.vscode_toggle_btn.isChecked():
+                    # Button is checked - show window
+                    self.llm_chat_window.unhide_vscode_window()
+                else:
+                    # Button is unchecked - hide window
+                    if hasattr(self.llm_chat_window, '_hide_vscode_window'):
+                        self.llm_chat_window._hide_vscode_window()
+        except Exception as e:
+            logger.error(f"Failed to toggle VS Code window: {e}")
+    
     def paintEvent(self, event):
         """Custom paint to draw rounded background with gradient blue and gold border"""
         painter = QPainter(self)
@@ -722,7 +1005,15 @@ class LauncherWindow(QWidget):
     def mousePressEvent(self, event):
         """Handle mouse press for dragging, resizing, and right-click menu"""
         if event.button() == Qt.MouseButton.RightButton:
-            # Right-click - show bookmarks menu
+            # Check if click is on the SuiteView label - let it handle its own context menu
+            if hasattr(self, 'suiteview_label'):
+                label_pos = self.suiteview_label.mapFromGlobal(event.globalPosition().toPoint())
+                if self.suiteview_label.rect().contains(label_pos):
+                    # Let the label handle the right-click
+                    event.ignore()
+                    return
+            
+            # Right-click elsewhere - show bookmarks menu
             self.show_bookmarks_menu(event.globalPosition().toPoint())
             event.accept()
             return

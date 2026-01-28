@@ -19,6 +19,13 @@ python-dateutil>=2.9.0
 sqlparse>=0.5.0
 psutil>=6.0.0
 
+# HTTP Clients (for LLM API)
+aiohttp>=3.9.0
+requests>=2.32.0
+
+# Markdown rendering
+markdown>=3.10.0
+
 # Development & Testing
 pytest>=8.3.0
 pytest-qt>=4.4.0

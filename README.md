@@ -1,14 +1,18 @@
 # SuiteView Data Manager
 
-A native Python desktop application for visual, low-code access to diverse data sources across an enterprise. Built with PyQt6.
+A native Python desktop application for visual, low-code access to diverse data sources across an enterprise. Built with PyQt6 and featuring an integrated AI assistant powered by VS Code Bridge.
 
-## Project Status: Phase 2 Complete
+## Project Status: AI Integration Complete
 
-### Completed Features
-- ✅ Complete Python project structure
-- ✅ SQLite database schema initialization
-- ✅ PyQt6 application with professional royal blue & gold theme
-- ✅ Four-tab navigation (Connections | My Data | DB Query | XDB Query)
+### Latest Features ✨
+- ✅ **AI Assistant Integration** - Built-in chatbot powered by GitHub Copilot via VS Code Bridge
+- ✅ **Smart Thread Naming** - AI automatically generates descriptive conversation titles
+- ✅ **Dedicated VS Code Session** - Automatic VS Code workspace management for AI Bridge
+- ✅ **Floating Launcher Bar** - Always-on-top toolbar with AI status indicator
+- ✅ **Complete Python project structure**
+- ✅ **SQLite database schema initialization**
+- ✅ **PyQt6 application with professional royal blue & gold theme**
+- ✅ **Four-tab navigation (Connections | My Data | DB Query | XDB Query)**
 - ✅ **Connections Screen** with full functionality:
   - Connection browser tree
   - Table schema viewer
@@ -19,6 +23,83 @@ A native Python desktop application for visual, low-code access to diverse data 
     - MS Access (.accdb, .mdb)
     - CSV Files (with delimiter & encoding options)
     - Fixed Width Files (with field definitions)
+
+## AI Assistant Features 🤖
+
+### Overview
+SuiteView includes a powerful AI chatbot interface that connects to GitHub Copilot through VS Code, giving you access to multiple AI models including GPT-4, Claude, Gemini, and more.
+
+### Key Features
+- **VS Code Bridge Connection**: Seamless integration with GitHub Copilot through VS Code
+- **Multi-Model Support**: Access to various AI agents (GPT-4o, Claude, Gemini, etc.)
+- **Smart Thread Naming**: After your second message, the AI automatically generates a descriptive title for each conversation (max 40 characters)
+- **Thread Management**: Conversations are automatically named "New Thread 1", "New Thread 2", etc., then renamed intelligently
+- **Persistent Conversations**: All chats are saved and can be resumed anytime
+- **Dedicated Workspace**: Automatic VS Code workspace creation in `~/.suiteview/llm_chat/ai_bridge_workspace/`
+- **Window Visibility Toggle**: Hide/show the AI Bridge VS Code window with a gold/blue slider toggle
+- **Live Status Indicator**: Green "AI Active" indicator shows real-time connection status
+
+### Getting Started with AI Assistant
+
+1. **Prerequisites**:
+   - VS Code installed on your system
+   - GitHub Copilot extension installed and active in VS Code
+   - GitHub Copilot subscription (Individual, Business, or Enterprise)
+   - For premium models (Claude, Gemini): Copilot Pro+ ($39/month)
+
+2. **First-Time Setup**:
+   - Click the 🤖 AI Assistant button in the SuiteView launcher
+   - Click "Start Dedicated VS Code Session" button
+   - SuiteView will automatically:
+     - Find your VS Code installation
+     - Create a dedicated workspace
+     - Launch VS Code in the background
+     - Connect to the AI Bridge
+
+3. **Using the AI**:
+   - Select your preferred AI agent from the dropdown (GPT-4o, Claude, etc.)
+   - Type your question and press Ctrl+Enter or click Send
+   - The AI will respond with streaming output
+   - Your first two prompts will auto-name the thread
+
+4. **Window Management**:
+   - Toggle button (top-right of launcher): Click to show/hide the AI Bridge VS Code window
+   - Gold slider on left = Window hidden (default)
+   - Blue slider on right = Window visible
+
+### AI Assistant Launcher Bar
+
+The floating launcher bar shows:
+- **"AI Active" indicator**: Green when connected, gray when disconnected
+- **Toggle slider**: Gold/blue switch to control VS Code window visibility
+- **App buttons**: Quick access to all SuiteView tools
+- **Always on top**: Stays accessible while you work
+
+### Troubleshooting AI Assistant
+
+**Issue: AI Bridge won't connect**
+- Ensure VS Code is installed (checked in common locations: `%LOCALAPPDATA%`, `%ProgramFiles%`)
+- Verify GitHub Copilot extension is installed in VS Code
+- Check that you're signed into GitHub in VS Code
+- Try clicking "Start Dedicated VS Code Session" again
+
+**Issue: Models not loading**
+- Open VS Code manually and verify Copilot is working
+- Check VS Code settings for Copilot enabled models
+- Try restarting the dedicated VS Code session
+
+**Issue: Thread not auto-renaming**
+- Auto-naming happens after the second AI response
+- Requires connection to VS Code Bridge
+- Uses gpt-4o-mini model (must be available in your Copilot subscription)
+
+**Issue: Can't find VS Code window**
+- Click the toggle slider (top-right of launcher)
+- When blue (slider on right), VS Code window is visible
+- When gold (slider on left), VS Code window is hidden
+- Check Windows taskbar for VS Code icon
+
+For more details, see `docs/guides/AI_ASSISTANT_GUIDE.md` (coming soon)
 
 ## Quick Start
 
@@ -51,7 +132,8 @@ SuiteViewP/
 │   ├── main.py            # Application entry point
 │   ├── ui/                # UI layer (PyQt6 widgets)
 │   │   ├── main_window.py
-│   │   ├── launcher.py
+│   │   ├── launcher.py            # Floating always-on-top toolbar with AI indicator
+│   │   ├── llm_chat_window.py     # AI Assistant chatbot interface
 │   │   ├── connections_screen.py
 │   │   ├── mydata_screen.py
 │   │   ├── dbquery_screen.py
@@ -61,6 +143,9 @@ SuiteViewP/
 │   │   ├── widgets/       # Reusable custom widgets
 │   │   └── helpers/       # UI helper utilities
 │   ├── core/              # Business logic layer
+│   │   ├── llm_client.py          # VS Code Bridge client & conversation management
+│   │   ├── connection_manager.py
+│   │   └── ...
 │   ├── data/              # Data access layer
 │   │   └── database.py    # SQLite initialization
 │   ├── models/            # Data models
@@ -87,8 +172,12 @@ SuiteViewP/
 ## Application Data
 
 The application stores its data in your home directory:
-- Database: `~/.suiteview/suiteview.db`
-- Logs: `~/.suiteview/logs/suiteview.log`
+- **Database**: `~/.suiteview/suiteview.db` - Main application database
+- **Logs**: `~/.suiteview/logs/suiteview.log` - Application logs
+- **AI Conversations**: `~/.suiteview/llm_chat/conversations.json` - Saved chat history
+- **AI Workspace**: `~/.suiteview/llm_chat/ai_bridge_workspace/` - Dedicated VS Code workspace
+- **VS Code Session**: `~/.suiteview/llm_chat/vscode_session.json` - Active session tracking
+- **Bookmarks**: `~/.suiteview/bookmarks.json` - Unified bookmark storage
 
 ## Features (Current)
 
@@ -117,6 +206,14 @@ The application stores its data in your home directory:
   - **3D/dimensional effects** (gradients, subtle shadows, beveled borders) to draw attention to key controls
   - Panel headers should have depth/dimension to stand out from content areas
   - Styled message boxes and dialogs matching the app theme (not default OS style)
+  - **Lighthearted, friendly tone** in user-facing messages (see docs/DEV_GUIDE.md)
+
+- **Application Personality:**
+  - Brief, friendly explanations for technical concepts
+  - Casual, conversational tone in UI messages
+  - Light humor where appropriate (coffee machine analogies, etc.)
+  - Professional when dealing with errors or critical operations
+  - See `docs/DEV_GUIDE.md` "Application Personality & Messaging Style" section
 
 - **Category Colors:**
   - Categories can have custom colors from a 36-color palette
@@ -131,7 +228,6 @@ All bookmark bars use the unified `BookmarkContainer` class with centralized dat
   - Single JSON file: `~/.suiteview/bookmarks.json`
   - Scalable design supports unlimited bookmark bars
   - Each bar identified by unique string ID (e.g., `'top_bar'`, `'sidebar'`, `'toolbar_2'`)
-  - Automatic migration from legacy two-file format
 
 - **BookmarkContainer** (`suiteview/ui/widgets/bookmark_widgets.py`): 
   Unified container class for bookmarks and categories supporting both horizontal (top bar) 
@@ -173,17 +269,34 @@ Data storage (unified):
 - Configuration management
 - Database initialization and connection pooling
 - Clean separation of concerns (UI/Core/Data layers)
+- **AI Integration**:
+  - VS Code Bridge client with HTTP API (localhost:5678)
+  - Dedicated VS Code session management with automatic workspace creation
+  - Background thread workers for async AI responses
+  - Smart thread naming using GPT-4o-mini
+  - Conversation persistence and restoration
+  - Window visibility management via Windows API (ctypes)
 
-## Next Steps - Phase 2: Connections Screen
+## Next Steps
 
-Phase 2 will implement the Connections Screen functionality:
-- QTreeWidget for connection hierarchy
-- Add/Edit Connection dialogs
-- Schema discovery with SQLAlchemy
-- Table list with checkboxes
-- Schema details table view
-- Connection testing
-- Save to My Data functionality
+### Planned Features
+- **AI Assistant Enhancements**:
+  - API connection configuration UI
+  - Code execution from AI responses
+  - File attachment support (if supported by bridge)
+  - Conversation export/import
+  
+- **Data Management**:
+  - Saved queries interface
+  - Data set management
+  - Query result caching
+  - Export to multiple formats
+
+- **UI Improvements**:
+  - Additional tool integrations
+  - Email navigator enhancements
+  - Screenshot manager improvements
+  - Mainframe navigator upgrades
 
 ## Development
 
@@ -212,9 +325,12 @@ flake8 suiteview/
 ## Technology Stack
 
 - **UI Framework:** PyQt6
+- **AI Integration:** VS Code Bridge with GitHub Copilot
 - **Database:** SQLite 3 (local), SQLAlchemy (connections)
 - **Data Processing:** Pandas
 - **Security:** cryptography
+- **HTTP Client:** aiohttp (async), requests (sync)
+- **Process Management:** psutil
 - **Packaging:** PyInstaller (for future deployment)
 
 ## Architecture
