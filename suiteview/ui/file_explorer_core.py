@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (QTreeView, QVBoxLayout, QHBoxLayout, QWidget,
                               QFileIconProvider, QToolButton, QStyle, QStyledItemDelegate,
                               QApplication, QComboBox)
 from PyQt6.QtGui import QIcon, QAction, QStandardItemModel, QStandardItem, QDragEnterEvent, QDropEvent, QDragMoveEvent, QDrag
-from PyQt6.QtCore import Qt, QModelIndex, QThread, pyqtSignal, QSortFilterProxyModel, QEvent, QFileInfo, QSize, QUrl, QMimeData, QRegularExpression
+from PyQt6.QtCore import Qt, QModelIndex, QThread, pyqtSignal, QSortFilterProxyModel, QEvent, QFileInfo, QSize, QUrl, QMimeData, QRegularExpression, QTimer
 
 import logging
 
@@ -853,6 +853,11 @@ class FileExplorerCore(QWidget):
         self.panel_widths_file = Path.home() / '.suiteview' / 'file_explorer_panel_widths.json'
         self.panel_widths = self.load_panel_widths()
         
+        # Debounce timers for performance - avoid disk writes on every pixel
+        self._column_resize_timer = None
+        self._splitter_move_timer = None
+        self._search_debounce_timer = None
+        
         self.init_ui()
     
     def _init_icon_cache(self):
@@ -973,11 +978,20 @@ class FileExplorerCore(QWidget):
     def init_ui(self):
         """Initialize the UI"""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(4, 4, 4, 4)
+        main_layout.setSpacing(2)
         
-        # Create toolbar
+        # Apply light blue gradient background (PolView style)
+        self.setStyleSheet("""
+            FileExplorerCore {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #C8DCF8, stop:0.3 #A8C8F0, stop:1 #88B8E8);
+            }
+        """)
+        
+        # Create toolbar (hidden by default - buttons now in header bar)
         toolbar = self.create_toolbar()
+        toolbar.hide()  # Hidden - functionality moved to header bar
         main_layout.addWidget(toolbar)
         
         # Create bookmark bar (browser-style)
@@ -990,17 +1004,20 @@ class FileExplorerCore(QWidget):
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.main_splitter.setStyleSheet("""
             QSplitter::handle {
-                background-color: #A0B8D8;
-                width: 2px;
+                background-color: #6090C0;
+                width: 3px;
             }
             QSplitter::handle:hover {
-                background-color: #7DA3CC;
+                background-color: #D4A017;
             }
         """)
         
         # Create tree panel (left side - folder navigation only)
         tree_panel = self.create_tree_panel()
         self.main_splitter.addWidget(tree_panel)
+        
+        # Auto-expand the OneDrive folder
+        self.expand_first_onedrive()
         
         # Create details panel (right side - folder contents with details)
         details_panel = self.create_details_panel()
@@ -1109,11 +1126,92 @@ class FileExplorerCore(QWidget):
     def _apply_depth_search_locked_style(self, locked: bool = False) -> None:
         """Apply locked/unlocked style for depth search.
         
-        Base implementation does nothing. FileExplorerTab overrides this
-        to change the breadcrumb bar color when depth search is locked.
+        Adds a red border around the main panels when locked.
         """
-        pass
+        if locked:
+            self.main_splitter.setStyleSheet("""
+                QSplitter::handle {
+                    background-color: #6090C0;
+                    width: 3px;
+                }
+                QSplitter {
+                    border: 4px solid #DC2626;
+                    border-radius: 2px;
+                }
+            """)
+        else:
+            self.main_splitter.setStyleSheet("""
+                QSplitter::handle {
+                    background-color: #6090C0;
+                    width: 3px;
+                }
+                QSplitter::handle:hover {
+                    background-color: #D4A017;
+                }
+            """)
 
+    def export_details_to_excel(self):
+        """Export the current details view to a new Excel file"""
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment
+            import tempfile
+            
+            # Get the proxy model
+            proxy = self.details_view.model()
+            if not proxy or proxy.rowCount() == 0:
+                QMessageBox.information(self, "Export", "No data to export.")
+                return
+            
+            # Create workbook
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "File Explorer Export"
+            
+            # Write headers
+            header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF")
+            
+            column_count = proxy.columnCount()
+            for col in range(column_count):
+                header = proxy.headerData(col, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole)
+                cell = ws.cell(row=1, column=col + 1, value=str(header))
+                cell.fill = header_fill
+                cell.font = header_font
+            
+            # Write data
+            for row in range(proxy.rowCount()):
+                for col in range(column_count):
+                    index = proxy.index(row, col)
+                    data = proxy.data(index, Qt.ItemDataRole.DisplayRole)
+                    ws.cell(row=row + 2, column=col + 1, value=str(data) if data else "")
+            
+            # Auto-adjust column widths
+            for col in ws.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                ws.column_dimensions[column].width = adjusted_width
+            
+            # Save to temp file and open
+            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.xlsx', delete=False)
+            temp_path = temp_file.name
+            temp_file.close()
+            
+            wb.save(temp_path)
+            
+            # Open in Excel
+            os.startfile(temp_path)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to export to Excel:\n{str(e)}")
+    
     def _create_nav_button(self, icon: QIcon, tooltip: str, handler) -> QToolButton:
         """Build a breadcrumb-nav button with a clear icon."""
 
@@ -1126,13 +1224,16 @@ class FileExplorerCore(QWidget):
         button.setStyleSheet(
             """
             QToolButton {
-                border: 1px solid #2563EB;
+                border: 1px solid #1A4A94;
                 border-radius: 4px;
-                background-color: #E0ECFF;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #4A7DC4, stop:1 #2A5AA4);
                 padding: 2px;
             }
             QToolButton:hover {
-                background-color: #C9DAFF;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5A8DD4, stop:1 #3A6AB4);
+                border: 1px solid #D4A017;
             }
             """
         )
@@ -1142,22 +1243,24 @@ class FileExplorerCore(QWidget):
     def create_tree_panel(self):
         """Create the tree view with custom model (folders only, name column only)"""
         widget = QWidget()
+        widget.setStyleSheet("background-color: white;")
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # Header
+        # Header (PolView style)
         header = QLabel("📁 Folders")
         header.setStyleSheet(
             """
             QLabel {
-                padding: 4px 8px;
-                font-weight: 600;
+                padding: 6px 10px;
+                font-weight: 700;
                 font-size: 10pt;
-                background-color: #C0D4F0;
-                color: #1A3A6E;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1E5BA8, stop:0.5 #0D3A7A, stop:1 #082B5C);
+                color: #D4A017;
                 border: none;
-                border-bottom: 1px solid #A0B8D8;
+                border-bottom: 2px solid #D4A017;
             }
             """
         )
@@ -1283,12 +1386,18 @@ class FileExplorerCore(QWidget):
         self.model.setHorizontalHeaderLabels(['Name'])
         self.model.setColumnCount(1)  # Explicitly set to 1 column only
         
+        # Track the first OneDrive item for auto-expansion
+        self._first_onedrive_item = None
+        
         # Add OneDrive folders (excluding hidden ones)
         onedrive_paths = self.get_onedrive_paths()
         for od_path in onedrive_paths:
             if od_path.exists() and str(od_path).lower() not in self.hidden_onedrive_paths:
                 item = self.create_tree_folder_item(od_path, icon="⭐")
                 self.model.appendRow(item)
+                # Store reference to first OneDrive item for auto-expansion
+                if self._first_onedrive_item is None:
+                    self._first_onedrive_item = item
         
         # Add separator after OneDrive if we have any
         if onedrive_paths:
@@ -1321,6 +1430,17 @@ class FileExplorerCore(QWidget):
         for col in range(1, 10):
             self.tree_view.setColumnHidden(col, True)
         self.tree_view.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+    
+    def expand_first_onedrive(self):
+        """Expand the first OneDrive folder in the tree view"""
+        if hasattr(self, '_first_onedrive_item') and self._first_onedrive_item is not None:
+            try:
+                index = self.model.indexFromItem(self._first_onedrive_item)
+                if index.isValid():
+                    self.tree_view.expand(index)
+                    logger.info("Auto-expanded OneDrive folder in tree view")
+            except Exception as e:
+                logger.error(f"Failed to expand OneDrive folder: {e}")
     
     def populate_quick_links_model(self, model):
         """Populate a model with quick links only (for the right panel)"""
@@ -1661,23 +1781,25 @@ class FileExplorerCore(QWidget):
     def create_details_panel(self):
         """Create the details view panel (right side) for folder contents"""
         widget = QWidget()
+        widget.setStyleSheet("background-color: white;")
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # Header row: search box (filter) + current folder name
+        # Header row: search box (filter) + current folder name (PolView style)
         header_widget = QWidget()
         header_widget.setStyleSheet(
             """
             QWidget {
-                background-color: #C0D4F0;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1E5BA8, stop:0.5 #0D3A7A, stop:1 #082B5C);
                 border: none;
-                border-bottom: 1px solid #A0B8D8;
+                border-bottom: 2px solid #D4A017;
             }
             """
         )
         header_layout = QHBoxLayout(header_widget)
-        header_layout.setContentsMargins(8, 4, 8, 4)
+        header_layout.setContentsMargins(8, 5, 8, 5)
         header_layout.setSpacing(8)
 
         self.details_search = QLineEdit()
@@ -1698,10 +1820,13 @@ class FileExplorerCore(QWidget):
             """
             QLineEdit {
                 padding: 3px 8px;
-                border: 1px solid #A0B8D8;
+                border: 1px solid #D4A017;
                 border-radius: 3px;
                 background: white;
                 color: #1A3A6E;
+            }
+            QLineEdit:focus {
+                border: 2px solid #FFD700;
             }
             """
         )
@@ -1718,7 +1843,7 @@ class FileExplorerCore(QWidget):
         self.depth_level_combo.setStyleSheet("""
             QComboBox {
                 padding: 2px 4px;
-                border: 1px solid #A0B8D8;
+                border: 1px solid #D4A017;
                 border-radius: 3px;
                 background: white;
                 color: #1A3A6E;
@@ -1774,13 +1899,36 @@ class FileExplorerCore(QWidget):
             QLabel {
                 font-weight: 600;
                 font-size: 10pt;
-                color: #1A3A6E;
+                color: #D4A017;
                 background: transparent;
             }
             """
         )
         header_layout.addWidget(self.details_header)
         header_layout.addStretch()
+        
+        # Export button (PolView style - subtle but clear)
+        self.export_btn = QPushButton("📊 Export")
+        self.export_btn.setToolTip("Export details view to Excel")
+        self.export_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2A8A2A, stop:1 #1A6A1A);
+                border: 1px solid #D4A017;
+                border-radius: 3px;
+                padding: 3px 10px;
+                font-size: 9pt;
+                color: #FFFFFF;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3A9A3A, stop:1 #2A7A2A);
+                border-color: #FFD700;
+            }
+        """)
+        self.export_btn.clicked.connect(self.export_details_to_excel)
+        header_layout.addWidget(self.export_btn)
 
         layout.addWidget(header_widget)
         
@@ -1944,7 +2092,10 @@ class FileExplorerCore(QWidget):
         return widget
 
     def on_details_search_changed(self, text: str) -> None:
-        """Filter the details view contents in real time.
+        """Filter the details view contents with debouncing for performance.
+        
+        Visual feedback (border color) updates immediately for responsiveness,
+        but actual filtering is debounced to avoid lag during fast typing.
         
         Supports length formulas:
         - =(len=9)     : Names exactly 9 characters
@@ -1959,7 +2110,7 @@ class FileExplorerCore(QWidget):
 
         query = (text or "").strip()
         
-        # Update search box border to indicate active filter
+        # Update search box border IMMEDIATELY for visual feedback (no debounce)
         if query:
             # Red border when filter is active
             self.details_search.setStyleSheet(
@@ -1987,13 +2138,28 @@ class FileExplorerCore(QWidget):
                 """
             )
         
-        # Save the search term for the current folder
+        # Save the search term for the current folder (immediate, no debounce needed)
         if hasattr(self, 'current_details_folder') and self.current_details_folder:
             if query:
                 self.folder_search_terms[self.current_details_folder] = query
             elif self.current_details_folder in self.folder_search_terms:
                 # Remove empty search terms to keep dict clean
                 del self.folder_search_terms[self.current_details_folder]
+        
+        # Debounce the actual filter application for performance
+        # This prevents lag when typing quickly
+        if self._search_debounce_timer is not None:
+            self._search_debounce_timer.stop()
+        
+        self._search_debounce_timer = QTimer()
+        self._search_debounce_timer.setSingleShot(True)
+        self._search_debounce_timer.timeout.connect(lambda: self._apply_search_filter(query))
+        self._search_debounce_timer.start(150)  # Apply filter after 150ms of no typing
+    
+    def _apply_search_filter(self, query: str) -> None:
+        """Actually apply the search filter (called after debounce delay)"""
+        if not hasattr(self, 'details_sort_proxy'):
+            return
         
         # Check for length formula: =(len=9), =(len>10), etc.
         import re
@@ -2403,10 +2569,16 @@ class FileExplorerCore(QWidget):
         # Sort by depth level then alphabetically
         sorted_items = sorted(depth_items, key=lambda x: (x['depth'], x['display_name'].lower()))
         
-        # Add all items to view
-        for item in sorted_items:
-            row_items = self._create_depth_search_item(item)
-            self.details_model.appendRow(row_items)
+        # PERFORMANCE: Disable view updates during bulk insertion
+        self.details_view.setUpdatesEnabled(False)
+        try:
+            # Add all items to view
+            for item in sorted_items:
+                row_items = self._create_depth_search_item(item)
+                self.details_model.appendRow(row_items)
+        finally:
+            # Re-enable updates and trigger single repaint
+            self.details_view.setUpdatesEnabled(True)
         
         # Update footer
         self.update_details_footer()
@@ -2656,10 +2828,9 @@ class FileExplorerCore(QWidget):
         import time
         start_time = time.perf_counter()
         
-        if hasattr(self, 'details_footer'):
-            self.details_footer.setText("...loading")
-            # Force UI update to show loading message
-            QApplication.processEvents()
+        # Note: Removed QApplication.processEvents() here - it causes event loop recursion
+        # and is a common source of UI stuttering. The loading indicator can be shown
+        # via other means if needed.
         
         try:
             dir_path = Path(dir_path)
@@ -2760,18 +2931,25 @@ class FileExplorerCore(QWidget):
             except Exception:
                 items_with_type = []
             
-            # Add items to view - use cached is_dir result
-            for item_path, is_directory in items_with_type:
-                try:
-                    if is_directory:
-                        row_items = self.create_folder_item(item_path)
-                    else:
-                        row_items = self.create_file_item(item_path)
-                    
-                    self.details_model.appendRow(row_items)
-                except (PermissionError, OSError):
-                    # Skip items we can't access
-                    continue
+            # PERFORMANCE: Disable view updates during bulk insertion
+            # This prevents Qt from repainting after every single row is added
+            self.details_view.setUpdatesEnabled(False)
+            try:
+                # Add items to view - use cached is_dir result
+                for item_path, is_directory in items_with_type:
+                    try:
+                        if is_directory:
+                            row_items = self.create_folder_item(item_path)
+                        else:
+                            row_items = self.create_file_item(item_path)
+                        
+                        self.details_model.appendRow(row_items)
+                    except (PermissionError, OSError):
+                        # Skip items we can't access
+                        continue
+            finally:
+                # Re-enable updates and trigger single repaint
+                self.details_view.setUpdatesEnabled(True)
             
             # Re-apply current sort order (default: Name ascending)
             header = self.details_view.header()
@@ -3376,7 +3554,7 @@ class FileExplorerCore(QWidget):
         # If this is a file, select it in the details view after loading
         if path_obj.is_file():
             # Small delay to ensure the model is populated
-            from PyQt6.QtCore import QTimer
+            # QTimer already imported at module level
             QTimer.singleShot(100, lambda: self.select_file_in_details(path))
         
         logger.info(f"Navigated to folder location: {parent_folder}")
@@ -3750,8 +3928,13 @@ class FileExplorerCore(QWidget):
                 QMessageBox.warning(self, "Error", f"Failed to create folder:\n{str(e)}")
         
     def open_in_explorer(self):
-        """Open selected path in Windows Explorer"""
+        """Open current folder or selected path in Windows Explorer"""
         path = self.get_selected_path()
+        
+        # If no selection, use current details folder
+        if not path and hasattr(self, 'current_details_folder') and self.current_details_folder:
+            path = self.current_details_folder
+        
         if not path:
             return
         
@@ -4171,9 +4354,17 @@ class FileExplorerCore(QWidget):
             logger.error(f"Failed to save column widths: {e}")
     
     def on_column_resized(self, logical_index, old_size, new_size):
-        """Handle column resize event - save new width"""
+        """Handle column resize event - debounced save (avoids disk write on every pixel)"""
         self.column_widths[f'col_{logical_index}'] = new_size
-        self.save_column_widths()
+        
+        # Debounce: cancel any pending save and schedule new one
+        if self._column_resize_timer is not None:
+            self._column_resize_timer.stop()
+        
+        self._column_resize_timer = QTimer()
+        self._column_resize_timer.setSingleShot(True)
+        self._column_resize_timer.timeout.connect(self.save_column_widths)
+        self._column_resize_timer.start(500)  # Save after 500ms of no resize activity
     
     def load_panel_widths(self):
         """Load panel widths from JSON file"""
@@ -4196,7 +4387,7 @@ class FileExplorerCore(QWidget):
             logger.error(f"Failed to save panel widths: {e}")
     
     def on_splitter_moved(self, pos, index):
-        """Handle splitter moved event - save panel widths"""
+        """Handle splitter moved event - debounced save (avoids disk write on every pixel)"""
         if hasattr(self, 'main_splitter'):
             sizes = self.main_splitter.sizes()
             if len(sizes) >= 2:
@@ -4204,7 +4395,15 @@ class FileExplorerCore(QWidget):
                 self.panel_widths['middle_panel'] = sizes[1]
                 if len(sizes) >= 3:
                     self.panel_widths['right_panel'] = sizes[2]
-                self.save_panel_widths()
+                
+                # Debounce: cancel any pending save and schedule new one
+                if self._splitter_move_timer is not None:
+                    self._splitter_move_timer.stop()
+                
+                self._splitter_move_timer = QTimer()
+                self._splitter_move_timer.setSingleShot(True)
+                self._splitter_move_timer.timeout.connect(self.save_panel_widths)
+                self._splitter_move_timer.start(500)  # Save after 500ms of no movement
     
     def update_details_footer(self, timing_ms=None):
         """Update the details footer with item count and optional timing"""

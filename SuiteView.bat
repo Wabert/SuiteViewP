@@ -1,3 +1,5 @@
 @echo off
+REM SuiteView - Main Application Launcher
+REM Double-click this file to start SuiteView
 cd /d "%~dp0"
-.\venv_window\Scripts\python.exe -c "import sys; sys.path.insert(0, '.'); from suiteview.main import main; main()"
+start "" "%~dp0venv_window\Scripts\pythonw.exe" "%~dp0scripts\run_suiteview.py"

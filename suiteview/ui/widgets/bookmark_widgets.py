@@ -508,6 +508,18 @@ CATEGORY_CONTEXT_MENU_STYLE = """
 # Category Color Palette - 6x6 grid of colors for categories
 # =============================================================================
 
+# Themed colors (first row) - SuiteView brand colors
+THEMED_COLORS = [
+    # Blue gradient with gold - main theme
+    "theme:blue_gold",
+    # Gold gradient with blue - inverted theme  
+    "theme:gold_blue",
+    # Navy with silver trim - professional
+    "theme:navy_silver",
+    # Teal with coral - complementary
+    "theme:teal_coral",
+]
+
 CATEGORY_COLORS = [
     # Row 1 - Reds/Pinks
     "#FF6B6B", "#FF8E8E", "#FFB4B4", "#FF69B4", "#FF85C1", "#FFB6C1",
@@ -528,28 +540,135 @@ DEFAULT_CATEGORY_COLOR = "#CE93D8"
 
 
 def darken_color(hex_color, factor=0.7):
-    """Darken a hex color by a factor (0-1, lower = darker)"""
+    """Darken a hex color by a factor (0-1, lower = darker)
+    
+    Also handles themed colors like 'theme:blue_gold' by returning
+    the theme's border color.
+    """
+    if not hex_color:
+        return "#7b2d8e"  # Default purple
+    
+    # Handle themed colors
+    if hex_color.startswith('theme:'):
+        # Return the border color for themed categories
+        theme_borders = {
+            'theme:blue_gold': '#B8860B',    # Darker gold
+            'theme:gold_blue': '#0A2D5C',    # Darker blue
+            'theme:navy_silver': '#808080',  # Darker silver
+            'theme:teal_coral': '#CC5F40',   # Darker coral
+        }
+        return theme_borders.get(hex_color, '#7b2d8e')
+    
+    # Handle regular hex colors
+    if not hex_color.startswith('#'):
+        return "#7b2d8e"  # Default purple for invalid colors
+    
     hex_color = hex_color.lstrip('#')
-    r = int(int(hex_color[0:2], 16) * factor)
-    g = int(int(hex_color[2:4], 16) * factor)
-    b = int(int(hex_color[4:6], 16) * factor)
-    return f"#{r:02x}{g:02x}{b:02x}"
+    try:
+        r = int(int(hex_color[0:2], 16) * factor)
+        g = int(int(hex_color[2:4], 16) * factor)
+        b = int(int(hex_color[4:6], 16) * factor)
+        return f"#{r:02x}{g:02x}{b:02x}"
+    except (ValueError, IndexError):
+        return "#7b2d8e"  # Default purple on error
 
 
 def lighten_color(hex_color, factor=0.3):
-    """Lighten a hex color by mixing with white"""
+    """Lighten a hex color by mixing with white
+    
+    Also handles themed colors like 'theme:blue_gold' by returning
+    a lighter version of the theme's border color.
+    """
+    if not hex_color:
+        return "#E1BEE7"  # Light purple
+    
+    # Handle themed colors
+    if hex_color.startswith('theme:'):
+        # Return a lighter version for themed categories
+        theme_lights = {
+            'theme:blue_gold': '#FFD700',    # Bright gold
+            'theme:gold_blue': '#4A7DC4',    # Lighter blue
+            'theme:navy_silver': '#D0D0D0',  # Light silver
+            'theme:teal_coral': '#FF9F7F',   # Light coral
+        }
+        return theme_lights.get(hex_color, '#E1BEE7')
+    
+    # Handle regular hex colors
+    if not hex_color.startswith('#'):
+        return "#E1BEE7"  # Light purple for invalid colors
+    
     hex_color = hex_color.lstrip('#')
-    r = int(hex_color[0:2], 16)
-    g = int(hex_color[2:4], 16)
-    b = int(hex_color[4:6], 16)
-    r = int(r + (255 - r) * factor)
-    g = int(g + (255 - g) * factor)
-    b = int(b + (255 - b) * factor)
-    return f"#{r:02x}{g:02x}{b:02x}"
+    try:
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        r = int(r + (255 - r) * factor)
+        g = int(g + (255 - g) * factor)
+        b = int(b + (255 - b) * factor)
+        return f"#{r:02x}{g:02x}{b:02x}"
+    except (ValueError, IndexError):
+        return "#E1BEE7"  # Light purple on error
+
+
+def get_themed_style(theme_id, orientation='horizontal'):
+    """Generate category button stylesheet for themed colors"""
+    # Sidebar (vertical) uses smaller margins
+    margin = "1px 0px" if orientation == 'vertical' else "0px"
+    
+    # Theme definitions: (gradient_start, gradient_end, border, text_color)
+    themes = {
+        'theme:blue_gold': ('#1E5BA8', '#082B5C', '#D4A017', '#D4A017'),
+        'theme:gold_blue': ('#D4A017', '#8B6914', '#0D3A7A', '#0D3A7A'),
+        'theme:navy_silver': ('#0A1E3E', '#050F1F', '#C0C0C0', '#C0C0C0'),
+        'theme:teal_coral': ('#008080', '#004040', '#FF7F50', '#FF7F50'),
+    }
+    
+    if theme_id not in themes:
+        return get_category_button_style(DEFAULT_CATEGORY_COLOR, orientation)
+    
+    grad_start, grad_end, border, text = themes[theme_id]
+    
+    return f"""
+        QPushButton {{
+            background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 {grad_start}, stop:1 {grad_end});
+            border: 2px solid {border};
+            border-radius: 10px;
+            padding: 3px 10px;
+            margin: {margin};
+            text-align: left;
+            font-size: 9pt;
+            font-weight: bold;
+            color: {text};
+        }}
+        QPushButton:hover {{
+            background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 {lighten_color(grad_start, 0.2)}, stop:1 {grad_start});
+            border-color: {lighten_color(border, 0.3)};
+        }}
+        QPushButton:pressed {{
+            background-color: {grad_end};
+        }}
+        QToolTip {{
+            background-color: #FFFFDD;
+            color: #333333;
+            border: 1px solid #888888;
+            padding: 4px;
+            font-size: 9pt;
+        }}
+    """
 
 
 def get_category_button_style(color, orientation='horizontal'):
-    """Generate category button stylesheet based on color"""
+    """Generate category button stylesheet based on color (or theme)"""
+    # Handle themed colors
+    if color and color.startswith('theme:'):
+        return get_themed_style(color, orientation)
+    
+    # Handle None or invalid color
+    if not color or not color.startswith('#'):
+        color = DEFAULT_CATEGORY_COLOR
+    
     light_color = lighten_color(color, 0.4)
     dark_color = darken_color(color, 0.7)
     border_color = darken_color(color, 0.6)
@@ -667,18 +786,22 @@ def show_styled_warning(parent, title, message):
 
 class ColorPickerPopup(QFrame):
     """
-    A popup with a 6x6 grid of colors for category customization.
+    A popup with themed colors and a 6x6 grid of colors for category customization.
     """
     
-    color_selected = pyqtSignal(str)  # Emits hex color
+    color_selected = pyqtSignal(str)  # Emits hex color or theme identifier
     
     def __init__(self, parent=None, current_color=None):
         super().__init__(parent, Qt.WindowType.Popup)
         
         self.current_color = current_color
         
-        # Use current color for border, or default purple
-        border_color = darken_color(current_color, 0.7) if current_color else "#7b2d8e"
+        # Use current color for border, or default blue
+        if current_color and current_color.startswith('theme:'):
+            border_color = "#D4A017"  # Gold for themed
+        else:
+            border_color = darken_color(current_color, 0.7) if current_color else "#0D3A7A"
+        
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: #ffffff;
@@ -690,7 +813,7 @@ class ColorPickerPopup(QFrame):
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
+        layout.setSpacing(6)
         
         # Title
         from PyQt6.QtWidgets import QLabel
@@ -698,13 +821,56 @@ class ColorPickerPopup(QFrame):
         title.setStyleSheet("font-weight: bold; font-size: 9pt; color: #333; border: none;")
         layout.addWidget(title)
         
-        # Color grid - 6x6
+        # ====== THEMED COLORS SECTION ======
+        themed_label = QLabel("SuiteView Themes")
+        themed_label.setStyleSheet("font-size: 8pt; color: #666; border: none; margin-top: 4px;")
+        layout.addWidget(themed_label)
+        
         from PyQt6.QtWidgets import QGridLayout
+        themed_grid = QGridLayout()
+        themed_grid.setSpacing(4)
+        
+        # Theme button definitions with gradient previews
+        theme_defs = [
+            ("theme:blue_gold", "Blue & Gold", "#1E5BA8", "#D4A017"),
+            ("theme:gold_blue", "Gold & Blue", "#D4A017", "#0D3A7A"),
+            ("theme:navy_silver", "Navy & Silver", "#0A1E3E", "#C0C0C0"),
+            ("theme:teal_coral", "Teal & Coral", "#008080", "#FF7F50"),
+        ]
+        
+        for i, (theme_id, tooltip, color1, color2) in enumerate(theme_defs):
+            btn = QPushButton()
+            btn.setFixedSize(36, 28)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(tooltip)
+            
+            # Highlight current theme
+            border = "3px solid #333" if theme_id == current_color else "1px solid #888"
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                        stop:0 {color1}, stop:1 {color2});
+                    border: {border};
+                    border-radius: 4px;
+                }}
+                QPushButton:hover {{
+                    border: 2px solid #D4A017;
+                }}
+            """)
+            
+            btn.clicked.connect(lambda checked, t=theme_id: self._select_color(t))
+            themed_grid.addWidget(btn, 0, i)
+        
+        layout.addLayout(themed_grid)
+        
+        # ====== SOLID COLORS SECTION ======
+        colors_label = QLabel("Solid Colors")
+        colors_label.setStyleSheet("font-size: 8pt; color: #666; border: none; margin-top: 4px;")
+        layout.addWidget(colors_label)
+        
+        # Color grid - 6x6
         grid = QGridLayout()
         grid.setSpacing(4)
-        
-        # Use category color for hover, or default purple
-        hover_border = border_color
         
         for i, color in enumerate(CATEGORY_COLORS):
             row = i // 6
@@ -723,7 +889,7 @@ class ColorPickerPopup(QFrame):
                     border-radius: 4px;
                 }}
                 QPushButton:hover {{
-                    border: 2px solid {hover_border};
+                    border: 2px solid #D4A017;
                 }}
             """)
             

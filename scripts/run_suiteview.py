@@ -1,6 +1,6 @@
 """
-Standalone File Explorer Multi-Tab Launcher
-Run the File Explorer with Multi-Tab and Breadcrumb Navigation directly
+SuiteView - Main Application Launcher
+The unified SuiteView experience with File Navigator, system tray, and access to all tools
 """
 
 if __name__ == '__main__':
@@ -23,43 +23,39 @@ if __name__ == '__main__':
         from PyQt6.QtWidgets import QApplication
         from PyQt6.QtCore import qInstallMessageHandler, QtMsgType
         
-        # Qt message handler
+        # Qt message handler (suppress non-critical warnings)
         def qt_message_handler(mode, context, message):
-            if mode == QtMsgType.QtWarningMsg:
-                print(f"Qt Warning: {message}")
-            elif mode == QtMsgType.QtCriticalMsg:
+            if mode == QtMsgType.QtCriticalMsg:
                 print(f"Qt Critical: {message}")
             elif mode == QtMsgType.QtFatalMsg:
                 print(f"Qt Fatal: {message}")
+            # Suppress warnings for cleaner output
         
         qInstallMessageHandler(qt_message_handler)
         
         from suiteview.ui.file_explorer_multitab import FileExplorerMultiTab
-
-        app = QApplication(sys.argv)
         
-        # Create and show file explorer with tabs
-        print("Creating FileExplorerMultiTab...")
-        explorer = FileExplorerMultiTab()
-        print("Setting window title...")
-        explorer.setWindowTitle("File Explorer - Multi-Tab Edition")
-        print("Setting size...")
-        explorer.resize(1400, 800)
+        # Create application - don't quit when last window closes (we have tray)
+        app = QApplication(sys.argv)
+        app.setQuitOnLastWindowClosed(False)
+        
+        # Create and show the main SuiteView window
+        suiteview = FileExplorerMultiTab()
+        suiteview.setWindowTitle("SuiteView")
+        suiteview.resize(1400, 800)
         
         # Center the window on screen
-        print("Centering window...")
         screen = app.primaryScreen().geometry()
-        x = (screen.width() - explorer.width()) // 2
-        y = (screen.height() - explorer.height()) // 2
-        explorer.move(x, y)
+        x = (screen.width() - suiteview.width()) // 2
+        y = (screen.height() - suiteview.height()) // 2
+        suiteview.move(x, y)
         
-        print("Showing window...")
-        explorer.show()
-        explorer.raise_()  # Bring to front
-        explorer.activateWindow()  # Make active
-        print("Starting event loop...")
+        suiteview.show()
+        suiteview.raise_()
+        suiteview.activateWindow()
         
         sys.exit(app.exec())
+        
     except Exception as e:
         print(f"ERROR: {e}")
         traceback.print_exc()

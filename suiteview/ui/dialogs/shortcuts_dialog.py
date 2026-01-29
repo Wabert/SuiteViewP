@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QWidget,
                               QPushButton, QLabel, QScrollArea, QFrame,
                               QInputDialog, QMessageBox, QLineEdit, QComboBox,
                               QMenu, QGridLayout, QSizePolicy, QFileIconProvider)
-from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QPoint, QTimer, QFileInfo
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QPoint, QTimer, QFileInfo, QSize
 from PyQt6.QtGui import QIcon, QAction, QCursor, QDrag
 
 # Import unified bookmark widgets
@@ -140,7 +140,7 @@ def detect_sharepoint_type(url):
 
 
 class AddBookmarkDialog(QDialog):
-    """Dialog to add a new bookmark"""
+    """Dialog to add a new bookmark - PolView themed"""
     
     # Signal to highlight a bookmark bar (bar_id or -1 to clear)
     highlight_bar = None  # Will be set as pyqtSignal
@@ -151,128 +151,174 @@ class AddBookmarkDialog(QDialog):
         self.parent_widget = parent  # Store reference to parent for bar highlighting
         self.setWindowTitle("Add Bookmark")
         self.setModal(True)
-        self.resize(500, 220)
+        self.resize(500, 280)
         
-        # Apply compact styling
+        # Apply PolView theme styling
         self.setStyleSheet("""
             QDialog {
-                background-color: #f5f5f5;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #C8DCF8, stop:0.3 #A8C8F0, stop:1 #88B8E8);
             }
             QLabel {
-                font-size: 9pt;
+                font-size: 10pt;
                 padding: 0px;
                 margin: 0px;
+                color: #0D3A7A;
+                background: transparent;
             }
             QLineEdit {
-                padding: 4px 6px;
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                font-size: 9pt;
+                padding: 6px 10px;
+                border: 1px solid #1A4A94;
+                border-radius: 4px;
+                font-size: 10pt;
+                background-color: white;
+                color: #0D3A7A;
             }
             QLineEdit:focus {
-                border-color: #0078d4;
+                border: 2px solid #D4A017;
             }
             QComboBox {
-                padding: 4px 6px;
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                font-size: 9pt;
+                padding: 6px 10px;
+                border: 1px solid #1A4A94;
+                border-radius: 4px;
+                font-size: 10pt;
+                background-color: white;
+                color: #0D3A7A;
             }
             QComboBox:focus {
-                border-color: #0078d4;
+                border: 2px solid #D4A017;
             }
             QComboBox::drop-down {
                 border: none;
-                width: 20px;
+                width: 24px;
             }
             QComboBox::down-arrow {
                 image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid #666;
-                margin-right: 5px;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 6px solid #0D3A7A;
+                margin-right: 8px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                border: 1px solid #1A4A94;
+                selection-background-color: #3A7DC8;
+                selection-color: white;
             }
             QCheckBox {
-                font-size: 9pt;
-                spacing: 4px;
+                font-size: 10pt;
+                spacing: 6px;
+                color: #0D3A7A;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #1A4A94;
+                border-radius: 3px;
+                background-color: white;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #D4A017;
+                border-color: #D4A017;
             }
             QPushButton {
-                padding: 5px 16px;
-                border: 1px solid #c0c0c0;
-                border-radius: 3px;
-                background-color: #f0f0f0;
-                font-size: 9pt;
-                color: #333;
-                min-width: 70px;
+                padding: 8px 20px;
+                border: 1px solid #1A4A94;
+                border-radius: 4px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #4A7DC4, stop:1 #2A5AA4);
+                font-size: 10pt;
+                font-weight: 600;
+                color: white;
+                min-width: 80px;
             }
             QPushButton:hover {
-                background-color: #e0e0e0;
-                border-color: #a0a0a0;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5A8DD4, stop:1 #3A6AB4);
+                border-color: #D4A017;
             }
             QPushButton:pressed {
-                background-color: #d0d0d0;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3A6AB4, stop:1 #1A4A94);
             }
             QPushButton:default {
-                background-color: #0078d4;
-                color: white;
-                border-color: #0078d4;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #D4A017, stop:1 #B8860B);
+                color: #0D3A7A;
+                border-color: #8B6914;
             }
             QPushButton:default:hover {
-                background-color: #006cc1;
-            }
-            QListWidget {
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                font-size: 9pt;
-            }
-            QListWidget::item {
-                padding: 4px 8px;
-            }
-            QListWidget::item:hover {
-                background-color: #e8f0fe;
-            }
-            QListWidget::item:selected {
-                background-color: #0078d4;
-                color: white;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #FFD700, stop:1 #D4A017);
             }
         """)
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
-        # Title
-        title_label = QLabel("<b>Add New Bookmark</b>")
-        title_label.setStyleSheet("font-size: 11pt; margin-bottom: 4px;")
-        layout.addWidget(title_label)
+        # Header bar (PolView style)
+        header = QFrame()
+        header.setFixedHeight(40)
+        header.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1E5BA8, stop:0.5 #0D3A7A, stop:1 #082B5C);
+                border: none;
+                border-bottom: 2px solid #D4A017;
+            }
+        """)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(16, 0, 16, 0)
+        
+        title_label = QLabel("Add New Bookmark")
+        title_label.setStyleSheet("""
+            font-size: 14pt;
+            font-weight: bold;
+            font-style: italic;
+            color: #D4A017;
+            background: transparent;
+        """)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        layout.addWidget(header)
+        
+        # Content area
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(20, 16, 20, 16)
+        content_layout.setSpacing(12)
         
         # Name input
         name_layout = QHBoxLayout()
-        name_layout.setSpacing(8)
+        name_layout.setSpacing(10)
         name_label = QLabel("Name:")
-        name_label.setFixedWidth(55)
+        name_label.setFixedWidth(70)
+        name_label.setStyleSheet("font-weight: 600;")
         name_layout.addWidget(name_label)
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Display name for the bookmark")
         name_layout.addWidget(self.name_input)
-        layout.addLayout(name_layout)
+        content_layout.addLayout(name_layout)
         
         # Path/URL input
         path_layout = QHBoxLayout()
-        path_layout.setSpacing(8)
+        path_layout.setSpacing(10)
         path_label = QLabel("Path/URL:")
-        path_label.setFixedWidth(55)
+        path_label.setFixedWidth(70)
+        path_label.setStyleSheet("font-weight: 600;")
         path_layout.addWidget(path_label)
         self.path_input = QLineEdit()
         self.path_input.setPlaceholderText("File path, folder path, URL, or SharePoint link")
         path_layout.addWidget(self.path_input)
-        layout.addLayout(path_layout)
+        content_layout.addLayout(path_layout)
         
         # Location selection (replaces Category)
         location_layout = QHBoxLayout()
-        location_layout.setSpacing(8)
+        location_layout.setSpacing(10)
         location_label = QLabel("Location:")
-        location_label.setFixedWidth(55)
+        location_label.setFixedWidth(70)
+        location_label.setStyleSheet("font-weight: 600;")
         location_layout.addWidget(location_label)
         
         # Use QComboBox with custom view for hover highlighting
@@ -289,41 +335,53 @@ class AddBookmarkDialog(QDialog):
         self.location_combo.view().viewport().installEventFilter(self)
         
         location_layout.addWidget(self.location_combo)
-        layout.addLayout(location_layout)
+        content_layout.addLayout(location_layout)
         
         # Hint for new category creation
         location_hint = QLabel("💡 Type a new name to create a new category")
-        location_hint.setStyleSheet("color: #666; font-size: 8pt; margin-left: 63px;")
-        layout.addWidget(location_hint)
+        location_hint.setStyleSheet("color: #1A4A94; font-size: 9pt; margin-left: 80px;")
+        content_layout.addWidget(location_hint)
         
         # Open in App checkbox (for SharePoint files)
         from PyQt6.QtWidgets import QCheckBox
         self.open_in_app_checkbox = QCheckBox("Open in App (SharePoint files open in desktop app instead of browser)")
         self.open_in_app_checkbox.setChecked(True)
-        layout.addWidget(self.open_in_app_checkbox)
+        content_layout.addWidget(self.open_in_app_checkbox)
         
         # Type hint
         type_label = QLabel("💡 Tip: This can be a folder path, file path, SharePoint URL, or any web URL")
-        type_label.setStyleSheet("color: #0066cc; font-size: 8pt;")
-        layout.addWidget(type_label)
+        type_label.setStyleSheet("color: #1A4A94; font-size: 9pt;")
+        content_layout.addWidget(type_label)
         
-        layout.addStretch()
+        content_layout.addStretch()
         
-        # Buttons
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(8)
-        button_layout.addStretch()
+        layout.addWidget(content, 1)
+        
+        # Footer bar with buttons (PolView style)
+        footer = QFrame()
+        footer.setFixedHeight(50)
+        footer.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1E5BA8, stop:0.5 #0D3A7A, stop:1 #082B5C);
+                border: none;
+                border-top: 2px solid #D4A017;
+            }
+        """)
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(16, 0, 16, 0)
+        footer_layout.addStretch()
         
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(cancel_btn)
+        footer_layout.addWidget(cancel_btn)
         
         save_btn = QPushButton("Save")
         save_btn.setDefault(True)
         save_btn.clicked.connect(self.accept)
-        button_layout.addWidget(save_btn)
+        footer_layout.addWidget(save_btn)
         
-        layout.addLayout(button_layout)
+        layout.addWidget(footer)
     
     def _populate_locations(self):
         """Populate location combo with all bars and categories dynamically"""
@@ -1978,6 +2036,64 @@ class BookmarkBar(QFrame):
         
         # Add the container to the layout
         layout.addWidget(self.bookmark_container, 1)  # Take remaining space
+        
+        # Add "+" button at the end for adding bookmarks
+        self.add_btn = QPushButton("+")
+        self.add_btn.setFixedSize(24, 24)
+        self.add_btn.setToolTip("Add Bookmark")
+        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #4A7DC4, stop:1 #2A5AA4);
+                border: 1px solid #1A4A94;
+                border-radius: 4px;
+                color: #D4A017;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5A8DD4, stop:1 #3A6AB4);
+                border: 1px solid #D4A017;
+                color: #FFD700;
+            }
+        """)
+        self.add_btn.clicked.connect(self.add_bookmark)
+        layout.addWidget(self.add_btn)
+        
+        # Add sidebar toggle button at the end of bookmark bar
+        self.sidebar_toggle_btn = QPushButton()
+        self.sidebar_toggle_btn.setToolTip("Toggle Bookmarks Sidebar")
+        self.sidebar_toggle_btn.setFixedSize(24, 24)
+        self.sidebar_toggle_btn.setCheckable(True)
+        # Use system list view icon
+        from PyQt6.QtWidgets import QStyle
+        list_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogListView)
+        self.sidebar_toggle_btn.setIcon(list_icon)
+        self.sidebar_toggle_btn.setIconSize(QSize(14, 14))
+        self.sidebar_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sidebar_toggle_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #4A7DC4, stop:1 #2A5AA4);
+                border: 1px solid #1A4A94;
+                border-radius: 4px;
+                color: white;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5A8DD4, stop:1 #3A6AB4);
+                border: 1px solid #D4A017;
+            }
+            QPushButton:checked {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1E5BA8, stop:1 #082B5C);
+                border: 2px solid #D4A017;
+            }
+        """)
+        # Connect the toggle - will be connected by file explorer when it has the panel
+        layout.addWidget(self.sidebar_toggle_btn)
         
         # Store references for backwards compatibility
         self.bookmarks_layout = self.bookmark_container.items_layout

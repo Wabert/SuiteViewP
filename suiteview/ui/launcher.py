@@ -7,7 +7,7 @@ import sys
 import os
 from PyQt6.QtWidgets import (QApplication, QWidget, QPushButton, QHBoxLayout, QVBoxLayout,
                               QSystemTrayIcon, QMenu, QLabel)
-from PyQt6.QtCore import Qt, QPoint, QRect, QSize
+from PyQt6.QtCore import Qt, QPoint, QRect, QSize, QTimer
 from PyQt6.QtGui import QIcon, QAction, QPainter, QColor, QPen, QCursor, QLinearGradient, QPixmap
 
 import logging
@@ -61,6 +61,9 @@ class LauncherWindow(QWidget):
         # Settings file for persistence
         from pathlib import Path
         self.settings_file = Path.home() / '.suiteview' / 'launcher_settings.json'
+        
+        # Debounce timer for saving window state (avoids disk write on every pixel)
+        self._save_state_timer = None
         
         self.init_ui()
         self._update_dev_features_visibility()  # Hide beta features initially
@@ -1067,13 +1070,23 @@ class LauncherWindow(QWidget):
     def mouseReleaseEvent(self, event):
         """Handle mouse release to stop dragging/resizing"""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Save window state after move or resize
+            # Schedule debounced save after move or resize
             if self.dragging or self.resizing:
-                self.save_window_state()
+                self._schedule_save_window_state()
             
             self.dragging = False
             self.resizing = False
             self.resize_direction = None
+    
+    def _schedule_save_window_state(self):
+        """Schedule a debounced save of window state (avoids disk write on every move)"""
+        if self._save_state_timer is not None:
+            self._save_state_timer.stop()
+        
+        self._save_state_timer = QTimer()
+        self._save_state_timer.setSingleShot(True)
+        self._save_state_timer.timeout.connect(self.save_window_state)
+        self._save_state_timer.start(500)  # Save after 500ms of no activity
     
     def show_bookmarks_menu(self, pos):
         """Show context menu with File Nav bookmarks"""
