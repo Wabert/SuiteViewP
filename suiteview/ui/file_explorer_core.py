@@ -1907,19 +1907,19 @@ class FileExplorerCore(QWidget):
         header_layout.addWidget(self.details_header)
         header_layout.addStretch()
         
-        # Export button (PolView style - subtle but clear)
-        self.export_btn = QPushButton("📊 Export")
+        # Export button (PolView style - icon only spreadsheet)
+        self.export_btn = QPushButton()
+        self.export_btn.setText("📊")
         self.export_btn.setToolTip("Export details view to Excel")
+        self.export_btn.setFixedSize(26, 26)
         self.export_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #2A8A2A, stop:1 #1A6A1A);
                 border: 1px solid #D4A017;
                 border-radius: 3px;
-                padding: 3px 10px;
-                font-size: 9pt;
+                font-size: 12pt;
                 color: #FFFFFF;
-                font-weight: bold;
             }
             QPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,

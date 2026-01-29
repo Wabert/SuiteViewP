@@ -2566,11 +2566,16 @@ class BookmarkContainer(QWidget):
         """)
         self.scroll_area.setAcceptDrops(False)  # Let drops pass through
         
+        # Connect scrollbar visibility changes to update button widths
+        self.scroll_area.verticalScrollBar().rangeChanged.connect(
+            lambda: QTimer.singleShot(10, self._update_button_widths)
+        )
+        
         # Items container - accepts drops and forwards to parent
         self.items_container = DropForwardingWidget(self)
         self.items_container.setStyleSheet("background-color: transparent;")
         self.items_layout = QVBoxLayout(self.items_container)
-        self.items_layout.setContentsMargins(4, 2, 14, 2)  # Extra right margin (14px) for rounded corners
+        self.items_layout.setContentsMargins(4, 2, 4, 2)  # Reduced right margin, dynamic adjustment handles scrollbar
         self.items_layout.setSpacing(1)
         self.items_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
@@ -2592,8 +2597,14 @@ class BookmarkContainer(QWidget):
         if self.orientation != 'vertical':
             return
         
-        # Calculate available width: container width minus minimal padding
-        available_width = self.width() - 4  # Just 4px to prevent clipping
+        # Calculate available width: container width minus padding
+        available_width = self.width() - 4  # Base padding
+        
+        # Check if vertical scrollbar is visible and account for its width
+        if hasattr(self, 'scroll_area') and self.scroll_area.verticalScrollBar().isVisible():
+            scrollbar_width = self.scroll_area.verticalScrollBar().width()
+            available_width -= scrollbar_width + 2  # Extra margin for clean appearance
+        
         if available_width < 50:
             available_width = 50  # Minimum width
         

@@ -1326,16 +1326,6 @@ class FileExplorerTab(FileExplorerCore):
         self.history_btn.clicked.connect(self.toggle_history_panel)
         breadcrumb_layout.addWidget(self.history_btn)
         
-        # Back button
-        back_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack)
-        self.back_btn = self._create_nav_button(back_icon, "Go Back (Alt+Left)", self.navigate_back)
-        breadcrumb_layout.addWidget(self.back_btn)
-        
-        # Forward button
-        forward_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward)
-        self.forward_btn = self._create_nav_button(forward_icon, "Go Forward (Alt+Right)", self.navigate_forward)
-        breadcrumb_layout.addWidget(self.forward_btn)
-        
         # Up/Back button
         up_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp)
         self.up_btn = self._create_nav_button(up_icon, "Go Up One Level", self.go_up_one_level)
@@ -2013,6 +2003,7 @@ class FileExplorerMultiTab(QWidget):
         self.db_window = None
         self.mainframe_window = None
         self.email_window = None
+        self.email_attachments_window = None
         self.screenshot_window = None
         
         # Shared splitter sizes across all tabs - loaded from saved settings
@@ -2218,6 +2209,76 @@ class FileExplorerMultiTab(QWidget):
                 2000
             )
     
+    def _capture_active_window(self):
+        """Capture only the active/foreground window and save it"""
+        try:
+            from datetime import datetime
+            import ctypes
+            from ctypes import wintypes
+            
+            # Get screenshots folder
+            screenshots_dir = Path.home() / '.suiteview' / 'screenshots'
+            screenshots_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"window_{timestamp}.png"
+            filepath = screenshots_dir / filename
+            
+            # Get foreground window handle using ctypes
+            user32 = ctypes.windll.user32
+            hwnd = user32.GetForegroundWindow()
+            
+            if hwnd:
+                # Get window rectangle
+                rect = wintypes.RECT()
+                user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                
+                x = rect.left
+                y = rect.top
+                width = rect.right - rect.left
+                height = rect.bottom - rect.top
+                
+                if width > 0 and height > 0:
+                    # Grab the window area from screen
+                    screen = QApplication.primaryScreen()
+                    if screen:
+                        pixmap = screen.grabWindow(0, x, y, width, height)
+                        pixmap.save(str(filepath), 'PNG')
+                        
+                        # Notify Screenshot Manager if it's open
+                        if self.screenshot_window is not None and self.screenshot_window.isVisible():
+                            try:
+                                self.screenshot_window.add_screenshot_from_file(filepath)
+                            except Exception as e:
+                                logger.warning(f"Failed to notify Screenshot Manager: {e}")
+                        
+                        # Show notification
+                        self.tray_icon.showMessage(
+                            "Window Captured",
+                            f"Saved to: {filename}",
+                            QSystemTrayIcon.MessageIcon.Information,
+                            2000
+                        )
+                        return
+            
+            # Fallback error
+            self.tray_icon.showMessage(
+                "Capture Failed",
+                "Could not capture active window",
+                QSystemTrayIcon.MessageIcon.Warning,
+                2000
+            )
+                
+        except Exception as e:
+            logger.error(f"Failed to capture window: {e}")
+            self.tray_icon.showMessage(
+                "Capture Failed",
+                str(e),
+                QSystemTrayIcon.MessageIcon.Warning,
+                2000
+            )
+    
     def _open_data_manager(self):
         """Open the Data Manager window"""
         if self.db_window is None:
@@ -2273,6 +2334,30 @@ class FileExplorerMultiTab(QWidget):
         self.screenshot_window.show()
         self.screenshot_window.activateWindow()
         self.screenshot_window.raise_()
+    
+    def _open_email_attachments(self):
+        """Open the Email Attachments window"""
+        if self.email_attachments_window is None:
+            try:
+                from suiteview.ui.email_attachments_window import EmailAttachmentsWindow
+                self.email_attachments_window = EmailAttachmentsWindow()
+                self.email_attachments_window.setWindowIcon(self._build_suiteview_icon(32))
+            except Exception as e:
+                logger.error(f"Failed to open Email Attachments: {e}")
+                return
+        self.email_attachments_window.show()
+        self.email_attachments_window.activateWindow()
+        self.email_attachments_window.raise_()
+    
+    def _open_app_data_location(self):
+        """Navigate to the app data folder (~/.suiteview) in the details view"""
+        app_data_dir = Path.home() / '.suiteview'
+        # Create the directory if it doesn't exist
+        app_data_dir.mkdir(parents=True, exist_ok=True)
+        # Navigate to it in the current tab's details pane
+        current_tab = self.get_current_tab()
+        if current_tab and hasattr(current_tab, 'navigate_to_path'):
+            current_tab.navigate_to_path(str(app_data_dir))
     
     def _setup_child_window(self, window, title):
         """Setup a child window with hide-on-close behavior"""
@@ -2427,6 +2512,54 @@ class FileExplorerMultiTab(QWidget):
         layout.setContentsMargins(2, 2, 2, 2)  # Small margin for resize handles
         layout.setSpacing(0)
         
+        # ====== GLOBAL SCROLLBAR STYLING (light blue for contrast) ======
+        self.setStyleSheet("""
+            QScrollBar:vertical {
+                background: #E8F0F8;
+                width: 12px;
+                margin: 0;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background: #A8C8E8;
+                min-height: 20px;
+                border-radius: 5px;
+                margin: 1px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #88B0D8;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0;
+                background: none;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            QScrollBar:horizontal {
+                background: #E8F0F8;
+                height: 12px;
+                margin: 0;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #A8C8E8;
+                min-width: 20px;
+                border-radius: 5px;
+                margin: 1px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #88B0D8;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0;
+                background: none;
+            }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: none;
+            }
+        """)
+        
         # ====== HEADER BAR (Custom Title Bar) ======
         self.header_bar = QFrame()
         self.header_bar.setFixedHeight(38)
@@ -2489,6 +2622,38 @@ class FileExplorerMultiTab(QWidget):
         self.quick_screenshot_btn.clicked.connect(self._take_quick_screenshot)
         header_layout.addWidget(self.quick_screenshot_btn)
         
+        # ====== WINDOW CAPTURE BUTTON (blue dot) ======
+        self.window_capture_btn = QPushButton()
+        self.window_capture_btn.setFixedSize(28, 28)
+        self.window_capture_btn.setToolTip("Capture Active Window (saves to Screenshots folder)")
+        self.window_capture_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Create icon with blue dot
+        win_dot_pixmap = QPixmap(24, 24)
+        win_dot_pixmap.fill(Qt.GlobalColor.transparent)
+        win_dot_painter = QPainter(win_dot_pixmap)
+        win_dot_painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        win_dot_painter.setBrush(QBrush(QColor("#4A90D9")))  # Blue dot
+        win_dot_painter.setPen(Qt.PenStyle.NoPen)
+        win_dot_painter.drawEllipse(6, 6, 12, 12)  # Centered dot
+        win_dot_painter.end()
+        self.window_capture_btn.setIcon(QIcon(win_dot_pixmap))
+        self.window_capture_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 2px solid #4A90D9;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background: rgba(74, 144, 217, 0.2);
+                border-color: #6AB0F9;
+            }
+            QPushButton:pressed {
+                background: rgba(74, 144, 217, 0.4);
+            }
+        """)
+        self.window_capture_btn.clicked.connect(self._capture_active_window)
+        header_layout.addWidget(self.window_capture_btn)
+        
         # Tools dropdown menu button - gold text only
         self.tools_menu_btn = QPushButton("Tools")
         self.tools_menu_btn.setStyleSheet("""
@@ -2531,6 +2696,7 @@ class FileExplorerMultiTab(QWidget):
         self.tools_menu.addAction("🗄️ Data Manager", self._open_data_manager)
         self.tools_menu.addAction("💻 Mainframe Navigator", self._open_mainframe)
         self.tools_menu.addAction("📧 Email Navigator", self._open_email)
+        self.tools_menu.addAction("📎 Email Attachments", self._open_email_attachments)
         self.tools_menu.addSeparator()
         self.tools_menu.addAction("📸 View Screenshots", self._open_screenshot)
         self.tools_menu.addSeparator()
@@ -2538,6 +2704,48 @@ class FileExplorerMultiTab(QWidget):
         self.tools_menu.addAction("Batch Rename", self._header_batch_rename)
         self.tools_menu_btn.setMenu(self.tools_menu)
         header_layout.addWidget(self.tools_menu_btn)
+        
+        # Help dropdown menu button - gold text only
+        self.help_menu_btn = QPushButton("Help")
+        self.help_menu_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                padding: 4px 12px;
+                color: #D4A017;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                color: #FFD700;
+            }
+            QPushButton::menu-indicator {
+                image: none;
+            }
+        """)
+        
+        # Create Help menu
+        self.help_menu = QMenu(self)
+        self.help_menu.setStyleSheet("""
+            QMenu {
+                background-color: #1E5BA8;
+                border: 1px solid #D4A017;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QMenu::item {
+                background-color: transparent;
+                color: white;
+                padding: 6px 20px;
+                font-size: 11px;
+            }
+            QMenu::item:selected {
+                background-color: #3A7DC8;
+            }
+        """)
+        self.help_menu.addAction("📁 App Data Location", self._open_app_data_location)
+        self.help_menu_btn.setMenu(self.help_menu)
+        header_layout.addWidget(self.help_menu_btn)
         
         header_layout.addStretch()
         

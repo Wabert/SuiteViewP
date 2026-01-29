@@ -1115,6 +1115,15 @@ class EmailRepository:
             )
         """)
         
+        # Settings table for email-related preferences
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS email_settings (
+                setting_key TEXT PRIMARY KEY,
+                setting_value TEXT,
+                updated_at TEXT
+            )
+        """)
+        
         # Create indexes
         self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_emails_received_date 
@@ -1382,6 +1391,112 @@ class EmailRepository:
         last_sync = self.get_last_sync_time()
         if last_sync:
             logger.info(f"Sync completed at {last_sync}")
+    
+    def get_setting(self, key: str, default: str = None) -> Optional[str]:
+        """Get a setting value by key"""
+        try:
+            row = self.db.fetchone(
+                "SELECT setting_value FROM email_settings WHERE setting_key = ?",
+                (key,)
+            )
+            return row[0] if row else default
+        except Exception as e:
+            logger.error(f"Error getting setting {key}: {e}")
+            return default
+    
+    def set_setting(self, key: str, value: str):
+        """Set a setting value"""
+        try:
+            self.db.execute("""
+                INSERT OR REPLACE INTO email_settings (setting_key, setting_value, updated_at)
+                VALUES (?, ?, ?)
+            """, (key, value, datetime.now().isoformat()))
+        except Exception as e:
+            logger.error(f"Error setting {key}: {e}")
+    
+    def get_attachments_since(self, since_date: datetime) -> List[Dict]:
+        """Get attachments from cache that are newer than a given date"""
+        try:
+            date_str = since_date.isoformat()
+            rows = self.db.fetchall("""
+                SELECT attachment_id, email_id, email_subject, email_sender,
+                       email_date, attachment_name, attachment_type, attachment_size,
+                       attachment_index, file_hash, last_synced
+                FROM email_attachments
+                WHERE email_date >= ?
+                ORDER BY email_date DESC
+            """, (date_str,))
+            
+            attachments = []
+            for row in rows:
+                attachments.append({
+                    'attachment_id': row[0],
+                    'email_id': row[1],
+                    'email_subject': row[2],
+                    'email_sender': row[3],
+                    'email_date': row[4],
+                    'attachment_name': row[5],
+                    'attachment_type': row[6],
+                    'attachment_size': row[7],
+                    'attachment_index': row[8],
+                    'file_hash': row[9],
+                    'last_synced': row[10]
+                })
+            
+            return attachments
+        except Exception as e:
+            logger.error(f"Error getting attachments since {since_date}: {e}")
+            return []
+    
+    def get_oldest_attachment_date(self) -> Optional[datetime]:
+        """Get the date of the oldest attachment in cache"""
+        try:
+            row = self.db.fetchone("""
+                SELECT MIN(email_date) FROM email_attachments
+            """)
+            if row and row[0]:
+                return datetime.fromisoformat(row[0])
+            return None
+        except Exception as e:
+            logger.error(f"Error getting oldest attachment date: {e}")
+            return None
+    
+    def get_newest_attachment_date(self) -> Optional[datetime]:
+        """Get the date of the newest attachment in cache"""
+        try:
+            row = self.db.fetchone("""
+                SELECT MAX(email_date) FROM email_attachments
+            """)
+            if row and row[0]:
+                return datetime.fromisoformat(row[0])
+            return None
+        except Exception as e:
+            logger.error(f"Error getting newest attachment date: {e}")
+            return None
+    
+    def save_attachment_simple(self, attachment: Dict):
+        """Save a single attachment to cache (simplified for attachment window)"""
+        try:
+            self.db.execute("""
+                INSERT OR REPLACE INTO email_attachments (
+                    email_id, email_subject, email_sender, email_date,
+                    attachment_name, attachment_type, attachment_size,
+                    attachment_index, file_hash, last_synced
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                attachment['email_id'],
+                attachment.get('email_subject', ''),
+                attachment['sender'],
+                attachment['date'].isoformat() if hasattr(attachment['date'], 'isoformat') else str(attachment['date']),
+                attachment['attachment_name'],
+                attachment.get('attachment_type', ''),
+                attachment.get('attachment_size', 0),
+                attachment['attachment_index'],
+                attachment.get('file_hash'),
+                datetime.now().isoformat()
+            ))
+        except Exception as e:
+            logger.error(f"Error saving attachment: {e}")
 
 
 # Singleton instances

@@ -4,11 +4,8 @@
 import sys
 import logging
 from PyQt6.QtWidgets import QApplication
-from suiteview.ui.launcher import LauncherWindow
-from suiteview.ui.theme import apply_global_theme
-from suiteview.utils.config import load_config
-from suiteview.utils.logger import setup_logging
-from suiteview.data.database import get_database
+from PyQt6.QtCore import qInstallMessageHandler, QtMsgType
+from suiteview.ui.file_explorer_multitab import FileExplorerMultiTab
 
 logger = logging.getLogger(__name__)
 
@@ -27,47 +24,42 @@ def main():
     except Exception:
         pass  # Silently ignore if clearing fails
     
-    # Set up logging
-    setup_logging()
-    logger.info("=" * 60)
-    logger.info("SuiteView Launcher Starting")
-    logger.info("=" * 60)
+    # Qt message handler (suppress non-critical warnings)
+    def qt_message_handler(mode, context, message):
+        if mode == QtMsgType.QtCriticalMsg:
+            print(f"Qt Critical: {message}")
+        elif mode == QtMsgType.QtFatalMsg:
+            print(f"Qt Fatal: {message}")
+        # Suppress warnings for cleaner output
+    
+    qInstallMessageHandler(qt_message_handler)
 
-    # Load configuration
-    config = load_config()
-    logger.info(f"Configuration loaded: {config.app_name} v{config.version}")
-
-    # Initialize database
-    try:
-        db = get_database()
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
-        sys.exit(1)
-
-    # Create Qt application
+    # Create Qt application - don't quit when last window closes (we have tray)
     app = QApplication(sys.argv)
-    app.setApplicationName(config.app_name)
-    app.setOrganizationName(config.organization_name)
-    
-    # Don't quit when last window is closed - we use system tray
     app.setQuitOnLastWindowClosed(False)
-    
-    apply_global_theme(app)
 
-    logger.info("Qt application created")
-
-    # Create and show launcher window
+    # Create and show the main SuiteView window
     try:
-        launcher = LauncherWindow()
-        launcher.show()
-        logger.info("Launcher window displayed")
+        suiteview = FileExplorerMultiTab()
+        suiteview.setWindowTitle("SuiteView")
+        suiteview.resize(1400, 800)
+        
+        # Center the window on screen
+        screen = app.primaryScreen().geometry()
+        x = (screen.width() - suiteview.width()) // 2
+        y = (screen.height() - suiteview.height()) // 2
+        suiteview.move(x, y)
+        
+        suiteview.show()
+        suiteview.raise_()
+        suiteview.activateWindow()
+        
+        logger.info("SuiteView File Navigator displayed")
     except Exception as e:
-        logger.error(f"Failed to create launcher window: {e}", exc_info=True)
+        logger.error(f"Failed to create SuiteView window: {e}", exc_info=True)
         sys.exit(1)
 
     # Start event loop
-    logger.info("Starting Qt event loop")
     exit_code = app.exec()
     logger.info(f"Application exiting with code: {exit_code}")
 
