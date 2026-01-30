@@ -1316,24 +1316,653 @@ class CategoryBookmarkButton(QPushButton):
         
         # Close popup if drag was successful
         if result == Qt.DropAction.MoveAction and self.parent_popup:
-            self.parent_popup.close()
+            self.parent_popup.close_entire_chain()
 
 
 # =============================================================================
-# CategoryPopup - Popup window showing category contents
+# SubcategoryButton - Button for subcategories inside popups (shows ▸ arrow)
+# =============================================================================
+
+class SubcategoryButton(QPushButton):
+    """
+    Button for subcategories displayed inside category popups.
+    Shows expansion arrow (▸) and opens nested popup to the right on click.
+    """
+    
+    subcategory_clicked = pyqtSignal(str)  # Emits subcategory name
+    item_clicked = pyqtSignal(str)  # Forward item clicks from nested popups
+    
+    def __init__(self, subcategory_name, parent_category, parent=None, popup=None,
+                 data_manager=None, source_bar_id: int = 0, color=None):
+        """
+        Args:
+            subcategory_name: name of the subcategory
+            parent_category: name of the parent category
+            parent: parent widget
+            popup: reference to the parent popup window
+            data_manager: BookmarkContainer instance managing the data
+            source_bar_id: integer ID of the bookmark bar
+            color: hex color string for the subcategory
+        """
+        super().__init__(parent)
+        
+        self.subcategory_name = subcategory_name
+        self.parent_category = parent_category
+        self.parent_popup = popup
+        self.data_manager = data_manager
+        self.source_bar_id = source_bar_id
+        self.subcategory_color = color
+        self.drag_start_pos = None
+        self.nested_popup = None
+        
+        # Set display text with folder icon and expansion arrow
+        self.setText(f"🗄 {subcategory_name} ▸")
+        
+        # Get item count for tooltip
+        item_count = self._get_item_count()
+        self.setToolTip(f"{item_count} item(s)")
+        
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
+        
+        # Apply subcategory style with color
+        self._apply_style()
+        
+        # Accept drops for nesting
+        self.setAcceptDrops(True)
+    
+    def _get_item_count(self):
+        """Get the total item count (bookmarks + subcategories)"""
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        categories = manager.get_global_categories()
+        cat_data = categories.get(self.subcategory_name, {})
+        if isinstance(cat_data, dict):
+            items = cat_data.get('items', [])
+            subcats = cat_data.get('subcategories', [])
+            return len(items) + len(subcats)
+        elif isinstance(cat_data, list):
+            return len(cat_data)
+        return 0
+    
+    def _apply_style(self):
+        """Apply button style based on color"""
+        color = self.subcategory_color or DEFAULT_CATEGORY_COLOR
+        light_color = lighten_color(color, 0.4)
+        dark_color = darken_color(color, 0.7)
+        border_color = darken_color(color, 0.6)
+        hover_color = lighten_color(color, 0.2)
+        
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {light_color}, stop:1 {color});
+                border: 1px solid {border_color};
+                border-radius: 6px;
+                padding: 3px 8px;
+                text-align: left;
+                font-size: 9pt;
+                font-weight: normal;
+                color: #202124;
+            }}
+            QPushButton:hover {{
+                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {hover_color}, stop:1 {light_color});
+                border-color: {dark_color};
+            }}
+            QPushButton:pressed {{
+                background-color: {color};
+            }}
+            QToolTip {{
+                background-color: #FFFFDD;
+                color: #333333;
+                border: 1px solid #888888;
+                padding: 4px;
+                font-size: 9pt;
+            }}
+        """)
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_pos = event.pos()
+        super().mousePressEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.drag_start_pos:
+            distance = (event.pos() - self.drag_start_pos).manhattanLength()
+            if distance < 10:
+                # It was a click - toggle nested popup
+                self._toggle_nested_popup()
+        self.drag_start_pos = None
+        super().mouseReleaseEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if self.drag_start_pos is None:
+            return
+        
+        distance = (event.pos() - self.drag_start_pos).manhattanLength()
+        if distance < 10:
+            return
+        
+        # Start drag for category move
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        
+        # Get subcategory items from global categories
+        items = []
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        if manager:
+            categories = manager.get_global_categories()
+            cat_data = categories.get(self.subcategory_name, {})
+            if isinstance(cat_data, dict):
+                items = cat_data.get('items', [])
+            elif isinstance(cat_data, list):
+                items = cat_data
+        
+        # Category move data
+        category_data = {
+            'name': self.subcategory_name,
+            'items': items,
+            'source_bar_id': self.source_bar_id,
+            'source_parent_category': self.parent_category,
+            'color': self.subcategory_color,
+            'is_subcategory': True
+        }
+        mime_data.setData('application/x-category-move', json.dumps(category_data).encode())
+        
+        drag.setMimeData(mime_data)
+        
+        logger.info(f"Dragging subcategory '{self.subcategory_name}' from parent '{self.parent_category}'")
+        result = drag.exec(Qt.DropAction.MoveAction)
+        
+        self.drag_start_pos = None
+        
+        # Close popup chain if drag was successful
+        if result == Qt.DropAction.MoveAction and self.parent_popup:
+            self.parent_popup.close_entire_chain()
+    
+    def _toggle_nested_popup(self):
+        """Toggle the nested popup for this subcategory"""
+        if self.nested_popup and self.nested_popup.isVisible():
+            self.nested_popup.hide()
+            return
+        
+        self._show_nested_popup()
+    
+    def _show_nested_popup(self):
+        """Show nested popup to the right"""
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        
+        # Get subcategory data from global categories
+        categories = manager.get_global_categories()
+        cat_data = categories.get(self.subcategory_name, {})
+        
+        # Handle both old (list) and new (dict) formats
+        if isinstance(cat_data, dict):
+            items = cat_data.get('items', [])
+            subcategories = cat_data.get('subcategories', [])
+        else:
+            items = cat_data if isinstance(cat_data, list) else []
+            subcategories = []
+        
+        # Create or reuse popup
+        if not self.nested_popup:
+            self.nested_popup = CategoryPopup(
+                category_name=self.subcategory_name,
+                category_items=items,
+                subcategories=subcategories,
+                parent_widget=self,
+                data_manager=self.data_manager,
+                source_bar_id=self.source_bar_id,
+                color=self.subcategory_color,
+                parent_popup=self.parent_popup,
+                nesting_level=(self.parent_popup.nesting_level + 1) if self.parent_popup else 1
+            )
+            self.nested_popup.item_clicked.connect(self.item_clicked.emit)
+            self.nested_popup.popup_closed.connect(self._on_nested_popup_closed)
+        
+        # Position to the right of this button
+        global_pos = self.mapToGlobal(self.rect().topRight())
+        
+        # Adjust for screen boundaries
+        screen = self.screen()
+        if screen:
+            screen_geo = screen.availableGeometry()
+            popup_width = self.nested_popup.width() if self.nested_popup.width() > 0 else 250
+            
+            # If popup would go off right edge, position to the left instead
+            if global_pos.x() + popup_width > screen_geo.right():
+                global_pos = self.mapToGlobal(self.rect().topLeft())
+                global_pos.setX(global_pos.x() - popup_width)
+        
+        self.nested_popup.move(global_pos)
+        self.nested_popup.show()
+    
+    def _on_nested_popup_closed(self):
+        """Handle nested popup closing"""
+        pass  # Keep reference for reuse
+    
+    def _show_context_menu(self, pos):
+        """Show context menu for this subcategory"""
+        menu = QMenu(self)
+        
+        border_color = darken_color(self.subcategory_color, 0.7) if self.subcategory_color else "#7b2d8e"
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: #ffffff;
+                border: 2px solid {border_color};
+                padding: 2px;
+            }}
+            QMenu::item {{
+                padding: 4px 12px;
+                background-color: transparent;
+                font-size: 9pt;
+            }}
+            QMenu::item:selected {{
+                background-color: #f3e5f5;
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background-color: #d0d0d0;
+                margin: 2px 6px;
+            }}
+        """)
+        
+        rename_action = menu.addAction("✏️ Rename")
+        color_action = menu.addAction("🎨 Change Color")
+        new_subcat_action = menu.addAction("📁 New Subcategory")
+        menu.addSeparator()
+        remove_action = menu.addAction("🗑️ Remove from here")
+        delete_action = menu.addAction("❌ Delete permanently")
+        
+        action = menu.exec(self.mapToGlobal(pos))
+        
+        if action == rename_action:
+            self._rename_subcategory()
+        elif action == color_action:
+            self._change_color()
+        elif action == new_subcat_action:
+            self._create_new_subcategory()
+        elif action == remove_action:
+            self._remove_from_parent()
+        elif action == delete_action:
+            self._delete_permanently()
+    
+    def _rename_subcategory(self):
+        """Rename this subcategory (global rename)"""
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Rename Subcategory",
+            f"Enter new name for '{self.subcategory_name}':",
+            QLineEdit.EchoMode.Normal,
+            self.subcategory_name
+        )
+        
+        if ok and new_name:
+            new_name = new_name.strip()
+            if new_name == self.subcategory_name:
+                return
+            
+            from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+            manager = get_bookmark_manager()
+            
+            if manager.category_exists(new_name):
+                show_styled_warning(self, "Duplicate", f"Category '{new_name}' already exists.")
+                return
+            
+            if manager.rename_category(self.subcategory_name, new_name):
+                manager.save()
+                if self.data_manager:
+                    self.data_manager._save_and_refresh()
+            
+            if self.parent_popup:
+                self.parent_popup.close_entire_chain()
+    
+    def _change_color(self):
+        """Change subcategory color"""
+        picker = ColorPickerPopup(self, self.subcategory_color)
+        picker.color_selected.connect(self._on_color_selected)
+        
+        global_pos = self.mapToGlobal(self.rect().bottomLeft())
+        picker.move(global_pos)
+        picker.show()
+    
+    def _on_color_selected(self, color):
+        """Handle color selection"""
+        self.subcategory_color = color
+        self._apply_style()
+        
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        colors = manager.get_global_colors()
+        colors[self.subcategory_name] = color
+        manager.save()
+        
+        if self.data_manager:
+            self.data_manager.refresh()
+    
+    def _create_new_subcategory(self):
+        """Create a new subcategory inside this subcategory"""
+        name, ok = QInputDialog.getText(
+            self,
+            "New Subcategory",
+            f"Enter name for new subcategory in '{self.subcategory_name}':",
+            QLineEdit.EchoMode.Normal,
+            ""
+        )
+        
+        if ok and name:
+            name = name.strip()
+            if not name:
+                return
+            
+            from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+            manager = get_bookmark_manager()
+            
+            if manager.category_exists(name):
+                show_styled_warning(self, "Duplicate", f"Category '{name}' already exists.")
+                return
+            
+            # Create new category globally
+            manager.create_category(name)
+            
+            # Make it a subcategory of this category
+            manager.make_subcategory(name, self.subcategory_name)
+            manager.save()
+            
+            if self.data_manager:
+                self.data_manager._save_and_refresh()
+            
+            if self.parent_popup:
+                self.parent_popup.close_entire_chain()
+    
+    def _remove_from_parent(self):
+        """Remove this subcategory from parent (keeps category data)"""
+        if not self.data_manager:
+            return
+        
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        categories = manager.get_global_categories()
+        parent_data = categories.get(self.parent_category, {})
+        
+        if isinstance(parent_data, dict):
+            subcats = parent_data.get('subcategories', [])
+            if self.subcategory_name in subcats:
+                subcats.remove(self.subcategory_name)
+            # Also remove from item_order if present
+            item_order = parent_data.get('item_order', [])
+            parent_data['item_order'] = [
+                i for i in item_order
+                if not (i.get('type') == 'subcategory' and i.get('name') == self.subcategory_name)
+            ]
+        
+        manager.save()
+        if self.data_manager:
+            self.data_manager._save_and_refresh()
+        
+        if self.parent_popup:
+            self.parent_popup.close_entire_chain()
+    
+    def _delete_permanently(self):
+        """Delete this subcategory and all contents permanently"""
+        # Get item count for warning
+        item_count = self._get_item_count()
+        
+        message = f"Are you sure you want to permanently delete '{self.subcategory_name}'?"
+        if item_count > 0:
+            message += f"\n\nThis will delete {item_count} item(s) inside it."
+        
+        if not show_styled_question(self, "Delete Subcategory", message):
+            return
+        
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        
+        # Use global delete which handles recursive deletion
+        manager.delete_category(self.subcategory_name, recursive=True)
+        manager.save()
+        
+        if self.data_manager:
+            self.data_manager._save_and_refresh()
+        
+        if self.parent_popup:
+            self.parent_popup.close_entire_chain()
+    
+    # Drag-drop handling for accepting drops onto the subcategory
+    def dragEnterEvent(self, event):
+        mime = event.mimeData()
+        if mime.hasFormat('application/x-bookmark-move') or mime.hasFormat('application/x-category-move') or mime.hasUrls():
+            # Check for circular reference when receiving category
+            if mime.hasFormat('application/x-category-move'):
+                try:
+                    cat_data = json.loads(mime.data('application/x-category-move').data().decode())
+                    dragged_name = cat_data.get('name', '')
+                    # Prevent dropping category into itself or its descendants
+                    if self._is_descendant_of(dragged_name):
+                        event.ignore()
+                        return
+                except:
+                    pass
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+    
+    def _is_descendant_of(self, ancestor_name):
+        """Check if this subcategory is a descendant of the given category"""
+        if self.subcategory_name == ancestor_name:
+            return True
+        
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        
+        # Use global categories for the check
+        return manager._is_ancestor_of(ancestor_name, self.subcategory_name)
+    
+    def dropEvent(self, event):
+        """Handle drops onto this subcategory"""
+        mime = event.mimeData()
+        
+        if mime.hasFormat('application/x-bookmark-move'):
+            try:
+                drag_data = json.loads(mime.data('application/x-bookmark-move').data().decode())
+                bookmark = drag_data['bookmark']
+                source = drag_data.get('source_category', '__CONTAINER__')
+                source_bar_id = drag_data.get('source_bar_id')
+                
+                self._handle_bookmark_drop(bookmark, source, source_bar_id)
+                event.acceptProposedAction()
+            except Exception as e:
+                logger.error(f"Error handling bookmark drop on subcategory: {e}")
+                event.ignore()
+        
+        elif mime.hasFormat('application/x-category-move'):
+            try:
+                cat_data = json.loads(mime.data('application/x-category-move').data().decode())
+                dragged_name = cat_data.get('name', '')
+                
+                # Prevent circular reference
+                if self._is_descendant_of(dragged_name):
+                    logger.warning(f"Cannot drop '{dragged_name}' into its descendant '{self.subcategory_name}'")
+                    event.ignore()
+                    return
+                
+                self._handle_category_drop(cat_data)
+                event.acceptProposedAction()
+            except Exception as e:
+                logger.error(f"Error handling category drop on subcategory: {e}")
+                event.ignore()
+        
+        elif mime.hasUrls():
+            try:
+                for url in mime.urls():
+                    path = url.toLocalFile()
+                    if path:
+                        name = Path(path).name
+                        bookmark = {'name': name, 'path': path}
+                        self._handle_bookmark_drop(bookmark, '__NEW__', None)
+                event.acceptProposedAction()
+            except Exception as e:
+                logger.error(f"Error handling URL drop on subcategory: {e}")
+                event.ignore()
+        else:
+            event.ignore()
+    
+    def _handle_bookmark_drop(self, bookmark, source, source_bar_id):
+        """Handle bookmark dropped onto this subcategory"""
+        path = bookmark.get('path')
+        if not path:
+            return
+        
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        categories = manager.get_global_categories()
+        
+        # Ensure this subcategory exists with proper structure
+        if self.subcategory_name not in categories:
+            categories[self.subcategory_name] = {"items": [], "subcategories": []}
+        
+        cat_data = categories[self.subcategory_name]
+        if isinstance(cat_data, list):
+            categories[self.subcategory_name] = {"items": cat_data, "subcategories": []}
+            cat_data = categories[self.subcategory_name]
+        
+        items = cat_data.setdefault('items', [])
+        
+        # Check duplicate
+        if any(b.get('path') == path for b in items):
+            return
+        
+        # Add bookmark
+        clean_bookmark = {k: v for k, v in bookmark.items() if not k.startswith('_')}
+        items.append(clean_bookmark)
+        
+        # Also add to item_order if it exists
+        item_order = cat_data.get('item_order', None)
+        if item_order is not None:
+            item_order.append({'type': 'bookmark', 'path': path})
+        
+        # Remove from source
+        self._remove_bookmark_from_source(path, source, source_bar_id)
+        
+        manager.save()
+        if self.data_manager:
+            self.data_manager._save_and_refresh()
+        
+        if self.parent_popup:
+            self.parent_popup.close_entire_chain()
+    
+    def _handle_category_drop(self, cat_data):
+        """Handle category dropped onto this subcategory (making it a nested subcategory)"""
+        dragged_name = cat_data.get('name', '')
+        source_parent = cat_data.get('source_parent_category')
+        source_bar_id = cat_data.get('source_bar_id')
+        is_subcategory = cat_data.get('is_subcategory', False)
+        
+        if not dragged_name:
+            return
+        
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        
+        # Check circular reference
+        if manager._is_ancestor_of(dragged_name, self.subcategory_name):
+            logger.warning(f"Cannot make '{dragged_name}' a subcategory of its descendant")
+            return
+        
+        # Remove from old parent first if it was a subcategory
+        if is_subcategory and source_parent:
+            categories = manager.get_global_categories()
+            parent_data = categories.get(source_parent, {})
+            if isinstance(parent_data, dict):
+                old_subcats = parent_data.get('subcategories', [])
+                if dragged_name in old_subcats:
+                    old_subcats.remove(dragged_name)
+        
+        # Make it a subcategory of this category
+        if manager.make_subcategory(dragged_name, self.subcategory_name, source_bar_id):
+            manager.save()
+            if self.data_manager:
+                self.data_manager._save_and_refresh()
+            
+            # Refresh source container if different
+            if source_bar_id is not None and source_bar_id != self.source_bar_id:
+                source_container = BookmarkContainerRegistry.get(source_bar_id)
+                if source_container:
+                    source_container.refresh()
+        
+        if self.parent_popup:
+            self.parent_popup.close_entire_chain()
+    
+    def _remove_bookmark_from_source(self, path, source, source_bar_id):
+        """Remove bookmark from its source location"""
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        
+        is_cross_bar = source_bar_id is not None and source_bar_id != self.source_bar_id
+        
+        if is_cross_bar:
+            source_container = BookmarkContainerRegistry.get(source_bar_id)
+            if source_container:
+                if source in ('__BAR__', '__CONTAINER__'):
+                    source_container.remove_item_by_path(path)
+                elif source and source != '__NEW__':
+                    source_container.remove_bookmark_from_category(source, path)
+        else:
+            if source in ('__BAR__', '__CONTAINER__'):
+                if self.data_manager:
+                    self.data_manager.remove_item_by_path(path)
+            elif source and source != '__NEW__':
+                # Use global categories
+                categories = manager.get_global_categories()
+                cat_data = categories.get(source, {})
+                if isinstance(cat_data, dict):
+                    items = cat_data.get('items', [])
+                    # Also remove from item_order if present
+                    item_order = cat_data.get('item_order', [])
+                    cat_data['item_order'] = [
+                        i for i in item_order
+                        if not (i.get('type') == 'bookmark' and i.get('path') == path)
+                    ]
+                elif isinstance(cat_data, list):
+                    items = cat_data
+                else:
+                    items = []
+                
+                for i, b in enumerate(items):
+                    if b.get('path') == path:
+                        items.pop(i)
+                        break
+
+
+# =============================================================================
+# CategoryPopup - Popup window showing category contents (supports nesting)
 # =============================================================================
 
 class CategoryPopup(QFrame):
     """
     Popup window for category contents.
+    Supports nested categories with subcategories displayed as expandable items.
     Used by both top bar and sidebar categories.
+    
+    Key behaviors for nested categories:
+    - Popup stays open until category button is clicked again (toggle)
+    - Clicking outside does NOT close (enables drag into nested categories)
+    - Clicking a bookmark closes the entire popup chain
+    - Nested popups open to the right of their parent
     """
     
     item_clicked = pyqtSignal(str)
     popup_closed = pyqtSignal()
     
     def __init__(self, category_name, category_items, parent_widget=None,
-                 data_manager=None, source_bar_id: int = 0, color=None):
+                 data_manager=None, source_bar_id: int = 0, color=None,
+                 subcategories=None, parent_popup=None, nesting_level=0):
         """
         Args:
             category_name: name of the category
@@ -1342,6 +1971,9 @@ class CategoryPopup(QFrame):
             data_manager: object managing the bookmark data (BookmarkContainer)
             source_bar_id: integer ID of the bookmark bar (0, 1, 2, ...)
             color: hex color string for the category border
+            subcategories: list of subcategory names (for nested categories)
+            parent_popup: reference to parent popup (for closing chain)
+            nesting_level: depth of nesting (0 = top level)
         """
         # Use Tool window type instead of Popup - Popup windows get destroyed on hide
         # Tool windows stay alive and can be shown/hidden efficiently
@@ -1349,9 +1981,13 @@ class CategoryPopup(QFrame):
         
         self.category_name = category_name
         self.category_items = category_items
+        self.subcategories = subcategories or []
         self.data_manager = data_manager
         self.source_bar_id = source_bar_id
         self.category_color = color
+        self.parent_popup = parent_popup
+        self.nesting_level = nesting_level
+        self.child_popups = []  # Track nested popups
         self.drop_indicator = None
         self.drop_index = -1
         
@@ -1376,7 +2012,7 @@ class CategoryPopup(QFrame):
         self._setup_ui()
     
     def _setup_ui(self):
-        """Set up the popup UI"""
+        """Set up the popup UI with bookmarks and subcategories in unified order"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(0)
@@ -1396,18 +2032,99 @@ class CategoryPopup(QFrame):
         self.container_layout.setContentsMargins(0, 0, 0, 0)
         self.container_layout.setSpacing(0)
         
-        # Add bookmark buttons
-        for item_data in self.category_items:
-            btn = CategoryBookmarkButton(
-                bookmark_data=item_data,
-                source_category=self.category_name,
-                parent=self.container,
-                popup=self,
-                data_manager=self.data_manager,
-                source_bar_id=self.source_bar_id
-            )
-            btn.clicked_path.connect(self._on_item_clicked)
-            self.container_layout.addWidget(btn)
+        # Get category colors and data for subcategories (from global)
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        category_colors = manager.get_global_colors()
+        global_categories = manager.get_global_categories()
+        
+        # Build unified display order
+        # Check if category has item_order (new format) or fall back to old format
+        cat_data = global_categories.get(self.category_name, {})
+        if isinstance(cat_data, dict):
+            item_order = cat_data.get('item_order', None)
+        else:
+            item_order = None
+        
+        # Build display list - unified_items contains tuples of (type, data)
+        # type is 'subcategory' or 'bookmark'
+        unified_items = []
+        
+        if item_order is not None:
+            # New format: use item_order for display sequence
+            for order_item in item_order:
+                if order_item.get('type') == 'subcategory':
+                    subcat_name = order_item.get('name')
+                    if subcat_name and subcat_name in self.subcategories:
+                        unified_items.append(('subcategory', subcat_name))
+                elif order_item.get('type') == 'bookmark':
+                    # Find bookmark by path
+                    path = order_item.get('path')
+                    for item in self.category_items:
+                        if item.get('path') == path:
+                            unified_items.append(('bookmark', item))
+                            break
+            
+            # Add any items not in item_order (shouldn't happen but be safe)
+            ordered_subcat_names = {i.get('name') for i in item_order if i.get('type') == 'subcategory'}
+            ordered_bookmark_paths = {i.get('path') for i in item_order if i.get('type') == 'bookmark'}
+            for subcat in self.subcategories:
+                if subcat not in ordered_subcat_names:
+                    unified_items.append(('subcategory', subcat))
+            for item in self.category_items:
+                if item.get('path') not in ordered_bookmark_paths:
+                    unified_items.append(('bookmark', item))
+        else:
+            # Old format: subcategories first, then bookmarks
+            for subcat_name in self.subcategories:
+                unified_items.append(('subcategory', subcat_name))
+            for item_data in self.category_items:
+                unified_items.append(('bookmark', item_data))
+        
+        # Store unified items for drop index calculation
+        self._unified_items = unified_items
+        
+        # Render items in unified order
+        for item_type, item_data in unified_items:
+            if item_type == 'subcategory':
+                subcat_name = item_data
+                subcat_color = category_colors.get(subcat_name)
+                
+                # Get subcategory data
+                subcat_data = global_categories.get(subcat_name, {})
+                if isinstance(subcat_data, dict):
+                    subcat_items = subcat_data.get('items', [])
+                    subcat_subcats = subcat_data.get('subcategories', [])
+                else:
+                    subcat_items = subcat_data if isinstance(subcat_data, list) else []
+                    subcat_subcats = []
+                
+                btn = CategoryButton(
+                    category_name=subcat_name,
+                    category_items=subcat_items,
+                    subcategories=subcat_subcats,
+                    parent=self.container,
+                    data_manager=self.data_manager,
+                    source_bar_id=self.source_bar_id,
+                    orientation='popup',  # Inside a popup
+                    color=subcat_color,
+                    parent_popup=self,
+                    parent_category=self.category_name
+                )
+                btn.item_clicked.connect(self._on_item_clicked)
+                self.container_layout.addWidget(btn)
+            else:
+                # Bookmark
+                btn = CategoryBookmarkButton(
+                    bookmark_data=item_data,
+                    source_category=self.category_name,
+                    parent=self.container,
+                    popup=self,
+                    data_manager=self.data_manager,
+                    source_bar_id=self.source_bar_id
+                )
+                btn.clicked_path.connect(self._on_item_clicked)
+                self.container_layout.addWidget(btn)
         
         self.container_layout.addStretch()
         scroll.setWidget(self.container)
@@ -1420,17 +2137,45 @@ class CategoryPopup(QFrame):
         self.drop_indicator.hide()
         
         # Calculate size
-        item_count = len(self.category_items)
+        item_count = len(unified_items)
         item_height = 28
         total_height = item_count * item_height + 8
         max_height = 400
         self.setFixedHeight(min(total_height, max_height))
     
     def _on_item_clicked(self, path):
-        """Handle item click"""
+        """Handle item click - closes entire popup chain"""
         if path:
             self.item_clicked.emit(path)
-            self.close()
+            self.close_entire_chain()
+    
+    def close_entire_chain(self):
+        """Close this popup and all parent/child popups in the chain"""
+        # Close all child popups first
+        for child in self.child_popups:
+            if child and hasattr(child, 'close_entire_chain'):
+                child.close_entire_chain()
+        self.child_popups.clear()
+        
+        # Hide this popup
+        self.hide()
+        self.popup_closed.emit()
+        
+        # Close parent chain
+        if self.parent_popup and hasattr(self.parent_popup, 'close_entire_chain'):
+            self.parent_popup.close_entire_chain()
+    
+    def register_child_popup(self, popup):
+        """Register a child popup for chain management"""
+        if popup not in self.child_popups:
+            self.child_popups.append(popup)
+    
+    def _get_total_item_count(self):
+        """Get total count of items (bookmarks + subcategories) for drop index calculation"""
+        # Use unified items if available
+        if hasattr(self, '_unified_items'):
+            return len(self._unified_items)
+        return len(self.subcategories) + len(self.category_items)
     
     def _get_drop_index(self, pos):
         """Get drop index based on position"""
@@ -1472,14 +2217,16 @@ class CategoryPopup(QFrame):
         self.drop_index = -1
     
     def dragEnterEvent(self, event):
-        if event.mimeData().hasFormat('application/x-bookmark-move'):
+        mime = event.mimeData()
+        if mime.hasFormat('application/x-bookmark-move') or mime.hasFormat('application/x-category-move'):
             event.acceptProposedAction()
             self._show_drop_indicator(event.position().toPoint())
         else:
             event.ignore()
     
     def dragMoveEvent(self, event):
-        if event.mimeData().hasFormat('application/x-bookmark-move'):
+        mime = event.mimeData()
+        if mime.hasFormat('application/x-bookmark-move') or mime.hasFormat('application/x-category-move'):
             event.acceptProposedAction()
             self._show_drop_indicator(event.position().toPoint())
         else:
@@ -1490,10 +2237,16 @@ class CategoryPopup(QFrame):
         super().dragLeaveEvent(event)
     
     def dropEvent(self, event):
-        """Handle bookmark drop"""
+        """Handle bookmark or category drop"""
         self._hide_drop_indicator()
+        mime = event.mimeData()
         
-        if not event.mimeData().hasFormat('application/x-bookmark-move'):
+        # Handle category drops (for reordering subcategories within this popup)
+        if mime.hasFormat('application/x-category-move'):
+            self._handle_category_drop_in_popup(event)
+            return
+        
+        if not mime.hasFormat('application/x-bookmark-move'):
             event.ignore()
             return
         
@@ -1515,26 +2268,84 @@ class CategoryPopup(QFrame):
             is_same_category = source_category == self.category_name
             
             if is_same_bar and is_same_category:
-                # Reordering within same category
-                old_index = -1
-                for i, item in enumerate(self.category_items):
-                    if item.get('path') == path:
-                        old_index = i
-                        break
-                
-                if old_index != -1 and old_index != drop_idx:
-                    moved_item = self.category_items.pop(old_index)
-                    if old_index < drop_idx:
-                        drop_idx -= 1
-                    self.category_items.insert(drop_idx, moved_item)
+                # Reordering within same category - use item_order for unified positioning
+                from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+                manager = get_bookmark_manager()
+                if manager:
+                    categories = manager.get_global_categories()
+                    cat_data = categories.get(self.category_name, {})
+                    if isinstance(cat_data, list):
+                        categories[self.category_name] = {"items": cat_data, "subcategories": []}
+                        cat_data = categories[self.category_name]
                     
-                    # Save changes via BookmarkContainer
-                    if self.data_manager:
-                        categories = self.data_manager.data_store.get('categories', {})
-                        categories[self.category_name] = self.category_items
-                        self.data_manager._save_and_refresh()
+                    items = cat_data.get('items', [])
+                    subcats = cat_data.get('subcategories', [])
                     
-                    logger.info(f"Reordered item in category '{self.category_name}' from {old_index} to {drop_idx}")
+                    # Find old index in items list
+                    old_items_index = -1
+                    for i, item in enumerate(items):
+                        if item.get('path') == path:
+                            old_items_index = i
+                            break
+                    
+                    if old_items_index != -1:
+                        moved_item = items.pop(old_items_index)
+                        
+                        # Get or create item_order
+                        item_order = cat_data.get('item_order', None)
+                        if item_order is None:
+                            # Create item_order from current state
+                            item_order = []
+                            for sc in subcats:
+                                item_order.append({'type': 'subcategory', 'name': sc})
+                            for it in items:
+                                item_order.append({'type': 'bookmark', 'path': it.get('path')})
+                            # Add the moved item back at end temporarily
+                            items.append(moved_item)
+                            item_order.append({'type': 'bookmark', 'path': path})
+                            cat_data['item_order'] = item_order
+                        
+                        # Find old index in item_order
+                        old_order_idx = -1
+                        for i, order_item in enumerate(item_order):
+                            if order_item.get('type') == 'bookmark' and order_item.get('path') == path:
+                                old_order_idx = i
+                                break
+                        
+                        if old_order_idx != -1:
+                            removed_order_item = item_order.pop(old_order_idx)
+                            
+                            # Adjust drop index
+                            new_idx = drop_idx
+                            if old_order_idx < drop_idx:
+                                new_idx = max(0, drop_idx - 1)
+                            new_idx = min(new_idx, len(item_order))
+                            
+                            item_order.insert(new_idx, removed_order_item)
+                            
+                            # Also reorder in items list to maintain consistency
+                            # Calculate the new items index based on position relative to other bookmarks
+                            bookmark_indices = [i for i, o in enumerate(item_order) if o.get('type') == 'bookmark']
+                            try:
+                                new_items_index = bookmark_indices.index(new_idx)
+                            except ValueError:
+                                # Find the closest bookmark index
+                                new_items_index = len([i for i in bookmark_indices if i < new_idx])
+                            
+                            # Reinsert in items list
+                            if new_items_index >= len(items):
+                                items.append(moved_item)
+                            else:
+                                items.insert(new_items_index, moved_item)
+                            
+                            logger.info(f"Reordered bookmark in item_order from {old_order_idx} to {new_idx}")
+                        else:
+                            # Fallback - just append
+                            items.append(moved_item)
+                        
+                        manager.save()
+                    
+                    logger.info(f"Reordered item in category '{self.category_name}'")
                     self.close()
             else:
                 # Moving from another category or bar - use unified handler
@@ -1550,9 +2361,6 @@ class CategoryPopup(QFrame):
     
     def _handle_cross_category_drop(self, bookmark, source_category, source_bar_id, drop_idx):
         """Handle dropping bookmark from another category or the bar (same or different bar)"""
-        if not self.data_manager:
-            return
-        
         path = bookmark.get('path')
         if not path:
             return
@@ -1560,15 +2368,26 @@ class CategoryPopup(QFrame):
         # Normalize path for comparison
         path_normalized = os.path.normpath(path).lower() if path else ''
         
-        # Get categories from THIS container's data store (target)
-        categories = self.data_manager.data_store.setdefault('categories', {})
+        # Get global categories
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        categories = manager.get_global_categories()
         
-        # Add to this category
+        # Ensure this category exists with proper structure
         if self.category_name not in categories:
-            categories[self.category_name] = []
+            categories[self.category_name] = {"items": [], "subcategories": []}
+        
+        cat_data = categories[self.category_name]
+        # Handle old list format
+        if isinstance(cat_data, list):
+            categories[self.category_name] = {"items": cat_data, "subcategories": []}
+            cat_data = categories[self.category_name]
+        
+        # Get items list and subcats
+        existing = cat_data.setdefault('items', [])
+        subcats = cat_data.get('subcategories', [])
         
         # Check for duplicate
-        existing = categories[self.category_name]
         for b in existing:
             b_path = b.get('path', '')
             if b_path and os.path.normpath(b_path).lower() == path_normalized:
@@ -1577,11 +2396,25 @@ class CategoryPopup(QFrame):
         # Clean bookmark data for storage (remove internal fields)
         clean_bookmark = {k: v for k, v in bookmark.items() if not k.startswith('_')}
         
-        # Insert at position
-        if drop_idx >= 0 and drop_idx < len(existing):
-            existing.insert(drop_idx, clean_bookmark)
-        else:
-            existing.append(clean_bookmark)
+        # Add to items list
+        existing.append(clean_bookmark)
+        
+        # Update item_order if it exists, or create it
+        item_order = cat_data.get('item_order', None)
+        if item_order is None:
+            # Create item_order from current state (before adding new item)
+            item_order = []
+            for sc in subcats:
+                item_order.append({'type': 'subcategory', 'name': sc})
+            for it in existing[:-1]:  # Exclude the just-added item
+                item_order.append({'type': 'bookmark', 'path': it.get('path')})
+            cat_data['item_order'] = item_order
+        
+        # Insert new bookmark at drop position in item_order
+        insert_idx = min(drop_idx, len(item_order))
+        item_order.insert(insert_idx, {'type': 'bookmark', 'path': path})
+        
+        logger.info(f"Added bookmark to '{self.category_name}' at item_order index {insert_idx}")
         
         # Remove from source - need to handle cross-bar case
         is_cross_bar = source_bar_id is not None and source_bar_id != self.source_bar_id
@@ -1594,7 +2427,7 @@ class CategoryPopup(QFrame):
                     # Remove standalone from source bar
                     source_container.remove_item_by_path(path)
                 else:
-                    # Remove from category in source bar
+                    # Remove from category in source bar (uses global categories)
                     source_container.remove_bookmark_from_category(source_category, path)
                 logger.info(f"Removed from source bar {source_bar_id}")
             else:
@@ -1603,17 +2436,155 @@ class CategoryPopup(QFrame):
             # Same bar move
             if source_category in ('__BAR__', '__CONTAINER__'):
                 # Item was on the bar/container directly - remove from items list
-                self.data_manager.remove_item_by_path(path)
+                if self.data_manager:
+                    self.data_manager.remove_item_by_path(path)
             elif source_category in categories:
-                # Remove from source category (same bar)
-                src_list = categories[source_category]
+                # Remove from source category (uses global categories)
+                src_data = categories[source_category]
+                if isinstance(src_data, dict):
+                    src_list = src_data.get('items', [])
+                    # Also remove from source's item_order
+                    src_item_order = src_data.get('item_order', [])
+                    src_data['item_order'] = [i for i in src_item_order 
+                                               if not (i.get('type') == 'bookmark' and i.get('path') == path)]
+                elif isinstance(src_data, list):
+                    src_list = src_data
+                else:
+                    src_list = []
+                
                 for i, b in enumerate(src_list):
                     if b.get('path') == path:
                         src_list.pop(i)
                         break
         
-        self.data_manager._save_and_refresh()
+        manager.save()
+        if self.data_manager:
+            self.data_manager._save_and_refresh()
     
+    def _handle_category_drop_in_popup(self, event):
+        """Handle dropping a category (subcategory) within this popup for reordering"""
+        try:
+            cat_data = json.loads(event.mimeData().data('application/x-category-move').data().decode())
+            dragged_name = cat_data.get('name', '')
+            source_parent = cat_data.get('source_parent_category')
+            is_subcategory = cat_data.get('is_subcategory', False)
+            
+            drop_idx = self.drop_index if self.drop_index >= 0 else self._get_drop_index(event.position().toPoint())
+            
+            logger.info(f"_handle_category_drop_in_popup: dragged='{dragged_name}', source_parent='{source_parent}', "
+                       f"this_category='{self.category_name}', is_subcategory={is_subcategory}, drop_idx={drop_idx}")
+            
+            if not dragged_name:
+                event.ignore()
+                return
+            
+            from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+            manager = get_bookmark_manager()
+            categories = manager.get_global_categories()
+            
+            # Get this category's data
+            cat_data_here = categories.get(self.category_name, {})
+            if isinstance(cat_data_here, list):
+                categories[self.category_name] = {"items": cat_data_here, "subcategories": []}
+                cat_data_here = categories[self.category_name]
+            
+            subcats = cat_data_here.setdefault('subcategories', [])
+            items = cat_data_here.get('items', [])
+            logger.info(f"Current subcats of '{self.category_name}': {subcats}")
+            
+            # Check if this is reordering within the same category
+            if source_parent == self.category_name and dragged_name in subcats:
+                # Reordering within same popup - update item_order for unified positioning
+                
+                # Build or get item_order
+                item_order = cat_data_here.get('item_order', None)
+                if item_order is None:
+                    # Create item_order from current state (subcats first, then items)
+                    item_order = []
+                    for sc in subcats:
+                        item_order.append({'type': 'subcategory', 'name': sc})
+                    for it in items:
+                        item_order.append({'type': 'bookmark', 'path': it.get('path')})
+                    cat_data_here['item_order'] = item_order
+                
+                # Find old index of dragged subcategory in item_order
+                old_order_idx = -1
+                for i, order_item in enumerate(item_order):
+                    if order_item.get('type') == 'subcategory' and order_item.get('name') == dragged_name:
+                        old_order_idx = i
+                        break
+                
+                if old_order_idx != -1:
+                    # Remove from old position
+                    removed_item = item_order.pop(old_order_idx)
+                    
+                    # Adjust drop index if moving down
+                    new_idx = drop_idx
+                    if old_order_idx < drop_idx:
+                        new_idx = max(0, drop_idx - 1)
+                    new_idx = min(new_idx, len(item_order))
+                    
+                    # Insert at new position
+                    item_order.insert(new_idx, removed_item)
+                    
+                    logger.info(f"Reordered subcategory '{dragged_name}' in item_order from {old_order_idx} to {new_idx}")
+                    logger.info(f"New item_order: {item_order}")
+            else:
+                # Moving from another category into this one as subcategory
+                # First remove from old parent if it was a subcategory
+                if is_subcategory and source_parent and source_parent in categories:
+                    parent_data = categories[source_parent]
+                    if isinstance(parent_data, dict):
+                        old_subcats = parent_data.get('subcategories', [])
+                        if dragged_name in old_subcats:
+                            old_subcats.remove(dragged_name)
+                        # Also remove from source's item_order if present
+                        old_item_order = parent_data.get('item_order', [])
+                        parent_data['item_order'] = [i for i in old_item_order 
+                                                     if not (i.get('type') == 'subcategory' and i.get('name') == dragged_name)]
+                
+                # Check for circular reference
+                if manager._is_ancestor_of(dragged_name, self.category_name):
+                    logger.warning(f"Cannot make '{dragged_name}' a subcategory of its descendant '{self.category_name}'")
+                    event.ignore()
+                    return
+                
+                # Add to this category's subcategories
+                if dragged_name not in subcats:
+                    subcats.append(dragged_name)
+                    logger.info(f"Added '{dragged_name}' to subcategories of '{self.category_name}'")
+                
+                # Add to item_order at the drop position
+                item_order = cat_data_here.get('item_order', None)
+                if item_order is None:
+                    # Create item_order from current state
+                    item_order = []
+                    for sc in subcats:
+                        if sc != dragged_name:  # Don't double-add
+                            item_order.append({'type': 'subcategory', 'name': sc})
+                    for it in items:
+                        item_order.append({'type': 'bookmark', 'path': it.get('path')})
+                    cat_data_here['item_order'] = item_order
+                
+                # Insert at drop position
+                insert_idx = min(drop_idx, len(item_order))
+                item_order.insert(insert_idx, {'type': 'subcategory', 'name': dragged_name})
+                logger.info(f"Added '{dragged_name}' to item_order at index {insert_idx}")
+            
+            manager.save()
+            if self.data_manager:
+                self.data_manager._save_and_refresh()
+            
+            # Close popup chain to refresh display
+            self.close_entire_chain()
+            
+            event.acceptProposedAction()
+        except Exception as e:
+            logger.error(f"Error handling category drop in popup: {e}")
+            import traceback
+            traceback.print_exc()
+            event.ignore()
+
     def showEvent(self, event):
         """When shown, activate to receive focus events"""
         super().showEvent(event)
@@ -1627,17 +2598,12 @@ class CategoryPopup(QFrame):
             self.setFocus()
     
     def focusOutEvent(self, event):
-        """Auto-hide when focus is lost (like Popup behavior)"""
+        """
+        Don't auto-hide on focus loss - popups stay open until toggle.
+        This enables dragging items into nested categories.
+        """
         super().focusOutEvent(event)
-        # Small delay to allow click events to process first
-        from PyQt6.QtCore import QTimer
-        QTimer.singleShot(100, self._check_and_hide)
-    
-    def _check_and_hide(self):
-        """Hide if we don't have focus and mouse isn't over us"""
-        if not self.isActiveWindow() and not self.underMouse():
-            self.hide()
-            self.popup_closed.emit()
+        # NOTE: Removed auto-hide behavior to support nested category drag-drop
     
     def closeEvent(self, event):
         """Intercept close and convert to hide for reuse"""
@@ -1654,7 +2620,7 @@ class CategoryPopup(QFrame):
 class CategoryButton(QPushButton):
     """
     Draggable category button with popup support.
-    Used by both top bar and sidebar.
+    Used everywhere - on bookmark bars AND inside category popups (for nested categories).
     """
     
     popup_opened = pyqtSignal(object)  # Emits the popup
@@ -1663,7 +2629,7 @@ class CategoryButton(QPushButton):
     
     def __init__(self, category_name, category_items, item_index=0, parent=None,
                  data_manager=None, source_bar_id: int = 0, orientation='horizontal',
-                 color=None):
+                 color=None, subcategories=None, parent_popup=None, parent_category=None):
         """
         Args:
             category_name: name of the category
@@ -1672,13 +2638,17 @@ class CategoryButton(QPushButton):
             parent: parent widget
             data_manager: object managing bookmark data (BookmarkContainer)
             source_bar_id: integer ID of the bookmark bar (0, 1, 2, ...)
-            orientation: 'horizontal' (top bar) or 'vertical' (sidebar)
+            orientation: 'horizontal' (top bar), 'vertical' (sidebar), or 'popup' (inside popup)
             color: hex color string for the category (e.g., '#CE93D8')
+            subcategories: list of subcategory names (for nested categories)
+            parent_popup: reference to parent CategoryPopup (for nested categories)
+            parent_category: name of parent category (for nested categories)
         """
-        super().__init__(f"🗄 {category_name} ▾", parent)
+        super().__init__(f"🗄 {category_name} ▸", parent)
         
         self.category_name = category_name
         self.category_items = category_items
+        self.subcategories = subcategories or []
         self.item_index = item_index
         self.data_manager = data_manager
         self.source_bar_id = source_bar_id
@@ -1688,8 +2658,12 @@ class CategoryButton(QPushButton):
         self.dragging = False
         self.active_popup = None
         self.popup_closed_time = 0
+        self.parent_popup = parent_popup  # For nested categories in popups
+        self.parent_category = parent_category  # For nested categories
         
-        self.setToolTip(f"{len(category_items)} bookmark(s)")
+        # Update tooltip to show total items
+        total_items = len(category_items) + len(self.subcategories)
+        self.setToolTip(f"{total_items} item(s)")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setProperty('category_name', category_name)
         self.setAcceptDrops(True)
@@ -1705,7 +2679,47 @@ class CategoryButton(QPushButton):
     
     def _apply_style(self):
         """Apply the button style based on color and orientation"""
-        if self.category_color:
+        if self.orientation == 'popup':
+            # Inside a popup - use popup-specific style that handles theme colors
+            color = self.category_color or DEFAULT_CATEGORY_COLOR
+            
+            # Check if it's a theme color - if so, use get_themed_style
+            if color and color.startswith('theme:'):
+                # Use themed style with popup adjustments
+                base_style = get_themed_style(color, 'popup')
+                # Override some properties for popup context (smaller, less bold)
+                self.setStyleSheet(base_style.replace('font-weight: bold', 'font-weight: normal')
+                                            .replace('border-radius: 10px', 'border-radius: 6px')
+                                            .replace('border: 2px', 'border: 1px'))
+            else:
+                # Regular color
+                light_color = lighten_color(color, 0.4)
+                dark_color = darken_color(color, 0.7)
+                border_color = darken_color(color, 0.6)
+                hover_color = lighten_color(color, 0.2)
+                
+                self.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 {light_color}, stop:1 {color});
+                        border: 1px solid {border_color};
+                        border-radius: 6px;
+                        padding: 3px 8px;
+                        text-align: left;
+                        font-size: 9pt;
+                        font-weight: normal;
+                        color: #202124;
+                    }}
+                    QPushButton:hover {{
+                        background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 {hover_color}, stop:1 {light_color});
+                        border-color: {dark_color};
+                    }}
+                    QPushButton:pressed {{
+                        background-color: {color};
+                    }}
+                """)
+        elif self.category_color:
             # Use custom color
             self.setStyleSheet(get_category_button_style(self.category_color, self.orientation))
         else:
@@ -1715,9 +2729,12 @@ class CategoryButton(QPushButton):
             else:
                 self.setStyleSheet(CATEGORY_BUTTON_STYLE_SIDEBAR)
         
-        # Set size constraints
+        # Set size constraints based on orientation
         if self.orientation == 'horizontal':
             self.setMaximumWidth(200)
+        elif self.orientation == 'popup':
+            # No fixed size in popup - let layout manage it
+            pass
         else:
             self.setFixedHeight(26)
     
@@ -1773,7 +2790,9 @@ class CategoryButton(QPushButton):
             'items': self.category_items,
             'source_bar_id': self.source_bar_id,  # Integer bar ID
             'bar_item_index': self.item_index,
-            'color': self.category_color  # Include color for transfer
+            'color': self.category_color,  # Include color for transfer
+            'source_parent_category': self.parent_category,  # For nested categories
+            'is_subcategory': self.parent_popup is not None
         }
         mime_data.setData('application/x-category-move', json.dumps(category_data).encode())
         
@@ -1786,41 +2805,74 @@ class CategoryButton(QPushButton):
         self.dragging = False
     
     def _show_popup(self):
-        """Show the category popup - reuses existing popup if available"""
+        """Show the category popup - position depends on context (bar vs nested)"""
         # Toggle off if already visible
         if self.active_popup and self.active_popup.isVisible():
             self.active_popup.hide()
             return
         
-        # Reuse existing popup if it exists and items haven't changed
+        # Determine nesting level
+        nesting_level = 0
+        if self.parent_popup:
+            nesting_level = self.parent_popup.nesting_level + 1
+        
+        # Reuse existing popup if it exists
         if self.active_popup:
-            # Position below button and show - popup already has icons loaded
-            global_pos = self.mapToGlobal(self.rect().bottomLeft())
+            global_pos = self._calculate_popup_position()
             self.active_popup.move(global_pos)
             self.active_popup.show()
             self.popup_opened.emit(self.active_popup)
             return
         
-        # Create new popup only if we don't have one
+        # Create new popup
         popup = CategoryPopup(
             category_name=self.category_name,
             category_items=self.category_items,
+            subcategories=self.subcategories,
             parent_widget=self,
             data_manager=self.data_manager,
             source_bar_id=self.source_bar_id,
-            color=self.category_color
+            color=self.category_color,
+            parent_popup=self.parent_popup,
+            nesting_level=nesting_level
         )
         
         popup.item_clicked.connect(self._on_popup_item_clicked)
         popup.popup_closed.connect(self._on_popup_closed)
         
-        # Position below button
-        global_pos = self.mapToGlobal(self.rect().bottomLeft())
+        # Register with parent popup if nested
+        if self.parent_popup:
+            self.parent_popup.register_child_popup(popup)
+        
+        # Position popup
+        global_pos = self._calculate_popup_position()
         popup.move(global_pos)
         popup.show()
         
         self.active_popup = popup
         self.popup_opened.emit(popup)
+    
+    def _calculate_popup_position(self):
+        """Calculate popup position based on context (bar vs nested in popup)"""
+        if self.orientation == 'popup' or self.parent_popup:
+            # Inside a popup - position to the right
+            global_pos = self.mapToGlobal(self.rect().topRight())
+            
+            # Adjust for screen boundaries
+            screen = self.screen()
+            if screen:
+                screen_geo = screen.availableGeometry()
+                popup_width = self.active_popup.width() if self.active_popup and self.active_popup.width() > 0 else 250
+                
+                # If popup would go off right edge, position to the left instead
+                if global_pos.x() + popup_width > screen_geo.right():
+                    global_pos = self.mapToGlobal(self.rect().topLeft())
+                    global_pos.setX(global_pos.x() - popup_width)
+            
+            return global_pos
+        else:
+            # On a bar - position below
+            return self.mapToGlobal(self.rect().bottomLeft())
     
     def invalidate_popup(self):
         """Call this when category contents change to force popup recreation"""
@@ -1829,10 +2881,13 @@ class CategoryButton(QPushButton):
             self.active_popup.deleteLater()
             self.active_popup = None
     
-    def update_items(self, new_items):
-        """Update the category items and invalidate the popup cache"""
+    def update_items(self, new_items, new_subcategories=None):
+        """Update the category items/subcategories and invalidate the popup cache"""
         self.category_items = new_items
-        self.setToolTip(f"{len(new_items)} bookmark(s)")
+        if new_subcategories is not None:
+            self.subcategories = new_subcategories
+        total_items = len(new_items) + len(self.subcategories)
+        self.setToolTip(f"{total_items} item(s)")
         self.invalidate_popup()
     
     def _on_popup_item_clicked(self, path):
@@ -1874,7 +2929,20 @@ class CategoryButton(QPushButton):
         
         rename_action = menu.addAction("✏️ Rename")
         color_action = menu.addAction("🎨 Change Color")
-        remove_action = menu.addAction("🗑️ Remove")
+        new_subcat_action = menu.addAction("📁 New Subcategory")
+        menu.addSeparator()
+        
+        # Different remove options depending on whether this is nested
+        remove_from_parent_action = None
+        delete_action = None
+        
+        if self.parent_category:
+            # Nested category - show both options
+            remove_from_parent_action = menu.addAction("🗑️ Remove from here")
+            delete_action = menu.addAction("❌ Delete permanently")
+        else:
+            # Top-level category - just show remove
+            delete_action = menu.addAction("🗑️ Remove")
         
         action = menu.exec(self.mapToGlobal(pos))
         
@@ -1882,7 +2950,11 @@ class CategoryButton(QPushButton):
             self._rename_category()
         elif action == color_action:
             self._change_color()
-        elif action == remove_action:
+        elif action == new_subcat_action:
+            self._create_new_subcategory()
+        elif action == remove_from_parent_action:
+            self._remove_from_parent()
+        elif action == delete_action:
             self._remove_category()
     
     def _change_color(self):
@@ -1899,16 +2971,18 @@ class CategoryButton(QPushButton):
         """Handle color selection from picker"""
         self.set_color(color)
         
-        # Save the color to data via BookmarkContainer
+        # Save the color to global colors via BookmarkDataManager
         if not self.data_manager:
             return
         
-        category_colors = self.data_manager.data_store.setdefault('category_colors', {})
-        category_colors[self.category_name] = color
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        colors = manager.get_global_colors()
+        colors[self.category_name] = color
         self.data_manager._save_and_refresh()
     
     def _rename_category(self):
-        """Rename this category"""
+        """Rename this category (global rename)"""
         new_name, ok = QInputDialog.getText(
             self,
             "Rename Category",
@@ -1925,36 +2999,30 @@ class CategoryButton(QPushButton):
             if not self.data_manager:
                 return
             
-            # Check for duplicate
-            categories = self.data_manager.data_store.get('categories', {})
-            if new_name in categories:
+            # Use the data manager's global rename
+            from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+            manager = get_bookmark_manager()
+            
+            if manager.category_exists(new_name):
                 show_styled_warning(self, "Duplicate", f"Category '{new_name}' already exists.")
                 return
             
-            # Rename in categories
-            if self.category_name in categories:
-                categories[new_name] = categories.pop(self.category_name)
-            
-            # Transfer color to new name
-            category_colors = self.data_manager.data_store.get('category_colors', {})
-            if self.category_name in category_colors:
-                category_colors[new_name] = category_colors.pop(self.category_name)
-            
-            # Update items list
-            items = self.data_manager.data_store.get('items', [])
-            for item in items:
-                if item.get('type') == 'category' and item.get('name') == self.category_name:
-                    item['name'] = new_name
-                    break
-            
-            self.data_manager._save_and_refresh()
+            if manager.rename_category(self.category_name, new_name):
+                manager.save()
+                self.data_manager._save_and_refresh()
     
     def _remove_category(self):
         """Remove this category with confirmation"""
         # Build message
-        if self.category_items:
-            items_list = "\n".join([f"  • {item.get('name', item.get('path', 'Unknown'))}" for item in self.category_items])
-            message = f"Are you sure you want to remove the category '{self.category_name}'?\n\nThe following {len(self.category_items)} bookmark(s) will be deleted:\n{items_list}"
+        total_items = len(self.category_items) + len(self.subcategories)
+        if total_items > 0:
+            items_desc = []
+            for item in self.category_items:
+                items_desc.append(f"  • {item.get('name', item.get('path', 'Unknown'))}")
+            for subcat in self.subcategories:
+                items_desc.append(f"  • 📁 {subcat} (subcategory)")
+            items_list = "\n".join(items_desc)
+            message = f"Are you sure you want to remove the category '{self.category_name}'?\n\nThe following {total_items} item(s) will be deleted:\n{items_list}"
         else:
             message = f"Are you sure you want to remove the empty category '{self.category_name}'?"
         
@@ -1967,13 +3035,93 @@ class CategoryButton(QPushButton):
         # Use BookmarkContainer's remove method
         self.data_manager.remove_category(self.category_name)
     
+    def _create_new_subcategory(self):
+        """Create a new subcategory inside this category"""
+        name, ok = QInputDialog.getText(
+            self,
+            "New Subcategory",
+            f"Enter name for new subcategory in '{self.category_name}':",
+            QLineEdit.EchoMode.Normal,
+            ""
+        )
+        
+        if ok and name:
+            name = name.strip()
+            if not name:
+                return
+            
+            if not self.data_manager:
+                return
+            
+            from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+            manager = get_bookmark_manager()
+            
+            # Check if category name already exists globally
+            if manager.category_exists(name):
+                show_styled_warning(self, "Duplicate", f"Category '{name}' already exists.")
+                return
+            
+            # Create new category globally
+            manager.create_category(name)
+            
+            # Make it a subcategory of this category
+            manager.make_subcategory(name, self.category_name)
+            manager.save()
+            
+            self.data_manager._save_and_refresh()
+    
+    def _remove_from_parent(self):
+        """Remove this category from its parent (keeps category data, just removes nesting)"""
+        if not self.parent_category or not self.data_manager:
+            return
+        
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        categories = manager.get_global_categories()
+        
+        # Remove from parent's subcategories list
+        parent_data = categories.get(self.parent_category, {})
+        if isinstance(parent_data, dict):
+            subcats = parent_data.get('subcategories', [])
+            if self.category_name in subcats:
+                subcats.remove(self.category_name)
+        
+        manager.save()
+        self.data_manager._save_and_refresh()
+        
+        # Close popup chain
+        if self.parent_popup:
+            self.parent_popup.close_entire_chain()
+
     # Drag-drop handling for accepting drops onto the category
     def dragEnterEvent(self, event):
         mime = event.mimeData()
-        if mime.hasFormat('application/x-bookmark-move') or mime.hasUrls():
+        if mime.hasFormat('application/x-bookmark-move') or mime.hasFormat('application/x-category-move') or mime.hasUrls():
+            # Check for circular reference when receiving category
+            if mime.hasFormat('application/x-category-move'):
+                try:
+                    cat_data = json.loads(mime.data('application/x-category-move').data().decode())
+                    dragged_name = cat_data.get('name', '')
+                    # Prevent dropping category into itself or its descendants
+                    if self._is_descendant_of(dragged_name):
+                        event.ignore()
+                        return
+                except:
+                    pass
             event.acceptProposedAction()
         else:
             event.ignore()
+    
+    def _is_descendant_of(self, ancestor_name):
+        """Check if this category is a descendant of the given category"""
+        if self.category_name == ancestor_name:
+            return True
+        
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        
+        # Use global categories for the check
+        return manager._is_ancestor_of(ancestor_name, self.category_name)
     
     def dragLeaveEvent(self, event):
         event.accept()
@@ -1981,6 +3129,35 @@ class CategoryButton(QPushButton):
     def dropEvent(self, event):
         """Handle drops onto this category"""
         mime = event.mimeData()
+        
+        # Handle category drop (making it a subcategory)
+        if mime.hasFormat('application/x-category-move'):
+            try:
+                cat_data = json.loads(mime.data('application/x-category-move').data().decode())
+                dragged_name = cat_data.get('name', '')
+                source_parent = cat_data.get('source_parent_category')
+                
+                # If both dragged category and this category share the same parent popup,
+                # forward to the popup for reordering instead of making a subcategory
+                if self.parent_popup and source_parent == self.parent_category:
+                    # Both are siblings in the same popup - forward to popup for reorder
+                    logger.info(f"Sibling category drop: '{dragged_name}' dropped on '{self.category_name}' in popup '{self.parent_category}'")
+                    self.parent_popup._handle_category_drop_in_popup(event)
+                    return
+                
+                # Prevent circular reference
+                if self._is_descendant_of(dragged_name):
+                    logger.warning(f"Cannot drop '{dragged_name}' into its descendant '{self.category_name}'")
+                    event.ignore()
+                    return
+                
+                self._handle_category_drop(cat_data)
+                event.acceptProposedAction()
+                return
+            except Exception as e:
+                logger.error(f"Error handling category drop: {e}")
+                event.ignore()
+                return
         
         if mime.hasFormat('application/x-bookmark-move'):
             try:
@@ -2032,15 +3209,24 @@ class CategoryButton(QPushButton):
         if not path:
             return
         
-        # Get categories from data store
-        categories = self.data_manager.data_store.setdefault('categories', {})
+        # Get global categories
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        categories = manager.get_global_categories()
         
-        # Add to category
+        # Ensure category exists with proper structure
         if self.category_name not in categories:
-            categories[self.category_name] = []
+            categories[self.category_name] = {"items": [], "subcategories": []}
+        
+        cat_data = categories[self.category_name]
+        if isinstance(cat_data, list):
+            categories[self.category_name] = {"items": cat_data, "subcategories": []}
+            cat_data = categories[self.category_name]
+        
+        # Get items list
+        existing = cat_data.setdefault('items', [])
         
         # Check duplicate
-        existing = categories[self.category_name]
         if any(b.get('path') == path for b in existing):
             return
         
@@ -2060,8 +3246,20 @@ class CategoryButton(QPushButton):
                     # Remove standalone from source bar
                     source_container.remove_item_by_path(path)
                 elif source and source != '__NEW__' and source != self.category_name:
-                    # Remove from category in source bar
-                    source_container.remove_bookmark_from_category(source, path)
+                    # Remove from category in source bar (global categories)
+                    if source in categories:
+                        src_data = categories[source]
+                        if isinstance(src_data, dict):
+                            src_list = src_data.get('items', [])
+                        elif isinstance(src_data, list):
+                            src_list = src_data
+                        else:
+                            src_list = []
+                        
+                        for i, b in enumerate(src_list):
+                            if b.get('path') == path:
+                                src_list.pop(i)
+                                break
                 logger.info(f"Removed bookmark from source bar {source_bar_id}")
             else:
                 logger.warning(f"Source container not found for bar_id={source_bar_id}")
@@ -2071,15 +3269,69 @@ class CategoryButton(QPushButton):
                 # Item was standalone on the bar - remove from items list
                 self.data_manager.remove_item_by_path(path)
             elif source and source != '__NEW__' and source != self.category_name:
-                # Remove from source category
+                # Remove from source category (global categories)
                 if source in categories:
-                    src_list = categories[source]
+                    src_data = categories[source]
+                    if isinstance(src_data, dict):
+                        src_list = src_data.get('items', [])
+                    elif isinstance(src_data, list):
+                        src_list = src_data
+                    else:
+                        src_list = []
+                    
                     for i, b in enumerate(src_list):
                         if b.get('path') == path:
                             src_list.pop(i)
                             break
         
+        manager.save()
         self.data_manager._save_and_refresh()
+    
+    def _handle_category_drop(self, cat_data):
+        """Handle category dropped onto this category (making it a nested subcategory)"""
+        if not self.data_manager:
+            return
+        
+        dragged_name = cat_data.get('name', '')
+        source_parent = cat_data.get('source_parent_category')
+        source_bar_id = cat_data.get('source_bar_id')
+        is_subcategory = cat_data.get('is_subcategory', False)
+        
+        if not dragged_name:
+            return
+        
+        # Don't allow dropping onto itself
+        if dragged_name == self.category_name:
+            return
+        
+        from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+        manager = get_bookmark_manager()
+        
+        # Check for circular reference using global categories
+        if manager._is_ancestor_of(dragged_name, self.category_name):
+            logger.warning(f"Cannot make '{dragged_name}' a subcategory of its descendant '{self.category_name}'")
+            return
+        
+        # If it was a subcategory, remove from old parent first
+        if is_subcategory and source_parent:
+            categories = manager.get_global_categories()
+            parent_data = categories.get(source_parent, {})
+            if isinstance(parent_data, dict):
+                old_subcats = parent_data.get('subcategories', [])
+                if dragged_name in old_subcats:
+                    old_subcats.remove(dragged_name)
+        
+        # Make it a subcategory of this category
+        if manager.make_subcategory(dragged_name, self.category_name, source_bar_id):
+            manager.save()
+            logger.info(f"Made category '{dragged_name}' a subcategory of '{self.category_name}'")
+            self.data_manager._save_and_refresh()
+            
+            # Refresh source container if different
+            if source_bar_id is not None and source_bar_id != self.source_bar_id:
+                source_container = BookmarkContainerRegistry.get(source_bar_id)
+                if source_container:
+                    source_container.refresh()
 
 
 # =============================================================================
@@ -2621,18 +3873,18 @@ class BookmarkContainer(QWidget):
     
     @property
     def items(self):
-        """Get the ordered items list"""
+        """Get the ordered items list for this bar"""
         return self.data_store.get("items", [])
     
     @property
     def categories(self):
-        """Get the categories dict"""
-        return self.data_store.get("categories", {})
+        """Get the GLOBAL categories dict (shared across all bars)"""
+        return self._data_manager.get_global_categories()
     
     @property
     def category_colors(self):
-        """Get the category colors dict"""
-        return self.data_store.get("category_colors", {})
+        """Get the GLOBAL category colors dict (shared across all bars)"""
+        return self._data_manager.get_global_colors()
     
     # -------------------------------------------------------------------------
     # Public Methods
@@ -2709,109 +3961,74 @@ class BookmarkContainer(QWidget):
         self._save_and_refresh()
     
     def add_category(self, category_name, category_items=None, color=None, insert_at=None):
-        """Add a category to the container"""
-        # Ensure categories dict exists
-        categories = self.data_store.setdefault("categories", {})
+        """Add a category to this bar (creates globally if doesn't exist)"""
+        # Create in global categories if doesn't exist
+        if not self._data_manager.category_exists(category_name):
+            self._data_manager.create_category(category_name, category_items, color)
+        elif category_items:
+            # Category exists, but we might want to add items
+            categories = self.categories
+            if category_name in categories:
+                cat_data = categories[category_name]
+                if isinstance(cat_data, dict):
+                    cat_data.setdefault('items', []).extend(category_items)
+                elif isinstance(cat_data, list):
+                    cat_data.extend(category_items)
         
-        # Don't add if already exists
-        if category_name in categories:
-            return False
+        # Check if already in this bar's items
+        items = self.data_store.setdefault("items", [])
+        for item in items:
+            if item.get('type') == 'category' and item.get('name') == category_name:
+                return False  # Already in this bar
         
-        # Add category data
-        categories[category_name] = category_items or []
-        
-        # Add color if provided
-        if color:
-            colors = self.data_store.setdefault("category_colors", {})
-            colors[category_name] = color
-        
-        # Add to items list
+        # Add to this bar's items list
         new_item = {
             'type': 'category',
             'name': category_name
         }
-        
-        items = self.data_store.setdefault("items", [])
         
         if insert_at is not None and 0 <= insert_at <= len(items):
             items.insert(insert_at, new_item)
         else:
             items.append(new_item)
         
+        # Set color if provided (updates global)
+        if color:
+            self.category_colors[category_name] = color
+        
         self._save_and_refresh()
         return True
     
     def remove_item(self, index):
-        """Remove an item by index"""
+        """Remove an item by index from this bar's items list"""
         items = self.items
         if 0 <= index < len(items):
             item = items[index]
             
-            # If it's a category, also remove from categories dict and colors
+            # If it's a category, also delete globally
             if item.get('type') == 'category':
                 category_name = item.get('name')
                 if category_name:
-                    categories = self.categories
-                    if category_name in categories:
-                        del categories[category_name]
-                    colors = self.category_colors
-                    if category_name in colors:
-                        del colors[category_name]
+                    self._data_manager.delete_category(category_name, recursive=True)
             
             items.pop(index)
             self._save_and_refresh()
     
     def remove_category(self, category_name):
-        """Remove a category by name"""
-        # Find and remove from items list
-        items = self.items
-        for i, item in enumerate(items):
-            if item.get('type') == 'category' and item.get('name') == category_name:
-                items.pop(i)
-                break
-        
-        # Remove from categories dict
-        categories = self.categories
-        if category_name in categories:
-            del categories[category_name]
-        
-        # Remove color
-        colors = self.category_colors
-        if category_name in colors:
-            del colors[category_name]
-        
+        """Remove a category globally (deletes from all bars)"""
+        self._data_manager.delete_category(category_name, recursive=True)
         self._save_and_refresh()
     
     def rename_category(self, old_name, new_name):
-        """Rename a category"""
-        if old_name == new_name:
-            return False
-        
-        categories = self.categories
-        if new_name in categories:
-            return False  # Already exists
-        
-        # Rename in categories dict
-        if old_name in categories:
-            categories[new_name] = categories.pop(old_name)
-        
-        # Rename in items list
-        for item in self.items:
-            if item.get('type') == 'category' and item.get('name') == old_name:
-                item['name'] = new_name
-                break
-        
-        # Transfer color
-        colors = self.category_colors
-        if old_name in colors:
-            colors[new_name] = colors.pop(old_name)
-        
-        self._save_and_refresh()
-        return True
+        """Rename a category globally"""
+        if self._data_manager.rename_category(old_name, new_name):
+            self._save_and_refresh()
+            return True
+        return False
     
     def set_category_color(self, category_name, color):
-        """Set the color for a category"""
-        colors = self.data_store.setdefault(self.colors_key, {})
+        """Set the color for a category (global)"""
+        colors = self._data_manager.get_global_colors()
         colors[category_name] = color
         self._save_and_refresh()
     
@@ -2852,12 +4069,24 @@ class BookmarkContainer(QWidget):
         if not category_name:
             return None
         
-        category_items = self.categories.get(category_name, [])
+        # Get category data (handle both old list and new dict formats)
+        cat_data = self.categories.get(category_name, {})
+        if isinstance(cat_data, dict):
+            category_items = cat_data.get('items', [])
+            subcategories = cat_data.get('subcategories', [])
+        elif isinstance(cat_data, list):
+            category_items = cat_data
+            subcategories = []
+        else:
+            category_items = []
+            subcategories = []
+        
         category_color = self.category_colors.get(category_name, None)
         
         btn = CategoryButton(
             category_name=category_name,
             category_items=category_items,
+            subcategories=subcategories,
             item_index=index,
             parent=self.items_container,
             data_manager=self,
@@ -2909,7 +4138,7 @@ class BookmarkContainer(QWidget):
         if ok and name:
             name = name.strip()
             if name:
-                if name in self.categories:
+                if self._data_manager.category_exists(name):
                     show_styled_warning(self, "Duplicate", f"Category '{name}' already exists.")
                 else:
                     self.add_category(name)
@@ -2966,7 +4195,7 @@ class BookmarkContainer(QWidget):
         # Check for cross-bar moves FIRST (before internal reordering)
         # This prevents x-container-item-index from catching cross-bar drops
         
-        # Category move (check source bar ID to determine if cross-bar)
+        # Category move (check source bar ID to determine if cross-bar OR subcategory promotion)
         if mime.hasFormat('application/x-category-move'):
             try:
                 category_data = json.loads(mime.data('application/x-category-move').data().decode())
@@ -2977,26 +4206,29 @@ class BookmarkContainer(QWidget):
                 except (ValueError, TypeError):
                     source_bar_id = None
                 
-                logger.info(f"Received category drop: name='{category_data.get('name')}', source_bar_id={source_bar_id}")
+                is_subcategory = category_data.get('is_subcategory', False)
+                
+                logger.info(f"Received category drop: name='{category_data.get('name')}', source_bar_id={source_bar_id}, is_subcategory={is_subcategory}")
                 
                 # Determine if this is from a different container
                 is_cross_bar = self._is_cross_bar_source(source_bar_id)
                 logger.info(f"Is cross-bar: {is_cross_bar} (source_bar_id={source_bar_id}, self.bar_id={self.bar_id})")
                 
-                if is_cross_bar:
-                    # Handle cross-bar move
+                # Handle cross-bar moves OR subcategory promotions (even from same bar)
+                if is_cross_bar or is_subcategory:
+                    # Handle cross-bar move or subcategory promotion
                     if self._handle_cross_bar_category_move(category_data, drop_index):
-                        logger.info("Cross-bar category move handled successfully")
+                        logger.info("Category move/promotion handled successfully")
                         event.acceptProposedAction()
                         return
                     # Fallback: emit signal
-                    logger.info("Cross-bar handler returned False, falling back to signal")
+                    logger.info("Handler returned False, falling back to signal")
                     category_data['_drop_index'] = drop_index
                     self.category_dropped.emit(category_data)
                     event.acceptProposedAction()
                     return
                 else:
-                    logger.info("Not cross-bar, falling through to internal reorder")
+                    logger.info("Not cross-bar and not subcategory, falling through to internal reorder")
                 # Not cross-bar - fall through to internal reorder
             except Exception as e:
                 logger.error(f"Error handling category drop: {e}")
@@ -3143,11 +4375,18 @@ class BookmarkContainer(QWidget):
     def _handle_cross_bar_category_move(self, category_data, drop_index):
         """
         Handle moving a category from another container to this one.
+        Also handles promoting a subcategory to top-level category.
+        
+        With global categories (v4), this is now just moving references!
+        No deep copy needed - categories are shared across all bars.
+        
         Returns True if handled, False to fall back to signal emission.
         """
         # Get source bar ID - could be int or string from drag data
         source_bar_id_raw = category_data.get('source_bar_id', category_data.get('source_location', category_data.get('source')))
         category_name = category_data.get('name', '')
+        is_subcategory = category_data.get('is_subcategory', False)
+        source_parent = category_data.get('source_parent_category')
         
         # Convert to int if string
         try:
@@ -3156,55 +4395,92 @@ class BookmarkContainer(QWidget):
             logger.warning(f"Invalid source bar ID: {source_bar_id_raw}")
             source_bar_id = None
         
-        logger.info(f"_handle_cross_bar_category_move: category='{category_name}', source_bar_id={source_bar_id}, target_bar_id={self.bar_id}")
+        logger.info(f"_handle_cross_bar_category_move: category='{category_name}', source_bar_id={source_bar_id}, "
+                    f"target_bar_id={self.bar_id}, is_subcategory={is_subcategory}, source_parent={source_parent}")
         
         if not category_name:
             logger.warning("No category name provided")
             return False
         
-        if source_bar_id is None:
-            logger.warning("No source bar ID provided")
+        # Verify category exists globally
+        if not self._data_manager.category_exists(category_name):
+            logger.warning(f"Category '{category_name}' does not exist globally")
             return False
         
-        # Don't process if source is same as target
+        # Handle subcategory promotion (dragging subcategory to a bar)
+        if is_subcategory:
+            # Use data manager's promote method
+            if self._data_manager.promote_to_toplevel(category_name, source_parent, 
+                                                       self.bar_id, drop_index):
+                self._save_and_refresh()
+                # Refresh source container if different
+                if source_bar_id is not None and source_bar_id != self.bar_id:
+                    source_container = BookmarkContainerRegistry.get(source_bar_id)
+                    if source_container:
+                        source_container.refresh()
+                return True
+            return False
+        
+        # Regular category move between bars - just move the reference
+        if source_bar_id is not None and source_bar_id != self.bar_id:
+            if self._data_manager.move_category_to_bar(category_name, self.bar_id, 
+                                                        source_bar_id, drop_index):
+                self._save_and_refresh()
+                # Refresh source container
+                source_container = BookmarkContainerRegistry.get(source_bar_id)
+                if source_container:
+                    source_container.refresh()
+                logger.info(f"Moved category '{category_name}' from bar {source_bar_id} to bar {self.bar_id}")
+                return True
+        
+        # Same bar - this is internal reordering, handle via items list
         if source_bar_id == self.bar_id:
-            logger.info("Source and target are the same container, skipping cross-bar move")
-            return False
+            # Find current index
+            items = self.data_store.get('items', [])
+            current_idx = None
+            for i, item in enumerate(items):
+                if item.get('type') == 'category' and item.get('name') == category_name:
+                    current_idx = i
+                    break
+            
+            if current_idx is not None and current_idx != drop_index:
+                # Reorder
+                item = items.pop(current_idx)
+                if drop_index > current_idx:
+                    drop_index -= 1
+                items.insert(drop_index, item)
+                self._save_and_refresh()
+                return True
         
-        # Get source container from registry
-        source_container = BookmarkContainerRegistry.get(source_bar_id)
-        if not source_container:
-            logger.warning(f"Source container not found in registry for bar_id={source_bar_id}")
-            logger.debug(f"Registered containers: {list(BookmarkContainerRegistry.get_all().keys())}")
-            return False
+        return False
+    
+    def _promote_subcategory_to_toplevel(self, category_name, parent_name, drop_index):
+        """Promote a subcategory to a top-level category on this bar"""
+        logger.info(f"Promoting subcategory '{category_name}' from parent '{parent_name}' to top-level")
         
-        # Get category items from source
-        source_categories = source_container.data_store.get("categories", {})
-        category_items = source_categories.get(category_name, [])
-        
-        # Get category color from source
-        source_colors = source_container.data_store.get("category_colors", {})
-        category_color = source_colors.get(category_name)
-        
-        logger.info(f"Moving category '{category_name}' with {len(category_items)} items, color={category_color}")
-        
-        # Add category to this container
-        added = self.add_category(category_name, category_items=category_items, color=category_color, insert_at=drop_index)
-        if not added:
-            logger.warning(f"Failed to add category '{category_name}' (may already exist)")
-            return False
-        
-        # Remove from source container
-        source_container.remove_category(category_name)
-        
-        logger.info(f"Moved category '{category_name}' from bar {source_bar_id} to bar {self.bar_id}")
-        return True
+        if self._data_manager.promote_to_toplevel(category_name, parent_name, 
+                                                   self.bar_id, drop_index):
+            self._save_and_refresh()
+            return True
+        return False
     
     def remove_bookmark_from_category(self, category_name, path):
-        """Remove a bookmark from a category by its path"""
-        categories = self.data_store.get("categories", {})
+        """Remove a bookmark from a category by its path (uses global categories)"""
+        categories = self._data_manager.get_global_categories()
         if category_name in categories:
-            items = categories[category_name]
+            cat_data = categories[category_name]
+            # Handle both old list and new dict formats
+            if isinstance(cat_data, dict):
+                items = cat_data.get('items', [])
+                # Also remove from item_order if present
+                item_order = cat_data.get('item_order', [])
+                cat_data['item_order'] = [i for i in item_order 
+                                          if not (i.get('type') == 'bookmark' and i.get('path') == path)]
+            elif isinstance(cat_data, list):
+                items = cat_data
+            else:
+                items = []
+            
             for i, item in enumerate(items):
                 if item.get('path') == path:
                     items.pop(i)

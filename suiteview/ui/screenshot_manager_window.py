@@ -112,6 +112,8 @@ class ScreenShotManagerWindow(QWidget):
         self.screenshot_counter = 0
         self.current_viewer_pixmap = None
         self.screenshots_dir = Path.home() / '.suiteview' / 'screenshots'
+        self.archive_dir = Path.home() / '.suiteview' / 'screenshots' / 'archive'
+        self._viewing_archive = False  # Track if viewing archive
         
         self.init_ui()
         self._load_existing_screenshots()
@@ -183,6 +185,38 @@ class ScreenShotManagerWindow(QWidget):
         """)
         self.grab_btn.clicked.connect(self.grab_screenshot)
         header_layout.addWidget(self.grab_btn)
+        
+        # Window capture button - blue dot (captures active window only)
+        self.window_capture_btn = QPushButton()
+        self.window_capture_btn.setFixedSize(28, 28)
+        self.window_capture_btn.setToolTip("Capture Active Window")
+        self.window_capture_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Create icon with blue dot
+        win_dot_pixmap = QPixmap(24, 24)
+        win_dot_pixmap.fill(Qt.GlobalColor.transparent)
+        win_dot_painter = QPainter(win_dot_pixmap)
+        win_dot_painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        win_dot_painter.setBrush(QBrush(QColor("#4A90D9")))
+        win_dot_painter.setPen(Qt.PenStyle.NoPen)
+        win_dot_painter.drawEllipse(6, 6, 12, 12)
+        win_dot_painter.end()
+        self.window_capture_btn.setIcon(QIcon(win_dot_pixmap))
+        self.window_capture_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 2px solid #4A90D9;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background: rgba(74, 144, 217, 0.2);
+                border-color: #6AB0F9;
+            }
+            QPushButton:pressed {
+                background: rgba(74, 144, 217, 0.4);
+            }
+        """)
+        self.window_capture_btn.clicked.connect(self.capture_active_window)
+        header_layout.addWidget(self.window_capture_btn)
         
         # Title in center
         self.title_label = QLabel("SCREENSHOT MANAGER")
@@ -268,6 +302,42 @@ class ScreenShotManagerWindow(QWidget):
         self.export_btn.clicked.connect(self.export_screenshots)
         self.export_btn.setEnabled(False)
         header_layout.addWidget(self.export_btn)
+        
+        # Archive toggle button
+        self.archive_toggle_btn = QPushButton("📦 Archive")
+        self.archive_toggle_btn.setFixedHeight(26)
+        self.archive_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.archive_toggle_btn.setCheckable(True)
+        self.archive_toggle_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #4A7DC4, stop:1 #2A5AA4);
+                border: 1px solid #D4A017;
+                border-radius: 3px;
+                padding: 2px 12px;
+                color: #D4A017;
+                font-size: 9pt;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5A8DD4, stop:1 #3A6AB4);
+                color: #FFD700;
+            }
+            QPushButton:checked {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #8B6914, stop:1 #6B4914);
+                border-color: #FFD700;
+                color: #FFD700;
+            }
+            QPushButton:checked:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #AB8924, stop:1 #8B6924);
+            }
+        """)
+        self.archive_toggle_btn.setToolTip("Toggle view between Screenshots and Archive")
+        self.archive_toggle_btn.clicked.connect(self._toggle_archive_view)
+        header_layout.addWidget(self.archive_toggle_btn)
         
         header_layout.addSpacing(16)
         
@@ -497,13 +567,21 @@ class ScreenShotManagerWindow(QWidget):
     def _load_existing_screenshots(self):
         """Load existing screenshots from the screenshots folder"""
         try:
+            # Clear current list
+            self.screenshot_list.clear()
+            self.screenshots.clear()
+            self.viewer_area.clear()
+            self.current_viewer_pixmap = None
+            
             if not self.screenshots_dir.exists():
                 self.screenshots_dir.mkdir(parents=True, exist_ok=True)
+                self._update_footer()
                 return
             
             # Get all PNG files sorted by modification time (newest first)
+            # Exclude the archive folder
             png_files = sorted(
-                self.screenshots_dir.glob("*.png"),
+                [f for f in self.screenshots_dir.glob("*.png") if f.parent == self.screenshots_dir],
                 key=lambda f: f.stat().st_mtime,
                 reverse=True
             )
@@ -551,7 +629,10 @@ class ScreenShotManagerWindow(QWidget):
         """Update the screenshots footer with count"""
         count = len(self.screenshots)
         if hasattr(self, 'screenshots_footer'):
-            self.screenshots_footer.setText(f"{count} screenshot(s)")
+            if self._viewing_archive:
+                self.screenshots_footer.setText(f"{count} archived screenshot(s)")
+            else:
+                self.screenshots_footer.setText(f"{count} screenshot(s)")
     
     def add_screenshot_from_file(self, filepath):
         """Add a screenshot from an external file (called by File Navigator)"""
@@ -669,6 +750,265 @@ class ScreenShotManagerWindow(QWidget):
             self.activateWindow()
             self.raise_()
     
+    def capture_active_window(self):
+        """Capture only the active/foreground window"""
+        try:
+            # Hide this window temporarily
+            self.hide()
+            
+            # Small delay to let window hide
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(200, self._do_window_capture)
+            
+        except Exception as e:
+            logger.error(f"Failed to capture window: {e}", exc_info=True)
+            QMessageBox.warning(self, "Error", f"Failed to capture window:\n{e}")
+            self.show()
+    
+    def _do_window_capture(self):
+        """Actually perform the window capture"""
+        try:
+            import ctypes
+            from ctypes import wintypes
+            from PyQt6.QtWidgets import QApplication
+            
+            # Get foreground window handle using ctypes
+            user32 = ctypes.windll.user32
+            hwnd = user32.GetForegroundWindow()
+            
+            if hwnd:
+                # Get window rectangle
+                rect = wintypes.RECT()
+                user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                
+                x = rect.left
+                y = rect.top
+                width = rect.right - rect.left
+                height = rect.bottom - rect.top
+                
+                if width > 0 and height > 0:
+                    # Grab the window area from screen
+                    screen = QApplication.primaryScreen()
+                    if screen:
+                        screenshot = screen.grabWindow(0, x, y, width, height)
+                        
+                        # Increment counter and create name with timestamp
+                        self.screenshot_counter += 1
+                        current_time = datetime.now()
+                        timestamp_str = current_time.strftime('%Y%m%d_%H%M%S')
+                        screenshot_name = f"window_{timestamp_str}"
+                        
+                        # Ensure screenshots directory exists
+                        self.screenshots_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        # Save to disk
+                        filepath = self.screenshots_dir / f"{screenshot_name}.png"
+                        screenshot.save(str(filepath), 'PNG')
+                        
+                        # Add to list
+                        item = ScreenshotThumbnail(screenshot, screenshot_name, current_time)
+                        item.filepath = filepath
+                        self.screenshot_list.insertItem(0, item)
+                        
+                        # Store the data
+                        self.screenshots.insert(0, (screenshot, screenshot_name, current_time, filepath))
+                        
+                        # Update footer count
+                        self._update_footer()
+                        
+                        logger.info(f"Window captured: {screenshot_name}")
+                    else:
+                        QMessageBox.warning(self, "Error", "Could not access screen")
+                else:
+                    QMessageBox.warning(self, "Error", "Could not get window dimensions")
+            else:
+                QMessageBox.warning(self, "Error", "Could not find active window")
+        
+        except Exception as e:
+            logger.error(f"Window capture failed: {e}", exc_info=True)
+            QMessageBox.warning(self, "Error", f"Window capture failed:\n{e}")
+        
+        finally:
+            # Show the window again
+            self.show()
+            self.activateWindow()
+            self.raise_()
+    
+    def _toggle_archive_view(self):
+        """Toggle between viewing screenshots and archive"""
+        self._viewing_archive = self.archive_toggle_btn.isChecked()
+        
+        if self._viewing_archive:
+            self.archive_toggle_btn.setText("📷 Screenshots")
+            self.title_label.setText("ARCHIVE")
+            self._load_archive_screenshots()
+        else:
+            self.archive_toggle_btn.setText("📦 Archive")
+            self.title_label.setText("SCREENSHOT MANAGER")
+            self._load_existing_screenshots()
+    
+    def _load_archive_screenshots(self):
+        """Load screenshots from the archive folder"""
+        try:
+            # Clear current list
+            self.screenshot_list.clear()
+            self.screenshots.clear()
+            self.viewer_area.clear()
+            self.current_viewer_pixmap = None
+            
+            # Ensure archive directory exists
+            self.archive_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Get all PNG files sorted by modification time (newest first)
+            png_files = sorted(
+                self.archive_dir.glob("*.png"),
+                key=lambda f: f.stat().st_mtime,
+                reverse=True
+            )
+            
+            for filepath in png_files:
+                try:
+                    # Load the image
+                    pixmap = QPixmap(str(filepath))
+                    if pixmap.isNull():
+                        continue
+                    
+                    # Get modification time
+                    mtime = filepath.stat().st_mtime
+                    timestamp = datetime.fromtimestamp(mtime)
+                    
+                    # Use filename (without extension) as the name
+                    screenshot_name = filepath.stem
+                    
+                    # Add to list widget
+                    item = ScreenshotThumbnail(pixmap, screenshot_name, timestamp)
+                    item.filepath = filepath
+                    self.screenshot_list.addItem(item)
+                    
+                    # Store the data
+                    self.screenshots.append((pixmap, screenshot_name, timestamp, filepath))
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to load archived screenshot {filepath}: {e}")
+            
+            # Update footer
+            self._update_footer()
+            
+            if self.screenshots:
+                logger.info(f"Loaded {len(self.screenshots)} archived screenshots")
+                
+        except Exception as e:
+            logger.error(f"Failed to load archive: {e}")
+    
+    def archive_selected_screenshots(self):
+        """Move selected screenshots to archive folder"""
+        selected_items = list(self.screenshot_list.selectedItems())
+        if not selected_items:
+            return
+        
+        # Ensure archive directory exists
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+        
+        archived_count = 0
+        for item in selected_items:
+            if isinstance(item, ScreenshotThumbnail) and hasattr(item, 'filepath') and item.filepath:
+                try:
+                    # Move file to archive
+                    src_path = item.filepath
+                    dest_path = self.archive_dir / src_path.name
+                    
+                    # Handle name collision
+                    if dest_path.exists():
+                        stem = src_path.stem
+                        suffix = src_path.suffix
+                        counter = 1
+                        while dest_path.exists():
+                            dest_path = self.archive_dir / f"{stem}_{counter}{suffix}"
+                            counter += 1
+                    
+                    src_path.rename(dest_path)
+                    
+                    # Remove from list widget
+                    row = self.screenshot_list.row(item)
+                    self.screenshot_list.takeItem(row)
+                    
+                    # Remove from screenshots list
+                    for i, screenshot_data in enumerate(self.screenshots):
+                        if len(screenshot_data) >= 3 and screenshot_data[2] == item.timestamp:
+                            self.screenshots.pop(i)
+                            break
+                    
+                    archived_count += 1
+                    logger.info(f"Archived screenshot: {src_path.name}")
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to archive {item.filepath}: {e}")
+        
+        # Clear viewer if archived item was displayed
+        if self.current_viewer_pixmap:
+            for item in selected_items:
+                if isinstance(item, ScreenshotThumbnail) and item.screenshot_pixmap == self.current_viewer_pixmap:
+                    self.viewer_area.clear()
+                    self.current_viewer_pixmap = None
+                    break
+        
+        # Update footer
+        self._update_footer()
+        self.status_label.setText(f"Archived {archived_count} screenshot(s)")
+    
+    def restore_selected_screenshots(self):
+        """Restore selected screenshots from archive to main folder"""
+        selected_items = list(self.screenshot_list.selectedItems())
+        if not selected_items:
+            return
+        
+        restored_count = 0
+        for item in selected_items:
+            if isinstance(item, ScreenshotThumbnail) and hasattr(item, 'filepath') and item.filepath:
+                try:
+                    # Move file back to screenshots folder
+                    src_path = item.filepath
+                    dest_path = self.screenshots_dir / src_path.name
+                    
+                    # Handle name collision
+                    if dest_path.exists():
+                        stem = src_path.stem
+                        suffix = src_path.suffix
+                        counter = 1
+                        while dest_path.exists():
+                            dest_path = self.screenshots_dir / f"{stem}_{counter}{suffix}"
+                            counter += 1
+                    
+                    src_path.rename(dest_path)
+                    
+                    # Remove from list widget
+                    row = self.screenshot_list.row(item)
+                    self.screenshot_list.takeItem(row)
+                    
+                    # Remove from screenshots list
+                    for i, screenshot_data in enumerate(self.screenshots):
+                        if len(screenshot_data) >= 3 and screenshot_data[2] == item.timestamp:
+                            self.screenshots.pop(i)
+                            break
+                    
+                    restored_count += 1
+                    logger.info(f"Restored screenshot: {src_path.name}")
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to restore {item.filepath}: {e}")
+        
+        # Clear viewer if restored item was displayed
+        if self.current_viewer_pixmap:
+            for item in selected_items:
+                if isinstance(item, ScreenshotThumbnail) and item.screenshot_pixmap == self.current_viewer_pixmap:
+                    self.viewer_area.clear()
+                    self.current_viewer_pixmap = None
+                    break
+        
+        # Update footer
+        self._update_footer()
+        self.status_label.setText(f"Restored {restored_count} screenshot(s)")
+    
     def display_screenshot(self, item):
         """Display the selected screenshot in the viewer"""
         if isinstance(item, ScreenshotThumbnail):
@@ -716,7 +1056,14 @@ class ScreenShotManagerWindow(QWidget):
             
             copy_action = menu.addAction("Copy to Clipboard")
             menu.addSeparator()
-            delete_action = menu.addAction(f"Delete ({len(selected_items)})" if len(selected_items) > 1 else "Delete")
+            
+            # Archive or Restore action depending on current view
+            if self._viewing_archive:
+                archive_action = menu.addAction(f"📷 Restore ({len(selected_items)})" if len(selected_items) > 1 else "📷 Restore")
+            else:
+                archive_action = menu.addAction(f"📦 Archive ({len(selected_items)})" if len(selected_items) > 1 else "📦 Archive")
+            
+            delete_action = menu.addAction(f"🗑 Delete ({len(selected_items)})" if len(selected_items) > 1 else "🗑 Delete")
             menu.addSeparator()
             rename_action = menu.addAction("Rename")
             
@@ -726,6 +1073,11 @@ class ScreenShotManagerWindow(QWidget):
                 # Copy the clicked item (or first selected)
                 target = item if item and isinstance(item, ScreenshotThumbnail) else selected_items[0]
                 self.copy_to_clipboard(target)
+            elif action == archive_action:
+                if self._viewing_archive:
+                    self.restore_selected_screenshots()
+                else:
+                    self.archive_selected_screenshots()
             elif action == rename_action:
                 # Only rename if single item or clicked on specific item
                 if item and isinstance(item, ScreenshotThumbnail):
