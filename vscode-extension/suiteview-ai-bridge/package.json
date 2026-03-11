@@ -1,0 +1,69 @@
+{
+  "name": "suiteview-ai-bridge",
+  "displayName": "SuiteView AI Bridge",
+  "description": "Bridges VS Code Language Model API to SuiteView application via local HTTP server",
+  "version": "1.0.0",
+  "publisher": "suiteview",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "suiteview-ai-bridge.startServer",
+        "title": "SuiteView AI: Start Bridge Server"
+      },
+      {
+        "command": "suiteview-ai-bridge.stopServer",
+        "title": "SuiteView AI: Stop Bridge Server"
+      },
+      {
+        "command": "suiteview-ai-bridge.showStatus",
+        "title": "SuiteView AI: Show Server Status"
+      }
+    ],
+    "configuration": {
+      "title": "SuiteView AI Bridge",
+      "properties": {
+        "suiteviewAiBridge.port": {
+          "type": "number",
+          "default": 3000,
+          "description": "Port for the local HTTP server"
+        },
+        "suiteviewAiBridge.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the server when VS Code opens"
+        },
+        "suiteviewAiBridge.defaultModel": {
+          "type": "string",
+          "default": "copilot",
+          "enum": ["copilot", "gpt-4o", "gpt-4o-mini", "claude-3.5-sonnet", "claude-3-opus", "o1-preview", "o1-mini"],
+          "description": "Default language model to use"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {}
+}

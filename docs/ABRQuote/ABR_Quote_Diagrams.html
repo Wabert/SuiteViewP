@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ABR Quote Tool — UI & Architecture Diagrams</title>
+<style>
+  @page { size: letter; margin: 0.5in; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f5f5; color: #1a1a1a; padding: 30px; }
+  h1 { text-align: center; color: #00695C; font-size: 28px; margin-bottom: 5px; }
+  h2 { color: #00897B; font-size: 22px; margin: 35px 0 15px; border-bottom: 2px solid #D4A017; padding-bottom: 6px; }
+  h3 { color: #333; font-size: 16px; margin: 20px 0 10px; }
+  .subtitle { text-align: center; color: #666; font-size: 14px; margin-bottom: 30px; }
+  .page-break { page-break-before: always; }
+
+  /* ===== Calculation Flow Diagram ===== */
+  .flow-container { display: flex; flex-direction: column; gap: 20px; margin: 20px 0; }
+  .flow-row { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
+  .flow-box {
+    border: 2px solid #00897B; border-radius: 12px; padding: 15px 20px;
+    background: linear-gradient(180deg, #E0F2F1 0%, #B2DFDB 100%);
+    min-width: 200px; max-width: 280px; position: relative;
+  }
+  .flow-box h4 { color: #00695C; font-size: 14px; margin-bottom: 8px; text-align: center; }
+  .flow-box ul { list-style: none; font-size: 12px; color: #333; }
+  .flow-box ul li::before { content: "• "; color: #D4A017; font-weight: bold; }
+  .flow-arrow {
+    text-align: center; font-size: 28px; color: #D4A017; line-height: 1;
+  }
+  .flow-arrow-right { font-size: 24px; color: #D4A017; display: flex; align-items: center; }
+  .flow-box.highlight {
+    border-color: #D4A017; border-width: 3px;
+    background: linear-gradient(180deg, #FFF8E1 0%, #FFE082 100%);
+  }
+  .formula-box {
+    background: #1A2332; color: #4DB6AC; border-radius: 8px; padding: 12px 16px;
+    font-family: 'Consolas', 'Courier New', monospace; font-size: 13px;
+    margin: 10px 0; border-left: 4px solid #D4A017;
+  }
+
+  /* ===== UI Mockups ===== */
+  .window {
+    border: 2px solid #00695C; border-radius: 12px; overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15); margin: 20px auto; max-width: 700px;
+    background: #1A2332;
+  }
+  .titlebar {
+    background: linear-gradient(180deg, #00897B 0%, #00695C 100%);
+    color: white; padding: 8px 15px; display: flex; justify-content: space-between;
+    align-items: center; font-size: 14px; font-weight: 600;
+    border-bottom: 2px solid #D4A017;
+  }
+  .titlebar .controls { display: flex; gap: 8px; }
+  .titlebar .controls span {
+    width: 14px; height: 14px; border-radius: 50%; display: inline-block;
+  }
+  .btn-min { background: #FFC107; }
+  .btn-max { background: #4DB6AC; }
+  .btn-close { background: #ef5350; }
+
+  .step-bar {
+    display: flex; justify-content: center; gap: 0; padding: 12px 20px;
+    background: #243447;
+  }
+  .step {
+    padding: 8px 25px; font-size: 13px; color: #B0BEC5; position: relative;
+    border: 1px solid #37474F; background: #2C3E50;
+  }
+  .step:first-child { border-radius: 6px 0 0 6px; }
+  .step:last-child { border-radius: 0 6px 6px 0; }
+  .step.active {
+    background: linear-gradient(180deg, #00897B 0%, #00695C 100%);
+    color: #FFC107; font-weight: 600; border-color: #D4A017;
+  }
+  .step.completed { background: #1B5E20; color: #81C784; border-color: #2E7D32; }
+  .step-connector { width: 2px; background: #D4A017; }
+
+  .panel {
+    padding: 20px 25px; color: #ECEFF1;
+  }
+  .panel-section {
+    border: 1px solid #37474F; border-radius: 8px; margin: 10px 0; overflow: hidden;
+  }
+  .panel-section-header {
+    background: linear-gradient(180deg, #00897B 0%, #00695C 100%);
+    color: white; padding: 6px 12px; font-size: 13px; font-weight: 600;
+    border-bottom: 2px solid #D4A017;
+  }
+  .panel-section-body { padding: 10px 14px; background: #243447; }
+
+  .field-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px 30px; font-size: 13px;
+  }
+  .field { display: flex; justify-content: space-between; padding: 3px 0; }
+  .field-label { color: #B0BEC5; }
+  .field-value { color: #FFC107; font-weight: 500; }
+
+  .input-row {
+    display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 13px;
+  }
+  .input-label { color: #B0BEC5; min-width: 180px; }
+  .input-field {
+    background: #1A2332; border: 1px solid #4DB6AC; border-radius: 4px;
+    color: #FFC107; padding: 4px 10px; font-size: 13px; min-width: 100px;
+  }
+  .input-unit { color: #78909C; font-size: 12px; }
+  .btn {
+    background: linear-gradient(180deg, #00897B 0%, #00695C 100%);
+    color: white; border: 1px solid #D4A017; border-radius: 6px;
+    padding: 8px 20px; font-size: 13px; font-weight: 600; cursor: pointer;
+    display: inline-block; margin: 5px 5px 5px 0;
+  }
+  .btn-secondary {
+    background: linear-gradient(180deg, #37474F 0%, #263238 100%);
+    border-color: #546E7A;
+  }
+  .btn-export {
+    background: linear-gradient(180deg, #D4A017 0%, #B8860B 100%);
+    color: #1A2332;
+  }
+
+  .result-row {
+    display: flex; justify-content: space-between; padding: 5px 0;
+    font-size: 13px; border-bottom: 1px solid #37474F;
+  }
+  .result-row:last-child { border-bottom: none; }
+  .result-label { color: #B0BEC5; }
+  .result-value { color: #FFC107; font-weight: 600; }
+  .result-total { font-size: 15px; }
+  .result-total .result-label { color: white; font-weight: 700; }
+  .result-total .result-value { color: #4DB6AC; font-weight: 700; }
+  .divider { border-top: 2px solid #D4A017; margin: 5px 0; }
+
+  .bottom-bar {
+    display: flex; justify-content: space-between; padding: 12px 25px;
+    background: #1A2332; border-top: 1px solid #37474F;
+  }
+
+  .note-box {
+    background: #263238; border: 1px solid #D4A017; border-radius: 6px;
+    padding: 10px 14px; margin: 10px 0; font-size: 12px; color: #FFE082;
+  }
+  .note-box::before { content: "💡 "; }
+
+  /* ===== Module Diagram ===== */
+  .module-tree {
+    font-family: 'Consolas', monospace; font-size: 13px; background: #1A2332;
+    color: #B0BEC5; padding: 20px; border-radius: 8px; border-left: 4px solid #D4A017;
+    margin: 15px 0; line-height: 1.7;
+  }
+  .module-tree .folder { color: #4DB6AC; font-weight: 600; }
+  .module-tree .file { color: #FFC107; }
+  .module-tree .desc { color: #78909C; font-style: italic; }
+
+  /* ===== Table ===== */
+  table.data-table {
+    border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px;
+  }
+  table.data-table th {
+    background: #00695C; color: white; padding: 8px 12px; text-align: left;
+    border: 1px solid #004D40;
+  }
+  table.data-table td {
+    padding: 6px 12px; border: 1px solid #ddd; background: white;
+  }
+  table.data-table tr:nth-child(even) td { background: #f9f9f9; }
+
+  /* ===== Color Swatches ===== */
+  .swatch-grid { display: flex; flex-wrap: wrap; gap: 12px; margin: 15px 0; }
+  .swatch {
+    width: 120px; border-radius: 8px; overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  }
+  .swatch-color { height: 50px; }
+  .swatch-info { padding: 6px 8px; background: white; font-size: 11px; }
+  .swatch-name { font-weight: 600; color: #333; }
+  .swatch-hex { color: #888; }
+</style>
+</head>
+<body>
+
+<h1>ABR Quote Tool — Implementation Diagrams</h1>
+<p class="subtitle">Python Conversion Plan &bull; SuiteView Integration &bull; February 2026</p>
+
+<!-- ===================================================================== -->
+<h2>1. Calculation Flow</h2>
+
+<div class="flow-container">
+  <div class="flow-row">
+    <div class="flow-box">
+      <h4>1. Policy Data</h4>
+      <ul>
+        <li>DB2 via PolView PolicyInformation</li>
+        <li>Policy #, Issue Age, Sex/Class</li>
+        <li>Face Amount, State, Plan Code</li>
+        <li>Table Rating, Flat Extra</li>
+        <li>Billing Mode, Paid-to Date</li>
+      </ul>
+    </div>
+    <div class="flow-arrow-right">→</div>
+    <div class="flow-box">
+      <h4>2. Term Premium Calc</h4>
+      <ul>
+        <li>Build lookup KEY</li>
+        <li>INDEX/MATCH into BaseTermPremiumRates</li>
+        <li>Add table rating (×0.25)</li>
+        <li>Add flat extra</li>
+        <li>Apply modal factor + $60 fee</li>
+      </ul>
+    </div>
+    <div class="flow-arrow-right">→</div>
+    <div class="flow-box">
+      <h4>3. Mortality Engine</h4>
+      <ul>
+        <li>2008 VBT Select lookup (MN/FN/MS/FS)</li>
+        <li>Mortality improvement</li>
+        <li>Table rating multiplier</li>
+        <li>Flat extra additive</li>
+        <li>UDD monthly conversion</li>
+      </ul>
+    </div>
+  </div>
+  <div class="flow-arrow">↓</div>
+  <div class="flow-row">
+    <div class="flow-box">
+      <h4>4. Medical Assessment</h4>
+      <ul>
+        <li>5yr / 10yr Survival Rates</li>
+        <li>Life Expectancy</li>
+        <li>Goal Seek → Table Rating (scipy)</li>
+        <li>Goal Seek → Flat Extra (scipy)</li>
+        <li>Assessment Index (1–7)</li>
+      </ul>
+    </div>
+    <div class="flow-arrow-right">→</div>
+    <div class="flow-box highlight">
+      <h4>5. APV Engine</h4>
+      <ul>
+        <li>Monthly loop (~1,460 months)</li>
+        <li>PVFB = Σ(DB × v × tp'x × q'x) × adj</li>
+        <li>PVFP = Σ(Prem × v × tp'x)</li>
+        <li>Disc = Face − (PVFB − PVFP)</li>
+        <li>FL+Terminal → PVFP = 0</li>
+      </ul>
+    </div>
+    <div class="flow-arrow-right">→</div>
+    <div class="flow-box highlight">
+      <h4>6. Output</h4>
+      <ul>
+        <li>Accel Benefit = Face − Disc − Fee</li>
+        <li>Fee: $250 (or $100 if FL)</li>
+        <li>Full + Max Partial sheets</li>
+        <li>Premium before/after</li>
+        <li>Export to Excel workbook</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h3>Key Formulas</h3>
+<div class="formula-box">
+  <strong>Actuarial Discount</strong> = ROUND( Face − (PVFB − PVFP), 2 )<br><br>
+  <strong>UDD Monthly qx</strong> = (annual_qx / 12) / (1 − (month_in_year − 1) × (annual_qx / 12))<br><br>
+  <strong>Continuous Mort Adjustment</strong> = monthly_rate / ln(1 + monthly_rate)<br><br>
+  <strong>Accelerated Benefit</strong> = Eligible_DB − Actuarial_Discount − Admin_Fee<br><br>
+  <strong>Partial Discount</strong> = (Partial_Eligible / Full_Eligible) × Full_Discount
+</div>
+
+<!-- ===================================================================== -->
+<div class="page-break"></div>
+<h2>2. UI Mockups — Teal &amp; Gold Theme</h2>
+
+<h3>Color Palette</h3>
+<div class="swatch-grid">
+  <div class="swatch"><div class="swatch-color" style="background:#00897B"></div><div class="swatch-info"><div class="swatch-name">Teal Primary</div><div class="swatch-hex">#00897B</div></div></div>
+  <div class="swatch"><div class="swatch-color" style="background:#00695C"></div><div class="swatch-info"><div class="swatch-name">Teal Dark</div><div class="swatch-hex">#00695C</div></div></div>
+  <div class="swatch"><div class="swatch-color" style="background:#4DB6AC"></div><div class="swatch-info"><div class="swatch-name">Teal Light</div><div class="swatch-hex">#4DB6AC</div></div></div>
+  <div class="swatch"><div class="swatch-color" style="background:#D4A017"></div><div class="swatch-info"><div class="swatch-name">Gold Accent</div><div class="swatch-hex">#D4A017</div></div></div>
+  <div class="swatch"><div class="swatch-color" style="background:#FFC107"></div><div class="swatch-info"><div class="swatch-name">Gold Text</div><div class="swatch-hex">#FFC107</div></div></div>
+  <div class="swatch"><div class="swatch-color" style="background:#1A2332"></div><div class="swatch-info"><div class="swatch-name">Surface Dark</div><div class="swatch-hex">#1A2332</div></div></div>
+  <div class="swatch"><div class="swatch-color" style="background:#243447"></div><div class="swatch-info"><div class="swatch-name">Surface Mid</div><div class="swatch-hex">#243447</div></div></div>
+  <div class="swatch"><div class="swatch-color" style="background:#E0F2F1"></div><div class="swatch-info"><div class="swatch-name">Teal BG</div><div class="swatch-hex">#E0F2F1</div></div></div>
+</div>
+
+<!-- ===== STEP 1 ===== -->
+<h3>Step 1 — Policy Information</h3>
+<div class="window">
+  <div class="titlebar">
+    <span>ABR Quote Tool</span>
+    <div class="controls"><span class="btn-min"></span><span class="btn-max"></span><span class="btn-close"></span></div>
+  </div>
+  <div class="step-bar">
+    <div class="step active">1 &nbsp;Policy Info</div>
+    <div class="step">2 &nbsp;Assessment</div>
+    <div class="step">3 &nbsp;Results</div>
+  </div>
+  <div class="panel">
+    <div class="input-row">
+      <span class="input-label">Policy Number:</span>
+      <span class="input-field" style="min-width:160px;">U0532652</span>
+      <span class="input-label" style="min-width:60px;">Region:</span>
+      <span class="input-field">CKPR ▾</span>
+      <span class="btn" style="margin-left:10px;">Retrieve Policy</span>
+    </div>
+
+    <div class="panel-section" style="margin-top:15px;">
+      <div class="panel-section-header">Policy Details</div>
+      <div class="panel-section-body">
+        <div class="field-grid">
+          <div class="field"><span class="field-label">Insured:</span><span class="field-value">Jane Doe</span></div>
+          <div class="field"><span class="field-label">Face Amount:</span><span class="field-value">$500,000</span></div>
+          <div class="field"><span class="field-label">Sex:</span><span class="field-value">Female</span></div>
+          <div class="field"><span class="field-label">Issue State:</span><span class="field-value">MD</span></div>
+          <div class="field"><span class="field-label">Issue Age:</span><span class="field-value">33</span></div>
+          <div class="field"><span class="field-label">Rate Class:</span><span class="field-value">Non-Smoker (N)</span></div>
+          <div class="field"><span class="field-label">Attained Age:</span><span class="field-value">44</span></div>
+          <div class="field"><span class="field-label">Billing Mode:</span><span class="field-value">Monthly</span></div>
+          <div class="field"><span class="field-label">Plan Code:</span><span class="field-value">B75TL400</span></div>
+          <div class="field"><span class="field-label">Modal Premium:</span><span class="field-value">$59.18</span></div>
+          <div class="field"><span class="field-label">Table Rating:</span><span class="field-value">None</span></div>
+          <div class="field"><span class="field-label">Flat Extra:</span><span class="field-value">$0.00</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-header">ABR Parameters</div>
+      <div class="panel-section-body">
+        <div class="field-grid">
+          <div class="field"><span class="field-label">ABR Interest Rate:</span><span class="field-value">5.45%</span></div>
+          <div class="field"><span class="field-label">Rate Date:</span><span class="field-value">2024-01</span></div>
+          <div class="field"><span class="field-label">Per Diem Limit:</span><span class="field-value">$420</span></div>
+          <div class="field"><span class="field-label">Annual Limit:</span><span class="field-value">$153,300</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <span></span>
+    <span class="btn">Next →</span>
+  </div>
+</div>
+
+<!-- ===== STEP 2 ===== -->
+<div class="page-break"></div>
+<h3>Step 2 — Medical Assessment</h3>
+<div class="window">
+  <div class="titlebar">
+    <span>ABR Quote Tool</span>
+    <div class="controls"><span class="btn-min"></span><span class="btn-max"></span><span class="btn-close"></span></div>
+  </div>
+  <div class="step-bar">
+    <div class="step completed">✓ Policy Info</div>
+    <div class="step active">2 &nbsp;Assessment</div>
+    <div class="step">3 &nbsp;Results</div>
+  </div>
+  <div class="panel">
+    <div class="input-row">
+      <span class="input-label">Rider Type:</span>
+      <span class="input-field" style="min-width:200px;">Terminal ▾</span>
+    </div>
+    <div class="input-row">
+      <span class="input-label">Assessment Format:</span>
+      <span class="input-field" style="min-width:280px;">Table Rating and/or Flat Extra ▾</span>
+    </div>
+
+    <div class="panel-section" style="margin-top:15px;">
+      <div class="panel-section-header">Survival Inputs</div>
+      <div class="panel-section-body">
+        <div class="input-row">
+          <span class="input-label">5-Year Survival Rate:</span>
+          <span class="input-field">0.018</span>
+          <span class="input-unit">( 1.8% )</span>
+        </div>
+        <div class="input-row">
+          <span class="input-label">10-Year Survival Rate:</span>
+          <span class="input-field">0.500</span>
+          <span class="input-unit">( 50.0% )</span>
+        </div>
+        <div class="input-row">
+          <span class="input-label">Life Expectancy:</span>
+          <span class="input-field">4.9</span>
+          <span class="input-unit">years</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-header">Derived Substandard (Goal Seek Results)</div>
+      <div class="panel-section-body">
+        <div class="field-grid">
+          <div class="field"><span class="field-label">Table Rating:</span><span class="field-value">25</span></div>
+          <div class="field"><span class="field-label">Assessment Index:</span><span class="field-value">7</span></div>
+          <div class="field"><span class="field-label">Increased Decrement:</span><span class="field-value">200%</span></div>
+          <div class="field"><span class="field-label">LE Rounded:</span><span class="field-value">5 years</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note-box">
+      Life expectancy is under 2.1 years? Check with Medical Directors if this qualifies for a Terminal rider.
+    </div>
+
+    <div style="margin-top:10px;">
+      <span class="btn">Calculate Quote</span>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <span class="btn btn-secondary">← Back</span>
+    <span class="btn">Next →</span>
+  </div>
+</div>
+
+<!-- ===== STEP 3 ===== -->
+<div class="page-break"></div>
+<h3>Step 3 — Results</h3>
+<div class="window">
+  <div class="titlebar">
+    <span>ABR Quote Tool</span>
+    <div class="controls"><span class="btn-min"></span><span class="btn-max"></span><span class="btn-close"></span></div>
+  </div>
+  <div class="step-bar">
+    <div class="step completed">✓ Policy Info</div>
+    <div class="step completed">✓ Assessment</div>
+    <div class="step active">3 &nbsp;Results</div>
+  </div>
+  <div class="panel">
+    <div style="display:flex; gap:15px; flex-wrap:wrap;">
+      <!-- Full Acceleration -->
+      <div class="panel-section" style="flex:1; min-width:300px;">
+        <div class="panel-section-header">Full Acceleration</div>
+        <div class="panel-section-body">
+          <div class="result-row">
+            <span class="result-label">Eligible Death Benefit</span>
+            <span class="result-value">$500,000.00</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">Actuarial Discount</span>
+            <span class="result-value" style="color:#ef5350;">−$37,290.68</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">Administrative Fee</span>
+            <span class="result-value" style="color:#ef5350;">−$250.00</span>
+          </div>
+          <div class="divider"></div>
+          <div class="result-row result-total">
+            <span class="result-label">Accelerated Benefit</span>
+            <span class="result-value">$462,459.32</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">Benefit Ratio</span>
+            <span class="result-value">92.49%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Partial Acceleration -->
+      <div class="panel-section" style="flex:1; min-width:300px;">
+        <div class="panel-section-header">Max Partial Acceleration</div>
+        <div class="panel-section-body">
+          <div class="result-row">
+            <span class="result-label">Eligible Death Benefit</span>
+            <span class="result-value">$450,000.00</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">Actuarial Discount</span>
+            <span class="result-value" style="color:#ef5350;">−$33,561.61</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">Administrative Fee</span>
+            <span class="result-value" style="color:#ef5350;">−$250.00</span>
+          </div>
+          <div class="divider"></div>
+          <div class="result-row result-total">
+            <span class="result-label">Accelerated Benefit</span>
+            <span class="result-value">$416,188.39</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">Benefit Ratio</span>
+            <span class="result-value">92.49%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section" style="margin-top:15px;">
+      <div class="panel-section-header">Premium Impact</div>
+      <div class="panel-section-body">
+        <div class="field-grid">
+          <div class="field"><span class="field-label">Premium Before:</span><span class="field-value">$59.18 Monthly</span></div>
+          <div class="field"><span class="field-label">After (Full):</span><span class="field-value" style="color:#4DB6AC;">$0.00</span></div>
+          <div class="field"><span class="field-label">After (Partial):</span><span class="field-value">$XX.XX Monthly</span></div>
+          <div class="field"><span class="field-label">Plan:</span><span class="field-value">Signature Term 2018</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:15px; display:flex; gap:8px;">
+      <span class="btn btn-export">📊 Export to Excel</span>
+      <span class="btn btn-secondary">📋 Copy Summary</span>
+      <span class="btn btn-secondary">🔄 New Quote</span>
+    </div>
+  </div>
+  <div class="bottom-bar">
+    <span class="btn btn-secondary">← Back</span>
+    <span></span>
+  </div>
+</div>
+
+<!-- ===================================================================== -->
+<div class="page-break"></div>
+<h2>3. Module Structure</h2>
+
+<div class="module-tree">
+<span class="folder">suiteview/</span><br>
+├── <span class="folder">abrquote/</span><br>
+│&nbsp;&nbsp; ├── <span class="file">__init__.py</span> <span class="desc">— Package init, launch_abrquote(), version</span><br>
+│&nbsp;&nbsp; ├── <span class="file">main.py</span> <span class="desc">— Factory: create_abrquote_window()</span><br>
+│&nbsp;&nbsp; │<br>
+│&nbsp;&nbsp; ├── <span class="folder">models/</span><br>
+│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">abr_constants.py</span> <span class="desc">— Bands, modal factors, plan codes, fees (~80 lines)</span><br>
+│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">abr_data.py</span> <span class="desc">— Dataclasses: ABRPolicyData, MedicalAssessment, etc. (~120 lines)</span><br>
+│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">vbt_2008.py</span> <span class="desc">— Embedded 2008 VBT mortality table + lookup (~500 lines)</span><br>
+│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">term_rates.py</span> <span class="desc">— SQLite access: term rates + interest rates (~200 lines)</span><br>
+│&nbsp;&nbsp; │<br>
+│&nbsp;&nbsp; ├── <span class="folder">core/</span><br>
+│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">mortality_engine.py</span> <span class="desc">— VBT lookup → improve → table → flat → UDD (~250 lines)</span><br>
+│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">apv_engine.py</span> <span class="desc">— Monthly APV loop: PVFB, PVFP, discount (~300 lines)</span><br>
+│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">premium_calc.py</span> <span class="desc">— Rate lookup, annual/modal premium (~150 lines)</span><br>
+│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">goal_seek.py</span> <span class="desc">— scipy.optimize wrappers (~200 lines)</span><br>
+│&nbsp;&nbsp; │<br>
+│&nbsp;&nbsp; └── <span class="folder">ui/</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ├── <span class="file">abr_window.py</span> <span class="desc">— Main wizard window (FramelessWindowBase) (~500 lines)</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ├── <span class="file">policy_panel.py</span> <span class="desc">— Policy info display panel (~200 lines)</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ├── <span class="file">assessment_panel.py</span> <span class="desc">— Medical assessment form (~300 lines)</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ├── <span class="file">results_panel.py</span> <span class="desc">— Quote results + export (~350 lines)</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; └── <span class="file">abr_styles.py</span> <span class="desc">— Teal &amp; gold theme constants (~60 lines)</span><br>
+│<br>
+<span class="folder">scripts/</span><br>
+└── <span class="file">run_abrquote.py</span> <span class="desc">— Standalone CLI launcher (~40 lines)</span><br>
+<br>
+<strong style="color:#D4A017;">Total: ~3,300 estimated lines across 16 files</strong>
+</div>
+
+<!-- ===================================================================== -->
+<h2>4. Data Tables</h2>
+
+<h3>Band Breakpoints</h3>
+<table class="data-table">
+  <tr><th>Face Amount Range</th><th>Band</th></tr>
+  <tr><td>$50,000 – $99,999</td><td>1</td></tr>
+  <tr><td>$100,000 – $249,999</td><td>2</td></tr>
+  <tr><td>$250,000 – $499,999</td><td>3</td></tr>
+  <tr><td>$500,000 – $999,999</td><td>4</td></tr>
+  <tr><td>$1,000,000+</td><td>5</td></tr>
+</table>
+
+<h3>Modal Factors</h3>
+<table class="data-table">
+  <tr><th>Mode</th><th>Code</th><th>Factor</th></tr>
+  <tr><td>Annual</td><td>1</td><td>1.000</td></tr>
+  <tr><td>Semi-Annual</td><td>2</td><td>0.515</td></tr>
+  <tr><td>Quarterly</td><td>3</td><td>0.265</td></tr>
+  <tr><td>Direct Monthly</td><td>4</td><td>0.093</td></tr>
+  <tr><td>PAC Monthly</td><td>5</td><td>0.0864</td></tr>
+</table>
+
+<h3>Plan Codes</h3>
+<table class="data-table">
+  <tr><th>Plan Code</th><th>Level Period</th><th>Product</th><th>Policy Fee</th></tr>
+  <tr><td>B15TD100</td><td>10</td><td>Signature Term 2012</td><td>$60</td></tr>
+  <tr><td>B15TD200</td><td>15</td><td>Signature Term 2012</td><td>$60</td></tr>
+  <tr><td>B15TD300</td><td>20</td><td>Signature Term 2012</td><td>$60</td></tr>
+  <tr><td>B15TD400</td><td>30</td><td>Signature Term 2012</td><td>$60</td></tr>
+  <tr><td>B15TD500</td><td>ART (1)</td><td>Signature Term 2012</td><td>$60</td></tr>
+  <tr><td>B75TL100</td><td>10</td><td>Signature Term 2018</td><td>$60</td></tr>
+  <tr><td>B75TL200</td><td>15</td><td>Signature Term 2018</td><td>$60</td></tr>
+  <tr><td>B75TL300</td><td>20</td><td>Signature Term 2018</td><td>$60</td></tr>
+  <tr><td>B75TL400</td><td>30</td><td>Signature Term 2018</td><td>$60</td></tr>
+  <tr><td>B75TL500</td><td>ART (1)</td><td>Signature Term 2018</td><td>$60</td></tr>
+</table>
+
+<!-- ===================================================================== -->
+<div class="page-break"></div>
+<h2>5. Implementation Phases</h2>
+
+<div style="display:flex; gap:15px; flex-wrap:wrap; margin:15px 0;">
+  <div class="panel-section" style="flex:1; min-width:280px; border-color:#00897B;">
+    <div class="panel-section-header" style="background:#00897B;">Phase 1: Data Foundation (2–3 hrs)</div>
+    <div class="panel-section-body" style="background:white; color:#333; font-size:13px;">
+      <ol style="padding-left:18px; line-height:1.8;">
+        <li>Create <code>suiteview/abrquote/</code> package</li>
+        <li>Write <code>abr_constants.py</code></li>
+        <li>Write <code>abr_data.py</code> dataclasses</li>
+        <li>Extract &amp; embed 2008 VBT → <code>vbt_2008.py</code></li>
+        <li>Import term rates → SQLite</li>
+        <li>Import interest rates → SQLite</li>
+      </ol>
+    </div>
+  </div>
+  <div class="panel-section" style="flex:1; min-width:280px; border-color:#00695C;">
+    <div class="panel-section-header" style="background:#00695C;">Phase 2: Calc Engines (3–4 hrs)</div>
+    <div class="panel-section-body" style="background:white; color:#333; font-size:13px;">
+      <ol start="7" style="padding-left:18px; line-height:1.8;">
+        <li>Implement <code>mortality_engine.py</code></li>
+        <li>Implement <code>premium_calc.py</code></li>
+        <li>Implement <code>apv_engine.py</code></li>
+        <li>Implement <code>goal_seek.py</code></li>
+        <li>Unit tests vs known Excel values</li>
+      </ol>
+    </div>
+  </div>
+  <div class="panel-section" style="flex:1; min-width:280px; border-color:#D4A017;">
+    <div class="panel-section-header" style="background:#D4A017; color:#1A2332;">Phase 3: UI (3–4 hrs)</div>
+    <div class="panel-section-body" style="background:white; color:#333; font-size:13px;">
+      <ol start="12" style="padding-left:18px; line-height:1.8;">
+        <li>Create <code>abr_styles.py</code> theme</li>
+        <li>Build <code>abr_window.py</code> wizard</li>
+        <li>Build <code>policy_panel.py</code></li>
+        <li>Build <code>assessment_panel.py</code></li>
+        <li>Build <code>results_panel.py</code></li>
+        <li>Create <code>run_abrquote.py</code> launcher</li>
+      </ol>
+    </div>
+  </div>
+  <div class="panel-section" style="flex:1; min-width:280px; border-color:#4DB6AC;">
+    <div class="panel-section-header" style="background:#4DB6AC; color:#1A2332;">Phase 4: Integration (2 hrs)</div>
+    <div class="panel-section-body" style="background:white; color:#333; font-size:13px;">
+      <ol start="18" style="padding-left:18px; line-height:1.8;">
+        <li>Excel output generation</li>
+        <li>End-to-end testing</li>
+        <li>Validate vs Excel workbook</li>
+        <li>Cleanup &amp; documentation</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<div style="text-align:center; margin-top:30px; padding:15px; background:#E0F2F1; border-radius:8px; border:2px solid #D4A017;">
+  <strong style="font-size:18px; color:#00695C;">Total Estimated Effort: 10–13 hours</strong>
+</div>
+
+</body>
+</html>

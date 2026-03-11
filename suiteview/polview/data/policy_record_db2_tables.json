@@ -1,0 +1,322 @@
+{
+  "Policy Record 01": [
+    "LH_BAS_POL",
+    "LH_FXD_PRM_POL",
+    "TH_BAS_POL"
+  ],
+  "Policy Record 02": [
+    "LH_COV_PHA",
+    "LH_NEW_BUS_COV_PHA",
+    "TH_COV_PHA"
+  ],
+  "Policy Record 03": [
+    "LH_SST_XTR_CRG",
+    "LH_XTR_CRG_REQ",
+    "TH_SST_XTR_CRG",
+    "TH_XTR_CRG_REQ"
+  ],
+  "Policy Record 04": [
+    "LH_ALL_COV_BNF_REQ",
+    "LH_SPM_BNF",
+    "TH_SPM_BNF"
+  ],
+  "Policy Record 05": [
+    "LH_COV_NOT_SCH",
+    "LH_POL_NOT_SCH"
+  ],
+  "Policy Record 06": [
+    "LH_ITS_CHG_SCH"
+  ],
+  "Policy Record 07": [
+    "LH_BNF_PPU_CHG_SCH",
+    "LH_COV_PPU_CHG_SCH"
+  ],
+  "Policy Record 08": [
+    "LH_BNF_VPU_CHG_SCH",
+    "LH_COV_VPU_CHG_SCH"
+  ],
+  "Policy Record 09": [
+    "LH_COV_SKIPPED_PER"
+  ],
+  "Policy Record 10": [
+    "LH_COV_REINSURANCE",
+    "TH_COV_REINSURANCE"
+  ],
+  "Policy Record 11": [
+    "LH_COV_COINSURANCE"
+  ],
+  "Policy Record 12": [
+    "LH_DEP_HST_CTL",
+    "LH_PTP_ON_DEP"
+  ],
+  "Policy Record 13": [
+    "LH_DEP_HST_CTL",
+    "LH_PTP_ON_DEP"
+  ],
+  "Policy Record 14": [
+    "LH_DEP_HST_CTL",
+    "LH_PAID_UP_ADD"
+  ],
+  "Policy Record 15": [
+    "LH_DEP_HST_CTL",
+    "LH_ONE_YR_TRM_ADD"
+  ],
+  "Policy Record 18": [
+    "LH_APPLIED_PTP",
+    "LH_UNAPPLIED_PTP"
+  ],
+  "Policy Record 19": [
+    "LH_APPLIED_PTP",
+    "LH_UNAPPLIED_PTP"
+  ],
+  "Policy Record 20": [
+    "LH_LN_RPY_TRM"
+  ],
+  "Policy Record 22": [
+    "LH_DEP_HST_CTL",
+    "LH_DSC_PRM_FND"
+  ],
+  "Policy Record 23": [
+    "LH_DEP_HST_CTL",
+    "LH_PRM_DEP_FND"
+  ],
+  "Policy Record 24": [
+    "LH_PRM_DSC"
+  ],
+  "Policy Record 32": [
+    "LH_DTL_SUS"
+  ],
+  "Policy Record 33": [
+    "LH_BIL_FRM_CTL",
+    "LH_PYE_EFT_CTL",
+    "TH_BIL_FRM_CTL"
+  ],
+  "Policy Record 35": [
+    "LH_SPE_FQY_PRM"
+  ],
+  "Policy Record 36": [
+    "LH_CLC_RES"
+  ],
+  "Policy Record 37": [
+    "LH_ISU_MKT_DTA"
+  ],
+  "Policy Record 38": [
+    "LH_AGT_COM_AMT",
+    "LH_AGT_COM_RLE",
+    "LH_AGT_COM_RT",
+    "TH_AGT_COM_RLE"
+  ],
+  "Policy Record 39": [
+    "LH_DSB_WHD",
+    "LH_WHD_TYP_DTL"
+  ],
+  "Policy Record 40": [
+    "LH_ISU_FAM_HST",
+    "LH_ISU_RISK_QST",
+    "LH_YN_RISK_QST_RSP"
+  ],
+  "Policy Record 41": [
+    "LH_ATM_UW_DCS_RPT"
+  ],
+  "Policy Record 46": [
+    "LH_AH_LTC_POL"
+  ],
+  "Policy Record 47": [
+    "LH_CWA_ACY",
+    "TH_CWA_ACY"
+  ],
+  "Policy Record 48": [
+    "LH_CTT_AGT_ITS",
+    "LH_CTT_COM_PHA_WA",
+    "TH_CTT_AGT_ITS",
+    "TH_CTT_COM_PHA_WA"
+  ],
+  "Policy Record 49": [
+    "LH_BNF_INSURED",
+    "LH_COV_INSURED"
+  ],
+  "Policy Record 50": [
+    "LH_ISL_POL"
+  ],
+  "Policy Record 51": [
+    "LH_TRD_POL"
+  ],
+  "Policy Record 52": [
+    "TH_USER_ADDALT",
+    "TH_USER_AMEND",
+    "TH_USER_BENEFICIARY",
+    "TH_USER_CAMPAIGN",
+    "TH_USER_DTHCLAIM",
+    "TH_USER_GENERIC",
+    "TH_USER_MASTER",
+    "TH_USER_NIA",
+    "TH_USER_OWNER",
+    "TH_USER_PDF",
+    "TH_USER_QUALPEN",
+    "TH_USER_REPLACEMENT",
+    "TH_USER_WAIVER"
+  ],
+  "Policy Record 53": [
+    "LH_ASSET_RAL_SCH",
+    "LH_ATM_TRS_SCH",
+    "LH_AWD_PYE_ALC",
+    "LH_AWD_SCH",
+    "LH_DCA_SCH",
+    "LH_MKT_TM_AUT"
+  ],
+  "Policy Record 54": [
+    "LH_COM_ADV"
+  ],
+  "Policy Record 55": [
+    "LH_AMT_TIERED_ITS",
+    "LH_COV_FXD_FND_CTL",
+    "LH_COV_IVM_FND_CTL",
+    "LH_DUR_TIERED_ITS"
+  ],
+  "Policy Record 56": [
+    "LH_GEN_FND_RLE",
+    "LH_MKT_VAL_ADJ_RLE"
+  ],
+  "Policy Record 57": [
+    "LH_FND_ALC",
+    "LH_FND_TRS_ALC_SET"
+  ],
+  "Policy Record 58": [
+    "LH_COM_TARGET",
+    "LH_COV_TARGET",
+    "LH_POL_TARGET"
+  ],
+  "Policy Record 59": [
+    "LH_TAMRA_7_PY_PER",
+    "LH_TAMRA_7_PY_YR",
+    "LH_TAMRA_MEC_PRM"
+  ],
+  "Policy Record 60": [
+    "LH_MO_ADD_PMT",
+    "LH_POL_TOTALS"
+  ],
+  "Policy Record 62": [
+    "LH_POL_MO_ITS_TOT"
+  ],
+  "Policy Record 63": [
+    "LH_POL_YR_TOT"
+  ],
+  "Policy Record 64": [
+    "LH_POL_CAL_YR_TOT"
+  ],
+  "Policy Record 65": [
+    "LH_POL_FND_VAL_TOT"
+  ],
+  "Policy Record 66": [
+    "LH_NON_TRD_POL",
+    "TH_NON_TRD_POL"
+  ],
+  "Policy Record 67": [
+    "LH_BNF_INS_GDL_PRM",
+    "LH_BNF_INS_RNL_RT",
+    "LH_COV_INS_GDL_PRM",
+    "LH_COV_INS_RNL_PER",
+    "LH_COV_INS_RNL_RT",
+    "LH_SST_XTR_RNL_RT",
+    "TH_COV_INS_RNL_RT"
+  ],
+  "Policy Record 68": [
+    "LH_COV_TMN",
+    "LH_LN_RPY_SUS",
+    "LH_NT_COV_CHG",
+    "LH_NT_COV_CHG_SCH",
+    "LH_RMD_CHANGE",
+    "LH_SPM_BNF_CHG_SCH",
+    "TH_NT_COV_CHG",
+    "TH_NT_COV_CHG_SCH"
+  ],
+  "Policy Record 69": [
+    "FH_ACCTG",
+    "FH_ACCTG_DISB",
+    "FH_AGT",
+    "FH_COI_REIN",
+    "FH_COM_CHGBK",
+    "FH_CONF_ID",
+    "FH_DTH_CLM",
+    "FH_EXIT_CD",
+    "FH_FCAST",
+    "FH_FIXED",
+    "FH_FPA_TEFRA",
+    "FH_FREE_WDWL",
+    "FH_GRP_RECON",
+    "FH_LOAN",
+    "FH_MISC",
+    "FH_MNY_TYP",
+    "FH_MVA",
+    "FH_PAYE",
+    "FH_PRM_COMP",
+    "FH_REF_REAS",
+    "FH_REV_ID",
+    "FH_SPCL_IRA",
+    "FH_TAMRA_PDF",
+    "FH_WVR_REV"
+  ],
+  "Policy Record 70": [
+    "LH_POL_REP_POL"
+  ],
+  "Policy Record 72": [
+    "LH_CTT_NOTE"
+  ],
+  "Policy Record 74": [
+    "LH_DEP_HST_CTL",
+    "LH_DSC_PRM_FND",
+    "LH_ONE_YR_TRM_ADD",
+    "LH_PAID_UP_ADD",
+    "LH_PRM_DEP_FND",
+    "LH_PTP_ON_DEP"
+  ],
+  "Policy Record 75": [
+    "LH_COM_MVRY_VAL",
+    "LH_POL_MVRY_VAL"
+  ],
+  "Policy Record 77": [
+    "LH_CSH_VAL_LOAN",
+    "LH_FND_VAL_LOAN"
+  ],
+  "Policy Record 80": [
+    "LH_PND_UW_RQR",
+    "TH_PND_UW_RQR"
+  ],
+  "Policy Record 82": [
+    "LH_BNF_RTT_END",
+    "LH_COV_RTT_END",
+    "LH_POL_RTT_END",
+    "TH_BNF_RTT_END",
+    "TH_COV_RTT_END",
+    "TH_POL_RTT_END"
+  ],
+  "Policy Record 83": [
+    "LH_UNRESOLVED_ERR"
+  ],
+  "Policy Record 85": [
+    "LH_CTT_NOTE"
+  ],
+  "Policy Record 86": [
+    "LH_CTT_NOTE"
+  ],
+  "Policy Record 88": [
+    "LH_CSR_RFR_FLE_MCH"
+  ],
+  "Policy Record 89": [
+    "LH_CTT_CLIENT",
+    "VH_POL_HAS_LOC_CLT"
+  ],
+  "Policy Record 90": [
+    "LH_LOC_CLT_ADR"
+  ],
+  "Policy Record 91": [
+    "LH_POL_CRF_XRF"
+  ],
+  "Policy Record 95": [
+    "LH_ELC_CE_MGT_RTE"
+  ],
+  "Policy Record 96": [
+    "LH_CTT_ISU_BEN",
+    "LH_DTH_CLM_ACY"
+  ]
+}

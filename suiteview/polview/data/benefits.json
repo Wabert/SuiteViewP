@@ -1,0 +1,758 @@
+[
+  {
+    "mnemonic": "A2CH",
+    "code": "#6",
+    "type": "#",
+    "subtype": "6",
+    "description": "ACCELERATED BENEFIT RIDER FOR CHRONIC ILLNESS"
+  },
+  {
+    "mnemonic": "A2CR",
+    "code": "#5",
+    "type": "#",
+    "subtype": "5",
+    "description": "ACCELERATED BENEFIT RIDER FOR CRITICAL ILLNESS"
+  },
+  {
+    "mnemonic": "A2TR",
+    "code": "#4",
+    "type": "#",
+    "subtype": "4",
+    "description": "ACCELERATED BENEFIT RIDER FOR TERMINAL ILLNESS"
+  },
+  {
+    "mnemonic": "ABCH",
+    "code": "#3",
+    "type": "#",
+    "subtype": "3",
+    "description": "ACCELERATED BENEFIT RIDER FOR CHRONIC ILLNESS"
+  },
+  {
+    "mnemonic": "ABCR",
+    "code": "#2",
+    "type": "#",
+    "subtype": "2",
+    "description": "ACCELERATED BENEFIT RIDER FOR CRITICAL ILLNESS"
+  },
+  {
+    "mnemonic": "ABR",
+    "code": "22",
+    "type": "2",
+    "subtype": "2",
+    "description": "ADDITIONAL BENEFITS RIDER"
+  },
+  {
+    "mnemonic": "ABTR",
+    "code": "#1",
+    "type": "#",
+    "subtype": "1",
+    "description": "ACCELERATED BENEFIT RIDER FOR TERMINAL ILLNESS"
+  },
+  {
+    "mnemonic": "AD2F",
+    "code": "14",
+    "type": "1",
+    "subtype": "4",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "ADB",
+    "code": "10",
+    "type": "1",
+    "subtype": "",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "ADB1",
+    "code": "11",
+    "type": "1",
+    "subtype": "1",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "ADB2",
+    "code": "51",
+    "type": "5",
+    "subtype": "1",
+    "description": "DEATH BY ACCIDENT MEANS"
+  },
+  {
+    "mnemonic": "ADBA",
+    "code": "12",
+    "type": "1",
+    "subtype": "2",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "ADBD",
+    "code": "10",
+    "type": "1",
+    "subtype": "",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "ADBI",
+    "code": "1I",
+    "type": "1",
+    "subtype": "I",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "ADBJ",
+    "code": "1J",
+    "type": "1",
+    "subtype": "J",
+    "description": "JOINT SURVIVOR DOUBLE INDEMNITY"
+  },
+  {
+    "mnemonic": "ADD",
+    "code": "20",
+    "type": "2",
+    "subtype": "",
+    "description": "ACCIDENTAL DEATH  BENEFIT"
+  },
+  {
+    "mnemonic": "AIB",
+    "code": "77",
+    "type": "7",
+    "subtype": "7",
+    "description": "ADDITIONAL INSURANCE OPTION"
+  },
+  {
+    "mnemonic": "AIO",
+    "code": "70",
+    "type": "7",
+    "subtype": "",
+    "description": "ADDITIONAL INSURANCE OPTION"
+  },
+  {
+    "mnemonic": "AIO",
+    "code": "70",
+    "type": "7",
+    "subtype": "",
+    "description": "ADDITIONAL INSURANCE OPTION"
+  },
+  {
+    "mnemonic": "AIOA",
+    "code": "72",
+    "type": "7",
+    "subtype": "2",
+    "description": "ADDITIONAL INSURANCE OPTION"
+  },
+  {
+    "mnemonic": "BDI",
+    "code": "60",
+    "type": "6",
+    "subtype": "",
+    "description": "BENEFICIARY INSURANCE"
+  },
+  {
+    "mnemonic": "BI",
+    "code": "60",
+    "type": "6",
+    "subtype": "",
+    "description": "BENEFICIARY INSURANCE"
+  },
+  {
+    "mnemonic": "BI13",
+    "code": "BI",
+    "type": "B",
+    "subtype": "I",
+    "description": "A & H LONG TERM CARE INCREASED"
+  },
+  {
+    "mnemonic": "CCVR",
+    "code": "A1",
+    "type": "A",
+    "subtype": "1",
+    "description": "COVERAGE CONTINUATION RIDER"
+  },
+  {
+    "mnemonic": "CHLD",
+    "code": "D0",
+    "type": "D",
+    "subtype": "",
+    "description": "CHILDHOOD DISEASE BENEFIT"
+  },
+  {
+    "mnemonic": "COLA",
+    "code": "U0",
+    "type": "U",
+    "subtype": "",
+    "description": "Cost of Living Adjustment"
+  },
+  {
+    "mnemonic": "COLB",
+    "code": "UA",
+    "type": "U",
+    "subtype": "A",
+    "description": "Cost of Living Adjustment"
+  },
+  {
+    "mnemonic": "COLI",
+    "code": "U0",
+    "type": "U",
+    "subtype": "",
+    "description": "Cost of Living Adjustment"
+  },
+  {
+    "mnemonic": "CPI",
+    "code": "P0",
+    "type": "P",
+    "subtype": "",
+    "description": "A & H CPI INFLATION BENEFIT"
+  },
+  {
+    "mnemonic": "DI",
+    "code": "10",
+    "type": "1",
+    "subtype": "",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "DI",
+    "code": "10",
+    "type": "1",
+    "subtype": "",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "DI0I",
+    "code": "10",
+    "type": "1",
+    "subtype": "",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "DIF",
+    "code": "11",
+    "type": "1",
+    "subtype": "1",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "DMII",
+    "code": "4I",
+    "type": "4",
+    "subtype": "I",
+    "description": "DISABILITY WAIVER"
+  },
+  {
+    "mnemonic": "GCO1",
+    "code": "V1",
+    "type": "V",
+    "subtype": "1",
+    "description": "GUARANTEED CASH OUT RIDER - POLICY YEAR 15"
+  },
+  {
+    "mnemonic": "GCO2",
+    "code": "V2",
+    "type": "V",
+    "subtype": "2",
+    "description": "GUARANTEED CASH OUT RIDER - POLICY YEAR 20"
+  },
+  {
+    "mnemonic": "GCO3",
+    "code": "V3",
+    "type": "V",
+    "subtype": "3",
+    "description": "GUARANTEED CASH OUT RIDER - POLICY YEAR 25"
+  },
+  {
+    "mnemonic": "GIF",
+    "code": "73",
+    "type": "7",
+    "subtype": "3",
+    "description": "GUARANTEED INCREASE RIDER"
+  },
+  {
+    "mnemonic": "GIIO",
+    "code": "71",
+    "type": "7",
+    "subtype": "1",
+    "description": "ADDITIONAL INSURANCE OPTION"
+  },
+  {
+    "mnemonic": "GIO",
+    "code": "70",
+    "type": "7",
+    "subtype": "",
+    "description": "ADDITIONAL INSURANCE OPTION"
+  },
+  {
+    "mnemonic": "GIO2",
+    "code": "72",
+    "type": "7",
+    "subtype": "2",
+    "description": "ADDITIONAL INSURANCE OPTION"
+  },
+  {
+    "mnemonic": "GIOI",
+    "code": "7I",
+    "type": "7",
+    "subtype": "I",
+    "description": "ADDITIONAL INSURANCE OPTION"
+  },
+  {
+    "mnemonic": "GIR",
+    "code": "70",
+    "type": "7",
+    "subtype": "",
+    "description": "ADDITIONAL INSURANCE OPTION"
+  },
+  {
+    "mnemonic": "GIR6",
+    "code": "76",
+    "type": "7",
+    "subtype": "6",
+    "description": "GUARANTEED INCREASE RIDER"
+  },
+  {
+    "mnemonic": "GIRB",
+    "code": "78",
+    "type": "7",
+    "subtype": "8",
+    "description": "GUARANTEED INCREASE RIDER"
+  },
+  {
+    "mnemonic": "GIRB",
+    "code": "78",
+    "type": "7",
+    "subtype": "8",
+    "description": "GUARANTEED INCREASE RIDER"
+  },
+  {
+    "mnemonic": "GIRT",
+    "code": "7L",
+    "type": "7",
+    "subtype": "L",
+    "description": "GUARANTEED INSURANCE OPTION RIDER"
+  },
+  {
+    "mnemonic": "GSP7",
+    "code": "75",
+    "type": "7",
+    "subtype": "5",
+    "description": "GUARANTEED INCREASE RIDER"
+  },
+  {
+    "mnemonic": "IDB",
+    "code": "I0",
+    "type": "I",
+    "subtype": "",
+    "description": "INCREASING DEATH BENEFIT RIDER"
+  },
+  {
+    "mnemonic": "INC",
+    "code": "BI",
+    "type": "B",
+    "subtype": "I",
+    "description": "A & H LONG TERM CARE INCREASED"
+  },
+  {
+    "mnemonic": "INFC",
+    "code": "C0",
+    "type": "C",
+    "subtype": "",
+    "description": "A & H COMPOUND INFLATION BENEFIT"
+  },
+  {
+    "mnemonic": "INFS",
+    "code": "Z0",
+    "type": "Z",
+    "subtype": "",
+    "description": "A & H SIMPLE INFLATION BENEFIT"
+  },
+  {
+    "mnemonic": "LBR",
+    "code": "#L",
+    "type": "#",
+    "subtype": "L",
+    "description": "Accelerated Benefit Rider"
+  },
+  {
+    "mnemonic": "MATN",
+    "code": "M0",
+    "type": "M",
+    "subtype": "",
+    "description": "MATERNITY BENEFIT"
+  },
+  {
+    "mnemonic": "MID",
+    "code": "40",
+    "type": "4",
+    "subtype": "",
+    "description": "PREMIUM WAIVER"
+  },
+  {
+    "mnemonic": "NFO",
+    "code": "N0",
+    "type": "N",
+    "subtype": "",
+    "description": "A & H LONG TERM CARE NON-FORFEITURE OPTION"
+  },
+  {
+    "mnemonic": "ONLY",
+    "code": "BF",
+    "type": "B",
+    "subtype": "F",
+    "description": "A & H LONG TERM CARE FACILITIES ONLY"
+  },
+  {
+    "mnemonic": "PD1",
+    "code": "91",
+    "type": "9",
+    "subtype": "1",
+    "description": "Payor Death and Disability Benefit"
+  },
+  {
+    "mnemonic": "PDIS",
+    "code": "80",
+    "type": "8",
+    "subtype": "",
+    "description": "PAYOR DISABILITY"
+  },
+  {
+    "mnemonic": "PGIO",
+    "code": "74",
+    "type": "7",
+    "subtype": "4",
+    "description": "GUARANTEED INCREASE RIDER"
+  },
+  {
+    "mnemonic": "PPA0",
+    "code": "A0",
+    "type": "A",
+    "subtype": "",
+    "description": "POLICY PROTECTION ACCOUNT"
+  },
+  {
+    "mnemonic": "PPA2",
+    "code": "A2",
+    "type": "A",
+    "subtype": "2",
+    "description": "POLICY PROTECTION ACCOUNT"
+  },
+  {
+    "mnemonic": "PPB",
+    "code": "90",
+    "type": "9",
+    "subtype": "",
+    "description": "PAYOR DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "PW",
+    "code": "30",
+    "type": "3",
+    "subtype": "",
+    "description": "DISABILITY PREMIUM WAIVER"
+  },
+  {
+    "mnemonic": "PW0I",
+    "code": "33",
+    "type": "3",
+    "subtype": "3",
+    "description": "DISABILITY WAIVER"
+  },
+  {
+    "mnemonic": "PW1",
+    "code": "31",
+    "type": "3",
+    "subtype": "1",
+    "description": "DISABILITY WAIVER OF MINIMUM PREMIUM"
+  },
+  {
+    "mnemonic": "PW2",
+    "code": "32",
+    "type": "3",
+    "subtype": "2",
+    "description": "DISABILITY WAIVER"
+  },
+  {
+    "mnemonic": "PW20",
+    "code": "3G",
+    "type": "3",
+    "subtype": "G",
+    "description": "WAIVER OF PREMIUM - LIFE ADVANTAGE"
+  },
+  {
+    "mnemonic": "PW2A",
+    "code": "3K",
+    "type": "3",
+    "subtype": "K",
+    "description": "WAIVER OF PREMIUM - ORD. LIFE 41 CSO"
+  },
+  {
+    "mnemonic": "PW2B",
+    "code": "3O",
+    "type": "3",
+    "subtype": "O",
+    "description": "WAIVER PREMIUM -RI65 - 58CSO FEMALE"
+  },
+  {
+    "mnemonic": "PW2F",
+    "code": "36",
+    "type": "3",
+    "subtype": "6",
+    "description": "DISABILITY WAIVER"
+  },
+  {
+    "mnemonic": "PW2F",
+    "code": "36",
+    "type": "3",
+    "subtype": "6",
+    "description": "DISABILITY WAIVER"
+  },
+  {
+    "mnemonic": "PW3",
+    "code": "31",
+    "type": "3",
+    "subtype": "1",
+    "description": "DISABILITY WAIVER OF MINIMUM PREMIUM"
+  },
+  {
+    "mnemonic": "PW3W",
+    "code": "3W",
+    "type": "3",
+    "subtype": "W",
+    "description": "WAIVER OF PREMIUM - DISABILITY INCOME"
+  },
+  {
+    "mnemonic": "PW3X",
+    "code": "3X",
+    "type": "3",
+    "subtype": "X",
+    "description": "WAIVER OF PREMIUM-BASIC             XSEL"
+  },
+  {
+    "mnemonic": "PW3Z",
+    "code": "3Z",
+    "type": "3",
+    "subtype": "Z",
+    "description": "PREMIUM WAIVER New Form for SEL-J/E"
+  },
+  {
+    "mnemonic": "PW4",
+    "code": "40",
+    "type": "4",
+    "subtype": "",
+    "description": "PREMIUM WAIVER"
+  },
+  {
+    "mnemonic": "PW4D",
+    "code": "4D",
+    "type": "4",
+    "subtype": "D",
+    "description": "1 Yr Short Term Benefit"
+  },
+  {
+    "mnemonic": "PW91",
+    "code": "39",
+    "type": "3",
+    "subtype": "9",
+    "description": "DISABILITY WAIVER OF MINIMUM PREMIUM"
+  },
+  {
+    "mnemonic": "PW94",
+    "code": "34",
+    "type": "3",
+    "subtype": "4",
+    "description": "Waiver of Premium"
+  },
+  {
+    "mnemonic": "PW95",
+    "code": "42",
+    "type": "4",
+    "subtype": "2",
+    "description": "PREMIUM WAIVER"
+  },
+  {
+    "mnemonic": "PWA",
+    "code": "3A",
+    "type": "3",
+    "subtype": "A",
+    "description": "DISABILITY WAIVER OF MINIMUM PREMIUM"
+  },
+  {
+    "mnemonic": "PWB",
+    "code": "3B",
+    "type": "3",
+    "subtype": "B",
+    "description": "DISABILITY WAIVER OF MINIMUM PREMIUM"
+  },
+  {
+    "mnemonic": "PWC",
+    "code": "3C",
+    "type": "3",
+    "subtype": "C",
+    "description": "DISABILITY WAIVER OF MINIMUM PREMIUM"
+  },
+  {
+    "mnemonic": "PWD",
+    "code": "3D",
+    "type": "3",
+    "subtype": "D",
+    "description": "Waiver of Premium"
+  },
+  {
+    "mnemonic": "PWI",
+    "code": "3I",
+    "type": "3",
+    "subtype": "I",
+    "description": "DISABILITY WAIVER"
+  },
+  {
+    "mnemonic": "PWIA",
+    "code": "3I",
+    "type": "3",
+    "subtype": "I",
+    "description": "DISABILITY WAIVER"
+  },
+  {
+    "mnemonic": "PWIA",
+    "code": "3I",
+    "type": "3",
+    "subtype": "I",
+    "description": "DISABILITY WAIVER"
+  },
+  {
+    "mnemonic": "PWIB",
+    "code": "3S",
+    "type": "3",
+    "subtype": "S",
+    "description": "DISABILITY WAIVER"
+  },
+  {
+    "mnemonic": "PWIT",
+    "code": "3T",
+    "type": "3",
+    "subtype": "T",
+    "description": "DISABILITY WAIVER"
+  },
+  {
+    "mnemonic": "PWJ",
+    "code": "3J",
+    "type": "3",
+    "subtype": "J",
+    "description": "JOINT SURVIVOR PREMIUM WAIVER"
+  },
+  {
+    "mnemonic": "PWJT",
+    "code": "3C",
+    "type": "3",
+    "subtype": "C",
+    "description": "DISABILITY WAIVER OF MINIMUM PREMIUM"
+  },
+  {
+    "mnemonic": "PWST",
+    "code": "4C",
+    "type": "4",
+    "subtype": "C",
+    "description": "DISABILITY WAIVER OF STIPULATED PREMIUM"
+  },
+  {
+    "mnemonic": "PWTM",
+    "code": "31",
+    "type": "3",
+    "subtype": "1",
+    "description": "DISABILITY WAIVER OF MINIMUM PREMIUM"
+  },
+  {
+    "mnemonic": "PWUL",
+    "code": "3#",
+    "type": "3",
+    "subtype": "#",
+    "description": "DISABILITY WAIVER OF MINIMUM PREMIUM"
+  },
+  {
+    "mnemonic": "RED",
+    "code": "BR",
+    "type": "B",
+    "subtype": "R",
+    "description": "A & H LONG TERM CARE REDUCED"
+  },
+  {
+    "mnemonic": "SBOR",
+    "code": "73",
+    "type": "7",
+    "subtype": "3",
+    "description": "GUARANTEED INCREASE RIDER"
+  },
+  {
+    "mnemonic": "SMKR",
+    "code": "X0",
+    "type": "X",
+    "subtype": "",
+    "description": "SMOKER ADDITIONAL PREMIUM"
+  },
+  {
+    "mnemonic": "SMKR",
+    "code": "X0",
+    "type": "X",
+    "subtype": "",
+    "description": "SMOKER ADDITIONAL PREMIUM"
+  },
+  {
+    "mnemonic": "SPW",
+    "code": "4#",
+    "type": "4",
+    "subtype": "#",
+    "description": "DISABILITY WAIVER OF STIPULATED PREMIUM"
+  },
+  {
+    "mnemonic": "STD",
+    "code": "BS",
+    "type": "B",
+    "subtype": "S",
+    "description": "A & H LONG TERM CARE STANDARD"
+  },
+  {
+    "mnemonic": "SURG",
+    "code": "S0",
+    "type": "S",
+    "subtype": "",
+    "description": "SURGICAL BENEFIT"
+  },
+  {
+    "mnemonic": "TI",
+    "code": "50",
+    "type": "5",
+    "subtype": "",
+    "description": "TRIPLE INDEMNITY"
+  },
+  {
+    "mnemonic": "TI0I",
+    "code": "50",
+    "type": "5",
+    "subtype": "",
+    "description": "TRIPLE INDEMNITY"
+  },
+  {
+    "mnemonic": "ULDW",
+    "code": "39",
+    "type": "3",
+    "subtype": "9",
+    "description": "DISABILITY WAIVER OF MINIMUM PREMIUM"
+  },
+  {
+    "mnemonic": "XLDB",
+    "code": "19",
+    "type": "1",
+    "subtype": "9",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "XLDF",
+    "code": "17",
+    "type": "1",
+    "subtype": "7",
+    "description": "ACCIDENTAL DEATH BENEFIT"
+  },
+  {
+    "mnemonic": "Y",
+    "code": "30",
+    "type": "3",
+    "subtype": "",
+    "description": "DISABILITY PREMIUM WAIVER"
+  }
+]

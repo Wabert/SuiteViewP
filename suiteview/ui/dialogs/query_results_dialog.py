@@ -1,0 +1,400 @@
+"""Query Results Dialog - Display query results in a table"""
+
+import logging
+import pandas as pd
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+                              QMessageBox, QFileDialog, QCheckBox, QMenu, QApplication)
+from PyQt6.QtCore import Qt
+from suiteview.ui.widgets.filter_table_view import FilterTableView
+
+logger = logging.getLogger(__name__)
+
+
+class QueryResultsDialog(QWidget):
+    """Window for displaying query results (modeless - allows interaction with main app)"""
+    
+    # Keep references to open windows to prevent garbage collection
+    _open_dialogs = []
+
+    def __init__(self, df: pd.DataFrame, sql: str, execution_time_ms: int, parent=None):
+        # Create without parent for true modeless behavior
+        super().__init__()
+        self.df = df
+        self.sql = sql
+        self.execution_time_ms = execution_time_ms
+        
+        # Make this a top-level independent window
+        self.setWindowFlags(Qt.WindowType.Window)
+        # Delete on close to free memory
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        
+        self.init_ui()
+        
+        # Track this dialog
+        QueryResultsDialog._open_dialogs.append(self)
+    
+    def closeEvent(self, event):
+        """Remove from tracking when closed"""
+        if self in QueryResultsDialog._open_dialogs:
+            QueryResultsDialog._open_dialogs.remove(self)
+        super().closeEvent(event)
+
+    def init_ui(self):
+        """Initialize the UI"""
+        self.setWindowTitle("Query Results")
+        self.setMinimumSize(1000, 600)
+
+        layout = QVBoxLayout(self)
+
+        # Header with stats
+        header_layout = QHBoxLayout()
+
+        # Stats label
+        record_count = len(self.df)
+        stats_label = QLabel(
+            f"<b>{record_count:,}</b> records returned in <b>{self.execution_time_ms}ms</b>"
+        )
+        stats_label.setStyleSheet("font-size: 12px; padding: 5px;")
+        header_layout.addWidget(stats_label)
+
+        header_layout.addStretch()
+
+        # Format Excel checkbox
+        self.format_excel_cb = QCheckBox("Apply Excel Formatting")
+        self.format_excel_cb.setChecked(False)  # Default unchecked for speed
+        self.format_excel_cb.setToolTip("Apply data type formatting (text, numbers, dates) - slower for large datasets")
+        header_layout.addWidget(self.format_excel_cb)
+
+        # Export to Excel button (green, smaller)
+        export_excel_btn = QPushButton("Excel")
+        export_excel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 4px 12px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+        """)
+        export_excel_btn.clicked.connect(self.export_to_excel_open)
+        header_layout.addWidget(export_excel_btn)
+
+        # Export to File button (smaller)
+        export_btn = QPushButton("Save")
+        export_btn.setObjectName("gold_button")
+        export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f39c12;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 4px 12px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #e67e22;
+            }
+        """)
+        export_btn.clicked.connect(self.export_to_file)
+        header_layout.addWidget(export_btn)
+
+        layout.addLayout(header_layout)
+
+        # FilterTableView - Excel-style filterable table
+        self.filter_table = FilterTableView()
+        self.filter_table.set_dataframe(self.df, limit_rows=False)  # Show all rows for query results
+        
+        # Style the table headers with standard grey and narrower height
+        self.filter_table.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #f0f0f0;
+                color: #000000;
+                padding: 2px 4px;
+                border: 1px solid #d0d0d0;
+                font-weight: normal;
+                font-size: 11px;
+                height: 20px;
+            }
+            QTableView::item {
+                padding: 2px 4px;
+            }
+            QTableView {
+                gridline-color: #d0d0d0;
+            }
+        """)
+        
+        # Try to style row number headers if the table view has them
+        try:
+            # Access the underlying table view from FilterTableView
+            if hasattr(self.filter_table, 'table_view'):
+                table_view = self.filter_table.table_view
+            else:
+                table_view = self.filter_table
+                
+            if hasattr(table_view, 'verticalHeader'):
+                vertical_header = table_view.verticalHeader()
+                vertical_header.setDefaultSectionSize(20)
+                vertical_header.setStyleSheet("""
+                    QHeaderView::section {
+                        background-color: #f0f0f0;
+                        color: #000000;
+                        padding: 2px;
+                        border: 1px solid #d0d0d0;
+                        font-size: 10px;
+                        width: 40px;
+                    }
+                """)
+        except Exception as e:
+            logger.debug(f"Could not style vertical header: {e}")
+        
+        layout.addWidget(self.filter_table)
+
+        # SQL display (collapsible) with context menu
+        sql_label = QLabel("<b>Generated SQL:</b>")
+        sql_label.setStyleSheet("margin-top: 10px;")
+        layout.addWidget(sql_label)
+
+        self.sql_display = QLabel(self.sql)
+        self.sql_display.setWordWrap(True)
+        self.sql_display.setStyleSheet("""
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-size: 10px;
+        """)
+        self.sql_display.setMaximumHeight(100)
+        self.sql_display.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        
+        # Add context menu for SQL display
+        self.sql_display.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.sql_display.customContextMenuRequested.connect(self.show_sql_context_menu)
+        
+        layout.addWidget(self.sql_display)
+    
+    def show_sql_context_menu(self, position):
+        """Show context menu for SQL display"""
+        menu = QMenu(self)
+        
+        copy_action = menu.addAction("📋 Copy SQL")
+        copy_action.triggered.connect(self.copy_sql_silent)
+        
+        menu.exec(self.sql_display.mapToGlobal(position))
+    
+    def copy_sql_silent(self):
+        """Copy SQL to clipboard without showing message"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.sql)
+        logger.info("SQL copied to clipboard")
+
+    def export_to_excel_open(self):
+        """Export results to Excel - opens new workbook without saving"""
+        try:
+            # Clear corrupted gen_py cache and reimport win32com
+            try:
+                import win32com
+                import shutil
+                import os
+                import tempfile
+                import sys
+                
+                # Clear all possible cache locations
+                if hasattr(win32com, '__gen_path__'):
+                    cache_path = os.path.join(win32com.__gen_path__, 'win32com', 'gen_py')
+                    if os.path.exists(cache_path):
+                        shutil.rmtree(cache_path, ignore_errors=True)
+                
+                temp_gen_py = os.path.join(tempfile.gettempdir(), 'gen_py')
+                if os.path.exists(temp_gen_py):
+                    shutil.rmtree(temp_gen_py, ignore_errors=True)
+                
+                appdata = os.environ.get('LOCALAPPDATA', '')
+                if appdata:
+                    appdata_gen_py = os.path.join(appdata, 'Temp', 'gen_py')
+                    if os.path.exists(appdata_gen_py):
+                        shutil.rmtree(appdata_gen_py, ignore_errors=True)
+                
+                # Force reimport of win32com
+                mods_to_remove = [m for m in sys.modules if m.startswith('win32com')]
+                for mod in mods_to_remove:
+                    del sys.modules[mod]
+                    
+            except Exception as cache_err:
+                logger.warning(f"Cache clear failed: {cache_err}")
+            
+            # Use dynamic dispatch to completely avoid gen_py cache issues
+            from win32com.client import dynamic
+            
+            # Get the currently filtered/displayed data
+            export_df = self.filter_table.get_filtered_dataframe()
+            
+            # Check if formatting is requested
+            apply_formatting = self.format_excel_cb.isChecked()
+            
+            # Use dynamic dispatch - this completely bypasses gen_py cache
+            excel = dynamic.Dispatch('Excel.Application')
+            excel.Visible = True
+            excel.ScreenUpdating = False  # Disable screen updates for performance
+            
+            # Add a new workbook (Excel will name it Book1, Book2, etc.)
+            wb = excel.Workbooks.Add()
+            ws = wb.Worksheets(1)
+            
+            # Get the currently filtered/displayed data
+            export_df = self.filter_table.get_filtered_dataframe()
+            
+            num_rows = len(export_df) + 1  # +1 for header
+            num_cols = len(export_df.columns)
+            
+            # PRE-FORMAT columns BEFORE writing data to prevent auto-conversion
+            # This is critical for preserving leading zeros in codes like "06995708"
+            if apply_formatting:
+                for col_idx, (col_name, dtype) in enumerate(zip(export_df.columns, export_df.dtypes), start=1):
+                    # Get the entire column range (including header)
+                    col_range = ws.Range(ws.Cells(1, col_idx), ws.Cells(num_rows, col_idx))
+                    
+                    # Determine format based on pandas dtype
+                    if pd.api.types.is_integer_dtype(dtype):
+                        # Integer - format with comma separator, no decimals
+                        col_range.NumberFormat = "#,##0"
+                    elif pd.api.types.is_float_dtype(dtype):
+                        # Float - format with comma separator and 2 decimals
+                        col_range.NumberFormat = "#,##0.00"
+                    elif pd.api.types.is_datetime64_any_dtype(dtype):
+                        # Date/DateTime - standard date format
+                        col_range.NumberFormat = "mm/dd/yyyy hh:mm:ss"
+                    else:
+                        # String/Object - CRITICAL: force text format BEFORE writing data
+                        # This preserves leading zeros in codes like "06995708"
+                        col_range.NumberFormat = "@"
+            else:
+                # Even without formatting, force text format for object/string columns
+                # to prevent Excel from auto-converting codes with leading zeros
+                for col_idx, (col_name, dtype) in enumerate(zip(export_df.columns, export_df.dtypes), start=1):
+                    if pd.api.types.is_object_dtype(dtype) or not pd.api.types.is_numeric_dtype(dtype):
+                        col_range = ws.Range(ws.Cells(1, col_idx), ws.Cells(num_rows, col_idx))
+                        col_range.NumberFormat = "@"  # Text format
+            
+            # NOW write the data (after formatting is set)
+            # Prepare data as 2D array (headers + data)
+            data_array = []
+            
+            # Add headers as first row
+            headers = [str(col) for col in export_df.columns]
+            data_array.append(headers)
+            
+            # Add data rows, replacing NaN with empty string
+            # Convert all values to strings for text-formatted columns to ensure preservation
+            for row in export_df.values:
+                data_row = []
+                for val in row:
+                    if pd.isna(val):
+                        data_row.append("")
+                    else:
+                        # Keep as-is, Excel will respect the pre-set format
+                        data_row.append(val)
+                data_array.append(data_row)
+            
+            # Write all data at once (much faster than cell-by-cell)
+            data_range = ws.Range(ws.Cells(1, 1), ws.Cells(num_rows, num_cols))
+            data_range.Value = data_array
+            
+            # Format headers (always applied - fast operation)
+            header_range = ws.Range(ws.Cells(1, 1), ws.Cells(1, num_cols))
+            header_range.Font.Bold = True
+            header_range.Interior.Color = 0x404040  # Dark gray
+            header_range.Font.Color = 0xFFFFFF  # White
+            
+            # Auto-fit columns
+            ws.Columns.AutoFit()
+            
+            # Select cell A1
+            ws.Range("A1").Select()
+            
+            # Re-enable screen updates
+            excel.ScreenUpdating = True
+            
+            logger.info(f"Opened Excel with {len(export_df)} rows (formatting: {apply_formatting})")
+            
+            format_msg = "\n(Formatting applied)" if apply_formatting else "\n(No formatting applied - faster export)"
+            
+            QMessageBox.information(
+                self,
+                "Excel Opened",
+                f"Data exported to Excel!\n\n"
+                f"{len(export_df):,} rows exported (filtered data).{format_msg}\n\n"
+                f"The workbook is open in Excel but not saved.\n"
+                f"Use 'Save As' in Excel if you want to keep the file."
+            )
+
+        except ImportError:
+            logger.error("win32com not available")
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                "Excel export requires pywin32 package.\n\n"
+                "Install with: pip install pywin32"
+            )
+        except Exception as e:
+            logger.error(f"Export to Excel failed: {e}")
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                f"Failed to export to Excel:\n{str(e)}\n\n"
+                "Make sure Excel is installed."
+            )
+
+    def export_to_file(self):
+        """Export results to Excel file (save as)"""
+        try:
+            # Get the currently filtered/displayed data
+            export_df = self.filter_table.get_filtered_dataframe()
+            
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save to Excel File",
+                "",
+                "Excel Files (*.xlsx);;All Files (*)"
+            )
+
+            if file_path:
+                if not file_path.endswith('.xlsx'):
+                    file_path += '.xlsx'
+
+                export_df.to_excel(file_path, index=False, engine='openpyxl')
+
+                QMessageBox.information(
+                    self,
+                    "Export Successful",
+                    f"Data exported successfully to:\n{file_path}\n\n"
+                    f"{len(export_df):,} rows exported (filtered data)."
+                )
+
+        except Exception as e:
+            logger.error(f"Export to file failed: {e}")
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                f"Failed to export data:\n{str(e)}"
+            )
+
+    def export_to_excel(self):
+        """Legacy method - redirects to export_to_file"""
+        self.export_to_file()
+
+    def copy_sql(self):
+        """Copy SQL to clipboard"""
+        from PyQt6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.sql)
+
+        QMessageBox.information(
+            self,
+            "SQL Copied",
+            "SQL query has been copied to clipboard."
+        )

@@ -1,0 +1,163 @@
+{
+  "_description": "Field tooltips for SuiteView. Each key is the field attribute name used in the code.",
+  "_maintenance": "Edit this file to customize tooltip text. Changes will take effect on next application restart.",
+  
+  "AdvProdValues": {
+    "total_av": {
+      "label": "Total AV",
+      "tooltip": "Total Account Value - The sum of all fund values in the policy as of the last monthliversary date. This includes both unimpaired and impaired (loan collateral) portions."
+    },
+    "unimpaired_av": {
+      "label": "Unimpaired AV", 
+      "tooltip": "Unimpaired Account Value - The portion of the account value not pledged as collateral for policy loans. This is the sum of all fund values from the fund summary."
+    },
+    "impaired_av": {
+      "label": "Impaired AV",
+      "tooltip": "Impaired Account Value - The portion of the account value pledged as collateral for policy loans. Calculated as TotalFundPrefLnPrinciple + TotalFundRegLnPrinciple."
+    },
+    "gav": {
+      "label": "GAV",
+      "tooltip": "Guaranteed Account Value - The minimum guaranteed account value based on the guaranteed interest rate. Only applicable to certain UL products."
+    },
+    "ccv": {
+      "label": "CCV",
+      "tooltip": "Current Cash Value - The current surrender value of the policy after deducting any surrender charges."
+    },
+    "guar_int_rate": {
+      "label": "Guar Int Rate",
+      "tooltip": "Guaranteed Interest Rate - The minimum interest rate guaranteed by the policy. Stored in database as basis points and divided by 100 for display."
+    },
+    "grace_rule_code": {
+      "label": "Grace Rule Code",
+      "tooltip": "Grace Period Rule Code - Determines how the grace period is calculated for this policy. Code comes from LH_NON_TRD_POL.GRA_THD_RLE_CD."
+    },
+    "short_pay_prem": {
+      "label": "Short Pay Prem",
+      "tooltip": "Short Pay Premium - The premium amount for policies that are set up with a limited pay duration."
+    },
+    "short_pay_dur": {
+      "label": "Short Pay Dur",
+      "tooltip": "Short Pay Duration - The number of years premiums are scheduled to be paid before the policy becomes paid up. From TH_USER_GENERIC.INITIAL_PAY_DUR."
+    },
+    "short_pay_mode": {
+      "label": "Short Pay Mode",
+      "tooltip": "Short Pay Mode - The billing mode (annual, semi-annual, quarterly, monthly) for the short pay premium. From TH_USER_GENERIC.INITIAL_MODE."
+    },
+    "sp_billing_cease_date": {
+      "label": "SP Billing Cease Date",
+      "tooltip": "Short Pay Billing Cease Date - The date when short pay billing is scheduled to cease."
+    },
+    "sp_prem_cease_age": {
+      "label": "SP Prem Cease Age (calc)",
+      "tooltip": "Short Pay Premium Cease Age - Calculated age when short pay premiums will cease. Calculated as Short Pay Duration + Issue Age."
+    },
+    "db_dial_to_age": {
+      "label": "DB Dial-To Age",
+      "tooltip": "Death Benefit Dial-To Age - For dial-to-paid-up policies, this is the age at which the death benefit will reduce to the account value. From TH_USER_GENERIC.DIAL_TO_PREM_AGE."
+    }
+  },
+  
+  "MonthliversaryValues": {
+    "_table_description": "Monthly processing values from LH_POL_MVRY_VAL table",
+    "eff_date": {
+      "label": "Eff Date",
+      "tooltip": "Effective Date - The monthliversary date when these values were calculated. From MVRY_DT field."
+    },
+    "y": {
+      "label": "Y",
+      "tooltip": "Policy Year - The policy year number at this monthliversary."
+    },
+    "m": {
+      "label": "M",
+      "tooltip": "Month of Year - The month number within the policy year (1-12)."
+    },
+    "interest": {
+      "label": "Interest",
+      "tooltip": "Interest Credited - The interest credited to the account value for this month. From GUA_RT_ERN_ITS_AMT field."
+    },
+    "account_value": {
+      "label": "AccountValue",
+      "tooltip": "Account Value - The total account value after this month's processing. From CSV_AMT field."
+    },
+    "coi_chrg": {
+      "label": "COIChrg",
+      "tooltip": "Cost of Insurance Charge - The monthly cost of insurance deducted from the account value. From CINS_AMT field."
+    },
+    "other_chrg": {
+      "label": "OtherChrg",
+      "tooltip": "Other Charges - Other monthly charges deducted from the account value. From OTH_PRM_AMT field."
+    },
+    "expenses": {
+      "label": "Expenses",
+      "tooltip": "Expense Charges - The monthly expense/admin charges deducted from the account value. From EXP_CRG_AMT field."
+    },
+    "nar": {
+      "label": "NAR",
+      "tooltip": "Net Amount at Risk - Death Benefit minus Account Value. This is the amount the insurance company is at risk for. From NAR_AMT field."
+    }
+  },
+  
+  "FundValueHistory": {
+    "_table_description": "Fund bucket history showing detailed fund value allocations",
+    "fund_id": {
+      "label": "FundID",
+      "tooltip": "Fund Identifier - The code identifying the specific investment fund or bucket."
+    },
+    "phase": {
+      "label": "Phase",
+      "tooltip": "Coverage Phase - The phase code of the coverage this fund bucket belongs to."
+    },
+    "mv_date": {
+      "label": "MVDate",
+      "tooltip": "Monthliversary Date - The date when this fund bucket value was recorded."
+    },
+    "start_date": {
+      "label": "StartDate",
+      "tooltip": "Start Date - The date when this fund bucket was first established."
+    },
+    "bucket_value": {
+      "label": "BucketValue",
+      "tooltip": "Bucket Value - The current value of this specific fund bucket."
+    }
+  },
+  
+  "UnimpairedFundValues": {
+    "_table_description": "Summary of fund values not pledged as loan collateral",
+    "fund_id": {
+      "label": "FundID",
+      "tooltip": "Fund Identifier - The code identifying the specific investment fund."
+    },
+    "amount": {
+      "label": "Amount",
+      "tooltip": "Fund Amount - The current value of this fund that is not pledged as collateral for policy loans."
+    }
+  },
+  
+  "ImpairedFundValues": {
+    "_table_description": "Summary of fund values pledged as loan collateral",
+    "fund_id": {
+      "label": "FundID",
+      "tooltip": "Fund Identifier - The code identifying the specific investment fund pledged as loan collateral."
+    },
+    "amount": {
+      "label": "Amount",
+      "tooltip": "Impaired Amount - The value of this fund that is pledged as collateral for policy loans (preferred and regular loans)."
+    }
+  },
+  
+  "PolicyInfo": {
+    "_section_description": "General policy information fields",
+    "company": {
+      "label": "Company",
+      "tooltip": "Company Code - The insurance company code that issued this policy. From CO_CD field."
+    },
+    "plancode": {
+      "label": "Plancode",
+      "tooltip": "Plan Design Series Code - The product plan code. From PLN_DES_SER_CD field."
+    },
+    "policy_number": {
+      "label": "Policy",
+      "tooltip": "Policy Number - The unique identifier for this insurance policy."
+    }
+  }
+}

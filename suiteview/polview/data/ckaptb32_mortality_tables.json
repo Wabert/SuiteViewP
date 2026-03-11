@@ -1,0 +1,2641 @@
+[
+  {
+    "mortality_code": "0",
+    "mnemonic": "0",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "OLD JOINT LIF"
+  },
+  {
+    "mortality_code": "UX",
+    "mnemonic": "01CS4060",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOC40/60"
+  },
+  {
+    "mortality_code": "X",
+    "mnemonic": "115 AM",
+    "final_age": 103,
+    "select_period": 0,
+    "description": "115% AM MEN",
+    "cycle_code": "X"
+  },
+  {
+    "mortality_code": "D",
+    "mnemonic": "150%",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "150% CL 3 CSO D"
+  },
+  {
+    "mortality_code": "C",
+    "mnemonic": "165%",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "165% CL 3 CSO C"
+  },
+  {
+    "mortality_code": "A",
+    "mnemonic": "1926 AE",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1926 CL 3 AE",
+    "cycle_code": "A"
+  },
+  {
+    "mortality_code": "B",
+    "mnemonic": "1926 AM",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1926 CL 3 AM",
+    "cycle_code": "B"
+  },
+  {
+    "mortality_code": "4B",
+    "mnemonic": "1941 SI",
+    "final_age": 99,
+    "select_period": 0,
+    "description": "1941 SI ALB"
+  },
+  {
+    "mortality_code": "4I",
+    "mnemonic": "1941 SSI",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1941 SSI ANB"
+  },
+  {
+    "mortality_code": "4A",
+    "mnemonic": "1961CIET",
+    "final_age": 99,
+    "select_period": 0,
+    "description": "1961 CIET ALB"
+  },
+  {
+    "mortality_code": "A2",
+    "mnemonic": "2000FIAM",
+    "final_age": 116,
+    "select_period": 0,
+    "description": "US ANN 2000 F"
+  },
+  {
+    "mortality_code": "A1",
+    "mnemonic": "2000MIAM",
+    "final_age": 116,
+    "select_period": 0,
+    "description": "US ANN 2000 M"
+  },
+  {
+    "mortality_code": "UG",
+    "mnemonic": "2001LUCS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSO U L S"
+  },
+  {
+    "mortality_code": "UO",
+    "mnemonic": "2001LUCU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSO U L U"
+  },
+  {
+    "mortality_code": "UH",
+    "mnemonic": "2001LUNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSO UN LS"
+  },
+  {
+    "mortality_code": "UP",
+    "mnemonic": "2001LUNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSO UN LU"
+  },
+  {
+    "mortality_code": "UC",
+    "mnemonic": "2001LUSS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSO US LS"
+  },
+  {
+    "mortality_code": "UK",
+    "mnemonic": "2001LUSU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSO US LU"
+  },
+  {
+    "mortality_code": "UD",
+    "mnemonic": "2001NUCS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSO U N S"
+  },
+  {
+    "mortality_code": "UL",
+    "mnemonic": "2001NUCU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSO U N U"
+  },
+  {
+    "mortality_code": "UE",
+    "mnemonic": "2001NUNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSO UN NS"
+  },
+  {
+    "mortality_code": "UM",
+    "mnemonic": "2001NUNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSO UN NU"
+  },
+  {
+    "mortality_code": "UF",
+    "mnemonic": "2001NUSS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSO US NS"
+  },
+  {
+    "mortality_code": "UN",
+    "mnemonic": "2001NUSU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSO US NU"
+  },
+  {
+    "mortality_code": "UX",
+    "mnemonic": "2001UCOM",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOU40ALB"
+  },
+  {
+    "mortality_code": "VG",
+    "mnemonic": "2017LUCS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSO U L S"
+  },
+  {
+    "mortality_code": "VO",
+    "mnemonic": "2017LUCU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSO U L U"
+  },
+  {
+    "mortality_code": "VH",
+    "mnemonic": "2017LUNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSO UN L"
+  },
+  {
+    "mortality_code": "VP",
+    "mnemonic": "2017LUNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSO UN LU"
+  },
+  {
+    "mortality_code": "VC",
+    "mnemonic": "2017LUSS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSO US L"
+  },
+  {
+    "mortality_code": "VK",
+    "mnemonic": "2017LUSU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSO US LU"
+  },
+  {
+    "mortality_code": "VD",
+    "mnemonic": "2017NUCS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSO U N S"
+  },
+  {
+    "mortality_code": "VL",
+    "mnemonic": "2017NUCU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSO U N U"
+  },
+  {
+    "mortality_code": "VE",
+    "mnemonic": "2017NUNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSO UN NS"
+  },
+  {
+    "mortality_code": "VM",
+    "mnemonic": "2017NUNU",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSO UN NU"
+  },
+  {
+    "mortality_code": "VF",
+    "mnemonic": "2017NUSS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSO US NS"
+  },
+  {
+    "mortality_code": "VN",
+    "mnemonic": "2017NUSU",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSO US NU"
+  },
+  {
+    "mortality_code": "4D",
+    "mnemonic": "41 130%",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "41 130%SI ANB"
+  },
+  {
+    "mortality_code": "4H",
+    "mnemonic": "41 130%S",
+    "final_age": 99,
+    "select_period": 0,
+    "description": "41 130%SI ALB"
+  },
+  {
+    "mortality_code": "4C",
+    "mnemonic": "41 130SS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "41 130SSI ANB"
+  },
+  {
+    "mortality_code": "N",
+    "mnemonic": "41 CSO",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1941 CSO",
+    "cycle_code": "N"
+  },
+  {
+    "mortality_code": "4G",
+    "mnemonic": "41 SI AN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1941 SI ANB"
+  },
+  {
+    "mortality_code": "W",
+    "mnemonic": "41CSO130",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "130% 41 CSO",
+    "cycle_code": "W"
+  },
+  {
+    "mortality_code": "4A",
+    "mnemonic": "4A",
+    "final_age": 99,
+    "select_period": 0,
+    "description": "1961 CIET ALB"
+  },
+  {
+    "mortality_code": "4B",
+    "mnemonic": "4B",
+    "final_age": 99,
+    "select_period": 0,
+    "description": "1941 SI ALB"
+  },
+  {
+    "mortality_code": "4C",
+    "mnemonic": "4C",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "41 130SSI ANB"
+  },
+  {
+    "mortality_code": "4D",
+    "mnemonic": "4D",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "41 130%SI ANB"
+  },
+  {
+    "mortality_code": "4E",
+    "mnemonic": "4E",
+    "final_age": 99,
+    "select_period": 0,
+    "description": "1961 CSI  ALB"
+  },
+  {
+    "mortality_code": "4G",
+    "mnemonic": "4G",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1941 SI ANB"
+  },
+  {
+    "mortality_code": "4H",
+    "mnemonic": "4H",
+    "final_age": 99,
+    "select_period": 0,
+    "description": "41 130%SI ALB"
+  },
+  {
+    "mortality_code": "4I",
+    "mnemonic": "4I",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1941 SSI ANB"
+  },
+  {
+    "mortality_code": "4J",
+    "mnemonic": "4J",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1961 CSI ANB"
+  },
+  {
+    "mortality_code": "4K",
+    "mnemonic": "4K",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1961 CIET ANB"
+  },
+  {
+    "mortality_code": "Q",
+    "mnemonic": "58 CET",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1958 CET MALE",
+    "cycle_code": "Q"
+  },
+  {
+    "mortality_code": "R",
+    "mnemonic": "58 CET F",
+    "final_age": 103,
+    "select_period": 0,
+    "description": "1958 CET FEM",
+    "cycle_code": "R"
+  },
+  {
+    "mortality_code": "O",
+    "mnemonic": "58 CSO",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1958 CSO MALE",
+    "cycle_code": "O"
+  },
+  {
+    "mortality_code": "P",
+    "mnemonic": "58 CSO F",
+    "final_age": 103,
+    "select_period": 0,
+    "description": "1958 CSO FEM",
+    "cycle_code": "P"
+  },
+  {
+    "mortality_code": "V",
+    "mnemonic": "58CET FL",
+    "final_age": 103,
+    "select_period": 0,
+    "description": "1958 CET FLX",
+    "cycle_code": "V"
+  },
+  {
+    "mortality_code": "U",
+    "mnemonic": "58CET ML",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1958 CET MLX",
+    "cycle_code": "U"
+  },
+  {
+    "mortality_code": "T",
+    "mnemonic": "58CSO FL",
+    "final_age": 103,
+    "select_period": 0,
+    "description": "1958 CSO FLX",
+    "cycle_code": "T"
+  },
+  {
+    "mortality_code": "S",
+    "mnemonic": "58CSO ML",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1958 CSO MLX",
+    "cycle_code": "S"
+  },
+  {
+    "mortality_code": "5F",
+    "mnemonic": "5F",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "OLD STAND INS"
+  },
+  {
+    "mortality_code": "4K",
+    "mnemonic": "61 CIET",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1961 CIET ANB"
+  },
+  {
+    "mortality_code": "4E",
+    "mnemonic": "61CSI AL",
+    "final_age": 99,
+    "select_period": 0,
+    "description": "1961 CSI ALB"
+  },
+  {
+    "mortality_code": "4J",
+    "mnemonic": "61CSI AN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1961 CSI ANB"
+  },
+  {
+    "mortality_code": "U1",
+    "mnemonic": "80CETE",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CET-E ANB"
+  },
+  {
+    "mortality_code": "LR",
+    "mnemonic": "80CETJT",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CETJOINTALB",
+    "cycle_code": "R"
+  },
+  {
+    "mortality_code": "L9",
+    "mnemonic": "80CETLFC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETF ALB",
+    "cycle_code": "9"
+  },
+  {
+    "mortality_code": "LB",
+    "mnemonic": "80CETLFN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETFNS ALB"
+  },
+  {
+    "mortality_code": "L7",
+    "mnemonic": "80CETLFS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETFS ALB",
+    "cycle_code": "7"
+  },
+  {
+    "mortality_code": "L8",
+    "mnemonic": "80CETLMC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETM ALB",
+    "cycle_code": "8"
+  },
+  {
+    "mortality_code": "LA",
+    "mnemonic": "80CETLMN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETMNS ALB"
+  },
+  {
+    "mortality_code": "L6",
+    "mnemonic": "80CETLMS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETMS ALB",
+    "cycle_code": "6"
+  },
+  {
+    "mortality_code": "U7",
+    "mnemonic": "80CETLUC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CET U ALB"
+  },
+  {
+    "mortality_code": "U9",
+    "mnemonic": "80CETLUN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CET UN ALB"
+  },
+  {
+    "mortality_code": "UB",
+    "mnemonic": "80CETLUS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CET US ALB"
+  },
+  {
+    "mortality_code": "N9",
+    "mnemonic": "80CETNFC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETF ANB"
+  },
+  {
+    "mortality_code": "NB",
+    "mnemonic": "80CETNFN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETFNS ANB"
+  },
+  {
+    "mortality_code": "N7",
+    "mnemonic": "80CETNFS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETFS ANB"
+  },
+  {
+    "mortality_code": "N8",
+    "mnemonic": "80CETNMC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETM ANB"
+  },
+  {
+    "mortality_code": "NA",
+    "mnemonic": "80CETNMN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETMNS ANB"
+  },
+  {
+    "mortality_code": "N6",
+    "mnemonic": "80CETNMS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETMS ANB"
+  },
+  {
+    "mortality_code": "US",
+    "mnemonic": "80CETNSU",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CETNSU40ALB"
+  },
+  {
+    "mortality_code": "U1",
+    "mnemonic": "80CETNUC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CET U ANB"
+  },
+  {
+    "mortality_code": "U3",
+    "mnemonic": "80CETNUN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CET UN ANB"
+  },
+  {
+    "mortality_code": "U5",
+    "mnemonic": "80CETNUS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CET US ANB"
+  },
+  {
+    "mortality_code": "US",
+    "mnemonic": "80CETSKU",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CETSKU40ALB"
+  },
+  {
+    "mortality_code": "U0",
+    "mnemonic": "80CSOE",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO-E ANB"
+  },
+  {
+    "mortality_code": "L5",
+    "mnemonic": "80CSOLFC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOF ALB",
+    "cycle_code": "5"
+  },
+  {
+    "mortality_code": "L1",
+    "mnemonic": "80CSOLFN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOFNS ALB",
+    "cycle_code": "1"
+  },
+  {
+    "mortality_code": "L3",
+    "mnemonic": "80CSOLFS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOFS ALB",
+    "cycle_code": "3"
+  },
+  {
+    "mortality_code": "LJ",
+    "mnemonic": "80CSOLJT",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOJT ALB"
+  },
+  {
+    "mortality_code": "L4",
+    "mnemonic": "80CSOLMC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOM ALB",
+    "cycle_code": "4"
+  },
+  {
+    "mortality_code": "L0",
+    "mnemonic": "80CSOLMN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOMNS ALB",
+    "cycle_code": "0"
+  },
+  {
+    "mortality_code": "L2",
+    "mnemonic": "80CSOLMS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOMS ALB",
+    "cycle_code": "2"
+  },
+  {
+    "mortality_code": "U6",
+    "mnemonic": "80CSOLUC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO U ALB"
+  },
+  {
+    "mortality_code": "U8",
+    "mnemonic": "80CSOLUN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO UN ALB"
+  },
+  {
+    "mortality_code": "UA",
+    "mnemonic": "80CSOLUS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO US ALB"
+  },
+  {
+    "mortality_code": "N5",
+    "mnemonic": "80CSONFC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOF ANB"
+  },
+  {
+    "mortality_code": "N1",
+    "mnemonic": "80CSONFN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOFNS ANB"
+  },
+  {
+    "mortality_code": "N3",
+    "mnemonic": "80CSONFS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CFOFS ANB"
+  },
+  {
+    "mortality_code": "NJ",
+    "mnemonic": "80CSONJT",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOJT ANB"
+  },
+  {
+    "mortality_code": "N4",
+    "mnemonic": "80CSONMC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOM ANB"
+  },
+  {
+    "mortality_code": "N0",
+    "mnemonic": "80CSONMN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOMNS ANB"
+  },
+  {
+    "mortality_code": "N2",
+    "mnemonic": "80CSONMS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOMS ANB"
+  },
+  {
+    "mortality_code": "UR",
+    "mnemonic": "80CSONSU",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSONSU40ALB"
+  },
+  {
+    "mortality_code": "U0",
+    "mnemonic": "80CSONUC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO U ANB"
+  },
+  {
+    "mortality_code": "U2",
+    "mnemonic": "80CSONUN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO UN ANB"
+  },
+  {
+    "mortality_code": "U4",
+    "mnemonic": "80CSONUS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO US ANB"
+  },
+  {
+    "mortality_code": "US",
+    "mnemonic": "80CSOSKU",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSOSKU40ALB"
+  },
+  {
+    "mortality_code": "UQ",
+    "mnemonic": "80CSOU40",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSOU40ALB"
+  },
+  {
+    "mortality_code": "S2",
+    "mnemonic": "80SUFN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO S&U FN"
+  },
+  {
+    "mortality_code": "S3",
+    "mnemonic": "80SUFS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO S&U FS"
+  },
+  {
+    "mortality_code": "S0",
+    "mnemonic": "80SUMN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO S&U MN"
+  },
+  {
+    "mortality_code": "S1",
+    "mnemonic": "80SUMS",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO S&U MS"
+  },
+  {
+    "mortality_code": "49",
+    "mnemonic": "A 49",
+    "final_age": 110,
+    "select_period": 0,
+    "description": "1949 TABLE A"
+  },
+  {
+    "mortality_code": "4F",
+    "mnemonic": "A 49F",
+    "final_age": 110,
+    "select_period": 0,
+    "description": "1949 A FEMALE"
+  },
+  {
+    "mortality_code": "L",
+    "mnemonic": "AM EX-B",
+    "final_age": 96,
+    "select_period": 0,
+    "description": "A/E BUTTOLPH",
+    "cycle_code": "L"
+  },
+  {
+    "mortality_code": "K",
+    "mnemonic": "AM EX-C",
+    "final_age": 96,
+    "select_period": 0,
+    "description": "A/E CRAIG",
+    "cycle_code": "K"
+  },
+  {
+    "mortality_code": "M",
+    "mnemonic": "AM MEN",
+    "final_age": 104,
+    "select_period": 0,
+    "description": "AMERICAN MEN",
+    "cycle_code": "M"
+  },
+  {
+    "mortality_code": "@@",
+    "mnemonic": "EXTRA1",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO/COMPOSI"
+  },
+  {
+    "mortality_code": "##",
+    "mnemonic": "EXTRA2",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "01CSO/COMPOSI"
+  },
+  {
+    "mortality_code": "**",
+    "mnemonic": "EXTRA3",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "01CSO/COMPOSI"
+  },
+  {
+    "mortality_code": "71",
+    "mnemonic": "IA 71",
+    "final_age": 116,
+    "select_period": 0,
+    "description": "INDV ANN 1971"
+  },
+  {
+    "mortality_code": "7F",
+    "mnemonic": "IA 71F",
+    "final_age": 116,
+    "select_period": 0,
+    "description": "IAM 71 FEMALE"
+  },
+  {
+    "mortality_code": "83",
+    "mnemonic": "IM 83",
+    "final_age": 116,
+    "select_period": 0,
+    "description": "1983 TABLE A"
+  },
+  {
+    "mortality_code": "8F",
+    "mnemonic": "IM 83F",
+    "final_age": 116,
+    "select_period": 0,
+    "description": "83 A FEMALE"
+  },
+  {
+    "mortality_code": "IF",
+    "mnemonic": "IM FCT F",
+    "final_age": 116,
+    "select_period": 0,
+    "description": "IMPR FACTOR-F"
+  },
+  {
+    "mortality_code": "IM",
+    "mnemonic": "IM FCT M",
+    "final_age": 116,
+    "select_period": 0,
+    "description": "IMPR FACTOR-M"
+  },
+  {
+    "mortality_code": "@",
+    "mnemonic": "INVALID",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSO SMKR/N"
+  },
+  {
+    "mortality_code": "#",
+    "mnemonic": "INVALID2",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSO SM/NS"
+  },
+  {
+    "mortality_code": "*",
+    "mnemonic": "INVALID3",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSO SM/NU"
+  },
+  {
+    "mortality_code": "#1",
+    "mnemonic": "INVALID4",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "PRF 2001 S&U"
+  },
+  {
+    "mortality_code": "#2",
+    "mnemonic": "INVALID5",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSO ULT"
+  },
+  {
+    "mortality_code": "**",
+    "mnemonic": "INVALID6",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "01CSO/COMPOSI"
+  },
+  {
+    "mortality_code": "#5",
+    "mnemonic": "INVALID7",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSO SM/NS"
+  },
+  {
+    "mortality_code": "#6",
+    "mnemonic": "INVALID8",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSO SM/NU"
+  },
+  {
+    "mortality_code": "#7",
+    "mnemonic": "INVALID9",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "PRF 2017 S&U"
+  },
+  {
+    "mortality_code": "#8",
+    "mnemonic": "INVALIDA",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "PRF 2017 ULT"
+  },
+  {
+    "mortality_code": "IX",
+    "mnemonic": "IRS02",
+    "final_age": 116,
+    "select_period": 0,
+    "description": "IRS02 ANNUITY"
+  },
+  {
+    "mortality_code": "IR",
+    "mnemonic": "IRS83",
+    "final_age": 116,
+    "select_period": 0,
+    "description": "IRS83 ANNUITY"
+  },
+  {
+    "mortality_code": "J",
+    "mnemonic": "J",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "PROG ANNUITY",
+    "cycle_code": "J"
+  },
+  {
+    "mortality_code": "K",
+    "mnemonic": "K",
+    "final_age": 96,
+    "select_period": 0,
+    "description": "A/E CRAIG",
+    "cycle_code": "K"
+  },
+  {
+    "mortality_code": "L",
+    "mnemonic": "L",
+    "final_age": 96,
+    "select_period": 0,
+    "description": "A/E BUTTOLPH",
+    "cycle_code": "L"
+  },
+  {
+    "mortality_code": "L0",
+    "mnemonic": "L0",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOMNS ALB",
+    "cycle_code": "0"
+  },
+  {
+    "mortality_code": "L1",
+    "mnemonic": "L1",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOFNS ALB",
+    "cycle_code": "1"
+  },
+  {
+    "mortality_code": "L2",
+    "mnemonic": "L2",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOMS ALB",
+    "cycle_code": "2"
+  },
+  {
+    "mortality_code": "L3",
+    "mnemonic": "L3",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOFS ALB",
+    "cycle_code": "3"
+  },
+  {
+    "mortality_code": "L4",
+    "mnemonic": "L4",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOM ALB",
+    "cycle_code": "4"
+  },
+  {
+    "mortality_code": "L5",
+    "mnemonic": "L5",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOF ALB",
+    "cycle_code": "5"
+  },
+  {
+    "mortality_code": "L6",
+    "mnemonic": "L6",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETMS ALB",
+    "cycle_code": "6"
+  },
+  {
+    "mortality_code": "L7",
+    "mnemonic": "L7",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETFS ALB",
+    "cycle_code": "7"
+  },
+  {
+    "mortality_code": "L8",
+    "mnemonic": "L8",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETM ALB",
+    "cycle_code": "8"
+  },
+  {
+    "mortality_code": "L9",
+    "mnemonic": "L9",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETF ALB",
+    "cycle_code": "9"
+  },
+  {
+    "mortality_code": "LA",
+    "mnemonic": "LA",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETMNS ALB"
+  },
+  {
+    "mortality_code": "LB",
+    "mnemonic": "LB",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETFNS ALB"
+  },
+  {
+    "mortality_code": "LC",
+    "mnemonic": "LC",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOMNS LS"
+  },
+  {
+    "mortality_code": "LD",
+    "mnemonic": "LD",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOFNS LS"
+  },
+  {
+    "mortality_code": "LE",
+    "mnemonic": "LE",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOJT L S"
+  },
+  {
+    "mortality_code": "LF",
+    "mnemonic": "LF",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOMS L S"
+  },
+  {
+    "mortality_code": "LG",
+    "mnemonic": "LG",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOFS L S"
+  },
+  {
+    "mortality_code": "LH",
+    "mnemonic": "LH",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOM L  S"
+  },
+  {
+    "mortality_code": "LI",
+    "mnemonic": "LI",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOF L  S"
+  },
+  {
+    "mortality_code": "LJ",
+    "mnemonic": "LJ",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOJT ALB"
+  },
+  {
+    "mortality_code": "LK",
+    "mnemonic": "LK",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOMNS LU"
+  },
+  {
+    "mortality_code": "LL",
+    "mnemonic": "LL",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOFNS LU"
+  },
+  {
+    "mortality_code": "LM",
+    "mnemonic": "LM",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOJT L U"
+  },
+  {
+    "mortality_code": "LN",
+    "mnemonic": "LN",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOMS L U"
+  },
+  {
+    "mortality_code": "LO",
+    "mnemonic": "LO",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOFS L U"
+  },
+  {
+    "mortality_code": "LP",
+    "mnemonic": "LP",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOM L  U"
+  },
+  {
+    "mortality_code": "LQ",
+    "mnemonic": "LQ",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOF L  U"
+  },
+  {
+    "mortality_code": "LR",
+    "mnemonic": "LR",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CETJOINTALB",
+    "cycle_code": "R"
+  },
+  {
+    "mortality_code": "M",
+    "mnemonic": "M",
+    "final_age": 104,
+    "select_period": 0,
+    "description": "AMERICAN MEN",
+    "cycle_code": "M"
+  },
+  {
+    "mortality_code": "MC",
+    "mnemonic": "MC",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOMNS LS"
+  },
+  {
+    "mortality_code": "MD",
+    "mnemonic": "MD",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOFNS LS"
+  },
+  {
+    "mortality_code": "MF",
+    "mnemonic": "MF",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOMS L S"
+  },
+  {
+    "mortality_code": "MG",
+    "mnemonic": "MG",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOFS L S"
+  },
+  {
+    "mortality_code": "MH",
+    "mnemonic": "MH",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOM L S"
+  },
+  {
+    "mortality_code": "MI",
+    "mnemonic": "MI",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOF L S"
+  },
+  {
+    "mortality_code": "MK",
+    "mnemonic": "MK",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSOMNS LU"
+  },
+  {
+    "mortality_code": "ML",
+    "mnemonic": "ML",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSOFNS LU"
+  },
+  {
+    "mortality_code": "MN",
+    "mnemonic": "MN",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSOMS L U"
+  },
+  {
+    "mortality_code": "MO",
+    "mnemonic": "MO",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSOFS L U"
+  },
+  {
+    "mortality_code": "MP",
+    "mnemonic": "MP",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSOM L U"
+  },
+  {
+    "mortality_code": "MQ",
+    "mnemonic": "MQ",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSO F L U"
+  },
+  {
+    "mortality_code": "N",
+    "mnemonic": "N",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1941 CSO",
+    "cycle_code": "N"
+  },
+  {
+    "mortality_code": "N0",
+    "mnemonic": "N0",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOMNS ANB"
+  },
+  {
+    "mortality_code": "N1",
+    "mnemonic": "N1",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOFNS ANB"
+  },
+  {
+    "mortality_code": "N2",
+    "mnemonic": "N2",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOMS ANB"
+  },
+  {
+    "mortality_code": "N3",
+    "mnemonic": "N3",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CFOFS ANB"
+  },
+  {
+    "mortality_code": "N4",
+    "mnemonic": "N4",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOM ANB"
+  },
+  {
+    "mortality_code": "N5",
+    "mnemonic": "N5",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOF ANB"
+  },
+  {
+    "mortality_code": "N6",
+    "mnemonic": "N6",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETMS ANB"
+  },
+  {
+    "mortality_code": "N7",
+    "mnemonic": "N7",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETFS ANB"
+  },
+  {
+    "mortality_code": "N8",
+    "mnemonic": "N8",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETM ANB"
+  },
+  {
+    "mortality_code": "N9",
+    "mnemonic": "N9",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETF ANB"
+  },
+  {
+    "mortality_code": "NA",
+    "mnemonic": "NA",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETMNS ANB"
+  },
+  {
+    "mortality_code": "NB",
+    "mnemonic": "NB",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CETFNS ANB"
+  },
+  {
+    "mortality_code": "NC",
+    "mnemonic": "NC",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOMNS NS"
+  },
+  {
+    "mortality_code": "ND",
+    "mnemonic": "ND",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOFNS NS"
+  },
+  {
+    "mortality_code": "NE",
+    "mnemonic": "NE",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOJT N S"
+  },
+  {
+    "mortality_code": "NF",
+    "mnemonic": "NF",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOMS N S"
+  },
+  {
+    "mortality_code": "NG",
+    "mnemonic": "NG",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOFS N S"
+  },
+  {
+    "mortality_code": "NH",
+    "mnemonic": "NH",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOM N  S"
+  },
+  {
+    "mortality_code": "NI",
+    "mnemonic": "NI",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSOF N  S"
+  },
+  {
+    "mortality_code": "NJ",
+    "mnemonic": "NJ",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSOJT ANB"
+  },
+  {
+    "mortality_code": "NK",
+    "mnemonic": "NK",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOMNS NU"
+  },
+  {
+    "mortality_code": "NL",
+    "mnemonic": "NL",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOFNS NU"
+  },
+  {
+    "mortality_code": "NM",
+    "mnemonic": "NM",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOJT N U"
+  },
+  {
+    "mortality_code": "NN",
+    "mnemonic": "NN",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOMS N U"
+  },
+  {
+    "mortality_code": "NO",
+    "mnemonic": "NO",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOFS N U"
+  },
+  {
+    "mortality_code": "NP",
+    "mnemonic": "NP",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOM N  U"
+  },
+  {
+    "mortality_code": "NQ",
+    "mnemonic": "NQ",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOF N  U"
+  },
+  {
+    "mortality_code": "NW",
+    "mnemonic": "NW",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "80CSOM ANB121"
+  },
+  {
+    "mortality_code": "NX",
+    "mnemonic": "NX",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "80CSOF ANB121"
+  },
+  {
+    "mortality_code": "NY",
+    "mnemonic": "NY",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "80CETM ANB121"
+  },
+  {
+    "mortality_code": "NZ",
+    "mnemonic": "NZ",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "80CETF ANB121"
+  },
+  {
+    "mortality_code": "O",
+    "mnemonic": "O",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1958 CSO MALE",
+    "cycle_code": "O"
+  },
+  {
+    "mortality_code": "OC",
+    "mnemonic": "OC",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOMNS NS"
+  },
+  {
+    "mortality_code": "OD",
+    "mnemonic": "OD",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOFNS NS"
+  },
+  {
+    "mortality_code": "OF",
+    "mnemonic": "OF",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOMS N S"
+  },
+  {
+    "mortality_code": "OG",
+    "mnemonic": "OG",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOFS N S"
+  },
+  {
+    "mortality_code": "OH",
+    "mnemonic": "OH",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOM N S"
+  },
+  {
+    "mortality_code": "OI",
+    "mnemonic": "OI",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSOF N S"
+  },
+  {
+    "mortality_code": "OK",
+    "mnemonic": "OK",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSOMNS NU"
+  },
+  {
+    "mortality_code": "OL",
+    "mnemonic": "OL",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSOFNS NU"
+  },
+  {
+    "mortality_code": "0",
+    "mnemonic": "OLD JT",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "OLD JOINT LIF"
+  },
+  {
+    "mortality_code": "5F",
+    "mnemonic": "OLD STAN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "OLD STAND INS"
+  },
+  {
+    "mortality_code": "ON",
+    "mnemonic": "ON",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSOMS N U"
+  },
+  {
+    "mortality_code": "OO",
+    "mnemonic": "OO",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSOFS N U"
+  },
+  {
+    "mortality_code": "OP",
+    "mnemonic": "OP",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSOM N U"
+  },
+  {
+    "mortality_code": "OQ",
+    "mnemonic": "OQ",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSO F N U"
+  },
+  {
+    "mortality_code": "P",
+    "mnemonic": "P",
+    "final_age": 103,
+    "select_period": 0,
+    "description": "1958 CSO FEM",
+    "cycle_code": "P"
+  },
+  {
+    "mortality_code": "PQ",
+    "mnemonic": "P01FNPLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 FN P LS"
+  },
+  {
+    "mortality_code": "Q1",
+    "mnemonic": "P01FNPLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 FN P LU"
+  },
+  {
+    "mortality_code": "P6",
+    "mnemonic": "P01FNPNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 FN P NS"
+  },
+  {
+    "mortality_code": "PG",
+    "mnemonic": "P01FNPNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 FN P NU"
+  },
+  {
+    "mortality_code": "PR",
+    "mnemonic": "P01FNRLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 FN R LS"
+  },
+  {
+    "mortality_code": "Q2",
+    "mnemonic": "P01FNRLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 FN R LU"
+  },
+  {
+    "mortality_code": "P7",
+    "mnemonic": "P01FNRNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 FN R NS"
+  },
+  {
+    "mortality_code": "PH",
+    "mnemonic": "P01FNRNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 FN R NU"
+  },
+  {
+    "mortality_code": "PP",
+    "mnemonic": "P01FNSLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 FN S LS"
+  },
+  {
+    "mortality_code": "PZ",
+    "mnemonic": "P01FNSLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 FN S LU"
+  },
+  {
+    "mortality_code": "P5",
+    "mnemonic": "P01FNSNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 FN S NS"
+  },
+  {
+    "mortality_code": "PF",
+    "mnemonic": "P01FNSNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 FN S NU"
+  },
+  {
+    "mortality_code": "PS",
+    "mnemonic": "P01FSPLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 FS P LS"
+  },
+  {
+    "mortality_code": "Q3",
+    "mnemonic": "P01FSPLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 FS P LU"
+  },
+  {
+    "mortality_code": "P8",
+    "mnemonic": "P01FSPNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 FS P NS"
+  },
+  {
+    "mortality_code": "PI",
+    "mnemonic": "P01FSPNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 FS P NU"
+  },
+  {
+    "mortality_code": "PT",
+    "mnemonic": "P01FSRLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 FS R LS"
+  },
+  {
+    "mortality_code": "Q4",
+    "mnemonic": "P01FSRLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 FS R LU"
+  },
+  {
+    "mortality_code": "P9",
+    "mnemonic": "P01FSRNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 FS R NS"
+  },
+  {
+    "mortality_code": "PJ",
+    "mnemonic": "P01FSRNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 FS R NU"
+  },
+  {
+    "mortality_code": "PL",
+    "mnemonic": "P01MNPLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 MN P LS"
+  },
+  {
+    "mortality_code": "PV",
+    "mnemonic": "P01MNPLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 MN P LU"
+  },
+  {
+    "mortality_code": "PB",
+    "mnemonic": "P01MNPNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 MN P NU"
+  },
+  {
+    "mortality_code": "PM",
+    "mnemonic": "P01MNRLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 MN R LS"
+  },
+  {
+    "mortality_code": "PW",
+    "mnemonic": "P01MNRLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 MN R LU"
+  },
+  {
+    "mortality_code": "P2",
+    "mnemonic": "P01MNRNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 MN R NS"
+  },
+  {
+    "mortality_code": "PC",
+    "mnemonic": "P01MNRNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 MN R NU"
+  },
+  {
+    "mortality_code": "PK",
+    "mnemonic": "P01MNSLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 MN S LS"
+  },
+  {
+    "mortality_code": "PU",
+    "mnemonic": "P01MNSLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 MN S LU"
+  },
+  {
+    "mortality_code": "P0",
+    "mnemonic": "P01MNSNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 MN S NS"
+  },
+  {
+    "mortality_code": "PA",
+    "mnemonic": "P01MNSNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 MN S NU"
+  },
+  {
+    "mortality_code": "PN",
+    "mnemonic": "P01MSPLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 MS P LS"
+  },
+  {
+    "mortality_code": "PX",
+    "mnemonic": "P01MSPLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 MS P LU"
+  },
+  {
+    "mortality_code": "P3",
+    "mnemonic": "P01MSPNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 MS P NS"
+  },
+  {
+    "mortality_code": "PD",
+    "mnemonic": "P01MSPNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 MS P NU"
+  },
+  {
+    "mortality_code": "PO",
+    "mnemonic": "P01MSRLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 MS R LS"
+  },
+  {
+    "mortality_code": "PY",
+    "mnemonic": "P01MSRLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 MS R LU"
+  },
+  {
+    "mortality_code": "P4",
+    "mnemonic": "P01MSRNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2001 MS R NS"
+  },
+  {
+    "mortality_code": "PE",
+    "mnemonic": "P01MSRNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2001 MS R NU"
+  },
+  {
+    "mortality_code": "P1",
+    "mnemonic": "P1",
+    "final_age": 106,
+    "select_period": 0,
+    "description": "58 CSO F 106"
+  },
+  {
+    "mortality_code": "J",
+    "mnemonic": "PROG ANN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "PROG ANNUITY",
+    "cycle_code": "J"
+  },
+  {
+    "mortality_code": "Q",
+    "mnemonic": "Q",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1958 CET MALE",
+    "cycle_code": "Q"
+  },
+  {
+    "mortality_code": "R",
+    "mnemonic": "R",
+    "final_age": 103,
+    "select_period": 0,
+    "description": "1958 CET FEM",
+    "cycle_code": "R"
+  },
+  {
+    "mortality_code": "RQ",
+    "mnemonic": "R01FNPLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 FN P LS"
+  },
+  {
+    "mortality_code": "Q5",
+    "mnemonic": "R01FNPLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 FN P LU"
+  },
+  {
+    "mortality_code": "R6",
+    "mnemonic": "R01FNPNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 FN P NS"
+  },
+  {
+    "mortality_code": "RG",
+    "mnemonic": "R01FNPNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 FN P NU"
+  },
+  {
+    "mortality_code": "RR",
+    "mnemonic": "R01FNRLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 FN R LS"
+  },
+  {
+    "mortality_code": "Q6",
+    "mnemonic": "R01FNRLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 FN R LU"
+  },
+  {
+    "mortality_code": "R7",
+    "mnemonic": "R01FNRNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 FN R NS"
+  },
+  {
+    "mortality_code": "RH",
+    "mnemonic": "R01FNRNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 FN R NU"
+  },
+  {
+    "mortality_code": "RP",
+    "mnemonic": "R01FNSLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 FN S LS"
+  },
+  {
+    "mortality_code": "RZ",
+    "mnemonic": "R01FNSLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 FN S LU"
+  },
+  {
+    "mortality_code": "R5",
+    "mnemonic": "R01FNSNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 FN S NS"
+  },
+  {
+    "mortality_code": "RF",
+    "mnemonic": "R01FNSNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 FN S NU"
+  },
+  {
+    "mortality_code": "RS",
+    "mnemonic": "R01FSPLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 FS P LS"
+  },
+  {
+    "mortality_code": "Q7",
+    "mnemonic": "R01FSPLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 FS P LU"
+  },
+  {
+    "mortality_code": "R8",
+    "mnemonic": "R01FSPNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 FS P NS"
+  },
+  {
+    "mortality_code": "RI",
+    "mnemonic": "R01FSPNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 FS P NU"
+  },
+  {
+    "mortality_code": "RT",
+    "mnemonic": "R01FSRLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 FS R LS"
+  },
+  {
+    "mortality_code": "Q8",
+    "mnemonic": "R01FSRLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 FS R LU"
+  },
+  {
+    "mortality_code": "R9",
+    "mnemonic": "R01FSRNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 FS R NS"
+  },
+  {
+    "mortality_code": "RJ",
+    "mnemonic": "R01FSRNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 FS R NU"
+  },
+  {
+    "mortality_code": "RL",
+    "mnemonic": "R01MNPLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 MN P LS"
+  },
+  {
+    "mortality_code": "RV",
+    "mnemonic": "R01MNPLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 MN P LU"
+  },
+  {
+    "mortality_code": "RB",
+    "mnemonic": "R01MNPNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 MN P NU"
+  },
+  {
+    "mortality_code": "RM",
+    "mnemonic": "R01MNRLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 MN R LS"
+  },
+  {
+    "mortality_code": "RW",
+    "mnemonic": "R01MNRLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 MN R LU"
+  },
+  {
+    "mortality_code": "R2",
+    "mnemonic": "R01MNRNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 MN R NS"
+  },
+  {
+    "mortality_code": "RC",
+    "mnemonic": "R01MNRNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 MN R NU"
+  },
+  {
+    "mortality_code": "RK",
+    "mnemonic": "R01MNSLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 MN S LS"
+  },
+  {
+    "mortality_code": "RU",
+    "mnemonic": "R01MNSLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 MN S LU"
+  },
+  {
+    "mortality_code": "R0",
+    "mnemonic": "R01MNSNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 MN S NS"
+  },
+  {
+    "mortality_code": "RA",
+    "mnemonic": "R01MNSNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 MN S NU"
+  },
+  {
+    "mortality_code": "RN",
+    "mnemonic": "R01MSPLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 MS P LS"
+  },
+  {
+    "mortality_code": "RX",
+    "mnemonic": "R01MSPLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 MS P LU"
+  },
+  {
+    "mortality_code": "R3",
+    "mnemonic": "R01MSPNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 MS P NS"
+  },
+  {
+    "mortality_code": "RD",
+    "mnemonic": "R01MSPNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 MS P NU"
+  },
+  {
+    "mortality_code": "RO",
+    "mnemonic": "R01MSRLS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 MS R LS"
+  },
+  {
+    "mortality_code": "RY",
+    "mnemonic": "R01MSRLU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 MS R LU"
+  },
+  {
+    "mortality_code": "R4",
+    "mnemonic": "R01MSRNS",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "P2017 MS R NS"
+  },
+  {
+    "mortality_code": "RE",
+    "mnemonic": "R01MSRNU",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "P2017 MS R NU"
+  },
+  {
+    "mortality_code": "R1",
+    "mnemonic": "R1",
+    "final_age": 106,
+    "select_period": 0,
+    "description": "58 CET F 106"
+  },
+  {
+    "mortality_code": "S",
+    "mnemonic": "S",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1958 CSO MLX",
+    "cycle_code": "S"
+  },
+  {
+    "mortality_code": "S0",
+    "mnemonic": "S0",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80MN ALB TEN",
+    "cycle_code": "0"
+  },
+  {
+    "mortality_code": "S1",
+    "mnemonic": "S1",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80FN ALB TEN",
+    "cycle_code": "1"
+  },
+  {
+    "mortality_code": "S2",
+    "mnemonic": "S2",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80MS ALB TEN",
+    "cycle_code": "2"
+  },
+  {
+    "mortality_code": "S3",
+    "mnemonic": "S3",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80FS ALB TEN",
+    "cycle_code": "3"
+  },
+  {
+    "mortality_code": "S4",
+    "mnemonic": "S4",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80M ALB TEN",
+    "cycle_code": "4"
+  },
+  {
+    "mortality_code": "S5",
+    "mnemonic": "S5",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80F ALB TEN",
+    "cycle_code": "5"
+  },
+  {
+    "mortality_code": "S6",
+    "mnemonic": "S6",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80MN ANB TEN"
+  },
+  {
+    "mortality_code": "S7",
+    "mnemonic": "S7",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80FN ANB TEN"
+  },
+  {
+    "mortality_code": "S8",
+    "mnemonic": "S8",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80MS ANB TEN"
+  },
+  {
+    "mortality_code": "S9",
+    "mnemonic": "S9",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80FS ANB TEN"
+  },
+  {
+    "mortality_code": "SA",
+    "mnemonic": "SA",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80M ANB TEN"
+  },
+  {
+    "mortality_code": "37",
+    "mnemonic": "SA 37",
+    "final_age": 110,
+    "select_period": 0,
+    "description": "STD ANN 1937"
+  },
+  {
+    "mortality_code": "SB",
+    "mnemonic": "SB",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80F ANB TEN"
+  },
+  {
+    "mortality_code": "SC",
+    "mnemonic": "SC",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80MN ALB BSF",
+    "cycle_code": "0"
+  },
+  {
+    "mortality_code": "SD",
+    "mnemonic": "SD",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80FN ALB BSF",
+    "cycle_code": "1"
+  },
+  {
+    "mortality_code": "SE",
+    "mnemonic": "SE",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80MS ALB BSF",
+    "cycle_code": "2"
+  },
+  {
+    "mortality_code": "SF",
+    "mnemonic": "SF",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80FS ALB BSF",
+    "cycle_code": "3"
+  },
+  {
+    "mortality_code": "SG",
+    "mnemonic": "SG",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80M ALB BSF",
+    "cycle_code": "4"
+  },
+  {
+    "mortality_code": "SH",
+    "mnemonic": "SH",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80F ALB BSF",
+    "cycle_code": "5"
+  },
+  {
+    "mortality_code": "SI",
+    "mnemonic": "SI",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80MN ANB BSF"
+  },
+  {
+    "mortality_code": "SJ",
+    "mnemonic": "SJ",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80FN ANB BSF"
+  },
+  {
+    "mortality_code": "SK",
+    "mnemonic": "SK",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80MS ANB BSF"
+  },
+  {
+    "mortality_code": "SL",
+    "mnemonic": "SL",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80FS ANB BSF"
+  },
+  {
+    "mortality_code": "SM",
+    "mnemonic": "SM",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80M ANB BSF"
+  },
+  {
+    "mortality_code": "SN",
+    "mnemonic": "SN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80F ANB BSF"
+  },
+  {
+    "mortality_code": "T",
+    "mnemonic": "T",
+    "final_age": 103,
+    "select_period": 0,
+    "description": "1958 CSO FLX",
+    "cycle_code": "T"
+  },
+  {
+    "mortality_code": "E",
+    "mnemonic": "TABLE E",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "TABLE E",
+    "cycle_code": "E"
+  },
+  {
+    "mortality_code": "F",
+    "mnemonic": "TABLE F",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "TABLE F",
+    "cycle_code": "F"
+  },
+  {
+    "mortality_code": "U",
+    "mnemonic": "U",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "1958 CET MLX",
+    "cycle_code": "U"
+  },
+  {
+    "mortality_code": "U6",
+    "mnemonic": "U6",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO U ALB"
+  },
+  {
+    "mortality_code": "U8",
+    "mnemonic": "U8",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO UN ALB"
+  },
+  {
+    "mortality_code": "UA",
+    "mnemonic": "UA",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSO US ALB"
+  },
+  {
+    "mortality_code": "%",
+    "mnemonic": "UNKNOWN",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80 CSO COMP"
+  },
+  {
+    "mortality_code": "&",
+    "mnemonic": "UNKNOWN2",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2001CSO COMPS"
+  },
+  {
+    "mortality_code": "$",
+    "mnemonic": "UNKNOWN3",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSO COMPU"
+  },
+  {
+    "mortality_code": "#3",
+    "mnemonic": "UNKNOWN4",
+    "final_age": 121,
+    "select_period": 25,
+    "description": "2017CSO COMPS"
+  },
+  {
+    "mortality_code": "#4",
+    "mnemonic": "UNKNOWN5",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2017CSO COMPU"
+  },
+  {
+    "mortality_code": "UO",
+    "mnemonic": "UO",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOC80/20"
+  },
+  {
+    "mortality_code": "UQ",
+    "mnemonic": "UQ",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSOU40"
+  },
+  {
+    "mortality_code": "UR",
+    "mnemonic": "UR",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSONSU40"
+  },
+  {
+    "mortality_code": "US",
+    "mnemonic": "US",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CSOSKU40"
+  },
+  {
+    "mortality_code": "UT",
+    "mnemonic": "UT",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CETU40"
+  },
+  {
+    "mortality_code": "UU",
+    "mnemonic": "UU",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CETNSU40"
+  },
+  {
+    "mortality_code": "UV",
+    "mnemonic": "UV",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "80CETSKU40"
+  },
+  {
+    "mortality_code": "UX",
+    "mnemonic": "UX",
+    "final_age": 121,
+    "select_period": 0,
+    "description": "2001CSOC40/60"
+  },
+  {
+    "mortality_code": "V",
+    "mnemonic": "V",
+    "final_age": 103,
+    "select_period": 0,
+    "description": "1958 CET FLX",
+    "cycle_code": "V"
+  },
+  {
+    "mortality_code": "W",
+    "mnemonic": "W",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "130% 41 CSO",
+    "cycle_code": "W"
+  },
+  {
+    "mortality_code": "X",
+    "mnemonic": "X",
+    "final_age": 103,
+    "select_period": 0,
+    "description": "115% AM MEN",
+    "cycle_code": "X"
+  },
+  {
+    "mortality_code": "Y",
+    "mnemonic": "Y",
+    "final_age": 100,
+    "select_period": 0,
+    "description": "58 CET M MOD",
+    "cycle_code": "Y"
+  },
+  {
+    "mortality_code": "Z",
+    "mnemonic": "Z",
+    "final_age": 103,
+    "select_period": 0,
+    "description": "58 CET F MOD",
+    "cycle_code": "Z"
+  }
+]

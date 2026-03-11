@@ -1,0 +1,340 @@
+﻿================================================================================
+RENAMES ù Fields to change
+================================================================================
+
+  BL_DAY_NBR -> BIL_DAY_NBR  (2 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:172  return int(self._policy.data_item("LH_BAS_POL", "BL_DAY_NBR") or 0)
+    suiteview\polview\models\cl_polrec\CL_POLREC_32_33_35.py:56  return int(self._policy.data_item("LH_BAS_POL", "BL_DAY_NBR") or 0)
+
+  NXT_MVRY_DT -> NXT_MVRY_PRC_DT  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:128  return parse_date(self._policy.data_item("LH_BAS_POL", "NXT_MVRY_DT"))
+
+  ANN_PRM_AMT -> ANN_PRM_UNT_AMT  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1139  annual_premium=Decimal(str(row["ANN_PRM_AMT"])) if row.get("ANN_PRM_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:201  annual_premium=Decimal(str(row["ANN_PRM_AMT"])) if row.get("ANN_PRM_AMT") else None,
+
+  ELM_PER_CD -> AH_ACC_ELM_PER_CD  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1096  elim_code = str(row.get("ELM_PER_CD", "") or "")
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:160  elim_code = str(row.get("ELM_PER_CD", "") or "")
+
+  BNF_PER_CD -> AH_ACC_BNF_PER_CD  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1097  bnf_code = str(row.get("BNF_PER_CD", "") or "")
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:161  bnf_code = str(row.get("BNF_PER_CD", "") or "")
+
+  TAR_VAL_AMT -> TAR_PRM_AMT  (6 occurrences)
+    suiteview\polview\models\policy_information.py:2960  target_amount=Decimal(str(row.get("TAR_PRM_AMT") or row.get("TAR_VAL_AMT") or 0)) or None,
+    suiteview\polview\models\policy_information.py:2970  val = self.data_item_where("LH_COV_TARGET", "TAR_VAL_AMT", "TAR_TYP_CD", "CV")
+    suiteview\polview\models\policy_information.py:2976  val = self.data_item_where("LH_COV_TARGET", "TAR_VAL_AMT", "TAR_TYP_CD", "SU")
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:418  target_amount=Decimal(str(row.get("TAR_PRM_AMT") or row.get("TAR_VAL_AMT") or 0)) or None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:427  val = self._policy.data_item_where("LH_COV_TARGET", "TAR_VAL_AMT", "TAR_TYP_CD", "CV")
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:432  val = self._policy.data_item_where("LH_COV_TARGET", "TAR_VAL_AMT", "TAR_TYP_CD", "SU")
+
+  LN_ITS_RT -> LN_CRG_ITS_RT  (7 occurrences)
+    suiteview\polview\models\policy_information.py:1344  interest_rate=Decimal(str(row["LN_ITS_RT"])) if row.get("LN_ITS_RT") else None,
+    suiteview\polview\models\policy_information.py:1363  interest_rate=Decimal(str(row["LN_ITS_RT"])) if row.get("LN_ITS_RT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:70  LN_ITS_RT=Decimal(str(row["LN_ITS_RT"])) if row.get("LN_ITS_RT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:87  LN_ITS_RT=Decimal(str(row["LN_ITS_RT"])) if row.get("LN_ITS_RT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:123  interest_rate=Decimal(str(row["LN_ITS_RT"])) if row.get("LN_ITS_RT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:150  val = self._policy.data_item("LH_CSH_VAL_LOAN", "LN_ITS_RT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:185  val = self._policy.data_item("LH_FND_VAL_LOAN", "LN_ITS_RT", index)
+
+  BKT_STR_DT -> ITS_PER_STR_DT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2635  start_date=self._parse_date(row.get("BKT_STR_DT")),
+    suiteview\polview\models\policy_information.py:2673  return self._parse_date(self.data_item("LH_POL_FND_VAL_TOT", "BKT_STR_DT", index))
+    suiteview\polview\models\cl_polrec\CL_POLREC_55_57_65.py:92  BKT_STR_DT=parse_date(row.get("BKT_STR_DT")),
+    suiteview\polview\models\cl_polrec\CL_POLREC_55_57_65.py:123  return parse_date(self._policy.data_item("LH_POL_FND_VAL_TOT", "BKT_STR_DT", index))
+
+  PTP_APL_TYP_CD -> CK_PTP_TYP_CD  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2095  div_type = str(row.get("PTP_APL_TYP_CD", "") or "")
+    suiteview\polview\models\policy_information.py:2119  return str(self.data_item("LH_APPLIED_PTP", "PTP_APL_TYP_CD", index) or "")
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:66  div_type = str(row.get("PTP_APL_TYP_CD", "") or "")
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:87  return str(self._policy.data_item("LH_APPLIED_PTP", "PTP_APL_TYP_CD", index) or "")
+
+  OYT_FCE_AMT -> OYT_ADD_AMT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2196  face_amount=Decimal(str(row["OYT_FCE_AMT"])) if row.get("OYT_FCE_AMT") else None,
+    suiteview\polview\models\policy_information.py:2219  val = self.data_item("LH_ONE_YR_TRM_ADD", "OYT_FCE_AMT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:153  OYT_FCE_AMT=Decimal(str(row["OYT_FCE_AMT"])) if row.get("OYT_FCE_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:172  val = self._policy.data_item("LH_ONE_YR_TRM_ADD", "OYT_FCE_AMT", index)
+
+  PUA_FCE_AMT -> PUA_AMT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2258  face_amount=Decimal(str(row["PUA_FCE_AMT"])) if row.get("PUA_FCE_AMT") else None,
+    suiteview\polview\models\policy_information.py:2281  val = self.data_item("LH_PAID_UP_ADD", "PUA_FCE_AMT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:207  PUA_FCE_AMT=Decimal(str(row["PUA_FCE_AMT"])) if row.get("PUA_FCE_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:226  val = self._policy.data_item("LH_PAID_UP_ADD", "PUA_FCE_AMT", index)
+
+  NXT_ANV_DT -> NXT_YR_END_PRC_DT  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:124  return parse_date(self._policy.data_item("LH_BAS_POL", "NXT_ANV_DT"))
+
+  REG_PRM_AMT -> POL_PRM_AMT  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:202  val = self._policy.data_item("LH_BAS_POL", "REG_PRM_AMT")
+
+  VLU_PER_UNT_AMT -> COV_VPU_AMT  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1062  vpu = Decimal(str(row.get("COV_VPU_AMT") or row.get("VLU_PER_UNT_AMT") or 0))
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:129  vpu = Decimal(str(row.get("COV_VPU_AMT") or row.get("VLU_PER_UNT_AMT") or 0))
+
+  LN_ITS_STS_CD -> LN_ITS_AMT_TYP_CD  (3 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:118  int_status = str(row.get("LN_ITS_STS_CD", "") or "")
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:157  return str(self._policy.data_item("LH_CSH_VAL_LOAN", "LN_ITS_STS_CD", index) or "")
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:189  return str(self._policy.data_item("LH_FND_VAL_LOAN", "LN_ITS_STS_CD", index) or "")
+
+  CRE_ITS_RT -> VAL_PHA_ITS_RT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2634  interest_rate=Decimal(str(row["CRE_ITS_RT"])) if row.get("CRE_ITS_RT") else None,
+    suiteview\polview\models\policy_information.py:2668  val = self.data_item("LH_POL_FND_VAL_TOT", "CRE_ITS_RT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_55_57_65.py:91  CRE_ITS_RT=Decimal(str(row["CRE_ITS_RT"])) if row.get("CRE_ITS_RT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_55_57_65.py:119  val = self._policy.data_item("LH_POL_FND_VAL_TOT", "CRE_ITS_RT", index)
+
+  CSH_SUR_VAL_AMT -> CSV_AMT  (2 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_60_62_63_64_75.py:115  val = self._policy.data_item("TH_POL_MVRY_VAL", "CSH_SUR_VAL_AMT")
+    suiteview\polview\models\cl_polrec\CL_POLREC_60_62_63_64_75.py:117  val = self._policy.data_item("LH_POL_MVRY_VAL", "CSH_SUR_VAL_AMT")
+
+  TOT_TRS_AMT -> GROSS_AMT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2740  gross_amount=Decimal(str(row["TOT_TRS_AMT"])) if row.get("TOT_TRS_AMT") else None,
+    suiteview\polview\models\policy_information.py:2780  val = self.data_item("FH_FIXED", "TOT_TRS_AMT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_69.py:55  TOT_TRS_AMT=Decimal(str(row["TOT_TRS_AMT"])) if row.get("TOT_TRS_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_69.py:85  val = self._policy.data_item("FH_FIXED", "TOT_TRS_AMT", index)
+
+  ACC_VAL_GRS_AMT -> NET_AMT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2741  net_amount=Decimal(str(row["ACC_VAL_GRS_AMT"])) if row.get("ACC_VAL_GRS_AMT") else None,
+    suiteview\polview\models\policy_information.py:2785  val = self.data_item("FH_FIXED", "ACC_VAL_GRS_AMT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_69.py:56  ACC_VAL_GRS_AMT=Decimal(str(row["ACC_VAL_GRS_AMT"])) if row.get("ACC_VAL_GRS_AMT") else No
+    suiteview\polview\models\cl_polrec\CL_POLREC_69.py:89  val = self._policy.data_item("FH_FIXED", "ACC_VAL_GRS_AMT", index)
+
+  FND_ID_CD -> FUND_ID  (16 occurrences)
+    suiteview\polview\models\policy_information.py:2586  fund_id = str(row.get("FND_ID_CD", ""))
+    suiteview\polview\models\policy_information.py:2602  fund_id = str(row.get("FND_ID_CD", ""))
+    suiteview\polview\models\policy_information.py:2627  fund_id = str(row.get("FND_ID_CD", "") or "")
+    suiteview\polview\models\policy_information.py:2650  return str(self.data_item("LH_POL_FND_VAL_TOT", "FND_ID_CD", index) or "")
+    suiteview\polview\models\policy_information.py:2712  fund_id = str(row.get("FND_ID_CD", ""))
+    suiteview\polview\models\policy_information.py:2743  fund_id=str(row.get("FND_ID_CD", "") or ""),
+    suiteview\polview\models\policy_information.py:2795  return str(self.data_item("FH_FIXED", "FND_ID_CD", index) or "")
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:171  return str(self._policy.data_item("LH_FND_VAL_LOAN", "FND_ID_CD", index) or "")
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:205  fund_id = str(row.get("FND_ID_CD", ""))
+    suiteview\polview\models\cl_polrec\CL_POLREC_55_57_65.py:53  fund_id = str(row.get("FND_ID_CD", ""))
+    suiteview\polview\models\cl_polrec\CL_POLREC_55_57_65.py:64  fund_id = str(row.get("FND_ID_CD", ""))
+    suiteview\polview\models\cl_polrec\CL_POLREC_55_57_65.py:84  fund_id = str(row.get("FND_ID_CD", "") or "")
+    suiteview\polview\models\cl_polrec\CL_POLREC_55_57_65.py:105  return str(self._policy.data_item("LH_POL_FND_VAL_TOT", "FND_ID_CD", index) or "")
+    suiteview\polview\models\cl_polrec\CL_POLREC_55_57_65.py:156  fund_id = str(row.get("FND_ID_CD", ""))
+    suiteview\polview\models\cl_polrec\CL_POLREC_69.py:58  FND_ID_CD=str(row.get("FND_ID_CD", "") or ""),
+    suiteview\polview\models\cl_polrec\CL_POLREC_69.py:97  return str(self._policy.data_item("FH_FIXED", "FND_ID_CD", index) or "")
+
+  ISSUE_AGE_YR_NBR -> INS_ISS_AGE  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1108  issue_age=int(row.get("INS_ISS_AGE") or row.get("ISSUE_AGE_YR_NBR") or 0) or None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:170  issue_age=int(row.get("INS_ISS_AGE") or row.get("ISSUE_AGE_YR_NBR") or 0) or None,
+
+  OYT_CSV_AMT -> OYT_ADD_AMT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2197  csv_amount=Decimal(str(row["OYT_CSV_AMT"])) if row.get("OYT_CSV_AMT") else None,
+    suiteview\polview\models\policy_information.py:2224  val = self.data_item("LH_ONE_YR_TRM_ADD", "OYT_CSV_AMT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:154  OYT_CSV_AMT=Decimal(str(row["OYT_CSV_AMT"])) if row.get("OYT_CSV_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:176  val = self._policy.data_item("LH_ONE_YR_TRM_ADD", "OYT_CSV_AMT", index)
+
+  PUA_CSV_AMT -> PUA_AMT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2259  csv_amount=Decimal(str(row["PUA_CSV_AMT"])) if row.get("PUA_CSV_AMT") else None,
+    suiteview\polview\models\policy_information.py:2286  val = self.data_item("LH_PAID_UP_ADD", "PUA_CSV_AMT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:208  PUA_CSV_AMT=Decimal(str(row["PUA_CSV_AMT"])) if row.get("PUA_CSV_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:230  val = self._policy.data_item("LH_PAID_UP_ADD", "PUA_CSV_AMT", index)
+
+  CUM_DEP_AMT -> PTP_DEP_AMT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2322  deposit_amount=Decimal(str(row["CUM_DEP_AMT"])) if row.get("CUM_DEP_AMT") else None,
+    suiteview\polview\models\policy_information.py:2344  val = self.data_item("LH_PTP_ON_DEP", "CUM_DEP_AMT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:263  CUM_DEP_AMT=Decimal(str(row["CUM_DEP_AMT"])) if row.get("CUM_DEP_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:281  val = self._policy.data_item("LH_PTP_ON_DEP", "CUM_DEP_AMT", index)
+
+
+================================================================================
+SPECIAL: TMN_DT -> PLN_TMN_DT
+================================================================================
+  suiteview\polview\models\policy_information.py:1137  terminate_date=self._parse_date(row.get("TMN_DT")),
+  suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:133  return parse_date(self._policy.data_item("LH_BAS_POL", "TMN_DT"))
+  suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:199  terminate_date=parse_date(row.get("TMN_DT")),
+
+
+================================================================================
+SPECIAL: PTP_TYP_CD -> CK_PTP_TYP_CD (on UNAPPLIED and PTP_ON_DEP)
+================================================================================
+  suiteview\polview\models\policy_information.py:2144  div_type = str(row.get("PTP_TYP_CD", "") or "")
+  suiteview\polview\models\policy_information.py:2168  return str(self.data_item("LH_UNAPPLIED_PTP", "PTP_TYP_CD", index) or "")
+  suiteview\polview\models\policy_information.py:2317  dep_type = str(row.get("PTP_TYP_CD", "") or "")
+  suiteview\polview\models\policy_information.py:2340  return str(self.data_item("LH_PTP_ON_DEP", "PTP_TYP_CD", index) or "")
+  suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:108  div_type = str(row.get("PTP_TYP_CD", "") or "")
+  suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:129  return str(self._policy.data_item("LH_UNAPPLIED_PTP", "PTP_TYP_CD", index) or "")
+  suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:258  dep_type = str(row.get("PTP_TYP_CD", "") or "")
+  suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:278  return str(self._policy.data_item("LH_PTP_ON_DEP", "PTP_TYP_CD", index) or "")
+
+
+================================================================================
+SPECIAL: TRN_TYP_CD and TRN_SBY_CD -> TRANS (FH_FIXED)
+================================================================================
+  suiteview\polview\models\policy_information.py:2730  trans_type = str(row.get("TRN_TYP_CD", "") or "")
+  suiteview\polview\models\policy_information.py:2762  trans_type = str(self.data_item("FH_FIXED", "TRN_TYP_CD", index) or "")
+  suiteview\polview\models\policy_information.py:2768  return str(self.data_item("FH_FIXED", "TRN_TYP_CD", index) or "")
+  suiteview\polview\models\cl_polrec\CL_POLREC_69.py:46  trans_type = str(row.get("TRN_TYP_CD", "") or "")
+  suiteview\polview\models\cl_polrec\CL_POLREC_69.py:74  trans_type = str(self._policy.data_item("FH_FIXED", "TRN_TYP_CD", index) or "")
+  suiteview\polview\models\cl_polrec\CL_POLREC_69.py:79  return str(self._policy.data_item("FH_FIXED", "TRN_TYP_CD", index) or "")
+  suiteview\polview\models\policy_information.py:2731  trans_subtype = str(row.get("TRN_SBY_CD", "") or "")
+  suiteview\polview\models\policy_information.py:2763  trans_subtype = str(self.data_item("FH_FIXED", "TRN_SBY_CD", index) or "")
+  suiteview\polview\models\policy_information.py:2772  return str(self.data_item("FH_FIXED", "TRN_SBY_CD", index) or "")
+  suiteview\polview\models\cl_polrec\CL_POLREC_69.py:47  trans_subtype = str(row.get("TRN_SBY_CD", "") or "")
+  suiteview\polview\models\cl_polrec\CL_POLREC_69.py:75  trans_subtype = str(self._policy.data_item("FH_FIXED", "TRN_SBY_CD", index) or "")
+
+
+================================================================================
+SPECIAL: COV_PHA_NBR -> PHASE (FH_FIXED only)
+================================================================================
+  suiteview\polview\models\policy_information.py:2799  val = self.data_item("FH_FIXED", "COV_PHA_NBR", index)
+  suiteview\polview\models\cl_polrec\CL_POLREC_69.py:100  val = self._policy.data_item("FH_FIXED", "COV_PHA_NBR", index)
+
+
+================================================================================
+SPECIAL: FH_FIXED LN_ITS_AMT -> vary by table
+================================================================================
+  suiteview\polview\models\policy_information.py:1356  accrued = Decimal(str(row.get("LN_ITS_AMT", 0) or 0))
+  suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:81  accrued = Decimal(str(row.get("LN_ITS_AMT", 0) or 0))
+  suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:181  val = self._policy.data_item("LH_FND_VAL_LOAN", "LN_ITS_AMT", index)
+  suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:261  interest_amount=Decimal(str(row["LN_ITS_AMT"])) if row.get("LN_ITS_AMT") else None,
+  suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:287  val = self._policy.data_item("LH_LN_RPY_TRM", "LN_ITS_AMT", index)
+
+
+================================================================================
+SPECIAL: ITS_AMT -> DEP_ITS_AMT on LH_PTP_ON_DEP
+================================================================================
+  suiteview\polview\models\policy_information.py:2323  interest_amount=Decimal(str(row["ITS_AMT"])) if row.get("ITS_AMT") else None,
+  suiteview\polview\models\policy_information.py:2349  val = self.data_item("LH_PTP_ON_DEP", "ITS_AMT", index)
+  suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:264  ITS_AMT=Decimal(str(row["ITS_AMT"])) if row.get("ITS_AMT") else None,
+  suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:285  val = self._policy.data_item("LH_PTP_ON_DEP", "ITS_AMT", index)
+
+
+================================================================================
+REMOVES ù Fields to delete
+================================================================================
+
+  REMOVE STS_CD  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:72  return str(self._policy.data_item("LH_BAS_POL", "STS_CD") or "")
+
+  REMOVE GRC_IND  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:108  return str(self._policy.data_item("LH_BAS_POL", "GRC_IND")) == "1"
+
+  REMOVE DEFRA_IND  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:275  return str(self._policy.data_item("LH_BAS_POL", "DEFRA_IND") or "")
+
+  REMOVE GSP_AMT  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:287  val = self._policy.data_item("LH_BAS_POL", "GSP_AMT")
+
+  REMOVE GLP_AMT  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:292  val = self._policy.data_item("LH_BAS_POL", "GLP_AMT")
+
+  REMOVE VUL_IND  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:267  return str(self._policy.data_item("TH_BAS_POL", "VUL_IND") or "0") == "1"
+
+  REMOVE IUL_IND  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:271  return str(self._policy.data_item("TH_BAS_POL", "IUL_IND") or "0") == "1"
+
+  REMOVE MIN_PRM_AMT  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:225  val = self._policy.data_item("TH_BAS_POL", "MIN_PRM_AMT")
+
+  REMOVE PRM_PAY_STS_CD  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1093  status_code = str(row.get("PRM_PAY_STS_CD", ""))
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:159  status_code = str(row.get("PRM_PAY_STS_CD", ""))
+
+  REMOVE DTH_BNF_AMT  (2 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_60_62_63_64_75.py:129  val = self._policy.data_item("TH_POL_MVRY_VAL", "DTH_BNF_AMT")
+    suiteview\polview\models\cl_polrec\CL_POLREC_60_62_63_64_75.py:131  val = self._policy.data_item("LH_POL_MVRY_VAL", "DTH_BNF_AMT")
+
+  REMOVE CV_AMT  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1074  cv_amount = Decimal(str(th_row["CV_AMT"])) if th_row and th_row.get("CV_AMT") else None
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:140  cv_amount = Decimal(str(th_row["CV_AMT"])) if th_row and th_row.get("CV_AMT") else None
+
+  REMOVE NSP_AMT  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1075  nsp_amount = Decimal(str(th_row["NSP_AMT"])) if th_row and th_row.get("NSP_AMT") else None
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:141  nsp_amount = Decimal(str(th_row["NSP_AMT"])) if th_row and th_row.get("NSP_AMT") else None
+
+  REMOVE OPT_EXER_IND  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1073  gio_indicator = str(th_row.get("OPT_EXER_IND", "")) if th_row else ""
+    suiteview\polview\models\cl_polrec\CL_POLREC_02_03_09_67.py:139  gio_indicator = str(th_row.get("OPT_EXER_IND", "")) if th_row else ""
+
+  REMOVE COM_PCT  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1300  commission_pct=Decimal(str(row["COM_PCT"])) if row.get("COM_PCT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_38_48.py:54  COM_PCT=Decimal(str(row["COM_PCT"])) if row.get("COM_PCT") else None,
+
+  REMOVE MKT_ORG_CD  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1301  market_org_cd=str(row.get("MKT_ORG_CD", "")),
+    suiteview\polview\models\cl_polrec\CL_POLREC_38_48.py:55  MKT_ORG_CD=str(row.get("MKT_ORG_CD", "")),
+
+  REMOVE SVC_AGT_IND  (2 occurrences)
+    suiteview\polview\models\policy_information.py:1302  svc_agt_ind=str(row.get("SVC_AGT_IND", "")),
+    suiteview\polview\models\cl_polrec\CL_POLREC_38_48.py:56  SVC_AGT_IND=str(row.get("SVC_AGT_IND", "")),
+
+  REMOVE MEC_IND  (1 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_60_62_63_64_75.py:184  return str(self._policy.data_item("LH_TAMRA_MEC_PRM", "MEC_IND")) == "1"
+
+  REMOVE PMT_NBR  (2 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:257  payment_number=int(row.get("PMT_NBR", 0) or 0),
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:272  val = self._policy.data_item("LH_LN_RPY_TRM", "PMT_NBR", index)
+
+  REMOVE PMT_DT  (2 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:258  payment_date=parse_date(row.get("PMT_DT")),
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:276  return parse_date(self._policy.data_item("LH_LN_RPY_TRM", "PMT_DT", index))
+
+  REMOVE PMT_AMT  (2 occurrences)
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:259  payment_amount=Decimal(str(row["PMT_AMT"])) if row.get("PMT_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_20_77.py:279  val = self._policy.data_item("LH_LN_RPY_TRM", "PMT_AMT", index)
+
+  REMOVE PTP_APL_DT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2097  dividend_date=self._parse_date(row.get("PTP_APL_DT")),
+    suiteview\polview\models\policy_information.py:2115  return self._parse_date(self.data_item("LH_APPLIED_PTP", "PTP_APL_DT", index))
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:68  PTP_APL_DT=parse_date(row.get("PTP_APL_DT")),
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:84  return parse_date(self._policy.data_item("LH_APPLIED_PTP", "PTP_APL_DT", index))
+
+  REMOVE PTP_GRS_AMT  (8 occurrences)
+    suiteview\polview\models\policy_information.py:2100  gross_amount=Decimal(str(row["PTP_GRS_AMT"])) if row.get("PTP_GRS_AMT") else None,
+    suiteview\polview\models\policy_information.py:2123  val = self.data_item("LH_APPLIED_PTP", "PTP_GRS_AMT", index)
+    suiteview\polview\models\policy_information.py:2149  gross_amount=Decimal(str(row["PTP_GRS_AMT"])) if row.get("PTP_GRS_AMT") else None,
+    suiteview\polview\models\policy_information.py:2172  val = self.data_item("LH_UNAPPLIED_PTP", "PTP_GRS_AMT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:71  PTP_GRS_AMT=Decimal(str(row["PTP_GRS_AMT"])) if row.get("PTP_GRS_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:90  val = self._policy.data_item("LH_APPLIED_PTP", "PTP_GRS_AMT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:113  PTP_GRS_AMT=Decimal(str(row["PTP_GRS_AMT"])) if row.get("PTP_GRS_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:132  val = self._policy.data_item("LH_UNAPPLIED_PTP", "PTP_GRS_AMT", index)
+
+  REMOVE PTP_NET_AMT  (8 occurrences)
+    suiteview\polview\models\policy_information.py:2101  net_amount=Decimal(str(row["PTP_NET_AMT"])) if row.get("PTP_NET_AMT") else None,
+    suiteview\polview\models\policy_information.py:2128  val = self.data_item("LH_APPLIED_PTP", "PTP_NET_AMT", index)
+    suiteview\polview\models\policy_information.py:2150  net_amount=Decimal(str(row["PTP_NET_AMT"])) if row.get("PTP_NET_AMT") else None,
+    suiteview\polview\models\policy_information.py:2177  val = self.data_item("LH_UNAPPLIED_PTP", "PTP_NET_AMT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:72  PTP_NET_AMT=Decimal(str(row["PTP_NET_AMT"])) if row.get("PTP_NET_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:94  val = self._policy.data_item("LH_APPLIED_PTP", "PTP_NET_AMT", index)
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:114  PTP_NET_AMT=Decimal(str(row["PTP_NET_AMT"])) if row.get("PTP_NET_AMT") else None,
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:136  val = self._policy.data_item("LH_UNAPPLIED_PTP", "PTP_NET_AMT", index)
+
+  REMOVE PTP_PRO_DT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2146  dividend_date=self._parse_date(row.get("PTP_PRO_DT")),
+    suiteview\polview\models\policy_information.py:2164  return self._parse_date(self.data_item("LH_UNAPPLIED_PTP", "PTP_PRO_DT", index))
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:110  PTP_PRO_DT=parse_date(row.get("PTP_PRO_DT")),
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:126  return parse_date(self._policy.data_item("LH_UNAPPLIED_PTP", "PTP_PRO_DT", index))
+
+  REMOVE OYT_ISS_DT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2195  issue_date=self._parse_date(row.get("OYT_ISS_DT")),
+    suiteview\polview\models\policy_information.py:2215  return self._parse_date(self.data_item("LH_ONE_YR_TRM_ADD", "OYT_ISS_DT", index))
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:152  OYT_ISS_DT=parse_date(row.get("OYT_ISS_DT")),
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:169  return parse_date(self._policy.data_item("LH_ONE_YR_TRM_ADD", "OYT_ISS_DT", index))
+
+  REMOVE PUA_ISS_DT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2257  issue_date=self._parse_date(row.get("PUA_ISS_DT")),
+    suiteview\polview\models\policy_information.py:2277  return self._parse_date(self.data_item("LH_PAID_UP_ADD", "PUA_ISS_DT", index))
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:206  PUA_ISS_DT=parse_date(row.get("PUA_ISS_DT")),
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:223  return parse_date(self._policy.data_item("LH_PAID_UP_ADD", "PUA_ISS_DT", index))
+
+  REMOVE DEP_DT  (4 occurrences)
+    suiteview\polview\models\policy_information.py:2319  deposit_date=self._parse_date(row.get("DEP_DT")),
+    suiteview\polview\models\policy_information.py:2336  return self._parse_date(self.data_item("LH_PTP_ON_DEP", "DEP_DT", index))
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:260  DEP_DT=parse_date(row.get("DEP_DT")),
+    suiteview\polview\models\cl_polrec\CL_POLREC_12_13_14_15_18_19_74.py:275  return parse_date(self._policy.data_item("LH_PTP_ON_DEP", "DEP_DT", index))
+
+
+================================================================================
+TABLE CHANGES
+================================================================================
+  ISSUE_DT table change: suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:116  return parse_date(self._policy.data_item("LH_BAS_POL", "ISSUE_DT"))
+  TAR_PRM_AMT table change: suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:219  val = self._policy.data_item("TH_BAS_POL", "TAR_PRM_AMT")
+  DTH_BNF_PLN_OPT_CD table change: suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:250  return str(self._policy.data_item("TH_BAS_POL", "DTH_BNF_PLN_OPT_CD") or "")
+  TFDF_CD table change: suiteview\polview\models\cl_polrec\CL_POLREC_01_51_66.py:279  return str(self._policy.data_item("TH_BAS_POL", "TFDF_CD") or "")
+  COM_PCT: suiteview\polview\models\policy_information.py:1300  commission_pct=Decimal(str(row["COM_PCT"])) if row.get("COM_PCT") else None,
+  COM_PCT: suiteview\polview\models\cl_polrec\CL_POLREC_38_48.py:54  COM_PCT=Decimal(str(row["COM_PCT"])) if row.get("COM_PCT") else None,
