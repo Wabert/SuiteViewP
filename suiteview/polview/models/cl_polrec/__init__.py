@@ -14,14 +14,12 @@ delegate classes are still used:
 from .cyberlife_base import PolicyDataAccessor, parse_date
 
 # Only the delegate classes still referenced by PolicyInformation
-from .CL_POLREC_01_51_66 import BasePolicyRecords
 from .CL_POLREC_20_77 import LoanRecords
 from .CL_POLREC_60_62_63_64_75 import TotalRecords
 
 __all__ = [
     "PolicyDataAccessor",
     "parse_date",
-    "BasePolicyRecords",
     "LoanRecords",
     "TotalRecords",
 ]
