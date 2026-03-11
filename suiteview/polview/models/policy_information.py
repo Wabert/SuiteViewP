@@ -58,6 +58,9 @@ from .cl_polrec import (
 # Use the shared database connection module instead of a duplicate manager
 from suiteview.core.db2_connection import DB2Connection as _DB2Connection
 
+# Data access layer — PolicyData owns DB2 access and table caching
+from .policy_data import PolicyData as _PolicyData, _ConnectionManager
+
 # Import Rates class for rate lookups
 try:
     from suiteview.core.rates import Rates
@@ -73,36 +76,6 @@ except ImportError:
 
 if TYPE_CHECKING:
     from suiteview.core.rates import Rates  # noqa: F811
-
-
-# =============================================================================
-# CONNECTION MANAGER (delegates to database.connection.DB2Connection)
-# =============================================================================
-
-class _ConnectionManager:
-    """Singleton connection manager - delegates to the shared DB2Connection class."""
-    
-    _instance: Optional[_ConnectionManager] = None
-    _db_instances: Dict[str, _DB2Connection] = {}
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-    
-    def get_connection(self, region: str):
-        """Get or create connection for region via shared DB2Connection."""
-        region = region.upper()
-        
-        if region not in self._db_instances:
-            self._db_instances[region] = _DB2Connection(region)
-        
-        return self._db_instances[region].connect()
-    
-    def close_all(self):
-        """Close all cached connections."""
-        _DB2Connection.close_all()
-        self._db_instances.clear()
 
 
 # =============================================================================
@@ -146,22 +119,10 @@ class PolicyInformation:
             system_code: System code (default "I")
             region: Database region (CKPR, CKMO, CKAS, CKSR, CKCS)
         """
-        self._policy_number = policy_number.strip()
-        self._company_code = company_code
-        self._system_code = system_code
-        self._region = region.upper()
+        # Data access layer — owns DB2 connection and table cache
+        self._data = _PolicyData(policy_number, company_code, system_code, region)
         
-        # State
-        self._policy_id: Optional[str] = None
-        self._exists: bool = False
-        self._cancelled: bool = False
-        self._last_error: str = ""
-        self._available_companies: List[str] = []  # Set when multiple companies found
-        
-        # Table cache: {table_name: {"columns": [...], "rows": [...]}}
-        self._table_cache: Dict[str, Dict] = {}
-        
-        # Cached collections
+        # Cached business-object collections
         self._coverages: Optional[List[CoverageInfo]] = None
         self._benefits: Optional[List[BenefitInfo]] = None
         self._agents: Optional[List[AgentInfo]] = None
@@ -172,12 +133,6 @@ class PolicyInformation:
         # Rates lookup (lazy loaded)
         self._rates: Optional[Rates] = None
         self._band_cache: Dict[int, Optional[int]] = {}  # cov_index -> band
-        
-        # Connection
-        self._conn_mgr = _ConnectionManager()
-        
-        # Load policy
-        self._load_policy()
         
         # CL_POLREC record class delegates (system-layer)
         self.base_records = BasePolicyRecords(self)
@@ -196,335 +151,77 @@ class PolicyInformation:
         self.person_records = PersonRecords(self)
     
     # =========================================================================
-    # CORE API
+    # CORE API  (delegates to PolicyData)
     # =========================================================================
     
     @property
     def exists(self) -> bool:
         """Whether the policy exists in the database."""
-        return self._exists
+        return self._data.exists
     
     @property
     def cancelled(self) -> bool:
         """Whether loading was cancelled or errored."""
-        return self._cancelled
+        return self._data.cancelled
     
     @property
     def last_error(self) -> str:
         """Last error message if cancelled."""
-        return self._last_error
+        return self._data.last_error
     
     @property
     def available_companies(self) -> List[str]:
-        """List of company codes when policy exists in multiple companies.
-        
-        Non-empty only when company_code was not specified and multiple
-        companies were found. The UI should present these to the user.
-        """
-        return self._available_companies
+        """List of company codes when policy exists in multiple companies."""
+        return self._data.available_companies
     
-    def data_item(
-        self,
-        table_name: str,
-        field_name: str,
-        index: int = 0
-    ) -> Any:
-        """
-        Get a value from any table.field.
-        
-        Args:
-            table_name: DB2 table name (e.g., "LH_BAS_POL")
-            field_name: Column name
-            index: Row index for multi-row tables (0-based)
-            
-        Returns:
-            Field value or None if not found
-        """
-        self._ensure_table_loaded(table_name)
-        
-        table_data = self._table_cache.get(table_name)
-        if not table_data or not table_data.get("rows"):
-            return None
-        
-        rows = table_data["rows"]
-        columns = table_data["columns"]
-        
-        if index >= len(rows):
-            return None
-        
-        try:
-            col_idx = columns.index(field_name.upper())
-            return rows[index][col_idx]
-        except (ValueError, IndexError):
-            return None
+    def data_item(self, table_name: str, field_name: str, index: int = 0) -> Any:
+        """Get a value from any table.field."""
+        return self._data.data_item(table_name, field_name, index)
     
     def data_item_array(self, table_name: str, field_name: str) -> List[Any]:
-        """
-        Get all values for a field as a list.
-        
-        Args:
-            table_name: DB2 table name
-            field_name: Column name
-            
-        Returns:
-            List of values for all rows
-        """
-        self._ensure_table_loaded(table_name)
-        
-        table_data = self._table_cache.get(table_name)
-        if not table_data or not table_data.get("rows"):
-            return []
-        
-        rows = table_data["rows"]
-        columns = table_data["columns"]
-        
-        try:
-            col_idx = columns.index(field_name.upper())
-            return [row[col_idx] for row in rows]
-        except ValueError:
-            return []
+        """Get all values for a field as a list."""
+        return self._data.data_item_array(table_name, field_name)
     
     def data_item_count(self, table_name: str) -> int:
-        """
-        Get row count for a table.
-        
-        Args:
-            table_name: DB2 table name
-            
-        Returns:
-            Number of rows in the table for this policy
-        """
-        self._ensure_table_loaded(table_name)
-        
-        table_data = self._table_cache.get(table_name)
-        if not table_data:
-            return 0
-        
-        return len(table_data.get("rows", []))
+        """Get row count for a table."""
+        return self._data.data_item_count(table_name)
     
     def fetch_table(self, table_name: str) -> List[Dict[str, Any]]:
-        """
-        Get entire table as list of dictionaries.
-        
-        Args:
-            table_name: DB2 table name
-            
-        Returns:
-            List of row dictionaries
-        """
-        self._ensure_table_loaded(table_name)
-        
-        table_data = self._table_cache.get(table_name)
-        if not table_data or not table_data.get("rows"):
-            return []
-        
-        columns = table_data["columns"]
-        return [dict(zip(columns, row)) for row in table_data["rows"]]
+        """Get entire table as list of dictionaries."""
+        return self._data.fetch_table(table_name)
     
     def if_empty(self, value: Any, default: Any = "") -> Any:
         """Return default if value is None or empty string."""
-        if value is None or value == "":
-            return default
-        return value
+        return self._data.if_empty(value, default)
     
-    # =========================================================================
-    # FILTERED DATA ACCESS - Common pattern for lookup tables
-    # =========================================================================
-    # Many DB2 tables store multiple record types distinguished by a type code.
-    # For example, LH_POL_TARGET stores different target types (MTP, GLP, etc.)
-    # distinguished by TAR_TYP_CD. These methods provide a standard way to
-    # find and extract data from such tables.
+    def find_row_index(self, table_name: str, filter_field: str, filter_value: Any) -> int:
+        """Find the first row index where filter_field equals filter_value."""
+        return self._data.find_row_index(table_name, filter_field, filter_value)
     
-    def find_row_index(
-        self,
-        table_name: str,
-        filter_field: str,
-        filter_value: Any
-    ) -> int:
-        """
-        Find the first row index where filter_field equals filter_value.
-        
-        This mirrors the VBA pattern of iterating through DataItemCount
-        and comparing DataItem values.
-        
-        Args:
-            table_name: DB2 table name (e.g., "LH_POL_TARGET")
-            filter_field: Column to filter on (e.g., "TAR_TYP_CD")
-            filter_value: Value to match (e.g., "MT" for MTP)
-            
-        Returns:
-            Row index (0-based) or -1 if not found
-            
-        Example:
-            # VBA equivalent:
-            # For x = 1 To DataItemCount("LH_POL_TARGET", "TAR_TYP_CD")
-            #   If DataItem("LH_POL_TARGET", "TAR_TYP_CD", x) = "MT" Then
-            #     index = x
-            #   End If
-            # Next
-            
-            idx = pol.find_row_index("LH_POL_TARGET", "TAR_TYP_CD", "MT")
-        """
-        count = self.data_item_count(table_name)
-        for i in range(count):
-            if str(self.data_item(table_name, filter_field, i)) == str(filter_value):
-                return i
-        return -1
+    def data_item_where(self, table_name: str, return_field: str,
+                        filter_field: str, filter_value: Any,
+                        default: Any = None) -> Any:
+        """Get a field value from the first row matching a filter."""
+        return self._data.data_item_where(table_name, return_field,
+                                          filter_field, filter_value, default)
     
-    def data_item_where(
-        self,
-        table_name: str,
-        return_field: str,
-        filter_field: str,
-        filter_value: Any,
-        default: Any = None
-    ) -> Any:
-        """
-        Get a field value from the first row where filter_field equals filter_value.
-        
-        This is the most common pattern in VBA - find a row by type code
-        and return a specific field value.
-        
-        Args:
-            table_name: DB2 table name (e.g., "LH_POL_TARGET")
-            return_field: Column to return (e.g., "TAR_PRM_AMT")
-            filter_field: Column to filter on (e.g., "TAR_TYP_CD")
-            filter_value: Value to match (e.g., "MT" for MTP)
-            default: Value to return if not found
-            
-        Returns:
-            Field value or default if not found
-            
-        Example:
-            # VBA equivalent:
-            # For x = 1 To DataItemCount("LH_POL_TARGET", "TAR_TYP_CD")
-            #   If DataItem("LH_POL_TARGET", "TAR_TYP_CD", x) = "MT" Then
-            #     MTP = DataItem("LH_POL_TARGET", "TAR_PRM_AMT", x)
-            #     Exit Property
-            #   End If
-            # Next
-            
-            mtp = pol.data_item_where("LH_POL_TARGET", "TAR_PRM_AMT", "TAR_TYP_CD", "MT")
-        """
-        idx = self.find_row_index(table_name, filter_field, filter_value)
-        if idx >= 0:
-            return self.data_item(table_name, return_field, idx)
-        return default
+    def data_item_where_multi(self, table_name: str, return_field: str,
+                               filters: Dict[str, Any],
+                               default: Any = None) -> Any:
+        """Get a field value from the first row matching multiple filters."""
+        return self._data.data_item_where_multi(table_name, return_field,
+                                                 filters, default)
     
-    def data_item_where_multi(
-        self,
-        table_name: str,
-        return_field: str,
-        filters: Dict[str, Any],
-        default: Any = None
-    ) -> Any:
-        """
-        Get a field value from the first row matching multiple filter conditions.
-        
-        Useful for tables that require multiple columns to identify a row,
-        like LH_COV_INS_RNL_RT which needs COV_PHA_NBR + PRM_RT_TYP_CD + JT_INS_IND.
-        
-        Args:
-            table_name: DB2 table name
-            return_field: Column to return
-            filters: Dict of {field_name: value} to match
-            default: Value to return if not found
-            
-        Returns:
-            Field value or default if not found
-            
-        Example:
-            # Get rate class for coverage 1, type C, non-joint
-            rate = pol.data_item_where_multi(
-                "LH_COV_INS_RNL_RT",
-                "RT_CLS_CD",
-                {"COV_PHA_NBR": 1, "PRM_RT_TYP_CD": "C", "JT_INS_IND": 0}
-            )
-        """
-        count = self.data_item_count(table_name)
-        for i in range(count):
-            match = True
-            for field, value in filters.items():
-                if str(self.data_item(table_name, field, i)) != str(value):
-                    match = False
-                    break
-            if match:
-                return self.data_item(table_name, return_field, i)
-        return default
+    def data_items_where(self, table_name: str, return_field: str,
+                         filter_field: str, filter_value: Any) -> List[Any]:
+        """Get ALL field values from rows where filter matches."""
+        return self._data.data_items_where(table_name, return_field,
+                                           filter_field, filter_value)
     
-    def data_items_where(
-        self,
-        table_name: str,
-        return_field: str,
-        filter_field: str,
-        filter_value: Any
-    ) -> List[Any]:
-        """
-        Get ALL field values from rows where filter_field equals filter_value.
-        
-        Use when multiple rows may match (e.g., all CTP entries).
-        
-        Args:
-            table_name: DB2 table name
-            return_field: Column to return
-            filter_field: Column to filter on
-            filter_value: Value to match
-            
-        Returns:
-            List of matching values
-            
-        Example:
-            # Get all Commission Target Premium amounts
-            ctp_amounts = pol.data_items_where("LH_COM_TARGET", "TAR_PRM_AMT", "TAR_TYP_CD", "CT")
-        """
-        results = []
-        count = self.data_item_count(table_name)
-        for i in range(count):
-            if str(self.data_item(table_name, filter_field, i)) == str(filter_value):
-                results.append(self.data_item(table_name, return_field, i))
-        return results
-    
-    def get_rows_where(
-        self,
-        table_name: str,
-        filter_field: str,
-        filter_value: Any
-    ) -> List[Dict[str, Any]]:
-        """
-        Get all row dictionaries where filter_field equals filter_value.
-        
-        Returns full row data as dictionaries for more complex operations.
-        
-        Args:
-            table_name: DB2 table name
-            filter_field: Column to filter on
-            filter_value: Value to match
-            
-        Returns:
-            List of row dictionaries matching the filter
-            
-        Example:
-            # Get all MTP target records (full row data)
-            mtp_rows = pol.get_rows_where("LH_POL_TARGET", "TAR_TYP_CD", "MT")
-        """
-        self._ensure_table_loaded(table_name)
-        
-        table_data = self._table_cache.get(table_name)
-        if not table_data or not table_data.get("rows"):
-            return []
-        
-        columns = table_data["columns"]
-        results = []
-        
-        try:
-            filter_idx = columns.index(filter_field.upper())
-            for row in table_data["rows"]:
-                if str(row[filter_idx]) == str(filter_value):
-                    results.append(dict(zip(columns, row)))
-        except ValueError:
-            pass
-        
-        return results
+    def get_rows_where(self, table_name: str, filter_field: str,
+                       filter_value: Any) -> List[Dict[str, Any]]:
+        """Get all row dictionaries where filter matches."""
+        return self._data.get_rows_where(table_name, filter_field, filter_value)
     
     # =========================================================================
     # IDENTIFIERS
@@ -533,17 +230,17 @@ class PolicyInformation:
     @property
     def policy_number(self) -> str:
         """Policy number."""
-        return self._policy_number
+        return self._data.policy_number
     
     @property
     def policy_id(self) -> str:
         """Technical policy ID (TCH_POL_ID)."""
-        return self._policy_id or ""
+        return self._data.policy_id or ""
     
     @property
     def company_code(self) -> str:
         """Company code."""
-        return self._company_code or ""
+        return self._data.company_code or ""
     
     @property
     def company_name(self) -> str:
@@ -553,12 +250,12 @@ class PolicyInformation:
     @property
     def system_code(self) -> str:
         """System code."""
-        return self._system_code
+        return self._data.system_code
     
     @property
     def region(self) -> str:
         """Database region."""
-        return self._region
+        return self._data.region
     
     # =========================================================================
     # STATUS PROPERTIES (delegated to BasePolicyRecords)
@@ -3911,195 +3608,32 @@ class PolicyInformation:
         }
 
     # =========================================================================
-    # INTERNAL METHODS
+    # INTERNAL METHODS  (delegated to PolicyData)
     # =========================================================================
-    
-    def _load_policy(self):
-        """Load and validate policy from database."""
-        try:
-            conn = self._conn_mgr.get_connection(self._region)
-            
-            # Build WHERE clause
-            where_parts = [
-                f"CK_SYS_CD = '{self._system_code}'",
-                f"CK_POLICY_NBR = '{self._policy_number}'"
-            ]
-            if self._company_code:
-                where_parts.append(f"CK_CMP_CD = '{self._company_code}'")
-            
-            sql = self._add_with_clause(f"""
-                SELECT CK_CMP_CD, CK_POLICY_NBR, CK_SYS_CD, TCH_POL_ID
-                FROM DB2TAB.LH_BAS_POL
-                WHERE {' AND '.join(where_parts)}
-            """)
-            
-            cursor = conn.cursor()
-            cursor.execute(sql)
-            rows = cursor.fetchall()
-            cursor.close()
-            
-            if not rows:
-                self._exists = False
-                self._cancelled = True
-                self._last_error = f"Policy {self._policy_number} not found"
-                return
-            
-            # Handle multiple companies
-            if len(rows) > 1 and not self._company_code:
-                # Store the distinct company codes for the UI to present
-                self._available_companies = sorted(
-                    set(str(r[0]).strip() for r in rows)
-                )
-                self._exists = False
-                self._cancelled = False
-                self._last_error = ""
-                return
-            
-            row = rows[0]
-            self._company_code = str(row[0]).strip()
-            self._policy_id = str(row[3]).strip()
-            self._exists = True
-            
-        except Exception as e:
-            self._exists = False
-            self._cancelled = True
-            self._last_error = str(e)
-    
-    def _ensure_table_loaded(self, table_name: str):
-        """Ensure a table is loaded into cache."""
-        if table_name in self._table_cache:
-            return
-        
-        if not self._exists:
-            return
-        
-        try:
-            conn = self._conn_mgr.get_connection(self._region)
-            
-            # Build WHERE clause based on table requirements
-            # FH_FIXED table does NOT use CK_SYS_CD (per VBA cls_PolicyInformation_v2)
-            if table_name == "FH_FIXED":
-                where_clause = (
-                    f"TCH_POL_ID = '{self._policy_id}' "
-                    f"AND CK_CMP_CD = '{self._company_code}'"
-                )
-                order_clause = " ORDER BY ASOF_DT DESC, SEQ_NO DESC"
-            else:
-                where_clause = (
-                    f"CK_SYS_CD = '{self._system_code}' "
-                    f"AND TCH_POL_ID = '{self._policy_id}' "
-                    f"AND CK_CMP_CD = '{self._company_code}'"
-                )
-                order_clause = ""
-            
-            sql = self._add_with_clause(
-                f"SELECT * FROM DB2TAB.{table_name} WHERE {where_clause}{order_clause}"
-            )
-            
-            cursor = conn.cursor()
-            cursor.execute(sql)
-            
-            columns = [desc[0].upper() for desc in cursor.description] if cursor.description else []
-            rows = cursor.fetchall()
-            cursor.close()
-            
-            self._table_cache[table_name] = {
-                "columns": columns,
-                "rows": rows
-            }
-            
-        except Exception as e:
-            # Table may not exist or other error - cache empty result
-            self._table_cache[table_name] = {"columns": [], "rows": []}
-    
-    def _add_with_clause(self, sql: str) -> str:
-        """Add WITH clause for Office 365 compatibility and apply
-        region-specific schema replacement (DB2TAB → CKSR/UNIT/CYBERTEK).
-        """
-        from suiteview.core.db2_constants import REGION_SCHEMA_MAP, DEFAULT_SCHEMA
-        import re as _re
-
-        schema = REGION_SCHEMA_MAP.get(self._region, DEFAULT_SCHEMA)
-        if schema != DEFAULT_SCHEMA:
-            sql = _re.sub(r'(?i)DB2TAB\.', f'{schema}.', sql)
-
-        if sql.strip().upper().startswith("WITH"):
-            return sql
-        return f"WITH DUMBY AS (SELECT 1 FROM SYSIBM.SYSDUMMY1) {sql}"
-    
-    @staticmethod
-    def find_companies(policy_number: str, region: str = "CKPR",
-                       system_code: str = "I") -> List[str]:
-        """Find all company codes that have this policy number.
-        
-        Returns a sorted list of distinct CK_CMP_CD values.
-        Used by the UI to detect multi-company policies before loading.
-        """
-        from suiteview.core.db2_connection import sql_for_region
-        conn_mgr = _ConnectionManager()
-        try:
-            conn = conn_mgr.get_connection(region.upper())
-            sql = sql_for_region(
-                "WITH DUMBY AS (SELECT 1 FROM SYSIBM.SYSDUMMY1) "
-                "SELECT DISTINCT CK_CMP_CD FROM DB2TAB.LH_BAS_POL "
-                f"WHERE CK_SYS_CD = '{system_code}' "
-                f"AND CK_POLICY_NBR = '{policy_number.strip()}' "
-                "ORDER BY CK_CMP_CD",
-                region
-            )
-            cursor = conn.cursor()
-            cursor.execute(sql)
-            rows = cursor.fetchall()
-            cursor.close()
-            return [str(r[0]).strip() for r in rows]
-        except Exception:
-            return []
 
     @staticmethod
     def _parse_date(value) -> Optional[date]:
         """Parse a date value from DB2."""
-        if value is None:
-            return None
-        
-        if isinstance(value, date):
-            return value
-        if isinstance(value, datetime):
-            return value.date()
-        
-        str_val = str(value).strip()
-        if not str_val or str_val == "0" or str_val.startswith("0001"):
-            return None
-        
-        # Try ISO format
-        try:
-            return datetime.strptime(str_val[:10], "%Y-%m-%d").date()
-        except (ValueError, TypeError):
-            pass
-        
-        # Try CYMD format (e.g., 1240115 = 2024-01-15)
-        try:
-            if len(str_val) == 7 and str_val.isdigit():
-                century = 19 if str_val[0] == "0" else 20
-                year = century * 100 + int(str_val[1:3])
-                month = int(str_val[3:5])
-                day = int(str_val[5:7])
-                return date(year, month, day)
-        except (ValueError, TypeError):
-            pass
-        
-        return None
-    
+        return _PolicyData.parse_date(value)
+
+    @staticmethod
+    def find_companies(policy_number: str, region: str = "CKPR",
+                       system_code: str = "I") -> List[str]:
+        """Find all company codes that have this policy number."""
+        return _PolicyData.find_companies(policy_number, region, system_code)
+
     def refresh(self):
         """Clear all caches and reload from database."""
-        self._table_cache.clear()
+        # Clear business-object caches
         self._coverages = None
         self._benefits = None
         self._agents = None
         self._loans = None
         self._mv_values = None
         self._activities = None
-        self._band_cache.clear()  # Clear rate band cache
-        self._load_policy()
+        self._band_cache.clear()
+        # Delegate table-cache refresh to PolicyData
+        self._data.refresh()
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert key policy info to dictionary."""
@@ -4145,15 +3679,6 @@ def load_policy(
     """
     Convenience function to load a policy.
     
-    Args:
-        policy_number: Policy number
-        region: Database region
-        company_code: Optional company code
-        system_code: System code
-        
-    Returns:
-        PolicyInformation object
-        
     Raises:
         PolicyNotFoundError: If policy doesn't exist
     """
@@ -4167,3 +3692,4 @@ def close_all_connections():
     """Close all database connections (both PolicyInformation and shared pools)."""
     _ConnectionManager().close_all()
     _DB2Connection.close_all()
+
