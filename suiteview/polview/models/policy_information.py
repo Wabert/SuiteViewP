@@ -49,7 +49,7 @@ from .cl_polrec.policy_data_classes import (
 
 # CL_POLREC record classes — only those still referenced internally
 from .cl_polrec import (
-    BasePolicyRecords, LoanRecords, TotalRecords,
+    LoanRecords, TotalRecords,
 )
 
 # Use the shared database connection module instead of a duplicate manager
@@ -132,8 +132,7 @@ class PolicyInformation:
         self._band_cache: Dict[int, Optional[int]] = {}  # cov_index -> band
         
         # CL_POLREC delegate classes still referenced internally
-        # (59 refs to base_records, 32 refs to loan_records, 17 refs to total_records)
-        self.base_records = BasePolicyRecords(self)
+        # (32 refs to loan_records, 17 refs to total_records)
         self.loan_records = LoanRecords(self)
         self.total_records = TotalRecords(self)
     
@@ -245,67 +244,67 @@ class PolicyInformation:
         return self._data.region
     
     # =========================================================================
-    # STATUS PROPERTIES (delegated to BasePolicyRecords)
+    # STATUS PROPERTIES
     # =========================================================================
     
     @property
     def status_code(self) -> str:
         """Policy status code."""
-        return self.base_records.STS_CD
+        return str(self.data_item("LH_BAS_POL", "POL_STS_CD") or "")
     
     @property
     def status_description(self) -> str:
         """Policy status description."""
-        return self.base_records.status_description
+        return STATUS_CODES.get(self.status_code, f"Unknown ({self.status_code})")
     
     @property
     def suspense_code(self) -> str:
         """Suspense code."""
-        return self.base_records.SUS_CD
+        return str(self.data_item("LH_BAS_POL", "SUS_CD") or "0")
     
     @property
     def suspense_description(self) -> str:
         """Suspense description."""
-        return self.base_records.suspense_description
+        return SUSPENSE_CODES.get(self.suspense_code, f"Unknown ({self.suspense_code})")
     
     @property
     def premium_pay_status_code(self) -> str:
         """Premium paying status code (PRM_PAY_STA_REA_CD)."""
-        return self.base_records.PRM_PAY_STA_REA_CD
+        return str(self.data_item("LH_BAS_POL", "PRM_PAY_STA_REA_CD") or "")
     
     @property
     def premium_pay_status_description(self) -> str:
         """Premium paying status description."""
-        return self.base_records.premium_pay_status_description
+        return PREMIUM_PAY_STATUS_CODES.get(self.premium_pay_status_code, f"Unknown ({self.premium_pay_status_code})")
     
     @property
     def is_active(self) -> bool:
         """Whether policy is in active status."""
-        return self.base_records.is_active
+        return self.status_code in ("10", "14", "15")
     
     @property
     def is_suspended(self) -> bool:
         """Whether policy is suspended."""
-        return self.base_records.is_suspended
+        return self.status_code == "20"
     
     @property
     def is_terminated(self) -> bool:
         """Whether policy is terminated (any non-active status)."""
-        return self.base_records.is_terminated
+        return self.status_code not in ("10", "14", "15", "20")
     
     @property
     def grace_indicator(self) -> bool:
-        """Whether policy is in grace period."""
-        return self.base_records.GRC_IND
+        """Whether policy is in grace period (always False — use in_grace() instead)."""
+        return False
     
     # =========================================================================
-    # DATE PROPERTIES (delegated to BasePolicyRecords)
+    # DATE PROPERTIES
     # =========================================================================
     
     @property
     def issue_date(self) -> Optional[date]:
         """Policy issue date (falls back to first coverage issue date)."""
-        dt = self.base_records.ISSUE_DT
+        dt = self._parse_date(self.data_item("LH_COV_PHA", "ISSUE_DT"))
         if dt is None:
             covs = self.get_coverages()
             if covs:
@@ -315,23 +314,22 @@ class PolicyInformation:
     @property
     def paid_to_date(self) -> Optional[date]:
         """Premium paid-to date."""
-        return self.base_records.PAID_TO_DT
+        return self._parse_date(self.data_item("LH_BAS_POL", "PRM_PAID_TO_DT"))
     
     @property
     def next_anniversary_date(self) -> Optional[date]:
         """Next policy anniversary date."""
-        return self.base_records.NXT_ANV_DT
+        return self._parse_date(self.data_item("LH_BAS_POL", "NXT_YR_END_PRC_DT"))
     
     @property
     def next_monthliversary_date(self) -> Optional[date]:
         """Next monthliversary date."""
-        return self.base_records.NXT_MVRY_DT
-    
+        return self._parse_date(self.data_item("LH_BAS_POL", "NXT_MVRY_PRC_DT"))
     
     @property
     def terminate_date(self) -> Optional[date]:
         """Policy termination date."""
-        return self.base_records.TMN_DT
+        return self._parse_date(self.data_item("LH_BAS_POL", "PLN_TMN_DT"))
     
     @staticmethod
     def _completed_date_parts_years(date1: date, date2: date) -> int:
@@ -385,57 +383,57 @@ class PolicyInformation:
         return (total_months % 12) + 1
     
     # =========================================================================
-    # BILLING PROPERTIES (delegated to BasePolicyRecords)
+    # BILLING PROPERTIES
     # =========================================================================
     
     @property
     def billing_frequency(self) -> int:
         """Billing frequency in months."""
-        return self.base_records.PMT_FQY_PER
+        return int(self.data_item("LH_BAS_POL", "PMT_FQY_PER") or 0)
     
     @property
     def billing_mode(self) -> str:
         """Billing mode description."""
-        return self.base_records.billing_mode_desc
+        nsd = str(self.data_item("LH_BAS_POL", "NSD_MD_CD") or "")
+        if nsd in NON_STANDARD_BILL_MODE_CODES:
+            return NON_STANDARD_BILL_MODE_CODES[nsd]
+        return BILLING_MODE_CODES.get(self.billing_frequency, f"{self.billing_frequency} months")
     
     @property
     def non_standard_mode_code(self) -> str:
-        """Non-standard billing mode code (NSD_MD_CD).
-
-        When this field is non-empty, the payment mode is forced to 01 (monthly)
-        and the actual billing cadence is indicated by this code:
-            1 = Weekly, 2 = Bi-Weekly, 4 = 13thly (every 4 weeks),
-            9 = 9thly, A = 10thly, S = Semi-Monthly.
-        For bi-weekly and other non-standard modes, the premium in CyberLife
-        is still a monthly premium (premiums are deposited into a PDF and
-        swept monthly to pay the policy premium).
-        """
+        """Non-standard billing mode code (NSD_MD_CD)."""
         return str(self.data_item("LH_BAS_POL", "NSD_MD_CD") or "")
     
     @property
     def bill_day(self) -> int:
         """Billing day of month."""
-        return self.base_records.BL_DAY_NBR
+        return int(self.data_item("LH_BAS_POL", "BIL_DAY_NBR") or 0)
     
     @property
     def issue_state_code(self) -> str:
         """Issue state code (raw numeric from ISSUE_ST_CD)."""
-        return self.base_records.ISSUE_ST_CD
+        return str(self.data_item("LH_BAS_POL", "POL_ISS_ST_CD") or "")
     
     @property
     def issue_state(self) -> str:
         """Issue state abbreviation (e.g., 'AZ', 'NY')."""
-        return self.base_records.issue_state
+        code = self.issue_state_code
+        if code and code.isdigit():
+            return translate_state_code(int(code))
+        return code
     
     @property
     def resident_state_code(self) -> str:
         """Resident/premium-paying state code (raw numeric from PRM_PAY_ST_CD)."""
-        return self.base_records.PRM_PAY_ST_CD
+        return str(self.data_item("LH_BAS_POL", "PRM_PAY_ST_CD") or "")
     
     @property
     def resident_state(self) -> str:
         """Resident/premium-paying state abbreviation (e.g., 'AZ', 'NY')."""
-        return self.base_records.resident_state
+        code = self.resident_state_code
+        if code and code.isdigit():
+            return translate_state_code(int(code))
+        return code
     
     @property
     def state_code(self) -> str:
@@ -443,76 +441,80 @@ class PolicyInformation:
         return self.issue_state_code
     
     # =========================================================================
-    # PREMIUM PROPERTIES (delegated to BasePolicyRecords)
+    # PREMIUM PROPERTIES
     # =========================================================================
     
     @property
     def regular_premium(self) -> Optional[Decimal]:
-        """Regular premium amount."""
-        return self.base_records.REG_PRM_AMT
+        """Regular premium amount (alias for modal_premium)."""
+        return self.modal_premium
     
     @property
     def modal_premium(self) -> Optional[Decimal]:
         """Modal premium (premium per billing period)."""
-        return self.base_records.POL_PRM_AMT
+        val = self.data_item("LH_BAS_POL", "POL_PRM_AMT")
+        return Decimal(str(val)) if val is not None else None
     
     @property
     def annual_premium(self) -> Optional[Decimal]:
         """Annualized premium."""
-        return self.base_records.annual_premium
+        if self.modal_premium and self.billing_frequency:
+            return self.modal_premium * (Decimal(12) / Decimal(self.billing_frequency))
+        return self.modal_premium
     
     @property
     def target_premium(self) -> Optional[Decimal]:
         """Target premium (for UL products)."""
-        return self.base_records.TAR_PRM_AMT
+        val = self.data_item("LH_POL_TARGET", "TAR_PRM_AMT")
+        return Decimal(str(val)) if val is not None else None
     
     @property
     def minimum_premium(self) -> Optional[Decimal]:
-        """Minimum premium (for UL products)."""
-        return self.base_records.MIN_PRM_AMT
+        """Minimum premium (for UL products — not stored on LH_BAS_POL)."""
+        return None
     
     # =========================================================================
-    # OPTIONS (delegated to BasePolicyRecords)
+    # OPTIONS
     # =========================================================================
     
     @property
     def div_option_code(self) -> str:
         """Dividend option code."""
-        return self.base_records.PR_DIV_OPT_CD
+        return str(self.data_item("LH_BAS_POL", "PRI_DIV_OPT_CD") or "0")
     
     @property
     def div_option_description(self) -> str:
         """Dividend option description."""
-        return self.base_records.div_option_description
+        return DIV_OPTION_CODES.get(self.div_option_code, f"Unknown ({self.div_option_code})")
     
     @property
     def nfo_code(self) -> str:
         """Non-forfeiture option code."""
-        return self.base_records.NFO_CD
+        return str(self.data_item("LH_BAS_POL", "NFO_OPT_TYP_CD") or "0")
     
     @property
     def nfo_description(self) -> str:
         """Non-forfeiture option description."""
-        return self.base_records.nfo_description
+        return NFO_CODES.get(self.nfo_code, f"Unknown ({self.nfo_code})")
     
     @property
     def db_option_code(self) -> str:
         """Death benefit option code."""
-        return self.base_records.DTH_BNF_PLN_OPT_CD
+        return str(self.data_item("LH_NON_TRD_POL", "DTH_BNF_PLN_OPT_CD") or "")
     
     @property
     def db_option_description(self) -> str:
         """Death benefit option description."""
-        return self.base_records.db_option_description
+        return DB_OPTION_CODES.get(self.db_option_code, f"Unknown ({self.db_option_code})")
     
     # =========================================================================
-    # CLASSIFICATION (delegated to BasePolicyRecords)
+    # CLASSIFICATION
     # =========================================================================
     
     @property
     def is_advanced_product(self) -> bool:
         """Whether this is an advanced product (UL/IUL/VUL)."""
-        return self.base_records.NON_TRD_POL_IND
+        return str(self.data_item("LH_BAS_POL", "NON_TRD_POL_IND")) == "1"
     
     @property
     def product_type(self) -> str:
@@ -527,26 +529,20 @@ class PolicyInformation:
         if not plancode:
             return "UNKNOWN"
 
-        # Advanced products — determined by system indicators, not plancode
-        # Note: VUL_IND and IUL_IND do not exist on TH_BAS_POL.
-        # Product line code is used as the differentiator.
         if self.is_advanced_product:
             prod_line = self.product_line_code
             if prod_line == "I":
                 return "ISWL"
             return "UL"
 
-        # DI — determined by product line code
         if self.product_line_code == "S":
             return "DI"
 
-        # ── Official plancode table lookup (primary) ────────────────────
         if _data_lookup is not None:
             group = _data_lookup.get_plancode_group(plancode)
             if group and group != "Not Found":
-                return group  # "WL", "TERM", "Trad Rider", etc.
+                return group
 
-        # ── Fallback: heuristic pattern matching ────────────────────────
         pln_upper = plancode.upper()
         if any(x in pln_upper for x in ["TRM", "TERM", "TM", "RT", "ART", "YRT"]):
             return "TERM"
@@ -565,28 +561,28 @@ class PolicyInformation:
     
     @property
     def defra_indicator(self) -> str:
-        """DEFRA indicator."""
-        return self.base_records.DEFRA_IND
+        """DEFRA indicator (not stored on LH_BAS_POL — use tefra_defra_code)."""
+        return ""
     
     @property
     def def_of_life_ins_code(self) -> str:
         """Definition of Life Insurance code."""
-        return self.base_records.TFDF_CD
+        return str(self.data_item("LH_NON_TRD_POL", "TFDF_CD") or "")
     
     @property
     def def_of_life_ins_description(self) -> str:
         """Definition of Life Insurance description."""
-        return self.base_records.def_of_life_ins_description
+        return DEF_OF_LIFE_INS_CODES.get(self.def_of_life_ins_code, "")
     
     @property
     def guideline_single_premium(self) -> Optional[Decimal]:
-        """Guideline Single Premium (GSP)."""
-        return self.base_records.GSP_AMT
+        """Guideline Single Premium (GSP — not stored on LH_BAS_POL)."""
+        return None
     
     @property
     def guideline_level_premium(self) -> Optional[Decimal]:
-        """Guideline Level Premium (GLP)."""
-        return self.base_records.GLP_AMT
+        """Guideline Level Premium (GLP — not stored on LH_BAS_POL)."""
+        return None
     
     # =========================================================================
     # BASE COVERAGE PROPERTIES
@@ -1308,33 +1304,33 @@ class PolicyInformation:
         return self.total_records.policy_totals_count
     
     # =========================================================================
-    # ADVANCED DATE PROPERTIES (delegated to BasePolicyRecords)
+    # ADVANCED DATE PROPERTIES
     # =========================================================================
     
     @property
     def last_anniversary(self) -> Optional[date]:
         """Last policy anniversary date."""
-        return self.base_records.LST_ANV_DT
+        return self._parse_date(self.data_item("LH_BAS_POL", "LST_ANV_DT"))
     
     @property
     def next_monthliversary(self) -> Optional[date]:
         """Next monthliversary processing date."""
-        return self.base_records.NXT_MVRY_PRC_DT
+        return self._parse_date(self.data_item("LH_BAS_POL", "NXT_MVRY_PRC_DT"))
     
     @property
     def last_financial_date(self) -> Optional[date]:
         """Last financial processing date."""
-        return self.base_records.LST_FIN_DT
+        return self._parse_date(self.data_item("LH_BAS_POL", "LST_FIN_DT"))
     
     @property
     def next_bill_date(self) -> Optional[date]:
         """Next billing date."""
-        return self.base_records.NXT_BIL_DT
+        return self._parse_date(self.data_item("LH_BAS_POL", "NXT_BIL_DT"))
     
     @property
     def premium_paid_to_date(self) -> Optional[date]:
         """Premium paid-to date."""
-        return self.base_records.PRM_BILL_TO_DT
+        return self._parse_date(self.data_item("LH_BAS_POL", "PRM_BILL_TO_DT"))
     
     @property
     def valuation_date(self) -> Optional[date]:
@@ -1370,43 +1366,46 @@ class PolicyInformation:
             return str(self.data_item("LH_TRD_POL", "IN_GRA_PER_IND")) == "1"
     
     # =========================================================================
-    # ADDITIONAL POLICY PROPERTIES (delegated to BasePolicyRecords)
+    # ADDITIONAL POLICY PROPERTIES
     # =========================================================================
     
     @property
     def original_entry_code(self) -> str:
         """Original entry code."""
-        return self.base_records.OGN_ETR_CD
+        return str(self.data_item("LH_BAS_POL", "OGN_ETR_CD") or "")
     
     @property
     def last_entry_code(self) -> str:
         """Last entry code."""
-        return self.base_records.LST_ETR_CD
+        return str(self.data_item("LH_BAS_POL", "LST_ETR_CD") or "")
     
     @property
     def policy_1035_indicator(self) -> bool:
         """Whether policy involved a 1035 exchange."""
-        return self.base_records.POL_1035_XCG_IND
+        return str(self.data_item("LH_BAS_POL", "POL_1035_XCG_IND")) == "1"
     
     @property
     def servicing_agent_number(self) -> str:
         """Servicing agent number."""
-        return self.base_records.SVC_AGT_NBR
+        return str(self.data_item("LH_BAS_POL", "SVC_AGT_NBR") or "")
     
     @property
     def servicing_branch_code(self) -> str:
         """Servicing branch/agency code."""
-        return self.base_records.SVC_AGC_NBR
+        return str(self.data_item("LH_BAS_POL", "SVC_AGC_NBR") or "")
     
     @property
     def servicing_market_org(self) -> str:
         """Determine market organization from company and agent codes."""
-        return self.base_records.servicing_market_org
+        branch = self.servicing_branch_code
+        agent_code = branch[0] if branch else ""
+        return translate_market_org(self.company_code, agent_code)
     
     @property
     def agency_branch_code(self) -> str:
         """Extract agency branch code from servicing branch code."""
-        return self.base_records.agency_branch_code
+        branch = self.servicing_branch_code
+        return branch[1:5] if len(branch) >= 5 else branch
     
     @property
     def is_ffs(self) -> bool:
@@ -1416,22 +1415,23 @@ class PolicyInformation:
     @property
     def policy_loan_charge_rate(self) -> Optional[Decimal]:
         """Policy loan charge interest rate."""
-        return self.base_records.LN_PLN_ITS_RT
+        val = self.data_item("LH_BAS_POL", "LN_PLN_ITS_RT")
+        return Decimal(str(val)) if val is not None else None
     
     @property
     def forced_premium_indicator(self) -> bool:
         """Whether policy has forced premium."""
-        return self.base_records.FORCED_PREM_IND
+        return str(self.data_item("TH_BAS_POL", "FORCED_PREM_IND")) == "1"
     
     @property
     def mdo_code(self) -> str:
         """MDO (market/distribution) code."""
-        return self.base_records.USR_RES_CD
+        return str(self.data_item("LH_BAS_POL", "USR_RES_CD") or "")
     
     @property
     def bill_form_code(self) -> str:
         """Billing form code."""
-        return self.base_records.BIL_FRM_CD
+        return str(self.data_item("LH_BAS_POL", "BIL_FRM_CD") or "")
 
     @property
     def is_eft(self) -> bool:
@@ -1493,28 +1493,30 @@ class PolicyInformation:
         return self.loan_records.preferred_loans_available
     
     # =========================================================================
-    # NON-TRAD POLICY PROPERTIES (delegated to BasePolicyRecords)
+    # NON-TRAD POLICY PROPERTIES
     # =========================================================================
     
     @property
     def guaranteed_interest_rate(self) -> Optional[Decimal]:
         """Guaranteed interest rate for advanced products."""
-        return self.base_records.POL_GUA_ITS_RT
+        val = self.data_item("LH_NON_TRD_POL", "POL_GUA_ITS_RT")
+        return Decimal(str(val)) if val is not None else None
     
     @property
     def corridor_percent(self) -> Optional[Decimal]:
         """Corridor percentage for death benefit calculation."""
-        return self.base_records.CDR_PCT
+        val = self.data_item("LH_NON_TRD_POL", "CDR_PCT")
+        return Decimal(str(val)) if val is not None else Decimal("100")
     
     @property
     def grace_rule_code(self) -> str:
         """Grace period rule code."""
-        return self.base_records.GRA_THD_RLE_CD
+        return str(self.data_item("LH_NON_TRD_POL", "GRA_THD_RLE_CD") or "")
     
     @property
     def tefra_defra_code(self) -> str:
         """TEFRA/DEFRA indicator code."""
-        return self.base_records.NON_TRD_TFDF_CD
+        return str(self.data_item("LH_NON_TRD_POL", "TFDF_CD") or "")
     
     @property
     def tefra_defra(self) -> str:
