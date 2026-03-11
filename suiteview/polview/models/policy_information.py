@@ -47,12 +47,9 @@ from .cl_polrec.policy_data_classes import (
     PolicyNotFoundError,
 )
 
-# CL_POLREC record classes — system-layer wrappers
+# CL_POLREC record classes — only those still referenced internally
 from .cl_polrec import (
-    BasePolicyRecords, CoverageRecords, BenefitRecords, ChangeRecords,
-    DividendRecords, LoanRecords, BillingRecords, AgentRecords,
-    UserFieldRecords, FundRecords, TargetRecords, TotalRecords,
-    TransactionRecords, PersonRecords,
+    BasePolicyRecords, LoanRecords, TotalRecords,
 )
 
 # Use the shared database connection module instead of a duplicate manager
@@ -134,21 +131,11 @@ class PolicyInformation:
         self._rates: Optional[Rates] = None
         self._band_cache: Dict[int, Optional[int]] = {}  # cov_index -> band
         
-        # CL_POLREC record class delegates (system-layer)
+        # CL_POLREC delegate classes still referenced internally
+        # (59 refs to base_records, 32 refs to loan_records, 17 refs to total_records)
         self.base_records = BasePolicyRecords(self)
-        self.coverage_records = CoverageRecords(self)
-        self.benefit_records = BenefitRecords(self)
-        self.change_records = ChangeRecords(self)
-        self.dividend_records = DividendRecords(self)
         self.loan_records = LoanRecords(self)
-        self.billing_records = BillingRecords(self)
-        self.agent_records = AgentRecords(self)
-        self.user_field_records = UserFieldRecords(self)
-        self.fund_records = FundRecords(self)
-        self.target_records = TargetRecords(self)
         self.total_records = TotalRecords(self)
-        self.transaction_records = TransactionRecords(self)
-        self.person_records = PersonRecords(self)
     
     # =========================================================================
     # CORE API  (delegates to PolicyData)
