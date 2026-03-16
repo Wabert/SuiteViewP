@@ -39,13 +39,9 @@ logger = logging.getLogger(__name__)
 
 RATE_TYPES = [
     ("ABR Interest Rates", "interest_rates"),
-    ("Term Premium Rates", "term_rates"),
     ("Per Diem Limits", "per_diem"),
     ("State Variations", "state_variations"),
     ("Min Face by Plancode", "min_face"),
-    ("Modal Factors by Plancode", "modal_factors"),
-    ("Band Amounts by Plancode", "band_amounts"),
-    ("Policy Fees by Plancode", "policy_fees"),
 ]
 
 # ── Shared button styles ──────────────────────────────────────────────────

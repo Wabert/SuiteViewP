@@ -13,8 +13,14 @@ Replicates the "Term Premium Calculation" sheet logic.
 
 from __future__ import annotations
 
+import math
 import logging
 from typing import Optional, List
+
+def arithmetic_round(value: float, decimals: int = 2) -> float:
+    """Standard arithmetic rounding (half away from zero)."""
+    multiplier = 10 ** decimals
+    return math.floor(value * multiplier + 0.5) / multiplier
 
 from ..models.abr_constants import (
     PLAN_CODE_INFO,
@@ -60,7 +66,7 @@ class PremiumCalculator:
         year = policy_year or p.policy_year
 
         # ── Build lookup key ────────────────────────────────────────────
-        band = band_override if band_override is not None else self.db.get_band(p.plan_code, p.face_amount)
+        band = band_override if band_override is not None else self.db.get_band(p.plan_code, p.face_amount, p.issue_date)
         sex = (p.rate_sex or p.sex).upper()  # rate_sex from 67 segment; fallback to true sex
         rate_class = p.rate_class.upper()
         plancode = p.plan_code.upper()
@@ -81,7 +87,7 @@ class PremiumCalculator:
 
         # ── Step 1: base_rate × substandard_factor → round 2dp ─────────
         substandard_factor = 1.0 + p.table_rating * 0.25
-        step1_rate = round(base_rate * substandard_factor, 2)
+        step1_rate = arithmetic_round(base_rate * substandard_factor, 2)
         table_rate = step1_rate - base_rate  # for display
 
         # ── Step 2: + flat extra ────────────────────────────────────────
@@ -92,7 +98,7 @@ class PremiumCalculator:
         step2_rate = step1_rate + flat_rate
 
         # ── Step 3: × (face / 1000) → round 2dp ────────────────────────
-        step3_premium = round(step2_rate * p.face_per_thousand, 2)
+        step3_premium = arithmetic_round(step2_rate * p.face_per_thousand, 2)
 
         # ── Step 4: + rider / benefit annual premiums ───────────────────
         rider_total = self._compute_all_riders_premium(year)
@@ -100,14 +106,12 @@ class PremiumCalculator:
 
         # ── Step 5: + policy fee ────────────────────────────────────────
         policy_fee = self.db.get_policy_fee(plancode)
-        annual_premium = step4_premium + policy_fee
+        annual_premium = arithmetic_round(step4_premium + policy_fee, 2)
 
-        # ── Modal premium (separate factors for premium vs fee) ─────────
+        # ── Modal premium (single factor applied to total) ──────────────
         modal_factor = self.db.get_modal_factor(plancode, p.billing_mode)
         modal_fee_factor = self.db.get_modal_fee_factor(plancode, p.billing_mode)
-        modal_premium_ex_fee = round(step4_premium * modal_factor, 2)
-        modal_fee = round(policy_fee * modal_fee_factor, 2)
-        modal_premium = modal_premium_ex_fee + modal_fee
+        modal_premium = arithmetic_round(annual_premium * modal_factor, 2)
         modal_label = MODAL_LABELS.get(p.billing_mode, "Annual")
 
         return PremiumResult(
@@ -129,7 +133,7 @@ class PremiumCalculator:
             List of 82 annual rates per $1,000, or None if not found.
         """
         p = self.policy
-        band = self.db.get_band(p.plan_code, p.face_amount)
+        band = self.db.get_band(p.plan_code, p.face_amount, p.issue_date)
 
         return self.db.get_term_rate_schedule(
             p.plan_code.upper(),
@@ -161,7 +165,7 @@ class PremiumCalculator:
             attained = p.issue_age + year - 1
 
             # Step 1: round(base × substandard_factor, 2)
-            step1 = round(base_rate * substandard_factor, 2)
+            step1 = arithmetic_round(base_rate * substandard_factor, 2)
 
             # Step 2: + flat extra (only if attained age < flat_to_age)
             fe = 0.0
@@ -195,7 +199,7 @@ class PremiumCalculator:
         result = []
         for year_idx, rate in enumerate(per_k_schedule):
             year = year_idx + 1
-            step3 = round(rate * p.face_per_thousand, 2)
+            step3 = arithmetic_round(rate * p.face_per_thousand, 2)
             rider_total = self._compute_all_riders_premium(year)
             annual = step3 + rider_total + policy_fee
             result.append(annual)
@@ -225,7 +229,7 @@ class PremiumCalculator:
 
         result = []
         for rate in per_k_schedule:
-            step3 = round(rate * p.face_per_thousand, 2)
+            step3 = arithmetic_round(rate * p.face_per_thousand, 2)
             annual = step3 + policy_fee
             result.append(annual)
 
@@ -284,7 +288,7 @@ class PremiumCalculator:
         if attained_age >= cease_age:
             return 0.0
 
-        band = self.db.get_band(rider.plancode, rider.face_amount)
+        band = self.db.get_band(rider.plancode, rider.face_amount, self.policy.issue_date)
         face_units = rider.face_amount / 1000.0
 
         # BENEFIT type: use benefit rate from TERM_POINT_BENEFIT
@@ -309,15 +313,17 @@ class PremiumCalculator:
                 return rider.fallback_premium
             # PW benefits (types 3/4) apply substandard factor
             if rider.benefit_type in ("3", "4"):
-                if rider.table_rating == 1:
+                if rider.benefit_rating_factor and rider.benefit_rating_factor > 0:
+                    pw_sub = rider.benefit_rating_factor
+                elif rider.table_rating == 1:
                     pw_sub = 1.50
                 elif rider.table_rating == 2:
                     pw_sub = 2.25
                 else:
                     pw_sub = 1.0
-                step1 = round(rate * pw_sub, 2)
-                return round(step1 * face_units, 2)
-            return round(rate * face_units, 2)
+                step1 = arithmetic_round(rate * pw_sub, 2)
+                return arithmetic_round(step1 * face_units, 2)
+            return arithmetic_round(rate * face_units, 2)
 
         # Legacy PW/CTR paths
         rate = self.db.get_term_rate(
@@ -338,11 +344,16 @@ class PremiumCalculator:
                 pw_sub = 2.25
             else:
                 pw_sub = 1.0
-            step1 = round(rate * pw_sub, 2)
-            return round(step1 * face_units, 2)
+            step1 = arithmetic_round(rate * pw_sub, 2)
+            return arithmetic_round(step1 * face_units, 2)
 
         elif rider.rider_type == "CTR":
-            return round(rate * face_units, 2)
+            return arithmetic_round(rate * face_units, 2)
+            
+        elif rider.rider_type == "COVERAGE":
+            sub_factor = 1.0 + rider.table_rating * 0.25
+            step1 = arithmetic_round(rate * sub_factor, 2)
+            return arithmetic_round(step1 * face_units, 2)
 
         return rider.fallback_premium
 

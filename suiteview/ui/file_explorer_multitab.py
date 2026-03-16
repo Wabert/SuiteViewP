@@ -13,7 +13,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, 
                               QPushButton, QLabel, QFrame, QMenu, QLineEdit, QTreeView, QStyle, QTabBar, QToolButton,
                               QListWidget, QListWidgetItem, QSplitter, QAbstractItemView, QScrollArea,
-                              QSystemTrayIcon, QApplication, QSizePolicy, QComboBox)
+                              QSystemTrayIcon, QApplication, QSizePolicy, QComboBox, QMessageBox)
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint
 from PyQt6.QtGui import QAction, QCursor, QMouseEvent, QIcon, QPainter, QColor, QPen, QPixmap, QFont, QBrush
 
@@ -2152,14 +2152,14 @@ class FileExplorerMultiTab(QWidget):
         
         tray_menu.addSeparator()
         
+        self._mainframe_action = QAction("💻 Mainframe Navigator", self)
+        self._mainframe_action.triggered.connect(self._open_mainframe)
+        tray_menu.addAction(self._mainframe_action)
+        
         if DEV_MODE:
             self._data_action = QAction("🗄️ Data Manager", self)
             self._data_action.triggered.connect(self._open_data_manager)
             tray_menu.addAction(self._data_action)
-            
-            self._mainframe_action = QAction("💻 Mainframe Navigator", self)
-            self._mainframe_action.triggered.connect(self._open_mainframe)
-            tray_menu.addAction(self._mainframe_action)
         
         self._screenshot_action = QAction("📸 View Screenshots", self)
         self._screenshot_action.triggered.connect(self._open_screenshot)
@@ -3215,9 +3215,10 @@ class FileExplorerMultiTab(QWidget):
         """)
         # Apps submenu
         self.tools_menu.addAction("View Screenshots", self._open_screenshot)
-        # PolView and ABR Quote are always available
+        # PolView, ABR Quote, and Mainframe Nav are always available
         self.tools_menu.addAction("PolView", self._open_polview)
         self.tools_menu.addAction("ABR Quote", self._open_abrquote)
+        self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)
         if DEV_MODE:
             self.tools_menu.addAction("Email Attachments", self._open_email_attachments)
             self.tools_menu.addAction("Task Tracker", self._open_task_tracker)

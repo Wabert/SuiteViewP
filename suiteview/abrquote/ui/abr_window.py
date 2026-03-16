@@ -508,15 +508,12 @@ class ABRQuoteWindow(FramelessWindowBase):
             remaining_payments = max(payments_per_year - payments_made, 0)
 
             # Prorate the current year entry in the schedule
-            # Apply modal_factor to premium portion only (fee handled separately)
+            # Apply single modal_factor to the total annual premium
             policy_fee_for_proration = db.get_policy_fee(p.plan_code)
             yr_idx = start_yr - 1
             if yr_idx < len(premium_schedule) and remaining_payments < payments_per_year:
                 full_annual = premium_schedule[yr_idx]
-                annual_ex_fee = full_annual - policy_fee_for_proration
-                modal_prem_ex_fee = round(annual_ex_fee * modal_factor, 2)
-                modal_fee_part = round(policy_fee_for_proration * modal_fee_factor, 2)
-                modal_total = modal_prem_ex_fee + modal_fee_part
+                modal_total = round(full_annual * modal_factor, 2)
                 premium_schedule[yr_idx] = modal_total * remaining_payments
 
             # ── 5. Compute APV ──────────────────────────────────────────
@@ -540,97 +537,192 @@ class ABRQuoteWindow(FramelessWindowBase):
             )
 
             # ── 6. Compute partial premium ──────────────────────────────
+            from ..core.premium_calc import arithmetic_round
             min_face_prem = prem_calc.compute_min_face_premium(min_face)
 
-            # Build partial-premium breakdown dict for the viewer button
-            _mf_band = db.get_band(p.plan_code, min_face)
+            # Build partial-premium breakdown using the same `coverages`
+            # shape as the Policy Info breakdown (see policy_panel.py).
+            from dataclasses import replace as _replace
+            reduced_policy = _replace(p, face_amount=min_face)
+            mf_calc = PremiumCalculator(reduced_policy)
+
+            # Benefit name mapping for display labels
+            from suiteview.polview.models.cl_polrec.policy_translations import BENEFIT_TYPE_CODES
+
             _mf_units = min_face / 1000.0
             _mf_sub_factor = 1.0 + p.table_rating * 0.25
-            _mf_step1 = round(min_face_prem.base_rate * _mf_sub_factor, 2)
             _mf_flat_applied = min_face_prem.flat_rate
+            _mf_step1 = arithmetic_round(min_face_prem.base_rate * _mf_sub_factor, 2)
             _mf_step2 = _mf_step1 + _mf_flat_applied
-            _mf_step3 = round(_mf_step2 * _mf_units, 2)
+            _mf_step3 = arithmetic_round(_mf_step2 * _mf_units, 2)
 
-            # Rider details — per-coverage with full rate info
-            rider_details = []
-            rider_annual = 0.0
-            try:
-                from dataclasses import replace as _replace
-                reduced_policy = _replace(p, face_amount=min_face)
-                mf_calc = PremiumCalculator(reduced_policy)
-                for rider in p.riders:
-                    r_prem = mf_calc.compute_rider_annual_premium(rider, p.policy_year)
-                    rider_annual += r_prem
-                    if r_prem > 0:
-                        detail = {
-                            "plancode": rider.plancode or "Unknown",
-                            "rider_type": rider.rider_type,
-                            "face_amount": rider.face_amount,
-                            "face_units": rider.face_amount / 1000.0,
-                            "rate": None,
-                            "pw_sub": 1.0,
-                            "premium": r_prem,
-                            "issue_age": rider.issue_age,
-                            "sex": rider.sex,
-                            "rate_class": rider.rate_class,
-                            "table_rating": rider.table_rating,
-                        }
-                        try:
-                            r_band = db.get_band(rider.plancode, rider.face_amount)
-                            if rider.rider_type == "BENEFIT" and rider.benefit_type:
-                                rate = db.get_benefit_rate(
-                                    rider.plancode, rider.benefit_type,
-                                    rider.benefit_subtype, rider.sex,
-                                    rider.rate_class, r_band,
-                                    rider.issue_age, p.policy_year,
-                                )
-                            else:
-                                rate = db.get_term_rate(
-                                    rider.plancode, rider.sex, rider.rate_class,
-                                    r_band, rider.issue_age, p.policy_year,
-                                )
-                            detail["rate"] = rate
-                        except Exception:
-                            pass
-                        detail["benefit_type"] = rider.benefit_type
-                        detail["benefit_subtype"] = rider.benefit_subtype
-                        if rider.rider_type == "PW":
-                            if rider.table_rating == 1:
-                                detail["pw_sub"] = 1.50
-                            elif rider.table_rating == 2:
-                                detail["pw_sub"] = 2.25
-                        rider_details.append(detail)
-            except Exception:
-                if not p.riders:
-                    rider_annual = p.rider_annual_premium
+            # ── Base coverage entry ─────────────────────────────────────
+            base_benefits = []
+            base_premium = _mf_step3
+
+            # Group riders: BENEFIT riders on the base plancode become
+            # sub-benefits of the base coverage.  COVERAGE/CTR/OTHER
+            # riders become separate coverage entries.
+            cov_entries = []   # non-base coverages
+
+            # Build set of plancodes that have a non-BENEFIT parent rider.
+            # BENEFIT riders on these plancodes will be handled by the inner
+            # loop (grouped as sub-benefits), so skip them in the outer loop.
+            parent_plancodes = {
+                r.plancode.upper() for r in p.riders if r.rider_type != "BENEFIT"
+            }
+
+            for rider in p.riders:
+                r_prem = mf_calc.compute_rider_annual_premium(rider, p.policy_year)
+                if r_prem <= 0:
+                    continue
+
+                # Skip BENEFIT riders that will be grouped under a parent
+                if (rider.rider_type == "BENEFIT"
+                        and rider.plancode.upper() != p.plan_code.upper()
+                        and rider.plancode.upper() in parent_plancodes):
+                    continue
+
+                is_base_benefit = (
+                    rider.rider_type == "BENEFIT"
+                    and rider.plancode.upper() == p.plan_code.upper()
+                )
+
+                if is_base_benefit:
+                    # Benefit on the base coverage (PW, etc.)
+                    ben_code = f"{rider.benefit_type}{rider.benefit_subtype or ''}"
+                    is_pw = rider.benefit_type in ("3", "4")
+                    pw_factor = 1.0
+                    if is_pw:
+                        if rider.benefit_rating_factor and rider.benefit_rating_factor > 0:
+                            pw_factor = rider.benefit_rating_factor
+                        elif rider.table_rating == 1:
+                            pw_factor = 1.50
+                        elif rider.table_rating == 2:
+                            pw_factor = 2.25
+
+                    # Look up rate for display
+                    ben_rate = None
+                    try:
+                        ben_name = BENEFIT_TYPE_CODES.get(rider.benefit_type, ben_code)
+                        r_band = db.get_band(rider.plancode, rider.face_amount, p.issue_date)
+                        ben_rate = db.get_benefit_rate(
+                            rider.plancode, ben_code, ben_name,
+                            rider.sex, rider.rate_class, r_band,
+                            rider.issue_age, p.policy_year,
+                        )
+                    except Exception:
+                        pass
+
+                    label = f"PW (Ben {ben_code})" if is_pw else f"Ben {ben_code}"
+                    base_benefits.append({
+                        "label": label,
+                        "rate": ben_rate,
+                        "factor": pw_factor,
+                        "premium": r_prem,
+                    })
+                    base_premium += r_prem
+                else:
+                    # Separate coverage (rider or benefit on different plancode)
+                    r_rate = None
+                    try:
+                        r_band = db.get_band(rider.plancode, rider.face_amount, p.issue_date)
+                        if rider.rider_type == "BENEFIT" and rider.benefit_type:
+                            ben_code = f"{rider.benefit_type}{rider.benefit_subtype or ''}"
+                            ben_name = BENEFIT_TYPE_CODES.get(rider.benefit_type, ben_code)
+                            r_rate = db.get_benefit_rate(
+                                rider.plancode, ben_code, ben_name,
+                                rider.sex, rider.rate_class, r_band,
+                                rider.issue_age, p.policy_year,
+                            )
+                        else:
+                            r_rate = db.get_term_rate(
+                                rider.plancode, rider.sex, rider.rate_class,
+                                r_band, rider.issue_age, p.policy_year,
+                            )
+                    except Exception:
+                        pass
+
+                    r_table = rider.table_rating
+                    r_factor = 1.0 + r_table * 0.25
+
+                    # Check for benefits on this rider coverage
+                    rider_benefits = []
+                    # Benefits that share the same plancode but aren't the base
+                    for other_rider in p.riders:
+                        if (other_rider.rider_type == "BENEFIT"
+                                and other_rider.plancode.upper() == rider.plancode.upper()
+                                and rider.rider_type != "BENEFIT"):
+                            o_prem = mf_calc.compute_rider_annual_premium(other_rider, p.policy_year)
+                            if o_prem > 0:
+                                o_code = f"{other_rider.benefit_type}{other_rider.benefit_subtype or ''}"
+                                is_pw = other_rider.benefit_type in ("3", "4")
+                                o_pw = 1.0
+                                if is_pw:
+                                    if other_rider.benefit_rating_factor and other_rider.benefit_rating_factor > 0:
+                                        o_pw = other_rider.benefit_rating_factor
+                                    elif other_rider.table_rating == 1:
+                                        o_pw = 1.50
+                                    elif other_rider.table_rating == 2:
+                                        o_pw = 2.25
+                                o_rate = None
+                                try:
+                                    o_name = BENEFIT_TYPE_CODES.get(other_rider.benefit_type, o_code)
+                                    o_band = db.get_band(other_rider.plancode, other_rider.face_amount, p.issue_date)
+                                    o_rate = db.get_benefit_rate(
+                                        other_rider.plancode, o_code, o_name,
+                                        other_rider.sex, other_rider.rate_class, o_band,
+                                        other_rider.issue_age, p.policy_year,
+                                    )
+                                except Exception:
+                                    pass
+                                label = f"PW (Ben {o_code})" if is_pw else f"Ben {o_code}"
+                                rider_benefits.append({
+                                    "label": label,
+                                    "rate": o_rate,
+                                    "factor": o_pw,
+                                    "premium": o_prem,
+                                })
+                                r_prem += o_prem
+
+                    cov_entries.append({
+                        "plancode": rider.plancode,
+                        "issue_age": rider.issue_age,
+                        "sex": rider.sex,
+                        "rate_class": rider.rate_class,
+                        "rate": r_rate or 0,
+                        "table_rating": r_table,
+                        "rating_factor": r_factor,
+                        "flat_extra": 0,
+                        "units": rider.face_amount / 1000.0,
+                        "benefits": rider_benefits,
+                        "premium": r_prem,
+                    })
+
+            # Assemble coverages list: base first, then riders
+            base_rate_sex = (p.rate_sex or p.sex).upper()
+            coverages = [{
+                "plancode": p.plan_code,
+                "issue_age": p.issue_age,
+                "sex": base_rate_sex,
+                "rate_class": p.rate_class,
+                "rate": min_face_prem.base_rate,
+                "table_rating": p.table_rating,
+                "rating_factor": _mf_sub_factor,
+                "flat_extra": _mf_flat_applied,
+                "units": _mf_units,
+                "benefits": base_benefits,
+                "premium": base_premium,
+            }] + cov_entries
 
             partial_prem_breakdown = {
                 "policy_number": p.policy_number,
-                "plan_code": p.plan_code,
-                "issue_age": p.issue_age,
-                "face_amount": min_face,
-                "face_units": _mf_units,
-                "rate_class": p.rate_class,
-                "sex": p.sex,
-                "rate_sex": p.rate_sex or p.sex,
                 "policy_year": p.policy_year,
-                "base_rate": min_face_prem.base_rate,
-                "table_rating": p.table_rating,
-                "substandard_factor": _mf_sub_factor,
-                "step1_rate": _mf_step1,
-                "flat_extra": p.flat_extra,
-                "flat_to_age": p.flat_to_age,
-                "flat_rate_applied": _mf_flat_applied,
-                "step2_rate": _mf_step2,
-                "step3_premium": _mf_step3,
-                "rider_details": rider_details,
-                "rider_total": rider_annual,
+                "face_amount": min_face,
+                "coverages": coverages,
                 "policy_fee": min_face_prem.policy_fee,
-                "annual_premium": min_face_prem.annual_premium,
-                "billing_mode": p.billing_mode,
                 "modal_label": MODAL_LABELS.get(p.billing_mode, "Annual"),
                 "modal_factor": modal_factor,
-                "modal_fee_factor": modal_fee_factor,
                 "calc_modal": min_face_prem.modal_premium,
             }
 

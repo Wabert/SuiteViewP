@@ -32,6 +32,7 @@ from ..core.premium_calc import PremiumCalculator
 # Benefit name mapping for TERM_POINT_BENEFIT.Benefit column
 from suiteview.polview.models.cl_polrec.policy_translations import BENEFIT_TYPE_CODES
 from ...core.policy_service import get_policy_info
+from ..core.abr_policy_service import build_abr_policy
 from ...polview.ui.widgets import StyledInfoTableGroup
 from .abr_styles import (
     CRIMSON_BG, CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_SUBTLE, CRIMSON_RICH, CRIMSON_SCROLL,
@@ -151,6 +152,7 @@ class PolicyPanel(QWidget):
             ("Insured:", "insured_name"),
             ("Policy #:", "policy_number"),
             ("Plancode:", "plancode"),
+            ("Plan Description:", "plan_desc"),
             ("Sex:", "sex"),
             ("Rate Sex:", "rate_sex"),
             ("Issue Age:", "issue_age"),
@@ -164,8 +166,6 @@ class PolicyPanel(QWidget):
             ("Policy Year:", "policy_year"),
             ("Month of Year:", "policy_month"),
             ("Base Plancode:", "base_plancode"),
-            ("Plan Code:", "plan_code"),
-            ("Plan Description:", "plan_desc"),
             ("Billing Mode:", "billing_mode"),
             ("Modal Premium:", "modal_premium"),
             ("Calc Premium:", "calc_premium"),
@@ -215,9 +215,9 @@ class PolicyPanel(QWidget):
         self._calc_detail_btn.clicked.connect(self._show_premium_breakdown)
         self._calc_detail_btn.setVisible(False)
         # Calc Premium is in the right-group.  Find its position.
-        # "Calc Premium" is field index 20 in the fields list (0-based).
-        # half = (24+1)//2 = 12, so row = 20 % 12 = 8, group = 20//12 = 1
-        calc_prem_row = 8
+        # "Calc Premium" is field index 19 in the fields list (0-based).
+        # half = (23+1)//2 = 12, so row = 19 % 12 = 7, group = 19//12 = 1
+        calc_prem_row = 7
         details_grid.addWidget(self._calc_detail_btn, calc_prem_row, 5)
 
         self.details_group.setVisible(False)
@@ -375,10 +375,11 @@ class PolicyPanel(QWidget):
         self.retrieve_btn.setEnabled(False)
 
         try:
-            policy = self._fetch_policy(policy_num, region)
+            policy, policy_info = build_abr_policy(policy_num, region)
             if policy:
                 policy.company = company
                 self._policy = policy
+                self._policy_info = policy_info
                 self._populate_details(policy)
                 self._populate_rate_info()
                 self._populate_riders_benefits()
@@ -394,206 +395,6 @@ class PolicyPanel(QWidget):
             logger.error(f"Error retrieving policy: {e}")
         finally:
             self.retrieve_btn.setEnabled(True)
-
-    # Billing frequency (months) → ABR billing mode code
-    _FREQ_TO_MODE = {12: 1, 6: 2, 3: 3, 1: 4}
-
-    def _fetch_policy(self, policy_num: str, region: str) -> Optional[ABRPolicyData]:
-        """Fetch policy data from DB2 via the shared PolicyService.
-
-        Falls back to manual entry if DB2 is unavailable.
-        """
-        try:
-            pi = get_policy_info(policy_num, region=region)
-            if pi is None:
-                logger.info(f"Policy {policy_num} not found, manual entry mode")
-                self._policy_info = None
-                return self._create_manual_policy(policy_num, region)
-
-            self._policy_info = pi  # Keep reference for riders/benefits
-
-            # Map billing frequency (months) → ABR mode code
-            # Monthly has two modes: 4=Direct Bill (0.0930), 5=PAC/EFT (0.0864)
-            # Non-standard modes (NSD_MD_CD) override the standard mapping.
-            nsd_code = pi.non_standard_mode_code
-            if nsd_code and nsd_code in NON_STANDARD_MODE_MAP:
-                billing_mode = NON_STANDARD_MODE_MAP[nsd_code]
-            else:
-                freq = pi.billing_frequency or 12
-                billing_mode = self._FREQ_TO_MODE.get(freq, 1)
-                if freq == 1 and pi.is_eft:
-                    billing_mode = 5  # PAC/EFT Monthly
-
-            # Table rating numeric (from substandard ratings on base coverage)
-            table_numeric = 0
-            flat_extra = 0.0
-            flat_to_age = 0
-            flat_cease_date = None
-            try:
-                ratings = pi.get_substandard_ratings(1)
-                for r in ratings:
-                    if r.type_code == "T" and not table_numeric:
-                        table_numeric = r.table_rating_numeric or 0
-                    if r.type_code == "F":
-                        flat_extra = float(r.flat_amount or 0)
-                        flat_cease_date = r.flat_cease_date
-                        if flat_cease_date and pi.issue_date and pi.base_issue_age is not None:
-                            flat_to_age = pi.base_issue_age + (
-                                flat_cease_date.year - pi.issue_date.year
-                            )
-            except Exception as e:
-                logger.debug(f"Substandard lookup: {e}")
-
-            # Translate DB2 sex code ("1"->"M", "2"->"F", "3"->"U")
-            raw_sex = pi.base_sex_code or ""
-            sex = {"1": "M", "2": "F", "3": "U"}.get(raw_sex, raw_sex)
-
-            # Rate sex from 67 segment (LH_COV_INS_RNL_RT.RT_SEX_CD)
-            # This is the sex code used for rate table lookups.  For unisex
-            # policies the true sex may be F but the rate sex is U.
-            raw_rate_sex = pi.renewal_cov_sex_code(1)  # base coverage
-            rate_sex = {"1": "M", "2": "F"}.get(raw_rate_sex, raw_rate_sex)
-            if not rate_sex:
-                rate_sex = sex  # fallback to true sex
-
-            # Maturity age
-            maturity = pi.age_at_maturity or 95
-
-            # Build riders list from coverages + benefits
-            #
-            # Each coverage has its own premium rate (from TERM tables
-            # using the coverage's plancode).  Benefits on a coverage
-            # add additional rates (looked up by plancode + benefit
-            # type/subtype).  If a coverage has no benefits, it has no
-            # extra benefit charges to look up.
-            riders = []
-            rider_annual = 0.0
-            try:
-                coverages = pi.get_coverages()
-                all_benefits = pi.get_benefits()
-                base_face = float(pi.base_face_amount or 0)
-                today = date.today()
-
-                def _make_benefit_rider(cov, ben, cov_sex_mapped, cov_rc_str):
-                    """Create a RiderInfo for a single benefit on a coverage."""
-                    pc = (cov.plancode or "").upper()
-                    cov_face = float(cov.face_amount or 0)
-                    cov_issue_age = int(cov.issue_age or 0)
-                    cov_table = int(cov.table_rating or 0)
-                    ben_type = (ben.benefit_type_cd or "").strip()
-                    ben_sub = (ben.benefit_subtype_cd or "").strip()
-                    ben_units = float(ben.units or 0)
-                    ben_vpu = float(ben.vpu or 0)
-                    ben_face = float(ben.benefit_amount or 0) or cov_face
-                    ben_issue_age = int(ben.issue_age or cov_issue_age or 0)
-                    fallback = 0.0
-                    if ben.coi_rate is not None and ben.units:
-                        fallback = float(ben.coi_rate) * float(ben.units)
-                    # All benefits use BENEFIT type — rate lookup via
-                    # get_benefit_rate(plancode, type, subtype, ...)
-                    return RiderInfo(
-                        plancode=pc,
-                        face_amount=ben_face,
-                        issue_age=ben_issue_age,
-                        sex=cov_sex_mapped,
-                        rate_class=cov_rc_str if cov_rc_str != "0" else rate_class,
-                        table_rating=cov_table,
-                        rider_type="BENEFIT",
-                        fallback_premium=fallback,
-                        benefit_type=ben_type,
-                        benefit_subtype=ben_sub,
-                        benefit_units=ben_units,
-                        benefit_vpu=ben_vpu,
-                        cease_date=ben.cease_date,
-                    )
-
-                for cov in coverages:
-                    pc = (cov.plancode or "").upper()
-                    cov_sex_mapped = {"1": "M", "2": "F"}.get(
-                        cov.sex_code, cov.sex_code or sex
-                    )
-                    cov_rc = (cov.rate_class or "0").strip()
-                    cov_table = int(cov.table_rating or 0)
-                    cov_issue_age = int(cov.issue_age or 0)
-                    cov_face = float(cov.face_amount or 0)
-
-                    # Base coverage premium is computed by PremiumCalculator
-                    # directly — no coverage-level RiderInfo needed.
-                    # Non-base coverages need a RiderInfo for their own
-                    # premium rate from TERM tables.
-                    if not cov.is_base:
-                        is_ctr = (cov.person_code == "50")
-                        ann = cov.cov_annual_premium
-                        if ann is None and cov.premium_rate and cov.units:
-                            ann = cov.premium_rate * cov.units
-                        fallback = float(ann) if ann else 0.0
-                        rider_annual += fallback
-                        rtype = "CTR" if is_ctr else "OTHER"
-                        riders.append(RiderInfo(
-                            plancode=pc,
-                            face_amount=cov_face,
-                            issue_age=cov_issue_age,
-                            sex=cov_sex_mapped,
-                            rate_class=cov_rc,
-                            table_rating=cov_table,
-                            rider_type=rtype,
-                            fallback_premium=fallback,
-                        ))
-
-                    # Add benefit riders for this coverage
-                    # Skip '#' benefits (ABR) — they have no premium charge
-                    cov_benefits = [b for b in all_benefits
-                                    if b.cov_pha_nbr == cov.cov_pha_nbr]
-                    for ben in cov_benefits:
-                        if ben.cease_date and ben.cease_date < today:
-                            continue
-                        ben_type = (ben.benefit_type_cd or "").strip()
-                        if ben_type == "#":
-                            continue
-                        riders.append(
-                            _make_benefit_rider(cov, ben, cov_sex_mapped, cov_rc)
-                        )
-
-            except Exception as e:
-                logger.debug(f"Error building rider list: {e}")
-
-            policy = ABRPolicyData(
-                policy_number=policy_num,
-                region=region,
-                insured_name=pi.primary_insured_name or "",
-                issue_age=int(pi.base_issue_age or 0),
-                attained_age=int(pi.attained_age or 0),
-                sex=sex,
-                rate_sex=rate_sex,
-                rate_class=pi.base_rate_class or "N",
-                face_amount=float(pi.base_face_amount or 0),
-                # issue_date: prefer policy-level, fall back to base coverage
-                issue_date=(
-                    pi.issue_date
-                    or (pi.get_coverages()[0].issue_date if pi.get_coverages() else None)
-                ),
-                maturity_age=maturity,
-                issue_state=pi.issue_state or pi.issue_state_code or "",
-                plan_code=pi.base_plancode or "",
-                base_plancode=str(pi.data_item("LH_COV_PHA", "PLN_BSE_SRE_CD") or "").strip(),
-                billing_mode=billing_mode,
-                policy_month=pi.policy_month or 1,
-                policy_year=pi.policy_year or 1,
-                table_rating=table_numeric,
-                flat_extra=flat_extra,
-                flat_to_age=flat_to_age,
-                flat_cease_date=flat_cease_date,
-                paid_to_date=pi.paid_to_date,
-                modal_premium=float(pi.modal_premium or 0),
-                annual_premium=float(pi.annual_premium or 0),
-                rider_annual_premium=rider_annual,
-                riders=riders,
-            )
-            return policy
-
-        except Exception as e:
-            logger.error(f"DB2 fetch error: {e}")
-            return self._create_manual_policy(policy_num, region)
 
     def _create_manual_policy(self, policy_num: str, region: str) -> ABRPolicyData:
         """Create a stub policy for manual data entry (when DB2 is unavailable)."""
@@ -631,7 +432,6 @@ class PolicyPanel(QWidget):
         labels["policy_year"].setText(str(p.policy_year) if p.policy_year else "—")
         labels["policy_month"].setText(str(p.policy_month) if p.policy_month else "—")
         labels["base_plancode"].setText(p.base_plancode if p.base_plancode else "—")
-        labels["plan_code"].setText(p.plan_code or "—")
 
         # Plan description
         info = PLAN_CODE_INFO.get(p.plan_code.upper(), None) if p.plan_code else None
@@ -871,6 +671,10 @@ class PolicyPanel(QWidget):
             add_row(row, "Flat Cease:", cov.flat_cease_date.strftime("%m/%d/%Y") if cov.flat_cease_date else ""); row += 1
             add_row(row, "Status:", cov.cov_status_desc or cov.cov_status); row += 1
             add_row(row, "Person Code:", f"{cov.person_code} - {cov.person_desc}" if cov.person_desc else cov.person_code); row += 1
+            from suiteview.audit.models.audit_constants import LIVES_COVERED_CODES
+            lives_desc = LIVES_COVERED_CODES.get(cov.lives_cov_cd, "")
+            lives_display = f"{cov.lives_cov_cd} - {lives_desc}" if lives_desc else cov.lives_cov_cd
+            add_row(row, "Lives Covered:", lives_display); row += 1
             add_row(row, "VPU:", f"{cov.vpu:,.3f}" if cov.vpu else ""); row += 1
             rate_val = cov.rate
             add_row(row, "Rate:", str(rate_val) if rate_val is not None else ""); row += 1
@@ -1021,11 +825,9 @@ class PolicyPanel(QWidget):
                 calc_annual = annual_schedule[cur_yr - 1]
             else:
                 calc_annual = 0.0
-            # Apply separate modal factors: premium portion + fee portion
-            annual_ex_fee = calc_annual - policy_fee
-            calc_modal_ex_fee = round(annual_ex_fee * modal_factor, 2)
-            calc_modal_fee = round(policy_fee * modal_fee_factor, 2)
-            calc_modal = calc_modal_ex_fee + calc_modal_fee
+            # Apply single modal factor to the total annual premium
+            from ..core.premium_calc import arithmetic_round
+            calc_modal = arithmetic_round(calc_annual * modal_factor, 2)
             cyberlife_modal = p.modal_premium
 
             # ── Display calculated premium in details grid ──────────────
@@ -1069,7 +871,7 @@ class PolicyPanel(QWidget):
                 else:
                     # Non-base: look up from TERM tables
                     try:
-                        band = calc.db.get_band(pc, cov_face)
+                        band = calc.db.get_band(pc, cov_face, p.issue_date)
                         cov_rate = calc.db.get_term_rate(
                             pc, cov_sex, cov_rc, band, cov_issue_age, cur_yr,
                         )
@@ -1085,9 +887,9 @@ class PolicyPanel(QWidget):
                         cov_rate = 0.0
 
                 rating_factor = 1.0 + cov_table * 0.25
-                step1 = round(cov_rate * rating_factor, 2)
+                step1 = arithmetic_round(cov_rate * rating_factor, 2)
                 step2 = step1 + cov_flat
-                cov_premium = round(step2 * cov_units, 2)
+                cov_premium = arithmetic_round(step2 * cov_units, 2)
 
                 # ── Benefits on this coverage ─────────────────────
                 cov_benefits = [b for b in all_bens
@@ -1097,61 +899,71 @@ class PolicyPanel(QWidget):
                 # determined by the coverage face amount — NOT the individual
                 # benefit amount.  Use the same band for all benefit lookups
                 # on this coverage.
-                cov_band = calc.db.get_band(pc, cov_face)
+                cov_band = calc.db.get_band(pc, cov_face, p.issue_date)
                 for ben in cov_benefits:
                     if ben.cease_date and ben.cease_date < date.today():
                         continue
                     ben_type = (ben.benefit_type_cd or "").strip()
                     ben_sub = (ben.benefit_subtype_cd or "").strip()
-                    # Skip '#' benefits (ABR) — no premium charge
+
+                    # NOTE: We must skip '#' benefits (ABR) since they have no premium charge.
+                    # As discussed before, DO NOT REMOVE THIS CHECK! Including them causes
+                    # the display calculation to incorrectly fall back to the base rate and
+                    # wildly inflate the displayed coverage premium sum!
                     if ben_type == "#":
                         continue
-                    ben_code = f"{ben_type}{ben_sub}"
+
+                    # Recreate the RiderInfo object that the PremiumEngine expects
                     ben_face = float(ben.benefit_amount or 0) or cov_face
                     ben_issue_age = int(ben.issue_age or cov_issue_age or 0)
                     ben_units = ben_face / 1000.0
-                    # Look up benefit rate from TERM_POINT_BENEFIT
-                    # Key: Plancode + BenefitType + Benefit + Sex + Rateclass + Band
+                    ben_rating = float(ben.rating_factor) if ben.rating_factor else 0.0
+                    
+                    ben_rider = RiderInfo(
+                        plancode=pc,
+                        face_amount=ben_face,
+                        issue_age=ben_issue_age,
+                        sex=cov_sex,
+                        rate_class=cov_rc,
+                        table_rating=cov_table,
+                        rider_type="BENEFIT",
+                        fallback_premium=0.0,
+                        benefit_type=ben_type,
+                        benefit_subtype=ben_sub,
+                        benefit_units=float(ben.units or 0),
+                        benefit_vpu=float(ben.vpu or 0),
+                        benefit_rating_factor=ben_rating,
+                        cease_date=ben.cease_date,
+                    )
+
+                    # Use the PremiumCalculator to compute the exact rider premium
+                    ben_premium = calc.compute_rider_annual_premium(ben_rider, cur_yr)
+
+                    # For display purposes only, figure out the rate and PW factor
+                    is_pw = ben_type in ("3", "4")
+                    pw_factor = ben_rating if ben_rating > 0 else (
+                        1.50 if cov_table == 1 else (2.25 if cov_table == 2 else 1.0)
+                    )
+                    
+                    # Try to look up the base rate for display in the grid
                     ben_rate = None
                     try:
-                        # TERM_POINT_BENEFIT stores BenefitType as
-                        # combined type+subtype (e.g. "30") and Benefit
-                        # as the name (e.g. "PWoC").
+                        ben_code = f"{ben_type}{ben_sub}"
                         ben_name = BENEFIT_TYPE_CODES.get(ben_type, ben_code)
                         ben_rate = calc.db.get_benefit_rate(
                             pc, ben_code, ben_name,
                             cov_sex, cov_rc, cov_band,
                             ben_issue_age, cur_yr,
                         )
-                        if ben_rate is None:
-                            logger.debug(
-                                f"Benefit rate lookup MISS — "
-                                f"TERM_POINT_BENEFIT: Plancode={pc} "
-                                f"BenefitType={ben_code} Benefit={ben_name} "
-                                f"Sex={cov_sex} Rateclass={cov_rc} Band={cov_band} | "
-                                f"IssueAge={ben_issue_age} Year={cur_yr}"
-                            )
-                    except Exception as e:
-                        logger.debug(f"Error in benefit rate lookup: {e}")
-                    # PW factor: benefit types 3/4 are Premium Waiver
-                    is_pw = ben_type in ("3", "4")
-                    pw_factor = 1.0
-                    if is_pw:
-                        if cov_table == 1:
-                            pw_factor = 1.50
-                        elif cov_table == 2:
-                            pw_factor = 2.25
-                    ben_premium = 0.0
-                    if ben_rate is not None:
-                        if is_pw:
-                            ben_premium = round(round(ben_rate * pw_factor, 2) * ben_units, 2)
-                        else:
-                            ben_premium = round(ben_rate * ben_units, 2)
+                    except Exception:
+                        pass
+                        
                     # Label includes benefit code for clarity
                     if is_pw:
                         lbl = f"PW (Ben {ben_code})"
                     else:
                         lbl = f"Ben {ben_code}"
+                        
                     benefit_details.append({
                         "type": ben_type,
                         "subtype": ben_sub,
@@ -1236,7 +1048,7 @@ class PolicyPanel(QWidget):
 
                 if yr == start_year and remaining_payments < payments_per_year:
                     # First year: only the remaining modal payments
-                    modal_prem = round(full_annual * modal_factor, 2)
+                    modal_prem = arithmetic_round(full_annual * modal_factor, 2)
                     display_prem = modal_prem * remaining_payments
                 else:
                     display_prem = full_annual
@@ -1270,141 +1082,8 @@ class PolicyPanel(QWidget):
 
     def _show_premium_breakdown(self):
         """Show a dialog with per-coverage premium calculation breakdown."""
-        bd = self._prem_breakdown
-        if not bd:
-            return
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Premium Calculation Breakdown")
-        dlg.setMinimumWidth(380)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(8)
-
-        # Title
-        title = QLabel(f"Premium Breakdown - Policy Year {bd['policy_year']}")
-        title.setStyleSheet(
-            f"font-size: 14px; font-weight: bold; color: {CRIMSON_DARK};"
-            f" padding-bottom: 4px;"
-        )
-        layout.addWidget(title)
-
-        # Grid for the breakdown
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(16)
-        grid.setVerticalSpacing(3)
-        row = 0
-
-        LBL_STYLE = f"font-size: 11px; color: {GRAY_DARK};"
-        VAL_STYLE = f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;"
-        HDR_STYLE = f"font-size: 11px; color: {CRIMSON_DARK}; font-weight: bold;"
-        INDENT_STYLE = f"font-size: 11px; color: {GRAY_DARK}; padding-left: 16px;"
-        PREM_STYLE = f"font-size: 12px; color: {CRIMSON_DARK}; font-weight: bold;"
-
-        def add_header(text):
-            nonlocal row
-            lbl = QLabel(text)
-            lbl.setStyleSheet(HDR_STYLE + " padding-top: 8px;")
-            grid.addWidget(lbl, row, 0, 1, 2)
-            row += 1
-
-        def add_line(label_text, value_text, indent=False):
-            nonlocal row
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet(INDENT_STYLE if indent else LBL_STYLE)
-            grid.addWidget(lbl, row, 0, Qt.AlignmentFlag.AlignLeft)
-            val = QLabel(str(value_text))
-            val.setStyleSheet(VAL_STYLE)
-            val.setAlignment(Qt.AlignmentFlag.AlignRight)
-            grid.addWidget(val, row, 1)
-            row += 1
-
-        def add_premium_line(label_text, value_text, indent=False):
-            nonlocal row
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet(INDENT_STYLE if indent else LBL_STYLE)
-            grid.addWidget(lbl, row, 0, Qt.AlignmentFlag.AlignLeft)
-            val = QLabel(str(value_text))
-            val.setStyleSheet(PREM_STYLE)
-            val.setAlignment(Qt.AlignmentFlag.AlignRight)
-            grid.addWidget(val, row, 1)
-            row += 1
-
-        def add_spacer():
-            nonlocal row
-            spacer = QLabel("")
-            spacer.setFixedHeight(6)
-            grid.addWidget(spacer, row, 0)
-            row += 1
-
-        def add_divider():
-            nonlocal row
-            div = QFrame()
-            div.setFrameShape(QFrame.Shape.HLine)
-            div.setStyleSheet(f"color: {CRIMSON_SUBTLE};")
-            grid.addWidget(div, row, 0, 1, 2)
-            row += 1
-
-        # ── Policy number ─────────────────────────────────────
-        add_line("Policy Number", bd.get('policy_number', ''))
-
-        # ── Per-coverage breakdown ────────────────────────────
-        for cov_idx, cov in enumerate(bd.get('coverages', [])):
-            add_spacer()
-            add_header(f"Coverage {cov_idx + 1}")
-            add_line("Plan", cov['plancode'], indent=True)
-            add_line("Issue age/Sex/Class",
-                     f"{cov['issue_age']} / {cov['sex']} / {cov['rate_class']}",
-                     indent=True)
-            cov_rate = cov.get('rate', 0)
-            add_line("Rate",
-                     f"{cov_rate:.4f}" if cov_rate else "0", indent=True)
-            add_line("Table Rating", str(cov['table_rating']), indent=True)
-            add_line("Rating Factor",
-                     f"{cov['rating_factor']:.3f}", indent=True)
-            flat = cov.get('flat_extra', 0)
-            add_line("Flat Extra",
-                     f"{flat:.2f}" if flat > 0 else "0", indent=True)
-            add_line("Units", f"{cov['units']:.3f}", indent=True)
-
-            # Benefits on this coverage (PW, etc.)
-            for ben in cov.get('benefits', []):
-                add_spacer()
-                lbl = ben.get('label', 'BEN')
-                ben_rate = ben.get('rate')
-                add_line(f"{lbl} Rate",
-                         f"{ben_rate:.4f}" if ben_rate is not None else "—",
-                         indent=True)
-                ben_factor = ben.get('factor', 1.0)
-                add_line(f"{lbl} Factor",
-                         f"{ben_factor:.2f}" if ben_factor != 1.0 else "1",
-                         indent=True)
-
-            add_spacer()
-            add_premium_line("Premium",
-                             f"{cov['premium']:,.4f}", indent=True)
-
-        # ── Policy Fee / Premium Mode / Modal / Calculated ────
-        add_spacer()
-        add_divider()
-        add_line("Policy Fee", f"{bd['policy_fee']:,.3f}")
-        add_line("Premium Mode", bd.get('modal_label', ''))
-        add_line("Modal Factor", f"{bd['modal_factor']:.4f}")
-        add_premium_line("Calculated Modal Premium",
-                         f"{bd['calc_modal']:,.2f}")
-
-        layout.addLayout(grid)
-        layout.addStretch()
-
-        close_btn = QPushButton("Close")
-        close_btn.setStyleSheet(BUTTON_PRIMARY_STYLE)
-        close_btn.clicked.connect(dlg.accept)
-        btn_row_layout = QHBoxLayout()
-        btn_row_layout.addStretch()
-        btn_row_layout.addWidget(close_btn)
-        layout.addLayout(btn_row_layout)
-
-        dlg.exec()
+        from .premium_breakdown_dialog import show_premium_breakdown_dialog
+        show_premium_breakdown_dialog(self._prem_breakdown, parent=self)
 
     # ── Public API ──────────────────────────────────────────────────────
 

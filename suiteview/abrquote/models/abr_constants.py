@@ -14,16 +14,16 @@ from typing import Dict, Tuple
 
 # Plan code → (level_period, product_description)
 PLAN_CODE_INFO: Dict[str, Tuple[str, str]] = {
-    "B15TD100": ("10", "Signature Term 2012"),
-    "B15TD200": ("15", "Signature Term 2012"),
-    "B15TD300": ("20", "Signature Term 2012"),
-    "B15TD400": ("30", "Signature Term 2012"),
-    "B15TD500": ("1",  "Signature Term 2012"),
-    "B75TL100": ("10", "Signature Term 2018"),
-    "B75TL200": ("15", "Signature Term 2018"),
-    "B75TL300": ("20", "Signature Term 2018"),
-    "B75TL400": ("30", "Signature Term 2018"),
-    "B75TL500": ("1",  "Signature Term 2018"),
+    "B15TD100": ("10", "ART12"),
+    "B15TD200": ("15", "ART12"),
+    "B15TD300": ("20", "ART12"),
+    "B15TD400": ("30", "ART12"),
+    "B15TD500": ("1",  "ART12"),
+    "B75TL100": ("10", "ART18"),
+    "B75TL200": ("15", "ART18"),
+    "B75TL300": ("20", "ART18"),
+    "B75TL400": ("30", "ART18"),
+    "B75TL500": ("1",  "ART18"),
 }
 
 # =============================================================================

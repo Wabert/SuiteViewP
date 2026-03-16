@@ -1,6 +1,11 @@
 """
 ABR Quote — ODBC data access layer for the UL_Rates SQL Server database.
 
+NOTE: TERM_RATE_BANDSPECS has an Issue_Date column that allows band
+breakpoints to vary by policy issue date.  The get_band() method accepts
+an optional issue_date and picks the effective date set whose Issue_Date
+is on or before the policy's issue date (latest match wins).
+
 Provides the same public interface as ABRDatabase (abr_database.py)
 but reads all rate data from the shared UL_Rates ODBC DSN.
 
@@ -25,6 +30,7 @@ in SQL Server.
 
 import logging
 import time
+from datetime import date
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict
 
@@ -658,14 +664,19 @@ class ABROdbcDatabase:
 
     # ── Band Amounts ─────────────────────────────────────────────────────
 
-    def get_band(self, plancode: str, face_amount: float) -> str:
-        """Return BandCode (letter) for a given plancode and face amount.
+    def get_band(self, plancode: str, face_amount: float,
+                 issue_date: Optional[date] = None) -> str:
+        """Return BandCode (letter) for a given plancode, face amount, and issue date.
 
         Looks up TERM_RATE_BANDSPECS via the plancode's TERM_POINT_PV pointer.
+        Filters to the most recent Issue_Date on or before the policy's issue
+        date, then picks the matching band by SpecifiedAmount.
+
         Returns the BandCode string (e.g. 'A', 'B', 'C', 'D', 'E').  Cached.
         """
         t0 = time.perf_counter()
-        cache_key = (plancode.upper(), face_amount)
+        effective_date = issue_date or date(1900, 1, 1)
+        cache_key = (plancode.upper(), face_amount, effective_date)
         if cache_key in self._band_cache:
             self._record_query("get_band", time.perf_counter() - t0, cache_hit=True)
             return self._band_cache[cache_key]
@@ -675,11 +686,22 @@ class ABROdbcDatabase:
             self._record_query("get_band", time.perf_counter() - t0)
             return 'A'  # plancode not in TERM tables
 
+        # Find the most recent Issue_Date on or before the policy issue date,
+        # then return band specs for that date.
+        # Issue_Date is stored as a string (e.g. '1900-01-01') so we compare
+        # using the ISO string representation of the date.
+        effective_str = effective_date.isoformat()  # 'YYYY-MM-DD'
         cursor = self.connect().cursor()
         cursor.execute(
-            "SELECT [Band], [SpecifiedAmount], [BandCode] FROM [TERM_RATE_BANDSPECS] "
-            "WHERE [Index(BANDSPEC)] = ? ORDER BY [SpecifiedAmount] ASC",
-            (pv["bandspec_index"],),
+            "SELECT [Band], [SpecifiedAmount], [BandCode] "
+            "FROM [TERM_RATE_BANDSPECS] "
+            "WHERE [Index(BANDSPEC)] = ? "
+            "  AND [Issue_Date] = ("
+            "      SELECT MAX([Issue_Date]) FROM [TERM_RATE_BANDSPECS] "
+            "      WHERE [Index(BANDSPEC)] = ? AND [Issue_Date] <= ?"
+            "  ) "
+            "ORDER BY [SpecifiedAmount] ASC",
+            (pv["bandspec_index"], pv["bandspec_index"], effective_str),
         )
         rows = cursor.fetchall()
         cursor.close()
@@ -863,12 +885,12 @@ class ABROdbcDatabase:
         """Return band specs from TERM_RATE_BANDSPECS."""
         cursor = self.connect().cursor()
         cursor.execute(
-            "SELECT [Index(BANDSPEC)], [Band], [SpecifiedAmount], [BandCode] "
-            "FROM [TERM_RATE_BANDSPECS] ORDER BY [Index(BANDSPEC)], [Band]"
+            "SELECT [Index(BANDSPEC)], [Issue_Date], [Band], [SpecifiedAmount], [BandCode] "
+            "FROM [TERM_RATE_BANDSPECS] ORDER BY [Index(BANDSPEC)], [Issue_Date], [Band]"
         )
         rows = cursor.fetchall()
         cursor.close()
-        headers = ["BandSpec Index", "Band", "Specified Amount ($)", "Band Code"]
+        headers = ["BandSpec Index", "Issue Date", "Band", "Specified Amount ($)", "Band Code"]
         return headers, [tuple(r) for r in rows]
 
     def load_policy_fees_for_viewer(self) -> tuple:

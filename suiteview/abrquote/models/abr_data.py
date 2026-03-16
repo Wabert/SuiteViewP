@@ -39,13 +39,14 @@ class RiderInfo:
     sex: str = ""              # "M", "F", "U"
     rate_class: str = ""       # actual for PW, "0" for CTR
     table_rating: int = 0      # PW table rating (1 or 2; 0=standard)
-    rider_type: str = "OTHER"  # "PW", "CTR", "OTHER"
+    rider_type: str = "OTHER"  # "PW", "CTR", "COVERAGE", "OTHER"
     fallback_premium: float = 0.0  # CyberLife annual premium for "OTHER" riders
     # Benefit fields (from LH_SPM_BNF via get_benefits())
     benefit_type: str = ""     # SPM_BNF_TYP_CD (e.g. "W", "C", "4")
     benefit_subtype: str = ""  # SPM_BNF_SBY_CD
     benefit_units: float = 0.0 # BNF_UNT_QTY (for display)
     benefit_vpu: float = 0.0   # BNF_VPU_AMT (for display)
+    benefit_rating_factor: float = 0.0 # BNF_RT_FCT (factor applied to PW rate)
     cease_date: Optional[date] = None  # BNF_CEA_DT (skip if expired)
 
 
