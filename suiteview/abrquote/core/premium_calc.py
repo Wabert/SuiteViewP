@@ -235,7 +235,8 @@ class PremiumCalculator:
 
         return result
 
-    def compute_min_face_premium(self, min_face: float = 50_000.0) -> PremiumResult:
+    def compute_min_face_premium(self, min_face: float = 50_000.0,
+                                     policy_year: Optional[int] = None) -> PremiumResult:
         """Compute premium for minimum face amount (for partial acceleration).
 
         After partial acceleration, the remaining face is the minimum
@@ -247,7 +248,7 @@ class PremiumCalculator:
         from dataclasses import replace
         reduced = replace(self.policy, face_amount=min_face)
         calc = PremiumCalculator(reduced)
-        return calc.compute()
+        return calc.compute(policy_year=policy_year)
 
     # ── Rider premium helpers ───────────────────────────────────────────
 

@@ -912,6 +912,64 @@ class AssessmentPanel(QWidget):
         self._policy_info = policy_info
         self.res_view_calc_btn.setEnabled(bool(mort_detail))
 
+    def _reset_assessment_inputs(self):
+        """Reset all assessment inputs to their default empty state.
+
+        Called when a new policy is loaded so the user starts from scratch.
+        """
+        # Reset rider type back to Chronic (block signal to avoid
+        # triggering _on_rider_changed before we finish resetting)
+        self.rider_combo.blockSignals(True)
+        self.rider_combo.setCurrentText("Chronic")
+        self.rider_combo.blockSignals(False)
+
+        # Restore visibility (Terminal hides these)
+        self.assessment_group.setVisible(True)
+        self.calc_btn.setVisible(True)
+
+        # Uncheck all survival / direct-input checkboxes
+        for chk in (
+            self.chk_five_year, self.chk_ten_year, self.chk_le,
+            self.chk_table, self.chk_flat,
+            self.chk_table_2, self.chk_flat_2,
+            self.chk_return_5yr, self.chk_return_10yr,
+        ):
+            chk.blockSignals(True)
+            chk.setChecked(False)
+            chk.blockSignals(False)
+
+        # Clear survival text inputs
+        self.five_year_input.clear()
+        self.ten_year_input.clear()
+        self.le_input.clear()
+
+        # Clear direct table/flat inputs and reset start/stop defaults
+        self.table_input.clear()
+        self.table_start_input.setText("1")
+        self.table_stop_input.setText("99")
+        self.flat_input.clear()
+        self.flat_start_input.setText("1")
+        self.flat_stop_input.setText("99")
+        self.table_2_input.clear()
+        self.table_2_start_input.setText("1")
+        self.table_2_stop_input.setText("99")
+        self.flat_2_input.clear()
+        self.flat_2_start_input.setText("1")
+        self.flat_2_stop_input.setText("99")
+
+        # Update disabled styling
+        self._on_checkbox_toggled()
+
+        # Reset In Lieu Of
+        self.radio_in_lieu.setChecked(True)
+
+        # Hide derived group and clear results
+        self.derived_group.setVisible(False)
+        for lbl in self._derived_labels.values():
+            lbl.setText("\u2014")
+        self._assessment = None
+        self.clear_results()
+
     def clear_results(self):
         """Reset the results column to default empty state."""
         self._result = None
@@ -1089,6 +1147,7 @@ class AssessmentPanel(QWidget):
             )
             # Auto-run calculation for Terminal if a policy is loaded
             if self._policy:
+                self._populate_terminal_derived()
                 self._assessment = self.create_terminal_assessment()
                 self.assessment_ready.emit(self._assessment)
         else:
@@ -1096,6 +1155,108 @@ class AssessmentPanel(QWidget):
                 self.status_label.setText(
                     "Check the inputs you want to use and enter values."
                 )
+
+    # ── Terminal derived values ───────────────────────────────────────────
+
+    def _populate_terminal_derived(self):
+        """Compute and display derived substandard values for Terminal rider.
+
+        Terminal uses is_terminal=True which forces 50 %/yr mortality in the
+        engine, so there is no goal-seek and no assessment substandard.
+        We still show the derived survival / LE so the user can see them.
+        """
+        p = self._policy
+        if p is None:
+            return
+
+        abs_policy_month = (p.policy_year - 1) * 12 + p.policy_month
+
+        # Standard (unmodified) params — no terminal, no substandard
+        std_params = MortalityParams(
+            issue_age=p.issue_age,
+            sex=p.rate_sex or p.sex,
+            rate_class=p.rate_class,
+            policy_month=abs_policy_month,
+            maturity_age=p.maturity_age or MATURITY_AGE,
+            table_rating_1=0.0,
+            table_1_start_month=1,
+            table_1_last_month=9999,
+            flat_extra_1=0.0,
+            flat_1_start_month=1,
+            flat_1_duration=9999,
+            mortality_multiplier=MORTALITY_MULTIPLIER,
+            improvement_rate=MORTALITY_IMPROVEMENT_RATE,
+            improvement_cap=MORTALITY_IMPROVEMENT_CAP,
+            is_terminal=False,
+        )
+        std_engine = MortalityEngine(std_params)
+        std_le = std_engine.compute_life_expectancy()
+        std_survival_5yr = std_engine.compute_survival_probability(5)
+        std_survival_10yr = std_engine.compute_survival_probability(10)
+
+        # Terminal (modified) params — is_terminal=True, 50 %/yr mortality
+        term_params = MortalityParams(
+            issue_age=p.issue_age,
+            sex=p.rate_sex or p.sex,
+            rate_class=p.rate_class,
+            policy_month=abs_policy_month,
+            maturity_age=p.maturity_age or MATURITY_AGE,
+            table_rating_1=0.0,
+            table_1_start_month=1,
+            table_1_last_month=9999,
+            flat_extra_1=0.0,
+            flat_1_start_month=1,
+            flat_1_duration=9999,
+            mortality_multiplier=MORTALITY_MULTIPLIER_TERMINAL,
+            improvement_rate=0.0,
+            improvement_cap=MORTALITY_IMPROVEMENT_CAP,
+            is_terminal=True,
+        )
+        term_engine = MortalityEngine(term_params)
+        term_le = term_engine.compute_life_expectancy()
+        term_survival_5yr = term_engine.compute_survival_probability(5)
+        term_survival_10yr = term_engine.compute_survival_probability(10)
+
+        # ── Populate left column (Current / Unmodified) ─────────────────
+        self._derived_labels["std_survival_5yr"].setText(
+            f"{std_survival_5yr:.4f}  ({std_survival_5yr * 100:.2f}%)"
+        )
+        self._derived_labels["std_survival_10yr"].setText(
+            f"{std_survival_10yr:.4f}  ({std_survival_10yr * 100:.2f}%)"
+        )
+        std_le_age = p.attained_age + round(std_le)
+        self._derived_labels["std_le"].setText(
+            f"{std_le:.1f} years (age {std_le_age})"
+        )
+        if p.table_rating > 0:
+            self._derived_labels["std_table_rating"].setText(
+                f"Table {p.table_rating}"
+            )
+        else:
+            self._derived_labels["std_table_rating"].setText("None")
+        if p.flat_extra > 0:
+            flat_txt = f"${p.flat_extra:.3f}/1000"
+            if p.flat_to_age > 0:
+                flat_txt += f" (to age {p.flat_to_age})"
+            self._derived_labels["std_flat_extra"].setText(flat_txt)
+        else:
+            self._derived_labels["std_flat_extra"].setText("None")
+
+        # ── Populate right column (Modified / Terminal Applied) ─────────
+        self._derived_labels["mod_survival_5yr"].setText(
+            f"{term_survival_5yr:.4f}  ({term_survival_5yr * 100:.2f}%)"
+        )
+        self._derived_labels["mod_survival_10yr"].setText(
+            f"{term_survival_10yr:.4f}  ({term_survival_10yr * 100:.2f}%)"
+        )
+        term_le_age = p.attained_age + round(term_le)
+        self._derived_labels["mod_le"].setText(
+            f"{term_le:.1f} years (age {term_le_age})"
+        )
+        self._derived_labels["table_rating"].setText("Annual Mortality = 0.5000")
+        self._derived_labels["flat_extra"].setText("\u2014")
+
+        self.derived_group.setVisible(True)
 
     # ── Actions ──────────────────────────────────────────────────────────
 
@@ -1556,6 +1717,7 @@ class AssessmentPanel(QWidget):
     def set_policy(self, policy: ABRPolicyData):
         """Set the policy data from Step 1."""
         self._policy = policy
+        self._reset_assessment_inputs()
 
         # Show the In Lieu Of / In Addition To choice only when the
         # policy currently carries substandard ratings (table or flat).
@@ -1567,9 +1729,12 @@ class AssessmentPanel(QWidget):
 
         rider = self.rider_combo.currentText()
         if rider == "Terminal":
+            self._populate_terminal_derived()
+            self._assessment = self.create_terminal_assessment()
+            self.assessment_ready.emit(self._assessment)
             self.status_label.setText(
                 f"Policy {policy.policy_number} loaded. "
-                "Terminal rider — click 'Calculate & View Results'."
+                "Terminal rider — no assessment needed. Mortality = 50 % per year."
             )
         else:
             self.status_label.setText(

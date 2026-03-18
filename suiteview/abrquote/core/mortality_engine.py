@@ -54,13 +54,13 @@ class MortalityEngine:
         return [row["qx_monthly"] for row in detail]
 
     def compute_life_expectancy(self) -> float:
-        """Compute curtate future life expectancy + 0.5 (UDD complete LE).
+        """Compute curtate future life expectancy.
 
         Uses the full monthly mortality schedule to compute the expected
         remaining lifetime from the current policy month.
 
         Returns:
-            Complete life expectancy in years.
+            Life expectancy in years.
         """
         monthly_rates = self.compute_monthly_rates()
         if not monthly_rates:
@@ -76,9 +76,7 @@ class MortalityEngine:
             tp_x *= px_m
             life_months += tp_x
 
-        # Convert to years and add 0.5 for complete LE (UDD approximation)
-        curtate_le_years = life_months / 12.0
-        return curtate_le_years + 0.5
+        return life_months / 12.0
 
     def compute_survival_probability(self, years: int) -> float:
         """Compute probability of surviving exactly `years` years from now.

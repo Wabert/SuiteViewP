@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
                               QPushButton, QLabel, QFrame, QMenu, QLineEdit, QTreeView, QStyle, QTabBar, QToolButton,
                               QListWidget, QListWidgetItem, QSplitter, QAbstractItemView, QScrollArea,
                               QSystemTrayIcon, QApplication, QSizePolicy, QComboBox, QMessageBox)
-from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint, QRect
 from PyQt6.QtGui import QAction, QCursor, QMouseEvent, QIcon, QPainter, QColor, QPen, QPixmap, QFont, QBrush
 
 # Import the base FileExplorerCore
@@ -4772,6 +4772,12 @@ class FileNavWindow(QWidget):
         self._drag_pos = None
         self._is_maximized = False
 
+        # Snap-to-edge state
+        self._is_snapped = False
+        self._normal_geometry = None
+        self._snap_preview = None
+        self._snap_edge_threshold = 10  # px from screen edge to trigger snap
+
         # Resize edge detection
         self._resize_margin = 6
         self._resizing = False
@@ -5303,10 +5309,15 @@ class FileNavWindow(QWidget):
             self.showNormal()
             self.maximize_btn.setText("□")
             self._is_maximized = False
+            self._is_snapped = False
+            self._normal_geometry = None
         else:
+            if not self._is_maximized and not self._is_snapped:
+                self._normal_geometry = self.geometry()
             self.showMaximized()
             self.maximize_btn.setText("❐")
             self._is_maximized = True
+            self._is_snapped = False
 
     # ------------------------------------------------------------------
     #  Resize grips
@@ -5368,6 +5379,67 @@ class FileNavWindow(QWidget):
             self.footer_size.setText(f"{w} × {h}")
 
     # ------------------------------------------------------------------
+    #  Snap-to-edge helpers
+    # ------------------------------------------------------------------
+    def _detect_snap_edge(self, global_pos):
+        """Return 'left' or 'right' if global_pos is near a screen edge."""
+        screen = QApplication.screenAt(global_pos)
+        if screen is None:
+            return None
+        avail = screen.availableGeometry()
+        threshold = self._snap_edge_threshold
+        if global_pos.x() <= avail.left() + threshold:
+            return 'left'
+        if global_pos.x() >= avail.right() - threshold:
+            return 'right'
+        return None
+
+    def _show_snap_preview(self, edge, global_pos):
+        """Show a translucent overlay on the target half of the screen."""
+        from suiteview.ui.widgets.frameless_window import _SnapPreview
+        screen = QApplication.screenAt(global_pos)
+        if screen is None:
+            return
+        avail = screen.availableGeometry()
+        if edge == 'left':
+            target = QRect(avail.x(), avail.y(),
+                           avail.width() // 2, avail.height())
+        else:
+            half_w = avail.width() // 2
+            target = QRect(avail.x() + half_w, avail.y(),
+                           avail.width() - half_w, avail.height())
+        if self._snap_preview is None:
+            self._snap_preview = _SnapPreview()
+        self._snap_preview.setGeometry(target)
+        self._snap_preview.show()
+
+    def _hide_snap_preview(self):
+        if self._snap_preview is not None:
+            self._snap_preview.hide()
+            self._snap_preview.deleteLater()
+            self._snap_preview = None
+
+    def _snap_to_edge(self, edge, global_pos):
+        """Snap the window to the left or right half of the screen."""
+        screen = QApplication.screenAt(global_pos)
+        if screen is None:
+            return
+        avail = screen.availableGeometry()
+        if not self._is_snapped and not self._is_maximized:
+            self._normal_geometry = self.geometry()
+        if edge == 'left':
+            target = QRect(avail.x(), avail.y(),
+                           avail.width() // 2, avail.height())
+        else:
+            half_w = avail.width() // 2
+            target = QRect(avail.x() + half_w, avail.y(),
+                           avail.width() - half_w, avail.height())
+        self.setGeometry(target)
+        self._is_snapped = True
+        self._is_maximized = False
+        self.maximize_btn.setText("□")
+
+    # ------------------------------------------------------------------
     #  Mouse handling (drag & resize)
     # ------------------------------------------------------------------
     def mousePressEvent(self, event):
@@ -5383,12 +5455,39 @@ class FileNavWindow(QWidget):
 
     def mouseMoveEvent(self, event):
         if self._drag_pos is not None and event.buttons() == Qt.MouseButton.LeftButton:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            global_pos = event.globalPosition().toPoint()
+
+            # Un-snap on drag (restore previous window size)
+            if self._is_snapped:
+                self._is_snapped = False
+                restore_geo = self._normal_geometry or QRect(0, 0, 1400, 800)
+                self._normal_geometry = None
+                cursor = global_pos
+                new_w = restore_geo.width()
+                self.resize(new_w, restore_geo.height())
+                self.move(cursor.x() - new_w // 2, cursor.y() - 20)
+                self._drag_pos = cursor - self.frameGeometry().topLeft()
+            else:
+                self.move(global_pos - self._drag_pos)
+
+            # Show / hide snap preview while dragging
+            snap_edge = self._detect_snap_edge(global_pos)
+            if snap_edge:
+                self._show_snap_preview(snap_edge, global_pos)
+            else:
+                self._hide_snap_preview()
+
             event.accept()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self._drag_pos is not None:
+            global_pos = event.globalPosition().toPoint()
+            snap_edge = self._detect_snap_edge(global_pos)
+            if snap_edge and not self._is_maximized:
+                self._snap_to_edge(snap_edge, global_pos)
+            self._hide_snap_preview()
         self._drag_pos = None
         super().mouseReleaseEvent(event)
 

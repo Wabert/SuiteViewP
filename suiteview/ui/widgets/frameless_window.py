@@ -1,4 +1,4 @@
-﻿"""
+"""
 Frameless Window Base â€” Reusable frameless window with custom title bar.
 
 Provides:
@@ -14,7 +14,7 @@ Subclasses override `build_content() -> QWidget` to provide their content.
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtCore import Qt, QPoint, QRect
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -64,6 +64,12 @@ class FramelessWindowBase(QWidget):
         self._resize_edge = None
         self._resize_start_pos = None
         self._start_geometry = None
+
+        # Snap-to-edge state
+        self._is_snapped = False
+        self._normal_geometry: Optional[QRect] = None
+        self._snap_preview: Optional["_SnapPreview"] = None
+        self._snap_edge_threshold = 10  # px from screen edge to trigger snap
 
         self._window_title_text = title
 
@@ -192,11 +198,16 @@ class FramelessWindowBase(QWidget):
         if self._is_maximized:
             self.showNormal()
             self._is_maximized = False
+            self._is_snapped = False
+            self._normal_geometry = None
             self.max_btn.setText("\u25A1")
             self.max_btn.setToolTip("Maximize")
         else:
+            if not self._is_maximized and not self._is_snapped:
+                self._normal_geometry = self.geometry()
             self.showMaximized()
             self._is_maximized = True
+            self._is_snapped = False
             self.max_btn.setText("\u274F")
             self.max_btn.setToolTip("Restore")
 
@@ -315,6 +326,85 @@ class FramelessWindowBase(QWidget):
                     return
         super().mousePressEvent(event)
 
+    # ── Snap-to-edge helpers ──────────────────────────────────────────────
+
+    def _detect_snap_edge(self, global_pos: QPoint) -> Optional[str]:
+        """Return 'left' or 'right' if global_pos is near a screen edge."""
+        screen = QApplication.screenAt(global_pos)
+        if screen is None:
+            return None
+        avail = screen.availableGeometry()
+        threshold = self._snap_edge_threshold
+        if global_pos.x() <= avail.left() + threshold:
+            return 'left'
+        if global_pos.x() >= avail.right() - threshold:
+            return 'right'
+        return None
+
+    def _show_snap_preview(self, edge: str, global_pos: QPoint):
+        """Show a translucent overlay on the target half of the screen."""
+        screen = QApplication.screenAt(global_pos)
+        if screen is None:
+            return
+        avail = screen.availableGeometry()
+        if edge == 'left':
+            target = QRect(avail.x(), avail.y(),
+                           avail.width() // 2, avail.height())
+        else:
+            half_w = avail.width() // 2
+            target = QRect(avail.x() + half_w, avail.y(),
+                           avail.width() - half_w, avail.height())
+
+        if self._snap_preview is None:
+            self._snap_preview = _SnapPreview()
+        self._snap_preview.setGeometry(target)
+        self._snap_preview.show()
+
+    def _hide_snap_preview(self):
+        if self._snap_preview is not None:
+            self._snap_preview.hide()
+            self._snap_preview.deleteLater()
+            self._snap_preview = None
+
+    def _snap_to_edge(self, edge: str, global_pos: QPoint):
+        """Snap the window to the left or right half of the screen."""
+        screen = QApplication.screenAt(global_pos)
+        if screen is None:
+            return
+        avail = screen.availableGeometry()
+
+        if not self._is_snapped and not self._is_maximized:
+            self._normal_geometry = self.geometry()
+
+        if edge == 'left':
+            target = QRect(avail.x(), avail.y(),
+                           avail.width() // 2, avail.height())
+        else:
+            half_w = avail.width() // 2
+            target = QRect(avail.x() + half_w, avail.y(),
+                           avail.width() - half_w, avail.height())
+
+        self.setGeometry(target)
+        self._is_snapped = True
+        self._is_maximized = False
+        self.max_btn.setText("\u25A1")
+        self.max_btn.setToolTip("Maximize")
+
+    def _unsnap_on_drag(self, event):
+        """Restore window size when dragging away from a snapped state."""
+        self._is_snapped = False
+        restore_geo = self._normal_geometry or QRect(0, 0, 1000, 700)
+        self._normal_geometry = None
+
+        # Position so cursor stays proportionally placed in the title bar
+        cursor = event.globalPosition().toPoint()
+        new_w = restore_geo.width()
+        self.resize(new_w, restore_geo.height())
+        self.move(cursor.x() - new_w // 2, cursor.y() - 20)
+        self._drag_pos = cursor
+
+    # ── Event overrides (mouse) ─────────────────────────────────────────
+
     def mouseMoveEvent(self, event):
         pos = event.pos()
         if not event.buttons():
@@ -352,25 +442,46 @@ class FramelessWindowBase(QWidget):
 
             # Drag
             if self._drag_pos is not None and not self._resizing:
+                global_pos = event.globalPosition().toPoint()
+
+                # Un-maximize on drag
                 if self._is_maximized:
                     self._is_maximized = False
                     self.showNormal()
                     self.max_btn.setText("\u25A1")
                     new_geo = self.geometry()
-                    self._drag_pos = event.globalPosition().toPoint()
+                    self._drag_pos = global_pos
                     self.move(
                         self._drag_pos.x() - new_geo.width() // 2,
                         self._drag_pos.y() - 20,
                     )
+                # Un-snap on drag
+                elif self._is_snapped:
+                    self._unsnap_on_drag(event)
                 else:
-                    delta = event.globalPosition().toPoint() - self._drag_pos
+                    delta = global_pos - self._drag_pos
                     self.move(self.pos() + delta)
-                    self._drag_pos = event.globalPosition().toPoint()
+                    self._drag_pos = global_pos
+
+                # Show / hide snap preview while dragging
+                snap_edge = self._detect_snap_edge(global_pos)
+                if snap_edge:
+                    self._show_snap_preview(snap_edge, global_pos)
+                else:
+                    self._hide_snap_preview()
+
                 event.accept()
                 return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self._drag_pos is not None:
+            global_pos = event.globalPosition().toPoint()
+            snap_edge = self._detect_snap_edge(global_pos)
+            if snap_edge and not self._is_maximized:
+                self._snap_to_edge(snap_edge, global_pos)
+            self._hide_snap_preview()
+
         self._drag_pos = None
         self._resizing = False
         self._resize_edge = None
@@ -451,3 +562,29 @@ class _ResizeEdge(QFrame):
         self._dragging = False
         self._start_pos = None
         self._start_geometry = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Snap-preview overlay (private)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class _SnapPreview(QWidget):
+    """Translucent overlay that previews the snap target area."""
+
+    def __init__(self):
+        super().__init__(None, Qt.WindowType.FramelessWindowHint
+                         | Qt.WindowType.WindowStaysOnTopHint
+                         | Qt.WindowType.Tool)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        # Translucent blue fill
+        painter.fillRect(self.rect(), QColor(30, 91, 168, 60))
+        # Subtle border
+        painter.setPen(QPen(QColor(212, 160, 23, 140), 2))
+        painter.drawRect(self.rect().adjusted(1, 1, -2, -2))
+        painter.end()
+

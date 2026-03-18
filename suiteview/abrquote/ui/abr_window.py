@@ -471,8 +471,30 @@ class ABRQuoteWindow(FramelessWindowBase):
             monthly_qx = [row["qx_monthly"] for row in self._mort_detail]
 
             # ── 4. Compute premiums ─────────────────────────────────────
+            # Determine the effective policy year from the quote date
+            # (not CyberLife's valuation-based policy_year) so the
+            # rate lookup uses the correct duration.
+            if p.issue_date:
+                anniv_month = p.issue_date.month
+                anniv_day = p.issue_date.day
+                ysi = quote_date.year - p.issue_date.year
+                if (quote_date.month, quote_date.day) < (anniv_month, anniv_day):
+                    ysi -= 1
+                start_yr = max(ysi + 1, 1)
+                anniv_year = p.issue_date.year + ysi
+                months_elapsed = (
+                    (quote_date.year - anniv_year) * 12
+                    + quote_date.month - anniv_month
+                )
+                if quote_date.day < anniv_day:
+                    months_elapsed -= 1
+                effective_policy_month = max(months_elapsed + 1, 1)
+            else:
+                effective_policy_month = p.policy_month
+                start_yr = max(p.policy_year, 1)
+
             prem_calc = PremiumCalculator(p)
-            prem_result = prem_calc.compute()
+            prem_result = prem_calc.compute(policy_year=start_yr)
             premium_schedule = list(prem_calc.get_base_annual_premium_schedule())
 
             # Pre-prorate the first year to match Future Premiums table.
@@ -483,26 +505,6 @@ class ABRQuoteWindow(FramelessWindowBase):
             months_per_payment = 12 // payments_per_year
             modal_factor = db.get_modal_factor(p.plan_code, p.billing_mode)
             modal_fee_factor = db.get_modal_fee_factor(p.plan_code, p.billing_mode)
-
-            # Compute effective policy month from the quote date
-            if p.issue_date:
-                anniv_month = p.issue_date.month
-                anniv_day = p.issue_date.day
-                ysi = quote_date.year - p.issue_date.year
-                if (quote_date.month, quote_date.day) < (anniv_month, anniv_day):
-                    ysi -= 1
-                anniv_year = p.issue_date.year + ysi
-                months_elapsed = (
-                    (quote_date.year - anniv_year) * 12
-                    + quote_date.month - anniv_month
-                )
-                if quote_date.day < anniv_day:
-                    months_elapsed -= 1
-                effective_policy_month = max(months_elapsed + 1, 1)
-                start_yr = max(ysi + 1, 1)
-            else:
-                effective_policy_month = p.policy_month
-                start_yr = max(p.policy_year, 1)
 
             payments_made = (effective_policy_month - 1) // months_per_payment + 1
             remaining_payments = max(payments_per_year - payments_made, 0)
@@ -538,7 +540,7 @@ class ABRQuoteWindow(FramelessWindowBase):
 
             # ── 6. Compute partial premium ──────────────────────────────
             from ..core.premium_calc import arithmetic_round
-            min_face_prem = prem_calc.compute_min_face_premium(min_face)
+            min_face_prem = prem_calc.compute_min_face_premium(min_face, policy_year=start_yr)
 
             # Build partial-premium breakdown using the same `coverages`
             # shape as the Policy Info breakdown (see policy_panel.py).
@@ -573,7 +575,7 @@ class ABRQuoteWindow(FramelessWindowBase):
             }
 
             for rider in p.riders:
-                r_prem = mf_calc.compute_rider_annual_premium(rider, p.policy_year)
+                r_prem = mf_calc.compute_rider_annual_premium(rider, start_yr)
                 if r_prem <= 0:
                     continue
 
@@ -609,7 +611,7 @@ class ABRQuoteWindow(FramelessWindowBase):
                         ben_rate = db.get_benefit_rate(
                             rider.plancode, ben_code, ben_name,
                             rider.sex, rider.rate_class, r_band,
-                            rider.issue_age, p.policy_year,
+                            rider.issue_age, start_yr,
                         )
                     except Exception:
                         pass
@@ -633,12 +635,12 @@ class ABRQuoteWindow(FramelessWindowBase):
                             r_rate = db.get_benefit_rate(
                                 rider.plancode, ben_code, ben_name,
                                 rider.sex, rider.rate_class, r_band,
-                                rider.issue_age, p.policy_year,
+                                rider.issue_age, start_yr,
                             )
                         else:
                             r_rate = db.get_term_rate(
                                 rider.plancode, rider.sex, rider.rate_class,
-                                r_band, rider.issue_age, p.policy_year,
+                                r_band, rider.issue_age, start_yr,
                             )
                     except Exception:
                         pass
@@ -653,7 +655,7 @@ class ABRQuoteWindow(FramelessWindowBase):
                         if (other_rider.rider_type == "BENEFIT"
                                 and other_rider.plancode.upper() == rider.plancode.upper()
                                 and rider.rider_type != "BENEFIT"):
-                            o_prem = mf_calc.compute_rider_annual_premium(other_rider, p.policy_year)
+                            o_prem = mf_calc.compute_rider_annual_premium(other_rider, start_yr)
                             if o_prem > 0:
                                 o_code = f"{other_rider.benefit_type}{other_rider.benefit_subtype or ''}"
                                 is_pw = other_rider.benefit_type in ("3", "4")
@@ -672,7 +674,7 @@ class ABRQuoteWindow(FramelessWindowBase):
                                     o_rate = db.get_benefit_rate(
                                         other_rider.plancode, o_code, o_name,
                                         other_rider.sex, other_rider.rate_class, o_band,
-                                        other_rider.issue_age, p.policy_year,
+                                        other_rider.issue_age, start_yr,
                                     )
                                 except Exception:
                                     pass
@@ -717,7 +719,7 @@ class ABRQuoteWindow(FramelessWindowBase):
 
             partial_prem_breakdown = {
                 "policy_number": p.policy_number,
-                "policy_year": p.policy_year,
+                "policy_year": start_yr,
                 "face_amount": min_face,
                 "coverages": coverages,
                 "policy_fee": min_face_prem.policy_fee,
@@ -817,9 +819,11 @@ class ABRQuoteWindow(FramelessWindowBase):
                 f"minimum of ${min_face:,.0f} for partial acceleration."
             )
 
-        if self._assessment and self._assessment.life_expectancy_years < 2.1:
+        if (self._assessment
+                and self._assessment.life_expectancy_years <= 2.0
+                and self._assessment.rider_type != "Terminal"):
             messages.append(
-                "Life expectancy is under 2.1 years — confirm with "
+                "Life expectancy is \u2264 2 years \u2014 confirm with "
                 "Medical Directors if this qualifies for a Terminal rider."
             )
 

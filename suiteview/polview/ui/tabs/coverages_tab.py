@@ -40,7 +40,7 @@ class CoveragesTab(QWidget):
         # Row 0 (3 fields; skip col 4 by advancing the counter manually)
         self.info_group.add_field("Policy", "policy_label", 80, 80)
         self.info_group.add_field("System Cd", "system_cd_label", 80, 80)
-        self.info_group.add_field("Eff Date", "eff_date_label", 80, 100)
+        self.info_group.add_field("Valuation Date", "eff_date_label", 80, 100)
         self.info_group._current_col = 0; self.info_group._current_row += 1  # skip col 4
         # Row 1 (3 fields; skip col 4)
         self.info_group.add_field("Type", "type_label", 80, 80)

@@ -1335,17 +1335,25 @@ class PolicyInformation:
     @property
     def valuation_date(self) -> Optional[date]:
         """
-        Get valuation date - MV date for UL, NextMonthliversary-1 for traditional.
+        Get valuation date - MV date for UL, last monthliversary for traditional.
         """
         if self.is_advanced_product:
             mv_dt = self._parse_date(self.data_item("LH_POL_MVRY_VAL", "MVRY_DT"))
             if mv_dt:
                 return mv_dt
         
-        next_mv = self.next_monthliversary
+        next_mv = self.next_monthliversary_date
         if next_mv:
-            from datetime import timedelta
-            return next_mv - timedelta(days=30)  # Approximate previous month
+            # Go back exactly one calendar month (same day)
+            if next_mv.month == 1:
+                prev_year, prev_month = next_mv.year - 1, 12
+            else:
+                prev_year, prev_month = next_mv.year, next_mv.month - 1
+            # Handle day overflow (e.g. March 31 → Feb 28)
+            import calendar
+            max_day = calendar.monthrange(prev_year, prev_month)[1]
+            prev_day = min(next_mv.day, max_day)
+            return date(prev_year, prev_month, prev_day)
         
         return self.last_financial_date
     
