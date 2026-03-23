@@ -153,6 +153,11 @@ class MedicalAssessment:
     derived_increased_decrement: float = 0.0      # e.g. 200 (%)
     assessment_index: int = 0                     # 1-7 mapped from table rating letter
 
+    # Computed output values (from mortality engine after applying substandard)
+    computed_survival_5yr: float = 0.0            # modified 5yr survival probability
+    computed_survival_10yr: float = 0.0           # modified 10yr survival probability
+    computed_le: float = 0.0                      # modified life expectancy in years
+
 
 @dataclass
 class MortalityParams:

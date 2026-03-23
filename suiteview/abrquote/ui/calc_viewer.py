@@ -1,9 +1,12 @@
 """
 ABR Quote — Calculation Viewer (modeless, frameless window).
 
-Shows two tabs:
-    1. Mortality Table — all intermediate values in the mortality derivation
-    2. APV Table — all intermediate values in the present-value calculation
+Shows up to five tabs:
+    1. Policy Info      — policy details (mirrors Print Detail sheet)
+    2. Assessment       — medical assessment inputs and derived values
+    3. Mortality Table  — all intermediate values in the mortality derivation
+    4. Life Expectancy  — curtate/complete LE development
+    5. APV Table        — all intermediate values in the present-value calculation
 
 Designed for Business Analysts to inspect and verify every step of the
 ABR quote calculation on a month-by-month basis.
@@ -21,7 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QTableWidget, QTableWidgetItem, QHeaderView,
     QPushButton, QLabel, QApplication,
-    QMessageBox,
+    QMessageBox, QScrollArea, QGridLayout,
 )
 
 from .abr_styles import (
@@ -46,12 +49,20 @@ class CalcViewerDialog(FramelessWindowBase):
         apv_rows: list[dict],
         apv_summary: dict,
         policy_info: str = "",
+        policy=None,
+        assessment=None,
+        result=None,
+        derived_values: dict | None = None,
         parent=None,
     ):
         self._mort_rows = mortality_rows
         self._apv_rows = apv_rows
         self._apv_summary = apv_summary
         self._policy_info = policy_info
+        self._policy = policy
+        self._assessment = assessment
+        self._result = result
+        self._derived_values = derived_values or {}
 
         title = (
             f"SuiteView:  Calculation Detail — {policy_info}"
@@ -115,7 +126,17 @@ class CalcViewerDialog(FramelessWindowBase):
             }}
         """)
 
-        # Tab 1: Mortality
+        # Tab: Policy Info (if data available)
+        if self._policy:
+            pi_tab = self._build_policy_info_tab()
+            self.tabs.addTab(pi_tab, "Policy Info")
+
+        # Tab: Assessment (if data available)
+        if self._assessment:
+            assess_tab = self._build_assessment_tab()
+            self.tabs.addTab(assess_tab, "Assessment")
+
+        # Tab: Mortality
         mort_tab = self._build_mortality_tab()
         self.tabs.addTab(mort_tab, "Mortality Derivation")
 
@@ -167,6 +188,265 @@ class CalcViewerDialog(FramelessWindowBase):
 
         return body
 
+    # ── Policy Info tab ─────────────────────────────────────────────────
+
+    def _build_policy_info_tab(self) -> QWidget:
+        """Build a read-only display of policy details matching Print Detail."""
+        from ..models.abr_constants import PLAN_CODE_INFO, MODAL_LABELS
+
+        p = self._policy
+        r = self._result
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(SCROLL_AREA_STYLE)
+
+        container = QWidget()
+        grid = QGridLayout(container)
+        grid.setContentsMargins(16, 12, 16, 12)
+        grid.setSpacing(4)
+        grid.setColumnMinimumWidth(0, 180)
+        grid.setColumnMinimumWidth(1, 280)
+
+        section_font = QFont("Segoe UI", 11, QFont.Weight.Bold)
+        label_font = QFont("Segoe UI", 10, QFont.Weight.Bold)
+        value_font = QFont("Segoe UI", 10)
+        section_color = QColor(CRIMSON_DARK)
+
+        row = 0
+
+        def _section(title):
+            nonlocal row
+            if row > 0:
+                row += 1
+            lbl = QLabel(title)
+            lbl.setFont(section_font)
+            lbl.setStyleSheet(
+                f"color: {WHITE}; background: {CRIMSON_DARK}; "
+                f"padding: 3px 8px; border-radius: 3px;"
+            )
+            grid.addWidget(lbl, row, 0, 1, 2)
+            row += 1
+
+        def _field(label, value):
+            nonlocal row
+            lbl = QLabel(label)
+            lbl.setFont(label_font)
+            lbl.setStyleSheet(f"color: {CRIMSON_DARK};")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            grid.addWidget(lbl, row, 0)
+            val = QLabel(str(value))
+            val.setFont(value_font)
+            val.setStyleSheet(f"color: {GRAY_DARK};")
+            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            grid.addWidget(val, row, 1)
+            row += 1
+
+        _section("Policy Details")
+        _field("Policy Number:", p.policy_number)
+        _field("Insured:", p.insured_name or "—")
+
+        plan_info = PLAN_CODE_INFO.get(p.plan_code.upper(), None) if p.plan_code else None
+        plan_desc = f"{plan_info[1]} ({plan_info[0]}-Year Level)" if plan_info else "—"
+        _field("Plancode:", p.plan_code or "—")
+        _field("Plan Description:", plan_desc)
+
+        sex_display = {"M": "Male", "F": "Female", "U": "Unisex"}.get(p.sex, p.sex or "—")
+        _field("Sex:", sex_display)
+        _field("Rate Sex:", p.rate_sex or "—")
+        _field("Issue Age:", str(p.issue_age))
+        _field("Attained Age:", str(p.attained_age))
+        _field("Rate Class:", p.rate_class or "—")
+        _field("Face Amount:", f"${p.face_amount:,.2f}" if p.face_amount else "—")
+        _field("Min Face:", f"${p.min_face_amount:,.0f}")
+        _field("Issue State:", p.issue_state or "—")
+        _field("Issue Date:", p.issue_date.strftime("%m/%d/%Y") if p.issue_date else "—")
+        _field("Policy Year:", str(p.policy_year))
+        _field("Month of Year:", str(p.policy_month))
+        _field("Base Plancode:", p.base_plancode or "—")
+        _field("Billing Mode:", MODAL_LABELS.get(p.billing_mode, str(p.billing_mode)))
+        _field("Modal Premium:", f"${p.modal_premium:,.2f}" if p.modal_premium else "—")
+        _field("Table Rating:", str(p.table_rating))
+        _field("Annual Flat Extra:", f"${p.flat_extra:.2f}" if p.flat_extra > 0 else "None")
+        _field("Flat Cease Date:", p.flat_cease_date.strftime("%m/%d/%Y") if p.flat_cease_date else "—")
+
+        if r:
+            _section("Quote Parameters")
+            _field("Quote Date:", r.quote_date.strftime("%m/%d/%Y") if r.quote_date else "—")
+            _field("ABR Interest Rate:", f"{r.abr_interest_rate * 100:.2f}%")
+            _field("Per Diem (Daily):", f"${r.per_diem_daily:,.2f}")
+            _field("Per Diem (Annual):", f"${r.per_diem_annual:,.2f}")
+
+        _section("Riders / Coverages")
+        if p.riders:
+            for rider in p.riders:
+                rider_desc = f"{rider.plancode} ({rider.rider_type})"
+                if rider.benefit_type:
+                    rider_desc += f" — BNF {rider.benefit_type}{rider.benefit_subtype or ''}"
+                _field(rider_desc, f"${rider.fallback_premium:,.2f}/yr")
+        else:
+            _field("No riders.", "")
+
+        grid.setRowStretch(row, 1)
+        scroll.setWidget(container)
+        return scroll
+
+    # ── Assessment tab ──────────────────────────────────────────────────
+
+    def _build_assessment_tab(self) -> QWidget:
+        """Build a read-only display of assessment inputs and derived values."""
+        a = self._assessment
+        r = self._result
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(SCROLL_AREA_STYLE)
+
+        container = QWidget()
+        grid = QGridLayout(container)
+        grid.setContentsMargins(16, 12, 16, 12)
+        grid.setSpacing(4)
+        grid.setColumnMinimumWidth(0, 200)
+        grid.setColumnMinimumWidth(1, 250)
+
+        section_font = QFont("Segoe UI", 11, QFont.Weight.Bold)
+        label_font = QFont("Segoe UI", 10, QFont.Weight.Bold)
+        value_font = QFont("Segoe UI", 10)
+
+        row = 0
+
+        def _section(title):
+            nonlocal row
+            if row > 0:
+                row += 1
+            lbl = QLabel(title)
+            lbl.setFont(section_font)
+            lbl.setStyleSheet(
+                f"color: {WHITE}; background: {CRIMSON_DARK}; "
+                f"padding: 3px 8px; border-radius: 3px;"
+            )
+            grid.addWidget(lbl, row, 0, 1, 2)
+            row += 1
+
+        def _field(label, value, col=0):
+            nonlocal row
+            lbl = QLabel(label)
+            lbl.setFont(label_font)
+            lbl.setStyleSheet(f"color: {CRIMSON_DARK};")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            grid.addWidget(lbl, row, col)
+            val = QLabel(str(value))
+            val.setFont(value_font)
+            val.setStyleSheet(f"color: {GRAY_DARK};")
+            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            grid.addWidget(val, row, col + 1)
+            row += 1
+
+        _section("Rider Configuration")
+        _field("Rider Type:", a.rider_type)
+
+        _section("Assessment Inputs")
+        if a.use_five_year:
+            _field("5-Year Survival Rate:", f"{a.five_year_survival}")
+            _field("  Return to Normal:", "Yes" if a.use_return_5yr else "No")
+        if a.use_ten_year:
+            _field("10-Year Survival Rate:", f"{a.ten_year_survival}")
+            _field("  Return to Normal:", "Yes" if a.use_return_10yr else "No")
+        if a.use_le:
+            _field("Life Expectancy:", f"{a.life_expectancy_years} years")
+        if a.use_table:
+            _field("Table (rating):", f"{a.direct_table_rating}")
+            _field("  Start/Stop Year:", f"{a.table_start_year} — {a.table_stop_year}")
+        if a.use_flat:
+            _field("Flat ($/1000):", f"${a.direct_flat_extra:.2f}")
+            _field("  Start/Stop Year:", f"{a.flat_start_year} — {a.flat_stop_year}")
+        if a.use_table_2:
+            _field("Table 2 (rating):", f"{a.direct_table_rating_2}")
+            _field("  Start/Stop Year:", f"{a.table_2_start_year} — {a.table_2_stop_year}")
+        if a.use_flat_2:
+            _field("Flat 2 ($/1000):", f"${a.direct_flat_extra_2:.2f}")
+            _field("  Start/Stop Year:", f"{a.flat_2_start_year} — {a.flat_2_stop_year}")
+        _field("In Lieu Of:", "Yes" if a.in_lieu_of else "No (In Addition To)")
+
+        _section("Derived Substandard Values")
+        dv = self._derived_values
+        if dv:
+            # Side-by-side: Current vs Modified
+            grid.setColumnMinimumWidth(2, 16)
+            grid.setColumnMinimumWidth(3, 200)
+            grid.setColumnMinimumWidth(4, 250)
+
+            hdr_left = QLabel("Current (Unmodified)")
+            hdr_left.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+            hdr_left.setStyleSheet(f"color: {CRIMSON_DARK}; text-decoration: underline;")
+            grid.addWidget(hdr_left, row, 0, 1, 2, Qt.AlignmentFlag.AlignCenter)
+
+            hdr_right = QLabel("Modified (Substandard Applied)")
+            hdr_right.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+            hdr_right.setStyleSheet(f"color: {CRIMSON_DARK}; text-decoration: underline;")
+            grid.addWidget(hdr_right, row, 3, 1, 2, Qt.AlignmentFlag.AlignCenter)
+            row += 1
+
+            pairs = [
+                ("5-Year Survival:", "std_survival_5yr", "5-Year Survival:", "mod_survival_5yr"),
+                ("10-Year Survival:", "std_survival_10yr", "10-Year Survival:", "mod_survival_10yr"),
+                ("Life Expectancy:", "std_le", "Life Expectancy:", "mod_le"),
+                ("Table Rating:", "std_table_rating", "Table Ratings:", "table_rating"),
+                ("Flat Extra:", "std_flat_extra", "Flat Extras:", "flat_extra"),
+            ]
+            for std_lbl, std_key, mod_lbl, mod_key in pairs:
+                lf = QLabel(std_lbl)
+                lf.setFont(label_font)
+                lf.setStyleSheet(f"color: {CRIMSON_DARK};")
+                lf.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                grid.addWidget(lf, row, 0)
+                lv = QLabel(dv.get(std_key, "—"))
+                lv.setFont(value_font)
+                lv.setStyleSheet(f"color: {GRAY_DARK};")
+                lv.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                grid.addWidget(lv, row, 1)
+
+                rf = QLabel(mod_lbl)
+                rf.setFont(label_font)
+                rf.setStyleSheet(f"color: {CRIMSON_DARK};")
+                rf.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                grid.addWidget(rf, row, 3)
+                rv = QLabel(dv.get(mod_key, "—"))
+                rv.setFont(value_font)
+                rv.setStyleSheet(f"color: {GRAY_DARK};")
+                rv.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                grid.addWidget(rv, row, 4)
+                row += 1
+        else:
+            _field("Derived Table Rating:", f"{a.derived_table_rating:.4f}")
+            if a.use_five_year and a.use_ten_year:
+                _field("  5yr Table Rating:", f"{a.derived_table_rating_5yr:.4f}")
+                _field("  10yr Table Rating:", f"{a.derived_table_rating_10yr:.4f}")
+            _field("Life Expectancy (rounded):", f"{a.life_expectancy_rounded}")
+
+        if r:
+            _section("Results Summary")
+            _field("Full Accel Benefit:", f"${r.full_accel_benefit:,.2f}")
+            _field("Full Benefit Ratio:", f"{r.full_benefit_ratio * 100:.2f}%")
+            if r.partial_eligible_db > 0:
+                _field("Partial Accel Benefit:", f"${r.partial_accel_benefit:,.2f}")
+                _field("Partial Benefit Ratio:", f"{r.partial_benefit_ratio * 100:.2f}%")
+            else:
+                _field("Partial Acceleration:", "NOT ALLOWED — At Minimum Face")
+            _field("Premium Before:", r.premium_before)
+            _field("After (Full Accel):", f"${r.premium_after_full:,.2f}")
+            if r.partial_eligible_db > 0:
+                _field("After (Partial):", r.premium_after_partial)
+            else:
+                _field("After (Partial):", "NOT ALLOWED")
+            _field("APV_FB:", f"${r.apv_fb:,.2f}")
+            _field("APV_FP:", f"${r.apv_fp:,.2f}")
+            _field("APV_FD:", f"${r.apv_fd:,.2f}")
+
+        grid.setRowStretch(row, 1)
+        scroll.setWidget(container)
+        return scroll
+
     # ── Mortality tab ───────────────────────────────────────────────────
 
     def _build_mortality_tab(self) -> QTableWidget:
@@ -178,7 +458,7 @@ class CalcViewerDialog(FramelessWindowBase):
             ("qx VBT\n(annual)", 90),
             ("qx × Mult\n(annual)", 90),
             ("qx Improved\n(annual)", 90),
-            ("Table\nRating", 55),
+            ("Table\nRating", 72),
             ("qx + Table\n(annual)", 90),
             ("Flat Extra\n($/1000)", 65),
             ("qx + Flat\n(annual)", 90),
@@ -201,7 +481,7 @@ class CalcViewerDialog(FramelessWindowBase):
             # Table Rating applied
             tbl_val = row.get("table_rating_applied", 0.0)
             if tbl_val > 0:
-                self._set_decimal(table, r, 7, tbl_val, 2)
+                self._set_decimal(table, r, 7, tbl_val, 4)
             else:
                 self._set_text(table, r, 7, "")
             self._set_rate(table, r, 8, row["qx_table_rated"])

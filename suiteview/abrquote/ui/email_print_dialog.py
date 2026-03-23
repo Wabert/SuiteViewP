@@ -11,18 +11,17 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QPushButton, QGroupBox, QFrame,
+    QLabel, QPushButton, QGroupBox,
     QLineEdit, QListWidget, QListWidgetItem,
     QMessageBox, QAbstractItemView,
     QWidget,
 )
-from PyQt6.QtGui import QFont, QTextDocument
-from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+from PyQt6.QtGui import QGuiApplication
 
-from ..models.abr_data import ABRPolicyData, ABRQuoteResult
+from ..models.abr_data import ABRPolicyData, ABRQuoteResult, MedicalAssessment
 from .abr_styles import (
     CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH, CRIMSON_BG, CRIMSON_SUBTLE,
     CRIMSON_LIGHT, CRIMSON_SCROLL,
@@ -48,11 +47,13 @@ class EmailPrintDialog(QDialog):
         self,
         policy: Optional[ABRPolicyData] = None,
         result: Optional[ABRQuoteResult] = None,
+        assessment: Optional[MedicalAssessment] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self._policy = policy
         self._result = result
+        self._assessment = assessment
         self.setWindowTitle("Email Print — ABR Quote")
         self.setMinimumSize(880, 560)
         self.resize(920, 600)
@@ -82,30 +83,24 @@ class EmailPrintDialog(QDialog):
 
         self._summary_labels = {}
         fields = [
-            ("Policy Number:", "policy_number"),
-            ("Insured:", "insured_name"),
-            ("Plan Code:", "plan_code"),
             ("Quote Date:", "quote_date"),
-            ("ABR Interest Rate:", "interest_rate"),
+            ("Policy Number:", "policy_number"),
+            ("Product:", "product"),
+            ("Acceleration:", "acceleration"),
             ("", ""),
-            ("— Full Acceleration —", ""),
-            ("  Eligible Death Benefit:", "full_eligible_db"),
-            ("  Actuarial Discount:", "full_actuarial_discount"),
-            ("  Administrative Fee:", "full_admin_fee"),
-            ("  Accelerated Benefit:", "full_accel_benefit"),
-            ("  Benefit Ratio:", "full_benefit_ratio"),
+            ("Issue Age:", "issue_age"),
+            ("Issue Date:", "issue_date"),
+            ("Time in Force:", "time_in_force"),
             ("", ""),
-            ("— Max Partial Acceleration —", ""),
-            ("  Eligible Death Benefit:", "partial_eligible_db"),
-            ("  Actuarial Discount:", "partial_actuarial_discount"),
-            ("  Administrative Fee:", "partial_admin_fee"),
-            ("  Accelerated Benefit:", "partial_accel_benefit"),
-            ("  Benefit Ratio:", "partial_benefit_ratio"),
+            ("Attained Age:", "attained_age"),
+            ("5 Yr. Survival Rate:", "survival_5yr"),
+            ("10 Yr. Survival Rate:", "survival_10yr"),
+            ("Life Expectancy in Years:", "life_expectancy"),
+            ("Substandard to achieve mortality:", "substandard"),
             ("", ""),
-            ("— Premium Impact —", ""),
-            ("  Premium Before:", "premium_before"),
-            ("  After (Full Accel):", "premium_after_full"),
-            ("  After (Partial):", "premium_after_partial"),
+            ("Full Acceleration Benefit:", "full_accel_benefit"),
+            ("Benefit Ratio (Accl Ben/Full DB):", "full_benefit_ratio"),
+            ("Reinsurers:", "reinsurers"),
         ]
 
         row = 0
@@ -205,6 +200,8 @@ class EmailPrintDialog(QDialog):
         btn_row.addStretch()
         eg.addLayout(btn_row)
 
+        self._email_group = email_group
+        self._email_group.setVisible(False)
         columns.addWidget(email_group, 2)
 
         main_layout.addLayout(columns, 1)
@@ -213,11 +210,11 @@ class EmailPrintDialog(QDialog):
         footer = QHBoxLayout()
         footer.setSpacing(10)
 
-        print_btn = QPushButton("🖨  Print")
-        print_btn.setStyleSheet(BUTTON_PRIMARY_STYLE)
-        print_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        print_btn.clicked.connect(self._on_print)
-        footer.addWidget(print_btn)
+        copy_btn = QPushButton("📋  Copy to Clipboard")
+        copy_btn.setStyleSheet(BUTTON_PRIMARY_STYLE)
+        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        copy_btn.clicked.connect(self._on_copy_to_clipboard)
+        footer.addWidget(copy_btn)
 
         footer.addStretch()
 
@@ -234,31 +231,44 @@ class EmailPrintDialog(QDialog):
     def _populate_summary(self):
         p = self._policy
         r = self._result
-
-        if p:
-            self._set("policy_number", p.policy_number)
-            self._set("insured_name", p.insured_name)
-            self._set("plan_code", p.plan_code)
+        a = self._assessment
 
         if r:
             self._set("quote_date", r.quote_date.strftime("%m/%d/%Y") if r.quote_date else "—")
-            self._set("interest_rate", f"{r.abr_interest_rate * 100:.4f}%")
 
-            self._set("full_eligible_db", self._fmt(r.full_eligible_db))
-            self._set("full_actuarial_discount", self._fmt(r.full_actuarial_discount))
-            self._set("full_admin_fee", self._fmt(r.full_admin_fee))
+        if p:
+            self._set("policy_number", p.policy_number)
+            self._set("issue_age", str(p.issue_age))
+            self._set("issue_date", p.issue_date.strftime("%m/%d/%Y") if p.issue_date else "—")
+            self._set("attained_age", str(p.attained_age))
+
+            # Time in force from policy year/month
+            total_months = (p.policy_year - 1) * 12 + p.policy_month
+            years = total_months // 12
+            months = total_months % 12
+            if years and months:
+                self._set("time_in_force", f"{years} years, {months} months")
+            elif years:
+                self._set("time_in_force", f"{years} years")
+            else:
+                self._set("time_in_force", f"{months} months")
+
+        if r:
+            self._set("product", r.plan_description or p.plan_code if p else "—")
             self._set("full_accel_benefit", self._fmt(r.full_accel_benefit))
             self._set("full_benefit_ratio", f"{r.full_benefit_ratio * 100:.2f}%")
 
-            self._set("partial_eligible_db", self._fmt(r.partial_eligible_db))
-            self._set("partial_actuarial_discount", self._fmt(r.partial_actuarial_discount))
-            self._set("partial_admin_fee", self._fmt(r.partial_admin_fee))
-            self._set("partial_accel_benefit", self._fmt(r.partial_accel_benefit))
-            self._set("partial_benefit_ratio", f"{r.partial_benefit_ratio * 100:.2f}%")
+        if a:
+            self._set("acceleration", a.rider_type)
+            self._set("survival_5yr", f"{a.five_year_survival * 100:.1f}%")
+            self._set("survival_10yr", f"{a.ten_year_survival * 100:.1f}%")
+            self._set("life_expectancy", f"{a.life_expectancy_years:.1f}")
+            if a.derived_table_rating > 0:
+                self._set("substandard", f"Table {int(round(a.derived_table_rating))}")
+            else:
+                self._set("substandard", "None")
 
-            self._set("premium_before", r.premium_before)
-            self._set("premium_after_full", f"${r.premium_after_full:,.2f}")
-            self._set("premium_after_partial", r.premium_after_partial)
+        self._set("reinsurers", "none")
 
     def _set(self, key: str, value: str):
         if key in self._summary_labels:
@@ -350,98 +360,135 @@ class EmailPrintDialog(QDialog):
 
         self._load_recipients()
 
-    # ── Print ───────────────────────────────────────────────────────────
+    # ── Copy to Clipboard ───────────────────────────────────────────────
 
-    def _on_print(self):
-        """Print the quote summary with recipient list using native print dialog."""
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        dlg = QPrintDialog(printer, self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
+    def _on_copy_to_clipboard(self):
+        """Copy the quote summary as HTML + plain text to the clipboard."""
+        sections = self._build_summary_sections()
+        html = self._build_clipboard_html(sections)
+        plain = self._build_clipboard_text(sections)
 
-        doc = QTextDocument()
-        doc.setHtml(self._build_print_html())
-        doc.print(printer)
+        mime = QMimeData()
+        mime.setHtml(html)
+        mime.setText(plain)
+        QGuiApplication.clipboard().setMimeData(mime)
+        QMessageBox.information(self, "Copied", "ABR Quote Summary copied to clipboard.")
 
-    def _build_print_html(self) -> str:
-        """Build HTML content for printing."""
+    def _build_summary_sections(self) -> list[tuple[str, list[tuple[str, str]]]]:
+        """Collect label/value pairs grouped by titled section."""
         p = self._policy
         r = self._result
+        a = self._assessment
 
-        html = """
-        <html>
-        <head>
-        <style>
-            body { font-family: Arial, sans-serif; font-size: 11pt; }
-            h1 { color: #5C0A14; font-size: 16pt; margin-bottom: 4px; }
-            h2 { color: #8B1A2A; font-size: 13pt; margin-top: 14px; margin-bottom: 4px; }
-            table { border-collapse: collapse; width: 100%; margin-bottom: 8px; }
-            td { padding: 2px 8px; font-size: 10pt; }
-            td.label { text-align: right; color: #4A5568; width: 55%; }
-            td.value { font-weight: bold; color: #2D3748; }
-            .recipients { margin-top: 12px; }
-            .recipients li { font-size: 10pt; padding: 1px 0; }
-        </style>
-        </head>
-        <body>
-        <h1>ABR Quote Summary</h1>
-        """
+        sections: list[tuple[str, list[tuple[str, str]]]] = []
+
+        sec1: list[tuple[str, str]] = []
+        if r:
+            sec1.append(("Quote Date:", r.quote_date.strftime("%m/%d/%Y") if r.quote_date else "—"))
+        if p:
+            sec1.append(("Policy Number:", p.policy_number))
+        if r:
+            sec1.append(("Product:", r.plan_description or (p.plan_code if p else "—")))
+        if a:
+            sec1.append(("Acceleration:", a.rider_type))
+        if sec1:
+            sections.append(("Policy", sec1))
 
         if p:
-            html += f"""
-            <table>
-                <tr><td class="label">Policy Number:</td><td class="value">{p.policy_number}</td></tr>
-                <tr><td class="label">Insured:</td><td class="value">{p.insured_name}</td></tr>
-                <tr><td class="label">Plan Code:</td><td class="value">{p.plan_code}</td></tr>
-            </table>
-            """
+            sec2: list[tuple[str, str]] = []
+            sec2.append(("Issue Age:", str(p.issue_age)))
+            sec2.append(("Issue Date:", p.issue_date.strftime("%m/%d/%Y") if p.issue_date else "—"))
+            total_months = (p.policy_year - 1) * 12 + p.policy_month
+            yrs, mos = total_months // 12, total_months % 12
+            if yrs and mos:
+                tif = f"{yrs} years, {mos} months"
+            elif yrs:
+                tif = f"{yrs} years"
+            else:
+                tif = f"{mos} months"
+            sec2.append(("Time in Force:", tif))
+            sections.append(("Coverage", sec2))
 
+        sec3: list[tuple[str, str]] = []
+        if p:
+            sec3.append(("Attained Age:", str(p.attained_age)))
+        if a:
+            sec3.append(("5 Yr. Survival Rate:", f"{a.computed_survival_5yr * 100:.1f}%"))
+            sec3.append(("10 Yr. Survival Rate:", f"{a.computed_survival_10yr * 100:.1f}%"))
+            sec3.append(("Life Expectancy in Years:", f"{a.computed_le:.1f}"))
+            if a.rider_type == "Terminal":
+                sec3.append(("Substandard to achieve mortality:", "50% mortality each year"))
+            elif a.derived_table_rating > 0:
+                sec3.append(("Substandard to achieve mortality:", f"Table {int(round(a.derived_table_rating))}"))
+            else:
+                sec3.append(("Substandard to achieve mortality:", "None"))
+        if sec3:
+            sections.append(("Assessment", sec3))
+
+        sec4: list[tuple[str, str]] = []
         if r:
-            qd = r.quote_date.strftime("%m/%d/%Y") if r.quote_date else "—"
-            html += f"""
-            <table>
-                <tr><td class="label">Quote Date:</td><td class="value">{qd}</td></tr>
-                <tr><td class="label">ABR Interest Rate:</td><td class="value">{r.abr_interest_rate * 100:.4f}%</td></tr>
-            </table>
+            sec4.append(("Full Acceleration Benefit:", self._fmt(r.full_accel_benefit)))
+            sec4.append(("Benefit Ratio (Accl Ben/Full DB):", f"{r.full_benefit_ratio * 100:.2f}%"))
+        sec4.append(("Reinsurers:", "none"))
+        if sec4:
+            sections.append(("Result", sec4))
 
-            <h2>Full Acceleration</h2>
-            <table>
-                <tr><td class="label">Eligible Death Benefit:</td><td class="value">{self._fmt(r.full_eligible_db)}</td></tr>
-                <tr><td class="label">Actuarial Discount:</td><td class="value">{self._fmt(r.full_actuarial_discount)}</td></tr>
-                <tr><td class="label">Administrative Fee:</td><td class="value">{self._fmt(r.full_admin_fee)}</td></tr>
-                <tr><td class="label">Accelerated Benefit:</td><td class="value">{self._fmt(r.full_accel_benefit)}</td></tr>
-                <tr><td class="label">Benefit Ratio:</td><td class="value">{r.full_benefit_ratio * 100:.2f}%</td></tr>
-            </table>
+        return sections
 
-            <h2>Max Partial Acceleration</h2>
-            <table>
-                <tr><td class="label">Eligible Death Benefit:</td><td class="value">{self._fmt(r.partial_eligible_db)}</td></tr>
-                <tr><td class="label">Actuarial Discount:</td><td class="value">{self._fmt(r.partial_actuarial_discount)}</td></tr>
-                <tr><td class="label">Administrative Fee:</td><td class="value">{self._fmt(r.partial_admin_fee)}</td></tr>
-                <tr><td class="label">Accelerated Benefit:</td><td class="value">{self._fmt(r.partial_accel_benefit)}</td></tr>
-                <tr><td class="label">Benefit Ratio:</td><td class="value">{r.partial_benefit_ratio * 100:.2f}%</td></tr>
-            </table>
+    def _build_clipboard_html(self, sections: list[tuple[str, list[tuple[str, str]]]]) -> str:
+        """Build HTML table for pasting into Outlook / email clients."""
+        # Crimson palette
+        hdr_bg = "#5C0A14"
+        hdr_fg = "#FFFFFF"
+        sec_bg = "#F2E6E8"
+        sec_fg = "#5C0A14"
+        label_fg = "#4A5568"
+        value_fg = "#1A202C"
+        border_c = "#D4A0A8"
 
-            <h2>Premium Impact</h2>
-            <table>
-                <tr><td class="label">Premium Before:</td><td class="value">{r.premium_before}</td></tr>
-                <tr><td class="label">After (Full Accel):</td><td class="value">${r.premium_after_full:,.2f}</td></tr>
-                <tr><td class="label">After (Partial):</td><td class="value">{r.premium_after_partial}</td></tr>
-            </table>
-            """
-
-        # Recipients
-        db = _get_db()
-        rows = db.fetchall(
-            "SELECT email, display_name FROM abr_email_recipients ORDER BY display_name"
+        html = (
+            '<html><head><meta charset="utf-8"></head><body>'
+            '<table style="border-collapse:collapse; font-family:Calibri,Arial,sans-serif;'
+            f' font-size:11pt; border:1px solid {border_c}; min-width:420px;">'
+            f'<tr><td colspan="2" style="background:{hdr_bg}; color:{hdr_fg};'
+            ' font-weight:bold; font-size:13pt; padding:8px 12px;">ABR Quote Summary</td></tr>'
         )
-        if rows:
-            html += "<h2>Distribution List</h2><ul class='recipients'>"
-            for row in rows:
-                name = row['display_name'] or ""
-                email = row['email']
-                html += f"<li>{name}  &lt;{email}&gt;</li>" if name else f"<li>{email}</li>"
-            html += "</ul>"
-
-        html += "</body></html>"
+        for title, pairs in sections:
+            # Section header row
+            html += (
+                f'<tr><td colspan="2" style="background:{sec_bg}; color:{sec_fg};'
+                f' font-weight:bold; font-size:10pt; padding:5px 12px;'
+                f' border-top:1px solid {border_c}; border-bottom:1px solid {border_c};">{title}</td></tr>'
+            )
+            for lbl, val in pairs:
+                html += (
+                    f'<tr>'
+                    f'<td style="padding:3px 12px; color:{label_fg}; white-space:nowrap;'
+                    f' border-bottom:1px solid #EDF2F7;">{lbl}</td>'
+                    f'<td style="padding:3px 12px; font-weight:bold; color:{value_fg};'
+                    f' text-align:right; white-space:nowrap;'
+                    f' border-bottom:1px solid #EDF2F7;">{val}</td>'
+                    f'</tr>'
+                )
+        html += '</table></body></html>'
         return html
+
+    def _build_clipboard_text(self, sections: list[tuple[str, list[tuple[str, str]]]]) -> str:
+        """Build plain-text fallback for non-HTML targets (Notepad, etc.)."""
+        all_pairs = [pair for _, pairs in sections for pair in pairs]
+        label_w = max((len(lbl) for lbl, _ in all_pairs), default=0)
+        value_w = max((len(val) for _, val in all_pairs), default=0)
+        total_w = label_w + value_w + 4
+
+        lines: list[str] = []
+        lines.append("ABR Quote Summary")
+        lines.append("=" * total_w)
+
+        for title, pairs in sections:
+            lines.append("")
+            if title:
+                lines.append(f"— {title} —")
+            for lbl, val in pairs:
+                lines.append(f"  {lbl:<{label_w}}  {val:>{value_w}}")
+
+        return "\n".join(lines)

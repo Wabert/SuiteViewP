@@ -16,9 +16,11 @@ from datetime import date
 from typing import Optional
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QMimeData
+from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget,
-    QLabel, QPushButton, QFrame, QMenu,
+    QLabel, QPushButton, QFrame, QMenu, QMessageBox,
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
@@ -78,6 +80,8 @@ class ABRQuoteWindow(FramelessWindowBase):
 
         # Insert hamburger menu button into header bar (before the title)
         self._add_header_menu()
+
+        # Policy label will be placed in the step bar (built in build_content)
 
     def build_content(self) -> QWidget:
         """Build the main body widget with step indicator and stacked panels."""
@@ -191,6 +195,18 @@ class ABRQuoteWindow(FramelessWindowBase):
         layout.setContentsMargins(20, 4, 20, 4)
         layout.setSpacing(4)
 
+        # Policy label (left-justified)
+        self._header_policy_label = QLabel("")
+        self._header_policy_label.setStyleSheet(f"""
+            QLabel {{
+                color: {WHITE};
+                font-size: 14px;
+                font-weight: bold;
+                background: transparent;
+            }}
+        """)
+        layout.addWidget(self._header_policy_label)
+
         layout.addStretch()
 
         self._step_labels = []
@@ -211,10 +227,8 @@ class ABRQuoteWindow(FramelessWindowBase):
                 arrow.setStyleSheet(f"color: {SLATE_PRIMARY}; font-size: 14px; background: transparent;")
                 layout.addWidget(arrow)
 
-        layout.addStretch()
-
-        # ── Email Print button (right side of step bar) ──────────────
-        self._email_print_btn = QPushButton("📧 Email Print")
+        # ── Copy to Clipboard button (right side of step bar) ────────
+        self._email_print_btn = QPushButton("📋 Copy to Clipboard")
         self._email_print_btn.setFixedHeight(32)
         self._email_print_btn.setMinimumWidth(120)
         self._email_print_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -286,6 +300,7 @@ class ABRQuoteWindow(FramelessWindowBase):
         self.output_panel.set_policy(None)
         self._set_step(0)
         self.status_label.setText("Ready — Enter a policy number to begin")
+        self._header_policy_label.setText("")
 
     # ── Signal handlers ─────────────────────────────────────────────────
 
@@ -296,6 +311,12 @@ class ABRQuoteWindow(FramelessWindowBase):
         self.results_panel.set_policy(policy)
         self.output_panel.set_policy(policy)
         self.status_label.setText(f"Policy {policy.policy_number} loaded.")
+
+        # Update header policy label
+        co = policy.company or ""
+        pn = policy.policy_number or ""
+        display = f"Policy:  {co}-{pn}" if co else f"Policy:  {pn}"
+        self._header_policy_label.setText(display)
 
     def _on_quote_date_changed(self, new_date):
         """Re-run calculation when user changes the quote date."""
@@ -390,9 +411,11 @@ class ABRQuoteWindow(FramelessWindowBase):
                 t2_last = 0
             else:
                 # No survival solve — direct table is the primary rating
+                # Start/stop years are relative to quote date
+                # Stop year is exclusive: drops off at beginning of stop year
                 t1_rating = a.derived_table_rating
-                t1_start = (a.table_start_year - 1) * 12 + 1 if a.use_table else 1
-                t1_last = a.table_stop_year * 12 if a.use_table else 9999
+                t1_start = abs_policy_month + (a.table_start_year - 1) * 12 if a.use_table else abs_policy_month
+                t1_last = abs_policy_month + (a.table_stop_year - 1) * 12 - 1 if a.use_table else 9999
                 t2_rating = 0.0
                 t2_start = 0
                 t2_last = 0
@@ -423,23 +446,27 @@ class ABRQuoteWindow(FramelessWindowBase):
 
             if a.use_table and a.direct_table_rating > 0 and has_survival_solve:
                 # Only add as additional when a survival solve owns the primary slot
-                ts = (a.table_start_year - 1) * 12 + 1
-                te = a.table_stop_year * 12
+                # Start/stop years are relative to quote date, not policy issue
+                # Stop year is exclusive: drops off at beginning of stop year
+                ts = abs_policy_month + (a.table_start_year - 1) * 12
+                te = abs_policy_month + (a.table_stop_year - 1) * 12 - 1
                 additional_tables.append((a.direct_table_rating, ts, te))
 
             if a.use_flat and a.direct_flat_extra > 0:
-                fs = (a.flat_start_year - 1) * 12 + 1
-                fe = a.flat_stop_year * 12
+                # Start/stop years are relative to quote date, not policy issue
+                # Stop year is exclusive: drops off at beginning of stop year
+                fs = abs_policy_month + (a.flat_start_year - 1) * 12
+                fe = abs_policy_month + (a.flat_stop_year - 1) * 12 - 1
                 additional_flats.append((a.direct_flat_extra, fs, fe))
 
             if a.use_table_2 and a.direct_table_rating_2 > 0:
-                ts2 = (a.table_2_start_year - 1) * 12 + 1
-                te2 = a.table_2_stop_year * 12
+                ts2 = abs_policy_month + (a.table_2_start_year - 1) * 12
+                te2 = abs_policy_month + (a.table_2_stop_year - 1) * 12 - 1
                 additional_tables.append((a.direct_table_rating_2, ts2, te2))
 
             if a.use_flat_2 and a.direct_flat_extra_2 > 0:
-                fs2 = (a.flat_2_start_year - 1) * 12 + 1
-                fe2 = a.flat_2_stop_year * 12
+                fs2 = abs_policy_month + (a.flat_2_start_year - 1) * 12
+                fe2 = abs_policy_month + (a.flat_2_stop_year - 1) * 12 - 1
                 additional_flats.append((a.direct_flat_extra_2, fs2, fe2))
 
             mort_params = MortalityParams(
@@ -788,6 +815,16 @@ class ABRQuoteWindow(FramelessWindowBase):
                 partial_prem_breakdown
             )
 
+            # Pass data to output panel for Print Detail
+            self.output_panel.set_result(result)
+            self.output_panel.set_assessment(self._assessment)
+            self.output_panel.set_calc_data(
+                self._mort_detail, self._apv_detail, self._apv_summary,
+            )
+            self.output_panel.set_derived_values(
+                self.assessment_panel.get_derived_display_values()
+            )
+
             self.status_label.setText("ABR Quote calculated successfully.")
             self._email_print_btn.setEnabled(True)
 
@@ -903,14 +940,23 @@ class ABRQuoteWindow(FramelessWindowBase):
             menu.exec(self.mapToGlobal(self.header_bar.pos()))
 
     def _on_email_print(self):
-        """Open the Email Print dialog with current quote data."""
+        """Copy the ABR Quote summary directly to clipboard as HTML + plain text."""
         from .email_print_dialog import EmailPrintDialog
         dlg = EmailPrintDialog(
             policy=self._policy,
             result=getattr(self.results_panel, '_result', None),
+            assessment=getattr(self.assessment_panel, '_assessment', None),
             parent=self,
         )
-        dlg.exec()
+        sections = dlg._build_summary_sections()
+        html = dlg._build_clipboard_html(sections)
+        plain = dlg._build_clipboard_text(sections)
+
+        mime = QMimeData()
+        mime.setHtml(html)
+        mime.setText(plain)
+        QGuiApplication.clipboard().setMimeData(mime)
+        QMessageBox.information(self, "Copied", "ABR Quote Summary copied to clipboard.")
 
     def _open_rate_viewer(self):
         """Open the Rate Viewer window."""

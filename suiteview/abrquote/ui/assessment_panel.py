@@ -102,7 +102,11 @@ class AssessmentPanel(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        outer_layout = QHBoxLayout(self)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        outer_layout = QHBoxLayout()
         outer_layout.setContentsMargins(8, 8, 8, 8)
         outer_layout.setSpacing(8)
 
@@ -605,6 +609,28 @@ class AssessmentPanel(QWidget):
         self.results_column = right_scroll
         outer_layout.addWidget(right_scroll, stretch=4)
 
+        main_layout.addLayout(outer_layout, 1)
+
+        # ── Bottom-right View Calc button ───────────────────────────────
+        bottom_row = QHBoxLayout()
+        bottom_row.setContentsMargins(8, 2, 12, 6)
+        bottom_row.addStretch()
+
+        self.res_view_calc_btn = QPushButton("View Calc")
+        self.res_view_calc_btn.setStyleSheet(
+            f"QPushButton {{ color: {SLATE_TEXT}; background: transparent; "
+            f"border: 1px solid {SLATE_PRIMARY}; border-radius: 3px; "
+            f"padding: 2px 10px; font-size: 10px; }}"
+            f"QPushButton:hover {{ background: {CRIMSON_SUBTLE}; }}"
+            f"QPushButton:disabled {{ color: rgba(0,0,0,0.3); border-color: rgba(0,0,0,0.15); }}"
+        )
+        self.res_view_calc_btn.setToolTip("Inspect month-by-month mortality and APV")
+        self.res_view_calc_btn.clicked.connect(self._on_res_view_calc)
+        self.res_view_calc_btn.setEnabled(False)
+        bottom_row.addWidget(self.res_view_calc_btn)
+
+        main_layout.addLayout(bottom_row)
+
     # ── Right column builder ────────────────────────────────────────────
 
     def _build_results_column(self, layout: QVBoxLayout):
@@ -690,6 +716,7 @@ class AssessmentPanel(QWidget):
         partial_grid.setHorizontalSpacing(8)
 
         self._res_partial_labels = {}
+        self._res_partial_static_widgets = []  # track all widgets to hide when at min face
         for i, (label_text, key) in enumerate([
             ("Eligible Death Benefit:", "eligible_db"),
             ("Actuarial Discount:", "actuarial_discount"),
@@ -703,15 +730,18 @@ class AssessmentPanel(QWidget):
             val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             partial_grid.addWidget(val, i, 1, Qt.AlignmentFlag.AlignLeft)
             self._res_partial_labels[key] = val
+            self._res_partial_static_widgets.append(lbl)
 
         divider2 = QFrame()
         divider2.setStyleSheet(DIVIDER_STYLE)
         divider2.setFixedHeight(2)
         partial_grid.addWidget(divider2, 3, 0, 1, 2)
+        self._res_partial_static_widgets.append(divider2)
 
         lbl_pab = QLabel("Accelerated Benefit:")
         lbl_pab.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
         partial_grid.addWidget(lbl_pab, 4, 0, Qt.AlignmentFlag.AlignRight)
+        self._res_partial_static_widgets.append(lbl_pab)
 
         self.res_partial_benefit_label = QLabel("\u2014")
         self.res_partial_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
@@ -720,6 +750,7 @@ class AssessmentPanel(QWidget):
         lbl_pbr = QLabel("Benefit Ratio:")
         lbl_pbr.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT};")
         partial_grid.addWidget(lbl_pbr, 5, 0, Qt.AlignmentFlag.AlignRight)
+        self._res_partial_static_widgets.append(lbl_pbr)
         self.res_partial_ratio_label = QLabel("\u2014")
         self.res_partial_ratio_label.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT}; font-weight: bold;")
         partial_grid.addWidget(self.res_partial_ratio_label, 5, 1, Qt.AlignmentFlag.AlignLeft)
@@ -729,6 +760,7 @@ class AssessmentPanel(QWidget):
         vsep_partial.setFrameShape(QFrame.Shape.VLine)
         vsep_partial.setStyleSheet(f"color: {GRAY_MID}; background: {GRAY_MID};")
         partial_grid.addWidget(vsep_partial, 0, 2, 6, 1)
+        self._res_partial_static_widgets.append(vsep_partial)
 
         # APV component labels — right column (cols 3 & 4)
         apv_lbl_style = f"font-size: 11px; color: {GRAY_DARK};"
@@ -747,6 +779,18 @@ class AssessmentPanel(QWidget):
             val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             partial_grid.addWidget(val, j, 4, Qt.AlignmentFlag.AlignLeft)
             self._res_partial_apv_labels[apv_key] = val
+            self._res_partial_static_widgets.append(lbl)
+
+        # "Not allowed" overlay label — shown when policy is at minimum face
+        self._partial_not_allowed_label = QLabel(
+            "MAX PARTIAL NOT ALLOWED\nPOLICY ALREADY AT MINIMUM FACE"
+        )
+        self._partial_not_allowed_label.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {CRIMSON_DARK}; padding: 16px;"
+        )
+        self._partial_not_allowed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._partial_not_allowed_label.setVisible(False)
+        partial_grid.addWidget(self._partial_not_allowed_label, 0, 0, 6, 5)
 
         partial_grid.setColumnStretch(1, 2)
         partial_grid.setColumnStretch(4, 2)
@@ -801,29 +845,6 @@ class AssessmentPanel(QWidget):
         )
         layout.addWidget(self.res_messages_label)
 
-        # ── Action buttons ──────────────────────────────────────────────
-        btn_row = QHBoxLayout()
-
-        self.res_export_btn = QPushButton("Export to Excel")
-        self.res_export_btn.setStyleSheet(BUTTON_SLATE_STYLE)
-        self.res_export_btn.clicked.connect(self._on_res_export)
-        btn_row.addWidget(self.res_export_btn)
-
-        self.res_copy_btn = QPushButton("Copy Summary")
-        self.res_copy_btn.setStyleSheet(BUTTON_PRIMARY_STYLE)
-        self.res_copy_btn.clicked.connect(self._on_res_copy)
-        btn_row.addWidget(self.res_copy_btn)
-
-        self.res_view_calc_btn = QPushButton("View Calc")
-        self.res_view_calc_btn.setStyleSheet(BUTTON_PRIMARY_STYLE)
-        self.res_view_calc_btn.setToolTip("Inspect month-by-month mortality and APV")
-        self.res_view_calc_btn.clicked.connect(self._on_res_view_calc)
-        self.res_view_calc_btn.setEnabled(False)
-        btn_row.addWidget(self.res_view_calc_btn)
-
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
-
         layout.addStretch()
 
     # ── Results helpers ─────────────────────────────────────────────────
@@ -858,39 +879,55 @@ class AssessmentPanel(QWidget):
         self._res_full_apv_labels["apv_fp"].setText(self._fmt_money(result.apv_fp))
         self._res_full_apv_labels["apv_fd"].setText(self._fmt_money(result.apv_fd))
 
-        # Partial acceleration
-        self._res_partial_labels["eligible_db"].setText(self._fmt_money(result.partial_eligible_db))
-        self._res_partial_labels["actuarial_discount"].setText(
-            self._fmt_money(result.partial_actuarial_discount)
-        )
-        self._res_partial_labels["admin_fee"].setText(self._fmt_money(result.partial_admin_fee))
-        if result.partial_accel_benefit < 0:
-            self.res_partial_benefit_label.setText(
-                f"$0.00  (calc: {self._fmt_money(result.partial_accel_benefit)})"
-            )
-        else:
-            self.res_partial_benefit_label.setText(self._fmt_money(result.partial_accel_benefit))
-        self.res_partial_ratio_label.setText(f"{result.partial_benefit_ratio * 100:.2f}%")
+        # Partial acceleration — check if at minimum face
+        at_min_face = result.partial_eligible_db <= 0
+        self._partial_not_allowed_label.setVisible(at_min_face)
+        # Hide/show the normal partial detail widgets
+        for w in self._res_partial_static_widgets:
+            w.setVisible(not at_min_face)
+        for val in self._res_partial_labels.values():
+            val.setVisible(not at_min_face)
+        self.res_partial_benefit_label.setVisible(not at_min_face)
+        self.res_partial_ratio_label.setVisible(not at_min_face)
+        for val in self._res_partial_apv_labels.values():
+            val.setVisible(not at_min_face)
 
-        # Partial APV components (proportionally scaled)
-        if result.full_eligible_db > 0:
-            ratio = result.partial_eligible_db / result.full_eligible_db
-        else:
-            ratio = 0.0
-        self._res_partial_apv_labels["apv_fb"].setText(
-            self._fmt_money(result.apv_fb * ratio)
-        )
-        self._res_partial_apv_labels["apv_fp"].setText(
-            self._fmt_money(result.apv_fp * ratio)
-        )
-        self._res_partial_apv_labels["apv_fd"].setText(
-            self._fmt_money(result.apv_fd * ratio)
-        )
+        if not at_min_face:
+            self._res_partial_labels["eligible_db"].setText(self._fmt_money(result.partial_eligible_db))
+            self._res_partial_labels["actuarial_discount"].setText(
+                self._fmt_money(result.partial_actuarial_discount)
+            )
+            self._res_partial_labels["admin_fee"].setText(self._fmt_money(result.partial_admin_fee))
+            if result.partial_accel_benefit < 0:
+                self.res_partial_benefit_label.setText(
+                    f"$0.00  (calc: {self._fmt_money(result.partial_accel_benefit)})"
+                )
+            else:
+                self.res_partial_benefit_label.setText(self._fmt_money(result.partial_accel_benefit))
+            self.res_partial_ratio_label.setText(f"{result.partial_benefit_ratio * 100:.2f}%")
+
+            # Partial APV components (proportionally scaled)
+            if result.full_eligible_db > 0:
+                ratio = result.partial_eligible_db / result.full_eligible_db
+            else:
+                ratio = 0.0
+            self._res_partial_apv_labels["apv_fb"].setText(
+                self._fmt_money(result.apv_fb * ratio)
+            )
+            self._res_partial_apv_labels["apv_fp"].setText(
+                self._fmt_money(result.apv_fp * ratio)
+            )
+            self._res_partial_apv_labels["apv_fd"].setText(
+                self._fmt_money(result.apv_fd * ratio)
+            )
 
         # Premium impact
         self.res_premium_before_label.setText(result.premium_before)
         self.res_premium_after_full_label.setText(f"${result.premium_after_full:,.2f}")
-        self.res_premium_after_partial_label.setText(result.premium_after_partial)
+        if at_min_face:
+            self.res_premium_after_partial_label.setText("NOT ALLOWED")
+        else:
+            self.res_premium_after_partial_label.setText(result.premium_after_partial)
 
         # Messages
         if result.messages:
@@ -1022,6 +1059,10 @@ class AssessmentPanel(QWidget):
             apv_rows=self._apv_detail,
             apv_summary=self._apv_summary,
             policy_info=self._policy_info,
+            policy=self._policy,
+            assessment=self._assessment,
+            result=self._result,
+            derived_values=self.get_derived_display_values(),
             parent=None,
         )
         viewer.show()
@@ -1216,6 +1257,11 @@ class AssessmentPanel(QWidget):
         term_le = term_engine.compute_life_expectancy()
         term_survival_5yr = term_engine.compute_survival_probability(5)
         term_survival_10yr = term_engine.compute_survival_probability(10)
+
+        # Stash for create_terminal_assessment
+        self._term_survival_5yr = term_survival_5yr
+        self._term_survival_10yr = term_survival_10yr
+        self._term_le = term_le
 
         # ── Populate left column (Current / Unmodified) ─────────────────
         self._derived_labels["std_survival_5yr"].setText(
@@ -1484,23 +1530,27 @@ class AssessmentPanel(QWidget):
 
             if has_table_direct and direct_table > 0 and has_survival_solve:
                 # Only add as additional when a survival solve owns the primary slot
-                t_start_m = (table_start_yr - 1) * 12 + 1
-                t_stop_m = table_stop_yr * 12
+                # Start/stop years are relative to quote date, not policy issue
+                # Stop year is exclusive: drops off at beginning of stop year
+                t_start_m = abs_policy_month + (table_start_yr - 1) * 12
+                t_stop_m = abs_policy_month + (table_stop_yr - 1) * 12 - 1
                 additional_tables.append((direct_table, t_start_m, t_stop_m))
 
             if has_flat_direct and direct_flat > 0:
-                f_start_m = (flat_start_yr - 1) * 12 + 1
-                f_stop_m = flat_stop_yr * 12
+                # Start/stop years are relative to quote date, not policy issue
+                # Stop year is exclusive: drops off at beginning of stop year
+                f_start_m = abs_policy_month + (flat_start_yr - 1) * 12
+                f_stop_m = abs_policy_month + (flat_stop_yr - 1) * 12 - 1
                 additional_flats.append((direct_flat, f_start_m, f_stop_m))
 
             if has_table_2_direct and direct_table_2 > 0:
-                t2_start_m = (table_2_start_yr - 1) * 12 + 1
-                t2_stop_m = table_2_stop_yr * 12
+                t2_start_m = abs_policy_month + (table_2_start_yr - 1) * 12
+                t2_stop_m = abs_policy_month + (table_2_stop_yr - 1) * 12 - 1
                 additional_tables.append((direct_table_2, t2_start_m, t2_stop_m))
 
             if has_flat_2_direct and direct_flat_2 > 0:
-                f2_start_m = (flat_2_start_yr - 1) * 12 + 1
-                f2_stop_m = flat_2_stop_yr * 12
+                f2_start_m = abs_policy_month + (flat_2_start_yr - 1) * 12
+                f2_stop_m = abs_policy_month + (flat_2_stop_yr - 1) * 12 - 1
                 additional_flats.append((direct_flat_2, f2_start_m, f2_stop_m))
 
             # ── Compute derived values with ALL ratings combined ────────
@@ -1543,8 +1593,10 @@ class AssessmentPanel(QWidget):
                 )
             else:
                 # No survival solve — direct table is the primary rating
-                t_start_m = (table_start_yr - 1) * 12 + 1
-                t_stop_m = table_stop_yr * 12
+                # Start/stop years are relative to quote date
+                # Stop year is exclusive: drops off at beginning of stop year
+                t_start_m = abs_policy_month + (table_start_yr - 1) * 12
+                t_stop_m = abs_policy_month + (table_stop_yr - 1) * 12 - 1
                 final_params = dc_replace(
                     base_params,
                     table_rating_1=table_rating,
@@ -1601,6 +1653,9 @@ class AssessmentPanel(QWidget):
                 derived_table_rating_10yr=table_rating_10yr,
                 derived_flat_extra=direct_flat if has_flat_direct else 0.0,
                 assessment_index=assessment_idx,
+                computed_survival_5yr=survival_5yr,
+                computed_survival_10yr=survival_10yr,
+                computed_le=computed_le,
             )
 
             # ── Populate derived labels ─────────────────────────────────
@@ -1745,6 +1800,10 @@ class AssessmentPanel(QWidget):
         """Return the computed assessment."""
         return self._assessment
 
+    def get_derived_display_values(self) -> dict:
+        """Return the derived substandard display text for all labels."""
+        return {key: lbl.text() for key, lbl in self._derived_labels.items()}
+
     def is_terminal(self) -> bool:
         """Return True if the rider type is Terminal."""
         return self.rider_combo.currentText() == "Terminal"
@@ -1756,6 +1815,9 @@ class AssessmentPanel(QWidget):
         """
         self._assessment = MedicalAssessment(
             rider_type="Terminal",
+            computed_survival_5yr=getattr(self, '_term_survival_5yr', 0.0),
+            computed_survival_10yr=getattr(self, '_term_survival_10yr', 0.0),
+            computed_le=getattr(self, '_term_le', 0.0),
         )
         self.assessment_ready.emit(self._assessment)
         return self._assessment
