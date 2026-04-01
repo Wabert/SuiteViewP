@@ -7,9 +7,9 @@ import pandas as pd
 from functools import reduce
 import operator
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView, QListView, QAbstractItemView,
-                              QHeaderView, QLineEdit, QPushButton, QMenu, 
+                              QHeaderView, QLineEdit, QPushButton, QMenu, QStyledItemDelegate,
                               QCheckBox, QScrollArea, QLabel, QFrame, QWidgetAction, QStyleOptionHeader, QStyle, QMessageBox)
-from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QRect, QPoint, QTimer, QThread, QStringListModel
+from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QRect, QPoint, QTimer, QThread, QStringListModel, QSize
 from PyQt6.QtGui import QFont, QAction, QPainter, QColor
 
 logger = logging.getLogger(__name__)
@@ -80,16 +80,7 @@ class ClickableHeaderView(QHeaderView):
                 QPoint(center_x + 4, center_y + 2)
             ]
             painter.drawPolygon(points)
-        else:
-            # Draw small square (no sort)
-            square_size = 6
-            square_rect = QRect(
-                center_x - square_size // 2,
-                center_y - square_size // 2,
-                square_size,
-                square_size
-            )
-            painter.drawRect(square_rect)
+        # No icon drawn for unsorted columns
         
         painter.restore()
     
@@ -277,6 +268,9 @@ class PandasTableModel(QAbstractTableModel):
                 return ""
             return str(value)
 
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
         return None
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -287,6 +281,15 @@ class PandasTableModel(QAbstractTableModel):
                 return str(section + 1)
         return None
 
+
+class _CompactDelegate(QStyledItemDelegate):
+    """Minimal-height rows for filter popup list items."""
+
+    _HEIGHT = 18
+
+    def sizeHint(self, option, index):
+        sh = super().sizeHint(option, index)
+        return QSize(sh.width(), self._HEIGHT)
 
 
 class FilterPopup(QMenu):
@@ -314,6 +317,15 @@ class FilterPopup(QMenu):
             f.write(f"[FILTER]   - Sort {len(unique_values)} values: {(sort_time - sort_start)*1000:.2f}ms\n")
         
         self.current_selection = current_selection if current_selection else set(self.all_unique_values)
+        
+        # Style the popup menu itself with a blue-grey border
+        self.setStyleSheet("""
+            QMenu {
+                background-color: #E8EDF2;
+                border: 2px solid #1E5BA8;
+                border-radius: 4px;
+            }
+        """)
         
         ui_start = time.perf_counter()
         self.init_ui()
@@ -464,7 +476,7 @@ class FilterPopup(QMenu):
             f.write(f"[FILTER]   - QListView created: {(view_created - view_start)*1000:.2f}ms\n")
         
         # Configure list view BEFORE setting model (faster)
-        self.list_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.list_view.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.list_view.setMinimumWidth(200)
         self.list_view.setMaximumWidth(400)
         self.list_view.setMinimumHeight(250)
@@ -473,9 +485,27 @@ class FilterPopup(QMenu):
         # CRITICAL: Enable uniform item sizes to avoid expensive layout calculations
         # With 50k items, Qt calculating individual heights is extremely slow
         self.list_view.setUniformItemSizes(True)
-        
-        # REMOVED expensive setStyleSheet() - was taking 510ms with 50k items!
-        # Use default Qt styling which is much faster
+        self.list_view.setSpacing(0)
+        # Compact font and tight row height for filter items
+        self.list_view.setFont(QFont("Segoe UI", 8))
+        self.list_view.setItemDelegate(_CompactDelegate(self.list_view))
+        self.list_view.setStyleSheet("""
+            QListView {
+                background-color: white;
+                border: 1px solid #A0B0C0;
+                border-radius: 2px;
+            }
+            QListView::item {
+                padding: 1px 4px;
+            }
+            QListView::item:selected {
+                background-color: #C8D8E8;
+                color: black;
+            }
+            QListView::item:hover {
+                background-color: #D6E4F0;
+            }
+        """)
         
         # KEY OPTIMIZATION: Add widget to layout BEFORE setting model
         # This way Qt adds an empty list view (fast), then we populate it
@@ -494,36 +524,29 @@ class FilterPopup(QMenu):
 
         # Info label
         self.info_label = QLabel(f"Showing all {len(self.all_unique_values):,} values")
-        self.info_label.setStyleSheet("font-size: 9px; color: #666; padding: 2px;")
+        self.info_label.setStyleSheet("font-size: 9px; color: #14407A; padding: 2px;")
         layout.addWidget(self.info_label)
-
-        # OK button
-        ok_btn = QPushButton("OK")
-        ok_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                padding: 5px 15px;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #229954;
-            }
-        """)
-        ok_btn.clicked.connect(self.apply_filter)
-        layout.addWidget(ok_btn)
 
         # Add widget action
         action = QWidgetAction(self)
         action.setDefaultWidget(container)
         self.addAction(action)
 
-        # REMOVED menu stylesheet - not needed and may slow down rendering
-        
         # Auto-focus the search box when the popup opens
         QTimer.singleShot(0, self.search_box.setFocus)
+
+        # Live filtering: emit filter on every selection change
+        self.list_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
+
+    def _on_selection_changed(self):
+        """Emit filter immediately when user clicks/unclicks an item."""
+        selected_values = set()
+        for index in self.list_view.selectionModel().selectedIndexes():
+            value = self.proxy_model.data(index, Qt.ItemDataRole.DisplayRole)
+            selected_values.add(value)
+        if not selected_values:
+            selected_values = set(self.all_unique_values)
+        self.filter_changed.emit(self.column_name, selected_values)
 
     def filter_list(self, search_text: str):
         """Filter the list based on search text using proxy model"""

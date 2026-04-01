@@ -11,7 +11,7 @@ if __name__ == '__main__':
     sys.path.insert(0, str(Path(__file__).parent.parent))
     
     from PyQt6.QtWidgets import QApplication
-    from suiteview.ui.file_explorer_multitab import FileExplorerMultiTab
+    from suiteview.file_nav.file_explorer_multitab import FileExplorerMultiTab
     from suiteview.utils.logger import setup_logging
     
     # Setup logging

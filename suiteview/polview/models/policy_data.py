@@ -15,6 +15,7 @@ Data flow:
 
 from __future__ import annotations
 
+import sys
 from typing import Optional, List, Dict, Any
 from datetime import date, datetime
 
@@ -466,6 +467,19 @@ class PolicyData:
             self._exists = False
             self._cancelled = True
             self._last_error = str(e)
+            print(
+                f"[PolicyData] ERROR loading policy {self._policy_number} "
+                f"(region={self._region}): {e}",
+                file=sys.stderr,
+            )
+
+    # Tables that should be ordered by COV_PHA_NBR (matches VBA LoadDB2Table)
+    _COV_PHA_ORDERED_TABLES = {
+        "LH_COV_PHA", "LH_NEW_BUS_COV_PHA", "TH_COV_PHA",
+        "LH_SPM_BNF", "TH_SPM_BNF", "LH_SST_XTR_CRG", "TH_SST_XTR_CRG",
+        "LH_COV_INS_RNL_RT", "LH_BNF_INS_RNL_RT", "LH_SST_XTR_RNL_RT",
+        "LH_COV_TARGET", "LH_COV_SKIPPED_PER",
+    }
 
     def _ensure_table_loaded(self, table_name: str):
         """Ensure a table is loaded into cache."""
@@ -492,7 +506,10 @@ class PolicyData:
                     f"AND TCH_POL_ID = '{self._policy_id}' "
                     f"AND CK_CMP_CD = '{self._company_code}'"
                 )
-                order_clause = ""
+                if table_name in self._COV_PHA_ORDERED_TABLES:
+                    order_clause = " ORDER BY COV_PHA_NBR"
+                else:
+                    order_clause = ""
 
             sql = self._add_with_clause(
                 f"SELECT * FROM DB2TAB.{table_name} WHERE {where_clause}{order_clause}"
@@ -510,8 +527,15 @@ class PolicyData:
                 "rows": rows,
             }
 
-        except Exception:
-            # Table may not exist or other error — cache empty result
+        except Exception as exc:
+            print(
+                f"[PolicyData] FAILED to load table {table_name} for policy "
+                f"{self._policy_number} (region={self._region}, "
+                f"company={self._company_code}, sys={self._system_code}, "
+                f"pol_id={self._policy_id}): {exc}",
+                file=sys.stderr,
+            )
+            # Cache empty result so we don't retry on every access
             self._table_cache[table_name] = {"columns": [], "rows": []}
 
     def _add_with_clause(self, sql: str) -> str:

@@ -82,6 +82,7 @@ class ABRPolicyData:
 
     # Substandard
     table_rating: int = 0            # numeric: A=1, B=2, ... G=7, 0=standard
+    table_rating_2: int = 0          # second table rating if policy has multiple
     flat_extra: float = 0.0          # per $1000
     flat_to_age: int = 0
     flat_cease_date: Optional[date] = None
@@ -117,6 +118,7 @@ class MedicalAssessment:
     use_le: bool = False
     use_table: bool = False
     use_flat: bool = False
+    use_increased_decrement: bool = False
     use_table_2: bool = False
     use_flat_2: bool = False
     use_return_5yr: bool = False          # return to normal after 5yr survival
@@ -127,6 +129,11 @@ class MedicalAssessment:
     five_year_survival: float = 0.0               # e.g. 0.018 (1.8%)
     ten_year_survival: float = 0.0                # e.g. 0.500 (50%)
     life_expectancy_years: float = 0.0            # e.g. 4.9
+
+    # Increased decrement (percentage, e.g. 300 means 4x mortality)
+    direct_increased_decrement: float = 0.0       # e.g. 300 (percent)
+    incr_decrement_start_year: int = 1
+    incr_decrement_stop_year: int = 99
 
     # Direct table / flat inputs (set 1)
     direct_table_rating: float = 0.0              # direct table rating value

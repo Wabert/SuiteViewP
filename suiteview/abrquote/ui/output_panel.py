@@ -26,9 +26,10 @@ from .abr_styles import (
     CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH, CRIMSON_LIGHT, CRIMSON_SUBTLE, CRIMSON_BG,
     SLATE_PRIMARY, SLATE_TEXT, SLATE_DARK, SLATE_LIGHT,
     WHITE, GRAY_DARK, GRAY_MID,
-    GROUP_BOX_STYLE
+    GROUP_BOX_STYLE, BUTTON_PRIMARY_STYLE,
 )
-from ..models.abr_data import ABRPolicyData
+from ..models.abr_data import ABRPolicyData, ABRQuoteResult, MedicalAssessment
+from ..models.abr_constants import PLAN_CODE_INFO, MODAL_LABELS
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +266,12 @@ class OutputPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._policy: Optional[ABRPolicyData] = None
+        self._result: Optional[ABRQuoteResult] = None
+        self._assessment: Optional[MedicalAssessment] = None
+        self._derived_values: dict = {}
+        self._mort_detail: list[dict] = []
+        self._apv_detail: list[dict] = []
+        self._apv_summary: dict = {}
         self._policy_folder_path = ""
         self._tools_root_path = self._get_tools_root_path()
         
@@ -371,9 +378,42 @@ class OutputPanel(QWidget):
             root_path="" # Will be set when policy loads
         )
         self._apply_abr_style(self._subfolder_explorer)
+
+        # Print Detail button — small green button below subfolder group
+        self._print_detail_btn = QPushButton("📋 Print Detail")
+        self._print_detail_btn.setFixedHeight(22)
+        self._print_detail_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #4CAF50, stop:1 #388E3C);
+                color: {WHITE};
+                border: 1px solid #2E7D32;
+                border-radius: 3px;
+                padding: 1px 10px;
+                font-size: 10px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #66BB6A, stop:1 #43A047);
+            }}
+            QPushButton:disabled {{
+                background: #C8E6C9;
+                color: #A5D6A7;
+                border-color: #C8E6C9;
+            }}
+        """)
+        self._print_detail_btn.setEnabled(False)
+        self._print_detail_btn.clicked.connect(self._on_print_detail)
         self._subfolder_explorer.list_widget.file_dropped.connect(self._on_file_dropped)
         
         left_layout.addWidget(self._subfolder_explorer, 3)  # stretch=3 (bigger)
+
+        # Place button in a right-aligned row below the subfolder explorer
+        detail_row = QHBoxLayout()
+        detail_row.addStretch()
+        detail_row.addWidget(self._print_detail_btn)
+        left_layout.addLayout(detail_row)
 
         self._copy_up_btn = QPushButton("Copy ↑")
         self._copy_up_btn.setStyleSheet(f"""
@@ -509,7 +549,29 @@ class OutputPanel(QWidget):
 
     def set_policy(self, policy: Optional[ABRPolicyData]):
         self._policy = policy
+        self._result = None
+        self._assessment = None
+        self._derived_values = {}
+        self._mort_detail = []
+        self._apv_detail = []
+        self._apv_summary = {}
+        self._print_detail_btn.setEnabled(False)
         self._update_ui_state()
+
+    def set_result(self, result: ABRQuoteResult):
+        self._result = result
+        self._print_detail_btn.setEnabled(bool(self._policy and self._result))
+
+    def set_assessment(self, assessment: MedicalAssessment):
+        self._assessment = assessment
+
+    def set_calc_data(self, mort_detail: list, apv_detail: list, apv_summary: dict):
+        self._mort_detail = mort_detail
+        self._apv_detail = apv_detail
+        self._apv_summary = apv_summary
+
+    def set_derived_values(self, derived_values: dict):
+        self._derived_values = derived_values or {}
 
     def _update_ui_state(self):
         if not self._policy:
@@ -737,3 +799,385 @@ class OutputPanel(QWidget):
     def _on_file_dropped(self, source_path: str):
         """Handle file copy from Tools/Recommended to Policy folder."""
         self._do_copy_files([source_path])
+
+    # ── Print Detail ────────────────────────────────────────────────────
+
+    def _on_print_detail(self):
+        """Generate a detail workbook and save it to the policy folder."""
+        if not self._policy or not self._result:
+            return
+
+        from datetime import datetime
+
+        now = datetime.now()
+        timestamp = now.strftime("%m-%d-%Y %H%M%S")
+        pn = self._policy.policy_number
+        filename = f"{pn} - details - {timestamp}.xlsx"
+
+        # Determine destination folder
+        dest_dir = self._subfolder_explorer.current_path()
+        if not dest_dir or not os.path.isdir(dest_dir):
+            if self._policy_folder_path and os.path.isdir(self._policy_folder_path):
+                dest_dir = self._policy_folder_path
+            else:
+                QMessageBox.information(
+                    self, "No Destination",
+                    "Please create the policy folder first.",
+                )
+                return
+
+        filepath = os.path.join(dest_dir, filename)
+
+        try:
+            self._write_detail_workbook(filepath)
+            self._subfolder_explorer.refresh()
+            QMessageBox.information(
+                self, "Print Detail",
+                f"Detail workbook saved:\n{filename}",
+            )
+        except Exception as e:
+            logger.error(f"Print Detail error: {e}", exc_info=True)
+            QMessageBox.warning(
+                self, "Print Detail Error",
+                f"Could not create workbook:\n{e}",
+            )
+
+    def _write_detail_workbook(self, filepath: str):
+        """Write a 5-sheet detail workbook with all quote data."""
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+        wb = openpyxl.Workbook()
+        p = self._policy
+        r = self._result
+        a = self._assessment
+
+        header_font = Font(bold=True, size=12)
+        label_font = Font(bold=True, size=11)
+        value_font = Font(size=11)
+        section_fill = PatternFill("solid", fgColor="8B0000")
+        section_font = Font(bold=True, size=11, color="FFFFFF")
+        header_fill = PatternFill("solid", fgColor="D3D3D3")
+        header_col_font = Font(bold=True, size=10)
+        data_font = Font(size=10)
+        thin_border = Border(
+            bottom=Side(style="thin", color="999999")
+        )
+
+        def _write_header(ws, title, row=1):
+            ws.cell(row=row, column=1, value=title).font = header_font
+            return row + 2
+
+        def _write_section(ws, title, row):
+            cell = ws.cell(row=row, column=1, value=title)
+            cell.font = section_font
+            cell.fill = section_fill
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+            return row + 1
+
+        def _write_field(ws, row, label, value, col=1):
+            ws.cell(row=row, column=col, value=label).font = label_font
+            ws.cell(row=row, column=col + 1, value=value).font = value_font
+            return row + 1
+
+        # ── Sheet 1: Policy Info ────────────────────────────────────────
+        ws1 = wb.active
+        ws1.title = "Policy Info"
+        ws1.column_dimensions['A'].width = 22
+        ws1.column_dimensions['B'].width = 35
+
+        row = _write_header(ws1, "ABR Quote — Policy Information")
+
+        row = _write_section(ws1, "Policy Details", row)
+        row = _write_field(ws1, row, "Policy Number:", p.policy_number)
+        row = _write_field(ws1, row, "Insured:", p.insured_name or "—")
+
+        plan_info = PLAN_CODE_INFO.get(p.plan_code.upper(), None) if p.plan_code else None
+        plan_desc = f"{plan_info[1]} ({plan_info[0]}-Year Level)" if plan_info else "—"
+        row = _write_field(ws1, row, "Plancode:", p.plan_code or "—")
+        row = _write_field(ws1, row, "Plan Description:", plan_desc)
+
+        sex_display = {"M": "Male", "F": "Female", "U": "Unisex"}.get(p.sex, p.sex or "—")
+        row = _write_field(ws1, row, "Sex:", sex_display)
+        row = _write_field(ws1, row, "Rate Sex:", p.rate_sex or "—")
+        row = _write_field(ws1, row, "Issue Age:", p.issue_age)
+        row = _write_field(ws1, row, "Attained Age:", p.attained_age)
+        row = _write_field(ws1, row, "Rate Class:", p.rate_class or "—")
+        row = _write_field(ws1, row, "Face Amount:", f"${p.face_amount:,.2f}" if p.face_amount else "—")
+        row = _write_field(ws1, row, "Min Face:", f"${p.min_face_amount:,.0f}")
+        row = _write_field(ws1, row, "Issue State:", p.issue_state or "—")
+        if p.issue_date:
+            row = _write_field(ws1, row, "Issue Date:", p.issue_date.strftime("%m/%d/%Y"))
+        else:
+            row = _write_field(ws1, row, "Issue Date:", "—")
+        row = _write_field(ws1, row, "Policy Year:", p.policy_year)
+        row = _write_field(ws1, row, "Month of Year:", p.policy_month)
+        row = _write_field(ws1, row, "Base Plancode:", p.base_plancode or "—")
+        row = _write_field(ws1, row, "Billing Mode:", MODAL_LABELS.get(p.billing_mode, str(p.billing_mode)))
+        row = _write_field(ws1, row, "Modal Premium:", f"${p.modal_premium:,.2f}" if p.modal_premium else "—")
+        row = _write_field(ws1, row, "Table Rating:", p.table_rating)
+        row = _write_field(ws1, row, "Annual Flat Extra:", f"${p.flat_extra:.2f}" if p.flat_extra > 0 else "None")
+        if p.flat_cease_date:
+            row = _write_field(ws1, row, "Flat Cease Date:", p.flat_cease_date.strftime("%m/%d/%Y"))
+        else:
+            row = _write_field(ws1, row, "Flat Cease Date:", "—")
+
+        row += 1
+        row = _write_section(ws1, "Quote Parameters", row)
+        row = _write_field(ws1, row, "Quote Date:", r.quote_date.strftime("%m/%d/%Y") if r.quote_date else "—")
+        row = _write_field(ws1, row, "ABR Interest Rate:", f"{r.abr_interest_rate * 100:.2f}%")
+        row = _write_field(ws1, row, "Per Diem (Daily):", f"${r.per_diem_daily:,.2f}")
+        row = _write_field(ws1, row, "Per Diem (Annual):", f"${r.per_diem_annual:,.2f}")
+
+        row += 1
+        row = _write_section(ws1, "Riders / Coverages", row)
+        if p.riders:
+            for rider in p.riders:
+                rider_desc = f"{rider.plancode} ({rider.rider_type})"
+                if rider.benefit_type:
+                    rider_desc += f" — BNF {rider.benefit_type}{rider.benefit_subtype or ''}"
+                row = _write_field(ws1, row, rider_desc, f"${rider.fallback_premium:,.2f}/yr")
+        else:
+            row = _write_field(ws1, row, "No riders.", "")
+
+        # ── Sheet 2: Assessment ─────────────────────────────────────────
+        ws2 = wb.create_sheet("Assessment")
+        ws2.column_dimensions['A'].width = 28
+        ws2.column_dimensions['B'].width = 35
+
+        row = _write_header(ws2, "ABR Quote — Assessment")
+
+        row = _write_section(ws2, "Rider Configuration", row)
+        row = _write_field(ws2, row, "Rider Type:", a.rider_type if a else "—")
+
+        row += 1
+        row = _write_section(ws2, "Assessment Inputs", row)
+        if a:
+            if a.use_five_year:
+                row = _write_field(ws2, row, "5-Year Survival Rate:", f"{a.five_year_survival}")
+                row = _write_field(ws2, row, "  Return to Normal:", "Yes" if a.use_return_5yr else "No")
+            if a.use_ten_year:
+                row = _write_field(ws2, row, "10-Year Survival Rate:", f"{a.ten_year_survival}")
+                row = _write_field(ws2, row, "  Return to Normal:", "Yes" if a.use_return_10yr else "No")
+            if a.use_le:
+                row = _write_field(ws2, row, "Life Expectancy:", f"{a.life_expectancy_years} years")
+            if a.use_table:
+                row = _write_field(ws2, row, "Table (rating):", f"{a.direct_table_rating}")
+                row = _write_field(ws2, row, "  Start/Stop Year:", f"{a.table_start_year} — {a.table_stop_year}")
+            if a.use_flat:
+                row = _write_field(ws2, row, "Flat ($/1000):", f"${a.direct_flat_extra:.2f}")
+                row = _write_field(ws2, row, "  Start/Stop Year:", f"{a.flat_start_year} — {a.flat_stop_year}")
+            if a.use_table_2:
+                row = _write_field(ws2, row, "Table 2 (rating):", f"{a.direct_table_rating_2}")
+                row = _write_field(ws2, row, "  Start/Stop Year:", f"{a.table_2_start_year} — {a.table_2_stop_year}")
+            if a.use_flat_2:
+                row = _write_field(ws2, row, "Flat 2 ($/1000):", f"${a.direct_flat_extra_2:.2f}")
+                row = _write_field(ws2, row, "  Start/Stop Year:", f"{a.flat_2_start_year} — {a.flat_2_stop_year}")
+            row = _write_field(ws2, row, "In Lieu Of:", "Yes" if a.in_lieu_of else "No (In Addition To)")
+        else:
+            row = _write_field(ws2, row, "No assessment data.", "")
+
+        row += 1
+        row = _write_section(ws2, "Derived Substandard Values", row)
+        dv = self._derived_values
+        if dv:
+            # Widen columns for this section — 4 columns used
+            ws2.column_dimensions['C'].width = 30
+            ws2.column_dimensions['D'].width = 35
+
+            # Sub-headers
+            ws2.cell(row=row, column=1, value="Current (Unmodified)").font = Font(bold=True, size=11, underline="single")
+            ws2.cell(row=row, column=3, value="Modified (Substandard Applied)").font = Font(bold=True, size=11, underline="single")
+            row += 1
+
+            field_pairs = [
+                ("5-Year Survival:", "std_survival_5yr", "5-Year Survival:", "mod_survival_5yr"),
+                ("10-Year Survival:", "std_survival_10yr", "10-Year Survival:", "mod_survival_10yr"),
+                ("Life Expectancy:", "std_le", "Life Expectancy:", "mod_le"),
+                ("Table Rating:", "std_table_rating", "Table Ratings:", "table_rating"),
+                ("Flat Extra:", "std_flat_extra", "Flat Extras:", "flat_extra"),
+            ]
+            for std_label, std_key, mod_label, mod_key in field_pairs:
+                ws2.cell(row=row, column=1, value=std_label).font = label_font
+                ws2.cell(row=row, column=2, value=dv.get(std_key, "—")).font = value_font
+                ws2.cell(row=row, column=3, value=mod_label).font = label_font
+                ws2.cell(row=row, column=4, value=dv.get(mod_key, "—")).font = value_font
+                row += 1
+        elif a:
+            row = _write_field(ws2, row, "Derived Table Rating:", f"{a.derived_table_rating:.4f}")
+            if a.use_five_year and a.use_ten_year:
+                row = _write_field(ws2, row, "  5yr Table Rating:", f"{a.derived_table_rating_5yr:.4f}")
+                row = _write_field(ws2, row, "  10yr Table Rating:", f"{a.derived_table_rating_10yr:.4f}")
+            row = _write_field(ws2, row, "Life Expectancy (rounded):", f"{a.life_expectancy_rounded}")
+
+        row += 1
+        row = _write_section(ws2, "Results Summary", row)
+        row = _write_field(ws2, row, "Full Accel Benefit:", f"${r.full_accel_benefit:,.2f}")
+        row = _write_field(ws2, row, "Full Benefit Ratio:", f"{r.full_benefit_ratio * 100:.2f}%")
+        if r.partial_eligible_db > 0:
+            row = _write_field(ws2, row, "Partial Accel Benefit:", f"${r.partial_accel_benefit:,.2f}")
+            row = _write_field(ws2, row, "Partial Benefit Ratio:", f"{r.partial_benefit_ratio * 100:.2f}%")
+        else:
+            row = _write_field(ws2, row, "Partial Acceleration:", "NOT ALLOWED — At Minimum Face")
+        row = _write_field(ws2, row, "Premium Before:", r.premium_before)
+        row = _write_field(ws2, row, "After (Full Accel):", f"${r.premium_after_full:,.2f}")
+        if r.partial_eligible_db > 0:
+            row = _write_field(ws2, row, "After (Partial):", r.premium_after_partial)
+        else:
+            row = _write_field(ws2, row, "After (Partial):", "NOT ALLOWED")
+        row = _write_field(ws2, row, "APV_FB:", f"${r.apv_fb:,.2f}")
+        row = _write_field(ws2, row, "APV_FP:", f"${r.apv_fp:,.2f}")
+        row = _write_field(ws2, row, "APV_FD:", f"${r.apv_fd:,.2f}")
+
+        # ── Sheet 3: Mortality Derivation ───────────────────────────────
+        ws3 = wb.create_sheet("Mortality Derivation")
+
+        mort_headers = [
+            "Quote Month", "Policy Year", "Mo in Yr", "Att Age",
+            "qx VBT (annual)", "qx × Mult (annual)", "qx Improved (annual)",
+            "Table Rating", "qx + Table (annual)",
+            "Flat Extra ($/1000)", "qx + Flat (annual)", "qx Capped (annual)",
+            "qx Monthly", "px Monthly", "Cum Survival",
+        ]
+        for c, h in enumerate(mort_headers, 1):
+            cell = ws3.cell(row=1, column=c, value=h)
+            cell.font = header_col_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+        for i, mrow in enumerate(self._mort_detail, 2):
+            tbl_val = mrow.get("table_rating_applied", 0.0)
+            flat_val = mrow.get("flat_extra_applied", 0.0)
+            values = [
+                mrow["quote_month"], mrow["duration_year"],
+                mrow["month_in_year"], mrow["attained_age"],
+                mrow["qx_vbt"], mrow["qx_multiplied"],
+                mrow["qx_improved"],
+                tbl_val if tbl_val > 0 else "",
+                mrow["qx_table_rated"],
+                flat_val if flat_val > 0 else "",
+                mrow["qx_flat_extra"], mrow["qx_capped"],
+                mrow["qx_monthly"], mrow["px_monthly"],
+                mrow["cum_survival"],
+            ]
+            for c, v in enumerate(values, 1):
+                cell = ws3.cell(row=i, column=c, value=v)
+                cell.font = data_font
+                if isinstance(v, float):
+                    cell.number_format = '0.00000000'
+
+        # Auto-width for mortality columns
+        for c in range(1, len(mort_headers) + 1):
+            ws3.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 14
+
+        # ── Sheet 4: Life Expectancy ────────────────────────────────────
+        ws4 = wb.create_sheet("Life Expectancy")
+
+        le_headers = [
+            "Quote Month", "Policy Year", "Att Age",
+            "qx Monthly", "px Monthly", "tPx (cum surv)",
+            "Sum tPx (months)", "Curtate LE (years)",
+        ]
+        for c, h in enumerate(le_headers, 1):
+            cell = ws4.cell(row=1, column=c, value=h)
+            cell.font = header_col_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+        # Compute LE development from mortality detail
+        tp_x = 1.0
+        sum_tpx = 0.0
+        le_data_row = 2
+
+        for mrow in self._mort_detail:
+            qx_m = mrow["qx_monthly"]
+            px_m = 1.0 - qx_m
+            tp_x *= px_m
+            sum_tpx += tp_x
+            curtate_years = sum_tpx / 12.0
+
+            values = [
+                mrow["quote_month"], mrow["duration_year"],
+                mrow["attained_age"],
+                qx_m, px_m, tp_x,
+                sum_tpx, curtate_years,
+            ]
+            for c, v in enumerate(values, 1):
+                cell = ws4.cell(row=le_data_row, column=c, value=v)
+                cell.font = data_font
+                if isinstance(v, float):
+                    cell.number_format = '0.000000'
+            le_data_row += 1
+
+        # Summary rows
+        curtate_le = sum_tpx / 12.0 if self._mort_detail else 0.0
+        complete_le = curtate_le + 0.5
+
+        le_data_row += 1  # blank separator
+        summary_font_xl = Font(bold=True, size=11, color="8B0000")
+        for label, val in [
+            ("Sum tPx (months):", sum_tpx),
+            ("Curtate LE (years):", curtate_le),
+            ("Complete LE (+ 0.5):", complete_le),
+        ]:
+            ws4.cell(row=le_data_row, column=6, value=label).font = summary_font_xl
+            cell = ws4.cell(row=le_data_row, column=8, value=val)
+            cell.font = summary_font_xl
+            cell.number_format = '0.0000'
+            le_data_row += 1
+
+        for c in range(1, len(le_headers) + 1):
+            ws4.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 16
+
+        # ── Sheet 5: APV — Present Value ────────────────────────────────
+        ws5 = wb.create_sheet("APV - Present Value")
+
+        apv_headers = [
+            "Month", "t", "qx Monthly", "px Monthly", "tpx (cum surv)",
+            "v^(t+1) (benefit)", "v^t (premium)", "PVDB(t) (this mo)",
+            "PVDB Cum", "Prem Rate (per $1K)", "PVFP(t) (this mo)",
+            "PVFP Cum", "tpx End",
+        ]
+        for c, h in enumerate(apv_headers, 1):
+            cell = ws5.cell(row=1, column=c, value=h)
+            cell.font = header_col_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+        for i, arow in enumerate(self._apv_detail, 2):
+            values = [
+                arow["month"], arow["t"],
+                arow["qx_monthly"], arow["px_monthly"], arow["tp_x"],
+                arow["v_benefit"], arow["v_premium"],
+                arow["pvdb_t"], arow["pvdb_cum"],
+                arow["prem_rate"] if arow["prem_rate"] > 0 else "",
+                arow["pvfp_t"], arow["pvfp_cum"],
+                arow["tp_x_end"],
+            ]
+            for c, v in enumerate(values, 1):
+                cell = ws5.cell(row=i, column=c, value=v)
+                cell.font = data_font
+                if isinstance(v, float):
+                    cell.number_format = '0.000000'
+
+        # APV summary rows
+        if self._apv_summary:
+            s = self._apv_summary
+            apv_sum_row = len(self._apv_detail) + 3
+            for label, val, fmt in [
+                ("PVFB (raw sum):", s.get("pvfb_raw", 0), '0.000000'),
+                ("Cont Mort Adj:", s.get("cont_mort_adj", 0), '0.0000000000'),
+                ("PVFB (adj × 1000):", s.get("pvfb_adjusted", 0), '#,##0.00'),
+                ("PVFP:", s.get("pvfp", 0), '#,##0.00'),
+                ("Actuarial Discount:", s.get("actuarial_discount", 0), '#,##0.00'),
+            ]:
+                ws5.cell(row=apv_sum_row, column=8, value=label).font = summary_font_xl
+                cell = ws5.cell(row=apv_sum_row, column=9, value=val)
+                cell.font = summary_font_xl
+                cell.number_format = fmt
+                apv_sum_row += 1
+
+        for c in range(1, len(apv_headers) + 1):
+            ws5.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 16
+
+        wb.save(filepath)

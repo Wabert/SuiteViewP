@@ -1521,14 +1521,47 @@ class CategoryBookmarkButton(QPushButton):
         menu.setStyleSheet(CONTEXT_MENU_STYLE)
         
         edit_action = menu.addAction("✏️ Edit")
+        duplicate_action = menu.addAction("� Duplicate")
         menu.addSeparator()
         remove_action = menu.addAction("🗑️ Remove")
         
         action = menu.exec(self.mapToGlobal(pos))
         if action == edit_action:
             self._edit_bookmark()
+        elif action == duplicate_action:
+            self._duplicate_bookmark()
         elif action == remove_action:
             self._remove_bookmark()
+    
+    def _duplicate_bookmark(self):
+        """Duplicate this bookmark within the same category"""
+        try:
+            if not self.data_manager:
+                return
+            name = self.bookmark_data.get('name', '')
+            path = self.bookmark_data.get('path', '')
+            from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+            manager = get_bookmark_manager()
+            # Find the category and insert the duplicate right after the original
+            category = manager.find_category_by_name(self.source_category)
+            if category:
+                cat_items = category.get('items', [])
+                # Find current bookmark's position in the category
+                insert_idx = len(cat_items)
+                item_id = self.bookmark_data.get('id')
+                for i, item in enumerate(cat_items):
+                    if item.get('id') == item_id:
+                        insert_idx = i + 1
+                        break
+                new_bookmark = manager.create_bookmark(name, path)
+                cat_items.insert(insert_idx, new_bookmark)
+                manager.save()
+                self.data_manager.refresh()
+            # Close popup to show refreshed content
+            if self.parent_popup:
+                self.parent_popup.close()
+        except Exception:
+            pass
     
     def _edit_bookmark(self):
         """Edit this bookmark's name and path using compact dialog"""
@@ -3318,6 +3351,9 @@ class StandaloneBookmarkButton(QPushButton):
         # Copy link
         copy_action = menu.addAction("📋 Copy link")
         
+        # Duplicate
+        duplicate_action = menu.addAction("� Duplicate")
+        
         # Edit
         edit_action = menu.addAction("✏️ Edit")
         
@@ -3332,10 +3368,29 @@ class StandaloneBookmarkButton(QPushButton):
             self._open_folder_location()
         elif action == copy_action:
             self._copy_link()
+        elif action == duplicate_action:
+            self._duplicate_bookmark()
         elif action == edit_action:
             self._edit_bookmark()
         elif action == remove_action:
             self._remove_bookmark()
+    
+    def _duplicate_bookmark(self):
+        """Duplicate this bookmark right after it in the same bar"""
+        try:
+            if not self.container:
+                return
+            name = self.bookmark_data.get('name', '')
+            path = self.bookmark_data.get('path', '')
+            from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
+            manager = get_bookmark_manager()
+            new_bookmark = manager.create_bookmark(name, path)
+            items = self.container.items
+            insert_idx = min(self.item_index + 1, len(items))
+            items.insert(insert_idx, new_bookmark)
+            self.container._save_and_refresh()
+        except Exception:
+            pass
     
     def _open_folder_location(self):
         """Open the parent folder in SuiteView file navigator"""

@@ -422,7 +422,7 @@ class SearchContentWindow(QWidget):
         # Note: Allow wildcard will be handled in the search thread
         
         # Import and use the search thread from mainframe_nav_screen
-        from suiteview.ui.mainframe_nav_screen import ContentSearchThread
+        from suiteview.mainframe_nav.mainframe_nav_screen import ContentSearchThread
         
         # Create progress dialog
         progress_dialog = QDialog(self)

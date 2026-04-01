@@ -354,6 +354,9 @@ class CalcViewerDialog(FramelessWindowBase):
             _field("  Return to Normal:", "Yes" if a.use_return_10yr else "No")
         if a.use_le:
             _field("Life Expectancy:", f"{a.life_expectancy_years} years")
+        if a.use_increased_decrement:
+            _field("Increased Decrement:", f"{a.direct_increased_decrement:.0f}%")
+            _field("  Start/Stop Year:", f"{a.incr_decrement_start_year} — {a.incr_decrement_stop_year}")
         if a.use_table:
             _field("Table (rating):", f"{a.direct_table_rating}")
             _field("  Start/Stop Year:", f"{a.table_start_year} — {a.table_stop_year}")

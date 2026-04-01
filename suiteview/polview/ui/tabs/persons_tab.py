@@ -4,7 +4,6 @@ Persons tab – transposed person/client information table.
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 
-from suiteview.core.db2_connection import DB2Connection
 from ..formatting import format_date
 from ..widgets import StyledInfoTableGroup
 
@@ -106,32 +105,6 @@ class PersonsTab(QWidget):
         self.persons_group.load_table_data(table_data)
 
     # ── data loading ─────────────────────────────────────────────────────
-
-    # TODO: Dead code – never called; main_window uses load_data_from_policy() exclusively.
-    def load_data(self, db: DB2Connection, where_clause: str):
-        try:
-            cols, rows = db.execute_query_with_headers(
-                f"SELECT * FROM DB2TAB.LH_CTT_CLIENT WHERE {where_clause} ORDER BY PRS_CD, PRS_SEQ_NBR"
-            )
-            if not rows:
-                self.persons_group.load_table_data([["No person data found"]])
-                return
-
-            persons = [dict(zip(cols, row)) for row in rows]
-
-            names_data = {}
-            try:
-                name_cols, name_rows = db.execute_query_with_headers(
-                    f"SELECT * FROM DB2TAB.VH_POL_HAS_LOC_CLT WHERE {where_clause}"
-                )
-                for idx, row in enumerate(name_rows):
-                    names_data[idx] = dict(zip(name_cols, row))
-            except Exception:
-                pass
-
-            self._build_table(persons, names_data)
-        except Exception as e:
-            self.persons_group.load_table_data([["Error loading data", str(e)]])
 
     def load_data_from_policy(self, policy: 'PolicyInformation'):
         try:

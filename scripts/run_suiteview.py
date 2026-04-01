@@ -41,7 +41,7 @@ if __name__ == '__main__':
         
         qInstallMessageHandler(qt_message_handler)
         
-        from suiteview.ui.file_explorer_multitab import FileExplorerMultiTab
+        from suiteview.file_nav.file_explorer_multitab import FileExplorerMultiTab
         
         # Create application - don't quit when last window closes (we have tray)
         app = QApplication(sys.argv)

@@ -469,6 +469,13 @@ class ABRQuoteWindow(FramelessWindowBase):
                 fe2 = abs_policy_month + (a.flat_2_stop_year - 1) * 12 - 1
                 additional_flats.append((a.direct_flat_extra_2, fs2, fe2))
 
+            # Increased Decrement → convert to equivalent table rating
+            if a.use_increased_decrement and a.direct_increased_decrement > 0:
+                id_table_rating = a.direct_increased_decrement / 25.0
+                id_start = abs_policy_month + (a.incr_decrement_start_year - 1) * 12
+                id_stop = abs_policy_month + (a.incr_decrement_stop_year - 1) * 12 - 1
+                additional_tables.append((id_table_rating, id_start, id_stop))
+
             mort_params = MortalityParams(
                 issue_age=p.issue_age,
                 sex=p.rate_sex or p.sex,  # rate_sex from 67 segment
@@ -714,11 +721,13 @@ class ABRQuoteWindow(FramelessWindowBase):
                                 })
                                 r_prem += o_prem
 
+                    r_band_code = db.get_band(rider.plancode, rider.face_amount, p.issue_date) or ""
                     cov_entries.append({
                         "plancode": rider.plancode,
                         "issue_age": rider.issue_age,
                         "sex": rider.sex,
                         "rate_class": rider.rate_class,
+                        "band": r_band_code,
                         "rate": r_rate or 0,
                         "table_rating": r_table,
                         "rating_factor": r_factor,
@@ -730,11 +739,13 @@ class ABRQuoteWindow(FramelessWindowBase):
 
             # Assemble coverages list: base first, then riders
             base_rate_sex = (p.rate_sex or p.sex).upper()
+            base_band = db.get_band(p.plan_code, min_face, p.issue_date) or ""
             coverages = [{
                 "plancode": p.plan_code,
                 "issue_age": p.issue_age,
                 "sex": base_rate_sex,
                 "rate_class": p.rate_class,
+                "band": base_band,
                 "rate": min_face_prem.base_rate,
                 "table_rating": p.table_rating,
                 "rating_factor": _mf_sub_factor,
@@ -762,7 +773,7 @@ class ABRQuoteWindow(FramelessWindowBase):
 
             # ── 8. Build result ─────────────────────────────────────────
             modal_label = MODAL_LABELS.get(p.billing_mode, "")
-            messages = self._generate_messages(p, full, partial)
+            messages = self._generate_messages(p, full, partial, pd_annual)
 
             result = ABRQuoteResult(
                 # Full
@@ -832,7 +843,8 @@ class ABRQuoteWindow(FramelessWindowBase):
             logger.error(f"Calculation error: {e}", exc_info=True)
             self.status_label.setText(f"Calculation error: {e}")
 
-    def _generate_messages(self, p: ABRPolicyData, full: dict, partial: dict) -> list:
+    def _generate_messages(self, p: ABRPolicyData, full: dict, partial: dict,
+                           per_diem_annual: float = 0.0) -> list:
         """Generate validation/warning messages."""
         db = get_abr_database()
         messages = []
@@ -843,9 +855,9 @@ class ABRQuoteWindow(FramelessWindowBase):
                 "Medical Directors should review."
             )
 
-        if p.face_amount > 1_000_000:
+        if p.face_amount > 2_000_000:
             messages.append(
-                "Face amount over $1M — check the Data Page "
+                "Face amount over $2M — check the Data Page "
                 "for the maximum acceleration amount."
             )
 
@@ -862,6 +874,15 @@ class ABRQuoteWindow(FramelessWindowBase):
             messages.append(
                 "Life expectancy is \u2264 2 years \u2014 confirm with "
                 "Medical Directors if this qualifies for a Terminal rider."
+            )
+
+        if (self._assessment
+                and self._assessment.rider_type == "Chronic"
+                and per_diem_annual > 0
+                and full["accelerated_benefit"] > per_diem_annual):
+            messages.append(
+                f"Full acceleration (${full['accelerated_benefit']:,.2f}) exceeds "
+                f"the Chronic annual limit (${per_diem_annual:,.2f})."
             )
 
         return messages

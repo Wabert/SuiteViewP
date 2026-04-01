@@ -5,7 +5,7 @@ import sys
 import logging
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import qInstallMessageHandler, QtMsgType
-from suiteview.ui.file_explorer_multitab import FileExplorerMultiTab
+from suiteview.file_nav.file_explorer_multitab import FileExplorerMultiTab
 
 logger = logging.getLogger(__name__)
 

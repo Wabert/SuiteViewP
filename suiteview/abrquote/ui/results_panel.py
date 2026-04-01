@@ -50,6 +50,7 @@ class ResultsPanel(QWidget):
         self._apv_detail: list[dict] = []
         self._apv_summary: dict = {}
         self._policy_info: str = ""
+        self._derived_values: dict = {}
         self._build_ui()
 
     def _build_ui(self):
@@ -123,6 +124,7 @@ class ResultsPanel(QWidget):
         partial_layout.setSpacing(6)
 
         self._partial_labels = {}
+        self._partial_static_widgets = []  # track all widgets to hide when at min face
         partial_fields = [
             ("Eligible Death Benefit:", "eligible_db"),
             ("Actuarial Discount:", "actuarial_discount"),
@@ -139,15 +141,18 @@ class ResultsPanel(QWidget):
             val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             partial_layout.addWidget(val, i, 1, Qt.AlignmentFlag.AlignLeft)
             self._partial_labels[key] = val
+            self._partial_static_widgets.append(lbl)
 
         divider2 = QFrame()
         divider2.setStyleSheet(DIVIDER_STYLE)
         divider2.setFixedHeight(2)
         partial_layout.addWidget(divider2, len(partial_fields), 0, 1, 2)
+        self._partial_static_widgets.append(divider2)
 
         lbl_pab = QLabel("Accelerated Benefit:")
         lbl_pab.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {CRIMSON_DARK};")
         partial_layout.addWidget(lbl_pab, len(partial_fields) + 1, 0, Qt.AlignmentFlag.AlignRight)
+        self._partial_static_widgets.append(lbl_pab)
 
         self.partial_benefit_label = QLabel("—")
         self.partial_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
@@ -159,6 +164,7 @@ class ResultsPanel(QWidget):
         lbl_pbr = QLabel("Benefit Ratio:")
         lbl_pbr.setStyleSheet(f"font-size: 11px; color: {GRAY_TEXT};")
         partial_layout.addWidget(lbl_pbr, len(partial_fields) + 2, 0, Qt.AlignmentFlag.AlignRight)
+        self._partial_static_widgets.append(lbl_pbr)
 
         self.partial_ratio_label = QLabel("—")
         self.partial_ratio_label.setStyleSheet(f"font-size: 11px; color: {GRAY_TEXT}; font-weight: bold;")
@@ -166,6 +172,17 @@ class ResultsPanel(QWidget):
             self.partial_ratio_label, len(partial_fields) + 2, 1,
             Qt.AlignmentFlag.AlignLeft,
         )
+
+        # "Not allowed" overlay label — shown when policy is at minimum face
+        self._partial_not_allowed_label = QLabel(
+            "MAX PARTIAL NOT ALLOWED\nPOLICY ALREADY AT MINIMUM FACE"
+        )
+        self._partial_not_allowed_label.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {CRIMSON_DARK}; padding: 16px;"
+        )
+        self._partial_not_allowed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._partial_not_allowed_label.setVisible(False)
+        partial_layout.addWidget(self._partial_not_allowed_label, 0, 0, 6, 3)
 
         partial_layout.setColumnStretch(2, 1)
         layout.addWidget(self.partial_group)
@@ -275,6 +292,9 @@ class ResultsPanel(QWidget):
         self._policy_info = policy_info
         self.view_calc_btn.setEnabled(bool(mort_detail))
 
+    def set_derived_values(self, derived_values: dict):
+        self._derived_values = derived_values or {}
+
     def display_results(self, result: ABRQuoteResult):
         """Populate all result fields."""
         self._result = result
@@ -294,29 +314,43 @@ class ResultsPanel(QWidget):
             self.full_benefit_label.setText(self._fmt_money(result.full_accel_benefit))
         self.full_ratio_label.setText(f"{result.full_benefit_ratio * 100:.2f}%")
 
-        # Partial acceleration
-        self._partial_labels["eligible_db"].setText(self._fmt_money(result.partial_eligible_db))
-        self._partial_labels["actuarial_discount"].setText(
-            self._fmt_money(result.partial_actuarial_discount)
-        )
-        self._partial_labels["admin_fee"].setText(self._fmt_money(result.partial_admin_fee))
+        # Partial acceleration — check if at minimum face
+        at_min_face = result.partial_eligible_db <= 0
+        self._partial_not_allowed_label.setVisible(at_min_face)
+        for w in self._partial_static_widgets:
+            w.setVisible(not at_min_face)
+        for val in self._partial_labels.values():
+            val.setVisible(not at_min_face)
+        self.partial_benefit_label.setVisible(not at_min_face)
+        self.partial_ratio_label.setVisible(not at_min_face)
 
-        if result.partial_accel_benefit < 0:
-            self.partial_benefit_label.setText(
-                f"$0.00  (calc result: {self._fmt_money(result.partial_accel_benefit)})"
+        if not at_min_face:
+            self._partial_labels["eligible_db"].setText(self._fmt_money(result.partial_eligible_db))
+            self._partial_labels["actuarial_discount"].setText(
+                self._fmt_money(result.partial_actuarial_discount)
             )
-        else:
-            self.partial_benefit_label.setText(self._fmt_money(result.partial_accel_benefit))
-        self.partial_ratio_label.setText(f"{result.partial_benefit_ratio * 100:.2f}%")
+            self._partial_labels["admin_fee"].setText(self._fmt_money(result.partial_admin_fee))
+
+            if result.partial_accel_benefit < 0:
+                self.partial_benefit_label.setText(
+                    f"$0.00  (calc result: {self._fmt_money(result.partial_accel_benefit)})"
+                )
+            else:
+                self.partial_benefit_label.setText(self._fmt_money(result.partial_accel_benefit))
+            self.partial_ratio_label.setText(f"{result.partial_benefit_ratio * 100:.2f}%")
 
         # Premium impact
         self.premium_before_label.setText(result.premium_before)
         self.premium_after_full_label.setText(f"${result.premium_after_full:,.2f}")
-        self.premium_after_partial_label.setText(result.premium_after_partial)
+        if at_min_face:
+            self.premium_after_partial_label.setText("NOT ALLOWED")
+        else:
+            self.premium_after_partial_label.setText(result.premium_after_partial)
 
         # Messages
         if result.messages:
-            self.messages_label.setText("\n".join(result.messages))
+            bullets = "\n\n".join(f"\u2022 {m}" for m in result.messages)
+            self.messages_label.setText(bullets)
         else:
             self.messages_label.setText("")
 
@@ -331,6 +365,10 @@ class ResultsPanel(QWidget):
             apv_rows=self._apv_detail,
             apv_summary=self._apv_summary,
             policy_info=self._policy_info,
+            policy=self._policy,
+            assessment=self._assessment,
+            result=self._result,
+            derived_values=self._derived_values,
             parent=None,
         )
         viewer.show()

@@ -42,11 +42,11 @@ class CoveragesTab(QWidget):
         self.info_group.add_field("System Cd", "system_cd_label", 80, 80)
         self.info_group.add_field("Valuation Date", "eff_date_label", 80, 100)
         self.info_group._current_col = 0; self.info_group._current_row += 1  # skip col 4
-        # Row 1 (3 fields; skip col 4)
+        # Row 1 (4 fields — DB Option fills the 4th column for UL policies)
         self.info_group.add_field("Type", "type_label", 80, 80)
         self.info_group.add_field("Single/Joint", "joint_label", 80, 80)
         self.info_group.add_field("Policy Year", "policy_year_label", 80, 100)
-        self.info_group._current_col = 0; self.info_group._current_row += 1  # skip col 4
+        self.info_group.add_field("DB Option", "db_option_label", 80, 80)
         # Row 2 (3 fields; skip col 4)
         self.info_group.add_field("Company", "company_label", 80, 80)
         self.info_group.add_field("Suspense Code", "suspense_label", 80, 80)
@@ -72,6 +72,7 @@ class CoveragesTab(QWidget):
         self.att_age_label = self.info_group.att_age_label
         self.status_label = self.info_group.status_label
         self.reins_partner_label = self.info_group.reins_partner_label
+        self.db_option_label = self.info_group.db_option_label
 
         # Make the "Policy Info" header double-clickable to open Policy Support
         self.info_group.setToolTip("Double-click to open Policy Support")
@@ -155,13 +156,8 @@ class CoveragesTab(QWidget):
             traceback.print_exc(file=sys.stderr)
 
     def _populate_status_labels_from_policy(self, policy: 'PolicyInformation'):
-        # Show policy number with form number from first coverage (the policy form)
         coverages = policy.get_coverages()
-        form_number = coverages[0].form_number if coverages else ""
-        pol_text = policy.policy_number
-        if form_number:
-            pol_text += f" - {form_number}"
-        self.policy_label.setText(pol_text)
+        self.policy_label.setText(policy.policy_number)
         self.type_label.setText(policy.product_type)
         self.company_label.setText(policy.company_code)
         self.region_label.setText(policy.region)
@@ -207,7 +203,15 @@ class CoveragesTab(QWidget):
             self.status_label.setStyleSheet("font-size: 10px;")
 
         # Reinsurance partner code — from TH_USER_GENERIC.FUZGREIN_IND
-        self.reins_partner_label.setText(policy.reins_partner)
+        rein_raw = (policy.reins_partner or "").strip()
+        self.reins_partner_label.setText("RGA" if rein_raw == "R" else "ANICO" if rein_raw else "(none)")
+
+        # Death Benefit Option — UL products only
+        _DB_OPT_DISPLAY = {"1": "A-Level", "2": "B-Increasing", "3": "C-ROP"}
+        if policy.is_advanced_product:
+            self.db_option_label.setText(_DB_OPT_DISPLAY.get(policy.db_option_code, ""))
+        else:
+            self.db_option_label.setText("")
 
     def _populate_coverages_from_policy(self, policy: 'PolicyInformation', coverages: list):
         if not coverages:

@@ -263,10 +263,18 @@ class EmailPrintDialog(QDialog):
             self._set("survival_5yr", f"{a.five_year_survival * 100:.1f}%")
             self._set("survival_10yr", f"{a.ten_year_survival * 100:.1f}%")
             self._set("life_expectancy", f"{a.life_expectancy_years:.1f}")
-            if a.derived_table_rating > 0:
-                self._set("substandard", f"Table {int(round(a.derived_table_rating))}")
-            else:
-                self._set("substandard", "None")
+            sub_parts = []
+            if a.use_five_year and a.use_ten_year and (a.derived_table_rating_5yr > 0 or a.derived_table_rating_10yr > 0):
+                # Dual solve — show both table rating periods
+                if a.derived_table_rating_5yr > 0:
+                    sub_parts.append(f"Table {int(round(a.derived_table_rating_5yr))} (yrs 1-5)")
+                if a.derived_table_rating_10yr > 0:
+                    sub_parts.append(f"Table {int(round(a.derived_table_rating_10yr))} (yrs 6-10)")
+            elif a.derived_table_rating > 0:
+                sub_parts.append(f"Table {int(round(a.derived_table_rating))}")
+            if a.use_increased_decrement and a.direct_increased_decrement > 0:
+                sub_parts.append(f"ID {a.direct_increased_decrement:.0f}% (yr {a.incr_decrement_start_year}-{a.incr_decrement_stop_year})")
+            self._set("substandard", "  |  ".join(sub_parts) if sub_parts else "None")
 
         self._set("reinsurers", "none")
 
@@ -418,10 +426,19 @@ class EmailPrintDialog(QDialog):
             sec3.append(("Life Expectancy in Years:", f"{a.computed_le:.1f}"))
             if a.rider_type == "Terminal":
                 sec3.append(("Substandard to achieve mortality:", "50% mortality each year"))
-            elif a.derived_table_rating > 0:
-                sec3.append(("Substandard to achieve mortality:", f"Table {int(round(a.derived_table_rating))}"))
             else:
-                sec3.append(("Substandard to achieve mortality:", "None"))
+                sub_parts = []
+                if a.use_five_year and a.use_ten_year and (a.derived_table_rating_5yr > 0 or a.derived_table_rating_10yr > 0):
+                    # Dual solve — show both table rating periods
+                    if a.derived_table_rating_5yr > 0:
+                        sub_parts.append(f"Table {int(round(a.derived_table_rating_5yr))} (yrs 1-5)")
+                    if a.derived_table_rating_10yr > 0:
+                        sub_parts.append(f"Table {int(round(a.derived_table_rating_10yr))} (yrs 6-10)")
+                elif a.derived_table_rating > 0:
+                    sub_parts.append(f"Table {int(round(a.derived_table_rating))}")
+                if a.use_increased_decrement and a.direct_increased_decrement > 0:
+                    sub_parts.append(f"ID {a.direct_increased_decrement:.0f}% (yr {a.incr_decrement_start_year}-{a.incr_decrement_stop_year})")
+                sec3.append(("Substandard to achieve mortality:", "  |  ".join(sub_parts) if sub_parts else "None"))
         if sec3:
             sections.append(("Assessment", sec3))
 

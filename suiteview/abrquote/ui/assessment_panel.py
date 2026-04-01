@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace as dc_replace
+from datetime import date
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -28,6 +29,7 @@ from PyQt6.QtWidgets import (
 from ..models.abr_data import (
     ABRPolicyData, MedicalAssessment, MortalityParams, ABRQuoteResult,
 )
+from ..models.abr_database import get_abr_database
 from ..models.abr_constants import (
     MORTALITY_IMPROVEMENT_RATE,
     MORTALITY_IMPROVEMENT_CAP,
@@ -135,7 +137,35 @@ class AssessmentPanel(QWidget):
         self.rider_combo.currentTextChanged.connect(self._on_rider_changed)
         rider_layout.addWidget(self.rider_combo, 0, 1)
 
+        # Per diem / annual limit labels — shown only for Chronic rider
+        per_diem_style = f"font-size: 11px; color: {GRAY_DARK};"
+        per_diem_val_style = f"font-size: 11px; color: {CRIMSON_DARK}; font-weight: bold;"
+
+        lbl_pd = QLabel("Per Diem:")
+        lbl_pd.setStyleSheet(per_diem_style)
+        rider_layout.addWidget(lbl_pd, 0, 3, Qt.AlignmentFlag.AlignRight)
+        self._rider_per_diem_label = QLabel("\u2014")
+        self._rider_per_diem_label.setStyleSheet(per_diem_val_style)
+        rider_layout.addWidget(self._rider_per_diem_label, 0, 4)
+
+        lbl_al = QLabel("Annual Limit:")
+        lbl_al.setStyleSheet(per_diem_style)
+        rider_layout.addWidget(lbl_al, 0, 5, Qt.AlignmentFlag.AlignRight)
+        self._rider_annual_limit_label = QLabel("\u2014")
+        self._rider_annual_limit_label.setStyleSheet(per_diem_val_style)
+        rider_layout.addWidget(self._rider_annual_limit_label, 0, 6)
+
+        # Container list for show/hide
+        self._chronic_only_widgets = [lbl_pd, self._rider_per_diem_label,
+                                      lbl_al, self._rider_annual_limit_label]
+        is_chronic = self.rider_combo.currentText() == "Chronic"
+        for w in self._chronic_only_widgets:
+            w.setVisible(is_chronic)
+        if is_chronic:
+            self._refresh_per_diem_display()
+
         rider_layout.setColumnStretch(2, 1)
+        rider_layout.setColumnStretch(7, 1)
         layout.addWidget(rider_group)
 
         # ── Assessment Format (survival + direct inputs) ────────────────
@@ -246,7 +276,7 @@ class AssessmentPanel(QWidget):
         self.five_year_input.setReadOnly(True)
         row0.addWidget(self.five_year_input)
 
-        self.chk_return_5yr = QCheckBox("Return")
+        self.chk_return_5yr = QCheckBox("Return (drop after yr 5)")
         self.chk_return_5yr.setStyleSheet(_CHECKBOX_STYLE)
         self.chk_return_5yr.setEnabled(False)
         row0.addWidget(self.chk_return_5yr)
@@ -276,7 +306,7 @@ class AssessmentPanel(QWidget):
         self.ten_year_input.setReadOnly(True)
         row1.addWidget(self.ten_year_input)
 
-        self.chk_return_10yr = QCheckBox("Return")
+        self.chk_return_10yr = QCheckBox("Return (drop after yr 10)")
         self.chk_return_10yr.setStyleSheet(_CHECKBOX_STYLE)
         self.chk_return_10yr.setEnabled(False)
         row1.addWidget(self.chk_return_10yr)
@@ -308,6 +338,55 @@ class AssessmentPanel(QWidget):
 
         row2.addStretch()
         assess_vbox.addLayout(row2)
+
+        # ── Row 2b: Increased Decrement ──────────────────────────────────
+        row2b = QHBoxLayout()
+        row2b.setSpacing(6)
+
+        self.chk_incr_decrement = QCheckBox()
+        self.chk_incr_decrement.setStyleSheet(_CHECKBOX_STYLE)
+        self.chk_incr_decrement.setFixedWidth(20)
+        self.chk_incr_decrement.toggled.connect(self._on_checkbox_toggled)
+        row2b.addWidget(self.chk_incr_decrement)
+
+        lbl_id = QLabel("Increased Decrement:")
+        lbl_id.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
+        lbl_id.setFixedWidth(160)
+        row2b.addWidget(lbl_id)
+
+        self.incr_decrement_input = QLineEdit()
+        self.incr_decrement_input.setPlaceholderText("%")
+        self.incr_decrement_input.setStyleSheet(INPUT_STYLE)
+        self.incr_decrement_input.setFixedWidth(70)
+        self.incr_decrement_input.setReadOnly(True)
+        row2b.addWidget(self.incr_decrement_input)
+
+        row2b.addSpacing(10)
+
+        lbl_id_start = QLabel("Start Yr:")
+        lbl_id_start.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
+        row2b.addWidget(lbl_id_start)
+
+        self.incr_decrement_start_input = QLineEdit("1")
+        self.incr_decrement_start_input.setStyleSheet(INPUT_STYLE)
+        self.incr_decrement_start_input.setFixedWidth(40)
+        self.incr_decrement_start_input.setReadOnly(True)
+        row2b.addWidget(self.incr_decrement_start_input)
+
+        row2b.addSpacing(6)
+
+        lbl_id_stop = QLabel("Stop Yr:")
+        lbl_id_stop.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
+        row2b.addWidget(lbl_id_stop)
+
+        self.incr_decrement_stop_input = QLineEdit("99")
+        self.incr_decrement_stop_input.setStyleSheet(INPUT_STYLE)
+        self.incr_decrement_stop_input.setFixedWidth(40)
+        self.incr_decrement_stop_input.setReadOnly(True)
+        row2b.addWidget(self.incr_decrement_stop_input)
+
+        row2b.addStretch()
+        assess_vbox.addLayout(row2b)
 
         # ── Row 3: Table ─────────────────────────────────────────────────
         row3 = QHBoxLayout()
@@ -506,6 +585,15 @@ class AssessmentPanel(QWidget):
         assess_vbox.addLayout(row6)
 
         layout.addWidget(self.assessment_group)
+
+        # ── Warning label (below assessment group, bold red) ───────────
+        self.warning_label = QLabel("")
+        self.warning_label.setStyleSheet(
+            "color: red; font-weight: bold; font-size: 11px; padding: 2px 4px;"
+        )
+        self.warning_label.setWordWrap(True)
+        self.warning_label.setVisible(False)
+        layout.addWidget(self.warning_label)
 
         # ── Calculate button ────────────────────────────────────────────
         calc_row = QHBoxLayout()
@@ -931,7 +1019,8 @@ class AssessmentPanel(QWidget):
 
         # Messages
         if result.messages:
-            self.res_messages_label.setText("\n".join(result.messages))
+            bullets = "\n\n".join(f"\u2022 {m}" for m in result.messages)
+            self.res_messages_label.setText(bullets)
         else:
             self.res_messages_label.setText("")
 
@@ -967,6 +1056,7 @@ class AssessmentPanel(QWidget):
         # Uncheck all survival / direct-input checkboxes
         for chk in (
             self.chk_five_year, self.chk_ten_year, self.chk_le,
+            self.chk_incr_decrement,
             self.chk_table, self.chk_flat,
             self.chk_table_2, self.chk_flat_2,
             self.chk_return_5yr, self.chk_return_10yr,
@@ -979,6 +1069,11 @@ class AssessmentPanel(QWidget):
         self.five_year_input.clear()
         self.ten_year_input.clear()
         self.le_input.clear()
+
+        # Clear increased decrement inputs and reset start/stop defaults
+        self.incr_decrement_input.clear()
+        self.incr_decrement_start_input.setText("1")
+        self.incr_decrement_stop_input.setText("99")
 
         # Clear direct table/flat inputs and reset start/stop defaults
         self.table_input.clear()
@@ -1116,6 +1211,18 @@ class AssessmentPanel(QWidget):
         lbl.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 12px;")
         return lbl
 
+    # ── Warning helpers ──────────────────────────────────────────────────
+
+    def _show_warning(self, text: str):
+        """Display a bold red warning below the assessment group."""
+        self.warning_label.setText(text)
+        self.warning_label.setVisible(True)
+
+    def _clear_warning(self):
+        """Hide the warning label."""
+        self.warning_label.setText("")
+        self.warning_label.setVisible(False)
+
     # ── Checkbox toggle handler ──────────────────────────────────────────
 
     def _on_checkbox_toggled(self):
@@ -1126,6 +1233,12 @@ class AssessmentPanel(QWidget):
         self._toggle_input(self.ten_year_input, self.chk_ten_year.isChecked())
         self.chk_return_10yr.setEnabled(self.chk_ten_year.isChecked())
         self._toggle_input(self.le_input, self.chk_le.isChecked())
+
+        # Increased Decrement inputs
+        incr = self.chk_incr_decrement.isChecked()
+        self._toggle_input(self.incr_decrement_input, incr)
+        self._toggle_input(self.incr_decrement_start_input, incr)
+        self._toggle_input(self.incr_decrement_stop_input, incr)
 
         # Table 1 inputs
         tbl = self.chk_table.isChecked()
@@ -1166,6 +1279,20 @@ class AssessmentPanel(QWidget):
 
     # ── Rider type change handler ────────────────────────────────────────
 
+    def _refresh_per_diem_display(self):
+        """Fetch and display current-year per diem / annual limit values."""
+        try:
+            db = get_abr_database()
+            perdiem = db.get_per_diem(date.today().year)
+            if perdiem:
+                self._rider_per_diem_label.setText(f"${perdiem[0]:,.2f}/day")
+                self._rider_annual_limit_label.setText(f"${perdiem[1]:,.2f}")
+            else:
+                self._rider_per_diem_label.setText("\u2014")
+                self._rider_annual_limit_label.setText("\u2014")
+        except Exception:
+            logger.debug("Could not load per diem for rider display", exc_info=True)
+
     def _on_rider_changed(self, rider_type: str):
         """Show/hide assessment inputs based on rider type.
 
@@ -1173,6 +1300,13 @@ class AssessmentPanel(QWidget):
         Chronic / Critical: full assessment inputs.
         """
         is_terminal = (rider_type == "Terminal")
+        is_chronic = (rider_type == "Chronic")
+
+        # Show per diem / annual limit only for Chronic rider
+        for w in self._chronic_only_widgets:
+            w.setVisible(is_chronic)
+        if is_chronic:
+            self._refresh_per_diem_display()
 
         # Enable/disable the entire assessment section and button
         self.assessment_group.setVisible(not is_terminal)
@@ -1308,8 +1442,9 @@ class AssessmentPanel(QWidget):
 
     def _on_calculate(self):
         """Run goal seek to derive substandard from the checked inputs."""
+        self._clear_warning()
         if self._policy is None:
-            self.status_label.setText("Please load a policy first (Step 1).")
+            self._show_warning("Please load a policy first (Step 1).")
             return
 
         rider_type = self.rider_combo.currentText()
@@ -1323,10 +1458,11 @@ class AssessmentPanel(QWidget):
         has_flat_direct = self.chk_flat.isChecked()
         has_table_2_direct = self.chk_table_2.isChecked()
         has_flat_2_direct = self.chk_flat_2.isChecked()
+        has_incr_decrement = self.chk_incr_decrement.isChecked()
 
-        if not has_survival and not has_table_direct:
-            self.status_label.setText(
-                "Check at least one survival input or the Table checkbox."
+        if not has_survival and not has_table_direct and not has_incr_decrement and not has_incr_decrement:
+            self._show_warning(
+                "Check at least one survival input, the Table checkbox, or Increased Decrement."
             )
             return
 
@@ -1340,17 +1476,17 @@ class AssessmentPanel(QWidget):
             if has_le:
                 le_val = float(self.le_input.text().strip())
         except ValueError:
-            self.status_label.setText(
+            self._show_warning(
                 "Enter valid numeric values for all checked survival fields."
             )
             return
 
         # Validate ranges
         if has_five and not (0 <= five_yr <= 1):
-            self.status_label.setText("5-Year Survival must be between 0 and 1.")
+            self._show_warning("5-Year Survival must be between 0 and 1.")
             return
         if has_ten and not (0 <= ten_yr <= 1):
-            self.status_label.setText("10-Year Survival must be between 0 and 1.")
+            self._show_warning("10-Year Survival must be between 0 and 1.")
             return
 
         # Parse direct table/flat (set 1)
@@ -1360,6 +1496,11 @@ class AssessmentPanel(QWidget):
         direct_flat = 0.0
         flat_start_yr = 1
         flat_stop_yr = 99
+
+        # Parse increased decrement
+        incr_decrement_pct = 0.0
+        incr_decrement_start_yr = 1
+        incr_decrement_stop_yr = 99
 
         # Parse direct table/flat (set 2)
         direct_table_2 = 0.0
@@ -1386,8 +1527,12 @@ class AssessmentPanel(QWidget):
                 direct_flat_2 = float(self.flat_2_input.text().strip())
                 flat_2_start_yr = int(self.flat_2_start_input.text().strip())
                 flat_2_stop_yr = int(self.flat_2_stop_input.text().strip())
+            if has_incr_decrement:
+                incr_decrement_pct = float(self.incr_decrement_input.text().strip())
+                incr_decrement_start_yr = int(self.incr_decrement_start_input.text().strip())
+                incr_decrement_stop_yr = int(self.incr_decrement_stop_input.text().strip())
         except ValueError:
-            self.status_label.setText(
+            self._show_warning(
                 "Enter valid numeric values for all checked Table / Flat fields."
             )
             return
@@ -1519,6 +1664,10 @@ class AssessmentPanel(QWidget):
                     additional_tables.append(
                         (float(p.table_rating), 1, 9999)
                     )
+                if p.table_rating_2 > 0:
+                    additional_tables.append(
+                        (float(p.table_rating_2), 1, 9999)
+                    )
                 if p.flat_extra > 0:
                     flat_last = 9999
                     if p.flat_to_age > 0:
@@ -1552,6 +1701,16 @@ class AssessmentPanel(QWidget):
                 f2_start_m = abs_policy_month + (flat_2_start_yr - 1) * 12
                 f2_stop_m = abs_policy_month + (flat_2_stop_yr - 1) * 12 - 1
                 additional_flats.append((direct_flat_2, f2_start_m, f2_stop_m))
+
+            # Increased Decrement → convert to equivalent table rating
+            # ID% means mortality factor = 1 + ID/100
+            # Table rating formula: factor = 1 + table_rating × 0.25
+            # So table_rating = (ID/100) / 0.25 = ID / 25
+            if has_incr_decrement and incr_decrement_pct > 0:
+                id_table_rating = incr_decrement_pct / 25.0
+                id_start_m = abs_policy_month + (incr_decrement_start_yr - 1) * 12
+                id_stop_m = abs_policy_month + (incr_decrement_stop_yr - 1) * 12 - 1
+                additional_tables.append((id_table_rating, id_start_m, id_stop_m))
 
             # ── Compute derived values with ALL ratings combined ────────
             # Always build the full final params for LE and survival calc.
@@ -1625,6 +1784,7 @@ class AssessmentPanel(QWidget):
                 use_five_year=has_five,
                 use_ten_year=has_ten,
                 use_le=has_le,
+                use_increased_decrement=has_incr_decrement,
                 use_table=has_table_direct,
                 use_flat=has_flat_direct,
                 use_table_2=has_table_2_direct,
@@ -1636,6 +1796,9 @@ class AssessmentPanel(QWidget):
                 ten_year_survival=ten_yr,
                 life_expectancy_years=le_val if le_val else computed_le,
                 life_expectancy_rounded=round(le_val if le_val else computed_le),
+                direct_increased_decrement=incr_decrement_pct,
+                incr_decrement_start_year=incr_decrement_start_yr,
+                incr_decrement_stop_year=incr_decrement_stop_yr,
                 direct_table_rating=direct_table,
                 table_start_year=table_start_yr,
                 table_stop_year=table_stop_yr,
@@ -1652,6 +1815,7 @@ class AssessmentPanel(QWidget):
                 derived_table_rating_5yr=table_rating_5yr,
                 derived_table_rating_10yr=table_rating_10yr,
                 derived_flat_extra=direct_flat if has_flat_direct else 0.0,
+                derived_increased_decrement=incr_decrement_pct if has_incr_decrement else 0.0,
                 assessment_index=assessment_idx,
                 computed_survival_5yr=survival_5yr,
                 computed_survival_10yr=survival_10yr,
@@ -1670,9 +1834,14 @@ class AssessmentPanel(QWidget):
             self._derived_labels["std_le"].setText(f"{std_le:.1f} years (age {std_le_age})")
 
             # Policy substandard baseline
-            if p.table_rating > 0:
+            if p.table_rating > 0 or p.table_rating_2 > 0:
+                tbl_parts = []
+                if p.table_rating > 0:
+                    tbl_parts.append(f"Table {p.table_rating}")
+                if p.table_rating_2 > 0:
+                    tbl_parts.append(f"Table {p.table_rating_2}")
                 self._derived_labels["std_table_rating"].setText(
-                    f"Table {p.table_rating}"
+                    "  |  ".join(tbl_parts)
                 )
             else:
                 self._derived_labels["std_table_rating"].setText("None")
@@ -1707,9 +1876,11 @@ class AssessmentPanel(QWidget):
             has_survival_solve = has_five or has_ten or has_le
 
             tbl_parts = []
-            # Show the policy's existing table rating if "In Addition To"
+            # Show the policy's existing table rating(s) if "In Addition To"
             if not is_in_lieu_of and p.table_rating > 0:
                 tbl_parts.append(f"Policy Tbl {p.table_rating} (existing)")
+            if not is_in_lieu_of and p.table_rating_2 > 0:
+                tbl_parts.append(f"Policy Tbl {p.table_rating_2} (existing)")
 
             if is_dual_solve:
                 # 5yr period always covers years 1-5
@@ -1734,6 +1905,12 @@ class AssessmentPanel(QWidget):
                 tbl_parts.append(f"Tbl {direct_table:.0f} (yr {table_start_yr}-{table_stop_yr})")
             if has_table_2_direct and direct_table_2 > 0:
                 tbl_parts.append(f"Tbl2 {direct_table_2:.0f} (yr {table_2_start_yr}-{table_2_stop_yr})")
+            if has_incr_decrement and incr_decrement_pct > 0:
+                id_table = incr_decrement_pct / 25.0
+                tbl_parts.append(
+                    f"ID {incr_decrement_pct:.0f}% "
+                    f"(Tbl {id_table:.0f}, yr {incr_decrement_start_yr}-{incr_decrement_stop_yr})"
+                )
             self._derived_labels["table_rating"].setText(
                 "  |  ".join(tbl_parts) if tbl_parts else "None"
             )
@@ -1763,7 +1940,7 @@ class AssessmentPanel(QWidget):
 
         except Exception as e:
             logger.error(f"Goal seek error: {e}", exc_info=True)
-            self.status_label.setText(f"Calculation error: {e}")
+            self._show_warning(f"Calculation error: {e}")
         finally:
             self.calc_btn.setEnabled(True)
 
@@ -1774,9 +1951,13 @@ class AssessmentPanel(QWidget):
         self._policy = policy
         self._reset_assessment_inputs()
 
+        # Refresh per diem display now that the DB is definitely available
+        if self.rider_combo.currentText() == "Chronic":
+            self._refresh_per_diem_display()
+
         # Show the In Lieu Of / In Addition To choice only when the
         # policy currently carries substandard ratings (table or flat).
-        has_substandard = (policy.table_rating > 0) or (policy.flat_extra > 0)
+        has_substandard = (policy.table_rating > 0) or (policy.table_rating_2 > 0) or (policy.flat_extra > 0)
         self._substandard_mode_container.setVisible(has_substandard)
         if not has_substandard:
             # Reset to "In Lieu Of" when there are no substandards

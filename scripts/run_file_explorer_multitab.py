@@ -47,7 +47,7 @@ if __name__ == '__main__':
         from suiteview.utils.logger import setup_logging
         setup_logging(log_level="INFO")
         
-        from suiteview.ui.file_explorer_multitab import FileExplorerMultiTab
+        from suiteview.file_nav.file_explorer_multitab import FileExplorerMultiTab
 
         app = QApplication(sys.argv)
         

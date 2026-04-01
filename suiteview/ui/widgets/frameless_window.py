@@ -134,17 +134,17 @@ class FramelessWindowBase(QWidget):
         layout.setSpacing(8)
 
         # Title
-        title_label = QLabel(title)
-        title_label.setStyleSheet(f"""
-            QLabel {{
-                color: {self._border_color};
+        self._title_label = QLabel(title)
+        self._title_label.setStyleSheet("""
+            QLabel {
+                color: #FFFFFF;
                 font-size: 18px;
                 font-weight: bold;
                 font-style: italic;
                 background: transparent;
-            }}
+            }
         """)
-        layout.addWidget(title_label)
+        layout.addWidget(self._title_label)
         layout.addStretch()
 
         # Custom header widgets (injected)

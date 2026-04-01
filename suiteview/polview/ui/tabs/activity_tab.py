@@ -2,12 +2,9 @@
 Activity tab – Transaction Type Index and Policy Transactions table.
 """
 
-import re
-
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QTableWidgetItem
 from PyQt6.QtCore import Qt
 
-from suiteview.core.db2_connection import DB2Connection
 from ...models.cl_polrec.policy_translations import TRANSACTION_CODES
 from ..formatting import format_currency, format_date, format_rate
 from ..widgets import StyledInfoTableGroup
@@ -89,39 +86,6 @@ class ActivityTab(QWidget):
         table.setItem(row_idx, 10, QTableWidgetItem(str(data.get("ORIGIN_OF_TRANS", "")).strip()))
 
     # ── data loading ─────────────────────────────────────────────────────
-
-    # TODO: Dead code – never called; main_window uses load_data_from_policy() exclusively.
-    def load_data(self, db: DB2Connection, where_clause: str):
-        try:
-            pol_id_match = re.search(r"TCH_POL_ID\s*=\s*'([^']+)'", where_clause)
-            cmp_cd_match = re.search(r"CK_CMP_CD\s*=\s*'([^']+)'", where_clause)
-
-            if pol_id_match and cmp_cd_match:
-                fh_where = f"TCH_POL_ID = '{pol_id_match.group(1)}' AND CK_CMP_CD = '{cmp_cd_match.group(1)}'"
-            else:
-                fh_where = re.sub(r"CK_SYS_CD\s*=\s*'[^']+'\s*AND\s*", "", where_clause)
-
-            cols, rows = db.execute_query_with_headers(
-                f"SELECT * FROM DB2TAB.FH_FIXED WHERE {fh_where} ORDER BY ASOF_DT DESC, SEQ_NO DESC"
-            )
-
-            table = self.transactions_group.table
-            table.setRowCount(0)  # clear all old data first
-            if not rows:
-                table.setRowCount(1)
-                table.setItem(0, 0, QTableWidgetItem("No transactions found"))
-                return
-
-            table.setRowCount(len(rows))
-            for row_idx, row in enumerate(rows):
-                self._populate_row(table, row_idx, dict(zip(cols, row)))
-            table.autoFitAllColumns()
-
-        except Exception as e:
-            table = self.transactions_group.table
-            table.setRowCount(0)  # clear all old data first
-            table.setRowCount(1)
-            table.setItem(0, 0, QTableWidgetItem(f"Error: {e}"))
 
     def load_data_from_policy(self, policy: 'PolicyInformation'):
         try:

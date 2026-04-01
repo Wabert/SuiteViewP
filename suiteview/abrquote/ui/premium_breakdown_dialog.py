@@ -160,9 +160,10 @@ def show_premium_breakdown_dialog(
         add_spacer()
         add_header(f"Coverage {cov_idx + 1}")
         add_line("Plan", cov["plancode"], indent=True)
+        band_str = cov.get("band", "")
         add_line(
-            "Issue age/Sex/Class",
-            f"{cov['issue_age']} / {cov['sex']} / {cov['rate_class']}",
+            "Issue age/Sex/Class/Band",
+            f"{cov['issue_age']} / {cov['sex']} / {cov['rate_class']} / {band_str}",
             indent=True,
         )
         cov_rate = cov.get("rate", 0)

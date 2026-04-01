@@ -11,7 +11,7 @@ if __name__ == '__main__':
     sys.path.insert(0, str(Path(__file__).parent.parent))
     
     from PyQt6.QtWidgets import QApplication
-    from suiteview.ui.file_explorer_core import FileExplorerCore
+    from suiteview.file_nav.file_explorer_core import FileExplorerCore
 
     app = QApplication(sys.argv)
     

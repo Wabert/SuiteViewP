@@ -51,14 +51,19 @@ def build_abr_policy(policy_num: str, region: str) -> Tuple[Optional[ABRPolicyDa
 
         # Table rating numeric (from substandard ratings on base coverage)
         table_numeric = 0
+        table_numeric_2 = 0
         flat_extra = 0.0
         flat_to_age = 0
         flat_cease_date = None
         try:
             ratings = pi.get_substandard_ratings(1)
             for r in ratings:
-                if r.type_code == "T" and not table_numeric:
-                    table_numeric = r.table_rating_numeric or 0
+                if r.type_code == "T":
+                    val = r.table_rating_numeric or 0
+                    if not table_numeric:
+                        table_numeric = val
+                    elif not table_numeric_2:
+                        table_numeric_2 = val
                 if r.type_code == "F":
                     flat_extra = float(r.flat_amount or 0)
                     flat_cease_date = r.flat_cease_date
@@ -195,6 +200,7 @@ def build_abr_policy(policy_num: str, region: str) -> Tuple[Optional[ABRPolicyDa
             policy_month=pi.policy_month or 1,
             policy_year=pi.policy_year or 1,
             table_rating=table_numeric,
+            table_rating_2=table_numeric_2,
             flat_extra=flat_extra,
             flat_to_age=flat_to_age,
             flat_cease_date=flat_cease_date,

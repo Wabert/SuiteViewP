@@ -39,7 +39,7 @@ def verify_imports() -> bool:
         ("Database module", "suiteview.data.database"),
         ("Config module", "suiteview.utils.config"),
         ("Logger module", "suiteview.utils.logger"),
-        ("Main window", "suiteview.ui.main_window"),
+        ("Main window", "suiteview.database_manager.main_window"),
     ]
 
     all_ok = True
@@ -120,17 +120,17 @@ def main():
 
     # Key Python files
     checks.append(check_file_exists(base_path / "suiteview" / "main.py", "Main entry point"))
-    checks.append(check_file_exists(base_path / "suiteview" / "ui" / "main_window.py", "Main window"))
+    checks.append(check_file_exists(base_path / "suiteview" / "database_manager" / "main_window.py", "Main window"))
     checks.append(check_file_exists(base_path / "suiteview" / "ui" / "styles.qss", "Stylesheet"))
     checks.append(check_file_exists(base_path / "suiteview" / "data" / "database.py", "Database module"))
     checks.append(check_file_exists(base_path / "suiteview" / "utils" / "config.py", "Config module"))
     checks.append(check_file_exists(base_path / "suiteview" / "utils" / "logger.py", "Logger module"))
 
     # Screen files
-    checks.append(check_file_exists(base_path / "suiteview" / "ui" / "connections_screen.py", "Connections screen"))
-    checks.append(check_file_exists(base_path / "suiteview" / "ui" / "mydata_screen.py", "My Data screen"))
-    checks.append(check_file_exists(base_path / "suiteview" / "ui" / "dbquery_screen.py", "DB Query screen"))
-    checks.append(check_file_exists(base_path / "suiteview" / "ui" / "xdbquery_screen.py", "XDB Query screen"))
+    checks.append(check_file_exists(base_path / "suiteview" / "database_manager" / "connections_screen.py", "Connections screen"))
+    checks.append(check_file_exists(base_path / "suiteview" / "database_manager" / "mydata_screen.py", "My Data screen"))
+    checks.append(check_file_exists(base_path / "suiteview" / "database_manager" / "dbquery_screen.py", "DB Query screen"))
+    checks.append(check_file_exists(base_path / "suiteview" / "database_manager" / "xdbquery_screen.py", "XDB Query screen"))
 
     # Verify imports
     checks.append(verify_imports())

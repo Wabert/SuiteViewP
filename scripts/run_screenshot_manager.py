@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from PyQt6.QtWidgets import QApplication
-from suiteview.ui.screenshot_manager_window import ScreenShotManagerWindow
+from suiteview.screenshot_manager.screenshot_manager_window import ScreenShotManagerWindow
 
 def main():
     app = QApplication(sys.argv)

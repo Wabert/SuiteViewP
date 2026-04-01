@@ -2410,8 +2410,9 @@ class FileExplorerMultiTab(QWidget):
         """Open the Data Manager window"""
         if self.db_window is None:
             try:
-                from suiteview.ui.main_window import MainWindow
-                self.db_window = MainWindow()
+                from suiteview.database_manager.main_window import MainWindow
+                from suiteview.utils.config import Config
+                self.db_window = MainWindow(Config())
                 self._setup_child_window(self.db_window, "Data Manager")
             except Exception as e:
                 logger.error(f"Failed to open Data Manager: {e}")

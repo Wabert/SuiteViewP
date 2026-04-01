@@ -55,16 +55,9 @@ STATUS_CODES = {
 }
 
 SUSPENSE_CODES = {
-    "0": "None",
-    "1": "Admin Hold",
-    "2": "Premium Notice",
+    "0": "Active",
+    "2": "Suspended",
     "3": "Death Claim Pending",
-    "4": "Surrender Pending",
-    "5": "Maturity Pending",
-    "6": "Lapse Pending",
-    "7": "Loan Processing",
-    "8": "Policy Change Pending",
-    "9": "Investigation",
 }
 
 PREMIUM_PAY_STATUS_CODES = {

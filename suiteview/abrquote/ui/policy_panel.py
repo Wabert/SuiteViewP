@@ -444,7 +444,10 @@ class PolicyPanel(QWidget):
         labels["modal_premium"].setText(
             f"${p.modal_premium:,.2f} (monthly)" if p.modal_premium else "—"
         )
-        labels["table_rating"].setText(str(p.table_rating))
+        if p.table_rating_2 > 0:
+            labels["table_rating"].setText(f"{p.table_rating}  |  {p.table_rating_2}")
+        else:
+            labels["table_rating"].setText(str(p.table_rating))
         labels["flat_extra"].setText(
             f"${p.flat_extra:.2f}" if p.flat_extra > 0 else "None"
         )
@@ -860,6 +863,13 @@ class PolicyPanel(QWidget):
                 cov_units = cov_face / 1000.0
                 cov_flat = 0.0
 
+                # Band lookup (needed for rate lookup and display)
+                cov_band_code = ""
+                try:
+                    cov_band_code = calc.db.get_band(pc, cov_face, p.issue_date) or ""
+                except Exception:
+                    pass
+
                 # Rate lookup
                 if cov.is_base:
                     # Base coverage: use the pre-computed raw rate
@@ -871,7 +881,7 @@ class PolicyPanel(QWidget):
                 else:
                     # Non-base: look up from TERM tables
                     try:
-                        band = calc.db.get_band(pc, cov_face, p.issue_date)
+                        band = cov_band_code
                         cov_rate = calc.db.get_term_rate(
                             pc, cov_sex, cov_rc, band, cov_issue_age, cur_yr,
                         )
@@ -979,6 +989,7 @@ class PolicyPanel(QWidget):
                     "issue_age": cov_issue_age,
                     "sex": cov_sex,
                     "rate_class": cov_rc,
+                    "band": cov_band_code,
                     "rate": cov_rate,
                     "table_rating": cov_table,
                     "rating_factor": rating_factor,

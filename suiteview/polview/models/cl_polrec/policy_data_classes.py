@@ -143,7 +143,7 @@ class RenewalCovRateInfo:
     joint_indicator: str                # JT_INS_IND
     rate_class: str                     # RT_CLS_CD
     rate_class_desc: str
-    issue_age: Optional[int]            # ISS_AGE  # TODO: verify column name
+    issue_age: Optional[int]            # ISS_AGE
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
 
