@@ -25,7 +25,7 @@ from PyQt6.QtGui import QFont, QColor, QSyntaxHighlighter, QTextCharFormat
 from suiteview.models.data_set import DataSet, DataSetParameter, DataSetField
 from suiteview.data.repositories import SavedTableRepository, ConnectionRepository, get_metadata_cache_repository
 from suiteview.core.schema_discovery import SchemaDiscovery
-from suiteview.core.query_executor import QueryExecutor
+from suiteview.database_manager.query_executor import QueryExecutor
 from suiteview.ui.dialogs.query_results_dialog import QueryResultsDialog
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 

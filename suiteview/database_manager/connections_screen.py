@@ -721,7 +721,7 @@ class ConnectionsScreen(QWidget):
         
         try:
             from suiteview.ui.widgets.filter_table_view import FilterTableView
-            from suiteview.core.query_executor import QueryExecutor
+            from suiteview.database_manager.query_executor import QueryExecutor
             
             # Show progress cursor
             self.setCursor(Qt.CursorShape.WaitCursor)

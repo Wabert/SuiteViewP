@@ -210,6 +210,7 @@ class ColumnFilterPopup(QFrame):
         # Add unique values
         for val in self._unique_values:
             item = QListWidgetItem(str(val))
+            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             font = item.font()
             font.setPointSizeF(8.5)
             item.setFont(font)
@@ -742,20 +743,25 @@ class FixedHeaderTableWidget(QWidget):
             self._dump_to_excel()
     
     def _copy_table_to_clipboard(self):
-        """Copy entire table (headers + data) to clipboard."""
+        """Copy visible table rows (headers + data) to clipboard."""
         from PyQt6.QtWidgets import QApplication
         lines = []
         
-        # Headers from native QHeaderView
+        # Headers from native QHeaderView (strip filter indicator)
         headers = []
         for i in range(self._data_table.columnCount()):
             h_item = self._data_table.horizontalHeaderItem(i)
-            headers.append(h_item.text() if h_item else "")
+            header_text = h_item.text() if h_item else ""
+            if header_text.endswith(" ▼"):
+                header_text = header_text[:-2]
+            headers.append(header_text)
         if any(headers):
             lines.append("\t".join(headers))
         
-        # Data rows
+        # Data rows (visible only - skip hidden/filtered rows)
         for row in range(self._data_table.rowCount()):
+            if self._data_table.isRowHidden(row):
+                continue
             cells = []
             for col in range(self._data_table.columnCount()):
                 item = self._data_table.item(row, col)

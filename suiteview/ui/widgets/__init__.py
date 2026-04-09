@@ -11,8 +11,8 @@ from .bookmark_widgets import (
     BOOKMARK_BUTTON_STYLE, POPUP_STYLE, CONTEXT_MENU_STYLE
 )
 from .bookmark_data_manager import BookmarkDataManager, get_bookmark_manager
-from .scratchpad_data_manager import ScratchPadDataManager, get_scratchpad_manager
-from .scratchpad_panel import ScratchPadPanel, ScratchPadWindow
+from suiteview.scratchpad import ScratchPadDataManager, get_scratchpad_manager
+from suiteview.scratchpad import ScratchPadPanel, ScratchPadWindow
 from .dockable_tool_panel import DockableToolPanel
 
 __all__ = [

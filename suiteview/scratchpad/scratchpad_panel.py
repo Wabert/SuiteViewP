@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QTextOption
 
-from suiteview.ui.widgets.scratchpad_data_manager import get_scratchpad_manager
+from suiteview.scratchpad.scratchpad_data_manager import get_scratchpad_manager
 
 logger = logging.getLogger(__name__)
 
@@ -388,7 +388,7 @@ class ScratchPadWindow:
     Theme: Forest Green & Parchment — warm sage headers, cream body —
     evokes a physical notepad / notebook feel.
 
-    Usage (from FileExplorerMultiTab):
+    Usage (from SuiteViewTaskbar):
         win = ScratchPadWindow.open(parent_bar=self)
         win.show(); win.activateWindow(); win.raise_()
     """

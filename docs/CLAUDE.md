@@ -758,8 +758,8 @@ Base class with helper methods that delegate to BookmarkDataManager:
 | `remove_category_from_quick_links(name)` | Remove category from sidebar |
 | `save_quick_links()` | Calls `_bookmark_manager.save()` |
 
-### `file_explorer_multitab.py`
-Multi-tab explorer that uses:
+### `suiteview_taskbar.py`
+Main application taskbar (in `suiteview/taskbar_launcher/`) that uses:
 - `self.bookmark_container` - BookmarkContainer for sidebar (bar_id=1)
 - `self.bookmark_bar` - BookmarkContainer for top bar (bar_id=0)
 - `self._bookmark_manager` - Reference to singleton

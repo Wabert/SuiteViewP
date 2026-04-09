@@ -446,7 +446,7 @@ class FileExplorerTab(FileExplorerCore):
             self.bookmark_bar.sidebar_toggle_btn.setChecked(self.dual_pane_active)
 
         # ── ScratchPad panel (4th splitter widget, index 3) ────────────
-        from suiteview.ui.widgets.scratchpad_panel import ScratchPadPanel
+        from suiteview.scratchpad.scratchpad_panel import ScratchPadPanel
         self.scratchpad_panel = ScratchPadPanel(parent=self)
         self.scratchpad_panel.setVisible(False)
         self.scratchpad_panel.fullscreen_toggled.connect(self._on_scratchpad_fullscreen)
@@ -1994,9 +1994,9 @@ class FileExplorerTab(FileExplorerCore):
                 logger.error(f"Failed to open file: {e}")
 
 
-class FileExplorerMultiTab(QWidget):
+class SuiteViewTaskbar(QWidget):
     """
-    Multi-tab File Explorer with breadcrumb navigation
+    SuiteView main application window and tool launcher.
     Features:
     - Multiple tabs for different folders
     - Breadcrumb navigation per tab
@@ -2046,6 +2046,17 @@ class FileExplorerMultiTab(QWidget):
         self.abrquote_window = None
         self.file_nav_window = None
         self.scratchpad_window = None
+
+        # Create PolView eagerly so all tools share the same instance
+        # (only if the polview package is available in this deployment)
+        try:
+            from suiteview.polview.ui.main_window import GetPolicyWindow
+            self.polview_window = GetPolicyWindow()
+            self._setup_child_window(self.polview_window, "PolView")
+        except ImportError:
+            logger.info("PolView package not available — skipping")
+        except Exception as e:
+            logger.error(f"Failed to pre-create PolView: {e}")
 
         # Messaging service
         self._msg_service = MessageService(self)
@@ -2631,6 +2642,23 @@ class FileExplorerMultiTab(QWidget):
                 return
         self._bring_to_front(self.polview_window)
 
+    def _get_polview_window(self):
+        """Get the shared PolView window (used as provider callback for child tools).
+
+        Creates the window lazily if requested before the taskbar opened it,
+        but does NOT show it — the caller decides when to show.
+        """
+        if self.polview_window is None:
+            try:
+                from suiteview.polview.ui.main_window import GetPolicyWindow
+                self.polview_window = GetPolicyWindow()
+                self._setup_child_window(self.polview_window, "PolView")
+            except ImportError:
+                logger.info("PolView package not available")
+            except Exception as e:
+                logger.error(f"Failed to create PolView: {e}")
+        return self.polview_window
+
     def _polview_btn_clicked(self):
         """Handle [P] button click — open with policy if input has text, else just open."""
         if (self._is_compact_mode
@@ -2672,6 +2700,9 @@ class FileExplorerMultiTab(QWidget):
                 QMessageBox.warning(self, "Audit Tool Error",
                                     f"Failed to open Audit Tool:\n\n{e}")
                 return
+        # Share PolView so policies opened from Audit use the same window
+        if hasattr(self.audit_window, 'set_polview_provider'):
+            self.audit_window.set_polview_provider(self._get_polview_window)
         self._bring_to_front(self.audit_window)
 
     def _open_abrquote(self):
@@ -2755,7 +2786,7 @@ class FileExplorerMultiTab(QWidget):
 
         if self.scratchpad_window is None:
             try:
-                from suiteview.ui.widgets.scratchpad_panel import ScratchPadWindow
+                from suiteview.scratchpad.scratchpad_panel import ScratchPadWindow
                 self.scratchpad_window = ScratchPadWindow.open(parent_bar=self)
                 self._setup_child_window(self.scratchpad_window, "ScratchPad")
             except Exception as e:
@@ -2771,6 +2802,21 @@ class FileExplorerMultiTab(QWidget):
             self.scratchpad_window.hide()
         else:
             self._bring_to_front(self.scratchpad_window)
+
+    def _toggle_file_open_history(self):
+        """Toggle the File Open History popup panel."""
+        if not hasattr(self, '_file_open_history_panel') or self._file_open_history_panel is None:
+            from suiteview.ui.widgets.file_open_history import FileOpenHistoryPanel
+            self._file_open_history_panel = FileOpenHistoryPanel(self)
+
+        panel = self._file_open_history_panel
+        if panel.isVisible():
+            panel.hide()
+        elif panel.was_recently_hidden():
+            # Popup auto-closed because user clicked the H button — treat as "close" toggle
+            pass
+        else:
+            panel.show_under(self.file_history_btn)
 
     
     def _bring_to_front(self, window):
@@ -3317,6 +3363,34 @@ class FileExplorerMultiTab(QWidget):
         self.scratchpad_window_btn.clicked.connect(self._toggle_scratchpad_window)
         header_layout.addWidget(self.scratchpad_window_btn)
 
+        # ====== FILE OPEN HISTORY BUTTON (teal "H" with gold trim) ======
+        self.file_history_btn = QPushButton("H")
+        self.file_history_btn.setFixedSize(28, 28)
+        self.file_history_btn.setToolTip("File Open History")
+        self.file_history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.file_history_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1A7A6A, stop:1 #0D4A3F);
+                border: 2px solid #D4A017;
+                border-radius: 4px;
+                color: #FFD700;
+                font-size: 14px;
+                font-weight: bold;
+                font-family: 'Segoe UI', sans-serif;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #20907E, stop:1 #1A7A6A);
+                border-color: #FFD700;
+            }
+            QPushButton:pressed {
+                background: #0D4A3F;
+            }
+        """)
+        self.file_history_btn.clicked.connect(self._toggle_file_open_history)
+        header_layout.addWidget(self.file_history_btn)
+
         # Tools dropdown menu button - gold text only
         self.tools_menu_btn = QPushButton("Tools")
         self.tools_menu_btn.setStyleSheet("""
@@ -3859,6 +3933,8 @@ class FileExplorerMultiTab(QWidget):
             self.tools_menu_btn.hide()
         if hasattr(self, 'scratchpad_window_btn'):
             self.scratchpad_window_btn.hide()
+        if hasattr(self, 'file_history_btn'):
+            self.file_history_btn.hide()
 
         # Ensure the core buttons are visible: P, F, A, Q
         if hasattr(self, 'polview_btn'):
@@ -5426,7 +5502,7 @@ class FileNavWindow(QWidget):
         Qt's built-in QTabBar close button is rendered by the platform style engine and
         ignores CSS color / icon overrides — so we swap it out entirely via setTabButton().
 
-        Uses the same approach as FileExplorerMultiTab (QToolButton + tabCloseRequested)
+        Uses the same approach as SuiteViewTaskbar (QToolButton + tabCloseRequested)
         which is proven to work reliably across all tabs.
         """
         tab_bar = self.tab_widget.tabBar()

@@ -1099,9 +1099,16 @@ class EmailRepository:
                 attachment_index INTEGER,
                 file_hash TEXT,
                 last_synced TEXT,
+                sender_name TEXT DEFAULT '',
                 FOREIGN KEY (email_id) REFERENCES emails(email_id)
             )
         """)
+        
+        # Add sender_name column if missing (for existing databases)
+        try:
+            self.db.execute("ALTER TABLE email_attachments ADD COLUMN sender_name TEXT DEFAULT ''")
+        except Exception:
+            pass  # Column already exists
         
         # Sync tracking table
         self.db.execute("""
@@ -1421,7 +1428,7 @@ class EmailRepository:
             rows = self.db.fetchall("""
                 SELECT attachment_id, email_id, email_subject, email_sender,
                        email_date, attachment_name, attachment_type, attachment_size,
-                       attachment_index, file_hash, last_synced
+                       attachment_index, file_hash, last_synced, sender_name
                 FROM email_attachments
                 WHERE email_date >= ?
                 ORDER BY email_date DESC
@@ -1440,7 +1447,8 @@ class EmailRepository:
                     'attachment_size': row[7],
                     'attachment_index': row[8],
                     'file_hash': row[9],
-                    'last_synced': row[10]
+                    'last_synced': row[10],
+                    'sender_name': row[11] if len(row) > 11 else ''
                 })
             
             return attachments
@@ -1481,8 +1489,8 @@ class EmailRepository:
                 INSERT OR REPLACE INTO email_attachments (
                     email_id, email_subject, email_sender, email_date,
                     attachment_name, attachment_type, attachment_size,
-                    attachment_index, file_hash, last_synced
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    attachment_index, file_hash, last_synced, sender_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 attachment['email_id'],
                 attachment.get('email_subject', ''),
@@ -1493,7 +1501,8 @@ class EmailRepository:
                 attachment.get('attachment_size', 0),
                 attachment['attachment_index'],
                 attachment.get('file_hash'),
-                datetime.now().isoformat()
+                datetime.now().isoformat(),
+                attachment.get('sender_name', '')
             ))
         except Exception as e:
             logger.error(f"Error saving attachment: {e}")

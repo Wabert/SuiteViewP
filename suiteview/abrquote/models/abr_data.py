@@ -71,10 +71,12 @@ class ABRPolicyData:
     min_face_amount: float = 50_000.0
     issue_date: Optional[date] = None
     maturity_age: int = 95
+    maturity_date: Optional[date] = None  # COV_MT_EXP_DT from base coverage
     issue_state: str = ""            # 2-letter state code
     plan_code: str = ""              # e.g. "B75TL400"
     base_plancode: str = ""          # PLN_BSE_SRE_CD (plan base series)
     billing_mode: int = 1            # 1=A, 2=SA, 3=Q, 4=DM, 5=PAC, 6=BiWeekly
+    product_type: str = ""           # WL, UL, IUL, ISWL, TERM, DI, VUL
 
     # Duration
     policy_month: int = 1
@@ -93,9 +95,13 @@ class ABRPolicyData:
     annual_premium: float = 0.0
     rider_annual_premium: float = 0.0    # sum of non-base coverage annual premiums (legacy, CyberLife)
     riders: List[RiderInfo] = field(default_factory=list)  # per-rider data for TERM table lookups
+    monthly_deduction: float = 0.0       # UL/IUL/ISWL: last monthly deduction from MV record
 
     # Insured name (for output)
     insured_name: str = ""
+
+    # Reinsurance info (populated by TAICession lookup)
+    reinsurers: str = ""  # e.g. "SW, MU, GG" or "(none)"
 
     @property
     def is_smoker(self) -> bool:
@@ -255,6 +261,7 @@ class ABRQuoteResult:
     full_eligible_db: float = 0.0
     full_actuarial_discount: float = 0.0
     full_admin_fee: float = 0.0
+    full_loan_repayment: float = 0.0
     full_accel_benefit: float = 0.0
     full_benefit_ratio: float = 0.0
 
@@ -262,6 +269,7 @@ class ABRQuoteResult:
     partial_eligible_db: float = 0.0
     partial_actuarial_discount: float = 0.0
     partial_admin_fee: float = 0.0
+    partial_loan_repayment: float = 0.0
     partial_accel_benefit: float = 0.0
     partial_benefit_ratio: float = 0.0
 

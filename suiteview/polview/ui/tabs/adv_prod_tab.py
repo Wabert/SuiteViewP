@@ -3,7 +3,7 @@ Advanced Product Values tab – Policy Info, Fund Values, Monthliversary,
 and Fund History sections for UL/VUL products.
 """
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy
 
 from ..formatting import format_currency, format_date
 from ..widgets import StyledInfoTableGroup
@@ -24,7 +24,6 @@ class AdvProdValuesTab(QWidget):
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(4)
-        main_layout.setSizeConstraint(QHBoxLayout.SizeConstraint.SetFixedSize)
 
         # === LEFT COLUMN ===
         left_column = QVBoxLayout()
@@ -40,27 +39,31 @@ class AdvProdValuesTab(QWidget):
 
         self.unimpaired_values = StyledInfoTableGroup("Unimpaired Fund Values", show_info=False)
         self.unimpaired_values.setup_table(["FundID", "Amount"])
-        self.unimpaired_values.setFixedSize(292, 130)
+        self.unimpaired_values.setFixedSize(292, 156)
         fund_values_row.addWidget(self.unimpaired_values)
 
         self.impaired_values = StyledInfoTableGroup("Impaired Fund Values", show_info=False)
         self.impaired_values.setup_table(["FundID", "Amount"])
-        self.impaired_values.setFixedSize(292, 130)
+        self.impaired_values.setFixedSize(292, 156)
         fund_values_row.addWidget(self.impaired_values)
 
         left_column.addLayout(fund_values_row)
 
         self.mv_values = StyledInfoTableGroup("Monthliversary Values", show_info=False)
         self.mv_values.setup_table(["Eff Date", "Y", "M", "Interest", "AccountValue", "COIChrg", "OtherChrg", "Expenses", "NAR"])
-        self.mv_values.setFixedSize(595, 225)
-        left_column.addWidget(self.mv_values)
+        self.mv_values.setFixedWidth(595)
+        self.mv_values.setMinimumHeight(120)
+        self.mv_values.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        left_column.addWidget(self.mv_values, 1)
 
         main_layout.addLayout(left_column)
 
         # === RIGHT COLUMN ===
         self.fund_history = StyledInfoTableGroup("Fund Value History", show_info=False, filterable=True)
         self.fund_history.setup_table(["FundID", "Phase", "MVDate", "StartDate", "BucketValue"])
-        self.fund_history.setFixedSize(360, 525)
+        self.fund_history.setFixedWidth(360)
+        self.fund_history.setMinimumHeight(200)
+        self.fund_history.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         main_layout.addWidget(self.fund_history)
 
     def _setup_policy_info_fields(self):
@@ -122,9 +125,8 @@ class AdvProdValuesTab(QWidget):
         loan_rows = policy.fetch_table("LH_FND_VAL_LOAN")
         impaired_total = 0.0
         for row in loan_rows:
-            eff_date = str(row.get("LN_CRT_EFF_DT", ""))
             fnd_id = str(row.get("FND_ID_CD", "")).strip()
-            if ("9999" in eff_date or eff_date == "") and fnd_id != "LZ":
+            if "9999" in str(row.get("MVRY_DT", "")) and fnd_id != "LZ":
                 amt = row.get("LN_PRI_AMT", 0)
                 if amt:
                     try:
@@ -250,7 +252,7 @@ class AdvProdValuesTab(QWidget):
         loan_rows = policy.fetch_table("LH_FND_VAL_LOAN")
         loan_totals = {}
         for row in loan_rows:
-            if "9999" in str(row.get("LN_CRT_EFF_DT", "")):
+            if "9999" in str(row.get("MVRY_DT", "")):
                 fnd_cd = str(row.get("FND_ID_CD", "")).strip()
                 if fnd_cd and fnd_cd != "LZ":
                     amt = float(row.get("LN_PRI_AMT", 0) or 0)

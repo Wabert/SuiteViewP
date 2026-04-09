@@ -30,9 +30,10 @@ from ..models.abr_constants import (
 from ..core.premium_calc import PremiumCalculator
 
 # Benefit name mapping for TERM_POINT_BENEFIT.Benefit column
-from suiteview.polview.models.cl_polrec.policy_translations import BENEFIT_TYPE_CODES
+from suiteview.polview.models.cl_polrec.policy_translations import BENEFIT_TYPE_CODES, COMPANY_CODES
 from ...core.policy_service import get_policy_info
-from ..core.abr_policy_service import build_abr_policy
+from ...core.reinsurance import fetch_reinsurer_list
+from ..core.abr_policy_service import build_abr_policy, find_policy_companies
 from ...polview.ui.widgets import StyledInfoTableGroup
 from .abr_styles import (
     CRIMSON_BG, CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_SUBTLE, CRIMSON_RICH, CRIMSON_SCROLL,
@@ -94,28 +95,10 @@ class PolicyPanel(QWidget):
         self.policy_input.returnPressed.connect(self._on_retrieve)
         lookup_grid.addWidget(self.policy_input, 0, 1)
 
-        # Row 0, Col 2-3: Company
-        lbl_company = QLabel("Company:")
-        lbl_company.setStyleSheet(LABEL_HEADER_STYLE)
-        lookup_grid.addWidget(lbl_company, 0, 2)
-
-        self.company_combo = QComboBox()
-        self.company_combo.addItems([
-            "01 - ANICO",
-            "04 - ANTEX",
-            "06 - SLAICO",
-            "08 - Garden State",
-            "26 - ANICONY",
-        ])
-        self.company_combo.setCurrentIndex(0)
-        self.company_combo.setStyleSheet(COMBOBOX_STYLE)
-        self.company_combo.setFixedWidth(120)
-        lookup_grid.addWidget(self.company_combo, 0, 3)
-
-        # Row 1, Col 0-1: Quote Date
+        # Row 0, Col 2-3: Quote Date
         lbl_qd = QLabel("Quote Date:")
         lbl_qd.setStyleSheet(LABEL_HEADER_STYLE)
-        lookup_grid.addWidget(lbl_qd, 1, 0)
+        lookup_grid.addWidget(lbl_qd, 0, 2)
 
         self.quote_date_edit = QDateEdit()
         self.quote_date_edit.setCalendarPopup(True)
@@ -124,14 +107,31 @@ class PolicyPanel(QWidget):
         self.quote_date_edit.setFixedWidth(120)
         self.quote_date_edit.setStyleSheet(DATEEDIT_STYLE)
         self.quote_date_edit.dateChanged.connect(self._on_quote_date_changed)
-        lookup_grid.addWidget(self.quote_date_edit, 1, 1)
+        lookup_grid.addWidget(self.quote_date_edit, 0, 3)
 
-        # Row 1, Col 3: Get button (aligned with Company combo)
+        # Row 1, Col 3: Get button
         self.retrieve_btn = QPushButton("Get")
         self.retrieve_btn.setStyleSheet(BUTTON_PRIMARY_STYLE)
         self.retrieve_btn.setFixedWidth(120)
         self.retrieve_btn.clicked.connect(self._on_retrieve)
         lookup_grid.addWidget(self.retrieve_btn, 1, 3)
+
+        # Row 1, Col 0-2: Company chooser (hidden until multi-company detected)
+        self._company_chooser_frame = QFrame()
+        self._company_chooser_frame.setVisible(False)
+        chooser_layout = QHBoxLayout(self._company_chooser_frame)
+        chooser_layout.setContentsMargins(0, 0, 0, 0)
+        chooser_layout.setSpacing(6)
+        chooser_lbl = QLabel("Select Company:")
+        chooser_lbl.setStyleSheet(
+            f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;"
+        )
+        chooser_layout.addWidget(chooser_lbl)
+        self._company_btn_layout = QHBoxLayout()
+        self._company_btn_layout.setSpacing(4)
+        chooser_layout.addLayout(self._company_btn_layout)
+        chooser_layout.addStretch()
+        lookup_grid.addWidget(self._company_chooser_frame, 1, 0, 1, 3)
 
         # Don't let the grid stretch — keep controls tight to the left
         lookup_grid.setColumnStretch(4, 1)
@@ -144,7 +144,7 @@ class PolicyPanel(QWidget):
         details_grid = QGridLayout(self.details_group)
         details_grid.setContentsMargins(12, 20, 12, 8)
         details_grid.setHorizontalSpacing(4)
-        details_grid.setVerticalSpacing(4)
+        details_grid.setVerticalSpacing(6)
 
         # Create label pairs
         self._detail_labels = {}
@@ -161,10 +161,12 @@ class PolicyPanel(QWidget):
             ("Face Amount:", "face_amount"),
             ("Min Face:", "min_face"),
             ("Issue State:", "issue_state"),
+            ("Maturity Date:", "maturity_date"),
             ("Issue Date:", "issue_date"),
             ("Valuation Date:", "valuation_date"),
             ("Policy Year:", "policy_year"),
             ("Month of Year:", "policy_month"),
+            ("Maturity Duration:", "maturity_duration"),
             ("Base Plancode:", "base_plancode"),
             ("Billing Mode:", "billing_mode"),
             ("Modal Premium:", "modal_premium"),
@@ -172,6 +174,7 @@ class PolicyPanel(QWidget):
             ("Table Rating:", "table_rating"),
             ("Annual Flat Extra:", "flat_extra"),
             ("Flat Cease Date:", "flat_cease_date"),
+            ("Reinsurers:", "reinsurers"),
         ]
 
         # Layout as 2 groups of key-value pairs with a gutter between.
@@ -215,13 +218,52 @@ class PolicyPanel(QWidget):
         self._calc_detail_btn.clicked.connect(self._show_premium_breakdown)
         self._calc_detail_btn.setVisible(False)
         # Calc Premium is in the right-group.  Find its position.
-        # "Calc Premium" is field index 19 in the fields list (0-based).
-        # half = (23+1)//2 = 12, so row = 19 % 12 = 7, group = 19//12 = 1
-        calc_prem_row = 7
+        # "Calc Premium" is field index 21 in the fields list (0-based).
+        # half = (26+1)//2 = 13, so row = 21 % 13 = 8, group = 21//13 = 1
+        calc_prem_row = 8
         details_grid.addWidget(self._calc_detail_btn, calc_prem_row, 5)
 
         self.details_group.setVisible(False)
         left_col.addWidget(self.details_group)
+
+        # ── UL / Advanced Product Inputs ────────────────────────────────
+        self.ul_input_frame = QFrame()
+        ul_grid = QGridLayout(self.ul_input_frame)
+        ul_grid.setContentsMargins(12, 8, 12, 8)
+        ul_grid.setHorizontalSpacing(8)
+        ul_grid.setVerticalSpacing(6)
+
+        lbl_level_prem = QLabel("Annual Level Prem:")
+        lbl_level_prem.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
+        ul_grid.addWidget(lbl_level_prem, 0, 0)
+        self.ul_level_prem_input = QLineEdit()
+        self.ul_level_prem_input.setPlaceholderText("0.00")
+        self.ul_level_prem_input.setStyleSheet(INPUT_STYLE)
+        self.ul_level_prem_input.setFixedWidth(120)
+        self.ul_level_prem_input.editingFinished.connect(self._on_ul_level_prem_changed)
+        ul_grid.addWidget(self.ul_level_prem_input, 0, 1)
+
+        lbl_loan_payoff = QLabel("Loan Payoff:")
+        lbl_loan_payoff.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
+        ul_grid.addWidget(lbl_loan_payoff, 0, 2)
+        self.ul_loan_payoff_input = QLineEdit()
+        self.ul_loan_payoff_input.setPlaceholderText("0.00")
+        self.ul_loan_payoff_input.setStyleSheet(INPUT_STYLE)
+        self.ul_loan_payoff_input.setFixedWidth(120)
+        ul_grid.addWidget(self.ul_loan_payoff_input, 0, 3)
+
+        lbl_surrender_value = QLabel("Surrender Value:")
+        lbl_surrender_value.setStyleSheet(f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;")
+        ul_grid.addWidget(lbl_surrender_value, 0, 4)
+        self.ul_surrender_value_input = QLineEdit()
+        self.ul_surrender_value_input.setPlaceholderText("0.00")
+        self.ul_surrender_value_input.setStyleSheet(INPUT_STYLE)
+        self.ul_surrender_value_input.setFixedWidth(120)
+        ul_grid.addWidget(self.ul_surrender_value_input, 0, 5)
+
+        ul_grid.setColumnStretch(6, 1)
+        self.ul_input_frame.setVisible(False)
+        left_col.addWidget(self.ul_input_frame)
 
         # ── Coverages ─────────────────────────────────────────────
         self.riders_group = QGroupBox("Coverages")
@@ -364,20 +406,46 @@ class PolicyPanel(QWidget):
 
     # ── Actions ─────────────────────────────────────────────────────────
 
-    def _on_retrieve(self):
-        """Retrieve policy data from DB2."""
+    def _on_retrieve(self, company_code=None):
+        """Retrieve policy data from DB2.
+
+        If *company_code* is None, the service will auto-detect the
+        company.  When multiple companies are found, company chooser
+        buttons are shown and retrieval is deferred until the user picks one.
+        """
+        # QPushButton.clicked emits a bool; treat that as "no company"
+        if isinstance(company_code, bool):
+            company_code = None
         policy_num = self.policy_input.text().strip()
         if not policy_num:
             return
 
         region = "CKPR"  # Always CKPR
-        company = self.company_combo.currentText()
+        self._hide_company_chooser()
         self.retrieve_btn.setEnabled(False)
 
         try:
-            policy, policy_info = build_abr_policy(policy_num, region)
+            if company_code is None:
+                # Detect which companies hold this policy
+                companies = find_policy_companies(policy_num, region)
+                if not companies:
+                    logger.warning(f"Policy {policy_num} not found in {region}.")
+                    return
+                if len(companies) > 1:
+                    self._show_company_chooser(companies)
+                    return
+                company_code = companies[0]
+
+            company_display = f"{company_code} - {COMPANY_CODES.get(company_code, company_code)}"
+
+            policy, policy_info = build_abr_policy(policy_num, region, company_code=company_code)
             if policy:
-                policy.company = company
+                policy.company = company_display
+                # Fetch reinsurer list from TAICession
+                quote_dt = self.get_quote_date()
+                policy.reinsurers = fetch_reinsurer_list(
+                    policy_num, company_code, quote_dt
+                )
                 self._policy = policy
                 self._policy_info = policy_info
                 self._populate_details(policy)
@@ -387,7 +455,17 @@ class PolicyPanel(QWidget):
                 self.rate_group.setVisible(True)
                 self.riders_group.setVisible(True)
                 self.premium_group.setVisible(True)
-                self._populate_premium_schedule()
+
+                # For UL/IUL/ISWL: leave Future Premiums blank (user enters level prem)
+                is_ul = policy.product_type in ("UL", "IUL", "ISWL")
+                if is_ul:
+                    self.premium_table.setRowCount(0)
+                    self._detail_labels["calc_premium"].setText("N/A")
+                    self.ul_level_prem_input.clear()
+                    self.ul_loan_payoff_input.clear()
+                    self.ul_surrender_value_input.clear()
+                else:
+                    self._populate_premium_schedule()
                 self.policy_loaded.emit(policy)
             else:
                 logger.warning(f"Could not retrieve policy {policy_num} from {region}.")
@@ -395,6 +473,36 @@ class PolicyPanel(QWidget):
             logger.error(f"Error retrieving policy: {e}")
         finally:
             self.retrieve_btn.setEnabled(True)
+
+    def _show_company_chooser(self, companies: list[str]):
+        """Display company buttons for multi-company policies."""
+        # Clear any existing buttons
+        while self._company_btn_layout.count():
+            item = self._company_btn_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for co_code in companies:
+            name = COMPANY_CODES.get(co_code, co_code)
+            btn = QPushButton(f"{co_code} - {name}")
+            btn.setFixedHeight(24)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(
+                f"QPushButton {{ font-size: 11px; font-weight: bold;"
+                f" color: {WHITE}; border: 1px solid {CRIMSON_DARK};"
+                f" border-radius: 3px; padding: 2px 10px;"
+                f" background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+                f"     stop:0 {CRIMSON_RICH}, stop:1 {CRIMSON_PRIMARY}); }}"
+                f"QPushButton:hover {{ background: {CRIMSON_DARK}; }}"
+            )
+            btn.clicked.connect(lambda checked, cc=co_code: self._on_retrieve(cc))
+            self._company_btn_layout.addWidget(btn)
+
+        self._company_chooser_frame.setVisible(True)
+
+    def _hide_company_chooser(self):
+        """Hide the company chooser row."""
+        self._company_chooser_frame.setVisible(False)
 
     def _create_manual_policy(self, policy_num: str, region: str) -> ABRPolicyData:
         """Create a stub policy for manual data entry (when DB2 is unavailable)."""
@@ -406,6 +514,12 @@ class PolicyPanel(QWidget):
     def _populate_details(self, p: ABRPolicyData):
         """Fill in the detail labels from policy data."""
         labels = self._detail_labels
+
+        # Reset calc premium (will be set by _populate_premium_schedule)
+        labels["calc_premium"].setText("—")
+        labels["calc_premium"].setStyleSheet(f"color: {GRAY_DARK}; font-size: 11px;")
+        self._calc_detail_btn.setVisible(False)
+        self._prem_breakdown = None
 
         labels["insured_name"].setText(p.insured_name or "—")
         labels["policy_number"].setText(p.policy_number)
@@ -465,6 +579,27 @@ class PolicyPanel(QWidget):
             f"color: {CRIMSON_DARK}; font-size: 11px; font-style: italic;"
         )
 
+        # Reinsurers (from TAICession lookup)
+        labels["reinsurers"].setText(p.reinsurers or "(none)")
+
+        # Maturity date and duration
+        if p.maturity_date:
+            labels["maturity_date"].setText(
+                f"{p.maturity_date.month}/{p.maturity_date.day}/{p.maturity_date.year}"
+            )
+        else:
+            labels["maturity_date"].setText("—")
+        mat_dur = p.maturity_age - p.issue_age if p.maturity_age and p.issue_age else 0
+        labels["maturity_duration"].setText(str(mat_dur) if mat_dur > 0 else "—")
+
+        # UL input group — show for UL/IUL/ISWL, hide for all others
+        is_ul = p.product_type in ("UL", "IUL", "ISWL")
+        self.ul_input_frame.setVisible(is_ul)
+        if not is_ul:
+            self.ul_level_prem_input.clear()
+            self.ul_loan_payoff_input.clear()
+            self.ul_surrender_value_input.clear()
+
     def get_quote_date(self) -> date:
         """Return the currently selected quote date."""
         qd = self.quote_date_edit.date()
@@ -474,8 +609,91 @@ class PolicyPanel(QWidget):
         """User changed the quote date — refresh rate info and premiums."""
         if self._policy:
             self._populate_rate_info()
-            self._populate_premium_schedule()
+            is_ul = self._policy.product_type in ("UL", "IUL", "ISWL")
+            if is_ul:
+                self._populate_ul_premium_schedule()
+            else:
+                self._populate_premium_schedule()
             self.quote_date_changed.emit(self.get_quote_date())
+
+    def _on_ul_level_prem_changed(self):
+        """User updated the Annual Level Premium — rebuild UL future premiums."""
+        if self._policy and self._policy.product_type in ("UL", "IUL", "ISWL"):
+            self._populate_ul_premium_schedule()
+
+    def _populate_ul_premium_schedule(self):
+        """Build future premium schedule for UL/IUL/ISWL from user-entered level premium.
+
+        Logic:
+        - Start year = policy year as of the next monthiversary from Quote Date.
+        - If start year == current duration, premium for that year = 0
+          (no more payments in the current year).
+        - For all subsequent years up to maturity duration, premium = level prem entered.
+        """
+        p = self._policy
+        if not p:
+            return
+
+        # Parse the user-entered level premium
+        text = self.ul_level_prem_input.text().strip().replace(",", "").replace("$", "")
+        try:
+            level_prem = float(text) if text else 0.0
+        except ValueError:
+            level_prem = 0.0
+
+        if level_prem <= 0:
+            self.premium_table.setRowCount(0)
+            return
+
+        qd = self.get_quote_date()
+        max_duration = p.maturity_age - p.issue_age if p.maturity_age and p.issue_age else 0
+        if max_duration <= 0 or not p.issue_date:
+            self.premium_table.setRowCount(0)
+            return
+
+        # Compute current duration (policy year at quote date)
+        anniv_month = p.issue_date.month
+        anniv_day = p.issue_date.day
+        ysi = qd.year - p.issue_date.year
+        if (qd.month, qd.day) < (anniv_month, anniv_day):
+            ysi -= 1
+        current_duration = max(ysi + 1, 1)
+
+        # Next monthiversary: advance to the next month with the issue day
+        next_month = qd.month + 1
+        next_year = qd.year
+        if next_month > 12:
+            next_month = 1
+            next_year += 1
+
+        # Policy year at that next monthiversary
+        ysi_next = next_year - p.issue_date.year
+        if (next_month, anniv_day) < (anniv_month, anniv_day):
+            ysi_next -= 1
+        start_duration = max(ysi_next + 1, 1)
+
+        rows = []
+        for dur in range(start_duration, max_duration + 1):
+            cal_year = p.issue_date.year + dur - 1
+            # Adjust calendar year to align with anniversary
+            if anniv_month > 1 or anniv_day > 1:
+                cal_year = p.issue_date.year + dur - 1
+            att_age = p.issue_age + dur - 1
+
+            if dur == current_duration:
+                # Current year: no more payments
+                prem = 0.0
+            else:
+                prem = level_prem
+
+            rows.append((dur, att_age, prem))
+
+        self.premium_table.setRowCount(len(rows))
+        for i, (yr, att_age, prem) in enumerate(rows):
+            self.premium_table.setItem(i, 0, QTableWidgetItem(str(yr)))
+            self.premium_table.setItem(i, 1, QTableWidgetItem(str(att_age)))
+            self.premium_table.setItem(i, 2, QTableWidgetItem(f"${prem:,.2f}"))
+        self.premium_table.autoFitAllColumns()
 
     def _on_rate_override_toggled(self, checked: bool):
         """Show/hide the override input field."""
@@ -759,6 +977,7 @@ class PolicyPanel(QWidget):
             t_base = time.perf_counter() - t0
 
             if not rate_schedule or not annual_schedule:
+                self._detail_labels["calc_premium"].setText("(none)")
                 return
 
             policy_fee = db.get_policy_fee(p.plan_code)
@@ -1090,6 +1309,7 @@ class PolicyPanel(QWidget):
 
         except Exception as e:
             logger.error(f"Error building premium schedule: {e}", exc_info=True)
+            self._detail_labels["calc_premium"].setText("(none)")
 
     def _show_premium_breakdown(self):
         """Show a dialog with per-coverage premium calculation breakdown."""
@@ -1112,5 +1332,10 @@ class PolicyPanel(QWidget):
         self.rate_group.setVisible(True)
         self.riders_group.setVisible(True)
         self.premium_group.setVisible(True)
-        self._populate_premium_schedule()
+        is_ul = policy.product_type in ("UL", "IUL", "ISWL")
+        if is_ul:
+            self.premium_table.setRowCount(0)
+            self._detail_labels["calc_premium"].setText("N/A")
+        else:
+            self._populate_premium_schedule()
         self.policy_loaded.emit(policy)

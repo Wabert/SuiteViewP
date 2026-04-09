@@ -14,17 +14,18 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QGroupBox, QFrame,
-    QFileDialog, QMessageBox,
+    QLineEdit, QFileDialog, QMessageBox,
 )
 
 from ..models.abr_data import ABRPolicyData, MedicalAssessment, ABRQuoteResult
 from ..models.abr_constants import PLAN_CODE_INFO
 from .abr_styles import (
-    CRIMSON_DARK,
+    CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH, CRIMSON_SUBTLE,
     SLATE_PRIMARY, SLATE_DARK,
-    WHITE, GRAY_DARK, GRAY_TEXT,
+    WHITE, GRAY_DARK, GRAY_MID, GRAY_TEXT,
     GROUP_BOX_STYLE, BUTTON_PRIMARY_STYLE, BUTTON_SLATE_STYLE, BUTTON_NAV_STYLE,
     LABEL_MONEY_STYLE, LABEL_MONEY_LARGE_STYLE, DIVIDER_STYLE,
+    INPUT_STYLE,
 )
 from .calc_viewer import CalcViewerDialog
 
@@ -58,122 +59,213 @@ class ResultsPanel(QWidget):
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(12)
 
+        # ── Face Amount to Accelerate ───────────────────────────────────
+        face_row = QHBoxLayout()
+        face_row.setSpacing(8)
+
+        face_lbl = QLabel("Face Amount to Accelerate:")
+        face_lbl.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {CRIMSON_DARK};")
+        face_row.addWidget(face_lbl)
+
+        self._face_input = QLineEdit()
+        self._face_input.setStyleSheet(INPUT_STYLE)
+        self._face_input.setFixedWidth(160)
+        self._face_input.setEnabled(False)
+        face_row.addWidget(self._face_input)
+
+        self._face_change_btn = QPushButton("Change")
+        self._face_change_btn.setFixedWidth(90)
+        self._face_change_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._face_change_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {CRIMSON_RICH}, stop:1 {CRIMSON_PRIMARY});
+                color: {WHITE};
+                border: 1px solid {CRIMSON_DARK};
+                border-radius: 5px;
+                padding: 4px 12px;
+                font-size: 11px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {CRIMSON_PRIMARY}, stop:1 {CRIMSON_DARK});
+            }}
+        """)
+        self._face_change_btn.clicked.connect(self._on_face_change_accept)
+        self._face_change_btn.setVisible(False)
+        face_row.addWidget(self._face_change_btn)
+        face_row.addStretch()
+
+        layout.addLayout(face_row)
+
         # ── Full Acceleration ───────────────────────────────────────────
         self.full_group = QGroupBox("Full Acceleration")
         self.full_group.setStyleSheet(GROUP_BOX_STYLE)
-        full_layout = QGridLayout(self.full_group)
-        full_layout.setContentsMargins(12, 16, 12, 8)
-        full_layout.setSpacing(6)
+        full_grid = QGridLayout(self.full_group)
+        full_grid.setContentsMargins(12, 16, 12, 8)
+        full_grid.setSpacing(4)
+        full_grid.setHorizontalSpacing(8)
 
         self._full_labels = {}
-        full_fields = [
+        for i, (label_text, key) in enumerate([
             ("Eligible Death Benefit:", "eligible_db"),
             ("Actuarial Discount:", "actuarial_discount"),
             ("Administrative Fee:", "admin_fee"),
-        ]
-
-        for i, (label_text, key) in enumerate(full_fields):
+        ]):
             lbl = QLabel(label_text)
-            lbl.setStyleSheet(f"font-size: 12px; color: {GRAY_DARK};")
-            full_layout.addWidget(lbl, i, 0, Qt.AlignmentFlag.AlignRight)
-
-            val = QLabel("—")
-            val.setStyleSheet(f"font-size: 12px; color: {GRAY_DARK}; font-weight: bold;")
+            lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
+            full_grid.addWidget(lbl, i, 0, Qt.AlignmentFlag.AlignRight)
+            val = QLabel("\u2014")
+            val.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
             val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            full_layout.addWidget(val, i, 1, Qt.AlignmentFlag.AlignLeft)
+            full_grid.addWidget(val, i, 1, Qt.AlignmentFlag.AlignLeft)
             self._full_labels[key] = val
 
-        # Divider
+        # Loan Repayment row (visible only for UL/IUL/ISWL)
+        self._full_loan_lbl = QLabel("Loan Repayment:")
+        self._full_loan_lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
+        full_grid.addWidget(self._full_loan_lbl, 3, 0, Qt.AlignmentFlag.AlignRight)
+        self._full_labels["loan_repayment"] = QLabel("\u2014")
+        self._full_labels["loan_repayment"].setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
+        self._full_labels["loan_repayment"].setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        full_grid.addWidget(self._full_labels["loan_repayment"], 3, 1, Qt.AlignmentFlag.AlignLeft)
+        self._full_loan_lbl.setVisible(False)
+        self._full_labels["loan_repayment"].setVisible(False)
+
         divider = QFrame()
         divider.setStyleSheet(DIVIDER_STYLE)
         divider.setFixedHeight(2)
-        full_layout.addWidget(divider, len(full_fields), 0, 1, 2)
+        full_grid.addWidget(divider, 4, 0, 1, 2)
 
-        # Accelerated Benefit (large)
         lbl_ab = QLabel("Accelerated Benefit:")
-        lbl_ab.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {CRIMSON_DARK};")
-        full_layout.addWidget(lbl_ab, len(full_fields) + 1, 0, Qt.AlignmentFlag.AlignRight)
+        lbl_ab.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
+        full_grid.addWidget(lbl_ab, 5, 0, Qt.AlignmentFlag.AlignRight)
 
-        self.full_benefit_label = QLabel("—")
+        self.full_benefit_label = QLabel("\u2014")
         self.full_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
-        full_layout.addWidget(
-            self.full_benefit_label, len(full_fields) + 1, 1,
-            Qt.AlignmentFlag.AlignLeft,
-        )
+        full_grid.addWidget(self.full_benefit_label, 5, 1, Qt.AlignmentFlag.AlignLeft)
 
-        # Benefit ratio
         lbl_br = QLabel("Benefit Ratio:")
-        lbl_br.setStyleSheet(f"font-size: 11px; color: {GRAY_TEXT};")
-        full_layout.addWidget(lbl_br, len(full_fields) + 2, 0, Qt.AlignmentFlag.AlignRight)
+        lbl_br.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT};")
+        full_grid.addWidget(lbl_br, 6, 0, Qt.AlignmentFlag.AlignRight)
+        self.full_ratio_label = QLabel("\u2014")
+        self.full_ratio_label.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT}; font-weight: bold;")
+        full_grid.addWidget(self.full_ratio_label, 6, 1, Qt.AlignmentFlag.AlignLeft)
 
-        self.full_ratio_label = QLabel("—")
-        self.full_ratio_label.setStyleSheet(f"font-size: 11px; color: {GRAY_TEXT}; font-weight: bold;")
-        full_layout.addWidget(
-            self.full_ratio_label, len(full_fields) + 2, 1,
-            Qt.AlignmentFlag.AlignLeft,
-        )
+        # Vertical separator
+        vsep_full = QFrame()
+        vsep_full.setFrameShape(QFrame.Shape.VLine)
+        vsep_full.setStyleSheet(f"color: {GRAY_MID}; background: {GRAY_MID};")
+        full_grid.addWidget(vsep_full, 0, 2, 7, 1)
 
-        full_layout.setColumnStretch(2, 1)
+        # APV component labels — right column
+        apv_lbl_style = f"font-size: 11px; color: {GRAY_DARK};"
+        apv_val_style = f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;"
+        self._full_apv_labels = {}
+        for j, (apv_label, apv_key) in enumerate([
+            ("APV_FB:", "apv_fb"),
+            ("APV_FP:", "apv_fp"),
+            ("APV_FD:", "apv_fd"),
+        ]):
+            lbl = QLabel(apv_label)
+            lbl.setStyleSheet(apv_lbl_style)
+            full_grid.addWidget(lbl, j, 3, Qt.AlignmentFlag.AlignRight)
+            val = QLabel("\u2014")
+            val.setStyleSheet(apv_val_style)
+            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            full_grid.addWidget(val, j, 4, Qt.AlignmentFlag.AlignLeft)
+            self._full_apv_labels[apv_key] = val
+
+        full_grid.setColumnStretch(1, 2)
+        full_grid.setColumnStretch(4, 2)
         layout.addWidget(self.full_group)
 
         # ── Max Partial Acceleration ────────────────────────────────────
         self.partial_group = QGroupBox("Max Partial Acceleration")
         self.partial_group.setStyleSheet(GROUP_BOX_STYLE)
-        partial_layout = QGridLayout(self.partial_group)
-        partial_layout.setContentsMargins(12, 16, 12, 8)
-        partial_layout.setSpacing(6)
+        partial_grid = QGridLayout(self.partial_group)
+        partial_grid.setContentsMargins(12, 16, 12, 8)
+        partial_grid.setSpacing(4)
+        partial_grid.setHorizontalSpacing(8)
 
         self._partial_labels = {}
-        self._partial_static_widgets = []  # track all widgets to hide when at min face
-        partial_fields = [
+        self._partial_static_widgets = []
+        for i, (label_text, key) in enumerate([
             ("Eligible Death Benefit:", "eligible_db"),
             ("Actuarial Discount:", "actuarial_discount"),
             ("Administrative Fee:", "admin_fee"),
-        ]
-
-        for i, (label_text, key) in enumerate(partial_fields):
+        ]):
             lbl = QLabel(label_text)
-            lbl.setStyleSheet(f"font-size: 12px; color: {GRAY_DARK};")
-            partial_layout.addWidget(lbl, i, 0, Qt.AlignmentFlag.AlignRight)
-
-            val = QLabel("—")
-            val.setStyleSheet(f"font-size: 12px; color: {GRAY_DARK}; font-weight: bold;")
+            lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
+            partial_grid.addWidget(lbl, i, 0, Qt.AlignmentFlag.AlignRight)
+            val = QLabel("\u2014")
+            val.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
             val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            partial_layout.addWidget(val, i, 1, Qt.AlignmentFlag.AlignLeft)
+            partial_grid.addWidget(val, i, 1, Qt.AlignmentFlag.AlignLeft)
             self._partial_labels[key] = val
             self._partial_static_widgets.append(lbl)
+
+        # Loan Repayment row (visible only for UL/IUL/ISWL)
+        self._partial_loan_lbl = QLabel("Loan Repayment:")
+        self._partial_loan_lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
+        partial_grid.addWidget(self._partial_loan_lbl, 3, 0, Qt.AlignmentFlag.AlignRight)
+        self._partial_labels["loan_repayment"] = QLabel("\u2014")
+        self._partial_labels["loan_repayment"].setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
+        self._partial_labels["loan_repayment"].setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        partial_grid.addWidget(self._partial_labels["loan_repayment"], 3, 1, Qt.AlignmentFlag.AlignLeft)
+        self._partial_loan_lbl.setVisible(False)
+        self._partial_labels["loan_repayment"].setVisible(False)
+        self._partial_static_widgets.append(self._partial_loan_lbl)
 
         divider2 = QFrame()
         divider2.setStyleSheet(DIVIDER_STYLE)
         divider2.setFixedHeight(2)
-        partial_layout.addWidget(divider2, len(partial_fields), 0, 1, 2)
+        partial_grid.addWidget(divider2, 4, 0, 1, 2)
         self._partial_static_widgets.append(divider2)
 
         lbl_pab = QLabel("Accelerated Benefit:")
-        lbl_pab.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {CRIMSON_DARK};")
-        partial_layout.addWidget(lbl_pab, len(partial_fields) + 1, 0, Qt.AlignmentFlag.AlignRight)
+        lbl_pab.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
+        partial_grid.addWidget(lbl_pab, 5, 0, Qt.AlignmentFlag.AlignRight)
         self._partial_static_widgets.append(lbl_pab)
 
-        self.partial_benefit_label = QLabel("—")
+        self.partial_benefit_label = QLabel("\u2014")
         self.partial_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
-        partial_layout.addWidget(
-            self.partial_benefit_label, len(partial_fields) + 1, 1,
-            Qt.AlignmentFlag.AlignLeft,
-        )
+        partial_grid.addWidget(self.partial_benefit_label, 5, 1, Qt.AlignmentFlag.AlignLeft)
 
         lbl_pbr = QLabel("Benefit Ratio:")
-        lbl_pbr.setStyleSheet(f"font-size: 11px; color: {GRAY_TEXT};")
-        partial_layout.addWidget(lbl_pbr, len(partial_fields) + 2, 0, Qt.AlignmentFlag.AlignRight)
+        lbl_pbr.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT};")
+        partial_grid.addWidget(lbl_pbr, 6, 0, Qt.AlignmentFlag.AlignRight)
         self._partial_static_widgets.append(lbl_pbr)
+        self.partial_ratio_label = QLabel("\u2014")
+        self.partial_ratio_label.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT}; font-weight: bold;")
+        partial_grid.addWidget(self.partial_ratio_label, 6, 1, Qt.AlignmentFlag.AlignLeft)
 
-        self.partial_ratio_label = QLabel("—")
-        self.partial_ratio_label.setStyleSheet(f"font-size: 11px; color: {GRAY_TEXT}; font-weight: bold;")
-        partial_layout.addWidget(
-            self.partial_ratio_label, len(partial_fields) + 2, 1,
-            Qt.AlignmentFlag.AlignLeft,
-        )
+        # Vertical separator
+        vsep_partial = QFrame()
+        vsep_partial.setFrameShape(QFrame.Shape.VLine)
+        vsep_partial.setStyleSheet(f"color: {GRAY_MID}; background: {GRAY_MID};")
+        partial_grid.addWidget(vsep_partial, 0, 2, 7, 1)
+        self._partial_static_widgets.append(vsep_partial)
 
-        # "Not allowed" overlay label — shown when policy is at minimum face
+        # APV component labels — right column
+        self._partial_apv_labels = {}
+        for j, (apv_label, apv_key) in enumerate([
+            ("APV_FB:", "apv_fb"),
+            ("APV_FP:", "apv_fp"),
+            ("APV_FD:", "apv_fd"),
+        ]):
+            lbl = QLabel(apv_label)
+            lbl.setStyleSheet(apv_lbl_style)
+            partial_grid.addWidget(lbl, j, 3, Qt.AlignmentFlag.AlignRight)
+            val = QLabel("\u2014")
+            val.setStyleSheet(apv_val_style)
+            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            partial_grid.addWidget(val, j, 4, Qt.AlignmentFlag.AlignLeft)
+            self._partial_apv_labels[apv_key] = val
+            self._partial_static_widgets.append(lbl)
+
+        # "Not allowed" overlay
         self._partial_not_allowed_label = QLabel(
             "MAX PARTIAL NOT ALLOWED\nPOLICY ALREADY AT MINIMUM FACE"
         )
@@ -182,9 +274,10 @@ class ResultsPanel(QWidget):
         )
         self._partial_not_allowed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._partial_not_allowed_label.setVisible(False)
-        partial_layout.addWidget(self._partial_not_allowed_label, 0, 0, 6, 3)
+        partial_grid.addWidget(self._partial_not_allowed_label, 0, 0, 7, 5)
 
-        partial_layout.setColumnStretch(2, 1)
+        partial_grid.setColumnStretch(1, 2)
+        partial_grid.setColumnStretch(4, 2)
         layout.addWidget(self.partial_group)
 
         # ── Premium Impact ──────────────────────────────────────────────
@@ -192,39 +285,50 @@ class ResultsPanel(QWidget):
         self.premium_group.setStyleSheet(GROUP_BOX_STYLE)
         premium_layout = QGridLayout(self.premium_group)
         premium_layout.setContentsMargins(12, 16, 12, 8)
-        premium_layout.setSpacing(6)
+        premium_layout.setSpacing(4)
 
-        premium_layout.addWidget(
-            self._make_label("Premium Before:"), 0, 0, Qt.AlignmentFlag.AlignRight
-        )
-        self.premium_before_label = QLabel("—")
+        self._prem_row_labels = []
+        for i, label_text in enumerate(["Premium Before:", "After (Full Accel):", "After (Partial):"]):
+            lbl = QLabel(label_text)
+            lbl.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {CRIMSON_DARK};")
+            premium_layout.addWidget(lbl, i, 0, Qt.AlignmentFlag.AlignRight)
+            self._prem_row_labels.append(lbl)
+
+        self.premium_before_label = QLabel("\u2014")
         self.premium_before_label.setStyleSheet(LABEL_MONEY_STYLE)
         premium_layout.addWidget(self.premium_before_label, 0, 1)
 
-        premium_layout.addWidget(
-            self._make_label("After (Full Accel):"), 1, 0, Qt.AlignmentFlag.AlignRight
-        )
-        self.premium_after_full_label = QLabel("—")
+        self.premium_after_full_label = QLabel("\u2014")
         self.premium_after_full_label.setStyleSheet(LABEL_MONEY_STYLE)
         premium_layout.addWidget(self.premium_after_full_label, 1, 1)
 
-        premium_layout.addWidget(
-            self._make_label("After (Partial):"), 2, 0, Qt.AlignmentFlag.AlignRight
-        )
-        self.premium_after_partial_label = QLabel("—")
+        # After (Partial): read-only label for non-UL, editable input for UL
+        self.premium_after_partial_label = QLabel("\u2014")
         self.premium_after_partial_label.setStyleSheet(LABEL_MONEY_STYLE)
         premium_layout.addWidget(self.premium_after_partial_label, 2, 1)
+
+        self.premium_after_partial_input = QLineEdit()
+        self.premium_after_partial_input.setPlaceholderText("0.00")
+        self.premium_after_partial_input.setStyleSheet(INPUT_STYLE)
+        self.premium_after_partial_input.setFixedWidth(120)
+        self.premium_after_partial_input.setVisible(False)
+        premium_layout.addWidget(self.premium_after_partial_input, 2, 1)
 
         premium_layout.setColumnStretch(2, 1)
         layout.addWidget(self.premium_group)
 
         # ── Messages ────────────────────────────────────────────────────
+        msg_group = QGroupBox("Messages")
+        msg_group.setStyleSheet(GROUP_BOX_STYLE)
+        msg_layout = QVBoxLayout(msg_group)
+        msg_layout.setContentsMargins(12, 20, 12, 8)
         self.messages_label = QLabel("")
         self.messages_label.setWordWrap(True)
         self.messages_label.setStyleSheet(
             "color: #C62828; font-size: 13px; font-weight: bold; padding: 4px;"
         )
-        layout.addWidget(self.messages_label)
+        msg_layout.addWidget(self.messages_label)
+        layout.addWidget(msg_group)
 
         # ── Action buttons ──────────────────────────────────────────────
         btn_row = QHBoxLayout()
@@ -274,9 +378,157 @@ class ResultsPanel(QWidget):
 
     def set_policy(self, policy: ABRPolicyData):
         self._policy = policy
+        # UL/IUL/ISWL: rename Premium Impact → Monthly Deduction Impact
+        # and switch After (Partial) to an editable input
+        is_ul = policy.product_type in ("UL", "IUL", "ISWL")
+        self.premium_group.setTitle(
+            "Monthly Deduction Impact" if is_ul else "Premium Impact"
+        )
+        # Rename "Premium Before:" → "Last Monthly Deduction:" for UL
+        self._prem_row_labels[0].setText(
+            "Last Monthly Deduction:" if is_ul else "Premium Before:"
+        )
+        self.premium_after_partial_label.setVisible(not is_ul)
+        self.premium_after_partial_input.setVisible(is_ul)
+        if is_ul:
+            self.premium_after_partial_input.clear()
 
     def set_assessment(self, assessment: MedicalAssessment):
         self._assessment = assessment
+
+    # ── Face Amount Change / Accept ─────────────────────────────────────
+
+    def _on_face_change_accept(self):
+        """Toggle between Change and Accept modes for the face amount input."""
+        if self._face_change_btn.text() == "Change":
+            # Switch to edit mode
+            self._face_input.setEnabled(True)
+            self._face_input.setFocus()
+            self._face_input.selectAll()
+            self._face_change_btn.setText("Accept")
+        else:
+            # Accept mode — validate and recalculate
+            self._accept_face_amount()
+
+    def _revert_face_input(self):
+        """Reset the face input to the current displayed face and lock it."""
+        face = self._policy.face_amount if self._policy else 0.0
+        self._face_input.setText(f"${face:,.2f}")
+        self._face_input.setEnabled(False)
+        self._face_change_btn.setText("Change")
+
+    def _accept_face_amount(self):
+        """Validate the entered face amount and recalculate acceleration."""
+        if not self._policy or not self._result:
+            return
+
+        raw = self._face_input.text().replace("$", "").replace(",", "").strip()
+        try:
+            custom_face = float(raw)
+        except ValueError:
+            QMessageBox.warning(
+                self, "Invalid Amount",
+                "Please enter a valid numeric face amount.",
+            )
+            self._revert_face_input()
+            return
+
+        total_face = self._policy.face_amount
+        min_allowed = 10_000.0
+
+        if custom_face > total_face:
+            QMessageBox.warning(
+                self, "Invalid Amount",
+                f"Face amount cannot exceed the total policy face "
+                f"of ${total_face:,.2f}.",
+            )
+            self._revert_face_input()
+            return
+
+        if custom_face < min_allowed:
+            QMessageBox.warning(
+                self, "Invalid Amount",
+                f"Face amount cannot be less than the minimum "
+                f"of ${min_allowed:,.2f}.",
+            )
+            self._revert_face_input()
+            return
+
+        # Check if amount exceeds max partial eligible DB
+        max_partial_eligible = self._result.partial_eligible_db
+        if (max_partial_eligible > 0
+                and custom_face > max_partial_eligible
+                and abs(custom_face - total_face) >= 0.01):
+            QMessageBox.warning(
+                self, "Invalid Amount",
+                f"Accelerating this amount would drop the face below the "
+                f"minimum. If you want to partial accelerate you must put "
+                f"an amount less than or equal to ${max_partial_eligible:,.2f}.",
+            )
+            self._revert_face_input()
+            return
+
+        # Lock input back down
+        self._face_input.setEnabled(False)
+        self._face_input.setText(f"${custom_face:,.2f}")
+        self._face_change_btn.setText("Change")
+
+        # Recalculate the full acceleration group with the custom face
+        is_full = abs(custom_face - total_face) < 0.01
+
+        if is_full:
+            self.full_group.setTitle("Full Acceleration")
+        else:
+            self.full_group.setTitle("Partial Acceleration")
+
+        # Proportional recalculation
+        orig_eligible = self._result.full_eligible_db
+        orig_discount = self._result.full_actuarial_discount
+        admin_fee = self._result.full_admin_fee
+
+        if orig_eligible > 0:
+            ratio = custom_face / orig_eligible
+            new_discount = round(orig_discount * ratio, 2)
+        else:
+            ratio = 0.0
+            new_discount = 0.0
+
+        self._full_labels["eligible_db"].setText(self._fmt_money(custom_face))
+        self._full_labels["actuarial_discount"].setText(self._fmt_money(new_discount))
+        self._full_labels["admin_fee"].setText(self._fmt_money(admin_fee))
+
+        # Loan repayment — proportionally scaled
+        orig_loan = self._result.full_loan_repayment
+        if orig_eligible > 0 and orig_loan > 0:
+            new_loan = round(orig_loan * ratio, 2)
+            self._full_loan_lbl.setVisible(True)
+            self._full_labels["loan_repayment"].setVisible(True)
+            self._full_labels["loan_repayment"].setText(self._fmt_money(new_loan))
+            new_benefit = round(custom_face - new_discount - admin_fee - new_loan, 2)
+        else:
+            new_benefit = round(custom_face - new_discount - admin_fee, 2)
+
+        new_ratio = new_benefit / custom_face if custom_face > 0 else 0.0
+
+        if new_benefit < 0:
+            self.full_benefit_label.setText(
+                f"$0.00  (calc result: {self._fmt_money(new_benefit)})"
+            )
+        else:
+            self.full_benefit_label.setText(self._fmt_money(new_benefit))
+        self.full_ratio_label.setText(f"{new_ratio * 100:.2f}%")
+
+        # APV components — proportionally scaled
+        if orig_eligible > 0:
+            self._full_apv_labels["apv_fb"].setText(
+                self._fmt_money(self._result.apv_fb * ratio)
+            )
+            self._full_apv_labels["apv_fp"].setText(
+                self._fmt_money(self._result.apv_fp * ratio)
+            )
+            self._full_apv_labels["apv_fd"].setText(
+                self._fmt_money(self._result.apv_fd * ratio)
+            )
 
     def set_calc_data(
         self,
@@ -299,12 +551,29 @@ class ResultsPanel(QWidget):
         """Populate all result fields."""
         self._result = result
 
+        # Populate face amount input and reset to full state
+        if self._policy:
+            self._face_input.setText(f"${self._policy.face_amount:,.2f}")
+            self._face_change_btn.setVisible(True)
+            self._face_change_btn.setText("Change")
+            self._face_input.setEnabled(False)
+        self.full_group.setTitle("Full Acceleration")
+
         # Full acceleration
         self._full_labels["eligible_db"].setText(self._fmt_money(result.full_eligible_db))
         self._full_labels["actuarial_discount"].setText(
             self._fmt_money(result.full_actuarial_discount)
         )
         self._full_labels["admin_fee"].setText(self._fmt_money(result.full_admin_fee))
+
+        # Loan Repayment row — visible only for UL/IUL/ISWL with non-zero loan
+        has_loan = result.full_loan_repayment > 0
+        self._full_loan_lbl.setVisible(has_loan)
+        self._full_labels["loan_repayment"].setVisible(has_loan)
+        if has_loan:
+            self._full_labels["loan_repayment"].setText(
+                self._fmt_money(result.full_loan_repayment)
+            )
 
         if result.full_accel_benefit < 0:
             self.full_benefit_label.setText(
@@ -314,15 +583,27 @@ class ResultsPanel(QWidget):
             self.full_benefit_label.setText(self._fmt_money(result.full_accel_benefit))
         self.full_ratio_label.setText(f"{result.full_benefit_ratio * 100:.2f}%")
 
+        # Full APV components
+        self._full_apv_labels["apv_fb"].setText(self._fmt_money(result.apv_fb))
+        self._full_apv_labels["apv_fp"].setText(self._fmt_money(result.apv_fp))
+        self._full_apv_labels["apv_fd"].setText(self._fmt_money(result.apv_fd))
+
         # Partial acceleration — check if at minimum face
         at_min_face = result.partial_eligible_db <= 0
+        has_partial_loan = result.partial_loan_repayment > 0
         self._partial_not_allowed_label.setVisible(at_min_face)
         for w in self._partial_static_widgets:
             w.setVisible(not at_min_face)
-        for val in self._partial_labels.values():
-            val.setVisible(not at_min_face)
+        for key, val in self._partial_labels.items():
+            if key == "loan_repayment":
+                val.setVisible(not at_min_face and has_partial_loan)
+            else:
+                val.setVisible(not at_min_face)
+        self._partial_loan_lbl.setVisible(not at_min_face and has_partial_loan)
         self.partial_benefit_label.setVisible(not at_min_face)
         self.partial_ratio_label.setVisible(not at_min_face)
+        for val in self._partial_apv_labels.values():
+            val.setVisible(not at_min_face)
 
         if not at_min_face:
             self._partial_labels["eligible_db"].setText(self._fmt_money(result.partial_eligible_db))
@@ -330,6 +611,10 @@ class ResultsPanel(QWidget):
                 self._fmt_money(result.partial_actuarial_discount)
             )
             self._partial_labels["admin_fee"].setText(self._fmt_money(result.partial_admin_fee))
+            if has_partial_loan:
+                self._partial_labels["loan_repayment"].setText(
+                    self._fmt_money(result.partial_loan_repayment)
+                )
 
             if result.partial_accel_benefit < 0:
                 self.partial_benefit_label.setText(
@@ -339,10 +624,30 @@ class ResultsPanel(QWidget):
                 self.partial_benefit_label.setText(self._fmt_money(result.partial_accel_benefit))
             self.partial_ratio_label.setText(f"{result.partial_benefit_ratio * 100:.2f}%")
 
+            # Partial APV components (proportionally scaled)
+            if result.full_eligible_db > 0:
+                ratio = result.partial_eligible_db / result.full_eligible_db
+            else:
+                ratio = 0.0
+            self._partial_apv_labels["apv_fb"].setText(
+                self._fmt_money(result.apv_fb * ratio)
+            )
+            self._partial_apv_labels["apv_fp"].setText(
+                self._fmt_money(result.apv_fp * ratio)
+            )
+            self._partial_apv_labels["apv_fd"].setText(
+                self._fmt_money(result.apv_fd * ratio)
+            )
+
         # Premium impact
         self.premium_before_label.setText(result.premium_before)
         self.premium_after_full_label.setText(f"${result.premium_after_full:,.2f}")
-        if at_min_face:
+        is_ul = self._policy and self._policy.product_type in ("UL", "IUL", "ISWL")
+        if is_ul:
+            # UL: After (Partial) is a user input — don't overwrite it
+            self.premium_after_partial_label.setVisible(False)
+            self.premium_after_partial_input.setVisible(not at_min_face)
+        elif at_min_face:
             self.premium_after_partial_label.setText("NOT ALLOWED")
         else:
             self.premium_after_partial_label.setText(result.premium_after_partial)
@@ -360,6 +665,7 @@ class ResultsPanel(QWidget):
         """Open the detailed calculation viewer window (modeless)."""
         if not self._mort_detail:
             return
+        after_partial = self.premium_after_partial_input.text().strip()
         viewer = CalcViewerDialog(
             mortality_rows=self._mort_detail,
             apv_rows=self._apv_detail,
@@ -369,6 +675,7 @@ class ResultsPanel(QWidget):
             assessment=self._assessment,
             result=self._result,
             derived_values=self._derived_values,
+            after_partial_override=after_partial,
             parent=None,
         )
         viewer.show()
@@ -449,6 +756,10 @@ class ResultsPanel(QWidget):
         ws.cell(row=row, column=1, value="An Administrative Charge:").font = label_font
         ws.cell(row=row, column=2, value=-r.full_admin_fee).number_format = '($#,##0.00)'
         row += 1
+        if r.full_loan_repayment > 0:
+            ws.cell(row=row, column=1, value="Loan Repayment:").font = label_font
+            ws.cell(row=row, column=2, value=-r.full_loan_repayment).number_format = '($#,##0.00)'
+            row += 1
         ws.cell(row=row, column=1, value="Any Policy Debt:").font = label_font
         ws.cell(row=row, column=2, value=0).number_format = '$#,##0.00'
         row += 1
@@ -491,6 +802,10 @@ class ResultsPanel(QWidget):
         ws2.cell(row=row, column=1, value="An Administrative Charge:").font = label_font
         ws2.cell(row=row, column=2, value=-r.partial_admin_fee).number_format = '($#,##0.00)'
         row += 1
+        if r.partial_loan_repayment > 0:
+            ws2.cell(row=row, column=1, value="Loan Repayment:").font = label_font
+            ws2.cell(row=row, column=2, value=-r.partial_loan_repayment).number_format = '($#,##0.00)'
+            row += 1
 
         ws2.cell(row=row, column=1, value="Total Accelerated Benefit Payment:").font = Font(bold=True, size=12)
         ws2.cell(row=row, column=2, value=r.partial_accel_benefit).number_format = '$#,##0.00'
@@ -525,13 +840,24 @@ class ResultsPanel(QWidget):
             f"  Eligible DB:        {self._fmt_money(r.full_eligible_db)}",
             f"  Actuarial Discount: {self._fmt_money(r.full_actuarial_discount)}",
             f"  Admin Fee:          {self._fmt_money(r.full_admin_fee)}",
+        ]
+        if r.full_loan_repayment > 0:
+            lines.append(f"  Loan Repayment:     {self._fmt_money(r.full_loan_repayment)}")
+        lines += [
             f"  Accel. Benefit:     {self._fmt_money(r.full_accel_benefit)}",
             f"  Benefit Ratio:      {r.full_benefit_ratio * 100:.2f}%",
+            f"  APV_FB:             {self._fmt_money(r.apv_fb)}",
+            f"  APV_FP:             {self._fmt_money(r.apv_fp)}",
+            f"  APV_FD:             {self._fmt_money(r.apv_fd)}",
             "",
             "MAX PARTIAL ACCELERATION:",
             f"  Eligible DB:        {self._fmt_money(r.partial_eligible_db)}",
             f"  Actuarial Discount: {self._fmt_money(r.partial_actuarial_discount)}",
             f"  Admin Fee:          {self._fmt_money(r.partial_admin_fee)}",
+        ]
+        if r.partial_loan_repayment > 0:
+            lines.append(f"  Loan Repayment:     {self._fmt_money(r.partial_loan_repayment)}")
+        lines += [
             f"  Accel. Benefit:     {self._fmt_money(r.partial_accel_benefit)}",
             f"  Benefit Ratio:      {r.partial_benefit_ratio * 100:.2f}%",
             "",

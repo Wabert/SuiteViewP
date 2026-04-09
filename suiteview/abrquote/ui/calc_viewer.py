@@ -53,6 +53,7 @@ class CalcViewerDialog(FramelessWindowBase):
         assessment=None,
         result=None,
         derived_values: dict | None = None,
+        after_partial_override: str = "",
         parent=None,
     ):
         self._mort_rows = mortality_rows
@@ -63,6 +64,7 @@ class CalcViewerDialog(FramelessWindowBase):
         self._assessment = assessment
         self._result = result
         self._derived_values = derived_values or {}
+        self._after_partial_override = after_partial_override
 
         title = (
             f"SuiteView:  Calculation Detail — {policy_info}"
@@ -269,6 +271,7 @@ class CalcViewerDialog(FramelessWindowBase):
         _field("Table Rating:", str(p.table_rating))
         _field("Annual Flat Extra:", f"${p.flat_extra:.2f}" if p.flat_extra > 0 else "None")
         _field("Flat Cease Date:", p.flat_cease_date.strftime("%m/%d/%Y") if p.flat_cease_date else "—")
+        _field("Reinsurers:", p.reinsurers or "(none)")
 
         if r:
             _section("Quote Parameters")
@@ -429,22 +432,92 @@ class CalcViewerDialog(FramelessWindowBase):
 
         if r:
             _section("Results Summary")
-            _field("Full Accel Benefit:", f"${r.full_accel_benefit:,.2f}")
-            _field("Full Benefit Ratio:", f"{r.full_benefit_ratio * 100:.2f}%")
+            p = self._policy
+            is_ul = p and p.product_type in ("UL", "IUL", "ISWL")
+
+            # Ensure columns 3-4 are wide enough for APV labels
+            grid.setColumnMinimumWidth(3, 100)
+            grid.setColumnMinimumWidth(4, 150)
+
+            # Full Acceleration breakdown
+            _field("", "FULL ACCELERATION")
+            full_start_row = row  # track for APV placement
+            _field("Eligible Death Benefit:", f"${r.full_eligible_db:,.2f}")
+            _field("Actuarial Discount:", f"${r.full_actuarial_discount:,.2f}")
+            _field("Administrative Fee:", f"${r.full_admin_fee:,.2f}")
+            if r.full_loan_repayment > 0:
+                _field("Loan Repayment:", f"${r.full_loan_repayment:,.2f}")
+            _field("Accelerated Benefit:", f"${r.full_accel_benefit:,.2f}")
+            _field("Benefit Ratio:", f"{r.full_benefit_ratio * 100:.2f}%")
+
+            # Full APV — columns 3-4 beside Full Acceleration
+            for j, (apv_lbl, apv_val) in enumerate([
+                ("APV_FB:", f"${r.apv_fb:,.2f}"),
+                ("APV_FP:", f"${r.apv_fp:,.2f}"),
+                ("APV_FD:", f"${r.apv_fd:,.2f}"),
+            ]):
+                al = QLabel(apv_lbl)
+                al.setFont(label_font)
+                al.setStyleSheet(f"color: {CRIMSON_DARK};")
+                al.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                grid.addWidget(al, full_start_row + j, 3)
+                av = QLabel(apv_val)
+                av.setFont(value_font)
+                av.setStyleSheet(f"color: {GRAY_DARK};")
+                av.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                grid.addWidget(av, full_start_row + j, 4)
+
+            # Max Partial Acceleration breakdown
+            _field("", "")
             if r.partial_eligible_db > 0:
-                _field("Partial Accel Benefit:", f"${r.partial_accel_benefit:,.2f}")
-                _field("Partial Benefit Ratio:", f"{r.partial_benefit_ratio * 100:.2f}%")
+                _field("", "MAX PARTIAL ACCELERATION")
+                partial_start_row = row
+                _field("Eligible Death Benefit:", f"${r.partial_eligible_db:,.2f}")
+                _field("Actuarial Discount:", f"${r.partial_actuarial_discount:,.2f}")
+                _field("Administrative Fee:", f"${r.partial_admin_fee:,.2f}")
+                if r.partial_loan_repayment > 0:
+                    _field("Loan Repayment:", f"${r.partial_loan_repayment:,.2f}")
+                _field("Accelerated Benefit:", f"${r.partial_accel_benefit:,.2f}")
+                _field("Benefit Ratio:", f"{r.partial_benefit_ratio * 100:.2f}%")
+
+                # Partial APV — proportionally scaled, columns 3-4
+                if r.full_eligible_db > 0:
+                    ratio = r.partial_eligible_db / r.full_eligible_db
+                else:
+                    ratio = 0.0
+                for j, (apv_lbl, apv_val) in enumerate([
+                    ("APV_FB:", f"${r.apv_fb * ratio:,.2f}"),
+                    ("APV_FP:", f"${r.apv_fp * ratio:,.2f}"),
+                    ("APV_FD:", f"${r.apv_fd * ratio:,.2f}"),
+                ]):
+                    al = QLabel(apv_lbl)
+                    al.setFont(label_font)
+                    al.setStyleSheet(f"color: {CRIMSON_DARK};")
+                    al.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                    grid.addWidget(al, partial_start_row + j, 3)
+                    av = QLabel(apv_val)
+                    av.setFont(value_font)
+                    av.setStyleSheet(f"color: {GRAY_DARK};")
+                    av.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                    grid.addWidget(av, partial_start_row + j, 4)
             else:
                 _field("Partial Acceleration:", "NOT ALLOWED — At Minimum Face")
-            _field("Premium Before:", r.premium_before)
+
+            # Premium Impact / Monthly Deduction Impact
+            _field("", "")
+            if is_ul:
+                # UL: premium_before already contains just the amount (no mode)
+                _field("Last Monthly Deduction:", r.premium_before)
+            else:
+                _field("Premium Before:", r.premium_before)
             _field("After (Full Accel):", f"${r.premium_after_full:,.2f}")
             if r.partial_eligible_db > 0:
-                _field("After (Partial):", r.premium_after_partial)
+                if is_ul and self._after_partial_override:
+                    _field("After (Partial):", self._after_partial_override)
+                else:
+                    _field("After (Partial):", r.premium_after_partial)
             else:
                 _field("After (Partial):", "NOT ALLOWED")
-            _field("APV_FB:", f"${r.apv_fb:,.2f}")
-            _field("APV_FP:", f"${r.apv_fp:,.2f}")
-            _field("APV_FD:", f"${r.apv_fd:,.2f}")
 
         grid.setRowStretch(row, 1)
         scroll.setWidget(container)

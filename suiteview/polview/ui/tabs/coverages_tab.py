@@ -84,14 +84,12 @@ class CoveragesTab(QWidget):
         # Coverages table
         self.cov_group = StyledInfoTableGroup("Coverages", show_info=False)
         self.cov_table = self.cov_group.table
-        layout.addWidget(self.cov_group)
+        layout.addWidget(self.cov_group, 2)
 
         # Benefits table
         self.bnf_group = StyledInfoTableGroup("Benefits", show_info=False)
         self.bnf_table = self.bnf_group.table
-        layout.addWidget(self.bnf_group)
-
-        layout.addStretch()
+        layout.addWidget(self.bnf_group, 1)
 
     def eventFilter(self, obj, event):
         """Intercept double-click on the Policy Info group to emit signal."""

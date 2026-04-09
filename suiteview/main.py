@@ -5,7 +5,7 @@ import sys
 import logging
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import qInstallMessageHandler, QtMsgType
-from suiteview.file_nav.file_explorer_multitab import FileExplorerMultiTab
+from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +40,10 @@ def main():
 
     # Create and show the main SuiteView window
     try:
-        suiteview = FileExplorerMultiTab()
+        suiteview = SuiteViewTaskbar()
         suiteview.setWindowTitle("SuiteView")
         # Window starts in compact mini-bar mode at bottom-right corner
-        # (positioning is handled inside FileExplorerMultiTab.__init__)
+        # (positioning is handled inside SuiteViewTaskbar.__init__)
         
         suiteview.show()
         suiteview.raise_()

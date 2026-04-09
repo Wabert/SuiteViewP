@@ -724,6 +724,55 @@ class AssessmentPanel(QWidget):
     def _build_results_column(self, layout: QVBoxLayout):
         """Build the results groups (Full, Partial, Premium) in the right column."""
 
+        # ── Enter Face button + inline input/calc ────────────────────────
+        enter_face_row = QHBoxLayout()
+        enter_face_row.setSpacing(8)
+
+        _crimson_btn_style = f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {CRIMSON_RICH}, stop:1 {CRIMSON_PRIMARY});
+                color: {WHITE};
+                border: 1px solid {CRIMSON_DARK};
+                border-radius: 5px;
+                padding: 4px 12px;
+                font-size: 11px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {CRIMSON_PRIMARY}, stop:1 {CRIMSON_DARK});
+            }}
+        """
+
+        self._enter_face_btn = QPushButton("Enter Face")
+        self._enter_face_btn.setFixedWidth(100)
+        self._enter_face_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._enter_face_btn.setStyleSheet(_crimson_btn_style)
+        self._enter_face_btn.clicked.connect(self._on_enter_face)
+        self._enter_face_btn.setVisible(False)
+        enter_face_row.addWidget(self._enter_face_btn)
+
+        self._face_input = QLineEdit()
+        self._face_input.setStyleSheet(INPUT_STYLE)
+        self._face_input.setFixedWidth(150)
+        self._face_input.setPlaceholderText("Face amount")
+        self._face_input.setVisible(False)
+        enter_face_row.addWidget(self._face_input)
+
+        self._face_calc_btn = QPushButton("Calc")
+        self._face_calc_btn.setFixedWidth(60)
+        self._face_calc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._face_calc_btn.setStyleSheet(_crimson_btn_style)
+        self._face_calc_btn.clicked.connect(self._on_face_calc)
+        self._face_calc_btn.setVisible(False)
+        enter_face_row.addWidget(self._face_calc_btn)
+
+        enter_face_row.addStretch()
+        layout.addLayout(enter_face_row)
+
+        self._face_entry_active = False
+
         # ── Full Acceleration ───────────────────────────────────────────
         self.res_full_group = QGroupBox("Full Acceleration")
         self.res_full_group.setStyleSheet(GROUP_BOX_STYLE)
@@ -747,31 +796,42 @@ class AssessmentPanel(QWidget):
             full_grid.addWidget(val, i, 1, Qt.AlignmentFlag.AlignLeft)
             self._res_full_labels[key] = val
 
+        # Loan Repayment row (visible only for UL/IUL/ISWL)
+        self._full_loan_lbl = QLabel("Loan Repayment:")
+        self._full_loan_lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
+        full_grid.addWidget(self._full_loan_lbl, 3, 0, Qt.AlignmentFlag.AlignRight)
+        self._res_full_labels["loan_repayment"] = QLabel("\u2014")
+        self._res_full_labels["loan_repayment"].setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
+        self._res_full_labels["loan_repayment"].setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        full_grid.addWidget(self._res_full_labels["loan_repayment"], 3, 1, Qt.AlignmentFlag.AlignLeft)
+        self._full_loan_lbl.setVisible(False)
+        self._res_full_labels["loan_repayment"].setVisible(False)
+
         divider = QFrame()
         divider.setStyleSheet(DIVIDER_STYLE)
         divider.setFixedHeight(2)
-        full_grid.addWidget(divider, 3, 0, 1, 2)
+        full_grid.addWidget(divider, 4, 0, 1, 2)
 
         lbl_ab = QLabel("Accelerated Benefit:")
         lbl_ab.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
-        full_grid.addWidget(lbl_ab, 4, 0, Qt.AlignmentFlag.AlignRight)
+        full_grid.addWidget(lbl_ab, 5, 0, Qt.AlignmentFlag.AlignRight)
 
         self.res_full_benefit_label = QLabel("\u2014")
         self.res_full_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
-        full_grid.addWidget(self.res_full_benefit_label, 4, 1, Qt.AlignmentFlag.AlignLeft)
+        full_grid.addWidget(self.res_full_benefit_label, 5, 1, Qt.AlignmentFlag.AlignLeft)
 
         lbl_br = QLabel("Benefit Ratio:")
         lbl_br.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT};")
-        full_grid.addWidget(lbl_br, 5, 0, Qt.AlignmentFlag.AlignRight)
+        full_grid.addWidget(lbl_br, 6, 0, Qt.AlignmentFlag.AlignRight)
         self.res_full_ratio_label = QLabel("\u2014")
         self.res_full_ratio_label.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT}; font-weight: bold;")
-        full_grid.addWidget(self.res_full_ratio_label, 5, 1, Qt.AlignmentFlag.AlignLeft)
+        full_grid.addWidget(self.res_full_ratio_label, 6, 1, Qt.AlignmentFlag.AlignLeft)
 
         # ── Vertical separator between main values and APV block ────────
         vsep_full = QFrame()
         vsep_full.setFrameShape(QFrame.Shape.VLine)
         vsep_full.setStyleSheet(f"color: {GRAY_MID}; background: {GRAY_MID};")
-        full_grid.addWidget(vsep_full, 0, 2, 6, 1)
+        full_grid.addWidget(vsep_full, 0, 2, 7, 1)
 
         # APV component labels — right column (cols 3 & 4)
         apv_lbl_style = f"font-size: 11px; color: {GRAY_DARK};"
@@ -820,34 +880,46 @@ class AssessmentPanel(QWidget):
             self._res_partial_labels[key] = val
             self._res_partial_static_widgets.append(lbl)
 
+        # Loan Repayment row (visible only for UL/IUL/ISWL)
+        self._partial_loan_lbl = QLabel("Loan Repayment:")
+        self._partial_loan_lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
+        partial_grid.addWidget(self._partial_loan_lbl, 3, 0, Qt.AlignmentFlag.AlignRight)
+        self._res_partial_labels["loan_repayment"] = QLabel("\u2014")
+        self._res_partial_labels["loan_repayment"].setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
+        self._res_partial_labels["loan_repayment"].setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        partial_grid.addWidget(self._res_partial_labels["loan_repayment"], 3, 1, Qt.AlignmentFlag.AlignLeft)
+        self._partial_loan_lbl.setVisible(False)
+        self._res_partial_labels["loan_repayment"].setVisible(False)
+        self._res_partial_static_widgets.append(self._partial_loan_lbl)
+
         divider2 = QFrame()
         divider2.setStyleSheet(DIVIDER_STYLE)
         divider2.setFixedHeight(2)
-        partial_grid.addWidget(divider2, 3, 0, 1, 2)
+        partial_grid.addWidget(divider2, 4, 0, 1, 2)
         self._res_partial_static_widgets.append(divider2)
 
         lbl_pab = QLabel("Accelerated Benefit:")
         lbl_pab.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
-        partial_grid.addWidget(lbl_pab, 4, 0, Qt.AlignmentFlag.AlignRight)
+        partial_grid.addWidget(lbl_pab, 5, 0, Qt.AlignmentFlag.AlignRight)
         self._res_partial_static_widgets.append(lbl_pab)
 
         self.res_partial_benefit_label = QLabel("\u2014")
         self.res_partial_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
-        partial_grid.addWidget(self.res_partial_benefit_label, 4, 1, Qt.AlignmentFlag.AlignLeft)
+        partial_grid.addWidget(self.res_partial_benefit_label, 5, 1, Qt.AlignmentFlag.AlignLeft)
 
         lbl_pbr = QLabel("Benefit Ratio:")
         lbl_pbr.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT};")
-        partial_grid.addWidget(lbl_pbr, 5, 0, Qt.AlignmentFlag.AlignRight)
+        partial_grid.addWidget(lbl_pbr, 6, 0, Qt.AlignmentFlag.AlignRight)
         self._res_partial_static_widgets.append(lbl_pbr)
         self.res_partial_ratio_label = QLabel("\u2014")
         self.res_partial_ratio_label.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT}; font-weight: bold;")
-        partial_grid.addWidget(self.res_partial_ratio_label, 5, 1, Qt.AlignmentFlag.AlignLeft)
+        partial_grid.addWidget(self.res_partial_ratio_label, 6, 1, Qt.AlignmentFlag.AlignLeft)
 
         # ── Vertical separator between main values and APV block ────────
         vsep_partial = QFrame()
         vsep_partial.setFrameShape(QFrame.Shape.VLine)
         vsep_partial.setStyleSheet(f"color: {GRAY_MID}; background: {GRAY_MID};")
-        partial_grid.addWidget(vsep_partial, 0, 2, 6, 1)
+        partial_grid.addWidget(vsep_partial, 0, 2, 7, 1)
         self._res_partial_static_widgets.append(vsep_partial)
 
         # APV component labels — right column (cols 3 & 4)
@@ -878,7 +950,7 @@ class AssessmentPanel(QWidget):
         )
         self._partial_not_allowed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._partial_not_allowed_label.setVisible(False)
-        partial_grid.addWidget(self._partial_not_allowed_label, 0, 0, 6, 5)
+        partial_grid.addWidget(self._partial_not_allowed_label, 0, 0, 7, 5)
 
         partial_grid.setColumnStretch(1, 2)
         partial_grid.setColumnStretch(4, 2)
@@ -891,10 +963,12 @@ class AssessmentPanel(QWidget):
         prem_grid.setContentsMargins(12, 16, 12, 8)
         prem_grid.setSpacing(4)
 
+        self._prem_row_labels = []
         for i, label_text in enumerate(["Premium Before:", "After (Full Accel):", "After (Partial):"]):
             lbl = QLabel(label_text)
             lbl.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {CRIMSON_DARK};")
             prem_grid.addWidget(lbl, i, 0, Qt.AlignmentFlag.AlignRight)
+            self._prem_row_labels.append(lbl)
 
         self.res_premium_before_label = QLabel("\u2014")
         self.res_premium_before_label.setStyleSheet(LABEL_MONEY_STYLE)
@@ -904,9 +978,17 @@ class AssessmentPanel(QWidget):
         self.res_premium_after_full_label.setStyleSheet(LABEL_MONEY_STYLE)
         prem_grid.addWidget(self.res_premium_after_full_label, 1, 1)
 
+        # After (Partial): read-only label for non-UL, editable input for UL
         self.res_premium_after_partial_label = QLabel("\u2014")
         self.res_premium_after_partial_label.setStyleSheet(LABEL_MONEY_STYLE)
         prem_grid.addWidget(self.res_premium_after_partial_label, 2, 1)
+
+        self.res_premium_after_partial_input = QLineEdit()
+        self.res_premium_after_partial_input.setPlaceholderText("0.00")
+        self.res_premium_after_partial_input.setStyleSheet(INPUT_STYLE)
+        self.res_premium_after_partial_input.setFixedWidth(120)
+        self.res_premium_after_partial_input.setVisible(False)
+        prem_grid.addWidget(self.res_premium_after_partial_input, 2, 1)
 
         # 🔎 View premium calculation button next to After (Partial)
         self._partial_prem_detail_btn = QPushButton("🔎")
@@ -948,12 +1030,29 @@ class AssessmentPanel(QWidget):
         self._result = result
         self.results_column.setVisible(True)
 
+        # Show Enter Face button, reset face entry state
+        self._enter_face_btn.setVisible(True)
+        self._enter_face_btn.setText("Enter Face")
+        self._face_input.setVisible(False)
+        self._face_calc_btn.setVisible(False)
+        self._face_input.clear()
+        self._face_entry_active = False
+        self.res_full_group.setTitle("Full Acceleration")
+
         # Full acceleration
         self._res_full_labels["eligible_db"].setText(self._fmt_money(result.full_eligible_db))
         self._res_full_labels["actuarial_discount"].setText(
             self._fmt_money(result.full_actuarial_discount)
         )
         self._res_full_labels["admin_fee"].setText(self._fmt_money(result.full_admin_fee))
+
+        # Show Loan Repayment row only for UL/IUL/ISWL with a non-zero loan
+        has_loan = result.full_loan_repayment > 0
+        self._full_loan_lbl.setVisible(has_loan)
+        self._res_full_labels["loan_repayment"].setVisible(has_loan)
+        if has_loan:
+            self._res_full_labels["loan_repayment"].setText(self._fmt_money(result.full_loan_repayment))
+
         if result.full_accel_benefit < 0:
             self.res_full_benefit_label.setText(
                 f"$0.00  (calc: {self._fmt_money(result.full_accel_benefit)})"
@@ -969,12 +1068,18 @@ class AssessmentPanel(QWidget):
 
         # Partial acceleration — check if at minimum face
         at_min_face = result.partial_eligible_db <= 0
+        has_partial_loan = result.partial_loan_repayment > 0
         self._partial_not_allowed_label.setVisible(at_min_face)
         # Hide/show the normal partial detail widgets
         for w in self._res_partial_static_widgets:
             w.setVisible(not at_min_face)
-        for val in self._res_partial_labels.values():
-            val.setVisible(not at_min_face)
+        for key, val in self._res_partial_labels.items():
+            if key == "loan_repayment":
+                val.setVisible(not at_min_face and has_partial_loan)
+            else:
+                val.setVisible(not at_min_face)
+        # Also control loan label visibility
+        self._partial_loan_lbl.setVisible(not at_min_face and has_partial_loan)
         self.res_partial_benefit_label.setVisible(not at_min_face)
         self.res_partial_ratio_label.setVisible(not at_min_face)
         for val in self._res_partial_apv_labels.values():
@@ -986,6 +1091,8 @@ class AssessmentPanel(QWidget):
                 self._fmt_money(result.partial_actuarial_discount)
             )
             self._res_partial_labels["admin_fee"].setText(self._fmt_money(result.partial_admin_fee))
+            if has_partial_loan:
+                self._res_partial_labels["loan_repayment"].setText(self._fmt_money(result.partial_loan_repayment))
             if result.partial_accel_benefit < 0:
                 self.res_partial_benefit_label.setText(
                     f"$0.00  (calc: {self._fmt_money(result.partial_accel_benefit)})"
@@ -1012,7 +1119,12 @@ class AssessmentPanel(QWidget):
         # Premium impact
         self.res_premium_before_label.setText(result.premium_before)
         self.res_premium_after_full_label.setText(f"${result.premium_after_full:,.2f}")
-        if at_min_face:
+        is_ul = self._policy and self._policy.product_type in ("UL", "IUL", "ISWL")
+        if is_ul:
+            # UL: After (Partial) is a user input — don't overwrite it
+            self.res_premium_after_partial_label.setVisible(False)
+            self.res_premium_after_partial_input.setVisible(not at_min_face)
+        elif at_min_face:
             self.res_premium_after_partial_label.setText("NOT ALLOWED")
         else:
             self.res_premium_after_partial_label.setText(result.premium_after_partial)
@@ -1023,6 +1135,136 @@ class AssessmentPanel(QWidget):
             self.res_messages_label.setText(bullets)
         else:
             self.res_messages_label.setText("")
+
+    # ── Enter Face inline controls ─────────────────────────────────────
+
+    def _on_enter_face(self):
+        """Toggle the face amount input and Calc button visibility."""
+        if not self._policy or not self._result:
+            return
+
+        if self._face_entry_active:
+            # Deactivate — hide input/calc, revert to full face results
+            self._face_entry_active = False
+            self._face_input.setVisible(False)
+            self._face_calc_btn.setVisible(False)
+            self._face_input.clear()
+            self._enter_face_btn.setText("Enter Face")
+            # Restore the original full-face results
+            self.res_full_group.setTitle("Full Acceleration")
+            self.display_results(self._result)
+        else:
+            # Activate — show input/calc
+            self._face_entry_active = True
+            self._face_input.setVisible(True)
+            self._face_calc_btn.setVisible(True)
+            self._face_input.setFocus()
+            self._enter_face_btn.setText("Use Full Face")
+            # Pre-fill with current full face
+            if self._policy:
+                self._face_input.setText(f"{self._policy.face_amount:,.2f}")
+                self._face_input.selectAll()
+
+    def _on_face_calc(self):
+        """Recalculate the Full Acceleration section with the user-entered face."""
+        if not self._policy or not self._result:
+            return
+
+        raw = self._face_input.text().replace("$", "").replace(",", "").strip()
+        try:
+            custom_face = float(raw)
+        except ValueError:
+            self.res_messages_label.setText("\u2022 Please enter a valid numeric face amount.")
+            return
+
+        total_face = self._policy.face_amount
+        min_allowed = 10_000.0
+        result = self._result
+
+        if custom_face > total_face:
+            self.res_messages_label.setText(
+                f"\u2022 Face amount cannot exceed the total policy face "
+                f"of ${total_face:,.2f}."
+            )
+            return
+
+        if custom_face < min_allowed:
+            self.res_messages_label.setText(
+                f"\u2022 Face amount cannot be less than the minimum "
+                f"of ${min_allowed:,.2f}."
+            )
+            return
+
+        max_partial_eligible = result.partial_eligible_db
+        if (max_partial_eligible > 0
+                and custom_face > max_partial_eligible
+                and abs(custom_face - total_face) >= 0.01):
+            self.res_messages_label.setText(
+                f"\u2022 Accelerating this amount would drop the face below the "
+                f"minimum. Max partial eligible is ${max_partial_eligible:,.2f}."
+            )
+            return
+
+        # Clear any prior validation message
+        if result.messages:
+            bullets = "\n\n".join(f"\u2022 {m}" for m in result.messages)
+            self.res_messages_label.setText(bullets)
+        else:
+            self.res_messages_label.setText("")
+
+        is_full = abs(custom_face - total_face) < 0.01
+        self.res_full_group.setTitle(
+            "Full Acceleration" if is_full else "Partial Acceleration"
+        )
+
+        # Proportional recalculation
+        orig_eligible = result.full_eligible_db
+        orig_discount = result.full_actuarial_discount
+        admin_fee = result.full_admin_fee
+
+        if orig_eligible > 0:
+            ratio = custom_face / orig_eligible
+            new_discount = round(orig_discount * ratio, 2)
+        else:
+            ratio = 0.0
+            new_discount = 0.0
+
+        # Loan repayment — proportionally scaled
+        orig_loan = result.full_loan_repayment
+        if orig_eligible > 0 and orig_loan > 0:
+            new_loan = round(orig_loan * ratio, 2)
+            self._full_loan_lbl.setVisible(True)
+            self._res_full_labels["loan_repayment"].setVisible(True)
+            self._res_full_labels["loan_repayment"].setText(self._fmt_money(new_loan))
+            new_benefit = round(custom_face - new_discount - admin_fee - new_loan, 2)
+        else:
+            new_benefit = round(custom_face - new_discount - admin_fee, 2)
+
+        new_ratio = new_benefit / custom_face if custom_face > 0 else 0.0
+
+        self._res_full_labels["eligible_db"].setText(self._fmt_money(custom_face))
+        self._res_full_labels["actuarial_discount"].setText(self._fmt_money(new_discount))
+        self._res_full_labels["admin_fee"].setText(self._fmt_money(admin_fee))
+
+        if new_benefit < 0:
+            self.res_full_benefit_label.setText(
+                f"$0.00  (calc: {self._fmt_money(new_benefit)})"
+            )
+        else:
+            self.res_full_benefit_label.setText(self._fmt_money(new_benefit))
+        self.res_full_ratio_label.setText(f"{new_ratio * 100:.2f}%")
+
+        # APV components — proportionally scaled
+        if orig_eligible > 0:
+            self._res_full_apv_labels["apv_fb"].setText(
+                self._fmt_money(result.apv_fb * ratio)
+            )
+            self._res_full_apv_labels["apv_fp"].setText(
+                self._fmt_money(result.apv_fp * ratio)
+            )
+            self._res_full_apv_labels["apv_fd"].setText(
+                self._fmt_money(result.apv_fd * ratio)
+            )
 
     def set_calc_data(
         self,
@@ -1105,6 +1347,12 @@ class AssessmentPanel(QWidget):
     def clear_results(self):
         """Reset the results column to default empty state."""
         self._result = None
+        self._enter_face_btn.setVisible(False)
+        self._face_input.setVisible(False)
+        self._face_calc_btn.setVisible(False)
+        self._face_input.clear()
+        self._face_entry_active = False
+        self._enter_face_btn.setText("Enter Face")
         # Reset all result labels to dashes
         for lbl_dict in (self._res_full_labels, self._res_partial_labels):
             for val in lbl_dict.values():
@@ -1120,6 +1368,7 @@ class AssessmentPanel(QWidget):
         self.res_premium_before_label.setText("\u2014")
         self.res_premium_after_full_label.setText("\u2014")
         self.res_premium_after_partial_label.setText("\u2014")
+        self.res_premium_after_partial_input.clear()
         self.res_messages_label.setText("")
         self.res_view_calc_btn.setEnabled(False)
         self._partial_prem_breakdown = None
@@ -1130,7 +1379,9 @@ class AssessmentPanel(QWidget):
     def set_partial_premium_breakdown(self, breakdown: dict | None):
         """Store the min-face premium breakdown for the viewer button."""
         self._partial_prem_breakdown = breakdown
-        self._partial_prem_detail_btn.setVisible(breakdown is not None)
+        # Don't show detail button for UL — After (Partial) is user input
+        is_ul = self._policy and self._policy.product_type in ("UL", "IUL", "ISWL")
+        self._partial_prem_detail_btn.setVisible(breakdown is not None and not is_ul)
 
     def _show_partial_premium_breakdown(self):
         """Show a dialog with per-coverage premium calculation for the partial
@@ -1149,6 +1400,7 @@ class AssessmentPanel(QWidget):
         if not self._mort_detail:
             return
         from .calc_viewer import CalcViewerDialog
+        after_partial = self.res_premium_after_partial_input.text().strip()
         viewer = CalcViewerDialog(
             mortality_rows=self._mort_detail,
             apv_rows=self._apv_detail,
@@ -1158,6 +1410,7 @@ class AssessmentPanel(QWidget):
             assessment=self._assessment,
             result=self._result,
             derived_values=self.get_derived_display_values(),
+            after_partial_override=after_partial,
             parent=None,
         )
         viewer.show()
@@ -1950,6 +2203,23 @@ class AssessmentPanel(QWidget):
         """Set the policy data from Step 1."""
         self._policy = policy
         self._reset_assessment_inputs()
+
+        # UL/IUL/ISWL: rename Premium Impact → Monthly Deduction Impact
+        # and switch After (Partial) to an editable input
+        is_ul = policy.product_type in ("UL", "IUL", "ISWL")
+        self.res_premium_group.setTitle(
+            "Monthly Deduction Impact" if is_ul else "Premium Impact"
+        )
+        # Rename "Premium Before:" → "Last Monthly Deduction:" for UL
+        self._prem_row_labels[0].setText(
+            "Last Monthly Deduction:" if is_ul else "Premium Before:"
+        )
+        self.res_premium_after_partial_label.setVisible(not is_ul)
+        self.res_premium_after_partial_input.setVisible(is_ul)
+        # Hide the detail button for UL since After (Partial) is user input
+        self._partial_prem_detail_btn.setVisible(False)
+        if is_ul:
+            self.res_premium_after_partial_input.clear()
 
         # Refresh per diem display now that the DB is definitely available
         if self.rider_combo.currentText() == "Chronic":

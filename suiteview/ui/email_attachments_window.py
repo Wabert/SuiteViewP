@@ -80,8 +80,10 @@ def _process_attachment_dataframe(df):
     Returns (display_df, full_df) or (None, None) if empty after filtering.
     """
     df['Sent Date'] = df['date'].apply(_safe_format_date)
+    df['Full Name'] = df['sender_name'].fillna('')
     df['Sender Name'] = df['sender'].apply(_get_sender_name)
     df['Domain'] = df['sender'].apply(_get_sender_domain)
+    df['Subject'] = df['email_subject'].fillna('')
     df['File Type'] = df['attachment_name'].apply(_get_file_type)
     
     # Filter out embedded image types - show only true file attachments
@@ -96,8 +98,8 @@ def _process_attachment_dataframe(df):
     df = df.drop('sort_date', axis=1)
     
     # Select and rename columns for display
-    display_df = df[['Sender Name', 'Domain', 'Sent Date', 'File Type', 'attachment_name']].copy()
-    display_df.columns = ['Sender', 'Domain', 'Sent Date', 'Type', 'Attachment']
+    display_df = df[['Full Name', 'Sender Name', 'Domain', 'Sent Date', 'Subject', 'File Type', 'attachment_name']].copy()
+    display_df.columns = ['Full Name', 'Sender', 'Domain', 'Sent Date', 'Subject', 'Type', 'Attachment']
     
     return display_df, df
 
@@ -353,6 +355,12 @@ class AttachmentLoaderThread(QThread):
                         
                         # Get sender email address directly - works for ALL senders (internal and external)
                         sender_display = "(Unknown)"
+                        sender_full_name = ""
+                        try:
+                            # Get display name (e.g. "Lindell, Deborah")
+                            sender_full_name = item.SenderName or ""
+                        except Exception:
+                            sender_full_name = ""
                         try:
                             # Get the email address directly - this works for everyone
                             sender_email = item.SenderEmailAddress
@@ -379,6 +387,13 @@ class AttachmentLoaderThread(QThread):
                                 sender_display = item.SenderName or "(Unknown)"
                             except:
                                 sender_display = "(Unknown)"
+                        
+                        # Get subject line
+                        email_subject = ""
+                        try:
+                            email_subject = item.Subject or ""
+                        except Exception:
+                            email_subject = ""
                         
                         email_id = None
                         try:
@@ -422,6 +437,8 @@ class AttachmentLoaderThread(QThread):
                                 found_real_attachment = True
                                 attach_data = {
                                     'sender': sender_display,
+                                    'sender_name': sender_full_name,
+                                    'email_subject': email_subject,
                                     'date': received_time,
                                     'attachment_name': filename,
                                     'email_id': email_id,
@@ -470,6 +487,9 @@ class AttachmentLoaderThread(QThread):
                 close_thread_outlook_manager()
             except Exception:
                 pass
+
+
+class EmailAttachmentsWindow(QWidget):
     """Simple email attachments viewer with FilterTableView"""
     
     def __init__(self, parent=None):
@@ -518,7 +538,7 @@ class AttachmentLoaderThread(QThread):
     def init_ui(self):
         """Initialize the UI with SuiteView theme"""
         self.setWindowTitle("SuiteView - Email Attachments")
-        self.resize(900, 600)
+        self.resize(1200, 600)
         
         # Set gold border on the window
         self.setStyleSheet("""
@@ -682,9 +702,9 @@ class AttachmentLoaderThread(QThread):
             self.attachments_grid.table_view.verticalHeader().setVisible(False)
             self.attachments_grid.table_view.setShowGrid(False)
             self.attachments_grid.table_view.setAlternatingRowColors(False)
-            # Set file icon delegate for the Attachment column (column 4)
+            # Set file icon delegate for the Attachment column (column 6)
             self.file_icon_delegate = FileIconDelegate(self.attachments_grid.table_view)
-            self.attachments_grid.table_view.setItemDelegateForColumn(4, self.file_icon_delegate)
+            self.attachments_grid.table_view.setItemDelegateForColumn(6, self.file_icon_delegate)
         content_layout.addWidget(self.attachments_grid)
         
         # Connect double-click handler
@@ -901,6 +921,7 @@ class AttachmentLoaderThread(QThread):
             
             # Load into grid
             self.attachments_grid.set_dataframe(display_df)
+            self._configure_grid_columns()
             
             period_text = self._get_period_text()
             self.status_label.setText(f"Loaded {len(df)} attachments from cache ({period_text})")
@@ -984,6 +1005,8 @@ class AttachmentLoaderThread(QThread):
             
             result.append({
                 'sender': cached['email_sender'],
+                'sender_name': cached.get('sender_name', ''),
+                'email_subject': cached.get('email_subject', ''),
                 'date': cached_date,
                 'attachment_name': cached['attachment_name'],
                 'email_id': cached['email_id'],
@@ -1036,6 +1059,7 @@ class AttachmentLoaderThread(QThread):
             
             # Load into grid
             self.attachments_grid.set_dataframe(display_df)
+            self._configure_grid_columns()
             
             period_text = self._get_period_text()
             new_count = len(new_attachments)
@@ -1052,6 +1076,14 @@ class AttachmentLoaderThread(QThread):
             logger.error(f"Failed to process attachments: {e}", exc_info=True)
             self.status_label.setText(f"Error processing attachments: {str(e)}")
     
+    def _configure_grid_columns(self):
+        """Set column widths and alignment after loading data"""
+        # Columns: Full Name(0), Sender(1), Domain(2), Sent Date(3), Subject(4), Type(5), Attachment(6)
+        if hasattr(self.attachments_grid, 'model') and self.attachments_grid.model:
+            self.attachments_grid.model._left_align_columns = {0, 4, 6}  # Full Name, Subject, Attachment
+        if hasattr(self.attachments_grid, 'table_view'):
+            self.attachments_grid.table_view.setColumnWidth(4, 300)  # Subject
+
     def _get_period_text(self):
         """Get human-readable period text"""
         for label, days in SCAN_PERIODS:
@@ -1082,9 +1114,9 @@ class AttachmentLoaderThread(QThread):
         email_id = attachment['email_id']
         attachment_index = attachment['attachment_index']
         
-        # Column 4 is Attachment - open attachment
-        # Columns 0, 1, 2, 3 (Sender, Domain, Date, Type) - open email
-        if col == 4:
+        # Column 6 is Attachment - open attachment
+        # Other columns - open email
+        if col == 6:
             self.open_attachment(email_id, attachment_index)
         else:
             self.open_email(email_id)

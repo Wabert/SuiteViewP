@@ -47,13 +47,13 @@ if __name__ == '__main__':
         from suiteview.utils.logger import setup_logging
         setup_logging(log_level="INFO")
         
-        from suiteview.file_nav.file_explorer_multitab import FileExplorerMultiTab
+        from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
 
         app = QApplication(sys.argv)
         
         # Create and show file explorer with tabs
-        print("Creating FileExplorerMultiTab...")
-        explorer = FileExplorerMultiTab()
+        print("Creating SuiteViewTaskbar...")
+        explorer = SuiteViewTaskbar()
         
         # Set the application-level icon (helps Windows taskbar)
         app.setWindowIcon(explorer._build_suiteview_icon(64))

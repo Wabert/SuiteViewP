@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from suiteview.polview.models.cl_polrec.policy_translations import BENEFIT_TYPE_CODES
 from ...core.policy_service import get_policy_info
@@ -18,11 +18,43 @@ logger = logging.getLogger(__name__)
 # Billing frequency (months) → ABR billing mode code
 _FREQ_TO_MODE = {12: 1, 6: 2, 3: 3, 1: 4}
 
-def build_abr_policy(policy_num: str, region: str) -> Tuple[Optional[ABRPolicyData], Optional[object]]:
+
+def find_policy_companies(policy_num: str, region: str = "CKPR") -> List[str]:
+    """Return the list of CyberLife company codes that hold this policy.
+
+    Queries DB2 without loading full policy data.  Returns an empty list
+    if the lookup fails or no records are found.
+    """
+    try:
+        from suiteview.polview.models.policy_information import PolicyInformation
+        pi = PolicyInformation(policy_num, company_code=None, region=region)
+        if pi.exists:
+            # Single company — get the company code from the loaded data
+            co = str(pi.data_item("LH_BAS_POL", "CK_CMP_CD") or "").strip()
+            return [co] if co else []
+        elif pi.available_companies:
+            return pi.available_companies
+        else:
+            return []
+    except Exception as e:
+        logger.warning("Company detection failed for %s: %s", policy_num, e)
+        return []
+
+def build_abr_policy(
+    policy_num: str,
+    region: str,
+    company_code: Optional[str] = None,
+) -> Tuple[Optional[ABRPolicyData], Optional[object]]:
     """Fetch policy data from DB2 via the shared PolicyService and assemble an ABRPolicyData object.
 
     Falls back to a manual entry stub if DB2 is unavailable.
     
+    Args:
+        policy_num: Policy number to look up.
+        region: DB2 region code.
+        company_code: Optional company code filter (e.g. "01").
+                      If None, DB2 may return multiple companies.
+
     Returns:
         Tuple of (ABRPolicyData, PolicyInformation)
         The PolicyInformation object from DB2 is returned for UI reference if needed.
@@ -32,7 +64,7 @@ def build_abr_policy(policy_num: str, region: str) -> Tuple[Optional[ABRPolicyDa
         return ABRPolicyData(policy_number=pn, region=r)
         
     try:
-        pi = get_policy_info(policy_num, region=region)
+        pi = get_policy_info(policy_num, region=region, company_code=company_code)
         if pi is None:
             logger.info(f"Policy {policy_num} not found, manual entry mode")
             return _create_manual_policy(policy_num, region), None
@@ -84,8 +116,22 @@ def build_abr_policy(policy_num: str, region: str) -> Tuple[Optional[ABRPolicyDa
         if not rate_sex:
             rate_sex = sex  # fallback to true sex
 
-        # Maturity age
+        # Maturity age & date
         maturity = pi.age_at_maturity or 95
+        maturity_date = None
+        try:
+            base_covs = pi.get_base_coverages()
+            if base_covs:
+                maturity_date = base_covs[0].maturity_date
+        except Exception:
+            pass
+
+        # Product type (UL, IUL, ISWL, WL, TERM, DI, VUL)
+        product_type = ""
+        try:
+            product_type = pi.product_type or ""
+        except Exception:
+            pass
 
         riders = []
         rider_annual = 0.0
@@ -193,8 +239,10 @@ def build_abr_policy(policy_num: str, region: str) -> Tuple[Optional[ABRPolicyDa
                 or (pi.get_coverages()[0].issue_date if pi.get_coverages() else None)
             ),
             maturity_age=maturity,
+            maturity_date=maturity_date,
             issue_state=pi.issue_state or pi.issue_state_code or "",
             plan_code=pi.base_plancode or "",
+            product_type=product_type,
             base_plancode=str(pi.data_item("LH_COV_PHA", "PLN_BSE_SRE_CD") or "").strip(),
             billing_mode=billing_mode,
             policy_month=pi.policy_month or 1,
@@ -209,6 +257,7 @@ def build_abr_policy(policy_num: str, region: str) -> Tuple[Optional[ABRPolicyDa
             annual_premium=float(pi.annual_premium or 0),
             rider_annual_premium=rider_annual,
             riders=riders,
+            monthly_deduction=float(pi.mv_monthly_deduction() or 0),
         )
         return policy, pi
 

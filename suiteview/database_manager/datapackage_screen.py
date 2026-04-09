@@ -16,7 +16,7 @@ from suiteview.data.repositories import (SavedTableRepository, ConnectionReposit
                                          get_metadata_cache_repository, get_query_repository)
 from suiteview.core.schema_discovery import SchemaDiscovery
 from suiteview.core.query_builder import QueryBuilder
-from suiteview.core.query_executor import QueryExecutor
+from suiteview.database_manager.query_executor import QueryExecutor
 from suiteview.ui import theme
 
 logger = logging.getLogger(__name__)

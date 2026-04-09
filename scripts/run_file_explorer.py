@@ -11,7 +11,7 @@ if __name__ == '__main__':
     sys.path.insert(0, str(Path(__file__).parent.parent))
     
     from PyQt6.QtWidgets import QApplication
-    from suiteview.file_nav.file_explorer_multitab import FileExplorerMultiTab
+    from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
     from suiteview.utils.logger import setup_logging
     
     # Setup logging
@@ -21,7 +21,7 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     
     # Create and show file explorer with multi-tab support
-    explorer = FileExplorerMultiTab()
+    explorer = SuiteViewTaskbar()
     explorer.setWindowTitle("SuiteView File Explorer")
     explorer.resize(1400, 800)
     explorer.show()

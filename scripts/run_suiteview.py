@@ -41,21 +41,21 @@ if __name__ == '__main__':
         
         qInstallMessageHandler(qt_message_handler)
         
-        from suiteview.file_nav.file_explorer_multitab import FileExplorerMultiTab
+        from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
         
         # Create application - don't quit when last window closes (we have tray)
         app = QApplication(sys.argv)
         app.setQuitOnLastWindowClosed(False)
         
         # Create and show the main SuiteView window
-        suiteview = FileExplorerMultiTab()
+        suiteview = SuiteViewTaskbar()
         
         # Set application-level icon for taskbar
         app.setWindowIcon(suiteview._build_suiteview_icon(64))
         
         suiteview.setWindowTitle("SuiteView")
         # Window starts in compact mini-bar mode at bottom-right corner
-        # (positioning is handled inside FileExplorerMultiTab.__init__)
+        # (positioning is handled inside SuiteViewTaskbar.__init__)
         
         suiteview.show()
         suiteview.raise_()

@@ -81,6 +81,7 @@ class PolicyTab(QWidget):
         c.add_field("Policynumber", "pol_number", 160, 120)
         c.add_field("Company", "company", 160, 120)
         c.add_field("Plancode", "plancode", 160, 120)
+        c.add_field("Major LOB", "maj_lob", 160, 120)
         c.add_field("Product Line Code", "prod_line", 160, 120)
         c.add_field("ANICO Product Indicator", "an_prd_id", 160, 120)
         c.add_field("Advanced Product Indicator", "non_trd_ind", 160, 120)
@@ -176,6 +177,7 @@ class PolicyTab(QWidget):
         c.set_value("pol_number", policy_info.get("PolicyNumber", policy.policy_number))
         c.set_value("company", translate_company_code(str(policy.company_code)))
         c.set_value("plancode", policy.base_plancode)
+        c.set_value("maj_lob", str(policy.data_item("LH_COV_PHA", "MAJ_LIN_OF_BUS_CD") or ""))
         prod_line = policy.product_line_code
         c.set_value("prod_line", f"{prod_line} - {translate_product_line_code(prod_line)}")
         c.set_value("an_prd_id", str(policy.data_item("TH_COV_PHA", "AN_PRD_ID") or ""))

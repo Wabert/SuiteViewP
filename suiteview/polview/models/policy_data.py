@@ -481,6 +481,23 @@ class PolicyData:
         "LH_COV_TARGET", "LH_COV_SKIPPED_PER",
     }
 
+    # Custom ORDER BY clauses matching VBA aryOrderClause in cls_PolicyData
+    _TABLE_ORDER_CLAUSES: dict[str, str] = {
+        "LH_COM_TARGET":        "AGT_COM_PHA_NBR",
+        "LH_CTT_COM_PHA_WA":    "AGT_ITS_EFF_DT DESC",
+        "LH_FND_VAL_LOAN":      "MVRY_DT DESC, FND_VAL_PHA_NBR DESC",
+        "LH_CSH_VAL_LOAN":      "MVRY_DT DESC",
+        "LH_POL_FND_VAL_TOT":   "MVRY_DT DESC, FND_ID_CD DESC, FND_VAL_PHA_NBR DESC",
+        "LH_POL_MVRY_VAL":      "MVRY_DT DESC",
+        "LH_UNAPPLIED_PTP":     "ERN_DT_MO_YR_NBR DESC",
+        "LH_APPLIED_PTP":       "ERN_DT_MO_YR_NBR DESC",
+        "LH_PAID_UP_ADD":       "MVRY_DT DESC",
+        "LH_ONE_YR_TRM_ADD":    "MVRY_DT DESC",
+        "LH_PTP_ON_DEP":        "MVRY_DT DESC",
+        "TH_COV_INS_RNL_RT":    "COV_PHA_NBR, PRS_CD, PRS_SEQ_NBR, SEG_IDX_NBR",
+        "LH_BNF_INS_GDL_PRM":   "COV_PHA_NBR, PRS_CD, PRS_SEQ_NBR, SEG_IDX_NBR",
+    }
+
     def _ensure_table_loaded(self, table_name: str):
         """Ensure a table is loaded into cache."""
         if table_name in self._table_cache:
@@ -508,6 +525,8 @@ class PolicyData:
                 )
                 if table_name in self._COV_PHA_ORDERED_TABLES:
                     order_clause = " ORDER BY COV_PHA_NBR"
+                elif table_name in self._TABLE_ORDER_CLAUSES:
+                    order_clause = f" ORDER BY {self._TABLE_ORDER_CLAUSES[table_name]}"
                 else:
                     order_clause = ""
 

@@ -14,7 +14,7 @@ from suiteview.data.repositories import (SavedTableRepository, ConnectionReposit
                                          get_metadata_cache_repository, get_query_repository)
 from suiteview.core.schema_discovery import SchemaDiscovery
 from suiteview.core.query_builder import QueryBuilder, Query
-from suiteview.core.query_executor import QueryExecutor
+from suiteview.database_manager.query_executor import QueryExecutor
 from suiteview.ui.dialogs.query_results_dialog import QueryResultsDialog
 from suiteview.database_manager.mydata_screen import QueryTreeWidget
 from suiteview.ui.widgets import CascadingMenuWidget

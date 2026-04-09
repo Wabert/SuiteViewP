@@ -276,7 +276,7 @@ class EmailPrintDialog(QDialog):
                 sub_parts.append(f"ID {a.direct_increased_decrement:.0f}% (yr {a.incr_decrement_start_year}-{a.incr_decrement_stop_year})")
             self._set("substandard", "  |  ".join(sub_parts) if sub_parts else "None")
 
-        self._set("reinsurers", "none")
+        self._set("reinsurers", p.reinsurers if p and p.reinsurers else "(none)")
 
     def _set(self, key: str, value: str):
         if key in self._summary_labels:
@@ -446,7 +446,7 @@ class EmailPrintDialog(QDialog):
         if r:
             sec4.append(("Full Acceleration Benefit:", self._fmt(r.full_accel_benefit)))
             sec4.append(("Benefit Ratio (Accl Ben/Full DB):", f"{r.full_benefit_ratio * 100:.2f}%"))
-        sec4.append(("Reinsurers:", "none"))
+        sec4.append(("Reinsurers:", p.reinsurers if p and p.reinsurers else "(none)"))
         if sec4:
             sections.append(("Result", sec4))
 

@@ -175,9 +175,7 @@ class ReinsuranceTab(QWidget):
             table.setRowCount(len(result.rows))
             for row_idx, row_data in enumerate(result.rows):
                 for col_idx, col_name in enumerate(TAI_CESSION_HEADERS):
-                    # Column keys in the result dict use original names with _
-                    db_key = f"_{col_name}" if not col_name.startswith("_") else col_name
-                    value = row_data.get(db_key, "")
+                    value = row_data.get(col_name, "")
                     text = str(value).strip() if value is not None else ""
                     item = QTableWidgetItem(text)
                     item.setTextAlignment(

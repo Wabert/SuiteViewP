@@ -129,8 +129,8 @@ class ResultsTab(QWidget):
             if name:
                 headers[str(name).upper()] = c
 
-        pol_col = headers.get("POLICYNUMBER")
-        co_col = headers.get("COMPANYCODE")
+        pol_col = headers.get("POLICYNUMBER") or headers.get("POL")
+        co_col = headers.get("COMPANYCODE") or headers.get("CO")
         if pol_col is None or co_col is None:
             return
 

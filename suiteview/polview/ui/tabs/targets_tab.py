@@ -538,23 +538,20 @@ class TargetsAccumulatorsTab(QWidget):
         layout.addWidget(note_label, 0, 2,
                          Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        # Row 1 — fixed height for all three bottom widgets
-        bottom_row_height = 320
-
+        # Row 1 — three expandable bottom widgets
         self.tamra_widget = TamraValuesWidget()
-        self.tamra_widget.setFixedHeight(bottom_row_height)
-        layout.addWidget(self.tamra_widget, 1, 0,
-                         Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.tamra_widget.setMinimumHeight(200)
+        layout.addWidget(self.tamra_widget, 1, 0)
 
         self.commission_widget = CommissionTargetWidget()
-        self.commission_widget.setFixedHeight(bottom_row_height)
-        layout.addWidget(self.commission_widget, 1, 1, Qt.AlignmentFlag.AlignTop)
+        self.commission_widget.setMinimumHeight(200)
+        layout.addWidget(self.commission_widget, 1, 1)
 
         self.min_prem_widget = MinimumPremiumWidget()
-        self.min_prem_widget.setFixedHeight(bottom_row_height)
-        layout.addWidget(self.min_prem_widget, 1, 2, Qt.AlignmentFlag.AlignTop)
+        self.min_prem_widget.setMinimumHeight(200)
+        layout.addWidget(self.min_prem_widget, 1, 2)
 
-        layout.setRowStretch(2, 1)
+        layout.setRowStretch(1, 1)
         layout.setColumnStretch(1, 1)
         layout.setColumnStretch(2, 1)
         layout.setColumnStretch(3, 1)

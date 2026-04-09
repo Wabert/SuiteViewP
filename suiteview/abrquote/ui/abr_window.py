@@ -71,7 +71,7 @@ class ABRQuoteWindow(FramelessWindowBase):
 
         super().__init__(
             title="SuiteView:  ABR Quote",
-            default_size=(1100, 800),
+            default_size=(1100, 875),
             min_size=(600, 500),
             parent=parent,
             header_colors=ABR_HEADER_COLORS,
@@ -257,6 +257,30 @@ class ABRQuoteWindow(FramelessWindowBase):
         self._email_print_btn.clicked.connect(self._on_email_print)
         layout.addWidget(self._email_print_btn)
 
+        # ── Resources button (right side of step bar) ────────────────
+        self._resources_btn = QPushButton("📖 Resources")
+        self._resources_btn.setFixedHeight(32)
+        self._resources_btn.setMinimumWidth(100)
+        self._resources_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._resources_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {SLATE_TEXT}, stop:1 {SLATE_PRIMARY});
+                color: {WHITE};
+                border: 1px solid {SLATE_DARK};
+                border-radius: 5px;
+                padding: 3px 14px;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {SLATE_PRIMARY}, stop:1 {SLATE_DARK});
+            }}
+        """)
+        self._resources_btn.clicked.connect(self._on_resources)
+        layout.addWidget(self._resources_btn)
+
         return bar
 
     def _update_step_indicators(self):
@@ -313,7 +337,7 @@ class ABRQuoteWindow(FramelessWindowBase):
         self.status_label.setText(f"Policy {policy.policy_number} loaded.")
 
         # Update header policy label
-        co = policy.company or ""
+        co = (policy.company or "").split(" ")[0].strip()
         pn = policy.policy_number or ""
         display = f"Policy:  {co}-{pn}" if co else f"Policy:  {pn}"
         self._header_policy_label.setText(display)
@@ -529,7 +553,30 @@ class ABRQuoteWindow(FramelessWindowBase):
 
             prem_calc = PremiumCalculator(p)
             prem_result = prem_calc.compute(policy_year=start_yr)
-            premium_schedule = list(prem_calc.get_base_annual_premium_schedule())
+
+            is_ul = p.product_type in ("UL", "IUL", "ISWL")
+
+            if is_ul:
+                # UL/IUL/ISWL: build premium schedule from user-entered
+                # level premium (same logic as policy_panel's
+                # _populate_ul_premium_schedule).  TERM rate tables don't
+                # exist for these products.
+                level_text = self.policy_panel.ul_level_prem_input.text().strip().replace(",", "").replace("$", "")
+                try:
+                    level_prem = float(level_text) if level_text else 0.0
+                except ValueError:
+                    level_prem = 0.0
+
+                max_duration = (p.maturity_age - p.issue_age) if p.maturity_age and p.issue_age else 0
+                premium_schedule = [0.0] * max(max_duration, 0)
+                # Fill future years with the level premium
+                for yr_idx in range(start_yr - 1, len(premium_schedule)):
+                    premium_schedule[yr_idx] = level_prem
+                # Current year = 0 (no more payments in the current year)
+                if start_yr - 1 < len(premium_schedule):
+                    premium_schedule[start_yr - 1] = 0.0
+            else:
+                premium_schedule = list(prem_calc.get_base_annual_premium_schedule())
 
             # Pre-prorate the first year to match Future Premiums table.
             # The APV engine uses these values as-is (no internal proration).
@@ -547,7 +594,7 @@ class ABRQuoteWindow(FramelessWindowBase):
             # Apply single modal_factor to the total annual premium
             policy_fee_for_proration = db.get_policy_fee(p.plan_code)
             yr_idx = start_yr - 1
-            if yr_idx < len(premium_schedule) and remaining_payments < payments_per_year:
+            if not is_ul and yr_idx < len(premium_schedule) and remaining_payments < payments_per_year:
                 full_annual = premium_schedule[yr_idx]
                 modal_total = round(full_annual * modal_factor, 2)
                 premium_schedule[yr_idx] = modal_total * remaining_payments
@@ -561,9 +608,19 @@ class ABRQuoteWindow(FramelessWindowBase):
             admin_fee = db.get_admin_fee(p.issue_state)
             min_face = db.get_min_face(p.plan_code)
 
+            # Read loan payoff from Policy Info (UL/IUL/ISWL only)
+            loan_amount = 0.0
+            if p.product_type in ("UL", "IUL", "ISWL"):
+                loan_text = self.policy_panel.ul_loan_payoff_input.text().strip().replace(",", "").replace("$", "")
+                try:
+                    loan_amount = float(loan_text) if loan_text else 0.0
+                except ValueError:
+                    loan_amount = 0.0
+
             full = apv_engine.compute_full_acceleration(
                 admin_fee=admin_fee,
                 apv_summary=self._apv_summary,
+                loan_repayment=loan_amount,
             )
 
             partial = apv_engine.compute_partial_acceleration(
@@ -573,198 +630,17 @@ class ABRQuoteWindow(FramelessWindowBase):
             )
 
             # ── 6. Compute partial premium ──────────────────────────────
-            from ..core.premium_calc import arithmetic_round
             min_face_prem = prem_calc.compute_min_face_premium(min_face, policy_year=start_yr)
 
-            # Build partial-premium breakdown using the same `coverages`
-            # shape as the Policy Info breakdown (see policy_panel.py).
+            # Build partial-premium breakdown using PremiumCalculator
             from dataclasses import replace as _replace
             reduced_policy = _replace(p, face_amount=min_face)
             mf_calc = PremiumCalculator(reduced_policy)
-
-            # Benefit name mapping for display labels
-            from suiteview.polview.models.cl_polrec.policy_translations import BENEFIT_TYPE_CODES
-
-            _mf_units = min_face / 1000.0
-            _mf_sub_factor = 1.0 + p.table_rating * 0.25
-            _mf_flat_applied = min_face_prem.flat_rate
-            _mf_step1 = arithmetic_round(min_face_prem.base_rate * _mf_sub_factor, 2)
-            _mf_step2 = _mf_step1 + _mf_flat_applied
-            _mf_step3 = arithmetic_round(_mf_step2 * _mf_units, 2)
-
-            # ── Base coverage entry ─────────────────────────────────────
-            base_benefits = []
-            base_premium = _mf_step3
-
-            # Group riders: BENEFIT riders on the base plancode become
-            # sub-benefits of the base coverage.  COVERAGE/CTR/OTHER
-            # riders become separate coverage entries.
-            cov_entries = []   # non-base coverages
-
-            # Build set of plancodes that have a non-BENEFIT parent rider.
-            # BENEFIT riders on these plancodes will be handled by the inner
-            # loop (grouped as sub-benefits), so skip them in the outer loop.
-            parent_plancodes = {
-                r.plancode.upper() for r in p.riders if r.rider_type != "BENEFIT"
-            }
-
-            for rider in p.riders:
-                r_prem = mf_calc.compute_rider_annual_premium(rider, start_yr)
-                if r_prem <= 0:
-                    continue
-
-                # Skip BENEFIT riders that will be grouped under a parent
-                if (rider.rider_type == "BENEFIT"
-                        and rider.plancode.upper() != p.plan_code.upper()
-                        and rider.plancode.upper() in parent_plancodes):
-                    continue
-
-                is_base_benefit = (
-                    rider.rider_type == "BENEFIT"
-                    and rider.plancode.upper() == p.plan_code.upper()
-                )
-
-                if is_base_benefit:
-                    # Benefit on the base coverage (PW, etc.)
-                    ben_code = f"{rider.benefit_type}{rider.benefit_subtype or ''}"
-                    is_pw = rider.benefit_type in ("3", "4")
-                    pw_factor = 1.0
-                    if is_pw:
-                        if rider.benefit_rating_factor and rider.benefit_rating_factor > 0:
-                            pw_factor = rider.benefit_rating_factor
-                        elif rider.table_rating == 1:
-                            pw_factor = 1.50
-                        elif rider.table_rating == 2:
-                            pw_factor = 2.25
-
-                    # Look up rate for display
-                    ben_rate = None
-                    try:
-                        ben_name = BENEFIT_TYPE_CODES.get(rider.benefit_type, ben_code)
-                        r_band = db.get_band(rider.plancode, rider.face_amount, p.issue_date)
-                        ben_rate = db.get_benefit_rate(
-                            rider.plancode, ben_code, ben_name,
-                            rider.sex, rider.rate_class, r_band,
-                            rider.issue_age, start_yr,
-                        )
-                    except Exception:
-                        pass
-
-                    label = f"PW (Ben {ben_code})" if is_pw else f"Ben {ben_code}"
-                    base_benefits.append({
-                        "label": label,
-                        "rate": ben_rate,
-                        "factor": pw_factor,
-                        "premium": r_prem,
-                    })
-                    base_premium += r_prem
-                else:
-                    # Separate coverage (rider or benefit on different plancode)
-                    r_rate = None
-                    try:
-                        r_band = db.get_band(rider.plancode, rider.face_amount, p.issue_date)
-                        if rider.rider_type == "BENEFIT" and rider.benefit_type:
-                            ben_code = f"{rider.benefit_type}{rider.benefit_subtype or ''}"
-                            ben_name = BENEFIT_TYPE_CODES.get(rider.benefit_type, ben_code)
-                            r_rate = db.get_benefit_rate(
-                                rider.plancode, ben_code, ben_name,
-                                rider.sex, rider.rate_class, r_band,
-                                rider.issue_age, start_yr,
-                            )
-                        else:
-                            r_rate = db.get_term_rate(
-                                rider.plancode, rider.sex, rider.rate_class,
-                                r_band, rider.issue_age, start_yr,
-                            )
-                    except Exception:
-                        pass
-
-                    r_table = rider.table_rating
-                    r_factor = 1.0 + r_table * 0.25
-
-                    # Check for benefits on this rider coverage
-                    rider_benefits = []
-                    # Benefits that share the same plancode but aren't the base
-                    for other_rider in p.riders:
-                        if (other_rider.rider_type == "BENEFIT"
-                                and other_rider.plancode.upper() == rider.plancode.upper()
-                                and rider.rider_type != "BENEFIT"):
-                            o_prem = mf_calc.compute_rider_annual_premium(other_rider, start_yr)
-                            if o_prem > 0:
-                                o_code = f"{other_rider.benefit_type}{other_rider.benefit_subtype or ''}"
-                                is_pw = other_rider.benefit_type in ("3", "4")
-                                o_pw = 1.0
-                                if is_pw:
-                                    if other_rider.benefit_rating_factor and other_rider.benefit_rating_factor > 0:
-                                        o_pw = other_rider.benefit_rating_factor
-                                    elif other_rider.table_rating == 1:
-                                        o_pw = 1.50
-                                    elif other_rider.table_rating == 2:
-                                        o_pw = 2.25
-                                o_rate = None
-                                try:
-                                    o_name = BENEFIT_TYPE_CODES.get(other_rider.benefit_type, o_code)
-                                    o_band = db.get_band(other_rider.plancode, other_rider.face_amount, p.issue_date)
-                                    o_rate = db.get_benefit_rate(
-                                        other_rider.plancode, o_code, o_name,
-                                        other_rider.sex, other_rider.rate_class, o_band,
-                                        other_rider.issue_age, start_yr,
-                                    )
-                                except Exception:
-                                    pass
-                                label = f"PW (Ben {o_code})" if is_pw else f"Ben {o_code}"
-                                rider_benefits.append({
-                                    "label": label,
-                                    "rate": o_rate,
-                                    "factor": o_pw,
-                                    "premium": o_prem,
-                                })
-                                r_prem += o_prem
-
-                    r_band_code = db.get_band(rider.plancode, rider.face_amount, p.issue_date) or ""
-                    cov_entries.append({
-                        "plancode": rider.plancode,
-                        "issue_age": rider.issue_age,
-                        "sex": rider.sex,
-                        "rate_class": rider.rate_class,
-                        "band": r_band_code,
-                        "rate": r_rate or 0,
-                        "table_rating": r_table,
-                        "rating_factor": r_factor,
-                        "flat_extra": 0,
-                        "units": rider.face_amount / 1000.0,
-                        "benefits": rider_benefits,
-                        "premium": r_prem,
-                    })
-
-            # Assemble coverages list: base first, then riders
-            base_rate_sex = (p.rate_sex or p.sex).upper()
-            base_band = db.get_band(p.plan_code, min_face, p.issue_date) or ""
-            coverages = [{
-                "plancode": p.plan_code,
-                "issue_age": p.issue_age,
-                "sex": base_rate_sex,
-                "rate_class": p.rate_class,
-                "band": base_band,
-                "rate": min_face_prem.base_rate,
-                "table_rating": p.table_rating,
-                "rating_factor": _mf_sub_factor,
-                "flat_extra": _mf_flat_applied,
-                "units": _mf_units,
-                "benefits": base_benefits,
-                "premium": base_premium,
-            }] + cov_entries
-
-            partial_prem_breakdown = {
-                "policy_number": p.policy_number,
-                "policy_year": start_yr,
-                "face_amount": min_face,
-                "coverages": coverages,
-                "policy_fee": min_face_prem.policy_fee,
-                "modal_label": MODAL_LABELS.get(p.billing_mode, "Annual"),
-                "modal_factor": modal_factor,
-                "calc_modal": min_face_prem.modal_premium,
-            }
+            partial_prem_breakdown = mf_calc.build_coverage_breakdown(
+                policy_year=start_yr,
+                prem_result=min_face_prem,
+                modal_factor=modal_factor,
+            )
 
             # ── 7. Per diem ─────────────────────────────────────────────
             perdiem = db.get_per_diem(quote_date.year)
@@ -780,19 +656,27 @@ class ABRQuoteWindow(FramelessWindowBase):
                 full_eligible_db=full["eligible_db"],
                 full_actuarial_discount=full["actuarial_discount"],
                 full_admin_fee=full["admin_fee"],
+                full_loan_repayment=full.get("loan_repayment", 0.0),
                 full_accel_benefit=full["accelerated_benefit"],
                 full_benefit_ratio=full["benefit_ratio"],
                 # Partial
                 partial_eligible_db=partial["eligible_db"],
                 partial_actuarial_discount=partial["actuarial_discount"],
                 partial_admin_fee=partial["admin_fee"],
+                partial_loan_repayment=partial.get("loan_repayment", 0.0),
                 partial_accel_benefit=partial["accelerated_benefit"],
                 partial_benefit_ratio=partial["benefit_ratio"],
                 # Premium
-                premium_before=f"${prem_result.modal_premium:,.2f} {modal_label}",
+                premium_before=(
+                    f"${p.monthly_deduction:,.2f}"
+                    if p.product_type in ("UL", "IUL", "ISWL")
+                    else f"${prem_result.modal_premium:,.2f} {modal_label}"
+                ),
                 premium_after_full=0.0,
                 premium_after_partial=(
-                    f"${min_face_prem.modal_premium:,.2f} {modal_label}"
+                    f"${min_face_prem.modal_premium:,.2f}"
+                    if p.product_type in ("UL", "IUL", "ISWL")
+                    else f"${min_face_prem.modal_premium:,.2f} {modal_label}"
                 ),
                 # Details
                 plan_description=PremiumCalculator.get_plan_description(p.plan_code),
@@ -959,6 +843,12 @@ class ABRQuoteWindow(FramelessWindowBase):
             menu.exec(pos)
         else:
             menu.exec(self.mapToGlobal(self.header_bar.pos()))
+
+    def _on_resources(self):
+        """Open the Resources reference dialog."""
+        from .resources_dialog import ResourcesDialog
+        dlg = ResourcesDialog(parent=self)
+        dlg.exec()
 
     def _on_email_print(self):
         """Copy the ABR Quote summary directly to clipboard as HTML + plain text."""

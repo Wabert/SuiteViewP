@@ -724,3 +724,300 @@
 [FILTER]   - init_ui completed: 19.09ms
 [FILTER] TOTAL FilterPopup creation time: 36.34ms
 [FILTER] TOTAL time to open filter box: 51.11ms
+
+[FILTER] FilterPopup.__init__ started for ISSUEDT with 2272 values
+[FILTER]   - Sort 2272 values: 0.80ms
+[FILTER]   - QStringListModel created with 2272 items in 0.56ms
+[FILTER]   - Proxy model created: 0.12ms
+[FILTER]   - QListView created: 0.14ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.28ms
+[FILTER]   - setModel() called AFTER addWidget: 0.13ms
+[FILTER]   - init_ui completed: 7.85ms
+[FILTER] TOTAL FilterPopup creation time: 14.51ms
+[FILTER] TOTAL time to open filter box: 18.87ms
+
+[FILTER] FilterPopup.__init__ started for RGA_IND with 2 values
+[FILTER]   - Sort 2 values: 0.01ms
+[FILTER]   - QStringListModel created with 2 items in 0.01ms
+[FILTER]   - Proxy model created: 0.11ms
+[FILTER]   - QListView created: 0.21ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.18ms
+[FILTER]   - setModel() called AFTER addWidget: 0.06ms
+[FILTER]   - init_ui completed: 5.69ms
+[FILTER] TOTAL FilterPopup creation time: 7.55ms
+[FILTER] TOTAL time to open filter box: 9.09ms
+
+[FILTER] FilterPopup.__init__ started for AGENTCODE with 3 values
+[FILTER]   - Sort 3 values: 0.02ms
+[FILTER]   - QStringListModel created with 3 items in 0.01ms
+[FILTER]   - Proxy model created: 0.14ms
+[FILTER]   - QListView created: 0.23ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.17ms
+[FILTER]   - setModel() called AFTER addWidget: 0.10ms
+[FILTER]   - init_ui completed: 7.38ms
+[FILTER] TOTAL FilterPopup creation time: 10.29ms
+[FILTER] TOTAL time to open filter box: 14.58ms
+
+[FILTER] FilterPopup.__init__ started for AGENTCODE with 3 values
+[FILTER]   - Sort 3 values: 0.02ms
+[FILTER]   - QStringListModel created with 3 items in 0.02ms
+[FILTER]   - Proxy model created: 0.11ms
+[FILTER]   - QListView created: 0.23ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.18ms
+[FILTER]   - setModel() called AFTER addWidget: 0.09ms
+[FILTER]   - init_ui completed: 6.62ms
+[FILTER] TOTAL FilterPopup creation time: 9.30ms
+[FILTER] TOTAL time to open filter box: 12.09ms
+
+[FILTER] FilterPopup.__init__ started for AGENTCODE with 3 values
+[FILTER]   - Sort 3 values: 0.01ms
+[FILTER]   - QStringListModel created with 3 items in 0.02ms
+[FILTER]   - Proxy model created: 0.11ms
+[FILTER]   - QListView created: 0.14ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.14ms
+[FILTER]   - setModel() called AFTER addWidget: 0.05ms
+[FILTER]   - init_ui completed: 5.36ms
+[FILTER] TOTAL FilterPopup creation time: 7.44ms
+[FILTER] TOTAL time to open filter box: 9.68ms
+
+[FILTER] FilterPopup.__init__ started for AGENTCODE with 3 values
+[FILTER]   - Sort 3 values: 0.03ms
+[FILTER]   - QStringListModel created with 3 items in 0.01ms
+[FILTER]   - Proxy model created: 0.08ms
+[FILTER]   - QListView created: 0.13ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.14ms
+[FILTER]   - setModel() called AFTER addWidget: 0.06ms
+[FILTER]   - init_ui completed: 5.67ms
+[FILTER] TOTAL FilterPopup creation time: 8.69ms
+[FILTER] TOTAL time to open filter box: 9.60ms
+
+[FILTER] FilterPopup.__init__ started for ISSUEDT with 25260 values
+[FILTER]   - Sort 25260 values: 7.50ms
+[FILTER]   - QStringListModel created with 25260 items in 2.03ms
+[FILTER]   - Proxy model created: 0.08ms
+[FILTER]   - QListView created: 0.19ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.13ms
+[FILTER]   - setModel() called AFTER addWidget: 0.37ms
+[FILTER]   - init_ui completed: 9.21ms
+[FILTER] TOTAL FilterPopup creation time: 23.72ms
+[FILTER] TOTAL time to open filter box: 60.63ms
+
+[FILTER] FilterPopup.__init__ started for ISSUEDT with 25260 values
+[FILTER]   - Sort 25260 values: 9.58ms
+[FILTER]   - QStringListModel created with 25260 items in 1.84ms
+[FILTER]   - Proxy model created: 0.07ms
+[FILTER]   - QListView created: 0.11ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.14ms
+[FILTER]   - setModel() called AFTER addWidget: 0.36ms
+[FILTER]   - init_ui completed: 8.51ms
+[FILTER] TOTAL FilterPopup creation time: 21.44ms
+[FILTER] TOTAL time to open filter box: 22.10ms
+
+[FILTER] FilterPopup.__init__ started for PLANCODE with 1030 values
+[FILTER]   - Sort 1030 values: 0.32ms
+[FILTER]   - QStringListModel created with 1030 items in 0.11ms
+[FILTER]   - Proxy model created: 0.07ms
+[FILTER]   - QListView created: 0.09ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.13ms
+[FILTER]   - setModel() called AFTER addWidget: 0.07ms
+[FILTER]   - init_ui completed: 5.04ms
+[FILTER] TOTAL FilterPopup creation time: 7.34ms
+[FILTER] TOTAL time to open filter box: 37.93ms
+
+[FILTER] FilterPopup.__init__ started for RGA_IND with 3 values
+[FILTER]   - Sort 3 values: 0.01ms
+[FILTER]   - QStringListModel created with 3 items in 0.01ms
+[FILTER]   - Proxy model created: 0.07ms
+[FILTER]   - QListView created: 0.15ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.20ms
+[FILTER]   - setModel() called AFTER addWidget: 0.04ms
+[FILTER]   - init_ui completed: 5.08ms
+[FILTER] TOTAL FilterPopup creation time: 6.90ms
+[FILTER] TOTAL time to open filter box: 18.67ms
+
+[FILTER] FilterPopup.__init__ started for FromDt with 402 values
+[FILTER]   - Sort 402 values: 0.10ms
+[FILTER]   - QStringListModel created with 402 items in 0.10ms
+[FILTER]   - Proxy model created: 0.07ms
+[FILTER]   - QListView created: 0.09ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.15ms
+[FILTER]   - setModel() called AFTER addWidget: 0.06ms
+[FILTER]   - init_ui completed: 4.34ms
+[FILTER] TOTAL FilterPopup creation time: 6.83ms
+[FILTER] TOTAL time to open filter box: 31.20ms
+
+[FILTER] FilterPopup.__init__ started for POLICYNUMBER with 32908 values
+[FILTER]   - Sort 32908 values: 3.79ms
+[FILTER]   - QStringListModel created with 32908 items in 2.37ms
+[FILTER]   - Proxy model created: 0.09ms
+[FILTER]   - QListView created: 0.13ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.13ms
+[FILTER]   - setModel() called AFTER addWidget: 0.44ms
+[FILTER]   - init_ui completed: 10.17ms
+[FILTER] TOTAL FilterPopup creation time: 18.03ms
+[FILTER] TOTAL time to open filter box: 24.42ms
+
+[FILTER] FilterPopup.__init__ started for Pol with 12 values
+[FILTER]   - Sort 12 values: 0.01ms
+[FILTER]   - QStringListModel created with 12 items in 0.01ms
+[FILTER]   - Proxy model created: 0.07ms
+[FILTER]   - QListView created: 0.08ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.13ms
+[FILTER]   - setModel() called AFTER addWidget: 0.05ms
+[FILTER]   - init_ui completed: 4.05ms
+[FILTER] TOTAL FilterPopup creation time: 6.23ms
+[FILTER] TOTAL time to open filter box: 7.26ms
+
+[FILTER] FilterPopup.__init__ started for Pol with 12 values
+[FILTER]   - Sort 12 values: 0.01ms
+[FILTER]   - QStringListModel created with 12 items in 0.01ms
+[FILTER]   - Proxy model created: 0.08ms
+[FILTER]   - QListView created: 0.07ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.15ms
+[FILTER]   - setModel() called AFTER addWidget: 0.04ms
+[FILTER]   - init_ui completed: 5.03ms
+[FILTER] TOTAL FilterPopup creation time: 7.17ms
+[FILTER] TOTAL time to open filter box: 8.25ms
+
+[FILTER] FilterPopup.__init__ started for Cov with 2 values
+[FILTER]   - Sort 2 values: 0.01ms
+[FILTER]   - QStringListModel created with 2 items in 0.05ms
+[FILTER]   - Proxy model created: 0.07ms
+[FILTER]   - QListView created: 0.10ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.13ms
+[FILTER]   - setModel() called AFTER addWidget: 0.06ms
+[FILTER]   - init_ui completed: 4.37ms
+[FILTER] TOTAL FilterPopup creation time: 6.92ms
+[FILTER] TOTAL time to open filter box: 9.46ms
+
+[FILTER] FilterPopup.__init__ started for Cov with 2 values
+[FILTER]   - Sort 2 values: 0.01ms
+[FILTER]   - QStringListModel created with 2 items in 0.01ms
+[FILTER]   - Proxy model created: 0.07ms
+[FILTER]   - QListView created: 0.09ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.17ms
+[FILTER]   - setModel() called AFTER addWidget: 0.04ms
+[FILTER]   - init_ui completed: 4.09ms
+[FILTER] TOTAL FilterPopup creation time: 6.39ms
+[FILTER] TOTAL time to open filter box: 7.27ms
+
+[FILTER] FilterPopup.__init__ started for Pol with 24 values
+[FILTER]   - Sort 24 values: 0.02ms
+[FILTER]   - QStringListModel created with 24 items in 0.01ms
+[FILTER]   - Proxy model created: 0.07ms
+[FILTER]   - QListView created: 0.16ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.17ms
+[FILTER]   - setModel() called AFTER addWidget: 0.04ms
+[FILTER]   - init_ui completed: 4.44ms
+[FILTER] TOTAL FilterPopup creation time: 6.99ms
+[FILTER] TOTAL time to open filter box: 7.80ms
+
+[FILTER] FilterPopup.__init__ started for monthEnd with 1 values
+[FILTER]   - Sort 1 values: 0.01ms
+[FILTER]   - QStringListModel created with 1 items in 0.01ms
+[FILTER]   - Proxy model created: 0.06ms
+[FILTER]   - QListView created: 0.08ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.13ms
+[FILTER]   - setModel() called AFTER addWidget: 0.04ms
+[FILTER]   - init_ui completed: 4.21ms
+[FILTER] TOTAL FilterPopup creation time: 6.04ms
+[FILTER] TOTAL time to open filter box: 6.87ms
+
+[FILTER] FilterPopup.__init__ started for Prem2 with 1 values
+[FILTER]   - Sort 1 values: 0.02ms
+[FILTER]   - QStringListModel created with 1 items in 0.06ms
+[FILTER]   - Proxy model created: 0.08ms
+[FILTER]   - QListView created: 0.09ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.13ms
+[FILTER]   - setModel() called AFTER addWidget: 0.05ms
+[FILTER]   - init_ui completed: 4.96ms
+[FILTER] TOTAL FilterPopup creation time: 7.84ms
+[FILTER] TOTAL time to open filter box: 9.09ms
+
+[FILTER] FilterPopup.__init__ started for Prem3 with 2 values
+[FILTER]   - Sort 2 values: 0.02ms
+[FILTER]   - QStringListModel created with 2 items in 0.01ms
+[FILTER]   - Proxy model created: 0.07ms
+[FILTER]   - QListView created: 0.10ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.14ms
+[FILTER]   - setModel() called AFTER addWidget: 0.05ms
+[FILTER]   - init_ui completed: 4.61ms
+[FILTER] TOTAL FilterPopup creation time: 6.77ms
+[FILTER] TOTAL time to open filter box: 7.55ms
+
+[FILTER] FilterPopup.__init__ started for Prem3 with 2 values
+[FILTER]   - Sort 2 values: 0.02ms
+[FILTER]   - QStringListModel created with 2 items in 0.01ms
+[FILTER]   - Proxy model created: 0.06ms
+[FILTER]   - QListView created: 0.07ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.13ms
+[FILTER]   - setModel() called AFTER addWidget: 0.04ms
+[FILTER]   - init_ui completed: 4.21ms
+[FILTER] TOTAL FilterPopup creation time: 6.44ms
+[FILTER] TOTAL time to open filter box: 7.03ms
+
+[FILTER] FilterPopup.__init__ started for Domain with 15 values
+[FILTER]   - Sort 15 values: 0.01ms
+[FILTER]   - QStringListModel created with 15 items in 0.06ms
+[FILTER]   - Proxy model created: 0.08ms
+[FILTER]   - QListView created: 0.08ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.13ms
+[FILTER]   - setModel() called AFTER addWidget: 0.05ms
+[FILTER]   - init_ui completed: 4.22ms
+[FILTER] TOTAL FilterPopup creation time: 5.80ms
+[FILTER] TOTAL time to open filter box: 8.75ms
+
+[FILTER] FilterPopup.__init__ started for Plan with 432 values
+[FILTER]   - Sort 432 values: 0.10ms
+[FILTER]   - QStringListModel created with 432 items in 0.42ms
+[FILTER]   - Proxy model created: 0.32ms
+[FILTER]   - QListView created: 0.36ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.14ms
+[FILTER]   - setModel() called AFTER addWidget: 0.23ms
+[FILTER]   - init_ui completed: 5.88ms
+[FILTER] TOTAL FilterPopup creation time: 8.80ms
+[FILTER] TOTAL time to open filter box: 22.22ms
+
+[FILTER] FilterPopup.__init__ started for ISSUEDT with 87 values
+[FILTER]   - Sort 87 values: 0.05ms
+[FILTER]   - QStringListModel created with 87 items in 0.46ms
+[FILTER]   - Proxy model created: 0.36ms
+[FILTER]   - QListView created: 0.41ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.14ms
+[FILTER]   - setModel() called AFTER addWidget: 0.39ms
+[FILTER]   - init_ui completed: 7.67ms
+[FILTER] TOTAL FilterPopup creation time: 10.46ms
+[FILTER] TOTAL time to open filter box: 13.59ms
+
+[FILTER] FilterPopup.__init__ started for ISSUEDT with 1074 values
+[FILTER]   - Sort 1074 values: 0.29ms
+[FILTER]   - QStringListModel created with 1074 items in 1.38ms
+[FILTER]   - Proxy model created: 0.57ms
+[FILTER]   - QListView created: 0.80ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.24ms
+[FILTER]   - setModel() called AFTER addWidget: 0.81ms
+[FILTER]   - init_ui completed: 12.19ms
+[FILTER] TOTAL FilterPopup creation time: 16.36ms
+[FILTER] TOTAL time to open filter box: 22.33ms
+
+[FILTER] FilterPopup.__init__ started for ISSUEDT with 1074 values
+[FILTER]   - Sort 1074 values: 0.46ms
+[FILTER]   - QStringListModel created with 1074 items in 0.10ms
+[FILTER]   - Proxy model created: 0.09ms
+[FILTER]   - QListView created: 0.17ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.21ms
+[FILTER]   - setModel() called AFTER addWidget: 0.08ms
+[FILTER]   - init_ui completed: 6.23ms
+[FILTER] TOTAL FilterPopup creation time: 9.58ms
+[FILTER] TOTAL time to open filter box: 10.76ms
+
+[FILTER] FilterPopup.__init__ started for ISSUEDT with 1074 values
+[FILTER]   - Sort 1074 values: 0.46ms
+[FILTER]   - QStringListModel created with 1074 items in 0.18ms
+[FILTER]   - Proxy model created: 0.17ms
+[FILTER]   - QListView created: 0.27ms
+[FILTER]   - addWidget(empty list_view) to layout: 0.16ms
+[FILTER]   - setModel() called AFTER addWidget: 0.09ms
+[FILTER]   - init_ui completed: 8.91ms
+[FILTER] TOTAL FilterPopup creation time: 13.11ms
+[FILTER] TOTAL time to open filter box: 14.23ms

@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QEventLoop, QUrl
 from PyQt6.QtGui import QFont, QTextCursor, QColor, QTextCharFormat, QKeyEvent, QKeySequence, QDesktopServices
 
-from suiteview.core.tn3270 import TN3270Client, Screen, AID
+from suiteview.mainframe_nav.tn3270 import TN3270Client, Screen, AID
 
 logger = logging.getLogger(__name__)
 

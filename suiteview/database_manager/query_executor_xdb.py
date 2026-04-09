@@ -10,7 +10,7 @@ from typing import Dict, List, Any, Optional, Tuple
 import pandas as pd
 from pathlib import Path
 
-from suiteview.core.xdb_engine import XDBEngine, SourceConfig, JoinConfig, get_xdb_engine
+from suiteview.database_manager.xdb_engine import XDBEngine, SourceConfig, JoinConfig, get_xdb_engine
 
 logger = logging.getLogger(__name__)
 

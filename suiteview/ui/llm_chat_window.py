@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QSize
 from PyQt6.QtGui import QFont, QTextCursor, QIcon, QAction, QColor, QPalette
 
-from suiteview.core.llm_client import (
+from suiteview.llm.llm_client import (
     LLMClient, MockLLMClient, Conversation, ChatMessage, 
     MessageRole, get_llm_client, VSCodeBridgeClient,
     AgentResponseWatcher, GitHubDirectClient, ClientType

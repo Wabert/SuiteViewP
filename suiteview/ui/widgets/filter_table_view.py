@@ -269,6 +269,8 @@ class PandasTableModel(QAbstractTableModel):
             return str(value)
 
         if role == Qt.ItemDataRole.TextAlignmentRole:
+            if hasattr(self, '_left_align_columns') and index.column() in self._left_align_columns:
+                return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         return None
@@ -1240,18 +1242,25 @@ class FilterTableView(QWidget):
             
             menu.addSeparator()
         
-        # Copy Entire Table action (always available)
-        copy_table_action = QAction("📋 Copy Entire Table", self)
-        copy_table_action.triggered.connect(self.copy_entire_table)
-        menu.addAction(copy_table_action)
-        
-        # Copy Visible Table action (when filters are active)
+        # Check if filters are active
         display_rows = len(self.model.get_display_data())
         total_rows = len(self.df)
-        if display_rows != total_rows:
-            copy_visible_action = QAction(f"📋 Copy Filtered Table ({display_rows:,} rows)", self)
-            copy_visible_action.triggered.connect(self.copy_filtered_table)
-            menu.addAction(copy_visible_action)
+        is_filtered = display_rows != total_rows
+
+        if is_filtered:
+            # Default copy action copies filtered data when filters are active
+            copy_table_action = QAction(f"📋 Copy Table ({display_rows:,} filtered rows)", self)
+            copy_table_action.triggered.connect(self.copy_filtered_table)
+            menu.addAction(copy_table_action)
+            menu.addSeparator()
+            # Offer full table as secondary option
+            copy_all_action = QAction(f"📋 Copy All Rows ({total_rows:,} unfiltered)", self)
+            copy_all_action.triggered.connect(self.copy_entire_table)
+            menu.addAction(copy_all_action)
+        else:
+            copy_table_action = QAction("📋 Copy Entire Table", self)
+            copy_table_action.triggered.connect(self.copy_entire_table)
+            menu.addAction(copy_table_action)
         
         menu.exec(self.table_view.viewport().mapToGlobal(pos))
     

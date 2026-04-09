@@ -224,11 +224,39 @@ class MessageInbox(QFrame):
         outer.setContentsMargins(6, 6, 6, 6)
         outer.setSpacing(3)
 
-        # Title
+        # Title row
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(4)
+
         title = QLabel("📨  Messages")
         title.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         title.setStyleSheet("color: #FFD700; background: transparent;")
-        outer.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addStretch()
+
+        # Folder link button — opens the user's inbox JSON folder
+        from suiteview.messaging.message_service import SHARED_MSG_ROOT, _username
+        import os as _os
+        _inbox_folder = str(SHARED_MSG_ROOT / _username())
+        folder_btn = QPushButton("📁")
+        folder_btn.setFixedSize(20, 20)
+        folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        folder_btn.setToolTip(f"Open inbox folder\n{_inbox_folder}")
+        folder_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent; color: #D4A017;
+                border: none; font-size: 12px; padding: 0;
+            }
+            QPushButton:hover { color: #FFD700; }
+        """)
+        folder_btn.clicked.connect(
+            lambda: _os.startfile(_inbox_folder)
+                    if _os.path.isdir(_inbox_folder)
+                    else None)
+        title_row.addWidget(folder_btn)
+
+        outer.addLayout(title_row)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)

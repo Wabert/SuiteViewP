@@ -40,7 +40,7 @@
 
 ### Phase 2: Wire Up Launch Points
 
-6. ✅ **Registered in `FileExplorerMultiTab`**:
+6. ✅ **Registered in `SuiteViewTaskbar`**:
    - `self.polview_window = None` attribute
    - `_open_polview()` method with lazy import + `_setup_child_window()`
    - Green "P" button in header bar (next to screenshot button) — green background `#2E7D32`, gold border `#D4A017`, gold "P" text

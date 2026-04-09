@@ -111,7 +111,7 @@ from typing import Optional
 from suiteview.data.repositories import (ConnectionRepository, get_query_repository, 
                                          get_saved_table_repository, SavedTableRepository)
 from suiteview.core.schema_discovery import SchemaDiscovery
-from suiteview.core.query_executor_xdb import XDBQueryExecutor
+from suiteview.database_manager.query_executor_xdb import XDBQueryExecutor
 from suiteview.ui.dialogs.query_results_dialog import QueryResultsDialog
 from suiteview.ui.widgets import CascadingMenuWidget
 from suiteview.ui import theme

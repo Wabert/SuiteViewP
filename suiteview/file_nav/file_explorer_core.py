@@ -3339,7 +3339,7 @@ class FileExplorerCore(QWidget):
     
     def _emit_send(self, file_path: str, recipient: str):
         """Send a file link directly to the recipient's shared folder."""
-        from suiteview.messaging.message_service import SHARED_MSG_ROOT, _username
+        from suiteview.messaging.message_service import SHARED_MSG_ROOT, _username, _portable_path
         from suiteview.ui.widgets.bookmark_widgets import update_footer_status
         import json as _json
         from datetime import datetime
@@ -3358,7 +3358,7 @@ class FileExplorerCore(QWidget):
             "from_display": user,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "type": "file_link",
-            "path": file_path,
+            "path": _portable_path(file_path),
             "note": "",
         }
         try:
