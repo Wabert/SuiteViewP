@@ -264,6 +264,7 @@ class ABRQuoteResult:
     full_loan_repayment: float = 0.0
     full_accel_benefit: float = 0.0
     full_benefit_ratio: float = 0.0
+    full_surrender_value: float = 0.0     # UL/IUL/ISWL: surrender/cash value
 
     # Max Partial Acceleration
     partial_eligible_db: float = 0.0
@@ -272,6 +273,7 @@ class ABRQuoteResult:
     partial_loan_repayment: float = 0.0
     partial_accel_benefit: float = 0.0
     partial_benefit_ratio: float = 0.0
+    partial_surrender_value: float = 0.0  # UL/IUL/ISWL: prorated surrender value
 
     # Premium info
     premium_before: str = ""          # e.g. "59.18 Monthly"

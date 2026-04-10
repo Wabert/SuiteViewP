@@ -812,7 +812,7 @@ class AssessmentPanel(QWidget):
         divider.setFixedHeight(2)
         full_grid.addWidget(divider, 4, 0, 1, 2)
 
-        lbl_ab = QLabel("Accelerated Benefit:")
+        lbl_ab = QLabel("Calculated Benefit:")
         lbl_ab.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
         full_grid.addWidget(lbl_ab, 5, 0, Qt.AlignmentFlag.AlignRight)
 
@@ -827,11 +827,32 @@ class AssessmentPanel(QWidget):
         self.res_full_ratio_label.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT}; font-weight: bold;")
         full_grid.addWidget(self.res_full_ratio_label, 6, 1, Qt.AlignmentFlag.AlignLeft)
 
+        # Surrender Value row (visible only for UL/IUL/ISWL with surrender value)
+        self._full_sv_lbl = QLabel("Surrender Value:")
+        self._full_sv_lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
+        full_grid.addWidget(self._full_sv_lbl, 7, 0, Qt.AlignmentFlag.AlignRight)
+        self._res_full_labels["surrender_value"] = QLabel("\u2014")
+        self._res_full_labels["surrender_value"].setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
+        self._res_full_labels["surrender_value"].setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        full_grid.addWidget(self._res_full_labels["surrender_value"], 7, 1, Qt.AlignmentFlag.AlignLeft)
+        self._full_sv_lbl.setVisible(False)
+        self._res_full_labels["surrender_value"].setVisible(False)
+
+        # Accelerated Benefit row (max of calc benefit and surrender, UL only)
+        self._full_accel_lbl = QLabel("Accelerated Benefit:")
+        self._full_accel_lbl.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
+        full_grid.addWidget(self._full_accel_lbl, 8, 0, Qt.AlignmentFlag.AlignRight)
+        self.res_full_accel_benefit_label = QLabel("\u2014")
+        self.res_full_accel_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
+        full_grid.addWidget(self.res_full_accel_benefit_label, 8, 1, Qt.AlignmentFlag.AlignLeft)
+        self._full_accel_lbl.setVisible(False)
+        self.res_full_accel_benefit_label.setVisible(False)
+
         # ── Vertical separator between main values and APV block ────────
         vsep_full = QFrame()
         vsep_full.setFrameShape(QFrame.Shape.VLine)
         vsep_full.setStyleSheet(f"color: {GRAY_MID}; background: {GRAY_MID};")
-        full_grid.addWidget(vsep_full, 0, 2, 7, 1)
+        full_grid.addWidget(vsep_full, 0, 2, 9, 1)
 
         # APV component labels — right column (cols 3 & 4)
         apv_lbl_style = f"font-size: 11px; color: {GRAY_DARK};"
@@ -854,6 +875,20 @@ class AssessmentPanel(QWidget):
         full_grid.setColumnStretch(1, 2)
         full_grid.setColumnStretch(4, 2)
         layout.addWidget(self.res_full_group)
+
+        # ── Min Face Amount input ───────────────────────────────────────
+        min_face_row = QHBoxLayout()
+        min_face_row.setContentsMargins(0, 2, 0, 2)
+        lbl_min_face = QLabel("Min Face Amount:")
+        lbl_min_face.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {CRIMSON_DARK};")
+        min_face_row.addWidget(lbl_min_face)
+        self._min_face_input = QLineEdit()
+        self._min_face_input.setStyleSheet(INPUT_STYLE)
+        self._min_face_input.setFixedWidth(120)
+        self._min_face_input.setText("50,000")
+        min_face_row.addWidget(self._min_face_input)
+        min_face_row.addStretch()
+        layout.addLayout(min_face_row)
 
         # ── Max Partial Acceleration ────────────────────────────────────
         self.res_partial_group = QGroupBox("Max Partial Acceleration")
@@ -898,7 +933,7 @@ class AssessmentPanel(QWidget):
         partial_grid.addWidget(divider2, 4, 0, 1, 2)
         self._res_partial_static_widgets.append(divider2)
 
-        lbl_pab = QLabel("Accelerated Benefit:")
+        lbl_pab = QLabel("Calculated Benefit:")
         lbl_pab.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
         partial_grid.addWidget(lbl_pab, 5, 0, Qt.AlignmentFlag.AlignRight)
         self._res_partial_static_widgets.append(lbl_pab)
@@ -915,11 +950,34 @@ class AssessmentPanel(QWidget):
         self.res_partial_ratio_label.setStyleSheet(f"font-size: 10px; color: {GRAY_TEXT}; font-weight: bold;")
         partial_grid.addWidget(self.res_partial_ratio_label, 6, 1, Qt.AlignmentFlag.AlignLeft)
 
+        # Surrender Value row (visible only for UL/IUL/ISWL with surrender value)
+        self._partial_sv_lbl = QLabel("Surrender Value:")
+        self._partial_sv_lbl.setStyleSheet(f"font-size: 11px; color: {GRAY_DARK};")
+        partial_grid.addWidget(self._partial_sv_lbl, 7, 0, Qt.AlignmentFlag.AlignRight)
+        self._res_partial_labels["surrender_value"] = QLabel("\u2014")
+        self._res_partial_labels["surrender_value"].setStyleSheet(f"font-size: 11px; color: {GRAY_DARK}; font-weight: bold;")
+        self._res_partial_labels["surrender_value"].setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        partial_grid.addWidget(self._res_partial_labels["surrender_value"], 7, 1, Qt.AlignmentFlag.AlignLeft)
+        self._partial_sv_lbl.setVisible(False)
+        self._res_partial_labels["surrender_value"].setVisible(False)
+        self._res_partial_static_widgets.append(self._partial_sv_lbl)
+
+        # Accelerated Benefit row (max of calc benefit and surrender, UL only)
+        self._partial_accel_lbl = QLabel("Accelerated Benefit:")
+        self._partial_accel_lbl.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {CRIMSON_DARK};")
+        partial_grid.addWidget(self._partial_accel_lbl, 8, 0, Qt.AlignmentFlag.AlignRight)
+        self.res_partial_accel_benefit_label = QLabel("\u2014")
+        self.res_partial_accel_benefit_label.setStyleSheet(LABEL_MONEY_LARGE_STYLE)
+        partial_grid.addWidget(self.res_partial_accel_benefit_label, 8, 1, Qt.AlignmentFlag.AlignLeft)
+        self._partial_accel_lbl.setVisible(False)
+        self.res_partial_accel_benefit_label.setVisible(False)
+        self._res_partial_static_widgets.append(self._partial_accel_lbl)
+
         # ── Vertical separator between main values and APV block ────────
         vsep_partial = QFrame()
         vsep_partial.setFrameShape(QFrame.Shape.VLine)
         vsep_partial.setStyleSheet(f"color: {GRAY_MID}; background: {GRAY_MID};")
-        partial_grid.addWidget(vsep_partial, 0, 2, 7, 1)
+        partial_grid.addWidget(vsep_partial, 0, 2, 9, 1)
         self._res_partial_static_widgets.append(vsep_partial)
 
         # APV component labels — right column (cols 3 & 4)
@@ -950,7 +1008,7 @@ class AssessmentPanel(QWidget):
         )
         self._partial_not_allowed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._partial_not_allowed_label.setVisible(False)
-        partial_grid.addWidget(self._partial_not_allowed_label, 0, 0, 7, 5)
+        partial_grid.addWidget(self._partial_not_allowed_label, 0, 0, 9, 5)
 
         partial_grid.setColumnStretch(1, 2)
         partial_grid.setColumnStretch(4, 2)
@@ -1061,6 +1119,18 @@ class AssessmentPanel(QWidget):
             self.res_full_benefit_label.setText(self._fmt_money(result.full_accel_benefit))
         self.res_full_ratio_label.setText(f"{result.full_benefit_ratio * 100:.2f}%")
 
+        # Surrender Value and Accelerated Benefit rows (UL/IUL/ISWL only)
+        has_sv = result.full_surrender_value > 0
+        self._full_sv_lbl.setVisible(has_sv)
+        self._res_full_labels["surrender_value"].setVisible(has_sv)
+        self._full_accel_lbl.setVisible(has_sv)
+        self.res_full_accel_benefit_label.setVisible(has_sv)
+        if has_sv:
+            self._res_full_labels["surrender_value"].setText(self._fmt_money(result.full_surrender_value))
+            calc_benefit = max(0.0, result.full_accel_benefit)
+            accel_benefit = max(calc_benefit, result.full_surrender_value)
+            self.res_full_accel_benefit_label.setText(self._fmt_money(accel_benefit))
+
         # Full APV components
         self._res_full_apv_labels["apv_fb"].setText(self._fmt_money(result.apv_fb))
         self._res_full_apv_labels["apv_fp"].setText(self._fmt_money(result.apv_fp))
@@ -1069,19 +1139,29 @@ class AssessmentPanel(QWidget):
         # Partial acceleration — check if at minimum face
         at_min_face = result.partial_eligible_db <= 0
         has_partial_loan = result.partial_loan_repayment > 0
+        has_partial_sv = result.partial_surrender_value > 0
         self._partial_not_allowed_label.setVisible(at_min_face)
         # Hide/show the normal partial detail widgets
         for w in self._res_partial_static_widgets:
-            w.setVisible(not at_min_face)
+            # Surrender-value and accel-benefit labels are in static widgets
+            # but need special visibility handling
+            if w in (self._partial_sv_lbl, self._partial_accel_lbl):
+                w.setVisible(not at_min_face and has_partial_sv)
+            else:
+                w.setVisible(not at_min_face)
         for key, val in self._res_partial_labels.items():
             if key == "loan_repayment":
                 val.setVisible(not at_min_face and has_partial_loan)
+            elif key == "surrender_value":
+                val.setVisible(not at_min_face and has_partial_sv)
             else:
                 val.setVisible(not at_min_face)
         # Also control loan label visibility
         self._partial_loan_lbl.setVisible(not at_min_face and has_partial_loan)
+        self._partial_sv_lbl.setVisible(not at_min_face and has_partial_sv)
         self.res_partial_benefit_label.setVisible(not at_min_face)
         self.res_partial_ratio_label.setVisible(not at_min_face)
+        self.res_partial_accel_benefit_label.setVisible(not at_min_face and has_partial_sv)
         for val in self._res_partial_apv_labels.values():
             val.setVisible(not at_min_face)
 
@@ -1100,6 +1180,13 @@ class AssessmentPanel(QWidget):
             else:
                 self.res_partial_benefit_label.setText(self._fmt_money(result.partial_accel_benefit))
             self.res_partial_ratio_label.setText(f"{result.partial_benefit_ratio * 100:.2f}%")
+
+            # Surrender Value and Accelerated Benefit for partial
+            if has_partial_sv:
+                self._res_partial_labels["surrender_value"].setText(self._fmt_money(result.partial_surrender_value))
+                calc_benefit = max(0.0, result.partial_accel_benefit)
+                accel_benefit = max(calc_benefit, result.partial_surrender_value)
+                self.res_partial_accel_benefit_label.setText(self._fmt_money(accel_benefit))
 
             # Partial APV components (proportionally scaled)
             if result.full_eligible_db > 0:
@@ -1196,17 +1283,19 @@ class AssessmentPanel(QWidget):
             return
 
         max_partial_eligible = result.partial_eligible_db
+        warning_msg = ""
         if (max_partial_eligible > 0
                 and custom_face > max_partial_eligible
                 and abs(custom_face - total_face) >= 0.01):
-            self.res_messages_label.setText(
+            warning_msg = (
                 f"\u2022 Accelerating this amount would drop the face below the "
                 f"minimum. Max partial eligible is ${max_partial_eligible:,.2f}."
             )
-            return
 
         # Clear any prior validation message
-        if result.messages:
+        if warning_msg:
+            self.res_messages_label.setText(warning_msg)
+        elif result.messages:
             bullets = "\n\n".join(f"\u2022 {m}" for m in result.messages)
             self.res_messages_label.setText(bullets)
         else:
@@ -1240,7 +1329,14 @@ class AssessmentPanel(QWidget):
         else:
             new_benefit = round(custom_face - new_discount - admin_fee, 2)
 
-        new_ratio = new_benefit / custom_face if custom_face > 0 else 0.0
+        # Surrender value — proportionally scaled
+        orig_sv = result.full_surrender_value
+        if orig_eligible > 0 and orig_sv > 0:
+            new_sv = round(orig_sv * ratio, 2)
+        else:
+            new_sv = 0.0
+
+        new_ratio = max(0.0, new_benefit) / custom_face if custom_face > 0 else 0.0
 
         self._res_full_labels["eligible_db"].setText(self._fmt_money(custom_face))
         self._res_full_labels["actuarial_discount"].setText(self._fmt_money(new_discount))
@@ -1253,6 +1349,18 @@ class AssessmentPanel(QWidget):
         else:
             self.res_full_benefit_label.setText(self._fmt_money(new_benefit))
         self.res_full_ratio_label.setText(f"{new_ratio * 100:.2f}%")
+
+        # Surrender Value and Accelerated Benefit — proportionally scaled
+        has_sv = new_sv > 0
+        self._full_sv_lbl.setVisible(has_sv)
+        self._res_full_labels["surrender_value"].setVisible(has_sv)
+        self._full_accel_lbl.setVisible(has_sv)
+        self.res_full_accel_benefit_label.setVisible(has_sv)
+        if has_sv:
+            self._res_full_labels["surrender_value"].setText(self._fmt_money(new_sv))
+            calc_benefit = max(0.0, new_benefit)
+            accel_benefit = max(calc_benefit, new_sv)
+            self.res_full_accel_benefit_label.setText(self._fmt_money(accel_benefit))
 
         # APV components — proportionally scaled
         if orig_eligible > 0:
@@ -1361,6 +1469,17 @@ class AssessmentPanel(QWidget):
         self.res_full_ratio_label.setText("\u2014")
         self.res_partial_benefit_label.setText("\u2014")
         self.res_partial_ratio_label.setText("\u2014")
+        # Reset surrender value / accel benefit labels
+        self.res_full_accel_benefit_label.setText("\u2014")
+        self.res_partial_accel_benefit_label.setText("\u2014")
+        self._full_sv_lbl.setVisible(False)
+        self._res_full_labels["surrender_value"].setVisible(False)
+        self._full_accel_lbl.setVisible(False)
+        self.res_full_accel_benefit_label.setVisible(False)
+        self._partial_sv_lbl.setVisible(False)
+        self._res_partial_labels["surrender_value"].setVisible(False)
+        self._partial_accel_lbl.setVisible(False)
+        self.res_partial_accel_benefit_label.setVisible(False)
         # APV labels
         for lbl_dict in (self._res_full_apv_labels, self._res_partial_apv_labels):
             for val in lbl_dict.values():
@@ -1431,6 +1550,10 @@ class AssessmentPanel(QWidget):
             return
         r = self._result
         p = self._policy
+        full_calc = max(0.0, r.full_accel_benefit)
+        full_accel = max(full_calc, r.full_surrender_value) if r.full_surrender_value > 0 else full_calc
+        partial_calc = max(0.0, r.partial_accel_benefit)
+        partial_accel = max(partial_calc, r.partial_surrender_value) if r.partial_surrender_value > 0 else partial_calc
         lines = [
             "ABR QUOTE SUMMARY",
             f"Policy: {p.policy_number if p else 'N/A'}",
@@ -1440,15 +1563,37 @@ class AssessmentPanel(QWidget):
             f"  Eligible DB:        {self._fmt_money(r.full_eligible_db)}",
             f"  Actuarial Discount: {self._fmt_money(r.full_actuarial_discount)}",
             f"  Admin Fee:          {self._fmt_money(r.full_admin_fee)}",
-            f"  Accel. Benefit:     {self._fmt_money(max(0, r.full_accel_benefit))}",
+        ]
+        if r.full_loan_repayment > 0:
+            lines.append(f"  Loan Repayment:     {self._fmt_money(r.full_loan_repayment)}")
+        lines += [
+            f"  Calc. Benefit:      {self._fmt_money(full_calc)}",
             f"  Benefit Ratio:      {r.full_benefit_ratio * 100:.2f}%",
+        ]
+        if r.full_surrender_value > 0:
+            lines += [
+                f"  Surrender Value:    {self._fmt_money(r.full_surrender_value)}",
+                f"  Accel. Benefit:     {self._fmt_money(full_accel)}",
+            ]
+        lines += [
             "",
             "MAX PARTIAL ACCELERATION:",
             f"  Eligible DB:        {self._fmt_money(r.partial_eligible_db)}",
             f"  Actuarial Discount: {self._fmt_money(r.partial_actuarial_discount)}",
             f"  Admin Fee:          {self._fmt_money(r.partial_admin_fee)}",
-            f"  Accel. Benefit:     {self._fmt_money(max(0, r.partial_accel_benefit))}",
+        ]
+        if r.partial_loan_repayment > 0:
+            lines.append(f"  Loan Repayment:     {self._fmt_money(r.partial_loan_repayment)}")
+        lines += [
+            f"  Calc. Benefit:      {self._fmt_money(partial_calc)}",
             f"  Benefit Ratio:      {r.partial_benefit_ratio * 100:.2f}%",
+        ]
+        if r.partial_surrender_value > 0:
+            lines += [
+                f"  Surrender Value:    {self._fmt_money(r.partial_surrender_value)}",
+                f"  Accel. Benefit:     {self._fmt_money(partial_accel)}",
+            ]
+        lines += [
             "",
             f"Premium Before:  {r.premium_before}",
             f"Premium After (Full):    ${r.premium_after_full:,.2f}",
@@ -2155,14 +2300,14 @@ class AssessmentPanel(QWidget):
                 tbl_parts.append(f"{table_rating:.2f} ({yr_label})")
             # Direct table inputs (add-on or sole source)
             if has_table_direct and direct_table > 0:
-                tbl_parts.append(f"Tbl {direct_table:.0f} (yr {table_start_yr}-{table_stop_yr})")
+                tbl_parts.append(f"Tbl {direct_table:.0f} (yr {table_start_yr}-{table_stop_yr - 1})")
             if has_table_2_direct and direct_table_2 > 0:
-                tbl_parts.append(f"Tbl2 {direct_table_2:.0f} (yr {table_2_start_yr}-{table_2_stop_yr})")
+                tbl_parts.append(f"Tbl2 {direct_table_2:.0f} (yr {table_2_start_yr}-{table_2_stop_yr - 1})")
             if has_incr_decrement and incr_decrement_pct > 0:
                 id_table = incr_decrement_pct / 25.0
                 tbl_parts.append(
                     f"ID {incr_decrement_pct:.0f}% "
-                    f"(Tbl {id_table:.0f}, yr {incr_decrement_start_yr}-{incr_decrement_stop_yr})"
+                    f"(Tbl {id_table:.0f}, yr {incr_decrement_start_yr}-{incr_decrement_stop_yr - 1})"
                 )
             self._derived_labels["table_rating"].setText(
                 "  |  ".join(tbl_parts) if tbl_parts else "None"
@@ -2180,9 +2325,9 @@ class AssessmentPanel(QWidget):
                 flat_parts.append(fe_txt)
 
             if has_flat_direct and direct_flat > 0:
-                flat_parts.append(f"${direct_flat:.3f} (yr {flat_start_yr}-{flat_stop_yr})")
+                flat_parts.append(f"${direct_flat:.3f} (yr {flat_start_yr}-{flat_stop_yr - 1})")
             if has_flat_2_direct and direct_flat_2 > 0:
-                flat_parts.append(f"${direct_flat_2:.3f} (yr {flat_2_start_yr}-{flat_2_stop_yr})")
+                flat_parts.append(f"${direct_flat_2:.3f} (yr {flat_2_start_yr}-{flat_2_stop_yr - 1})")
             self._derived_labels["flat_extra"].setText(
                 "  |  ".join(flat_parts) if flat_parts else "None"
             )
@@ -2203,6 +2348,12 @@ class AssessmentPanel(QWidget):
         """Set the policy data from Step 1."""
         self._policy = policy
         self._reset_assessment_inputs()
+
+        # Populate min face amount: $50,000 for TERM, $25,000 for all others
+        if policy.product_type == "TERM":
+            self._min_face_input.setText("50,000")
+        else:
+            self._min_face_input.setText("25,000")
 
         # UL/IUL/ISWL: rename Premium Impact → Monthly Deduction Impact
         # and switch After (Partial) to an editable input
@@ -2258,6 +2409,14 @@ class AssessmentPanel(QWidget):
     def is_terminal(self) -> bool:
         """Return True if the rider type is Terminal."""
         return self.rider_combo.currentText() == "Terminal"
+
+    def get_min_face_amount(self) -> float:
+        """Return the user-entered minimum face amount."""
+        raw = self._min_face_input.text().replace("$", "").replace(",", "").strip()
+        try:
+            return float(raw)
+        except ValueError:
+            return 50_000.0
 
     def create_terminal_assessment(self) -> MedicalAssessment:
         """Create a default assessment for Terminal rider (50 % mortality/yr).

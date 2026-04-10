@@ -449,13 +449,10 @@ class FaceAmountDialog(QDialog):
                 and custom_face > max_partial_eligible
                 and abs(custom_face - total_face) >= 0.01):
             QMessageBox.warning(
-                self, "Invalid Amount",
+                self, "Below Minimum Warning",
                 f"Accelerating this amount would drop the face below the "
-                f"minimum. If you want to partial accelerate you must put "
-                f"an amount less than or equal to ${max_partial_eligible:,.2f}.",
+                f"minimum. Max partial eligible is ${max_partial_eligible:,.2f}.",
             )
-            self._revert_face_input()
-            return
 
         # Lock input
         self._face_input.setEnabled(False)

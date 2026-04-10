@@ -4350,9 +4350,10 @@ class FileExplorerCore(QWidget):
             from suiteview.ui.dialogs.batch_rename_dialog import BatchRenameDialog
             
             dialog = BatchRenameDialog(file_paths, self)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
+            if dialog.exec():
                 if dialog.perform_rename():
                     self.refresh_tree()
+                    self.refresh_details_view()
                     
         except Exception as e:
             logger.error(f"Failed to show batch rename dialog: {e}")

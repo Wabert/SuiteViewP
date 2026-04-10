@@ -158,7 +158,13 @@ class ReformatDBWorker(QThread):
             self.progress.emit(0.96, f"  Combos:         {res.combo_count}")
             self.progress.emit(0.97, f"  Index range:    {self.starting_index}–{self.starting_index + res.combo_count - 1}")
             self.progress.emit(0.97, f"  Current COI:    {res.current_coi_rows:,} rows")
-            self.progress.emit(0.98, f"  Guaranteed COI: {res.guaranteed_coi_rows:,} rows")
+            # Display current COI scales and their dates
+            if res.current_scales:
+                self.progress.emit(0.97, f"  Current COI Scales:")
+                for scale_num, date_str in res.current_scales:
+                    label = " (most recent)" if scale_num == 1 else ""
+                    self.progress.emit(0.97, f"    Scale {scale_num}: {date_str}{label}")
+            self.progress.emit(0.98, f"  Guaranteed COI: {res.guaranteed_coi_rows:,} rows  (Scale 0)")
             self.progress.emit(0.98, f"  Target rows:    {res.target_rows:,} rows")
             self.progress.emit(1.0, f"\n✓  Saved to → {db_dir}")
             self.finished.emit(db_dir)

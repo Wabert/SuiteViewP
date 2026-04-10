@@ -159,7 +159,6 @@ class PolicyPanel(QWidget):
             ("Attained Age:", "attained_age"),
             ("Rate Class:", "rate_class"),
             ("Face Amount:", "face_amount"),
-            ("Min Face:", "min_face"),
             ("Issue State:", "issue_state"),
             ("Maturity Date:", "maturity_date"),
             ("Issue Date:", "issue_date"),
@@ -218,9 +217,9 @@ class PolicyPanel(QWidget):
         self._calc_detail_btn.clicked.connect(self._show_premium_breakdown)
         self._calc_detail_btn.setVisible(False)
         # Calc Premium is in the right-group.  Find its position.
-        # "Calc Premium" is field index 21 in the fields list (0-based).
-        # half = (26+1)//2 = 13, so row = 21 % 13 = 8, group = 21//13 = 1
-        calc_prem_row = 8
+        # "Calc Premium" is field index 20 in the fields list (0-based).
+        # half = (25+1)//2 = 13, so row = 20 % 13 = 7, group = 20//13 = 1
+        calc_prem_row = 7
         details_grid.addWidget(self._calc_detail_btn, calc_prem_row, 5)
 
         self.details_group.setVisible(False)
@@ -535,7 +534,6 @@ class PolicyPanel(QWidget):
         labels["attained_age"].setText(str(p.attained_age) if p.attained_age else "—")
         labels["rate_class"].setText(p.rate_class or "—")
         labels["face_amount"].setText(f"${p.face_amount:,.2f}" if p.face_amount else "—")
-        labels["min_face"].setText(f"${p.min_face_amount:,.0f}")
         labels["issue_state"].setText(p.issue_state if p.issue_state else "—")
         if p.issue_date:
             labels["issue_date"].setText(

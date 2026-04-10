@@ -460,13 +460,10 @@ class ResultsPanel(QWidget):
                 and custom_face > max_partial_eligible
                 and abs(custom_face - total_face) >= 0.01):
             QMessageBox.warning(
-                self, "Invalid Amount",
+                self, "Below Minimum Warning",
                 f"Accelerating this amount would drop the face below the "
-                f"minimum. If you want to partial accelerate you must put "
-                f"an amount less than or equal to ${max_partial_eligible:,.2f}.",
+                f"minimum. Max partial eligible is ${max_partial_eligible:,.2f}.",
             )
-            self._revert_face_input()
-            return
 
         # Lock input back down
         self._face_input.setEnabled(False)
@@ -579,9 +576,10 @@ class ResultsPanel(QWidget):
             self.full_benefit_label.setText(
                 f"$0.00  (calc result: {self._fmt_money(result.full_accel_benefit)})"
             )
+            self.full_ratio_label.setText("0.00%")
         else:
             self.full_benefit_label.setText(self._fmt_money(result.full_accel_benefit))
-        self.full_ratio_label.setText(f"{result.full_benefit_ratio * 100:.2f}%")
+            self.full_ratio_label.setText(f"{result.full_benefit_ratio * 100:.2f}%")
 
         # Full APV components
         self._full_apv_labels["apv_fb"].setText(self._fmt_money(result.apv_fb))
@@ -620,9 +618,10 @@ class ResultsPanel(QWidget):
                 self.partial_benefit_label.setText(
                     f"$0.00  (calc result: {self._fmt_money(result.partial_accel_benefit)})"
                 )
+                self.partial_ratio_label.setText("0.00%")
             else:
                 self.partial_benefit_label.setText(self._fmt_money(result.partial_accel_benefit))
-            self.partial_ratio_label.setText(f"{result.partial_benefit_ratio * 100:.2f}%")
+                self.partial_ratio_label.setText(f"{result.partial_benefit_ratio * 100:.2f}%")
 
             # Partial APV components (proportionally scaled)
             if result.full_eligible_db > 0:
@@ -764,8 +763,10 @@ class ResultsPanel(QWidget):
         ws.cell(row=row, column=2, value=0).number_format = '$#,##0.00'
         row += 1
 
+        full_benefit = max(r.full_accel_benefit, 0)
+        full_ratio = r.full_benefit_ratio if r.full_accel_benefit >= 0 else 0.0
         ws.cell(row=row, column=1, value="Total Accelerated Benefit Payment:").font = Font(bold=True, size=12)
-        ws.cell(row=row, column=2, value=r.full_accel_benefit).number_format = '$#,##0.00'
+        ws.cell(row=row, column=2, value=full_benefit).number_format = '$#,##0.00'
         ws.cell(row=row, column=2).font = Font(bold=True, size=12)
         row += 2
 
@@ -776,7 +777,7 @@ class ResultsPanel(QWidget):
         ws.cell(row=row, column=2, value=f"${r.premium_after_full:,.2f}").font = money_font
         row += 1
         ws.cell(row=row, column=1, value="Benefit Ratio:").font = label_font
-        ws.cell(row=row, column=2, value=r.full_benefit_ratio).number_format = '0.00%'
+        ws.cell(row=row, column=2, value=full_ratio).number_format = '0.00%'
 
         ws.column_dimensions['A'].width = 35
         ws.column_dimensions['B'].width = 20
@@ -807,8 +808,10 @@ class ResultsPanel(QWidget):
             ws2.cell(row=row, column=2, value=-r.partial_loan_repayment).number_format = '($#,##0.00)'
             row += 1
 
+        partial_benefit = max(r.partial_accel_benefit, 0)
+        partial_ratio = r.partial_benefit_ratio if r.partial_accel_benefit >= 0 else 0.0
         ws2.cell(row=row, column=1, value="Total Accelerated Benefit Payment:").font = Font(bold=True, size=12)
-        ws2.cell(row=row, column=2, value=r.partial_accel_benefit).number_format = '$#,##0.00'
+        ws2.cell(row=row, column=2, value=partial_benefit).number_format = '$#,##0.00'
         ws2.cell(row=row, column=2).font = Font(bold=True, size=12)
         row += 2
 
@@ -816,7 +819,7 @@ class ResultsPanel(QWidget):
         ws2.cell(row=row, column=2, value=r.premium_after_partial).font = money_font
         row += 1
         ws2.cell(row=row, column=1, value="Benefit Ratio:").font = label_font
-        ws2.cell(row=row, column=2, value=r.partial_benefit_ratio).number_format = '0.00%'
+        ws2.cell(row=row, column=2, value=partial_ratio).number_format = '0.00%'
 
         ws2.column_dimensions['A'].width = 35
         ws2.column_dimensions['B'].width = 20
@@ -831,6 +834,11 @@ class ResultsPanel(QWidget):
         r = self._result
         p = self._policy
 
+        full_benefit = max(r.full_accel_benefit, 0)
+        full_ratio = r.full_benefit_ratio if r.full_accel_benefit >= 0 else 0.0
+        partial_benefit = max(r.partial_accel_benefit, 0)
+        partial_ratio = r.partial_benefit_ratio if r.partial_accel_benefit >= 0 else 0.0
+
         lines = [
             "ABR QUOTE SUMMARY",
             f"Policy: {p.policy_number if p else 'N/A'}",
@@ -844,8 +852,8 @@ class ResultsPanel(QWidget):
         if r.full_loan_repayment > 0:
             lines.append(f"  Loan Repayment:     {self._fmt_money(r.full_loan_repayment)}")
         lines += [
-            f"  Accel. Benefit:     {self._fmt_money(r.full_accel_benefit)}",
-            f"  Benefit Ratio:      {r.full_benefit_ratio * 100:.2f}%",
+            f"  Accel. Benefit:     {self._fmt_money(full_benefit)}",
+            f"  Benefit Ratio:      {full_ratio * 100:.2f}%",
             f"  APV_FB:             {self._fmt_money(r.apv_fb)}",
             f"  APV_FP:             {self._fmt_money(r.apv_fp)}",
             f"  APV_FD:             {self._fmt_money(r.apv_fd)}",
@@ -858,8 +866,8 @@ class ResultsPanel(QWidget):
         if r.partial_loan_repayment > 0:
             lines.append(f"  Loan Repayment:     {self._fmt_money(r.partial_loan_repayment)}")
         lines += [
-            f"  Accel. Benefit:     {self._fmt_money(r.partial_accel_benefit)}",
-            f"  Benefit Ratio:      {r.partial_benefit_ratio * 100:.2f}%",
+            f"  Accel. Benefit:     {self._fmt_money(partial_benefit)}",
+            f"  Benefit Ratio:      {partial_ratio * 100:.2f}%",
             "",
             f"Premium Before:  {r.premium_before}",
             f"Premium After (Full):    ${r.premium_after_full:,.2f}",

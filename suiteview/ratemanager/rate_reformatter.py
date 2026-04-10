@@ -2,7 +2,9 @@
 Rate Reformatter — Convert Cyberlife IAF rates to UL_Rates database format.
 
 Takes a ParseResult (from IAFParser) and produces three CSV files:
-  1. Current COI rates  (RATE table, Scale=1)   — select+ultimate expanded to fully select
+  1. Current COI rates  (RATE table, Scale=1..N) — one scale per start date,
+     Scale 1 = most recent, Scale 2 = next most recent, etc.
+     Select+ultimate expanded to fully select.
   2. Guaranteed COI rates (RATE table, Scale=0)  — ultimate expanded to fully select
   3. Target premiums     (RATE_TRGPRM table)     — CTP, TBL1CTP, MTP, TBL1MTP
 
@@ -14,12 +16,15 @@ Key transformations:
   - Table 4 target rates (plan_option='E*') are divided by 4 to get Table 1.
   - Guaranteed COI (pure ultimate) is expanded to fully select for all
     issue ages, using the ultimate rate at attained_age = issue_age + duration.
+  - Multiple start dates for type C rates produce multiple scales
+    (e.g. 01/01/2015 → Scale 1, 01/01/1900 → Scale 2).
 """
 
 import csv
 import os
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Callable
 
 from suiteview.ratemanager.parser import ParseResult, RateRecord
@@ -52,6 +57,9 @@ class ReformatResult:
     guaranteed_coi_rows: int = 0
     target_rows: int = 0
     error: Optional[str] = None
+    # Multi-scale current COI info: list of (scale_number, date_string) pairs
+    # Scale 0 = Guaranteed, Scale 1 = most recent current, Scale 2 = next, etc.
+    current_scales: List[Tuple[int, str]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -121,22 +129,34 @@ class RateReformatter:
     # Internal: build lookup dictionaries
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _parse_scale_date(date_str: str) -> datetime:
+        """Parse a scale_start date string (MM/DD/YYYY) for sorting."""
+        try:
+            return datetime.strptime(date_str.strip(), "%m/%d/%Y")
+        except (ValueError, TypeError):
+            return datetime(1900, 1, 1)
+
     def _index_rates(self):
         """Build nested dicts for O(1) rate lookups.
 
+        Current COI rates (type 'C') are indexed *per scale_start date*
+        so that multiple vintages of current rates are kept separate.
+
         Structure per rate type:
-            _coi_select[combo][(issue_age, duration)] = rate
-            _coi_ultimate[combo][attained_age]        = rate
-            _coi_dur0[combo][attained_age]             = rate
+            _coi_select_by_date[date][combo][(issue_age, duration)] = rate
+            _coi_ultimate_by_date[date][combo][attained_age]        = rate
+            _coi_dur0_by_date[date][combo][attained_age]             = rate
             _guar_ultimate[combo][attained_age]        = rate
             _ctp_base[combo][attained_age]             = rate   (T, opt='**')
             _ctp_tbl4[combo][attained_age]             = rate   (T, opt='E*')
             _mtp_base[combo][attained_age]             = rate   (M, opt='**')
             _mtp_tbl4[combo][attained_age]             = rate   (M, opt='E*')
         """
-        self._coi_select: Dict[ComboKey, Dict[Tuple[int, int], float]] = defaultdict(dict)
-        self._coi_ultimate: Dict[ComboKey, Dict[int, float]] = defaultdict(dict)
-        self._coi_dur0: Dict[ComboKey, Dict[int, float]] = defaultdict(dict)
+        # Current COI indexed by date
+        self._coi_select_by_date: Dict[str, Dict[ComboKey, Dict[Tuple[int, int], float]]] = defaultdict(lambda: defaultdict(dict))
+        self._coi_ultimate_by_date: Dict[str, Dict[ComboKey, Dict[int, float]]] = defaultdict(lambda: defaultdict(dict))
+        self._coi_dur0_by_date: Dict[str, Dict[ComboKey, Dict[int, float]]] = defaultdict(lambda: defaultdict(dict))
         self._guar_ultimate: Dict[ComboKey, Dict[int, float]] = defaultdict(dict)
         self._ctp_base: Dict[ComboKey, Dict[int, float]] = defaultdict(dict)
         self._ctp_tbl4: Dict[ComboKey, Dict[int, float]] = defaultdict(dict)
@@ -148,12 +168,13 @@ class RateReformatter:
             opt = r.plan_option.strip()
 
             if r.rate_type == 'C' and opt == '**':
+                dt = r.scale_start
                 if r.duration == 99:
-                    self._coi_ultimate[combo][r.attained_age] = r.rate
+                    self._coi_ultimate_by_date[dt][combo][r.attained_age] = r.rate
                 elif r.duration == 0:
-                    self._coi_dur0[combo][r.attained_age] = r.rate
+                    self._coi_dur0_by_date[dt][combo][r.attained_age] = r.rate
                 else:
-                    self._coi_select[combo][(r.issue_age, r.duration)] = r.rate
+                    self._coi_select_by_date[dt][combo][(r.issue_age, r.duration)] = r.rate
 
             elif r.rate_type == 'G' and opt == '**':
                 # Guaranteed COI — always ultimate (dur=99)
@@ -171,6 +192,19 @@ class RateReformatter:
                 elif opt == 'E*':
                     self._mtp_tbl4[combo][r.attained_age] = r.rate
 
+        # Build sorted list of current COI scale dates (most recent first → Scale 1)
+        all_c_dates = set()
+        all_c_dates.update(self._coi_select_by_date.keys())
+        all_c_dates.update(self._coi_ultimate_by_date.keys())
+        all_c_dates.update(self._coi_dur0_by_date.keys())
+        self._coi_dates: List[str] = sorted(
+            all_c_dates, key=self._parse_scale_date, reverse=True
+        )
+        # Scale mapping: Scale 1 = most recent, Scale 2 = next, etc.
+        self._scale_for_date: Dict[str, int] = {
+            dt: i + 1 for i, dt in enumerate(self._coi_dates)
+        }
+
     # ------------------------------------------------------------------
     # Determine combos & select period
     # ------------------------------------------------------------------
@@ -178,30 +212,43 @@ class RateReformatter:
     def _get_banded_combos(self) -> List[ComboKey]:
         """Return sorted list of banded combos that have current COI rates."""
         combos = set()
-        combos.update(self._coi_select.keys())
-        combos.update(self._coi_ultimate.keys())
-        combos.update(self._coi_dur0.keys())
+        for dt in self._coi_dates:
+            combos.update(self._coi_select_by_date.get(dt, {}).keys())
+            combos.update(self._coi_ultimate_by_date.get(dt, {}).keys())
+            combos.update(self._coi_dur0_by_date.get(dt, {}).keys())
         return sorted(combos)
 
-    def _get_select_period(self) -> int:
-        """Determine the select period length from the data."""
+    def _get_select_period(self, date_str: str = None) -> int:
+        """Determine the select period length from the data.
+
+        If date_str is given, only consider that date's data.
+        Otherwise consider all dates.
+        """
         max_dur = 0
-        for key_map in self._coi_select.values():
-            for (ia, dur) in key_map:
-                if dur > max_dur:
-                    max_dur = dur
+        dates_to_check = [date_str] if date_str else self._coi_dates
+        for dt in dates_to_check:
+            for key_map in self._coi_select_by_date.get(dt, {}).values():
+                for (ia, dur) in key_map:
+                    if dur > max_dur:
+                        max_dur = dur
         return max_dur  # e.g. 24
 
-    def _get_issue_age_range(self) -> Tuple[int, int]:
-        """Determine min/max issue age from dur=0 data (or select data)."""
+    def _get_issue_age_range(self, date_str: str = None) -> Tuple[int, int]:
+        """Determine min/max issue age from dur=0 data (or select data).
+
+        If date_str is given, only consider that date's data.
+        Otherwise consider all dates.
+        """
         ages = set()
-        for age_map in self._coi_dur0.values():
-            ages.update(age_map.keys())
+        dates_to_check = [date_str] if date_str else self._coi_dates
+        for dt in dates_to_check:
+            for age_map in self._coi_dur0_by_date.get(dt, {}).values():
+                ages.update(age_map.keys())
         if not ages:
-            # Fall back to select data
-            for key_map in self._coi_select.values():
-                for (ia, _dur) in key_map:
-                    ages.add(ia)
+            for dt in dates_to_check:
+                for key_map in self._coi_select_by_date.get(dt, {}).values():
+                    for (ia, _dur) in key_map:
+                        ages.add(ia)
         if not ages:
             return (0, 85)
         return (min(ages), max(ages))
@@ -249,6 +296,11 @@ class RateReformatter:
             select_period = self._get_select_period()
             ia_min, ia_max = self._get_issue_age_range()
 
+            # Record current COI scale → date mapping
+            res.current_scales = [
+                (self._scale_for_date[dt], dt) for dt in self._coi_dates
+            ]
+
             total_steps = 4
             step = 0
 
@@ -259,7 +311,7 @@ class RateReformatter:
             if self._progress:
                 self._progress(step, total_steps)
 
-            # 3. Current COI
+            # 3. Current COI (all scales in one file)
             res.current_coi_csv = os.path.join(output_dir, "RATE_COI_CURRENT.csv")
             res.current_coi_rows = self._write_current_coi(
                 res.current_coi_csv, combos, pointer,
@@ -318,7 +370,7 @@ class RateReformatter:
                 ])
 
     # ------------------------------------------------------------------
-    # Current COI (RATE table, Scale=1)
+    # Current COI (RATE table, Scale=1..N for each start date)
     # ------------------------------------------------------------------
 
     def _write_current_coi(
@@ -332,38 +384,52 @@ class RateReformatter:
     ) -> int:
         """Expand select+ultimate C rates into fully select format.
 
-        For each combo and issue_age:
+        Multiple start dates produce multiple scales:
+          Scale 1 = most recent start date
+          Scale 2 = next most recent
+          ...etc.
+
+        For each scale, combo and issue_age:
           - dur 1..select_period  →  use select rate from data
           - dur select_period+1.. →  use ultimate rate at att_age
-          - max_dur = max_att_age - issue_age  (so att_age never exceeds max_att_age)
+          - att_age = issue_age + duration - 1  (age 55 dur 1 = attained 55)
+          - max_dur such that att_age <= max_att_age
         """
         row_count = 0
-        scale = 1
 
         with open(filepath, 'w', newline='') as f:
             w = csv.writer(f)
             w.writerow(["Index", "Scale", "IssueAge", "Duration", "Rate"])
 
-            for combo in combos:
-                idx = pointer[combo]
-                sel_rates = self._coi_select.get(combo, {})
-                ult_rates = self._coi_ultimate.get(combo, {})
+            for dt in self._coi_dates:
+                scale = self._scale_for_date[dt]
+                # Use per-date select period if it differs
+                dt_select_period = self._get_select_period(dt) or select_period
 
-                for ia in range(ia_min, ia_max + 1):
-                    max_dur = self.max_att_age - ia
-                    if max_dur < 1:
-                        continue
+                for combo in combos:
+                    idx = pointer[combo]
+                    sel_rates = self._coi_select_by_date.get(dt, {}).get(combo, {})
+                    ult_rates = self._coi_ultimate_by_date.get(dt, {}).get(combo, {})
 
-                    for dur in range(1, max_dur + 1):
-                        att_age = ia + dur
-                        if dur <= select_period:
-                            rate = sel_rates.get((ia, dur))
-                        else:
-                            rate = ult_rates.get(att_age)
+                    if not sel_rates and not ult_rates:
+                        continue  # no C rates for this combo at this date
 
-                        if rate is not None:
-                            w.writerow([idx, scale, ia, dur, f"{rate:.6f}"])
-                            row_count += 1
+                    for ia in range(ia_min, ia_max + 1):
+                        # att_age = ia + dur - 1, so max dur where att_age <= max_att_age
+                        max_dur = self.max_att_age - ia + 1
+                        if max_dur < 1:
+                            continue
+
+                        for dur in range(1, max_dur + 1):
+                            att_age = ia + dur - 1
+                            if dur <= dt_select_period:
+                                rate = sel_rates.get((ia, dur))
+                            else:
+                                rate = ult_rates.get(att_age)
+
+                            if rate is not None:
+                                w.writerow([idx, scale, ia, dur, f"{rate:.6f}"])
+                                row_count += 1
 
         return row_count
 
@@ -400,12 +466,13 @@ class RateReformatter:
                     continue  # no guaranteed rates for this class
 
                 for ia in range(ia_min, ia_max + 1):
-                    max_dur = self.max_att_age - ia
+                    # att_age = ia + dur - 1
+                    max_dur = self.max_att_age - ia + 1
                     if max_dur < 1:
                         continue
 
                     for dur in range(1, max_dur + 1):
-                        att_age = ia + dur
+                        att_age = ia + dur - 1
                         rate = ult_rates.get(att_age)
 
                         if rate is not None:

@@ -444,8 +444,10 @@ class EmailPrintDialog(QDialog):
 
         sec4: list[tuple[str, str]] = []
         if r:
-            sec4.append(("Full Acceleration Benefit:", self._fmt(r.full_accel_benefit)))
-            sec4.append(("Benefit Ratio (Accl Ben/Full DB):", f"{r.full_benefit_ratio * 100:.2f}%"))
+            full_benefit = max(r.full_accel_benefit, 0)
+            full_ratio = r.full_benefit_ratio if r.full_accel_benefit >= 0 else 0.0
+            sec4.append(("Full Acceleration Benefit:", self._fmt(full_benefit)))
+            sec4.append(("Benefit Ratio (Accl Ben/Full DB):", f"{full_ratio * 100:.2f}%"))
         sec4.append(("Reinsurers:", p.reinsurers if p and p.reinsurers else "(none)"))
         if sec4:
             sections.append(("Result", sec4))

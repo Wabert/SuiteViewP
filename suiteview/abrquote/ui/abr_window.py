@@ -71,7 +71,7 @@ class ABRQuoteWindow(FramelessWindowBase):
 
         super().__init__(
             title="SuiteView:  ABR Quote",
-            default_size=(1100, 875),
+            default_size=(1250, 875),
             min_size=(600, 500),
             parent=parent,
             header_colors=ABR_HEADER_COLORS,
@@ -606,21 +606,29 @@ class ABRQuoteWindow(FramelessWindowBase):
             )
 
             admin_fee = db.get_admin_fee(p.issue_state)
-            min_face = db.get_min_face(p.plan_code)
+            min_face = self.assessment_panel.get_min_face_amount()
+            p.min_face_amount = min_face
 
             # Read loan payoff from Policy Info (UL/IUL/ISWL only)
             loan_amount = 0.0
+            surrender_value = 0.0
             if p.product_type in ("UL", "IUL", "ISWL"):
                 loan_text = self.policy_panel.ul_loan_payoff_input.text().strip().replace(",", "").replace("$", "")
                 try:
                     loan_amount = float(loan_text) if loan_text else 0.0
                 except ValueError:
                     loan_amount = 0.0
+                sv_text = self.policy_panel.ul_surrender_value_input.text().strip().replace(",", "").replace("$", "")
+                try:
+                    surrender_value = float(sv_text) if sv_text else 0.0
+                except ValueError:
+                    surrender_value = 0.0
 
             full = apv_engine.compute_full_acceleration(
                 admin_fee=admin_fee,
                 apv_summary=self._apv_summary,
                 loan_repayment=loan_amount,
+                surrender_value=surrender_value,
             )
 
             partial = apv_engine.compute_partial_acceleration(
@@ -659,6 +667,7 @@ class ABRQuoteWindow(FramelessWindowBase):
                 full_loan_repayment=full.get("loan_repayment", 0.0),
                 full_accel_benefit=full["accelerated_benefit"],
                 full_benefit_ratio=full["benefit_ratio"],
+                full_surrender_value=full.get("surrender_value", 0.0),
                 # Partial
                 partial_eligible_db=partial["eligible_db"],
                 partial_actuarial_discount=partial["actuarial_discount"],
@@ -666,6 +675,7 @@ class ABRQuoteWindow(FramelessWindowBase):
                 partial_loan_repayment=partial.get("loan_repayment", 0.0),
                 partial_accel_benefit=partial["accelerated_benefit"],
                 partial_benefit_ratio=partial["benefit_ratio"],
+                partial_surrender_value=partial.get("surrender_value", 0.0),
                 # Premium
                 premium_before=(
                     f"${p.monthly_deduction:,.2f}"
@@ -745,7 +755,7 @@ class ABRQuoteWindow(FramelessWindowBase):
                 "for the maximum acceleration amount."
             )
 
-        min_face = db.get_min_face(p.plan_code)
+        min_face = self.assessment_panel.get_min_face_amount()
         if p.face_amount < min_face:
             messages.append(
                 f"Face amount (${p.face_amount:,.0f}) is below the "
