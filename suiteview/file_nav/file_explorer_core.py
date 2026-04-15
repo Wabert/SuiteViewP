@@ -3337,8 +3337,11 @@ class FileExplorerCore(QWidget):
         # Show menu
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
     
-    def _emit_send(self, file_path: str, recipient: str):
-        """Send a file link directly to the recipient's shared folder."""
+    def _emit_send(self, file_path: str, recipient: str, link_type: str = "network"):
+        """Send a file link directly to the recipient's shared folder.
+        
+        link_type: 'network' for a file-system path, 'sharepoint' for a URL.
+        """
         from suiteview.messaging.message_service import SHARED_MSG_ROOT, _username, _portable_path
         from suiteview.ui.widgets.bookmark_widgets import update_footer_status
         import json as _json
@@ -3353,19 +3356,31 @@ class FileExplorerCore(QWidget):
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         fname = f"msg_{ts}_{user}.json"
-        msg_data = {
-            "from": user,
-            "from_display": user,
-            "timestamp": datetime.now().isoformat(timespec="seconds"),
-            "type": "file_link",
-            "path": _portable_path(file_path),
-            "note": "",
-        }
+        if link_type == "sharepoint":
+            msg_data = {
+                "from": user,
+                "from_display": user,
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "type": "sharepoint_link",
+                "url": file_path,
+                "note": "",
+            }
+            file_display = file_path.rsplit("/", 1)[-1] if "/" in file_path else file_path
+        else:
+            msg_data = {
+                "from": user,
+                "from_display": user,
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "type": "file_link",
+                "path": _portable_path(file_path),
+                "note": "",
+            }
+            file_display = Path(file_path).name
         try:
             (dest / fname).write_text(
                 _json.dumps(msg_data, indent=2), encoding="utf-8")
-            file_display = Path(file_path).name
-            update_footer_status(f"\u2709 Sent \"{file_display}\" to {recipient}")
+            label = "SharePoint link" if link_type == "sharepoint" else file_display
+            update_footer_status(f"\u2709 Sent \"{label}\" to {recipient}")
         except OSError as exc:
             QMessageBox.warning(self, "Send Failed", str(exc))
 
@@ -3397,6 +3412,12 @@ class FileExplorerCore(QWidget):
                     copy_path_action = menu.addAction("📄 Copy Full Path")
                     copy_path_action.triggered.connect(lambda: self.copy_full_path_to_clipboard(path))
                     
+                    # Copy SharePoint Link (only if file is under a OneDrive mount)
+                    onedrive_url = self.get_onedrive_url(path)
+                    if onedrive_url:
+                        copy_link_action = menu.addAction("🔗 Copy SharePoint Link")
+                        copy_link_action.triggered.connect(lambda: self.copy_sharepoint_link(path))
+                    
                     # Open folder location (navigate to parent folder in File Nav)
                     open_folder_action = menu.addAction("📂 Open Folder Location")
                     open_folder_action.triggered.connect(lambda: self.open_folder_location_in_file_nav(path))
@@ -3417,61 +3438,82 @@ class FileExplorerCore(QWidget):
                     delete_action = menu.addAction("🗑️ Delete")
                     delete_action.triggered.connect(self.delete_file)
 
-                    # Send to > submenu (messaging)
-                    menu.addSeparator()
-                    send_menu = menu.addMenu("📨 Send to")
-                    send_menu.setStyleSheet("""
-                        QMenu {
-                            background-color: #0D3A7A;
-                            border: 1px solid #D4A017;
-                            padding: 4px;
-                        }
-                        QMenu::item {
-                            background-color: transparent;
-                            color: white;
-                            padding: 4px 16px;
-                            font-size: 10px;
-                        }
-                        QMenu::item:selected {
-                            background-color: #3A7DC8;
-                        }
-                        QMenu::item:disabled {
-                            color: #777;
-                        }
-                    """)
+                    # Send to > submenu (messaging) — only when shared folder is reachable
                     try:
-                        from suiteview.messaging.message_service import SHARED_MSG_ROOT, _username
-                        my_user = _username()
-                        users = []
-                        if SHARED_MSG_ROOT.is_dir():
-                            for entry in SHARED_MSG_ROOT.iterdir():
-                                if not entry.is_dir():
-                                    continue
-                                uname = entry.name.lower()
-                                profile = entry / ".profile.json"
-                                display = uname
-                                if profile.exists():
-                                    try:
-                                        import json
-                                        data = json.loads(profile.read_text(encoding="utf-8"))
-                                        display = data.get("display_name", uname)
-                                    except Exception:
-                                        pass
-                                users.append((uname, display))
-                        users.sort(key=lambda u: u[1].lower())
-                        if users:
-                            captured_path = str(path)
-                            for uname, display in users:
-                                action = send_menu.addAction(display)
-                                action.triggered.connect(
-                                    lambda checked, u=uname, p=captured_path:
-                                        self._emit_send(p, u))
-                        else:
-                            no_user = send_menu.addAction("(no other users found)")
-                            no_user.setEnabled(False)
+                        from suiteview.messaging.message_service import is_messaging_available
+                        _show_send_to = is_messaging_available()
                     except Exception:
-                        err_action = send_menu.addAction("(messaging unavailable)")
-                        err_action.setEnabled(False)
+                        _show_send_to = False
+
+                    if _show_send_to:
+                        menu.addSeparator()
+                        send_menu = menu.addMenu("📨 Send to")
+                        send_menu.setStyleSheet("""
+                            QMenu {
+                                background-color: #0D3A7A;
+                                border: 1px solid #D4A017;
+                                padding: 4px;
+                            }
+                            QMenu::item {
+                                background-color: transparent;
+                                color: white;
+                                padding: 4px 16px;
+                                font-size: 10px;
+                            }
+                            QMenu::item:selected {
+                                background-color: #3A7DC8;
+                            }
+                            QMenu::item:disabled {
+                                color: #777;
+                            }
+                        """)
+                        try:
+                            from suiteview.messaging.message_service import SHARED_MSG_ROOT, _username
+                            my_user = _username()
+                            users = []
+                            if SHARED_MSG_ROOT.is_dir():
+                                for entry in SHARED_MSG_ROOT.iterdir():
+                                    if not entry.is_dir():
+                                        continue
+                                    uname = entry.name.lower()
+                                    profile = entry / ".profile.json"
+                                    display = uname
+                                    if profile.exists():
+                                        try:
+                                            import json
+                                            data = json.loads(profile.read_text(encoding="utf-8"))
+                                            display = data.get("display_name", uname)
+                                        except Exception:
+                                            pass
+                                    users.append((uname, display))
+                            users.sort(key=lambda u: u[1].lower())
+                            if users:
+                                captured_path = str(path)
+                                sp_url = onedrive_url  # already resolved above
+                                for uname, display in users:
+                                    if sp_url:
+                                        # Sub-menu per user: network path or SharePoint link
+                                        user_menu = send_menu.addMenu(display)
+                                        user_menu.setStyleSheet(send_menu.styleSheet())
+                                        net_action = user_menu.addAction("📁 Network Path")
+                                        net_action.triggered.connect(
+                                            lambda checked, u=uname, p=captured_path:
+                                                self._emit_send(p, u))
+                                        sp_action = user_menu.addAction("🔗 SharePoint Link")
+                                        sp_action.triggered.connect(
+                                            lambda checked, u=uname, url=sp_url:
+                                                self._emit_send(url, u, link_type="sharepoint"))
+                                    else:
+                                        action = send_menu.addAction(display)
+                                        action.triggered.connect(
+                                            lambda checked, u=uname, p=captured_path:
+                                                self._emit_send(p, u))
+                            else:
+                                no_user = send_menu.addAction("(no other users found)")
+                                no_user.setEnabled(False)
+                        except Exception:
+                            err_action = send_menu.addAction("(messaging unavailable)")
+                            err_action.setEnabled(False)
         
         # Paste (always available if clipboard has content - internal or Windows)
         if self.has_clipboard_content():
@@ -3820,6 +3862,69 @@ class FileExplorerCore(QWidget):
         clipboard = QApplication.clipboard()
         clipboard.setText(str(path))
         logger.info(f"Copied path to clipboard: {path}")
+
+    def get_onedrive_url(self, local_path):
+        """Get the OneDrive/SharePoint URL for a local OneDrive-synced file.
+        
+        Reads mount-point → URL mappings from the Windows registry
+        (HKCU\\Software\\SyncEngines\\Providers\\OneDrive).
+        Returns the URL string, or None if the file is not under a known mount.
+        """
+        try:
+            import winreg
+            from urllib.parse import quote
+
+            local_path = str(Path(local_path).resolve())
+            best_mount = None
+            best_url = None
+
+            key_path = r"Software\SyncEngines\Providers\OneDrive"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as providers:
+                i = 0
+                while True:
+                    try:
+                        subkey_name = winreg.EnumKey(providers, i)
+                        i += 1
+                    except OSError:
+                        break
+                    try:
+                        with winreg.OpenKey(providers, subkey_name) as sub:
+                            mount_point, _ = winreg.QueryValueEx(sub, "MountPoint")
+                            url_namespace, _ = winreg.QueryValueEx(sub, "UrlNamespace")
+                    except OSError:
+                        continue
+
+                    mount_point = str(Path(mount_point).resolve())
+                    # Pick the longest matching mount point
+                    if local_path.lower().startswith(mount_point.lower()):
+                        if best_mount is None or len(mount_point) > len(best_mount):
+                            best_mount = mount_point
+                            best_url = url_namespace
+
+            if best_mount and best_url:
+                relative = local_path[len(best_mount):].replace("\\", "/")
+                # URL-encode path segments but keep slashes
+                parts = relative.split("/")
+                encoded = "/".join(quote(p) for p in parts)
+                url = best_url.rstrip("/") + encoded
+                return url
+        except Exception:
+            logger.debug("Failed to resolve OneDrive URL", exc_info=True)
+        return None
+
+    def copy_sharepoint_link(self, path):
+        """Copy the SharePoint/OneDrive URL for a file to the clipboard."""
+        url = self.get_onedrive_url(path)
+        if url:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(url)
+            logger.info(f"Copied SharePoint link: {url}")
+        else:
+            QMessageBox.information(
+                self, "SharePoint Link",
+                "Could not determine the SharePoint URL for this file.\n"
+                "It may not be in a synced OneDrive folder."
+            )
     
     def open_folder_location_in_file_nav(self, path):
         """Navigate to the parent folder of the given path in File Nav"""

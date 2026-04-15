@@ -69,6 +69,9 @@ class ABRPolicyData:
     # Policy details
     face_amount: float = 0.0
     min_face_amount: float = 50_000.0
+    db_option: str = ""               # Death benefit option: "1"=A (Level), "2"=B (Increasing), "3"=C (ROP)
+    account_value: float = 0.0        # UL/IUL accumulation value
+    premiums_paid_to_date: float = 0.0  # Total premiums paid to date
     issue_date: Optional[date] = None
     maturity_age: int = 95
     maturity_date: Optional[date] = None  # COV_MT_EXP_DT from base coverage

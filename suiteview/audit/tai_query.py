@@ -9,7 +9,7 @@ import time
 import pandas as pd
 import pyodbc
 
-from .sql_helpers import esc, in_list
+from .sql_helpers import esc, in_list, normalize_date
 
 logger = logging.getLogger(__name__)
 
@@ -312,15 +312,15 @@ def build_taicybertaifd_sql(ct, max_count_text: str) -> str:
     where_parts: list[str] = []
 
     # Date range (LastUpdate column, date values)
-    date_from = ct.txt_date_from.text().strip()
-    date_to = ct.txt_date_to.text().strip()
+    date_from = normalize_date(ct.txt_date_from.text())
+    date_to = normalize_date(ct.txt_date_to.text())
     if date_from and date_to:
         where_parts.append(
-            f"CAST(LastUpdate AS DATE) BETWEEN '{esc(date_from)}' AND '{esc(date_to)}'")
+            f"CAST(LastUpdate AS DATE) BETWEEN '{date_from}' AND '{date_to}'")
     elif date_from:
-        where_parts.append(f"CAST(LastUpdate AS DATE) >= '{esc(date_from)}'")
+        where_parts.append(f"CAST(LastUpdate AS DATE) >= '{date_from}'")
     elif date_to:
-        where_parts.append(f"CAST(LastUpdate AS DATE) <= '{esc(date_to)}'")
+        where_parts.append(f"CAST(LastUpdate AS DATE) <= '{date_to}'")
 
     # Status Code
 
@@ -364,16 +364,15 @@ def build_taicybertaifd_sql(ct, max_count_text: str) -> str:
         ("txt_values_date_lo", "txt_values_date_hi", "ValuesDate"),
     ]
     for lo_attr, hi_attr, col_name in _date_range_fields:
-        lo_val = getattr(ct, lo_attr).text().strip()
-        hi_val = getattr(ct, hi_attr).text().strip()
+        lo_val = normalize_date(getattr(ct, lo_attr).text())
+        hi_val = normalize_date(getattr(ct, hi_attr).text())
         if lo_val and hi_val:
             where_parts.append(
-                f"{col_name} BETWEEN '{esc(lo_val)}' AND '{esc(hi_val)}'")
+                f"{col_name} BETWEEN '{lo_val}' AND '{hi_val}'")
         elif lo_val:
-            where_parts.append(f"{col_name} >= '{esc(lo_val)}'")
+            where_parts.append(f"{col_name} >= '{lo_val}'")
         elif hi_val:
-            where_parts.append(f"{col_name} <= '{esc(hi_val)}'")
-
+            where_parts.append(f"{col_name} <= '{hi_val}'")
     # Build the final query
     sql = f"SELECT * FROM {table}"
     if where_parts:
@@ -410,4 +409,163 @@ def run_taicybertaifd_query(sql: str, *, all_columns: bool = False) -> tuple[pd.
         if visible:
             df = df[visible]
 
+    return df, t_query
+
+
+# ── TAI All — query all four tables with common fields ───────────────
+
+TAI_ALL_RESULT_COLUMNS = [
+    "Source", "Co", "Pol", "Cov", "Face", "LOB", "ReinsCo", "Treaty",
+    "Plan", "TreatyGrp", "ReinsTyp", "PolStatus", "IssueDate", "CstCntr",
+    "MonthEnd",
+]
+
+
+def _build_where_for_table(ct, table: str) -> list[str]:
+    """Build WHERE clauses for one table using the TAI All tab controls."""
+    from .tabs.tai_all_tab import _col
+
+    where_parts: list[str] = []
+
+    # MonthEnd (not available in TAITransaction)
+    if table != 'TAITransaction':
+        me_col = _col('MonthEnd', table)
+        _add_text_field_where(ct, where_parts, 'monthend', me_col, table)
+
+    # Issue date
+    issue_col = _col('IssueDate', table)
+    _add_text_field_where(ct, where_parts, 'issue_date', issue_col, table)
+
+    # PolStatus
+    status_col = _col('PolStatus', table)
+    _add_text_field_where(ct, where_parts, 'polstatus', status_col, table)
+
+    # ReinsCo
+    _add_text_field_where(ct, where_parts, 'reinsco', 'ReinsCo', table)
+
+    # ReinsType
+    rt_col = _col('ReinsTyp', table)
+    _add_text_field_where(ct, where_parts, 'reinstype', rt_col, table)
+
+    # Company
+    _add_text_field_where(ct, where_parts, 'company', 'Co', table)
+
+    # Policy number
+    _add_text_field_where(ct, where_parts, 'polnum', 'Pol', table)
+
+    # Plancode
+    plan_col = _col('Plan', table)
+    _add_text_field_where(ct, where_parts, 'plancode', f'[{plan_col}]', table,
+                          raw_col=True)
+
+    # Treaty
+    _add_text_field_where(ct, where_parts, 'treaty', 'Treaty', table)
+
+    # TreatyGrp
+    tgrp_col = _col('TreatyGrp', table)
+    _add_text_field_where(ct, where_parts, 'treaty_grp', tgrp_col, table)
+
+    # Cost Center
+    cc_col = _col('CstCntr', table)
+    _add_text_field_where(ct, where_parts, 'cost_center', cc_col, table)
+
+    # LOB
+    _add_text_field_where(ct, where_parts, 'lob', 'LOB', table)
+
+    return where_parts
+
+
+def _add_text_field_where(ct, where_parts: list[str],
+                          field_name: str, col_expr: str,
+                          table: str, *, raw_col: bool = False):
+    """Append WHERE clause(s) for a text/combo/list/range field."""
+    mode = ct.get_field_mode(field_name)
+
+    if mode in ('contains', 'regex', 'combo'):
+        val = ct.get_field_value(field_name)
+        if not val:
+            return
+        if mode == 'contains':
+            where_parts.append(f"{col_expr} LIKE '%{esc(val)}%'")
+        elif mode == 'regex':
+            where_parts.append(f"{col_expr} LIKE '{esc(val)}'")
+        else:  # combo — exact match
+            where_parts.append(f"{col_expr} = '{esc(val)}'")
+
+    elif mode == 'range':
+        lo, hi = ct.get_field_range(field_name)
+        if lo:
+            where_parts.append(f"{col_expr} >= '{esc(lo)}'")
+        if hi:
+            where_parts.append(f"{col_expr} <= '{esc(hi)}'")
+
+    elif mode == 'list':
+        selected = ct.get_field_list_values(field_name)
+        if selected:
+            where_parts.append(f"{col_expr} IN ({in_list(selected)})")
+
+
+def build_tai_all_sql(ct, max_count_text: str) -> str:
+    """Build a UNION ALL query across all four TAI tables.
+
+    Each sub-query selects the 13 common fields (aliased to canonical names)
+    plus a 'Source' column indicating which table the row came from.
+    """
+    from .tabs.tai_all_tab import COLUMN_MAP, TABLE_NAMES, TABLE_INDEX
+
+    parts = []
+    for table in TABLE_NAMES:
+        where = _build_where_for_table(ct, table)
+
+        # Build SELECT with column aliases
+        select_cols = [f"'{table}' AS Source"]
+        for canonical, actual_cols in COLUMN_MAP.items():
+            actual = actual_cols[TABLE_INDEX[table]]
+            if canonical == actual:
+                select_cols.append(actual)
+            else:
+                select_cols.append(f"{actual} AS {canonical}")
+
+        # MonthEnd -- varies by table
+        if table == 'TAITransaction':
+            select_cols.append("NULL AS MonthEnd")
+        elif table == 'TAICession':
+            select_cols.append("monthEnd AS MonthEnd")
+        else:
+            select_cols.append("MonthEnd")
+
+        cols_str = ', '.join(select_cols)
+
+        top_clause = ''
+        if max_count_text:
+            try:
+                n = int(max_count_text)
+                top_clause = f'TOP {n} '
+            except ValueError:
+                pass
+
+        sub = f"SELECT {top_clause}{cols_str} FROM {table}"
+        if where:
+            sub += ' WHERE ' + ' AND '.join(where)
+        parts.append(sub)
+
+    sql = '\nUNION ALL\n'.join(parts)
+    return sql
+
+
+def run_tai_all_query(sql: str) -> tuple[pd.DataFrame, float]:
+    """Execute a TAI All UNION query and return (dataframe, query_seconds)."""
+    t0 = time.time()
+    conn = pyodbc.connect('DSN=UL_Rates')
+    cursor = conn.cursor()
+    cursor.execute(sql)
+    columns = [desc[0] for desc in cursor.description]
+    rows = cursor.fetchall()
+    conn.close()
+    t_query = time.time() - t0
+
+    df = pd.DataFrame([list(r) for r in rows], columns=columns)
+    visible = [c for c in TAI_ALL_RESULT_COLUMNS if c in df.columns]
+    if visible:
+        df = df[visible]
     return df, t_query

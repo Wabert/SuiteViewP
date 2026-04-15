@@ -3,7 +3,7 @@ Shared SQL helper functions used by both CyberLife and TAI query builders.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 
 def fmt_time(secs: float) -> str:
@@ -21,6 +21,23 @@ def today_str() -> str:
 def esc(val: str) -> str:
     """Escape single quotes for SQL."""
     return val.replace("'", "''")
+
+
+def normalize_date(val: str) -> str | None:
+    """Parse a user-entered date string and return ISO format (YYYY-MM-DD).
+
+    Accepts M/D/YYYY, MM/DD/YYYY, M-D-YYYY, MM-DD-YYYY, and YYYY-MM-DD.
+    Returns None if the value cannot be parsed.
+    """
+    val = val.strip()
+    if not val:
+        return None
+    for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(val, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
 
 
 def selected_codes(listbox) -> list[str]:
@@ -60,14 +77,17 @@ def add_int_range(wheres: list, column: str, lo_widget, hi_widget):
 
 
 def add_date_range(wheres: list, column: str, lo_widget, hi_widget):
-    """Append date >= / <= clauses if the range widgets have values."""
-    lo = lo_widget.text().strip()
-    hi = hi_widget.text().strip()
-    if lo:
-        wheres.append(f"{column} >= '{esc(lo)}'")
-    if hi:
-        wheres.append(f"{column} <= '{esc(hi)}'")
+    """Append date >= / <= clauses if the range widgets have values.
 
+    Normalizes user date input (e.g. 1/1/2026) to ISO format (2026-01-01)
+    so DB2 DATE column comparisons work correctly.
+    """
+    lo = normalize_date(lo_widget.text())
+    hi = normalize_date(hi_widget.text())
+    if lo:
+        wheres.append(f"{column} >= '{lo}'")
+    if hi:
+        wheres.append(f"{column} <= '{hi}'")
 
 def add_decimal_range(wheres: list, column: str, lo_widget, hi_widget):
     """Append numeric >= / <= clauses if the range widgets have values."""

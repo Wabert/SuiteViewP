@@ -14,7 +14,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QGroupBox, QFrame,
-    QLineEdit, QFileDialog, QMessageBox,
+    QLineEdit, QFileDialog, QMessageBox, QMenu, QApplication,
 )
 
 from ..models.abr_data import ABRPolicyData, MedicalAssessment, ABRQuoteResult
@@ -327,6 +327,8 @@ class ResultsPanel(QWidget):
         self.messages_label.setStyleSheet(
             "color: #C62828; font-size: 13px; font-weight: bold; padding: 4px;"
         )
+        self.messages_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.messages_label.customContextMenuRequested.connect(self._show_messages_context_menu)
         msg_layout.addWidget(self.messages_label)
         layout.addWidget(msg_group)
 
@@ -373,6 +375,17 @@ class ResultsPanel(QWidget):
         if amount < 0:
             return f"(${abs(amount):,.2f})"
         return f"${amount:,.2f}"
+
+    def _show_messages_context_menu(self, pos):
+        """Right-click menu to copy warning messages to clipboard."""
+        text = self.messages_label.text().strip()
+        if not text:
+            return
+        menu = QMenu(self)
+        copy_action = menu.addAction("Copy Warnings")
+        action = menu.exec(self.messages_label.mapToGlobal(pos))
+        if action == copy_action:
+            QApplication.clipboard().setText(text)
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -660,6 +673,13 @@ class ResultsPanel(QWidget):
 
     # ── View Calculated Values ────────────────────────────────────────
 
+    def _get_current_warnings(self) -> list[str]:
+        """Collect warning strings currently shown in the messages label."""
+        text = self.messages_label.text().strip()
+        if not text:
+            return []
+        return [line.lstrip("\u2022 ").strip() for line in text.split("\n") if line.strip()]
+
     def _on_view_calc(self):
         """Open the detailed calculation viewer window (modeless)."""
         if not self._mort_detail:
@@ -675,6 +695,7 @@ class ResultsPanel(QWidget):
             result=self._result,
             derived_values=self._derived_values,
             after_partial_override=after_partial,
+            warnings=self._get_current_warnings(),
             parent=None,
         )
         viewer.show()
@@ -779,6 +800,17 @@ class ResultsPanel(QWidget):
         ws.cell(row=row, column=1, value="Benefit Ratio:").font = label_font
         ws.cell(row=row, column=2, value=full_ratio).number_format = '0.00%'
 
+        # Messages / Warnings on Full sheet
+        if r.messages:
+            row += 2
+            ws.cell(row=row, column=1, value="MESSAGES / WARNINGS").font = header_font
+            row += 1
+            for msg in r.messages:
+                ws.cell(row=row, column=1, value=f"\u2022 {msg}").font = Font(
+                    bold=True, size=11, color="C62828"
+                )
+                row += 1
+
         ws.column_dimensions['A'].width = 35
         ws.column_dimensions['B'].width = 20
 
@@ -823,6 +855,17 @@ class ResultsPanel(QWidget):
 
         ws2.column_dimensions['A'].width = 35
         ws2.column_dimensions['B'].width = 20
+
+        # ── Messages / Warnings ─────────────────────────────────────────
+        if r.messages:
+            row += 2
+            ws2.cell(row=row, column=1, value="MESSAGES / WARNINGS").font = header_font
+            row += 1
+            for msg in r.messages:
+                ws2.cell(row=row, column=1, value=f"\u2022 {msg}").font = Font(
+                    bold=True, size=11, color="C62828"
+                )
+                row += 1
 
         wb.save(filepath)
 
@@ -873,6 +916,12 @@ class ResultsPanel(QWidget):
             f"Premium After (Full):    ${r.premium_after_full:,.2f}",
             f"Premium After (Partial): {r.premium_after_partial}",
         ]
+
+        if r.messages:
+            lines.append("")
+            lines.append("MESSAGES / WARNINGS:")
+            for msg in r.messages:
+                lines.append(f"  \u2022 {msg}")
 
         from PyQt6.QtWidgets import QApplication
         clipboard = QApplication.clipboard()

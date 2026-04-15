@@ -128,11 +128,20 @@ class MessageCard(QFrame):
         row.addWidget(sender_lbl)
         self._sender_lbl = sender_lbl
 
-        # Filename — clickable link that opens the file
-        fname = Path(msg.path).name if msg.path else "(no file)"
+        # Filename — clickable link that opens the file or SharePoint URL
+        self._is_sharepoint = (msg.msg_type == "sharepoint_link" and msg.url)
+        if self._is_sharepoint:
+            # Show the last segment of the URL as the display name
+            from urllib.parse import unquote
+            url_name = unquote(msg.url.rsplit("/", 1)[-1]) if "/" in msg.url else msg.url
+            fname = f"🔗 {url_name}"
+            tooltip = msg.url
+        else:
+            fname = Path(msg.path).name if msg.path else "(no file)"
+            tooltip = msg.path
         self._file_btn = QPushButton(fname)
         self._file_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._file_btn.setToolTip(msg.path)
+        self._file_btn.setToolTip(tooltip)
         self._file_btn.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._file_btn.clicked.connect(self._on_open)
@@ -159,11 +168,15 @@ class MessageCard(QFrame):
         return self._is_read
 
     def _on_open(self):
-        """Open file and auto-mark as read."""
+        """Open file (or SharePoint URL in browser) and auto-mark as read."""
         if not self._is_read:
             self._is_read = True
             self._apply_style()
-        self.open_requested.emit(self.msg.path)
+        if self._is_sharepoint:
+            import webbrowser
+            webbrowser.open(self.msg.url)
+        else:
+            self.open_requested.emit(self.msg.path)
 
     def _show_file_context_menu(self, pos):
         """Right-click menu on the file link."""
@@ -171,10 +184,17 @@ class MessageCard(QFrame):
         menu.setStyleSheet(
             "QMenu { background: #1A3A6E; color: white; border: 1px solid #3A8FDF; }"
             "QMenu::item:selected { background: #2A6FBF; }")
-        action = menu.addAction("Open in Folder")
-        chosen = menu.exec(self._file_btn.mapToGlobal(pos))
-        if chosen == action:
-            self.folder_requested.emit(self.msg.path)
+        if self._is_sharepoint:
+            copy_action = menu.addAction("Copy SharePoint Link")
+            chosen = menu.exec(self._file_btn.mapToGlobal(pos))
+            if chosen == copy_action:
+                from PyQt6.QtWidgets import QApplication
+                QApplication.clipboard().setText(self.msg.url)
+        else:
+            action = menu.addAction("Open in Folder")
+            chosen = menu.exec(self._file_btn.mapToGlobal(pos))
+            if chosen == action:
+                self.folder_requested.emit(self.msg.path)
 
     def _apply_style(self):
         if self._is_read:

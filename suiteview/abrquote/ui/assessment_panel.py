@@ -21,9 +21,8 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QComboBox, QPushButton, QCheckBox,
-    QRadioButton, QButtonGroup,
     QGroupBox, QFrame, QScrollArea, QDialog,
-    QFileDialog, QMessageBox,
+    QFileDialog, QMessageBox, QMenu, QApplication,
 )
 
 from ..models.abr_data import (
@@ -89,12 +88,17 @@ class AssessmentPanel(QWidget):
     """
 
     assessment_ready = pyqtSignal(object)  # MedicalAssessment
+    min_face_calc_requested = pyqtSignal()  # recalculate with new min face
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._policy: Optional[ABRPolicyData] = None
         self._assessment: Optional[MedicalAssessment] = None
         self._result: Optional[ABRQuoteResult] = None
+        self._default_accel_amount: float = 0.0  # default face for reset
+        self._default_min_face: str = "50,000"    # default min face for reset
+        self._policy_abr_subtypes: set[str] = set()
+        self._policy_abr_rider_types: set[str] = set()
         # Detailed calc data for viewer
         self._mort_detail: list[dict] = []
         self._apv_detail: list[dict] = []
@@ -166,6 +170,16 @@ class AssessmentPanel(QWidget):
 
         rider_layout.setColumnStretch(2, 1)
         rider_layout.setColumnStretch(7, 1)
+
+        # Rider type mismatch warning — shown when selected rider is not on the policy
+        self._rider_mismatch_label = QLabel("")
+        self._rider_mismatch_label.setStyleSheet(
+            "color: red; font-weight: bold; font-size: 11px; padding: 0 4px;"
+        )
+        self._rider_mismatch_label.setWordWrap(True)
+        self._rider_mismatch_label.setVisible(False)
+        rider_layout.addWidget(self._rider_mismatch_label, 1, 0, 1, 8)
+
         layout.addWidget(rider_group)
 
         # ── Assessment Format (survival + direct inputs) ────────────────
@@ -175,84 +189,7 @@ class AssessmentPanel(QWidget):
         assess_vbox.setContentsMargins(12, 20, 12, 8)
         assess_vbox.setSpacing(4)
 
-        # ── In Lieu Of / In Addition To radio buttons ────────────────────
-        # Only visible when the policy has active substandards
-        _RADIO_STYLE = f"""
-            QRadioButton {{
-                color: {CRIMSON_DARK};
-                font-weight: bold;
-                font-size: 11px;
-                spacing: 5px;
-            }}
-            QRadioButton::indicator {{
-                width: 14px;
-                height: 14px;
-                border: 2px solid {CRIMSON_PRIMARY};
-                border-radius: 9px;
-                background: {WHITE};
-            }}
-            QRadioButton::indicator:checked {{
-                background: {SLATE_PRIMARY};
-                border-color: {SLATE_PRIMARY};
-            }}
-            QRadioButton::indicator:hover {{
-                border-color: {SLATE_PRIMARY};
-            }}
-        """
-
-        self._substandard_mode_container = QWidget()
-        container_layout = QVBoxLayout(self._substandard_mode_container)
-        container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(2)
-
-        radio_row = QHBoxLayout()
-        radio_row.setSpacing(4)
-
-        radio_lbl = QLabel("Policy Substandard:")
-        radio_lbl.setStyleSheet(
-            f"font-weight: bold; color: {CRIMSON_DARK}; font-size: 11px;"
-        )
-        radio_row.addWidget(radio_lbl)
-        radio_row.addSpacing(4)
-
-        self.radio_in_lieu = QRadioButton("In Lieu Of")
-        self.radio_in_lieu.setStyleSheet(_RADIO_STYLE)
-        self.radio_in_lieu.setChecked(True)
-        self.radio_in_lieu.setToolTip(
-            "Drop the policy's current substandard ratings.\n"
-            "Only the assessment inputs below are used.\n"
-            "'Return' means return to standard (no substandard)."
-        )
-
-        self.radio_in_addition = QRadioButton("In Addition To")
-        self.radio_in_addition.setStyleSheet(_RADIO_STYLE)
-        self.radio_in_addition.setToolTip(
-            "Keep the policy's current substandard ratings.\n"
-            "Assessment inputs are layered on top.\n"
-            "'Return' means return to the existing policy substandard."
-        )
-
-        self.substandard_mode_group = QButtonGroup(self)
-        self.substandard_mode_group.addButton(self.radio_in_lieu, 0)
-        self.substandard_mode_group.addButton(self.radio_in_addition, 1)
-
-        radio_row.addWidget(self.radio_in_lieu)
-        radio_row.addSpacing(8)
-        radio_row.addWidget(self.radio_in_addition)
-        radio_row.addStretch()
-
-        container_layout.addLayout(radio_row)
-
-        # Thin separator
-        radio_sep = QFrame()
-        radio_sep.setFrameShape(QFrame.Shape.HLine)
-        radio_sep.setStyleSheet(f"color: {CRIMSON_SUBTLE};")
-        radio_sep.setFixedHeight(1)
-        container_layout.addWidget(radio_sep)
-
-        self._substandard_mode_container.setVisible(False)  # hidden by default
-        assess_vbox.addWidget(self._substandard_mode_container)
-        assess_vbox.addSpacing(2)
+        # (Substandard mode is always "In Lieu Of" — radio UI removed)
 
         # ── Row 0: 5-Year Survival ───────────────────────────────────────
         row0 = QHBoxLayout()
@@ -724,9 +661,9 @@ class AssessmentPanel(QWidget):
     def _build_results_column(self, layout: QVBoxLayout):
         """Build the results groups (Full, Partial, Premium) in the right column."""
 
-        # ── Enter Face button + inline input/calc ────────────────────────
-        enter_face_row = QHBoxLayout()
-        enter_face_row.setSpacing(8)
+        # ── Acceleration amount label + input + Calc ────────────────────
+        accel_row = QHBoxLayout()
+        accel_row.setSpacing(8)
 
         _crimson_btn_style = f"""
             QPushButton {{
@@ -745,33 +682,47 @@ class AssessmentPanel(QWidget):
             }}
         """
 
-        self._enter_face_btn = QPushButton("Enter Face")
-        self._enter_face_btn.setFixedWidth(100)
-        self._enter_face_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._enter_face_btn.setStyleSheet(_crimson_btn_style)
-        self._enter_face_btn.clicked.connect(self._on_enter_face)
-        self._enter_face_btn.setVisible(False)
-        enter_face_row.addWidget(self._enter_face_btn)
+        _reset_btn_style = f"""
+            QPushButton {{
+                background: transparent;
+                color: {CRIMSON_PRIMARY};
+                border: 1px solid {CRIMSON_PRIMARY};
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 10px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: {CRIMSON_SUBTLE};
+            }}
+        """
+
+        self._accel_label = QLabel("Acceleration amount:")
+        self._accel_label.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {CRIMSON_DARK};")
+        accel_row.addWidget(self._accel_label)
+
+        self._accel_reset_btn = QPushButton("Reset Accel Amount")
+        self._accel_reset_btn.setStyleSheet(_reset_btn_style)
+        self._accel_reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._accel_reset_btn.clicked.connect(self._on_accel_reset)
+        self._accel_reset_btn.setVisible(False)
+        accel_row.addWidget(self._accel_reset_btn)
 
         self._face_input = QLineEdit()
         self._face_input.setStyleSheet(INPUT_STYLE)
         self._face_input.setFixedWidth(150)
         self._face_input.setPlaceholderText("Face amount")
-        self._face_input.setVisible(False)
-        enter_face_row.addWidget(self._face_input)
+        accel_row.addWidget(self._face_input)
 
         self._face_calc_btn = QPushButton("Calc")
         self._face_calc_btn.setFixedWidth(60)
         self._face_calc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._face_calc_btn.setStyleSheet(_crimson_btn_style)
         self._face_calc_btn.clicked.connect(self._on_face_calc)
-        self._face_calc_btn.setVisible(False)
-        enter_face_row.addWidget(self._face_calc_btn)
+        accel_row.addWidget(self._face_calc_btn)
 
-        enter_face_row.addStretch()
-        layout.addLayout(enter_face_row)
-
-        self._face_entry_active = False
+        accel_row.addStretch()
+        layout.addLayout(accel_row)
 
         # ── Full Acceleration ───────────────────────────────────────────
         self.res_full_group = QGroupBox("Full Acceleration")
@@ -879,14 +830,30 @@ class AssessmentPanel(QWidget):
         # ── Min Face Amount input ───────────────────────────────────────
         min_face_row = QHBoxLayout()
         min_face_row.setContentsMargins(0, 2, 0, 2)
-        lbl_min_face = QLabel("Min Face Amount:")
-        lbl_min_face.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {CRIMSON_DARK};")
-        min_face_row.addWidget(lbl_min_face)
+        self._min_face_label = QLabel("Min Face Amount:")
+        self._min_face_label.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {CRIMSON_DARK};")
+        min_face_row.addWidget(self._min_face_label)
+
+        self._min_face_reset_btn = QPushButton("Reset Min Amount")
+        self._min_face_reset_btn.setStyleSheet(_reset_btn_style)
+        self._min_face_reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._min_face_reset_btn.clicked.connect(self._on_min_face_reset)
+        self._min_face_reset_btn.setVisible(False)
+        min_face_row.addWidget(self._min_face_reset_btn)
+
         self._min_face_input = QLineEdit()
         self._min_face_input.setStyleSheet(INPUT_STYLE)
         self._min_face_input.setFixedWidth(120)
         self._min_face_input.setText("50,000")
         min_face_row.addWidget(self._min_face_input)
+
+        self._min_face_calc_btn = QPushButton("Calc")
+        self._min_face_calc_btn.setFixedWidth(60)
+        self._min_face_calc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._min_face_calc_btn.setStyleSheet(_crimson_btn_style)
+        self._min_face_calc_btn.clicked.connect(self._on_min_face_calc)
+        min_face_row.addWidget(self._min_face_calc_btn)
+
         min_face_row.addStretch()
         layout.addLayout(min_face_row)
 
@@ -1022,7 +989,7 @@ class AssessmentPanel(QWidget):
         prem_grid.setSpacing(4)
 
         self._prem_row_labels = []
-        for i, label_text in enumerate(["Premium Before:", "After (Full Accel):", "After (Partial):"]):
+        for i, label_text in enumerate(["Premium Before:", "After (Full Accel):", "After (Max Partial):"]):
             lbl = QLabel(label_text)
             lbl.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {CRIMSON_DARK};")
             prem_grid.addWidget(lbl, i, 0, Qt.AlignmentFlag.AlignRight)
@@ -1071,6 +1038,8 @@ class AssessmentPanel(QWidget):
         self.res_messages_label.setStyleSheet(
             f"color: #C62828; font-size: 13px; font-weight: bold; padding: 4px;"
         )
+        self.res_messages_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.res_messages_label.customContextMenuRequested.connect(self._show_messages_context_menu)
         layout.addWidget(self.res_messages_label)
 
         layout.addStretch()
@@ -1088,13 +1057,8 @@ class AssessmentPanel(QWidget):
         self._result = result
         self.results_column.setVisible(True)
 
-        # Show Enter Face button, reset face entry state
-        self._enter_face_btn.setVisible(True)
-        self._enter_face_btn.setText("Enter Face")
-        self._face_input.setVisible(False)
-        self._face_calc_btn.setVisible(False)
-        self._face_input.clear()
-        self._face_entry_active = False
+        # Default the acceleration amount based on DB option
+        self._populate_default_acceleration_amount()
         self.res_full_group.setTitle("Full Acceleration")
 
         # Full acceleration
@@ -1223,34 +1187,29 @@ class AssessmentPanel(QWidget):
         else:
             self.res_messages_label.setText("")
 
-    # ── Enter Face inline controls ─────────────────────────────────────
+    # ── Acceleration amount controls ──────────────────────────────────
 
-    def _on_enter_face(self):
-        """Toggle the face amount input and Calc button visibility."""
-        if not self._policy or not self._result:
+    def _populate_default_acceleration_amount(self):
+        """Set the default acceleration amount based on DB option.
+
+        DB Option A (code "1"): Face Amount
+        DB Option B (code "2"): Face Amount + Account Value
+        DB Option C (code "3"): Face Amount + Total Premiums Paid
+        Otherwise:              Face Amount
+        """
+        if not self._policy:
             return
-
-        if self._face_entry_active:
-            # Deactivate — hide input/calc, revert to full face results
-            self._face_entry_active = False
-            self._face_input.setVisible(False)
-            self._face_calc_btn.setVisible(False)
-            self._face_input.clear()
-            self._enter_face_btn.setText("Enter Face")
-            # Restore the original full-face results
-            self.res_full_group.setTitle("Full Acceleration")
-            self.display_results(self._result)
+        p = self._policy
+        db_opt = p.db_option
+        if db_opt == "2":
+            default_amount = p.face_amount + p.account_value
+        elif db_opt == "3":
+            default_amount = p.face_amount + p.premiums_paid_to_date
         else:
-            # Activate — show input/calc
-            self._face_entry_active = True
-            self._face_input.setVisible(True)
-            self._face_calc_btn.setVisible(True)
-            self._face_input.setFocus()
-            self._enter_face_btn.setText("Use Full Face")
-            # Pre-fill with current full face
-            if self._policy:
-                self._face_input.setText(f"{self._policy.face_amount:,.2f}")
-                self._face_input.selectAll()
+            default_amount = p.face_amount
+        self._default_accel_amount = default_amount
+        self._face_input.setText(f"{default_amount:,.2f}")
+        self._update_accel_reset_visibility()
 
     def _on_face_calc(self):
         """Recalculate the Full Acceleration section with the user-entered face."""
@@ -1265,22 +1224,7 @@ class AssessmentPanel(QWidget):
             return
 
         total_face = self._policy.face_amount
-        min_allowed = 10_000.0
         result = self._result
-
-        if custom_face > total_face:
-            self.res_messages_label.setText(
-                f"\u2022 Face amount cannot exceed the total policy face "
-                f"of ${total_face:,.2f}."
-            )
-            return
-
-        if custom_face < min_allowed:
-            self.res_messages_label.setText(
-                f"\u2022 Face amount cannot be less than the minimum "
-                f"of ${min_allowed:,.2f}."
-            )
-            return
 
         max_partial_eligible = result.partial_eligible_db
         warning_msg = ""
@@ -1374,6 +1318,51 @@ class AssessmentPanel(QWidget):
                 self._fmt_money(result.apv_fd * ratio)
             )
 
+        self._update_accel_reset_visibility()
+
+    def _on_min_face_calc(self):
+        """Emit signal to recalculate with the new min face amount."""
+        self._update_min_face_reset_visibility()
+        self.min_face_calc_requested.emit()
+
+    def _on_min_face_reset(self):
+        """Reset min face amount to the default and recalculate."""
+        self._min_face_input.setText(self._default_min_face)
+        self._update_min_face_reset_visibility()
+        self.min_face_calc_requested.emit()
+
+    def _on_accel_reset(self):
+        """Reset acceleration amount to the default and recalculate."""
+        if self._default_accel_amount > 0:
+            self._face_input.setText(f"{self._default_accel_amount:,.2f}")
+        self._update_accel_reset_visibility()
+        self._on_face_calc()
+
+    def _update_min_face_reset_visibility(self):
+        """Show/hide the Reset Min Amount button based on current vs. default."""
+        current = self._min_face_input.text().replace("$", "").replace(",", "").strip()
+        default = self._default_min_face.replace("$", "").replace(",", "").strip()
+        differs = current != default
+        self._min_face_label.setVisible(not differs)
+        self._min_face_reset_btn.setVisible(differs)
+
+    def _update_accel_reset_visibility(self):
+        """Show/hide the Reset Accel Amount button based on current vs. default."""
+        if self._default_accel_amount <= 0:
+            self._accel_label.setVisible(True)
+            self._accel_reset_btn.setVisible(False)
+            return
+        raw = self._face_input.text().replace("$", "").replace(",", "").strip()
+        try:
+            current = float(raw)
+        except ValueError:
+            self._accel_label.setVisible(True)
+            self._accel_reset_btn.setVisible(False)
+            return
+        differs = abs(current - self._default_accel_amount) >= 0.01
+        self._accel_label.setVisible(not differs)
+        self._accel_reset_btn.setVisible(differs)
+
     def set_calc_data(
         self,
         mort_detail: list[dict],
@@ -1442,8 +1431,7 @@ class AssessmentPanel(QWidget):
         # Update disabled styling
         self._on_checkbox_toggled()
 
-        # Reset In Lieu Of
-        self.radio_in_lieu.setChecked(True)
+
 
         # Hide derived group and clear results
         self.derived_group.setVisible(False)
@@ -1455,12 +1443,7 @@ class AssessmentPanel(QWidget):
     def clear_results(self):
         """Reset the results column to default empty state."""
         self._result = None
-        self._enter_face_btn.setVisible(False)
-        self._face_input.setVisible(False)
-        self._face_calc_btn.setVisible(False)
         self._face_input.clear()
-        self._face_entry_active = False
-        self._enter_face_btn.setText("Enter Face")
         # Reset all result labels to dashes
         for lbl_dict in (self._res_full_labels, self._res_partial_labels):
             for val in lbl_dict.values():
@@ -1514,6 +1497,14 @@ class AssessmentPanel(QWidget):
 
     # ── Result action buttons ───────────────────────────────────────────
 
+    def _get_current_warnings(self) -> list[str]:
+        """Collect warning strings currently shown in the messages label."""
+        text = self.res_messages_label.text().strip()
+        if not text:
+            return []
+        # Each bullet is separated by double newline; strip the bullet char
+        return [line.lstrip("\u2022 ").strip() for line in text.split("\n") if line.strip()]
+
     def _on_res_view_calc(self):
         """Open the detailed calculation viewer window (modeless)."""
         if not self._mort_detail:
@@ -1530,6 +1521,7 @@ class AssessmentPanel(QWidget):
             result=self._result,
             derived_values=self.get_derived_display_values(),
             after_partial_override=after_partial,
+            warnings=self._get_current_warnings(),
             parent=None,
         )
         viewer.show()
@@ -1599,6 +1591,19 @@ class AssessmentPanel(QWidget):
             f"Premium After (Full):    ${r.premium_after_full:,.2f}",
             f"Premium After (Partial): {r.premium_after_partial}",
         ]
+
+        current_warnings = self._get_current_warnings()
+        if current_warnings:
+            lines.append("")
+            lines.append("MESSAGES / WARNINGS:")
+            for msg in current_warnings:
+                lines.append(f"  \u2022 {msg}")
+        elif r.messages:
+            lines.append("")
+            lines.append("MESSAGES / WARNINGS:")
+            for msg in r.messages:
+                lines.append(f"  \u2022 {msg}")
+
         from PyQt6.QtWidgets import QApplication
         clipboard = QApplication.clipboard()
         clipboard.setText("\n".join(lines))
@@ -1610,6 +1615,18 @@ class AssessmentPanel(QWidget):
         return lbl
 
     # ── Warning helpers ──────────────────────────────────────────────────
+
+    def _show_messages_context_menu(self, pos):
+        """Right-click menu to copy warning messages to clipboard."""
+        text = self.res_messages_label.text().strip()
+        if not text:
+            return
+        menu = QMenu(self)
+        copy_action = menu.addAction("Copy Warnings")
+        action = menu.exec(self.res_messages_label.mapToGlobal(pos))
+        if action == copy_action:
+            QApplication.clipboard().setText(text)
+            self.status_label.setText("Warnings copied to clipboard.")
 
     def _show_warning(self, text: str):
         """Display a bold red warning below the assessment group."""
@@ -1711,6 +1728,9 @@ class AssessmentPanel(QWidget):
         self.calc_btn.setVisible(not is_terminal)
         self.derived_group.setVisible(False)
         self.clear_results()
+
+        # Validate rider type against policy ABR riders
+        self._validate_rider_type()
 
         if is_terminal:
             self._assessment = None
@@ -1957,7 +1977,7 @@ class AssessmentPanel(QWidget):
                 mi_rate = MORTALITY_IMPROVEMENT_RATE         # 1%
 
             # ── Determine if policy substandards should be included ──────
-            is_in_lieu_of = self.radio_in_lieu.isChecked()
+            is_in_lieu_of = True  # always "In Lieu Of"
 
             # Base params always start clean (no substandard) so the goal
             # seek solves correctly.  The policy's existing substandards
@@ -2189,7 +2209,7 @@ class AssessmentPanel(QWidget):
                 use_flat_2=has_flat_2_direct,
                 use_return_5yr=self.chk_return_5yr.isChecked(),
                 use_return_10yr=self.chk_return_10yr.isChecked(),
-                in_lieu_of=self.radio_in_lieu.isChecked(),
+                in_lieu_of=True,
                 five_year_survival=five_yr,
                 ten_year_survival=ten_yr,
                 life_expectancy_years=le_val if le_val else computed_le,
@@ -2352,8 +2372,11 @@ class AssessmentPanel(QWidget):
         # Populate min face amount: $50,000 for TERM, $25,000 for all others
         if policy.product_type == "TERM":
             self._min_face_input.setText("50,000")
+            self._default_min_face = "50,000"
         else:
             self._min_face_input.setText("25,000")
+            self._default_min_face = "25,000"
+        self._update_min_face_reset_visibility()
 
         # UL/IUL/ISWL: rename Premium Impact → Monthly Deduction Impact
         # and switch After (Partial) to an editable input
@@ -2375,14 +2398,6 @@ class AssessmentPanel(QWidget):
         # Refresh per diem display now that the DB is definitely available
         if self.rider_combo.currentText() == "Chronic":
             self._refresh_per_diem_display()
-
-        # Show the In Lieu Of / In Addition To choice only when the
-        # policy currently carries substandard ratings (table or flat).
-        has_substandard = (policy.table_rating > 0) or (policy.table_rating_2 > 0) or (policy.flat_extra > 0)
-        self._substandard_mode_container.setVisible(has_substandard)
-        if not has_substandard:
-            # Reset to "In Lieu Of" when there are no substandards
-            self.radio_in_lieu.setChecked(True)
 
         rider = self.rider_combo.currentText()
         if rider == "Terminal":
@@ -2440,3 +2455,40 @@ class AssessmentPanel(QWidget):
         self.ten_year_input.setText(str(ten_yr))
         self.chk_le.setChecked(True)
         self.le_input.setText(str(le))
+
+    # ── ABR rider validation ─────────────────────────────────────────────
+
+    # Mapping from benefit subtype code to rider type name
+    _ABR_SUBTYPE_TO_RIDER = {
+        "1": "Terminal", "4": "Terminal",
+        "2": "Critical", "5": "Critical",
+        "3": "Chronic",  "6": "Chronic",
+    }
+
+    def set_policy_abr_riders(self, abr_subtypes: set[str]):
+        """Store the ABR benefit subtypes found on the policy and validate."""
+        self._policy_abr_subtypes = abr_subtypes
+        # Derive which rider types are present on the policy
+        self._policy_abr_rider_types: set[str] = set()
+        for sub in abr_subtypes:
+            rtype = self._ABR_SUBTYPE_TO_RIDER.get(sub)
+            if rtype:
+                self._policy_abr_rider_types.add(rtype)
+        self._validate_rider_type()
+
+    def _validate_rider_type(self):
+        """Check if selected rider type exists on the policy and show/hide warning."""
+        if not hasattr(self, '_policy_abr_rider_types') or not self._policy_abr_rider_types:
+            # No ABR riders found on policy — hide warning
+            self._rider_mismatch_label.setVisible(False)
+            return
+        selected = self.rider_combo.currentText()
+        if selected not in self._policy_abr_rider_types:
+            present = ", ".join(sorted(self._policy_abr_rider_types))
+            self._rider_mismatch_label.setText(
+                f"\u26A0 {selected} rider not found on the policy. "
+                f"Policy has: {present}"
+            )
+            self._rider_mismatch_label.setVisible(True)
+        else:
+            self._rider_mismatch_label.setVisible(False)

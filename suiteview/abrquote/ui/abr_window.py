@@ -107,6 +107,7 @@ class ABRQuoteWindow(FramelessWindowBase):
 
         self.assessment_panel = AssessmentPanel()
         self.assessment_panel.assessment_ready.connect(self._on_assessment_ready)
+        self.assessment_panel.min_face_calc_requested.connect(self._on_min_face_recalc)
         self.stack.addWidget(self.assessment_panel)
 
         self.output_panel = OutputPanel()
@@ -334,6 +335,22 @@ class ABRQuoteWindow(FramelessWindowBase):
         self.assessment_panel.set_policy(policy)
         self.results_panel.set_policy(policy)
         self.output_panel.set_policy(policy)
+
+        # Extract ABR rider subtypes from the policy benefits and pass to
+        # assessment panel for rider-type validation.
+        abr_subtypes = set()
+        pi = self.policy_panel._policy_info
+        if pi:
+            try:
+                for ben in pi.get_benefits():
+                    bt = (ben.benefit_type_cd or "").strip()
+                    bs = (ben.benefit_subtype_cd or "").strip()
+                    if bt == "#" and bs:
+                        abr_subtypes.add(bs)
+            except Exception:
+                pass
+        self.assessment_panel.set_policy_abr_riders(abr_subtypes)
+
         self.status_label.setText(f"Policy {policy.policy_number} loaded.")
 
         # Update header policy label
@@ -354,6 +371,11 @@ class ABRQuoteWindow(FramelessWindowBase):
         # Run the full ABR calculation immediately so results appear
         # inline on the assessment panel.
         self._run_calculation()
+
+    def _on_min_face_recalc(self):
+        """Re-run calculation when user changes the min face amount."""
+        if self._policy and self._assessment:
+            self._run_calculation()
 
     # ── Full calculation pipeline ───────────────────────────────────────
 

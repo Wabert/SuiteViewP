@@ -30,7 +30,7 @@ from suiteview.ui.widgets.bookmark_widgets import (
 import logging
 logger = logging.getLogger(__name__)
 
-from suiteview.messaging.message_service import MessageService
+from suiteview.messaging.message_service import MessageService, is_messaging_available
 from suiteview.messaging.inbox_widget import MessageInbox
 
 # DEV_MODE is True when running from source, False when running as a PyInstaller exe.
@@ -2058,9 +2058,14 @@ class SuiteViewTaskbar(QWidget):
         except Exception as e:
             logger.error(f"Failed to pre-create PolView: {e}")
 
-        # Messaging service
-        self._msg_service = MessageService(self)
-        self._msg_inbox = MessageInbox()
+        # Messaging service (only when shared folder is reachable)
+        self._messaging_enabled = is_messaging_available()
+        if self._messaging_enabled:
+            self._msg_service = MessageService(self)
+            self._msg_inbox = MessageInbox()
+        else:
+            self._msg_service = None
+            self._msg_inbox = None
         self._unread_count = 0
 
         # Shared splitter sizes across all tabs - loaded from saved settings
@@ -2076,10 +2081,11 @@ class SuiteViewTaskbar(QWidget):
         self._setup_system_tray()
 
         # Connect messaging signals
-        self._msg_service.new_messages.connect(self._on_new_messages)
-        self._msg_inbox.message_dismissed.connect(self._on_message_dismissed)
-        self._msg_inbox.open_file.connect(self._on_msg_open_file)
-        self._msg_inbox.navigate_to.connect(self._on_msg_open_in_folder)
+        if self._messaging_enabled:
+            self._msg_service.new_messages.connect(self._on_new_messages)
+            self._msg_inbox.message_dismissed.connect(self._on_message_dismissed)
+            self._msg_inbox.open_file.connect(self._on_msg_open_file)
+            self._msg_inbox.navigate_to.connect(self._on_msg_open_in_folder)
 
         # Create initial tab
         self.add_new_tab()
@@ -2272,7 +2278,7 @@ class SuiteViewTaskbar(QWidget):
         
         try:
             # Stop messaging service
-            if hasattr(self, '_msg_service'):
+            if hasattr(self, '_msg_service') and self._msg_service:
                 self._msg_service.stop()
 
             # Unregister AppBar to restore desktop work area (compact mode)
@@ -2356,6 +2362,8 @@ class SuiteViewTaskbar(QWidget):
 
     def _update_msg_badge(self):
         """Update the message badge button appearance based on unread count."""
+        if not self.msg_badge_btn:
+            return
         count = self._unread_count
         if count > 0:
             display = f"\u2709 {count}" if count <= 99 else "\u2709 99+"
@@ -2398,6 +2406,8 @@ class SuiteViewTaskbar(QWidget):
 
     def _toggle_msg_inbox(self):
         """Show / hide the message inbox popup above the badge button."""
+        if not self._messaging_enabled:
+            return
         if self._msg_inbox.isVisible():
             self._msg_inbox.hide()
             return
@@ -3453,25 +3463,28 @@ class SuiteViewTaskbar(QWidget):
         header_layout.addWidget(self.header_spacer)
 
         # ====== MESSAGE NOTIFICATION BADGE (right side of bar) ======
-        self.msg_badge_btn = QPushButton("✉")
-        self.msg_badge_btn.setFixedSize(28, 28)
-        self.msg_badge_btn.setToolTip("Messages")
-        self.msg_badge_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.msg_badge_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: 2px solid #555;
-                border-radius: 4px;
-                color: #888;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.1);
-                border-color: #777;
-            }
-        """)
-        self.msg_badge_btn.clicked.connect(self._toggle_msg_inbox)
-        header_layout.addWidget(self.msg_badge_btn)
+        if self._messaging_enabled:
+            self.msg_badge_btn = QPushButton("✉")
+            self.msg_badge_btn.setFixedSize(28, 28)
+            self.msg_badge_btn.setToolTip("Messages")
+            self.msg_badge_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.msg_badge_btn.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: 2px solid #555;
+                    border-radius: 4px;
+                    color: #888;
+                    font-size: 14px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.1);
+                    border-color: #777;
+                }
+            """)
+            self.msg_badge_btn.clicked.connect(self._toggle_msg_inbox)
+            header_layout.addWidget(self.msg_badge_btn)
+        else:
+            self.msg_badge_btn = None
 
         # ====== WINDOW CONTROL BUTTONS ======
         window_btn_style = """
@@ -5540,6 +5553,23 @@ class FileNavWindow(QWidget):
     # ------------------------------------------------------------------
     #  Window controls
     # ------------------------------------------------------------------
+    def changeEvent(self, event):
+        """Keep _is_maximized in sync with the actual Qt window state.
+
+        This catches maximise / restore triggered by the OS (Win+Up,
+        taskbar right-click, etc.) that bypass _toggle_maximize().
+        """
+        if event.type() == QEvent.Type.WindowStateChange:
+            maximized_now = bool(self.windowState() & Qt.WindowState.WindowMaximized)
+            if maximized_now and not self._is_maximized:
+                self._is_maximized = True
+                self._is_snapped = False
+                self.maximize_btn.setText("❐")
+            elif not maximized_now and self._is_maximized:
+                self._is_maximized = False
+                self.maximize_btn.setText("□")
+        super().changeEvent(event)
+
     def _toggle_maximize(self):
         """Toggle maximized / normal."""
         if self._is_maximized:
@@ -5694,8 +5724,19 @@ class FileNavWindow(QWidget):
         if self._drag_pos is not None and event.buttons() == Qt.MouseButton.LeftButton:
             global_pos = event.globalPosition().toPoint()
 
+            # Un-maximize on drag (restore previous window size)
+            if self._is_maximized:
+                self._is_maximized = False
+                self.showNormal()
+                self.maximize_btn.setText("□")
+                restore_geo = self._normal_geometry or QRect(0, 0, 1400, 800)
+                self._normal_geometry = None
+                new_w = restore_geo.width()
+                self.resize(new_w, restore_geo.height())
+                self.move(global_pos.x() - new_w // 2, global_pos.y() - 20)
+                self._drag_pos = global_pos - self.frameGeometry().topLeft()
             # Un-snap on drag (restore previous window size)
-            if self._is_snapped:
+            elif self._is_snapped:
                 self._is_snapped = False
                 restore_geo = self._normal_geometry or QRect(0, 0, 1400, 800)
                 self._normal_geometry = None
@@ -5782,6 +5823,13 @@ class _ResizeEdge(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            # Un-maximize first — can't resize a maximized window
+            pw = self.parent_window
+            if getattr(pw, '_is_maximized', False):
+                pw._is_maximized = False
+                pw.showNormal()
+                if hasattr(pw, 'maximize_btn'):
+                    pw.maximize_btn.setText("□")
             self._dragging = True
             self._start_pos = event.globalPosition().toPoint()
             self._start_geometry = self.parent_window.geometry()

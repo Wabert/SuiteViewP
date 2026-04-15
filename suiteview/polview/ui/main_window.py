@@ -399,6 +399,7 @@ class GetPolicyWindow(FramelessWindowBase):
             self._current_region = region
 
             company_code = self._policy_info["CompanyCode"]
+            is_pending = self._policy_info.get("SystemCode") == "P"
 
             # Reconnect DB if region changed
             if not self._db or self._db.region != region:
@@ -407,7 +408,9 @@ class GetPolicyWindow(FramelessWindowBase):
                 self._db = DB2Connection(region)
                 self._db.connect()
 
-            self.lookup_bar.set_policy_display(company_code, policy_number, region)
+            self.lookup_bar.set_policy_display(
+                company_code, policy_number, region, is_pending=is_pending
+            )
 
             # Deferred tree loading for cached policies too
             self.records_tree.reset_for_new_policy()
@@ -453,6 +456,26 @@ class GetPolicyWindow(FramelessWindowBase):
                 )
                 return
 
+            # Fallback: if inforce (I) not found, try pending (P)
+            if not self._policy.exists:
+                self._policy = PolicyInformation(
+                    policy_number,
+                    company_code=company_code or None,
+                    system_code="P",
+                    region=region,
+                )
+                # Pending may also have multiple companies
+                if self._policy.available_companies:
+                    self.lookup_bar.show_company_chooser(
+                        self._policy.available_companies, policy_number, region
+                    )
+                    self._show_status(
+                        f"Policy {policy_number} (Pending) found in "
+                        f"{len(self._policy.available_companies)} companies: "
+                        f"{', '.join(self._policy.available_companies)} — select one above"
+                    )
+                    return
+
             if not self._policy.exists:
                 QMessageBox.warning(
                     self, "Not Found",
@@ -495,8 +518,11 @@ class GetPolicyWindow(FramelessWindowBase):
                 self._db = DB2Connection(region)
                 self._db.connect()
 
+            is_pending = self._policy.system_code == "P"
             self._add_policy_to_history(region, company_code, policy_number)
-            self.lookup_bar.set_policy_display(company_code, policy_number, region)
+            self.lookup_bar.set_policy_display(
+                company_code, policy_number, region, is_pending=is_pending
+            )
 
             # Reset tree and store connection info for lazy loading
             self.records_tree.reset_for_new_policy()

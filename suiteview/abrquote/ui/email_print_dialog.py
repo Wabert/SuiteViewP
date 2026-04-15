@@ -452,6 +452,13 @@ class EmailPrintDialog(QDialog):
         if sec4:
             sections.append(("Result", sec4))
 
+        # Warnings / Messages
+        if r and r.messages:
+            sec_warn: list[tuple[str, str]] = []
+            for msg in r.messages:
+                sec_warn.append(("", f"\u2022 {msg}"))
+            sections.append(("Warnings", sec_warn))
+
         return sections
 
     def _build_clipboard_html(self, sections: list[tuple[str, list[tuple[str, str]]]]) -> str:

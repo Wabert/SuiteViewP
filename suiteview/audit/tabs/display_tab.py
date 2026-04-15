@@ -83,11 +83,10 @@ class DisplayTab(QWidget):
         self.chk_next_sched_notif = _cb("Next Scheduled Notification Date")
         self.chk_next_year_end = _cb("Next Year-End Date")
         self.chk_next_sched_stmt = _cb("Next Scheduled Statement Date")
-        self.chk_next_sched_stmt2 = _cb("Next Scheduled Statement Date")
         self.chk_termination_date = _cb("Termination Date (69)")
         for w in (self.chk_application_date, self.chk_next_sched_notif,
                   self.chk_next_year_end, self.chk_next_sched_stmt,
-                  self.chk_next_sched_stmt2, self.chk_termination_date):
+                  self.chk_termination_date):
             c1.addWidget(w)
         c1.addWidget(_spacer())
 

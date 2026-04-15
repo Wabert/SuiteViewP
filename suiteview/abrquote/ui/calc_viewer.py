@@ -54,6 +54,7 @@ class CalcViewerDialog(FramelessWindowBase):
         result=None,
         derived_values: dict | None = None,
         after_partial_override: str = "",
+        warnings: list[str] | None = None,
         parent=None,
     ):
         self._mort_rows = mortality_rows
@@ -65,6 +66,7 @@ class CalcViewerDialog(FramelessWindowBase):
         self._result = result
         self._derived_values = derived_values or {}
         self._after_partial_override = after_partial_override
+        self._warnings = warnings or []
 
         title = (
             f"SuiteView:  Calculation Detail — {policy_info}"
@@ -518,6 +520,20 @@ class CalcViewerDialog(FramelessWindowBase):
                     _field("After (Partial):", r.premium_after_partial)
             else:
                 _field("After (Partial):", "NOT ALLOWED")
+
+        # Messages / Warnings — combine result.messages with UI-generated warnings
+        all_warnings = list(r.messages) if r else []
+        all_warnings.extend(self._warnings)
+        if all_warnings:
+            _section("Messages")
+            for msg in all_warnings:
+                msg_lbl = QLabel(f"\u2022 {msg}")
+                msg_lbl.setWordWrap(True)
+                msg_lbl.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+                msg_lbl.setStyleSheet("color: #C62828; padding: 2px 0;")
+                msg_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                grid.addWidget(msg_lbl, row, 0, 1, 5)
+                row += 1
 
         grid.setRowStretch(row, 1)
         scroll.setWidget(container)

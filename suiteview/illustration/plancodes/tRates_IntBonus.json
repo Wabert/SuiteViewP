@@ -1,0 +1,18 @@
+[
+    {
+        "Plancode": "1U143900",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U143900",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    }
+]

@@ -159,6 +159,9 @@ class PolicyPanel(QWidget):
             ("Attained Age:", "attained_age"),
             ("Rate Class:", "rate_class"),
             ("Face Amount:", "face_amount"),
+            ("DB Option:", "db_option"),
+            ("Account Value:", "account_value"),
+            ("Premiums Paid:", "premiums_paid"),
             ("Issue State:", "issue_state"),
             ("Maturity Date:", "maturity_date"),
             ("Issue Date:", "issue_date"),
@@ -179,6 +182,7 @@ class PolicyPanel(QWidget):
         # Layout as 2 groups of key-value pairs with a gutter between.
         # Grid columns: 0=label1, 1=value1, 2=gutter, 3=label2, 4=value2
         half = (len(fields) + 1) // 2  # rows per column
+        self._detail_field_labels = {}  # key -> QLabel (the header label, for show/hide)
         for i, (label_text, key) in enumerate(fields):
             row = i % half
             group = i // half  # 0 = left group, 1 = right group
@@ -198,6 +202,13 @@ class PolicyPanel(QWidget):
             val.setFixedWidth(110 if group == 0 else 160)
             details_grid.addWidget(val, row, value_col)
             self._detail_labels[key] = val
+            self._detail_field_labels[key] = lbl
+
+        # UL-only fields — hidden by default (shown in _populate_details for UL/IUL)
+        self._ul_detail_keys = ("db_option", "account_value", "premiums_paid")
+        for k in self._ul_detail_keys:
+            self._detail_labels[k].setVisible(False)
+            self._detail_field_labels[k].setVisible(False)
 
         # Gutter column (col 2) for spacing between the two groups
         details_grid.setColumnMinimumWidth(2, 20)
@@ -534,6 +545,23 @@ class PolicyPanel(QWidget):
         labels["attained_age"].setText(str(p.attained_age) if p.attained_age else "—")
         labels["rate_class"].setText(p.rate_class or "—")
         labels["face_amount"].setText(f"${p.face_amount:,.2f}" if p.face_amount else "—")
+
+        # UL/IUL-only fields: DB Option, Account Value, Premiums Paid
+        is_ul = p.product_type in ("UL", "IUL", "ISWL")
+        db_opt_display = {
+            "1": "A (Level)", "2": "B (Increasing)", "3": "C (ROP)"
+        }.get(p.db_option, p.db_option or "—")
+        labels["db_option"].setText(db_opt_display)
+        labels["account_value"].setText(
+            f"${p.account_value:,.2f}" if p.account_value else "—"
+        )
+        labels["premiums_paid"].setText(
+            f"${p.premiums_paid_to_date:,.2f}" if p.premiums_paid_to_date else "—"
+        )
+        for k in self._ul_detail_keys:
+            self._detail_labels[k].setVisible(is_ul)
+            self._detail_field_labels[k].setVisible(is_ul)
+
         labels["issue_state"].setText(p.issue_state if p.issue_state else "—")
         if p.issue_date:
             labels["issue_date"].setText(

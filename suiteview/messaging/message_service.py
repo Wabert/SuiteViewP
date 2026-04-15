@@ -30,6 +30,23 @@ SHARED_MSG_ROOT = Path(r"\\sranico7\Actuarial\UDA\BusSys2\suiteview_msgs")
 # Poll interval in milliseconds (5 seconds)
 _POLL_INTERVAL_MS = 5_000
 
+# Cached result of the folder-reachability check (None = not yet tested)
+_messaging_available: bool | None = None
+
+
+def is_messaging_available() -> bool:
+    """Return True if the shared messaging folder is reachable.
+
+    The result is cached after the first call so subsequent checks are free.
+    """
+    global _messaging_available
+    if _messaging_available is None:
+        _messaging_available = SHARED_MSG_ROOT.is_dir()
+        if not _messaging_available:
+            logger.info("Messaging disabled — shared folder unreachable (%s)",
+                        SHARED_MSG_ROOT)
+    return _messaging_available
+
 
 def _username() -> str:
     """Return the current Windows login name (lowercase)."""
@@ -64,10 +81,11 @@ class Message:
     """A single incoming/outgoing message."""
 
     __slots__ = ("sender", "sender_display", "timestamp", "msg_type",
-                 "path", "note", "filename")
+                 "path", "note", "filename", "url")
 
     def __init__(self, sender: str, sender_display: str, timestamp: str,
-                 msg_type: str, path: str, note: str, filename: str = ""):
+                 msg_type: str, path: str, note: str, filename: str = "",
+                 url: str = ""):
         self.sender = sender
         self.sender_display = sender_display
         self.timestamp = timestamp
@@ -75,9 +93,10 @@ class Message:
         self.path = path
         self.note = note
         self.filename = filename
+        self.url = url
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "from": self.sender,
             "from_display": self.sender_display,
             "timestamp": self.timestamp,
@@ -85,6 +104,9 @@ class Message:
             "path": self.path,
             "note": self.note,
         }
+        if self.url:
+            d["url"] = self.url
+        return d
 
     @classmethod
     def from_dict(cls, d: dict, filename: str = "") -> "Message":
@@ -96,6 +118,7 @@ class Message:
             path=_resolve_path(d.get("path", "")),
             note=d.get("note", ""),
             filename=filename,
+            url=d.get("url", ""),
         )
 
 

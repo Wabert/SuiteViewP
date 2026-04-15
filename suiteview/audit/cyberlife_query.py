@@ -4,7 +4,7 @@ CyberLife (DB2) query builder — builds the audit SQL from all tab controls.
 from __future__ import annotations
 
 from .sql_helpers import (
-    esc, in_list, selected_codes, today_str,
+    esc, in_list, selected_codes, today_str, normalize_date,
     add_int_range, add_date_range, add_decimal_range,
 )
 
@@ -119,7 +119,6 @@ def build_cyberlife_sql(
                         pt.txt_gpe_date_hi.text().strip())
     grace_indicator = bool(pt.chk_grace_indicator.isChecked() and
                            pt.list_grace_indicator.selectedItems())
-    needs_grace_table = has_gpe_date or grace_indicator
     has_app_date = bool(pt.txt_app_date_lo.text().strip() or
                         pt.txt_app_date_hi.text().strip())
     has_billing_prem = bool(pt.txt_billing_prem_lo.text().strip() or
@@ -140,6 +139,56 @@ def build_cyberlife_sql(
     disp_last_entry = dt.chk_last_entry_code.isChecked()
     disp_orig_entry = dt.chk_orig_entry_code.isChecked()
     disp_spec_amt = dt.chk_disp_orig_curr_sa.isChecked()
+    disp_tch_pol_id = dt.chk_tch_pol_id.isChecked()
+    disp_mod_indicator = dt.chk_mod_indicator.isChecked()
+    disp_prod_line = dt.chk_prod_line_code.isChecked()
+    disp_sex_02 = dt.chk_disp_sex_02.isChecked()
+    disp_subseries = dt.chk_subseries_code.isChecked()
+    disp_mec_status = dt.chk_mec_status.isChecked()
+    disp_app_date = dt.chk_application_date.isChecked()
+    disp_next_notif = dt.chk_next_sched_notif.isChecked()
+    disp_next_year_end = dt.chk_next_year_end.isChecked()
+    disp_next_stmt = dt.chk_next_sched_stmt.isChecked()
+    disp_next_change = dt.chk_next_change_cov1.isChecked()
+    disp_init_term = dt.chk_init_term_period.isChecked()
+    disp_commission_target = dt.chk_commission_target.isChecked()
+    disp_monthly_mtp = dt.chk_monthly_min_target.isChecked()
+    disp_accum_mtp = dt.chk_accum_monthly_min.isChecked()
+    disp_accum_glp = dt.chk_accum_glp.isChecked()
+    disp_nsp = dt.chk_nsp.isChecked()
+    disp_shadow_av = dt.chk_shadow_av.isChecked()
+    disp_db_option = dt.chk_death_benefit_opt.isChecked()
+    disp_def_life_ins = dt.chk_def_life_ins.isChecked()
+    disp_short_pay = dt.chk_short_pay.isChecked()
+    disp_gpe_date = dt.chk_gpe_date.isChecked()
+    disp_term_date = dt.chk_termination_date.isChecked()
+    disp_accum_wd = dt.chk_accum_withdrawals.isChecked()
+    disp_cost_basis = dt.chk_cost_basis.isChecked()
+    disp_prem_ptd = dt.chk_premiums_ptd.isChecked()
+    disp_prem_ytd = dt.chk_premiums_paid_ytd.isChecked()
+    disp_accum_value = dt.chk_accum_value.isChecked()
+    disp_policy_debt = dt.chk_policy_debt.isChecked()
+    disp_substandard = dt.chk_disp_substandard.isChecked()
+    disp_sex_rateclass = dt.chk_disp_sex_rateclass.isChecked()
+    disp_tamra = dt.chk_tamra.isChecked()
+    disp_gsp = dt.chk_gsp.isChecked()
+    disp_glp = dt.chk_glp.isChecked()
+    disp_bill_ctrl_num = dt.chk_billable_ctrl_num.isChecked()
+    disp_slr_bill_form = dt.chk_slr_bill_form.isChecked()
+    disp_orig_face_rpu = dt.chk_orig_face_rpu.isChecked()
+    disp_prem_calc_rules = dt.chk_prem_calc_rules.isChecked()
+    disp_cirf_key = dt.chk_cirf_key.isChecked()
+    disp_trad_overloan = dt.chk_trad_overloan.isChecked()
+    disp_replacement_pol = dt.chk_replacement_pol.isChecked()
+    disp_converted_pol = dt.chk_converted_pol.isChecked()
+    disp_conv_credit = dt.chk_conv_credit.isChecked()
+    disp_within_conv = dt.chk_disp_conv_period.isChecked()
+    disp_conv_period = dt.chk_disp_conv_period_calc.isChecked()
+    disp_trad_cv_cov1 = dt.chk_trad_cv_cov1.isChecked()
+    disp_account_value = dt.chk_account_value.isChecked()
+    disp_insured1_info = dt.chk_insured1_info.isChecked()
+
+    needs_grace_table = has_gpe_date or grace_indicator or disp_gpe_date
 
     # ── CTEs (only include what's needed) ────────────────────────
     sql_parts = [
@@ -155,9 +204,11 @@ def build_cyberlife_sql(
     has_pol_totals = bool(
         p2t.txt_total_addl_prem_lo.text().strip() or p2t.txt_total_addl_prem_hi.text().strip() or
         p2t.txt_total_prem_addl_reg_lo.text().strip() or p2t.txt_total_prem_addl_reg_hi.text().strip() or
-        p2t.txt_accum_wd_lo.text().strip() or p2t.txt_accum_wd_hi.text().strip())
+        p2t.txt_accum_wd_lo.text().strip() or p2t.txt_accum_wd_hi.text().strip() or
+        disp_accum_wd or disp_cost_basis)
     needs_pol_yr_tot = bool(
-        p2t.txt_prem_ytd_lo.text().strip() or p2t.txt_prem_ytd_hi.text().strip())
+        p2t.txt_prem_ytd_lo.text().strip() or p2t.txt_prem_ytd_hi.text().strip() or
+        disp_prem_ytd)
     has_nontrad = bool(
         p2t.txt_bil_commence_dt_lo.text().strip() or p2t.txt_bil_commence_dt_hi.text().strip() or
         p2t.chk_billing_suspended.isChecked() or
@@ -245,10 +296,10 @@ def build_cyberlife_sql(
     cov_base_gio_fio = _bw["gio_fio"].currentText().strip()
     cov_base_table03 = _bw["table_03"].isChecked()
     cov_base_flat03 = _bw["flat_03"].isChecked()
-    cov_base_issue_lo = _bw["issue_date_lo"].text().strip()
-    cov_base_issue_hi = _bw["issue_date_hi"].text().strip()
-    cov_base_change_lo = _bw["change_date_lo"].text().strip()
-    cov_base_change_hi = _bw["change_date_hi"].text().strip()
+    cov_base_issue_lo = normalize_date(_bw["issue_date_lo"].text()) or ""
+    cov_base_issue_hi = normalize_date(_bw["issue_date_hi"].text()) or ""
+    cov_base_change_lo = normalize_date(_bw["change_date_lo"].text()) or ""
+    cov_base_change_hi = normalize_date(_bw["change_date_hi"].text()) or ""
     # Base needs MODCOV1 join (TH_COV_PHA) for prod_ind, cola_ind, gio_fio
     cov_needs_modcov1 = bool(cov_base_prod_ind or cov_base_cola_ind or cov_base_gio_fio)
     # Base needs COV1_RENEWALS join (LH_COV_INS_RNL_RT) for rateclass/sex67
@@ -280,10 +331,10 @@ def build_cyberlife_sql(
             info["post_issue"] = info["post_issue"].isChecked()
         else:
             info["post_issue"] = False
-        info["issue_date_lo"] = widgets["issue_date_lo"].text().strip()
-        info["issue_date_hi"] = widgets["issue_date_hi"].text().strip()
-        info["change_date_lo"] = widgets["change_date_lo"].text().strip()
-        info["change_date_hi"] = widgets["change_date_hi"].text().strip()
+        info["issue_date_lo"] = normalize_date(widgets["issue_date_lo"].text()) or ""
+        info["issue_date_hi"] = normalize_date(widgets["issue_date_hi"].text()) or ""
+        info["change_date_lo"] = normalize_date(widgets["change_date_lo"].text()) or ""
+        info["change_date_hi"] = normalize_date(widgets["change_date_hi"].text()) or ""
         info["active"] = any([
             info["plancode"], info["prod_line"], info["prod_ind"],
             info["rateclass"], info["sex_code_67"], info["sex_code_02"],
@@ -314,8 +365,9 @@ def build_cyberlife_sql(
     cov_needs_mvval = bool(cov_gcv_gt_cv or cov_gcv_lt_cv)
 
     # Composite ADV flags
-    needs_mvval = adv_cv_corr or adv_accum_gt_prem or has_accum_val or adv_gcv_gt_cv or adv_gcv_lt_cv or cov_needs_mvval
+    needs_mvval = adv_cv_corr or adv_accum_gt_prem or has_accum_val or adv_gcv_gt_cv or adv_gcv_lt_cv or cov_needs_mvval or disp_accum_value or disp_prem_ptd or disp_account_value
     needs_iswl_gcv = adv_gcv_gt_cv or adv_gcv_lt_cv or cov_needs_iswl_gcv
+    needs_interpolation = needs_iswl_gcv or disp_trad_cv_cov1 or disp_account_value
     needs_covsummary = (disp_spec_amt or multi_base_covs or adv_cv_corr
                         or adv_sa_lt_orig or adv_sa_gt_orig
                         or has_curr_spec_amt or needs_iswl_gcv
@@ -346,7 +398,7 @@ def build_cyberlife_sql(
         sql_parts.append(f"   FROM {schema}.LH_TRD_POL)")
 
     # Policy(2): Termination Entry Date (69) CTEs
-    if has_term_entry:
+    if has_term_entry or disp_term_date:
         sql_parts.append(f", PRE_TERMINATION_DATES AS")
         sql_parts.append(f"  (SELECT FH.CK_CMP_CD, FH.TCH_POL_ID,")
         sql_parts.append(f"   MAX(FH.ENTRY_DT) AS TERM_ENTRY_DT")
@@ -355,18 +407,22 @@ def build_cyberlife_sql(
         sql_parts.append(f"   AND FH.FCB0_REV_IND = '0'")
         sql_parts.append(f"   AND FH.FCB2_REV_APPL_IND = '0'")
         sql_parts.append(f"   GROUP BY FH.CK_CMP_CD, FH.TCH_POL_ID)")
-        _term_lo = p2t.txt_term_entry_date_lo.text().strip()
-        _term_hi = p2t.txt_term_entry_date_hi.text().strip()
-        _tw = "WHERE 1=1"
-        if _term_lo:
-            _tw += f" AND PRE_TERMINATION_DATES.TERM_ENTRY_DT >= '{esc(_term_lo)}'"
-        if _term_hi:
-            _tw += f" AND PRE_TERMINATION_DATES.TERM_ENTRY_DT <= '{esc(_term_hi)}'"
-        sql_parts.append(f", TERMINATION_DATES AS")
-        sql_parts.append(f"  (SELECT * FROM PRE_TERMINATION_DATES {_tw})")
+        _term_lo = normalize_date(p2t.txt_term_entry_date_lo.text()) or ""
+        _term_hi = normalize_date(p2t.txt_term_entry_date_hi.text()) or ""
+        if _term_lo or _term_hi:
+            _tw = "WHERE 1=1"
+            if _term_lo:
+                _tw += f" AND PRE_TERMINATION_DATES.TERM_ENTRY_DT >= '{_term_lo}'"
+            if _term_hi:
+                _tw += f" AND PRE_TERMINATION_DATES.TERM_ENTRY_DT <= '{_term_hi}'"
+            sql_parts.append(f", TERMINATION_DATES AS")
+            sql_parts.append(f"  (SELECT * FROM PRE_TERMINATION_DATES {_tw})")
+        else:
+            sql_parts.append(f", TERMINATION_DATES AS")
+            sql_parts.append(f"  (SELECT * FROM PRE_TERMINATION_DATES)")
 
     # Policy(2): Loan CTEs (77 segment)
-    if has_77_segment:
+    if has_77_segment or disp_policy_debt:
         sql_parts.append(f", ALL_LOANS AS (")
         sql_parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, PRF_LN_IND, LN_PRI_AMT,")
         sql_parts.append(f"    (CASE LN_ITS_AMT_TYP_CD WHEN '2' THEN POL_LN_ITS_AMT ELSE 0 END) LN_INT")
@@ -440,6 +496,7 @@ def build_cyberlife_sql(
         sql_parts.append(f"  GROUP BY CK_SYS_CD, CK_CMP_CD, TCH_POL_ID)")
         sql_parts.append(f", MVVAL AS (")
         sql_parts.append(f"  SELECT MV.CK_SYS_CD, MV.CK_CMP_CD, MV.TCH_POL_ID, MV.CSV_AMT")
+        sql_parts.append(f"    , LASTMV.LASTMVDT")
         sql_parts.append(f"    , ROUND(REAL(MV.CSV_AMT) * REAL(ADVPROD.CDR_PCT)/100, 2) DB")
         sql_parts.append(f"    , CASE ADVPROD.DTH_BNF_PLN_OPT_CD")
         sql_parts.append(f"        WHEN '1' THEN 0")
@@ -461,13 +518,16 @@ def build_cyberlife_sql(
         sql_parts.append(f"      AND MV.CK_CMP_CD = TEMPPOLTOTALS.CK_CMP_CD")
         sql_parts.append(f"      AND MV.TCH_POL_ID = TEMPPOLTOTALS.TCH_POL_ID)")
 
-    # ADV: INTERPOLATION_MONTHS + ISWL_INTERPOLATED_GCV CTEs
-    if needs_iswl_gcv:
+    # INTERPOLATION_MONTHS CTE (shared by ISWL_GCV, Trad CV, Account Value)
+    if needs_interpolation:
         sql_parts.append(f", INTERPOLATION_MONTHS AS (")
         sql_parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID")
         sql_parts.append(f"    , REAL(12 - MONTHS_BETWEEN(BASPOL.NXT_MVRY_PRC_DT, BASPOL.LST_ANV_DT)) MONTHS_TO_NEXT_ANN")
         sql_parts.append(f"    , REAL(MONTHS_BETWEEN(BASPOL.NXT_MVRY_PRC_DT, BASPOL.LST_ANV_DT)) MONTHS_YTD")
         sql_parts.append(f"  FROM {schema}.LH_BAS_POL BASPOL)")
+
+    # ADV: ISWL_INTERPOLATED_GCV CTE
+    if needs_iswl_gcv:
         sql_parts.append(f", ISWL_INTERPOLATED_GCV AS (")
         sql_parts.append(f"  SELECT COVSUMMARY.CK_SYS_CD, COVSUMMARY.CK_CMP_CD, COVSUMMARY.TCH_POL_ID")
         sql_parts.append(f"    , ROUND((INTERPOLATION_MONTHS.MONTHS_TO_NEXT_ANN * COVSUMMARY.TOTAL_CV2")
@@ -478,14 +538,75 @@ def build_cyberlife_sql(
         sql_parts.append(f"      AND COVSUMMARY.CK_CMP_CD = INTERPOLATION_MONTHS.CK_CMP_CD")
         sql_parts.append(f"      AND COVSUMMARY.TCH_POL_ID = INTERPOLATION_MONTHS.TCH_POL_ID)")
 
-    # ADV: GLP CTE (guideline level premium)
-    if adv_glp_neg:
+    # Display: TRAD_CV CTE (interpolated cash value for Account Value display)
+    if disp_account_value:
+        sql_parts.append(f", TRAD_CV AS (")
+        sql_parts.append(f"  SELECT COVERAGE1.CK_SYS_CD, COVERAGE1.CK_CMP_CD, COVERAGE1.TCH_POL_ID")
+        sql_parts.append(f"    , (CASE WHEN COVERAGE1.LOW_DUR_1_CSV_AMT IS NULL THEN 0")
+        sql_parts.append(f"            ELSE COVERAGE1.LOW_DUR_1_CSV_AMT END)")
+        sql_parts.append(f"      * COVERAGE1.COV_UNT_QTY/12 * INTERPOLATION_MONTHS.MONTHS_TO_NEXT_ANN")
+        sql_parts.append(f"      + (CASE WHEN COVERAGE1.LOW_DUR_2_CSV_AMT IS NULL THEN 0")
+        sql_parts.append(f"              ELSE COVERAGE1.LOW_DUR_2_CSV_AMT END)")
+        sql_parts.append(f"      * COVERAGE1.COV_UNT_QTY/12 * INTERPOLATION_MONTHS.MONTHS_YTD  INTERP_CV")
+        sql_parts.append(f"    , (CASE WHEN COVERAGE1.LOW_DUR_NSP_AMT IS NULL THEN 0")
+        sql_parts.append(f"            ELSE COVERAGE1.LOW_DUR_NSP_AMT END)")
+        sql_parts.append(f"      * COVERAGE1.COV_UNT_QTY/12 * INTERPOLATION_MONTHS.MONTHS_TO_NEXT_ANN")
+        sql_parts.append(f"      + (CASE WHEN COVERAGE1.LOW_DUR_1_NSP_AMT IS NULL THEN 0")
+        sql_parts.append(f"              ELSE COVERAGE1.LOW_DUR_1_NSP_AMT END)")
+        sql_parts.append(f"      * COVERAGE1.COV_UNT_QTY/12 * INTERPOLATION_MONTHS.MONTHS_YTD  INTERP_NSP")
+        sql_parts.append(f"  FROM COVERAGE1")
+        sql_parts.append(f"    INNER JOIN INTERPOLATION_MONTHS")
+        sql_parts.append(f"      ON COVERAGE1.CK_SYS_CD = INTERPOLATION_MONTHS.CK_SYS_CD")
+        sql_parts.append(f"      AND COVERAGE1.CK_CMP_CD = INTERPOLATION_MONTHS.CK_CMP_CD")
+        sql_parts.append(f"      AND COVERAGE1.TCH_POL_ID = INTERPOLATION_MONTHS.TCH_POL_ID)")
+
+    # ADV / Display: GLP CTE (guideline level premium)
+    if adv_glp_neg or disp_glp:
         sql_parts.append(f", GLP AS (")
         sql_parts.append(f"  SELECT DISTINCT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID,")
         sql_parts.append(f"    TEMPGLP.GDL_PRM_AMT GLP_VALUE")
         sql_parts.append(f"  FROM {schema}.LH_COV_INS_GDL_PRM TEMPGLP")
         sql_parts.append(f"  WHERE TEMPGLP.COV_PHA_NBR = 1")
         sql_parts.append(f"    AND TEMPGLP.PRM_RT_TYP_CD = 'A')")
+
+    # Display: GSP CTE (guideline single premium)
+    if disp_gsp:
+        sql_parts.append(f", GSP AS (")
+        sql_parts.append(f"  SELECT DISTINCT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID,")
+        sql_parts.append(f"    TEMPGSP.GDL_PRM_AMT GSP_VALUE")
+        sql_parts.append(f"  FROM {schema}.LH_COV_INS_GDL_PRM TEMPGSP")
+        sql_parts.append(f"  WHERE TEMPGSP.COV_PHA_NBR = 1")
+        sql_parts.append(f"    AND TEMPGSP.PRM_RT_TYP_CD = 'S')")
+
+    # Display: RPU Original Face (68 segment type 9 change)
+    if disp_orig_face_rpu:
+        sql_parts.append(f", CHANGE_TYPE9 AS (")
+        sql_parts.append(f"  SELECT TMN.CK_SYS_CD, TMN.CK_CMP_CD, TMN.TCH_POL_ID")
+        sql_parts.append(f"    , SUM(TMN.OGN_COV_UNT_QTY) TOTALORIGUNITS")
+        sql_parts.append(f"  FROM {schema}.LH_COV_TMN TMN")
+        sql_parts.append(f"    INNER JOIN {schema}.LH_NT_COV_CHG COVCHG")
+        sql_parts.append(f"      ON COVCHG.CK_SYS_CD = TMN.CK_SYS_CD")
+        sql_parts.append(f"      AND COVCHG.CK_CMP_CD = TMN.CK_CMP_CD")
+        sql_parts.append(f"      AND COVCHG.TCH_POL_ID = TMN.TCH_POL_ID")
+        sql_parts.append(f"      AND COVCHG.COV_PHA_NBR = TMN.COV_PHA_NBR")
+        sql_parts.append(f"      AND COVCHG.CHG_TYP_CD = '9'")
+        sql_parts.append(f"  GROUP BY TMN.CK_SYS_CD, TMN.CK_CMP_CD, TMN.TCH_POL_ID)")
+
+    # Display: Insured1 Info (89) — primary insured name + DOB
+    if disp_insured1_info:
+        sql_parts.append(f", INSURED1_INFO AS (")
+        sql_parts.append(f"  SELECT T1.CK_SYS_CD, T1.CK_CMP_CD, T1.TCH_POL_ID")
+        sql_parts.append(f"    , T2.CK_FST_NM FNAME")
+        sql_parts.append(f"    , T2.CK_LST_NM LNAME")
+        sql_parts.append(f"    , T1.BIR_DT BIRTHDT")
+        sql_parts.append(f"  FROM {schema}.LH_CTT_CLIENT T1")
+        sql_parts.append(f"    INNER JOIN {schema}.VH_POL_HAS_LOC_CLT T2")
+        sql_parts.append(f"      ON T1.PRS_SEQ_NBR = T2.PRS_SEQ_NBR")
+        sql_parts.append(f"      AND T1.PRS_CD = T2.PRS_CD")
+        sql_parts.append(f"      AND T1.TCH_POL_ID = T2.TCH_POL_ID")
+        sql_parts.append(f"      AND T1.CK_SYS_CD = T2.CK_SYS_CD")
+        sql_parts.append(f"      AND T1.CK_CMP_CD = T2.CK_CMP_CD")
+        sql_parts.append(f"  WHERE T1.PRS_CD = '00')")
 
     # ADV: FUND_VALUES CTE (current fund value)
     if has_fund_values:
@@ -604,6 +725,189 @@ def build_cyberlife_sql(
         sql_parts.append("  , COVSUMMARY.TOTAL_SA TotalFace")
         sql_parts.append("  , COVSUMMARY.TOTAL_ORIGINAL_SA TotalOriginalFace")
 
+    # Circle 7: Simple POLICY1 / COVERAGE1 display columns
+    if disp_tch_pol_id:
+        sql_parts.append("  , POLICY1.TCH_POL_ID TCH_POL_ID")
+    if disp_mod_indicator or is_mdo:
+        sql_parts.append("  , SUBSTR(POLICY1.USR_RES_CD, 1, 1) MDO")
+    if disp_prod_line:
+        sql_parts.append("  , COVERAGE1.PRD_LIN_TYP_CD")
+    if disp_sex_02:
+        sql_parts.append("  , COVERAGE1.INS_SEX_CD SEX_CD")
+    if disp_subseries:
+        sql_parts.append("  , COVERAGE1.LIF_PLN_SUB_SRE_CD SUBSERIES")
+    if disp_mec_status:
+        sql_parts.append("  , (CASE")
+        sql_parts.append("      WHEN POLICY1.MEC_STATUS_CD = '0' THEN '0 - NO'")
+        sql_parts.append("      WHEN POLICY1.MEC_STATUS_CD = '1' THEN '1 - YES'")
+        sql_parts.append("      WHEN POLICY1.MEC_STATUS_CD = '2' THEN '2 - NO'")
+        sql_parts.append("      ELSE POLICY1.MEC_STATUS_CD")
+        sql_parts.append("      END) MEC_INDICATOR_01")
+    if disp_app_date:
+        sql_parts.append("  , VARCHAR_FORMAT(POLICY1.APP_WRT_DT, 'MM/DD/YYYY') AppDt")
+    if disp_next_notif:
+        sql_parts.append("  , VARCHAR_FORMAT(POLICY1.NXT_SCH_NOT_DT, 'MM/DD/YYYY') NextNotifyDt")
+    if disp_next_year_end:
+        sql_parts.append("  , VARCHAR_FORMAT(POLICY1.NXT_YR_END_PRC_DT, 'MM/DD/YYYY') NextYearEndDt")
+    if disp_next_stmt:
+        sql_parts.append("  , VARCHAR_FORMAT(POLICY1.NXT_SCH_STT_DT, 'MM/DD/YYYY') NextStatementDt")
+    if disp_next_change:
+        sql_parts.append("  , COVERAGE1.NXT_CHG_TYP_CD NextChangeType")
+        sql_parts.append("  , VARCHAR_FORMAT(COVERAGE1.NXT_CHG_DT, 'MM/DD/YYYY') NextChangeDt")
+    if disp_init_term:
+        sql_parts.append("  , COVERAGE1.INT_RNL_PER")
+        sql_parts.append("  , COVERAGE1.SBQ_RNL_STR_DUR")
+        sql_parts.append("  , COVERAGE1.SBQ_RNL_PER")
+
+    # Circle 8: Target / value display columns
+    if disp_commission_target:
+        sql_parts.append("  , COMMTARGET.TAR_PRM_AMT CTP")
+    if disp_monthly_mtp:
+        sql_parts.append("  , MTP.TAR_PRM_AMT MonthlyMTP")
+    if disp_accum_mtp:
+        sql_parts.append("  , ACCUMMTP.TAR_PRM_AMT ACCUMMTP")
+    if disp_accum_glp:
+        sql_parts.append("  , ACCUMGLP.TAR_PRM_AMT ACCUMGLP")
+    if disp_nsp:
+        sql_parts.append("  , NSPTARGET.TAR_PRM_AMT NSP")
+    if disp_shadow_av:
+        sql_parts.append("  , SHADOWAV.TAR_PRM_AMT ShadowAV")
+    if disp_db_option:
+        sql_parts.append("  , NONTRAD.DTH_BNF_PLN_OPT_CD DBOpt")
+    if disp_def_life_ins:
+        sql_parts.append("  , (CASE")
+        sql_parts.append("      WHEN NONTRAD.TFDF_CD = '1' THEN '1 - GPT TEFRA'")
+        sql_parts.append("      WHEN NONTRAD.TFDF_CD = '2' THEN '2 - GPT DEFRA'")
+        sql_parts.append("      WHEN NONTRAD.TFDF_CD = '3' THEN '3 - CVAT DEFRA'")
+        sql_parts.append("      WHEN NONTRAD.TFDF_CD = '4' THEN '4 - GPT Selected'")
+        sql_parts.append("      WHEN NONTRAD.TFDF_CD = '5' THEN '5 - CVAT Selected'")
+        sql_parts.append("      ELSE NONTRAD.TFDF_CD")
+        sql_parts.append("      END) DefOfLifeIns")
+    if disp_short_pay:
+        sql_parts.append("  , SHORTPAY_PRM.TAR_PRM_AMT SHORTPAY_AMT")
+        sql_parts.append("  , VARCHAR_FORMAT(SHORTPAY_PRM.TAR_DT, 'MM/DD/YYYY') SHORTPAY_CEASEDT")
+        sql_parts.append("  , USERDEF_52G.INITIAL_PAY_DUR SHORTPAY_DUR")
+        sql_parts.append("  , USERDEF_52G.INITIAL_MODE SHORTPAY_MODE")
+        sql_parts.append("  , USERDEF_52G.DIAL_TO_PREM_AGE SHORTPAY_DBAGE")
+
+    # Circle 9: Columns requiring existing CTEs / JOINs
+    if disp_gpe_date:
+        sql_parts.append("  , VARCHAR_FORMAT(GRACE_TABLE.GRA_PER_EXP_DT, 'MM/DD/YYYY') GPE_DT")
+    if disp_term_date:
+        sql_parts.append("  , VARCHAR_FORMAT(TD.TERM_ENTRY_DT, 'MM/DD/YYYY') TERM_ENTRY_DT")
+    if disp_accum_wd:
+        sql_parts.append("  , POLICY_TOTALS.TOT_WTD_AMT")
+    if disp_cost_basis:
+        sql_parts.append("  , POLICY_TOTALS.POL_CST_BSS_AMT COSTBASIS")
+    if disp_prem_ptd or disp_accum_value:
+        sql_parts.append("  , VARCHAR_FORMAT(MVVAL.LASTMVDT, 'MM/DD/YYYY') LastMonthliverary")
+        sql_parts.append("  , MVVAL.CSV_AMT CurrCV")
+        sql_parts.append("  , MVVAL.TOTALPREM")
+    if disp_prem_ytd:
+        sql_parts.append("  , LH_POL_YR_TOT_at_MaxDuration.YTD_TOT_PMT_AMT")
+    if disp_policy_debt:
+        sql_parts.append("  , POLICYDEBT.LOAN_PRINCIPLE")
+        sql_parts.append("  , POLICYDEBT.LOAN_ACCRUED")
+        sql_parts.append("  , (CASE")
+        sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '0' THEN 'FIX'")
+        sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '1' THEN 'FIX'")
+        sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '6' THEN 'VAR'")
+        sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '7' THEN 'VAR'")
+        sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '9' THEN 'NA'")
+        sql_parts.append("      ELSE POLICY1.LN_TYP_CD")
+        sql_parts.append("      END) LOAN_TYPE")
+        sql_parts.append("  , (CASE")
+        sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '0' THEN 'ADVANCE'")
+        sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '1' THEN 'ARREARS'")
+        sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '6' THEN 'ADVANCE'")
+        sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '7' THEN 'ARREARS'")
+        sql_parts.append("      WHEN POLICY1.LN_TYP_CD = '9' THEN 'NA'")
+        sql_parts.append("      ELSE POLICY1.LN_TYP_CD")
+        sql_parts.append("      END) LOAN_TIMING")
+
+    # Circle 10: Batch 4 — new JOINs / CTEs required
+    if disp_substandard:
+        sql_parts.append("  , (CASE WHEN TABLE_RATING1.SST_XTR_RT_TBL_CD IS NULL THEN ' ' ELSE TABLE_RATING1.SST_XTR_RT_TBL_CD END) TableRating")
+        sql_parts.append("  , (CASE WHEN FLAT_EXTRA1.SST_XTR_UNT_AMT IS NULL THEN '0' ELSE FLAT_EXTRA1.SST_XTR_UNT_AMT END) MONTHFLAT")
+    if disp_sex_rateclass:
+        sql_parts.append("  , COV1_RENEWALS.RT_CLS_CD RenewalClass")
+        sql_parts.append("  , COV1_RENEWALS.RT_SEX_CD RenewalSex")
+    if disp_tamra:
+        sql_parts.append("  , TAMRA.SVPY_LVL_PRM_AMT TAMRA7PAY")
+    if disp_gsp:
+        sql_parts.append("  , GSP.GSP_VALUE")
+    if disp_glp:
+        sql_parts.append("  , GLP.GLP_VALUE")
+    if disp_bill_ctrl_num:
+        sql_parts.append("  , BILL_CONTROL.BIL_CTL_NBR BillControl")
+    if disp_slr_bill_form:
+        sql_parts.append("  , SLR_BILL_CONTROL.BIL_FRM_CD SLRBillForm")
+    if disp_orig_face_rpu:
+        sql_parts.append("  , CHANGE_TYPE9.TOTALORIGUNITS")
+    if disp_prem_calc_rules:
+        sql_parts.append("  , FIXPREM.MD_PRM_MUL_ORD_CD")
+        sql_parts.append("  , FIXPREM.RT_FCT_ORD_CD")
+        sql_parts.append("  , FIXPREM.ROU_RLE_CD")
+    if disp_cirf_key:
+        sql_parts.append("  , FFC.CUR_ITS_RT_SER_NBR CIRF_Key")
+    if disp_trad_overloan:
+        sql_parts.append("  , POLICY1_MOD.OVERLOAN_IND")
+    if disp_replacement_pol:
+        sql_parts.append("  , USERDEF_52R.REPLACED_POLICY REPLACED_POL")
+
+    # Circle 11: Batch 5 — Conversion-related display fields
+    if disp_converted_pol:
+        sql_parts.append("  , USERGEN.EXCH_POL_NUMBER EXCHANGE_POL")
+        sql_parts.append("  , USERGEN.EXCHANGE EXCHANGE_CD")
+        sql_parts.append("  , USERGEN.SOURCE_COV_PHASE CONV_COV")
+        sql_parts.append("  , USERGEN.SOURCE_ISSUE_DATE CONV_ISSDT")
+        sql_parts.append("  , USERGEN.SOURCE_PLAN_CODE CONV_PLAN")
+        sql_parts.append("  , USERGEN.SOURCE_FACE_AMT CONV_FACE")
+    if disp_conv_credit:
+        sql_parts.append("  , UPDF.CONV_CREDIT_IND CN_CRED_IND")
+        sql_parts.append("  , UPDF.CONV_CREDIT_RULE CN_CRED_RULE")
+        sql_parts.append("  , UPDF.CONV_CREDIT_PERIOD CN_CRED_PERIOD")
+    if disp_within_conv:
+        _today = today_str()
+        _dur = f"TRUNCATE(MONTHS_BETWEEN('{_today}', COVERAGE1.ISSUE_DT) / 12, 0)"
+        _att_age = f"(COVERAGE1.INS_ISS_AGE + {_dur})"
+        sql_parts.append("  , (CASE")
+        sql_parts.append(f"      WHEN (UPDF.CONVERSION_PERIOD = 0 AND {_att_age} < UPDF.CONVERSION_AGE)")
+        sql_parts.append(f"        OR (UPDF.CONVERSION_PERIOD > 0 AND {_dur} < UPDF.CONVERSION_PERIOD")
+        sql_parts.append(f"            AND {_att_age} < UPDF.CONVERSION_AGE)")
+        sql_parts.append("      THEN 'TRUE' ELSE 'FALSE'")
+        sql_parts.append("      END) AS WITHIN_CONV_PERIOD")
+    if disp_conv_period:
+        sql_parts.append("  , UPDF.CONVERSION_PERIOD CN_PERIOD")
+        sql_parts.append("  , UPDF.CONVERSION_AGE CN_AGE")
+        sql_parts.append("  , UPDF.CONV_TO_TRM_PERIOD CN_TO_TERM_PERIOD")
+
+    # Circle 12: Trad Cash Value Cov1 / Account Value
+    if disp_trad_cv_cov1:
+        sql_parts.append("  , (CASE WHEN COVERAGE1.LOW_DUR_1_CSV_AMT IS NULL THEN '0' ELSE COVERAGE1.LOW_DUR_1_CSV_AMT END) BCVR_COV1")
+        sql_parts.append("  , (CASE WHEN COVERAGE1.LOW_DUR_2_CSV_AMT IS NULL THEN '0' ELSE COVERAGE1.LOW_DUR_2_CSV_AMT END) ECVR_COV1")
+        sql_parts.append("  , INTERPOLATION_MONTHS.MONTHS_TO_NEXT_ANN")
+        sql_parts.append("  , INTERPOLATION_MONTHS.MONTHS_YTD")
+        sql_parts.append("  , (CASE WHEN COVERAGE1.LOW_DUR_1_CSV_AMT IS NULL THEN 0 ELSE COVERAGE1.LOW_DUR_1_CSV_AMT END)")
+        sql_parts.append("    * COVERAGE1.COV_UNT_QTY * INTERPOLATION_MONTHS.MONTHS_TO_NEXT_ANN")
+        sql_parts.append("    + (CASE WHEN COVERAGE1.LOW_DUR_2_CSV_AMT IS NULL THEN 0 ELSE COVERAGE1.LOW_DUR_2_CSV_AMT END)")
+        sql_parts.append("    * COVERAGE1.COV_UNT_QTY * INTERPOLATION_MONTHS.MONTHS_YTD CV_COV1")
+    if disp_account_value:
+        sql_parts.append("  , MVVAL.CSV_AMT")
+        sql_parts.append("  , TRAD_CV.INTERP_NSP")
+        sql_parts.append("  , TRAD_CV.INTERP_CV")
+        sql_parts.append("  , COVERAGE1.ADV_PRD_IND")
+        sql_parts.append("  , COVERAGE1.LOW_DUR_CSV_AMT")
+        sql_parts.append("  , COVERAGE1.LOW_DUR_1_CSV_AMT")
+        sql_parts.append("  , COVERAGE1.LOW_DUR_NSP_AMT")
+        sql_parts.append("  , COVERAGE1.LOW_DUR_1_NSP_AMT")
+
+    # Circle 13: Insured1 Info
+    if disp_insured1_info:
+        sql_parts.append("  , INSURED1_INFO.FNAME")
+        sql_parts.append("  , INSURED1_INFO.LNAME")
+        sql_parts.append("  , VARCHAR_FORMAT(INSURED1_INFO.BIRTHDT, 'MM/DD/YYYY') BIRTHDT")
+
     # ── Display tab: Trad rates - cov 1 ─────────────────────────
     disp_trad_rates = dt.Checkbox_DisplayTradRates.isChecked()
     if disp_trad_rates:
@@ -651,13 +955,20 @@ def build_cyberlife_sql(
         sql_parts.append("    AND COVSUMMARY.CK_CMP_CD = POLICY1.CK_CMP_CD")
         sql_parts.append("    AND COVSUMMARY.TCH_POL_ID = POLICY1.TCH_POL_ID")
 
-    # In conversion period requires TH_USER_PDF (52-1)
-    if in_conversion:
+    # In conversion period / conversion display fields requires TH_USER_PDF (52-1)
+    if in_conversion or disp_conv_credit or disp_within_conv or disp_conv_period:
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.TH_USER_PDF UPDF")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = UPDF.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = UPDF.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = UPDF.TCH_POL_ID")
         sql_parts.append("    AND UPDF.TYPE_SEQUENCE = 1")
+
+    # Display tab: Insured1 Info JOIN (CTE)
+    if disp_insured1_info:
+        sql_parts.append("  LEFT OUTER JOIN INSURED1_INFO")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = INSURED1_INFO.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = INSURED1_INFO.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = INSURED1_INFO.TCH_POL_ID")
 
     # GPE Date / Grace Indicator requires joining GRACE_TABLE
     if needs_grace_table:
@@ -667,7 +978,7 @@ def build_cyberlife_sql(
         sql_parts.append("    AND POLICY1.TCH_POL_ID = GRACE_TABLE.TCH_POL_ID")
 
     # ── Policy (2) JOINs ────────────────────────────────────────
-    if has_tamra:
+    if has_tamra or disp_tamra:
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_TAMRA_7_PY_PER TAMRA")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = TAMRA.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = TAMRA.CK_CMP_CD")
@@ -682,7 +993,7 @@ def build_cyberlife_sql(
         sql_parts.append("    ON POLICY1.CK_SYS_CD = LH_POL_YR_TOT_at_MaxDuration.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = LH_POL_YR_TOT_at_MaxDuration.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = LH_POL_YR_TOT_at_MaxDuration.TCH_POL_ID")
-    if has_nontrad:
+    if has_nontrad or disp_db_option or disp_def_life_ins:
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_NON_TRD_POL NONTRAD")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = NONTRAD.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = NONTRAD.CK_CMP_CD")
@@ -693,8 +1004,9 @@ def build_cyberlife_sql(
         sql_parts.append("    AND MODCOVSALL.CK_CMP_CD = COVSALL.CK_CMP_CD")
         sql_parts.append("    AND MODCOVSALL.TCH_POL_ID = COVSALL.TCH_POL_ID")
         sql_parts.append("    AND MODCOVSALL.COV_PHA_NBR = COVSALL.COV_PHA_NBR")
-    if has_52r:
-        sql_parts.append(f"  INNER JOIN {schema}.TH_USER_REPLACEMENT USERDEF_52R")
+    if has_52r or disp_replacement_pol:
+        _52r_join = "INNER JOIN" if has_52r else "LEFT OUTER JOIN"
+        sql_parts.append(f"  {_52r_join} {schema}.TH_USER_REPLACEMENT USERDEF_52R")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = USERDEF_52R.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = USERDEF_52R.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = USERDEF_52R.TCH_POL_ID")
@@ -703,28 +1015,31 @@ def build_cyberlife_sql(
         sql_parts.append("    ON POLICY1.CK_SYS_CD = REINSTATEMENT.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = REINSTATEMENT.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = REINSTATEMENT.TCH_POL_ID")
-    if has_slr:
+    if has_slr or disp_slr_bill_form:
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_LN_RPY_TRM SLR_BILL_CONTROL")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = SLR_BILL_CONTROL.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = SLR_BILL_CONTROL.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = SLR_BILL_CONTROL.TCH_POL_ID")
-    if has_overloan:
+    if has_overloan or disp_trad_overloan:
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.TH_BAS_POL POLICY1_MOD")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = POLICY1_MOD.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = POLICY1_MOD.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = POLICY1_MOD.TCH_POL_ID")
-    if has_term_entry:
-        sql_parts.append("  INNER JOIN TERMINATION_DATES AS TD")
+    if has_term_entry or disp_term_date:
+        _td_join = "INNER JOIN" if has_term_entry else "LEFT OUTER JOIN"
+        sql_parts.append(f"  {_td_join} TERMINATION_DATES AS TD")
         sql_parts.append("    ON POLICY1.CK_CMP_CD = TD.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = TD.TCH_POL_ID")
-    if has_77_segment:
-        sql_parts.append("  INNER JOIN ALL_LOANS")
+    if has_77_segment or disp_policy_debt:
+        _loan_join = "INNER JOIN" if has_77_segment else "LEFT OUTER JOIN"
+        sql_parts.append(f"  {_loan_join} ALL_LOANS")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = ALL_LOANS.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = ALL_LOANS.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = ALL_LOANS.TCH_POL_ID")
-        if p2t.chk_has_preferred_loan.isChecked():
+        if has_77_segment and p2t.chk_has_preferred_loan.isChecked():
             sql_parts.append("    AND ALL_LOANS.PRF_LN_IND = '1'")
-        sql_parts.append("  INNER JOIN POLICYDEBT")
+        _debt_join = "INNER JOIN" if has_77_segment else "LEFT OUTER JOIN"
+        sql_parts.append(f"  {_debt_join} POLICYDEBT")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = POLICYDEBT.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = POLICYDEBT.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = POLICYDEBT.TCH_POL_ID")
@@ -745,11 +1060,24 @@ def build_cyberlife_sql(
         sql_parts.append("    ON POLICY1.CK_SYS_CD = ISWL_INTERPOLATED_GCV.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = ISWL_INTERPOLATED_GCV.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = ISWL_INTERPOLATED_GCV.TCH_POL_ID")
-    if adv_glp_neg:
-        sql_parts.append("  INNER JOIN GLP")
+    if adv_glp_neg or disp_glp:
+        _glp_join = "INNER JOIN" if adv_glp_neg else "LEFT OUTER JOIN"
+        sql_parts.append(f"  {_glp_join} GLP")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = GLP.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = GLP.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = GLP.TCH_POL_ID")
+    # Display tab: Trad Cash Value Cov1 needs INTERPOLATION_MONTHS
+    if disp_trad_cv_cov1:
+        sql_parts.append("  LEFT OUTER JOIN INTERPOLATION_MONTHS")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = INTERPOLATION_MONTHS.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = INTERPOLATION_MONTHS.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = INTERPOLATION_MONTHS.TCH_POL_ID")
+    # Display tab: Account Value needs TRAD_CV
+    if disp_account_value:
+        sql_parts.append("  LEFT OUTER JOIN TRAD_CV")
+        sql_parts.append("    ON COVERAGE1.CK_SYS_CD = TRAD_CV.CK_SYS_CD")
+        sql_parts.append("    AND COVERAGE1.CK_CMP_CD = TRAD_CV.CK_CMP_CD")
+        sql_parts.append("    AND COVERAGE1.TCH_POL_ID = TRAD_CV.TCH_POL_ID")
     if has_fund_values:
         _fid = adv_fund_id
         sql_parts.append("  INNER JOIN FUND_VALUES")
@@ -775,24 +1103,87 @@ def build_cyberlife_sql(
         sql_parts.append("    AND POLICY1.CK_CMP_CD = ALLOCATION_V_COUNT.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = ALLOCATION_V_COUNT.TCH_POL_ID")
         sql_parts.append("    AND ALLOCATION_V_COUNT.FND_TRS_TYP_CD = 'V'")
-    if has_shadow_av:
+    if has_shadow_av or disp_shadow_av:
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_COV_TARGET SHADOWAV")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = SHADOWAV.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = SHADOWAV.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = SHADOWAV.TCH_POL_ID")
         sql_parts.append("    AND SHADOWAV.TAR_TYP_CD = 'XP'")
-    if has_accum_mtp:
+    if has_accum_mtp or disp_accum_mtp:
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_POL_TARGET ACCUMMTP")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = ACCUMMTP.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = ACCUMMTP.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = ACCUMMTP.TCH_POL_ID")
         sql_parts.append("    AND ACCUMMTP.TAR_TYP_CD = 'MA'")
-    if has_accum_glp_range:
+    if has_accum_glp_range or disp_accum_glp:
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_POL_TARGET ACCUMGLP")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = ACCUMGLP.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = ACCUMGLP.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = ACCUMGLP.TCH_POL_ID")
         sql_parts.append("    AND ACCUMGLP.TAR_TYP_CD = 'TA'")
+    # Display tab: Commission Target JOIN
+    if disp_commission_target:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_COM_TARGET COMMTARGET")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = COMMTARGET.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = COMMTARGET.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = COMMTARGET.TCH_POL_ID")
+        sql_parts.append("    AND COMMTARGET.TAR_TYP_CD = 'CT'")
+    # Display tab: Monthly Min Target JOIN
+    if disp_monthly_mtp:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_POL_TARGET MTP")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = MTP.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = MTP.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = MTP.TCH_POL_ID")
+        sql_parts.append("    AND MTP.TAR_TYP_CD = 'MT'")
+    # Display tab: NSP JOIN
+    if disp_nsp:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_POL_TARGET NSPTARGET")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = NSPTARGET.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = NSPTARGET.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = NSPTARGET.TCH_POL_ID")
+        sql_parts.append("    AND NSPTARGET.TAR_TYP_CD = 'NS'")
+    # Display tab: Short pay fields JOINs
+    if disp_short_pay:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_POL_TARGET SHORTPAY_PRM")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = SHORTPAY_PRM.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = SHORTPAY_PRM.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = SHORTPAY_PRM.TCH_POL_ID")
+        sql_parts.append("    AND SHORTPAY_PRM.TAR_TYP_CD = 'VS'")
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.TH_USER_GENERIC USERDEF_52G")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = USERDEF_52G.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = USERDEF_52G.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = USERDEF_52G.TCH_POL_ID")
+
+    # Display tab: GSP JOIN (CTE)
+    if disp_gsp:
+        sql_parts.append("  LEFT OUTER JOIN GSP")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = GSP.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = GSP.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = GSP.TCH_POL_ID")
+    # Display tab: Billable Control Number JOIN
+    if disp_bill_ctrl_num:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_BIL_FRM_CTL BILL_CONTROL")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = BILL_CONTROL.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = BILL_CONTROL.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = BILL_CONTROL.TCH_POL_ID")
+    # Display tab: Original face for RPU JOIN (CTE)
+    if disp_orig_face_rpu:
+        sql_parts.append("  LEFT OUTER JOIN CHANGE_TYPE9")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = CHANGE_TYPE9.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = CHANGE_TYPE9.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = CHANGE_TYPE9.TCH_POL_ID")
+    # Display tab: Prem Calc Rules JOIN
+    if disp_prem_calc_rules:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_FXD_PRM_POL FIXPREM")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = FIXPREM.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = FIXPREM.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = FIXPREM.TCH_POL_ID")
+    # Display tab: CIRF Key JOIN
+    if disp_cirf_key:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_COV_FXD_FND_CTL FFC")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = FFC.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = FFC.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = FFC.TCH_POL_ID")
 
     # ── Benefits tab JOINs (up to 3 benefit rows) ───────────────
     bt = benefits_tab
@@ -839,8 +1230,9 @@ def build_cyberlife_sql(
         sql_parts.append("    AND COVERAGE1.COV_PHA_NBR = MODCOV1.COV_PHA_NBR")
 
     # Base cov: COV1_RENEWALS (LH_COV_INS_RNL_RT) for rateclass67 / sex67
-    if cov_needs_renewals:
-        sql_parts.append(f"  INNER JOIN {schema}.LH_COV_INS_RNL_RT COV1_RENEWALS")
+    if cov_needs_renewals or disp_sex_rateclass:
+        _rnw_join = "INNER JOIN" if cov_needs_renewals else "LEFT OUTER JOIN"
+        sql_parts.append(f"  {_rnw_join} {schema}.LH_COV_INS_RNL_RT COV1_RENEWALS")
         sql_parts.append("    ON COVERAGE1.CK_SYS_CD = COV1_RENEWALS.CK_SYS_CD")
         sql_parts.append("    AND COVERAGE1.CK_CMP_CD = COV1_RENEWALS.CK_CMP_CD")
         sql_parts.append("    AND COVERAGE1.TCH_POL_ID = COV1_RENEWALS.TCH_POL_ID")
@@ -848,8 +1240,9 @@ def build_cyberlife_sql(
         sql_parts.append("    AND COV1_RENEWALS.PRM_RT_TYP_CD = 'C'")
 
     # Base cov: TABLE_RATING1 (LH_SST_XTR_CRG) for Table (03)
-    if cov_base_table03:
-        sql_parts.append(f"  INNER JOIN {schema}.LH_SST_XTR_CRG TABLE_RATING1")
+    if cov_base_table03 or disp_substandard:
+        _tr_join = "INNER JOIN" if cov_base_table03 else "LEFT OUTER JOIN"
+        sql_parts.append(f"  {_tr_join} {schema}.LH_SST_XTR_CRG TABLE_RATING1")
         sql_parts.append("    ON COVERAGE1.CK_SYS_CD = TABLE_RATING1.CK_SYS_CD")
         sql_parts.append("    AND COVERAGE1.CK_CMP_CD = TABLE_RATING1.CK_CMP_CD")
         sql_parts.append("    AND COVERAGE1.TCH_POL_ID = TABLE_RATING1.TCH_POL_ID")
@@ -859,8 +1252,9 @@ def build_cyberlife_sql(
                          " OR TABLE_RATING1.SST_XTR_TYP_CD = '3')")
 
     # Base cov: FLAT_EXTRA1 (LH_SST_XTR_CRG) for Flat (03)
-    if cov_base_flat03:
-        sql_parts.append(f"  INNER JOIN {schema}.LH_SST_XTR_CRG FLAT_EXTRA1")
+    if cov_base_flat03 or disp_substandard:
+        _fe_join = "INNER JOIN" if cov_base_flat03 else "LEFT OUTER JOIN"
+        sql_parts.append(f"  {_fe_join} {schema}.LH_SST_XTR_CRG FLAT_EXTRA1")
         sql_parts.append("    ON COVERAGE1.CK_SYS_CD = FLAT_EXTRA1.CK_SYS_CD")
         sql_parts.append("    AND COVERAGE1.CK_CMP_CD = FLAT_EXTRA1.CK_CMP_CD")
         sql_parts.append("    AND COVERAGE1.TCH_POL_ID = FLAT_EXTRA1.TCH_POL_ID")

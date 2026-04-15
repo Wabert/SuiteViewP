@@ -119,8 +119,10 @@ class TotalRecords:
 
     @property
     def ACC_VAL_AMT(self) -> Optional[Decimal]:
-        """Accumulation value (UL)."""
+        """Accumulation value (UL) — try advanced first, then traditional."""
         val = self._policy.data_item("TH_POL_MVRY_VAL", "ACC_VAL_AMT")
+        if val is None:
+            val = self._policy.data_item("LH_POL_MVRY_VAL", "ACC_VAL_AMT")
         return Decimal(str(val)) if val is not None else None
 
     @property

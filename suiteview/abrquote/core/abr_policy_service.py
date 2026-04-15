@@ -234,6 +234,9 @@ def build_abr_policy(
             rate_sex=rate_sex,
             rate_class=pi.base_rate_class or "N",
             face_amount=float(pi.base_face_amount or 0),
+            db_option=pi.db_option_code or "",
+            account_value=float(pi.accumulation_value or 0),
+            premiums_paid_to_date=float(pi.total_premiums_paid or 0),
             issue_date=(
                 pi.issue_date
                 or (pi.get_coverages()[0].issue_date if pi.get_coverages() else None)

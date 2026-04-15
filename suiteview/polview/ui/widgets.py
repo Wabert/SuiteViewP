@@ -1249,6 +1249,7 @@ class PolicyLookupBar(QWidget):
         # Policy display label (shows Company - Policy after lookup) - at far left
         self.policy_label = QLabel("")
         self.policy_label.setObjectName("policyDisplay")
+        self.policy_label.setTextFormat(Qt.TextFormat.RichText)
         self.policy_label.setStyleSheet(POLICY_DISPLAY_STYLE)
         layout.addWidget(self.policy_label)
         
@@ -1330,12 +1331,14 @@ class PolicyLookupBar(QWidget):
         if policy:
             self.policy_requested.emit(policy, region, company)
     
-    def set_policy_display(self, company: str, policy: str, region: str = ""):
+    def set_policy_display(self, company: str, policy: str, region: str = "",
+                            is_pending: bool = False):
         """Update the policy display label."""
+        pending_tag = '  <span style="color:#FF1744; font-weight:bold;">(Pending)</span>' if is_pending else ''
         if region:
-            self.policy_label.setText(f"{region} - {company} - {policy}")
+            self.policy_label.setText(f"{region} - {company} - {policy}{pending_tag}")
         else:
-            self.policy_label.setText(f"{company} - {policy}")
+            self.policy_label.setText(f"{company} - {policy}{pending_tag}")
     
     def show_company_chooser(self, companies: list, policy_number: str, region: str):
         """Show company choice buttons when a policy exists in multiple companies."""
