@@ -2205,10 +2205,9 @@ class SuiteViewTaskbar(QWidget):
         self._abrquote_action.triggered.connect(self._open_abrquote)
         tray_menu.addAction(self._abrquote_action)
         
-        if DEV_MODE:
-            self._audit_action = QAction("🔍 Audit Tool", self)
-            self._audit_action.triggered.connect(self._open_audit)
-            tray_menu.addAction(self._audit_action)
+        self._audit_action = QAction("🔍 Audit Tool", self)
+        self._audit_action.triggered.connect(self._open_audit)
+        tray_menu.addAction(self._audit_action)
         
         tray_menu.addSeparator()
         
@@ -2898,6 +2897,10 @@ class SuiteViewTaskbar(QWidget):
                 return cursors.get(self.edge, Qt.CursorShape.ArrowCursor)
                 
             def mousePressEvent(self, event):
+                # Block resize when docked compact or floating
+                if getattr(self.parent_window, '_is_compact_mode', False) or getattr(self.parent_window, '_is_floating_mode', False):
+                    event.ignore()
+                    return
                 if event.button() == Qt.MouseButton.LeftButton:
                     self._dragging = True
                     self._start_pos = event.globalPosition().toPoint()
@@ -2905,6 +2908,9 @@ class SuiteViewTaskbar(QWidget):
                     event.accept()
                     
             def mouseMoveEvent(self, event):
+                if getattr(self.parent_window, '_is_compact_mode', False) or getattr(self.parent_window, '_is_floating_mode', False):
+                    event.ignore()
+                    return
                 if self._dragging and self._start_geometry:
                     delta = event.globalPosition().toPoint() - self._start_pos
                     geo = self._start_geometry
@@ -3286,34 +3292,33 @@ class SuiteViewTaskbar(QWidget):
         self.abrquote_btn.clicked.connect(self._open_abrquote)
         header_layout.addWidget(self.abrquote_btn)
         
-        # ====== AUDIT BUTTON ("Q" — silver & blue) - DEV ONLY ======
-        if DEV_MODE:
-            self.audit_btn = QPushButton("Q")
-            self.audit_btn.setFixedSize(28, 28)
-            self.audit_btn.setToolTip("Open Audit Tool")
-            self.audit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.audit_btn.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 #D0D0D0, stop:1 #A0A0A0);
-                    border: 2px solid #1E5BA8;
-                    border-radius: 4px;
-                    color: #1E5BA8;
-                    font-size: 14px;
-                    font-weight: bold;
-                    font-family: 'Segoe UI', sans-serif;
-                }
-                QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 #E0E0E0, stop:1 #B0B0B0);
-                    border-color: #2A6FBF;
-                }
-                QPushButton:pressed {
-                    background: #909090;
-                }
-            """)
-            self.audit_btn.clicked.connect(self._open_audit)
-            header_layout.addWidget(self.audit_btn)
+        # ====== AUDIT BUTTON ("Q" — silver & blue) ======
+        self.audit_btn = QPushButton("Q")
+        self.audit_btn.setFixedSize(28, 28)
+        self.audit_btn.setToolTip("Open Audit Tool")
+        self.audit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.audit_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #D0D0D0, stop:1 #A0A0A0);
+                border: 2px solid #1E5BA8;
+                border-radius: 4px;
+                color: #1E5BA8;
+                font-size: 14px;
+                font-weight: bold;
+                font-family: 'Segoe UI', sans-serif;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #E0E0E0, stop:1 #B0B0B0);
+                border-color: #2A6FBF;
+            }
+            QPushButton:pressed {
+                background: #909090;
+            }
+        """)
+        self.audit_btn.clicked.connect(self._open_audit)
+        header_layout.addWidget(self.audit_btn)
         
         # ====== WINDOW CAPTURE BUTTON (blue dot) - HIDDEN FOR NOW ======
         # Functionality preserved in _capture_active_window() for future use
@@ -3445,10 +3450,10 @@ class SuiteViewTaskbar(QWidget):
         self.tools_menu.addAction("PolView", self._open_polview)
         self.tools_menu.addAction("ABR Quote", self._open_abrquote)
         self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)
+        self.tools_menu.addAction("Audit Tool", self._open_audit)
         if DEV_MODE:
             self.tools_menu.addAction("Email Attachments", self._open_email_attachments)
             self.tools_menu.addAction("Task Tracker", self._open_task_tracker)
-            self.tools_menu.addAction("Audit Tool", self._open_audit)
             self.tools_menu.addAction("Rate File Converter", self._open_rate_manager)
         self.tools_menu.addSeparator()
         self.tools_menu.addAction("📁 App Data Location", self._open_app_data_location)

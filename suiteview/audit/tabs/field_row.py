@@ -13,16 +13,17 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt, QPoint, QSize, QRect, QEvent, QElapsedTimer, QMimeData
+from PyQt6.QtCore import Qt, QPoint, QSize, QRect, QEvent, QElapsedTimer, QMimeData, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QPushButton, QComboBox,
-    QListWidget, QAbstractItemView, QFrame, QMenu,
+    QListWidget, QListWidgetItem, QAbstractItemView, QFrame, QMenu,
     QMessageBox, QApplication, QSizePolicy, QToolBar,
+    QDialog, QTextBrowser,
 )
 from PyQt6.QtGui import QFont, QDrag, QMouseEvent, QPainter, QColor, QPen, QCursor, QPolygon
 
-from ._styles import TightItemDelegate
+from ._styles import TightItemDelegate, style_combo
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ _COMBO_STYLE = (
     " selection-color: black; outline: none; }"
     "QComboBox QAbstractItemView::item { padding: 0px 3px;"
     " min-height: 15px; max-height: 15px; }"
+    "QComboBox QAbstractItemView::item:focus { outline: none; border: none; }"
 )
 
 _GRIP_STYLE = (
@@ -79,10 +81,11 @@ _GRIP_STYLE = (
 )
 
 _PINNED_LIST_STYLE = (
-    "QListWidget { border: 1px solid #1E5BA8; font-size: 8pt; }"
+    "QListWidget { border: 1px solid #1E5BA8; font-size: 8pt; outline: none; }"
     "QListWidget::item { padding: 0px 3px; }"
     "QListWidget::item:selected { background-color: #A0C4E8;"
     " color: black; }"
+    "QListWidget::item:focus { outline: none; border: none; }"
 )
 
 _BTN_SMALL = (
@@ -106,6 +109,76 @@ _BG_COLOR_SELECTED = QColor("#E0E8F4")
 _RESIZE_HANDLE_SIZE = 8   # resize grip area in bottom-right corner
 
 
+# ── Regex help dialog ────────────────────────────────────────────────
+
+_REGEX_HELP_HTML = """
+<h3 style="color:#1E5BA8;">SQL LIKE &amp; Regex Cheat Sheet</h3>
+<p>When mode is <b>contains</b>, your text is wrapped in
+<code>%...%</code> automatically (SQL <code>LIKE</code>).</p>
+<p>When mode is <b>regex</b>, the value is used as a SQL
+<code>LIKE</code> pattern directly. Use these wildcards:</p>
+<table border="1" cellpadding="4" cellspacing="0"
+       style="border-collapse:collapse; font-size:9pt;">
+<tr style="background:#E8F0FB;">
+  <th>Pattern</th><th>Meaning</th><th>Example</th></tr>
+<tr><td><code>%</code></td>
+  <td>Any sequence of characters (0+)</td>
+  <td><code>RGA%</code> &rarr; starts with RGA</td></tr>
+<tr><td><code>_</code></td>
+  <td>Any single character</td>
+  <td><code>10_</code> &rarr; 101, 104, 106 &hellip;</td></tr>
+<tr><td><code>[abc]</code></td>
+  <td>Any one of a, b, c</td>
+  <td><code>[AW]%</code> &rarr; starts with A or W</td></tr>
+<tr><td><code>[a-f]</code></td>
+  <td>Any character in range a&ndash;f</td>
+  <td><code>[0-9]%</code> &rarr; starts with a digit</td></tr>
+<tr><td><code>[^abc]</code></td>
+  <td>NOT a, b, or c</td>
+  <td><code>[^X]%</code> &rarr; not starting with X</td></tr>
+</table>
+<h4 style="color:#1E5BA8; margin-top:10px;">Common examples</h4>
+<table border="1" cellpadding="4" cellspacing="0"
+       style="border-collapse:collapse; font-size:9pt;">
+<tr style="background:#E8F0FB;">
+  <th>Goal</th><th>Pattern (regex mode)</th></tr>
+<tr><td>Starts with &quot;RGA&quot;</td><td><code>RGA%</code></td></tr>
+<tr><td>Ends with &quot;01&quot;</td><td><code>%01</code></td></tr>
+<tr><td>Contains &quot;FIRE&quot;</td><td><code>%FIRE%</code></td></tr>
+<tr><td>Exactly 3 characters</td><td><code>___</code></td></tr>
+<tr><td>Starts with A or B</td><td><code>[AB]%</code></td></tr>
+<tr><td>Second char is a digit</td><td><code>_[0-9]%</code></td></tr>
+</table>
+<h4 style="color:#1E5BA8; margin-top:10px;">NOT special in SQL LIKE</h4>
+<p style="font-size:9pt;">
+These characters are <b>literal</b> &mdash; they match themselves:<br/>
+<code>.</code> &nbsp; <code>(</code> <code>)</code> &nbsp; <code>/</code>
+&nbsp; <code>*</code> &nbsp; <code>?</code> &nbsp; <code>+</code>
+&nbsp; <code>\\</code> &nbsp; <code>^</code> &nbsp; <code>$</code><br/>
+SQL <code>LIKE</code> is <b>not</b> regex. Only
+<code>%</code>, <code>_</code>, and <code>[ ]</code> are wildcards.</p>
+<p style="margin-top:8px; color:#888; font-size:8pt;">
+Note: SQL Server <code>LIKE</code> is case-insensitive by default.</p>
+"""
+
+
+class _RegexHelpDialog(QDialog):
+    """Non-blocking regex cheat-sheet dialog."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Regex / LIKE Pattern Help")
+        self.setMinimumSize(420, 440)
+        lay = QVBoxLayout(self)
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        browser.setHtml(_REGEX_HELP_HTML)
+        lay.addWidget(browser)
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(self.close)
+        lay.addWidget(btn_close, alignment=Qt.AlignmentFlag.AlignRight)
+
+
 # ── List popup ────────────────────────────────────────────────────────
 
 class _ListPopup(QFrame):
@@ -113,12 +186,14 @@ class _ListPopup(QFrame):
 
     def __init__(self, parent_widget, items: list[str],
                  selected: set[str], on_close_cb, on_pin_cb, *,
-                 field_name: str = ""):
+                 field_name: str = "",
+                 desc_map: dict[str, str] | None = None):
         super().__init__(parent_widget.window(),
                          Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self._on_close_cb = on_close_cb
         self._on_pin_cb = on_pin_cb
         self._all_items = items
+        self._desc_map = desc_map or {}
         self._close_timer = QElapsedTimer()
         self._pinned = False
         self.setStyleSheet(
@@ -168,13 +243,19 @@ class _ListPopup(QFrame):
         self.listbox.setSelectionMode(
             QAbstractItemView.SelectionMode.MultiSelection)
         self.listbox.setStyleSheet(
-            "QListWidget { border: none; }"
+            "QListWidget { border: none; outline: none; }"
             "QListWidget::item { padding: 0px 3px; }"
             "QListWidget::item:selected { background-color: #A0C4E8;"
-            " color: black; }")
-        self.listbox.addItems(items)
+            " color: black; }"
+            "QListWidget::item:focus { outline: none; border: none; }")
+        for val in items:
+            desc = self._desc_map.get(val, "")
+            display_text = f"{val}  \u2014  {desc}" if desc else val
+            item = QListWidgetItem(display_text)
+            item.setData(Qt.ItemDataRole.UserRole, val)
+            self.listbox.addItem(item)
         for i in range(self.listbox.count()):
-            if self.listbox.item(i).text() in selected:
+            if self.listbox.item(i).data(Qt.ItemDataRole.UserRole) in selected:
                 self.listbox.item(i).setSelected(True)
         lay.addWidget(self.listbox, 1)
 
@@ -209,7 +290,8 @@ class _ListPopup(QFrame):
             item.setHidden(filt not in item.text().lower() if filt else False)
 
     def selected_values(self) -> list[str]:
-        return [self.listbox.item(i).text()
+        return [self.listbox.item(i).data(Qt.ItemDataRole.UserRole)
+                or self.listbox.item(i).text()
                 for i in range(self.listbox.count())
                 if self.listbox.item(i).isSelected()]
 
@@ -229,6 +311,7 @@ class FieldRow(QWidget):
         [control row]  grip | label | txt/cmb | mode_lbl | txt_hi
         [pinned list]  optional inline QListWidget (list mode, pinned)
     """
+    state_changed = pyqtSignal()
 
     def __init__(self, field_key: str, label_text: str, placeholder: str,
                  registry_info: tuple[str, str, str] | None = None, *,
@@ -241,12 +324,16 @@ class FieldRow(QWidget):
         self._list_selected: list[str] = []
         self._pinned = False
         self._pinned_items: list[str] = []
+        self._show_descriptions = False
+        self._desc_map: dict[str, str] = {}  # value → description
         self._pre_pin_size: tuple[int, int] | None = None
         self._pre_range_size: tuple[int, int] | None = None
 
         # Display options
         self._display_name_shown = False   # stacked: name on top, input below
         self._format_hidden = False        # hide mode label (contains/regex/list...)
+        self._border_hidden = False        # hide border around widget
+        self._pre_dn_size: tuple[int, int] | None = None  # size before display-name-on-top
 
         # No fixed height — grows with content
         sp = self.sizePolicy()
@@ -278,7 +365,7 @@ class FieldRow(QWidget):
         self._dn_lbl = QLabel(label_text)
         self._dn_lbl.setFont(_FONT_BOLD)
         self._dn_lbl.setFixedHeight(_CTRL_H)
-        self._dn_lbl.setStyleSheet("QLabel { color: #1E5BA8; }")
+        self._dn_lbl.setStyleSheet("QLabel { color: black; }")
         self._display_name_row.addWidget(self._dn_lbl)
         self._display_name_row.addStretch()
         outer.addLayout(self._display_name_row)
@@ -321,6 +408,7 @@ class FieldRow(QWidget):
         self.cmb.setEditable(True)
         self.cmb.setStyleSheet(_COMBO_STYLE)
         self.cmb.setVisible(False)
+        style_combo(self.cmb)
         ctrl.addWidget(self.cmb)
 
         # Mode indicator label (right-click label to change mode)
@@ -341,6 +429,11 @@ class FieldRow(QWidget):
         self.txt_hi.setStyleSheet(_TEXT_INPUT_STYLE)
         self.txt_hi.setVisible(False)
         ctrl.addWidget(self.txt_hi)
+
+        # Connect input changes to state_changed signal
+        self.txt.textChanged.connect(self.state_changed)
+        self.cmb.currentTextChanged.connect(self.state_changed)
+        self.txt_hi.textChanged.connect(self.state_changed)
 
         ctrl.addStretch()
         outer.addLayout(ctrl)
@@ -408,9 +501,9 @@ class FieldRow(QWidget):
 
         outer.addWidget(self._pin_frame, 1)  # stretch=1 so pinned list fills space
 
-        # ── Right-click context menu on label ─────────────────────────
-        self._lbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._lbl.customContextMenuRequested.connect(self._show_label_menu)
+        # ── Right-click context menu on entire widget ─────────────────
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_label_menu)
 
         # ── Drag state ───────────────────────────────────────────────
         self._drag_start: QPoint | None = None
@@ -444,14 +537,14 @@ class FieldRow(QWidget):
         bg = _BG_COLOR_SELECTED if self._selected else _BG_COLOR
         p.fillRect(self.rect(), bg)
 
-        # Draw border
-        border_w = 2 if self._selected else 1
-        pen = QPen(_BORDER_COLOR_SELECTED if self._selected else _BORDER_COLOR)
-        pen.setWidth(border_w)
-        p.setPen(pen)
-        # Inset by pen-width so the stroke is fully visible
-        inset = border_w
-        p.drawRect(self.rect().adjusted(inset, inset, -inset, -inset))
+        # Draw border (unless hidden)
+        if not self._border_hidden:
+            border_w = 2 if self._selected else 1
+            pen = QPen(_BORDER_COLOR_SELECTED if self._selected else _BORDER_COLOR)
+            pen.setWidth(border_w)
+            p.setPen(pen)
+            inset = border_w
+            p.drawRect(self.rect().adjusted(inset, inset, -inset, -inset))
 
         # Resize handle triangle in bottom-right corner
         p.setPen(Qt.PenStyle.NoPen)
@@ -525,7 +618,11 @@ class FieldRow(QWidget):
             self.txt.setReadOnly(True)
             self.txt.setStyleSheet(_LIST_INPUT_STYLE)
             sel = self._list_selected
-            self.txt.setText(f"{len(sel)} selected" if sel else "")
+            if sel:
+                preview = ", ".join(sel[:3])
+                self.txt.setText(f"{preview} ({len(sel)})")
+            else:
+                self.txt.setText("")
             self.txt.setPlaceholderText("0 selected")
         else:
             self.txt.setReadOnly(False)
@@ -535,6 +632,8 @@ class FieldRow(QWidget):
 
         if mode == "range":
             self.txt.setPlaceholderText("from")
+
+        self.state_changed.emit()
 
     # ── Pinned-list helpers ──────────────────────────────────────────
 
@@ -549,10 +648,15 @@ class FieldRow(QWidget):
 
         self._pin_listbox.blockSignals(True)
         self._pin_listbox.clear()
-        self._pin_listbox.addItems(items)
+        for val in items:
+            desc = self._desc_map.get(val, "") if self._show_descriptions else ""
+            display_text = f"{val}  \u2014  {desc}" if desc else val
+            item = QListWidgetItem(display_text)
+            item.setData(Qt.ItemDataRole.UserRole, val)
+            self._pin_listbox.addItem(item)
         sel_set = set(selected)
         for i in range(self._pin_listbox.count()):
-            if self._pin_listbox.item(i).text() in sel_set:
+            if self._pin_listbox.item(i).data(Qt.ItemDataRole.UserRole) in sel_set:
                 self._pin_listbox.item(i).setSelected(True)
         self._pin_listbox.blockSignals(False)
 
@@ -575,7 +679,8 @@ class FieldRow(QWidget):
         """Collapse the inline list back to the compact row."""
         # Capture current selection before hiding
         self._list_selected = [
-            self._pin_listbox.item(i).text()
+            self._pin_listbox.item(i).data(Qt.ItemDataRole.UserRole)
+            or self._pin_listbox.item(i).text()
             for i in range(self._pin_listbox.count())
             if self._pin_listbox.item(i).isSelected()]
         self._pinned = False
@@ -599,10 +704,12 @@ class FieldRow(QWidget):
 
     def _on_pin_selection_changed(self):
         self._list_selected = [
-            self._pin_listbox.item(i).text()
+            self._pin_listbox.item(i).data(Qt.ItemDataRole.UserRole)
+            or self._pin_listbox.item(i).text()
             for i in range(self._pin_listbox.count())
             if self._pin_listbox.item(i).isSelected()]
         self._update_list_label()
+        self.state_changed.emit()
 
     def _pin_filter(self, text: str):
         filt = text.strip().lower()
@@ -621,7 +728,11 @@ class FieldRow(QWidget):
 
     def _update_list_label(self):
         n = len(self._list_selected)
-        self.txt.setText(f"{n} selected" if n else "")
+        if n == 0:
+            self.txt.setText("")
+        else:
+            preview = ", ".join(self._list_selected[:3])
+            self.txt.setText(f"{preview} ({n})")
 
     # ── Value access (for query builder) ─────────────────────────────
 
@@ -640,9 +751,16 @@ class FieldRow(QWidget):
 
     def get_state(self) -> dict:
         mode = self.mode
-        s: dict = {"mode": self.mode_idx, "pinned": self._pinned,
+        s: dict = {"field_key": self.field_key,
+                   "label_text": self._lbl.text(),
+                   "placeholder": self._placeholder,
+                   "mode": self.mode_idx, "pinned": self._pinned,
                    "display_name_shown": self._display_name_shown,
-                   "format_hidden": self._format_hidden}
+                   "format_hidden": self._format_hidden,
+                   "border_hidden": self._border_hidden,
+                   "label_width": self._lbl.width()}
+        if self._registry_info:
+            s["registry_info"] = list(self._registry_info)
         if mode == "combo":
             s["val"] = self.cmb.currentText()
         elif mode == "range":
@@ -651,6 +769,7 @@ class FieldRow(QWidget):
         elif mode == "list":
             s["val"] = ""
             s["list_selected"] = list(self._list_selected)
+            s["show_descriptions"] = self._show_descriptions
             if self._pinned:
                 s["pinned_items"] = list(self._pinned_items)
         else:
@@ -668,6 +787,7 @@ class FieldRow(QWidget):
             self.txt_hi.setText(s.get("hi", ""))
         elif mode == "list":
             self._list_selected = s.get("list_selected", [])
+            self._show_descriptions = s.get("show_descriptions", False)
             self._update_list_label()
             if s.get("pinned") and s.get("pinned_items"):
                 self._pin_list(s["pinned_items"], self._list_selected)
@@ -676,8 +796,14 @@ class FieldRow(QWidget):
         # Restore display options
         self._display_name_shown = s.get("display_name_shown", False)
         self._format_hidden = s.get("format_hidden", False)
-        if self._display_name_shown or self._format_hidden:
+        self._border_hidden = s.get("border_hidden", False)
+        lbl_w = s.get("label_width")
+        if lbl_w is not None:
+            self._lbl.setFixedWidth(lbl_w)
+            self._dn_lbl.setFixedWidth(lbl_w)
+        if self._display_name_shown or self._format_hidden or self._border_hidden:
             self._apply_display_options()
+            self.update()
 
     # ── Combo population ─────────────────────────────────────────────
 
@@ -688,10 +814,11 @@ class FieldRow(QWidget):
         self.cmb.addItem("")
         if not self._registry_info:
             return
-        table, column, _ = self._registry_info
+        table, column, _ = self._registry_info[:3]
         fid = get_field_id(table, column)
         if fid is not None:
-            for val, _ in get_values(fid)[:_MAX_COMBO_ITEMS]:
+            vals = sorted([v for v, _ in get_values(fid)], reverse=True)
+            for val in vals[:_MAX_COMBO_ITEMS]:
                 self.cmb.addItem(val)
         idx = self.cmb.findText(prev)
         if idx >= 0:
@@ -711,16 +838,26 @@ class FieldRow(QWidget):
             self._list_popup = None
             return
 
-        from ..shared_field_registry import get_field_id, get_values
+        from ..shared_field_registry import get_field_id, get_values, get_values_full
         if not self._registry_info:
             return
-        table, column, display = self._registry_info
+        table, column, display = self._registry_info[:3]
 
         items: list[str] = []
+        self._desc_map = {}
         fid = get_field_id(table, column)
         if fid is not None:
-            items = sorted([v for v, _c in get_values(fid)],
-                           reverse=True)
+            if self._show_descriptions:
+                rows = get_values_full(fid)
+                items = sorted([r["field_value"] for r in rows],
+                               reverse=True)
+                self._desc_map = {
+                    r["field_value"]: r.get("value_description") or ""
+                    for r in rows
+                }
+            else:
+                items = sorted([v for v, _c in get_values(fid)],
+                               reverse=True)
 
         if not items:
             QMessageBox.information(
@@ -740,7 +877,8 @@ class FieldRow(QWidget):
             self._pin_list(all_items, sel_list)
 
         popup = _ListPopup(self.txt, items, selected_set,
-                           _on_close, _on_pin, field_name=display)
+                           _on_close, _on_pin, field_name=display,
+                           desc_map=self._desc_map if self._show_descriptions else None)
         self._list_popup = popup
 
         g = self.txt.mapToGlobal(QPoint(0, self.txt.height()))
@@ -777,12 +915,24 @@ class FieldRow(QWidget):
         "  margin: 2px 4px; }")
 
     def _show_label_menu(self, pos):
+        # If multiple siblings are selected, delegate to the grid's bulk menu
+        if self._sibling_selection_count() > 1:
+            grid = self._find_parent_grid()
+            if grid:
+                # Ensure this field is in the selection
+                if self not in grid._selection:
+                    grid._selection.append(self)
+                    self.selected = True
+                    grid._update_selection_ui()
+                grid._show_bulk_menu(self.mapToGlobal(pos))
+                return
+
         menu = QMenu(self)
         menu.setStyleSheet(self._MENU_STYLE)
 
         # Header: field_key or Table.Column (disabled, just informational)
         if self._registry_info:
-            table, column, _ = self._registry_info
+            table, column, _ = self._registry_info[:3]
             header = menu.addAction(f"{table}.{column}")
             header.setEnabled(False)
             menu.addSeparator()
@@ -796,8 +946,13 @@ class FieldRow(QWidget):
         for i, mode_name in enumerate(_MODES):
             act = menu.addAction(mode_name)
             act.setCheckable(True)
-            act.setChecked(i == self._mode_idx)
+            act.setChecked(i == self._mode_idx and not self._show_descriptions)
             mode_actions.append((act, i))
+
+        # "list (descriptions)" — list mode with registry descriptions shown
+        act_list_desc = menu.addAction("list (descriptions)")
+        act_list_desc.setCheckable(True)
+        act_list_desc.setChecked(self.mode == "list" and self._show_descriptions)
 
         menu.addSeparator()
 
@@ -805,7 +960,7 @@ class FieldRow(QWidget):
         display_menu = menu.addMenu("Display")
         display_menu.setStyleSheet(self._MENU_STYLE)
 
-        act_dn_toggle = display_menu.addAction("Display Name")
+        act_dn_toggle = display_menu.addAction("Show display name on top")
         act_dn_toggle.setCheckable(True)
         act_dn_toggle.setChecked(self._display_name_shown)
 
@@ -813,49 +968,84 @@ class FieldRow(QWidget):
         act_fmt_toggle.setCheckable(True)
         act_fmt_toggle.setChecked(self._format_hidden)
 
-        # Display Name edit (always available)
-        act_display_name = menu.addAction("Update Display Name")
+        act_border_toggle = display_menu.addAction("Remove Border")
+        act_border_toggle.setCheckable(True)
+        act_border_toggle.setChecked(self._border_hidden)
 
-        # Remove from tab (available on dynamic tabs)
-        act_remove = menu.addAction("Remove from Tab")
+        display_menu.addSeparator()
+
+        # Display Name edit — under Display submenu
+        act_display_name = display_menu.addAction("Update Display Name")
+
+        # Field Name Width submenu (top-level)
+        width_menu = menu.addMenu("Field Name Width")
+        width_menu.setStyleSheet(self._MENU_STYLE)
+        width_actions = []
+        cur_lbl_w = self._lbl.width()
+        for w in (25, 50, 75, 100, 150, 200, 250, 300):
+            act = width_menu.addAction(f"{w} px")
+            act.setCheckable(True)
+            act.setChecked(cur_lbl_w == w)
+            width_actions.append((act, w))
 
         menu.addSeparator()
 
         # Registry actions (only if registry_info is set)
         act_find = act_open = None
         if self._registry_info:
-            table, column, _ = self._registry_info
+            table, column, _ = self._registry_info[:3]
             act_find = menu.addAction(
                 f"Find && Register Unique Values  ({table}.{column})")
             act_open = menu.addAction("Open Unique Value Registry")
-            menu.addSeparator()
 
+        menu.addSeparator()
         act_regex = menu.addAction("Open Regex / LIKE Help")
 
-        chosen = menu.exec(self._lbl.mapToGlobal(pos))
+        # Delete — aware of multi-selection in parent grid
+        menu.addSeparator()
+        n_sel = self._sibling_selection_count()
+        if n_sel > 1:
+            act_delete = menu.addAction(f"Delete {n_sel} Fields")
+        else:
+            act_delete = menu.addAction("Delete")
+
+        chosen = menu.exec(self.mapToGlobal(pos))
         if chosen is None:
             return
 
         # Check mode actions
         for act, idx in mode_actions:
             if chosen is act:
+                self._show_descriptions = False
                 self.set_mode_idx(idx)
                 return
 
+        if chosen is act_list_desc:
+            self._show_descriptions = True
+            self.set_mode_idx(_MODES.index("list"))
+            return
+
         if chosen is act_display_name:
             self._edit_display_name()
-        elif chosen is act_remove:
-            self._remove_from_tab()
+        elif chosen is act_delete:
+            self._delete_field()
         elif chosen is act_dn_toggle:
             self._toggle_display_name_mode()
         elif chosen is act_fmt_toggle:
             self._toggle_format_display()
+        elif chosen is act_border_toggle:
+            self._toggle_border()
         elif chosen is act_find:
             self._find_and_register()
         elif chosen is act_open:
             self._open_registry()
         elif chosen is act_regex:
             self._show_regex_help()
+        else:
+            for act, w in width_actions:
+                if chosen is act:
+                    self._set_label_width(w)
+                    return
 
     def _edit_display_name(self):
         """Show a dialog to update the display name of this field."""
@@ -883,12 +1073,38 @@ class FieldRow(QWidget):
     def _toggle_display_name_mode(self):
         """Toggle stacked display-name mode: name on top, input below."""
         self._display_name_shown = not self._display_name_shown
+        if self._display_name_shown:
+            # Save current size and resize: narrower + taller for stacked layout
+            self._pre_dn_size = (self.width(), self.height())
+            new_w = max(self.width() - 40, 180)
+            new_h = self.height() + _CTRL_H + 4
+            self.setFixedSize(new_w, new_h)
+        else:
+            # Restore original size
+            if self._pre_dn_size:
+                w, h = self._pre_dn_size
+                self.setFixedSize(w, h)
+                self._pre_dn_size = None
         self._apply_display_options()
+        self.state_changed.emit()
 
     def _toggle_format_display(self):
         """Toggle visibility of the format/mode label (contains, regex, etc.)."""
         self._format_hidden = not self._format_hidden
         self._apply_display_options()
+        self.state_changed.emit()
+
+    def _toggle_border(self):
+        """Toggle border visibility."""
+        self._border_hidden = not self._border_hidden
+        self.update()  # repaint
+        self.state_changed.emit()
+
+    def _set_label_width(self, width: int):
+        """Set the field name label to the given width in pixels."""
+        self._lbl.setFixedWidth(width)
+        self._dn_lbl.setFixedWidth(width)
+        self.state_changed.emit()
 
     def _apply_display_options(self):
         """Apply current display option state to the widget layout."""
@@ -904,10 +1120,44 @@ class FieldRow(QWidget):
             # Restore mode_lbl visibility based on pinned state
             self._mode_lbl.setVisible(not self._pinned)
 
+    def _find_parent_grid(self):
+        """Walk up parent chain to find the owning FieldGrid."""
+        w = self.parent()
+        while w is not None:
+            if isinstance(w, FieldGrid):
+                return w
+            w = w.parent()
+        return None
+
+    def _sibling_selection_count(self) -> int:
+        """Return how many siblings (including self) are selected in the parent grid."""
+        grid = self._find_parent_grid()
+        if grid and hasattr(grid, '_selection'):
+            sel = grid._selection
+            # Ensure this field is counted even if not yet in the selection list
+            if self in sel:
+                return len(sel)
+            return max(len(sel), 1)
+        return 1
+
+    def _delete_field(self):
+        """Delete this field — and all selected siblings if multi-selected."""
+        grid = self._find_parent_grid()
+        if grid and hasattr(grid, '_remove_selected'):
+            # If this field isn't already in the selection, make it the only one
+            if self not in grid._selection:
+                grid._clear_selection()
+                grid._selection.append(self)
+                self.selected = True
+            grid._remove_selected()
+            return
+        # Fallback: just remove this single field
+        self._remove_from_tab()
+
     def _remove_from_tab(self):
         """Remove this field from the tab."""
-        grid = self.parent()
-        if grid and hasattr(grid, 'parent'):
+        grid = self._find_parent_grid()
+        if grid:
             tab = grid.parent()
             if tab and hasattr(tab, 'parent'):
                 scroll = tab.parent()
@@ -930,7 +1180,6 @@ class FieldRow(QWidget):
                 grid._update_canvas_bounds()
 
     def _show_regex_help(self):
-        from .tai_all_tab import _RegexHelpDialog
         dlg = _RegexHelpDialog(self)
         dlg.exec()
 
@@ -938,10 +1187,12 @@ class FieldRow(QWidget):
         from ..shared_field_registry import fetch_and_register
         if not self._registry_info:
             return
-        table, column, display = self._registry_info
+        table, column, display = self._registry_info[:3]
+        source_dsn = self._registry_info[3] if len(self._registry_info) > 3 else ""
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            rows = fetch_and_register(table, column, display)
+            rows = fetch_and_register(table, column, display,
+                                      source_dsn=source_dsn)
             QApplication.restoreOverrideCursor()
             QMessageBox.information(
                 self, "Unique Values Registered",
@@ -970,6 +1221,13 @@ class FieldRow(QWidget):
                 self._resizing = True
                 self._resize_start = event.globalPosition().toPoint()
                 self._resize_origin_size = self.size()
+                # Capture origin sizes for all selected siblings
+                self._resize_siblings = []
+                grid = self._find_parent_grid()
+                if grid and self in grid._selection and len(grid._selection) > 1:
+                    for r in grid._selection:
+                        if r is not self:
+                            self._resize_siblings.append((r, r.size()))
                 return
             # Drag grip
             grip_rect = self._grip.geometry()
@@ -992,6 +1250,11 @@ class FieldRow(QWidget):
             new_w = max(self._resize_origin_size.width() + delta.x(), 120)
             new_h = max(self._resize_origin_size.height() + delta.y(), _CTRL_H)
             self.setFixedSize(new_w, new_h)
+            # Apply same delta to all selected siblings
+            for r, orig_sz in getattr(self, '_resize_siblings', []):
+                sw = max(orig_sz.width() + delta.x(), 120)
+                sh = max(orig_sz.height() + delta.y(), _CTRL_H)
+                r.setFixedSize(sw, sh)
             return
         # Drag from grip
         if (self._drag_start is not None
@@ -1002,11 +1265,13 @@ class FieldRow(QWidget):
             drag.setMimeData(mime)
             pix = self.grab()
             drag.setPixmap(pix)
-            hotspot = event.pos()
+            hotspot = self._drag_start
             drag.setHotSpot(hotspot)
             # Tell the parent grid where the grab happened relative to widget
-            grid = self.parent()
-            if hasattr(grid, '_drag_hotspot'):
+            # FieldRow is parented to _canvas; the FieldGrid is canvas.parent()
+            canvas = self.parent()
+            grid = canvas.parent() if canvas else None
+            if grid and hasattr(grid, '_drag_hotspot'):
                 grid._drag_hotspot = hotspot
             self._drag_start = None
             self._grip.setCursor(Qt.CursorShape.OpenHandCursor)
@@ -1024,10 +1289,12 @@ class FieldRow(QWidget):
             self._resizing = False
             self._resize_start = None
             self._resize_origin_size = None
+            self._resize_siblings = []
             # Notify grid to persist the new size
-            grid = self.parent()
-            if hasattr(grid, '_update_canvas_bounds'):
+            grid = self._find_parent_grid()
+            if grid:
                 grid._update_canvas_bounds()
+                grid.state_changed.emit()
             return
         self._drag_start = None
         self._grip.setCursor(Qt.CursorShape.OpenHandCursor)
@@ -1041,16 +1308,6 @@ _DEFAULT_COL_W = 280   # default column width for initial placement
 _DEFAULT_ROW_H = 32    # default row height for initial placement
 _CANVAS_MIN_H = 400    # minimum canvas height
 
-_TOOLBAR_BTN_STYLE = (
-    "QPushButton { font: 7pt 'Segoe UI'; padding: 1px 6px;"
-    " border: 1px solid #1E5BA8; border-radius: 2px;"
-    " background-color: #E8F0FB; color: #1E5BA8; }"
-    "QPushButton:hover { background-color: #C5D8F5; }"
-    "QPushButton:disabled { background-color: #f0f0f0;"
-    " color: #aaa; border-color: #ccc; }"
-)
-
-
 class FieldGrid(QWidget):
     """Free-form canvas — fields can be placed at any (x, y) position.
 
@@ -1058,6 +1315,7 @@ class FieldGrid(QWidget):
     overlap.  Behaves like a Visual Studio form designer surface.
     Multi-select with Ctrl+click, toolbar for alignment operations.
     """
+    state_changed = pyqtSignal()
 
     def __init__(self, columns: int = 2, parent: QWidget | None = None):
         super().__init__(parent)
@@ -1077,24 +1335,6 @@ class FieldGrid(QWidget):
         tb.setContentsMargins(2, 2, 2, 0)
         tb.setSpacing(4)
 
-        self._btn_align_left = QPushButton("⬏ Align Left")
-        self._btn_align_left.setFixedHeight(18)
-        self._btn_align_left.setStyleSheet(_TOOLBAR_BTN_STYLE)
-        self._btn_align_left.setToolTip(
-            "Align selected controls to the left edge of the leftmost one")
-        self._btn_align_left.setEnabled(False)
-        self._btn_align_left.clicked.connect(self._align_left)
-        tb.addWidget(self._btn_align_left)
-
-        self._btn_align_top = QPushButton("⬑ Align Top")
-        self._btn_align_top.setFixedHeight(18)
-        self._btn_align_top.setStyleSheet(_TOOLBAR_BTN_STYLE)
-        self._btn_align_top.setToolTip(
-            "Align selected controls to the top edge of the topmost one")
-        self._btn_align_top.setEnabled(False)
-        self._btn_align_top.clicked.connect(self._align_top)
-        tb.addWidget(self._btn_align_top)
-
         self._lbl_sel = QLabel("")
         self._lbl_sel.setFont(QFont("Segoe UI", 7))
         self._lbl_sel.setStyleSheet("color: #666;")
@@ -1107,7 +1347,8 @@ class FieldGrid(QWidget):
         self._canvas = QWidget(self)
         self._canvas.setMinimumHeight(_CANVAS_MIN_H)
         self._canvas.setAcceptDrops(True)
-        # Forward drop events from canvas to self
+        self._canvas.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        # Forward drop / mouse / key events from canvas to self
         self._canvas.dragEnterEvent = self._canvas_dragEnterEvent
         self._canvas.dragMoveEvent = self._canvas_dragMoveEvent
         self._canvas.dragLeaveEvent = self._canvas_dragLeaveEvent
@@ -1115,6 +1356,7 @@ class FieldGrid(QWidget):
         self._canvas.mousePressEvent = self._canvas_mousePressEvent
         self._canvas.mouseMoveEvent = self._canvas_mouseMoveEvent
         self._canvas.mouseReleaseEvent = self._canvas_mouseReleaseEvent
+        self._canvas.keyPressEvent = self._canvas_keyPressEvent
         root.addWidget(self._canvas, 1)
 
         # Visual guide during drag
@@ -1124,9 +1366,11 @@ class FieldGrid(QWidget):
         # Ghost rectangle shown during drag
         self._ghost = QFrame(self._canvas)
         self._ghost.setStyleSheet(
-            "background-color: rgba(30, 91, 168, 30);"
-            " border: 1px dashed #1E5BA8;")
+            "border: 2px dashed #1E5BA8; background: transparent;")
         self._ghost.hide()
+
+        # Extra ghost frames for multi-select group drag
+        self._group_ghosts: list[QFrame] = []
 
         # Rubber-band rectangle for lasso selection
         self._rubber = QFrame(self._canvas)
@@ -1136,6 +1380,12 @@ class FieldGrid(QWidget):
         self._rubber.hide()
         self._rubber.raise_()
         self._rubber_origin: QPoint | None = None
+
+        # Canvas context menu (right-click to remove selected fields)
+        self._canvas.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self._canvas.customContextMenuRequested.connect(
+            self._canvas_context_menu)
 
     # ── helpers ──────────────────────────────────────────────────────
 
@@ -1183,7 +1433,10 @@ class FieldGrid(QWidget):
         if row.field_key not in self._positions:
             idx = len(self._rows) - 1
             self._positions[row.field_key] = self._default_position(idx)
+        # Forward child state changes
+        row.state_changed.connect(self.state_changed)
         self._apply_positions()
+        self.state_changed.emit()
 
     def field(self, key: str) -> FieldRow | None:
         return self._field_map.get(key)
@@ -1227,6 +1480,7 @@ class FieldGrid(QWidget):
 
     def _handle_field_click(self, field: FieldRow, ctrl: bool):
         """Handle a click on a FieldRow — manage selection."""
+        self._canvas.setFocus()
         if ctrl:
             # Toggle in/out of selection
             if field in self._selection:
@@ -1251,12 +1505,231 @@ class FieldGrid(QWidget):
 
     def _update_selection_ui(self):
         n = len(self._selection)
-        self._btn_align_left.setEnabled(n >= 2)
-        self._btn_align_top.setEnabled(n >= 2)
         self._lbl_sel.setText(f"{n} selected" if n else "")
+
+    def _canvas_context_menu(self, pos):
+        """Right-click on canvas — show bulk menu if multi-selected, else single delete."""
+        # If clicking on a field that isn't selected, select it first
+        clicked_field = None
+        for row in self._rows:
+            if row.geometry().contains(pos):
+                clicked_field = row
+                break
+
+        if clicked_field and clicked_field not in self._selection:
+            self._clear_selection()
+            self._selection.append(clicked_field)
+            clicked_field.selected = True
+            self._update_selection_ui()
+
+        if not self._selection:
+            return
+
+        n = len(self._selection)
+        if n > 1:
+            self._show_bulk_menu(self._canvas.mapToGlobal(pos))
+            return
+
+        menu = QMenu(self._canvas)
+        menu.setStyleSheet(FieldRow._MENU_STYLE)
+        act_remove = menu.addAction("Delete")
+
+        chosen = menu.exec(self._canvas.mapToGlobal(pos))
+        if chosen is act_remove:
+            self._remove_selected()
+
+    def _remove_selected(self):
+        """Remove all selected fields from the grid."""
+        to_remove = list(self._selection)
+        self._selection.clear()
+        for row in to_remove:
+            row.selected = False
+            key = row.field_key
+            if row in self._rows:
+                self._rows.remove(row)
+            self._field_map.pop(key, None)
+            self._positions.pop(key, None)
+            self._sizes.pop(key, None)
+            row.setParent(None)
+            row.deleteLater()
+        self._update_selection_ui()
+        self._update_canvas_bounds()
+        self.state_changed.emit()
+
+    # ── Bulk context menu (multi-select) ─────────────────────────────
+
+    def _show_bulk_menu(self, global_pos):
+        """Show a context menu with bulk operations for all selected fields."""
+        n = len(self._selection)
+        if n < 2:
+            return
+
+        menu = QMenu(self._canvas)
+        menu.setStyleSheet(FieldRow._MENU_STYLE)
+
+        # Header: selection count
+        header = menu.addAction(f"{n} fields selected")
+        header.setEnabled(False)
+        menu.addSeparator()
+
+        # Mode actions
+        mode_actions = []
+        for mode_name in _MODES:
+            act = menu.addAction(mode_name)
+            mode_actions.append((act, mode_name))
+
+        act_list_desc = menu.addAction("list (descriptions)")
+
+        menu.addSeparator()
+
+        # Display submenu (tri-state: all-on, all-off, mixed)
+        display_menu = menu.addMenu("Display")
+        display_menu.setStyleSheet(FieldRow._MENU_STYLE)
+
+        dn_vals = {r._display_name_shown for r in self._selection}
+        fmt_vals = {r._format_hidden for r in self._selection}
+        bdr_vals = {r._border_hidden for r in self._selection}
+
+        act_dn_toggle = display_menu.addAction(
+            "Show display name on top" + ("  ◑" if len(dn_vals) > 1 else ""))
+        act_dn_toggle.setCheckable(True)
+        act_dn_toggle.setChecked(dn_vals == {True})
+
+        act_fmt_toggle = display_menu.addAction(
+            "Remove Format Display" + ("  ◑" if len(fmt_vals) > 1 else ""))
+        act_fmt_toggle.setCheckable(True)
+        act_fmt_toggle.setChecked(fmt_vals == {True})
+
+        act_border_toggle = display_menu.addAction(
+            "Remove Border" + ("  ◑" if len(bdr_vals) > 1 else ""))
+        act_border_toggle.setCheckable(True)
+        act_border_toggle.setChecked(bdr_vals == {True})
+
+        menu.addSeparator()
+
+        # Alignment
+        act_align_left = menu.addAction("⬏ Align Left")
+        act_align_top = menu.addAction("⬑ Align Top")
+
+        # Space Between submenu
+        space_menu = menu.addMenu("Space Between")
+        space_menu.setStyleSheet(FieldRow._MENU_STYLE)
+        space_actions = []
+        for gap in (0, 1, 2, 3, 4, 5, 6, 8, 10):
+            act = space_menu.addAction(f"{gap} px")
+            space_actions.append((act, gap))
+
+        # Field Name Width submenu (bulk)
+        width_menu = menu.addMenu("Field Name Width")
+        width_menu.setStyleSheet(FieldRow._MENU_STYLE)
+        width_actions = []
+        for w in (25, 50, 75, 100, 150, 200, 250, 300):
+            act = width_menu.addAction(f"{w} px")
+            width_actions.append((act, w))
+
+        menu.addSeparator()
+
+        # Find & Register Unique Values (only if any selected field has registry_info)
+        act_find = None
+        has_registry = any(r._registry_info for r in self._selection)
+        if has_registry:
+            act_find = menu.addAction(
+                f"Find && Register Unique Values ({n} fields)")
+            menu.addSeparator()
+
+        # Delete
+        act_delete = menu.addAction(f"Delete {n} Fields")
+
+        chosen = menu.exec(global_pos)
+        if chosen is None:
+            return
+
+        # Mode change
+        for act, mode_name in mode_actions:
+            if chosen is act:
+                idx = _MODES.index(mode_name)
+                for r in self._selection:
+                    r._show_descriptions = False
+                    r.set_mode_idx(idx)
+                return
+
+        if chosen is act_list_desc:
+            idx = _MODES.index("list")
+            for r in self._selection:
+                r._show_descriptions = True
+                r.set_mode_idx(idx)
+            return
+
+        if chosen is act_dn_toggle:
+            # Tri-state: mixed or all-on → turn all OFF; all-off → turn all ON
+            target = False if len(dn_vals) > 1 or dn_vals == {True} else True
+            for r in self._selection:
+                if r._display_name_shown != target:
+                    r._toggle_display_name_mode()
+        elif chosen is act_fmt_toggle:
+            target = False if len(fmt_vals) > 1 or fmt_vals == {True} else True
+            for r in self._selection:
+                if r._format_hidden != target:
+                    r._toggle_format_display()
+        elif chosen is act_border_toggle:
+            target = False if len(bdr_vals) > 1 or bdr_vals == {True} else True
+            for r in self._selection:
+                if r._border_hidden != target:
+                    r._toggle_border()
+        elif chosen is act_align_left:
+            self._align_left()
+        elif chosen is act_align_top:
+            self._align_top()
+        elif chosen is act_find:
+            self._bulk_find_and_register()
+        elif chosen is act_delete:
+            self._remove_selected()
+        else:
+            # Check space-between actions
+            for act, gap in space_actions:
+                if chosen is act:
+                    self._space_between(gap)
+                    return
+            # Check width actions
+            for act, w in width_actions:
+                if chosen is act:
+                    for r in self._selection:
+                        r._set_label_width(w)
+                    return
+
+    def _bulk_find_and_register(self):
+        """Run Find & Register Unique Values for each selected field that has registry info."""
+        from ..shared_field_registry import fetch_and_register
+        results = []
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            for r in self._selection:
+                if not r._registry_info:
+                    continue
+                table, column, display = r._registry_info[:3]
+                source_dsn = r._registry_info[3] if len(r._registry_info) > 3 else ""
+                try:
+                    rows = fetch_and_register(table, column, display,
+                                              source_dsn=source_dsn)
+                    results.append(f"{table}.{column}: {len(rows)} values")
+                except Exception as exc:
+                    results.append(f"{table}.{column}: ERROR - {exc}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        summary = "\n".join(results) if results else "No fields with registry info."
+        QMessageBox.information(
+            self._canvas, "Unique Values Registered", summary)
+
+        # Refresh registry window if open
+        from ..unique_value_registry_window import UniqueValueRegistryWindow
+        if (UniqueValueRegistryWindow._instance is not None
+                and UniqueValueRegistryWindow._instance.isVisible()):
+            UniqueValueRegistryWindow._instance.refresh_and_select("", "")
 
     def _canvas_mousePressEvent(self, event):
         """Click on empty canvas area — start rubber-band selection."""
+        self._canvas.setFocus()
         if event.button() == Qt.MouseButton.LeftButton:
             ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
             if not ctrl:
@@ -1296,6 +1769,30 @@ class FieldGrid(QWidget):
                         row.selected = True
             self._update_selection_ui()
 
+    # ── Arrow-key nudge ──────────────────────────────────────────────
+
+    _NUDGE_MAP = {
+        Qt.Key.Key_Left:  (-1,  0),
+        Qt.Key.Key_Right: ( 1,  0),
+        Qt.Key.Key_Up:    ( 0, -1),
+        Qt.Key.Key_Down:  ( 0,  1),
+    }
+
+    def _canvas_keyPressEvent(self, event):
+        """Arrow keys nudge selected fields by one grid snap."""
+        delta = self._NUDGE_MAP.get(event.key())
+        if delta and self._selection:
+            dx, dy = delta[0] * _GRID_SNAP, delta[1] * _GRID_SNAP
+            for r in self._selection:
+                x, y = self._positions.get(r.field_key, (0, 0))
+                nx, ny = max(x + dx, 0), max(y + dy, 0)
+                self._positions[r.field_key] = (nx, ny)
+                r.move(nx, ny)
+            self._update_canvas_bounds()
+            self.state_changed.emit()
+        else:
+            QWidget.keyPressEvent(self._canvas, event)
+
     # ── Alignment actions ────────────────────────────────────────────
 
     def _align_left(self):
@@ -1309,6 +1806,7 @@ class FieldGrid(QWidget):
             self._positions[r.field_key] = (min_x, y)
             r.move(min_x, y)
         self._update_canvas_bounds()
+        self.state_changed.emit()
 
     def _align_top(self):
         """Align all selected controls to the top edge of the topmost one."""
@@ -1321,6 +1819,33 @@ class FieldGrid(QWidget):
             self._positions[r.field_key] = (x, min_y)
             r.move(x, min_y)
         self._update_canvas_bounds()
+        self.state_changed.emit()
+
+    def _space_between(self, gap: int):
+        """Reposition selected fields vertically with *gap* pixels between each.
+
+        Fields are sorted by current Y position.  The topmost field keeps
+        its position; each subsequent field is placed *gap* pixels below the
+        bottom edge of the previous one.  X positions are preserved.
+        """
+        if len(self._selection) < 2:
+            return
+        # Sort by current Y
+        ordered = sorted(
+            self._selection,
+            key=lambda r: self._positions.get(r.field_key, (0, 0))[1])
+        # Anchor = topmost field
+        anchor = ordered[0]
+        _, cur_y = self._positions.get(anchor.field_key, (0, 0))
+        cur_y += anchor.height() + gap
+        for r in ordered[1:]:
+            x, _ = self._positions.get(r.field_key, (0, 0))
+            ny = self._snap(cur_y)
+            self._positions[r.field_key] = (x, ny)
+            r.move(x, ny)
+            cur_y = ny + r.height() + gap
+        self._update_canvas_bounds()
+        self.state_changed.emit()
 
     # ── Drag and drop (delegated from canvas) ────────────────────────
 
@@ -1343,19 +1868,48 @@ class FieldGrid(QWidget):
         sy = self._snap(max(pos.y() - self._drag_hotspot.y(), 0))
         self._drop_pos = QPoint(sx, sy)
 
-        # Show ghost outline (for the dragged item only)
+        # Show ghost outline for the dragged item
         w = row.width() or row.sizeHint().width()
         h = row.height() or row.sizeHint().height()
         self._ghost.setGeometry(sx, sy, w, h)
         self._ghost.show()
         self._ghost.raise_()
 
+        # If dragging a multi-selection, show ghost outlines for siblings
+        old_x, old_y = self._positions.get(key, (0, 0))
+        dx = sx - old_x
+        dy = sy - old_y
+        siblings = [r for r in self._selection
+                    if r is not row and r in self._selection]
+        # Ensure enough group ghost frames
+        while len(self._group_ghosts) < len(siblings):
+            g = QFrame(self._canvas)
+            g.setStyleSheet(
+                "border: 2px dashed #1E5BA8; background: transparent;")
+            g.hide()
+            self._group_ghosts.append(g)
+        for i, g in enumerate(self._group_ghosts):
+            if i < len(siblings):
+                r = siblings[i]
+                rx, ry = self._positions.get(r.field_key, (0, 0))
+                nx = self._snap(max(rx + dx, 0))
+                ny = self._snap(max(ry + dy, 0))
+                g.setGeometry(nx, ny, r.width(), r.height())
+                g.show()
+                g.raise_()
+            else:
+                g.hide()
+
     def _canvas_dragLeaveEvent(self, event):
         self._ghost.hide()
+        for g in self._group_ghosts:
+            g.hide()
         self._drop_pos = None
 
     def _canvas_dropEvent(self, event):
         self._ghost.hide()
+        for g in self._group_ghosts:
+            g.hide()
         key = bytes(event.mimeData().data(_DRAG_MIME)).decode()
         field_row = self._field_map.get(key)
         if not field_row or self._drop_pos is None:
@@ -1382,6 +1936,7 @@ class FieldGrid(QWidget):
 
         self._update_canvas_bounds()
         event.acceptProposedAction()
+        self.state_changed.emit()
 
     # ── Query interface ──────────────────────────────────────────────
 
@@ -1440,5 +1995,14 @@ class FieldGrid(QWidget):
         fields = state.get("fields", {})
         for key, s in fields.items():
             r = self._field_map.get(key)
-            if r:
-                r.set_state(s)
+            if not r:
+                # Recreate the FieldRow from saved data
+                label = s.get("label_text", key.split(".")[-1] if "." in key else key)
+                placeholder = s.get("placeholder", key.split(".")[-1] if "." in key else key)
+                reg = s.get("registry_info")
+                registry_info = tuple(reg) if reg else None
+                r = FieldRow(field_key=key, label_text=label,
+                             placeholder=placeholder,
+                             registry_info=registry_info)
+                self.add_field(r)
+            r.set_state(s)

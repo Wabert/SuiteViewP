@@ -34,9 +34,41 @@ def _user() -> str:
 # ── Public API ───────────────────────────────────────────────────────
 
 
+def _ensure_source_dsn_column() -> None:
+    """Add source_dsn column to ABATBL_FIELD_REG if it doesn't exist yet."""
+    conn = _connect()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'ABATBL_FIELD_REG' AND COLUMN_NAME = 'source_dsn'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                "ALTER TABLE [ABATBL_FIELD_REG] ADD source_dsn VARCHAR(128) NULL"
+            )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+# Run once on import
+_ensure_source_dsn_column()
+
+
 def fetch_and_register(table_name: str, column_name: str,
-                       display_name: str = "") -> list[tuple[str, int]]:
+                       display_name: str = "",
+                       source_dsn: str = "") -> list[tuple[str, int]]:
     """Query unique values from the live database and store them.
+
+    Parameters
+    ----------
+    source_dsn : str
+        ODBC DSN to query the live data from.  When empty, defaults to
+        the registry DSN (UL_Rates).  For DB2 tables, pass the DB2 DSN
+        (e.g. "NEON_DSN").
 
     Upserts into ABATBL_FIELD_REG, then syncs ABATBL_FIELD_VAL:
       - New values are inserted (is_active=1, first_seen_at=now).
@@ -46,26 +78,49 @@ def fetch_and_register(table_name: str, column_name: str,
     Returns a list of (value, count) tuples sorted by count descending.
     """
     # 1. Query live unique values
+    # Detect whether the target is DB2 (uses double-quote) or SQL Server
+    # (uses [brackets]).  Heuristic: if source_dsn is set and differs from
+    # the registry DSN we assume DB2.
+    _is_db2 = bool(source_dsn) and source_dsn != _DSN
+
+    def _q(name: str) -> str:
+        """Quote an identifier for the target DBMS."""
+        return f'"{name}"' if _is_db2 else f"[{name}]"
+
+    if "." in table_name:
+        parts = table_name.split(".")
+        quoted_table = ".".join(_q(p) for p in parts)
+    else:
+        quoted_table = _q(table_name)
     sql = (
-        f"SELECT [{column_name}] AS val, COUNT(*) AS cnt "
-        f"FROM [{table_name}] "
-        f"GROUP BY [{column_name}] "
+        f"SELECT {_q(column_name)} AS val, COUNT(*) AS cnt "
+        f"FROM {quoted_table} "
+        f"GROUP BY {_q(column_name)} "
         f"ORDER BY cnt DESC"
     )
-    logger.info("Unique value query: %s", sql)
+    logger.info("Unique value query: %s (dsn=%s)", sql, source_dsn or _DSN)
 
-    conn = _connect()
+    # Use source_dsn for the live query if provided, otherwise registry DSN
+    live_dsn = source_dsn or _DSN
+    live_conn = pyodbc.connect(f"DSN={live_dsn}", autocommit=True)
     try:
-        cursor = conn.cursor()
+        cursor = live_conn.cursor()
         cursor.execute(sql)
         live_rows = [(str(r[0]) if r[0] is not None else "(NULL)", r[1])
                      for r in cursor.fetchall()]
+    finally:
+        live_conn.close()
+
+    # 2. Store results in the registry (always on UL_Rates)
+    conn = _connect()
+    try:
+        cursor = conn.cursor()
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         user = _user()
         disp = display_name or column_name
 
-        # 2. Upsert ABATBL_FIELD_REG
+        # Upsert ABATBL_FIELD_REG
         cursor.execute(
             "SELECT field_id FROM [ABATBL_FIELD_REG] "
             "WHERE database_name = ? AND table_name = ? AND column_name = ?",
@@ -77,18 +132,20 @@ def fetch_and_register(table_name: str, column_name: str,
             cursor.execute(
                 "UPDATE [ABATBL_FIELD_REG] SET "
                 "  display_name = ?, last_scanned_at = ?, "
+                "  source_dsn = ?, "
                 "  updated_by = ?, updated_at = ? "
                 "WHERE field_id = ?",
-                (disp, now, user, now, field_id),
+                (disp, now, source_dsn or None, user, now, field_id),
             )
         else:
             cursor.execute(
                 "INSERT INTO [ABATBL_FIELD_REG] "
                 "  (database_name, table_name, column_name, display_name, "
-                "   last_scanned_at, created_by, created_at, updated_by, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "   last_scanned_at, source_dsn, "
+                "   created_by, created_at, updated_by, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (_DATABASE, table_name, column_name, disp,
-                 now, user, now, user, now),
+                 now, source_dsn or None, user, now, user, now),
             )
             cursor.execute("SELECT @@IDENTITY")
             field_id = int(cursor.fetchone()[0])
@@ -149,14 +206,14 @@ def list_registrations() -> list[dict]:
     """Return all registered fields with metadata.
 
     Each dict has keys: field_id, database_name, table_name, column_name,
-    display_name, last_scanned_at, value_count.
+    display_name, last_scanned_at, value_count, source_dsn.
     """
     conn = _connect()
     try:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT r.field_id, r.database_name, r.table_name, r.column_name,
-                   r.display_name, r.last_scanned_at,
+                   r.display_name, r.last_scanned_at, r.source_dsn,
                    (SELECT COUNT(*) FROM [ABATBL_FIELD_VAL] v
                     WHERE v.field_id = r.field_id AND v.is_active = 1) AS value_count
             FROM [ABATBL_FIELD_REG] r
@@ -326,6 +383,56 @@ def delete_registration(field_id: int):
             "  updated_by = ?, updated_at = ? "
             "WHERE field_id = ?",
             (user, now, field_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def permanently_delete_field(field_id: int) -> None:
+    """Permanently delete a field registration and all its values."""
+    conn = _connect()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM [ABATBL_FIELD_VAL] WHERE field_id = ?",
+            (field_id,),
+        )
+        cursor.execute(
+            "DELETE FROM [ABATBL_FIELD_REG] WHERE field_id = ?",
+            (field_id,),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def permanently_delete_table(table_name: str) -> None:
+    """Permanently delete all field registrations and values for a table."""
+    conn = _connect()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT field_id FROM [ABATBL_FIELD_REG] "
+            "WHERE table_name = ? AND database_name = ?",
+            (table_name, _DATABASE),
+        )
+        field_ids = [row[0] for row in cursor.fetchall()]
+        for fid in field_ids:
+            cursor.execute(
+                "DELETE FROM [ABATBL_FIELD_VAL] WHERE field_id = ?",
+                (fid,),
+            )
+        cursor.execute(
+            "DELETE FROM [ABATBL_FIELD_REG] "
+            "WHERE table_name = ? AND database_name = ?",
+            (table_name, _DATABASE),
         )
         conn.commit()
     except Exception:

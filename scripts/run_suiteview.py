@@ -20,6 +20,41 @@ if __name__ == '__main__':
     sys.excepthook = exception_hook
     
     try:
+        # --- Single-instance enforcement ---
+        # Create a named mutex; if it already exists another instance is running.
+        import ctypes as _ctypes
+        import ctypes.wintypes as _wt
+        _kernel32 = _ctypes.WinDLL('kernel32', use_last_error=True)
+        _kernel32.CreateMutexW.argtypes = [_wt.LPVOID, _wt.BOOL, _wt.LPCWSTR]
+        _kernel32.CreateMutexW.restype = _wt.HANDLE
+        _mutex = _kernel32.CreateMutexW(None, True, "SuiteView_SingleInstance_Mutex")
+        if _ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+            hwnd = _ctypes.windll.user32.FindWindowW(None, "SuiteView")
+            if hwnd:
+                _ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                _ctypes.windll.user32.SetForegroundWindow(hwnd)
+                sys.exit(0)
+            # Window not found — stale process holding the mutex.
+            # Kill it so this new instance can start.
+            import subprocess, os, signal
+            result = subprocess.run(
+                ["wmic", "process", "where",
+                 "name='pythonw.exe'", "get", "processid"],
+                capture_output=True, text=True)
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if line.isdigit():
+                    pid = int(line)
+                    if pid != os.getpid():
+                        try:
+                            os.kill(pid, signal.SIGTERM)
+                        except OSError:
+                            pass
+            # Close the inherited mutex handle and re-acquire it cleanly
+            _kernel32.CloseHandle(_mutex)
+            import time; time.sleep(0.5)
+            _mutex = _kernel32.CreateMutexW(None, True, "SuiteView_SingleInstance_Mutex")
+
         # Set Windows AppUserModelID for proper taskbar icon display
         # This must be done before creating QApplication
         try:

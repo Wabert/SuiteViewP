@@ -38,23 +38,16 @@ from .tabs.sql_tab import SqlTab
 from .tabs.plancode_tab import PlancodeTab
 from .tabs.build_sql_tab import BuildSqlTab
 from .tabs.build_sql_results_tab import BuildSqlResultsTab
-from .tabs.tai_cession_tab import TaiCessionTab
-from .tabs.tai_transactions_tab import TaiTransactionsTab
-from .tabs.tai_reserve_tab import TaiReserveTab
-from .tabs.tai_all_tab import TaiAllTab
 from .tabs._styles import style_combo as _style_combo
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import DEFAULT_SCHEMA, REGION_SCHEMA_MAP
-from .tabs.compare_results_tab import CompareResultsTab
 from .cyberlife_query import build_cyberlife_sql
-from .tai_query import (build_tai_sql, run_tai_query, run_tai_compare,
-                        TAI_DEFAULT_COLUMNS,
-                        build_taicybertaifd_sql, run_taicybertaifd_query,
-                        build_tai_all_sql, run_tai_all_query)
 from .sql_helpers import fmt_time
 from .dynamic_group import DynamicGroup
+from .field_picker_window import FieldPickerWindow
 from .group_config import (list_groups, load_group, save_group,
-                           delete_group, group_exists)
+                           delete_group, group_exists,
+                           load_ui_settings, save_ui_settings)
 
 logger = logging.getLogger(__name__)
 
@@ -106,14 +99,12 @@ class AuditWindow(FramelessWindowBase):
         root.setContentsMargins(2, 0, 2, 2)
         root.setSpacing(2)
 
-        # ── Mode toolbar (Cyberlife / TAI) ──────────────────────────
+        # ── Mode toolbar ─────────────────────────────────────────
         self._current_mode = "cyberlife"
         mode_bar = QWidget()
         self._mode_bar = mode_bar
         mode_bar.setFixedHeight(32)
-        self._mode_bar_default_style = "QWidget { background-color: #E0E0E0; }"
-        self._mode_bar_group_style = "QWidget { background-color: #D6E4F0; }"
-        mode_bar.setStyleSheet(self._mode_bar_default_style)
+        mode_bar.setStyleSheet(self._MODE_BAR_CYB_STYLE)
         mode_layout = QHBoxLayout(mode_bar)
         mode_layout.setContentsMargins(8, 2, 8, 2)
         mode_layout.setSpacing(6)
@@ -129,17 +120,15 @@ class AuditWindow(FramelessWindowBase):
         _INACTIVE_STYLE = _MODE_BTN.format(
             bg="#C0C0C0", fg="#333", border="#999", hover="#D0D0D0")
 
+        # Cyberlife uses darker navy to distinguish from custom groups
+        _CYBERLIFE_ACTIVE_STYLE = _MODE_BTN.format(
+            bg="#0A2A5C", fg="white", border="#061D40", hover="#14407A")
+
         self.btn_cyberlife = QPushButton("Cyberlife")
         self.btn_cyberlife.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         self.btn_cyberlife.setFixedHeight(26)
-        self.btn_cyberlife.setStyleSheet(_ACTIVE_STYLE)
+        self.btn_cyberlife.setStyleSheet(_CYBERLIFE_ACTIVE_STYLE)
         mode_layout.addWidget(self.btn_cyberlife)
-
-        self.btn_tai = QPushButton("TAI")
-        self.btn_tai.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self.btn_tai.setFixedHeight(26)
-        self.btn_tai.setStyleSheet(_INACTIVE_STYLE)
-        mode_layout.addWidget(self.btn_tai)
 
         # Spacer for dynamic group buttons
         self._dynamic_group_btn_layout = QHBoxLayout()
@@ -149,46 +138,66 @@ class AuditWindow(FramelessWindowBase):
 
         mode_layout.addStretch()
 
-        # Registry button (opens the Unique Value Registry viewer)
-        _REGISTRY_BTN_STYLE = (
+        # Field Picker toggle styles (used by dynamic group footer buttons)
+        self._picker_btn_on_style = (
+            "QPushButton { background-color: #1E5BA8; color: white;"
+            " border: 1px solid #14407A; border-radius: 3px;"
+            " padding: 2px 10px; font-size: 8pt; }"
+            "QPushButton:hover { background-color: #2A6BC4; }"
+        )
+        self._picker_btn_off_style = (
             "QPushButton { background-color: #E8F0FB; color: #1E5BA8;"
             " border: 1px solid #1E5BA8; border-radius: 3px;"
-            " padding: 2px 10px; font-size: 8pt; }"
+            " padding: 2px 10px; font-size: 9pt; font-weight: bold; }"
             "QPushButton:hover { background-color: #C5D8F5; }"
+        )
+
+        # Registry and +Group buttons — placed in the window header bar
+        _HEADER_BTN_STYLE = (
+            "QPushButton { background-color: rgba(255,255,255,0.15); color: white;"
+            " border: 1px solid rgba(255,255,255,0.3); border-radius: 3px;"
+            " padding: 2px 10px; font-size: 8pt; }"
+            "QPushButton:hover { background-color: rgba(255,255,255,0.25); }"
         )
         self.btn_registry = QPushButton("Registry")
         self.btn_registry.setFont(QFont("Segoe UI", 8))
-        self.btn_registry.setFixedHeight(22)
-        self.btn_registry.setStyleSheet(_REGISTRY_BTN_STYLE)
+        self.btn_registry.setFixedHeight(24)
+        self.btn_registry.setStyleSheet(_HEADER_BTN_STYLE)
         self.btn_registry.setToolTip("Open the Unique Value Registry viewer")
         self.btn_registry.clicked.connect(self._open_registry)
-        mode_layout.addWidget(self.btn_registry)
 
-        # [+ Group] button
         self.btn_add_group = QPushButton("+ Group")
         self.btn_add_group.setFont(QFont("Segoe UI", 8))
-        self.btn_add_group.setFixedHeight(22)
-        self.btn_add_group.setStyleSheet(_REGISTRY_BTN_STYLE)
+        self.btn_add_group.setFixedHeight(24)
+        self.btn_add_group.setStyleSheet(_HEADER_BTN_STYLE)
         self.btn_add_group.setToolTip("Create a new dynamic audit group")
         self.btn_add_group.clicked.connect(self._on_add_group)
-        mode_layout.addWidget(self.btn_add_group)
+
+        # Insert into header bar layout before window control buttons
+        header_layout = self.header_bar.layout()
+        insert_pos = header_layout.count() - 3  # before min/max/close
+        header_layout.insertWidget(insert_pos, self.btn_registry)
+        header_layout.insertWidget(insert_pos + 1, self.btn_add_group)
 
         # Dynamic group storage
         self._dynamic_groups: dict[str, DynamicGroup] = {}
         self._dynamic_buttons: dict[str, QPushButton] = {}
         self._active_mode_style = _ACTIVE_STYLE
         self._inactive_mode_style = _INACTIVE_STYLE
+        self._cyberlife_active_style = _CYBERLIFE_ACTIVE_STYLE
 
         root.addWidget(mode_bar)
+
+        # ── Main content area (tabs + bottom bars + dynamic groups) ──
+        self._content_left = QWidget()
+        _left_lay = QVBoxLayout(self._content_left)
+        _left_lay.setContentsMargins(0, 0, 0, 0)
+        _left_lay.setSpacing(2)
 
         # ── Tab widget ──────────────────────────────────────────────
         self.tabs = QTabWidget()
         self.tabs.setFont(_FONT)
-        self.tabs.setStyleSheet(
-            "QTabWidget::pane { border: 1px solid #999; }"
-            "QTabBar::tab { padding: 2px 8px; min-height: 20px; font-size: 9pt; }"
-            "QTabBar::tab:selected { font-weight: bold; }"
-        )
+        self.tabs.setStyleSheet(self._CYB_TAB_STYLE)
 
         # Policy tab (fully built)
         self.policy_tab = PolicyTab()
@@ -257,49 +266,7 @@ class AuditWindow(FramelessWindowBase):
         self.tabs.tabBar().customContextMenuRequested.connect(
             self._on_tab_context_menu)
 
-        root.addWidget(self.tabs, 1)  # stretch=1 so tabs fill
-
-        # ── TAI Tab widget (hidden by default) ─────────────────────
-        self.tai_tabs = QTabWidget()
-        self.tai_tabs.setFont(_FONT)
-        self.tai_tabs.setStyleSheet(
-            "QTabWidget::pane { border: 1px solid #999; }"
-            "QTabBar::tab { padding: 2px 8px; min-height: 20px; font-size: 9pt; }"
-            "QTabBar::tab:selected { font-weight: bold; }"
-        )
-
-        self.tai_all_tab = TaiAllTab()
-        self.tai_tabs.addTab(self.tai_all_tab, "ALL")
-
-        self.tai_cession_tab = TaiCessionTab()
-        self.tai_tabs.addTab(self.tai_cession_tab, "TAI_Cession")
-
-        self.tai_transactions_tab = TaiTransactionsTab()
-        self.tai_tabs.addTab(self.tai_transactions_tab, "TAICyberTAIFd")
-
-        self.tai_reserve_tab = TaiReserveTab()
-        self.tai_tabs.addTab(self.tai_reserve_tab, "TAI_Reserve")
-
-        # TAI reuses Display, Results, SQL classes (separate instances)
-        self.tai_display_tab = QWidget()  # placeholder — TAI-specific display options TBD
-        self.tai_tabs.addTab(self.tai_display_tab, "Display")
-
-        self.tai_results_tab = ResultsTab()
-        self.tai_tabs.addTab(self.tai_results_tab, "Results")
-        self.tai_results_tab.policy_double_clicked.connect(
-            self._open_polview_tai)
-
-        self.tai_sql_tab = SqlTab()
-        self.tai_tabs.addTab(self.tai_sql_tab, "SQL")
-
-        # Compare Results tab (hidden until a compare is run)
-        self.tai_compare_tab = CompareResultsTab()
-        self.tai_compare_tab.policy_double_clicked.connect(
-            self._open_polview_tai)
-        self._tai_compare_tab_idx = -1  # will be set when first shown
-
-        self.tai_tabs.setVisible(False)
-        root.addWidget(self.tai_tabs, 1)
+        _left_lay.addWidget(self.tabs, 1)  # stretch=1 so tabs fill
 
         # ── Profile bar ────────────────────────────────────────────
         profile_bar = QWidget()
@@ -354,16 +321,18 @@ class AuditWindow(FramelessWindowBase):
         # ── Cyberlife bottom bar ─────────────────────────────────────
         self.cyberlife_bottom_bar = QWidget()
         self.cyberlife_bottom_bar.setFixedHeight(50)
+        self.cyberlife_bottom_bar.setStyleSheet(
+            "QWidget { background-color: #C8D4E4; }")
         cyb_layout = QHBoxLayout(self.cyberlife_bottom_bar)
         cyb_layout.setSpacing(8)
         cyb_layout.setContentsMargins(4, 2, 4, 2)
 
-        # 1) Tables button (yellow position — far left)
+        # 1) Tables button (far left) — darker navy for Cyberlife
         _TABLES_BTN_STYLE = (
-            "QPushButton { background-color: #E8F0FB; color: #1E5BA8;"
-            " border: 1px solid #1E5BA8; border-radius: 3px;"
+            "QPushButton { background-color: #D6E4F4; color: #0A2A5C;"
+            " border: 1px solid #14407A; border-radius: 3px;"
             " padding: 2px 10px; font-size: 9pt; font-weight: bold; }"
-            "QPushButton:hover { background-color: #C5D8F5; }"
+            "QPushButton:hover { background-color: #B8CCE4; }"
         )
         self.btn_tables_cyberlife = QPushButton("Tables")
         self.btn_tables_cyberlife.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
@@ -372,12 +341,12 @@ class AuditWindow(FramelessWindowBase):
         self.btn_tables_cyberlife.setToolTip("View Cyberlife table information")
         cyb_layout.addWidget(self.btn_tables_cyberlife)
 
-        # 2) Clear All button (blue position)
+        # 2) Clear All button — darker navy for Cyberlife
         _CLEAR_BTN_STYLE = (
-            "QPushButton { background-color: #1E5BA8; color: white;"
-            " border: 1px solid #14407A; border-radius: 2px;"
+            "QPushButton { background-color: #14407A; color: white;"
+            " border: 1px solid #0A2A5C; border-radius: 2px;"
             " padding: 1px 8px; font-size: 9pt; }"
-            "QPushButton:hover { background-color: #2A6BC4; }"
+            "QPushButton:hover { background-color: #1E5BA8; }"
         )
         self.btn_clear_cyberlife = QPushButton("Clear All")
         self.btn_clear_cyberlife.setFont(_FONT)
@@ -485,100 +454,21 @@ class AuditWindow(FramelessWindowBase):
         )
         cyb_layout.addWidget(self.btn_run)
 
-        root.addWidget(self.cyberlife_bottom_bar)
-
-        # ── TAI bottom bar ───────────────────────────────────────────
-        self.tai_bottom_bar = QWidget()
-        self.tai_bottom_bar.setFixedHeight(50)
-        tai_btm_layout = QHBoxLayout(self.tai_bottom_bar)
-        tai_btm_layout.setSpacing(8)
-        tai_btm_layout.setContentsMargins(4, 2, 4, 2)
-
-        # 1) Tables button (far left)
-        self.btn_tables_tai = QPushButton("Tables")
-        self.btn_tables_tai.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self.btn_tables_tai.setFixedSize(60, 36)
-        self.btn_tables_tai.setStyleSheet(_TABLES_BTN_STYLE)
-        self.btn_tables_tai.setToolTip("View TAI table information")
-        tai_btm_layout.addWidget(self.btn_tables_tai)
-
-        # 2) Clear All button
-        self.btn_clear_tai = QPushButton("Clear All")
-        self.btn_clear_tai.setFont(_FONT)
-        self.btn_clear_tai.setFixedSize(60, 36)
-        self.btn_clear_tai.setStyleSheet(
-            "QPushButton { background-color: #1E5BA8; color: white;"
-            " border: 1px solid #14407A; border-radius: 2px;"
-            " padding: 1px 8px; font-size: 9pt; }"
-            "QPushButton:hover { background-color: #2A6BC4; }"
-        )
-        tai_btm_layout.addWidget(self.btn_clear_tai)
-
-        tai_btm_layout.addStretch()
-
-        # 4) All + Max Count + Result Count
-        tai_count_stack = QVBoxLayout()
-        tai_count_stack.setSpacing(2)
-        tai_count_stack.setContentsMargins(0, 0, 0, 0)
-
-        tai_mc_row = QHBoxLayout()
-        tai_mc_row.setSpacing(3)
-        tai_mc_row.setContentsMargins(0, 0, 0, 0)
-        self.btn_all_tai = QPushButton("All")
-        self.btn_all_tai.setFont(QFont("Segoe UI", 8))
-        self.btn_all_tai.setFixedSize(28, 18)
-        tai_mc_row.addWidget(self.btn_all_tai)
-        self.txt_max_count_tai = QLineEdit("25")
-        self.txt_max_count_tai.setFont(QFont("Segoe UI", 8))
-        self.txt_max_count_tai.setFixedSize(36, 18)
-        self.txt_max_count_tai.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        tai_mc_row.addWidget(self.txt_max_count_tai)
-        lbl_mc_tai = QLabel("Max Count")
-        lbl_mc_tai.setFont(QFont("Segoe UI", 8))
-        tai_mc_row.addWidget(lbl_mc_tai)
-        tai_count_stack.addLayout(tai_mc_row)
-
-        self.lbl_result_count_tai = QLabel("Result count:")
-        self.lbl_result_count_tai.setFont(QFont("Segoe UI", 8))
-        tai_count_stack.addWidget(self.lbl_result_count_tai)
-
-        tai_btm_layout.addLayout(tai_count_stack)
-        tai_btm_layout.addSpacing(12)
-
-        # 5) Timing labels
-        time_grid_tai = QVBoxLayout()
-        time_grid_tai.setSpacing(0)
-        time_grid_tai.setContentsMargins(0, 0, 0, 0)
-        self.lbl_query_time_tai = QLabel("Query time:")
-        self.lbl_print_time_tai = QLabel("Print time:")
-        self.lbl_total_time_tai = QLabel("Total time:")
-        for lbl in (self.lbl_query_time_tai, self.lbl_print_time_tai,
-                    self.lbl_total_time_tai):
-            lbl.setFont(QFont("Segoe UI", 8))
-            time_grid_tai.addWidget(lbl)
-        tai_btm_layout.addLayout(time_grid_tai)
-
-        tai_btm_layout.addSpacing(12)
-
-        # 6) Run TAI Audit button (far right)
-        self.btn_run_tai = QPushButton("Run\nAudit")
-        self.btn_run_tai.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self.btn_run_tai.setFixedSize(60, 36)
-        self.btn_run_tai.setStyleSheet(
-            "QPushButton { background-color: #C00000; color: white; border: 1px solid #900; "
-            "border-radius: 3px; }"
-            "QPushButton:hover { background-color: #E00000; }"
-        )
-        tai_btm_layout.addWidget(self.btn_run_tai)
-
-        self.tai_bottom_bar.setVisible(False)
-        root.addWidget(self.tai_bottom_bar)
+        _left_lay.addWidget(self.cyberlife_bottom_bar)
 
         # ── Dynamic group container (placeholder — groups added dynamically) ──
         self._dynamic_group_container = QVBoxLayout()
         self._dynamic_group_container.setSpacing(0)
         self._dynamic_group_container.setContentsMargins(0, 0, 0, 0)
-        root.addLayout(self._dynamic_group_container)
+        _left_lay.addLayout(self._dynamic_group_container)
+
+        root.addWidget(self._content_left, 1)
+
+        # ── Field Picker dockable window (created after layout) ────
+        self._field_picker = FieldPickerWindow(self)
+        self._field_picker.field_requested.connect(self._on_picker_field_requested)
+        self._field_picker.closed.connect(self._on_field_picker_closed)
+        self._field_picker_visible = False
 
         # ── Separator + Profile bar (shared) ─────────────────────────
         sep_line = QFrame()
@@ -592,6 +482,7 @@ class AuditWindow(FramelessWindowBase):
         self._apply_initial_state()
         self._connect_signals()
         self._load_saved_groups()
+        self._restore_ui_settings()
         return body
 
     # ── Initial state ────────────────────────────────────────────────
@@ -610,47 +501,59 @@ class AuditWindow(FramelessWindowBase):
     def _connect_signals(self):
         self.btn_run.clicked.connect(self._run_audit)
         self.btn_all.clicked.connect(self._set_all_rows)
-        self.btn_run_tai.clicked.connect(self._run_tai_audit)
-        self.btn_all_tai.clicked.connect(self._set_all_rows_tai)
-        self.tai_cession_tab.compare_ready_changed.connect(self._on_compare_ready)
         self.sql_tab.move_to_build.connect(self._on_move_to_build)
         self.build_sql_tab.run_sql_requested.connect(self._run_build_sql)
         # Mode switching
         self.btn_cyberlife.clicked.connect(lambda: self._switch_mode("cyberlife"))
-        self.btn_tai.clicked.connect(lambda: self._switch_mode("tai"))
         # Profile signals
         self.cmb_profile.currentIndexChanged.connect(self._on_profile_selected)
         self.btn_profile_save.clicked.connect(self._on_profile_save)
         self.btn_profile_save_as.clicked.connect(self._on_profile_save_as)
         self.btn_profile_delete.clicked.connect(self._on_profile_delete)
         self.btn_clear_cyberlife.clicked.connect(self._on_clear_cyberlife)
-        self.btn_clear_tai.clicked.connect(self._on_clear_tai)
         self._update_profile_buttons()
 
-    # ── Mode switching (Cyberlife / TAI / dynamic) ─────────────────
+    # ── Mode switching (Cyberlife / dynamic) ─────────────────────────
+
+    # Cyberlife tab pane — darker blue top/bottom border
+    _CYB_TAB_STYLE = (
+        "QTabWidget::pane { border-top: 3px solid #14407A;"
+        " border-bottom: 3px solid #14407A;"
+        " border-left: 1px solid #999; border-right: 1px solid #999; }"
+        "QTabBar::tab { padding: 2px 8px; min-height: 20px; font-size: 9pt; }"
+        "QTabBar::tab:selected { font-weight: bold; }"
+    )
+    # Custom group tab pane — lighter blue top/bottom border
+    _DYN_TAB_STYLE = (
+        "QTabWidget::pane { border-top: 3px solid #1E5BA8;"
+        " border-bottom: 3px solid #1E5BA8;"
+        " border-left: 1px solid #999; border-right: 1px solid #999; }"
+        "QTabBar::tab { padding: 2px 8px; min-height: 20px; font-size: 9pt; }"
+        "QTabBar::tab:selected { font-weight: bold; }"
+    )
+    # Mode bar backgrounds
+    _MODE_BAR_CYB_STYLE = "QWidget { background-color: #C8D4E4; }"
+    _MODE_BAR_DYN_STYLE = "QWidget { background-color: #D6E4F0; }"
+    _MODE_BAR_DEFAULT_STYLE = "QWidget { background-color: #E0E0E0; }"
 
     def _switch_mode(self, mode: str):
-        """Toggle between Cyberlife, TAI, and dynamic group tab sets."""
+        """Toggle between Cyberlife and dynamic group tab sets."""
         if mode == self._current_mode:
             return
         self._current_mode = mode
 
         is_cyberlife = (mode == "cyberlife")
-        is_tai = (mode == "tai")
-        is_dynamic = not is_cyberlife and not is_tai
+        is_dynamic = not is_cyberlife
 
         self.tabs.setVisible(is_cyberlife)
-        self.tai_tabs.setVisible(is_tai)
 
         # Style the active/inactive buttons
         self.btn_cyberlife.setStyleSheet(
-            self._active_mode_style if is_cyberlife else self._inactive_mode_style)
-        self.btn_tai.setStyleSheet(
-            self._active_mode_style if is_tai else self._inactive_mode_style)
+            self._cyberlife_active_style if is_cyberlife
+            else self._inactive_mode_style)
 
         # Toggle mode-specific bottom bars
         self.cyberlife_bottom_bar.setVisible(is_cyberlife)
-        self.tai_bottom_bar.setVisible(is_tai)
 
         # Toggle dynamic group widgets
         for name, group in self._dynamic_groups.items():
@@ -660,10 +563,93 @@ class AuditWindow(FramelessWindowBase):
                 self._active_mode_style if name == mode
                 else self._inactive_mode_style)
 
-        # Mode bar background — light blue when a dynamic group is active
-        self._mode_bar.setStyleSheet(
-            self._mode_bar_group_style if is_dynamic
-            else self._mode_bar_default_style)
+        # Tab pane border theming
+        if is_cyberlife:
+            self.tabs.setStyleSheet(self._CYB_TAB_STYLE)
+        # Dynamic groups handle their own tab styling internally
+
+        # Mode bar background
+        if is_cyberlife:
+            self._mode_bar.setStyleSheet(self._MODE_BAR_CYB_STYLE)
+        elif is_dynamic:
+            self._mode_bar.setStyleSheet(self._MODE_BAR_DYN_STYLE)
+        else:
+            self._mode_bar.setStyleSheet(self._MODE_BAR_DEFAULT_STYLE)
+
+        # Hide/show field picker controls based on mode
+        if is_cyberlife and self._field_picker_visible:
+            self._field_picker.hide()
+            self._field_picker_visible = False
+            self._set_all_picker_buttons(False)
+        elif is_dynamic:
+            # Sync picker button states: uncheck all, check active if picker open
+            for gname, g in self._dynamic_groups.items():
+                if gname == mode:
+                    g.btn_field_picker.blockSignals(True)
+                    g.btn_field_picker.setChecked(self._field_picker_visible)
+                    g.btn_field_picker.setStyleSheet(
+                        self._picker_btn_on_style if self._field_picker_visible
+                        else self._picker_btn_off_style)
+                    g.btn_field_picker.blockSignals(False)
+                else:
+                    g.btn_field_picker.blockSignals(True)
+                    g.btn_field_picker.setChecked(False)
+                    g.btn_field_picker.setStyleSheet(self._picker_btn_off_style)
+                    g.btn_field_picker.blockSignals(False)
+
+        # Update field picker for the active dynamic group
+        self._update_field_picker()
+
+    # ── Field Picker panel ───────────────────────────────────────────
+
+    def _active_picker_btn(self):
+        """Return the field picker button for the currently active dynamic group."""
+        group = self._dynamic_groups.get(self._current_mode)
+        return group.btn_field_picker if group is not None else None
+
+    def _set_all_picker_buttons(self, checked: bool):
+        """Uncheck all group picker buttons and reset style."""
+        for g in self._dynamic_groups.values():
+            g.btn_field_picker.setChecked(checked)
+            g.btn_field_picker.setStyleSheet(
+                self._picker_btn_on_style if checked else self._picker_btn_off_style)
+
+    def _toggle_field_picker(self, checked: bool):
+        """Show or hide the dockable field picker window."""
+        self._field_picker_visible = checked
+        btn = self._active_picker_btn()
+        if checked:
+            if btn:
+                btn.setStyleSheet(self._picker_btn_on_style)
+            self._update_field_picker()
+            self._field_picker.show_docked()
+        else:
+            if btn:
+                btn.setStyleSheet(self._picker_btn_off_style)
+            self._field_picker.hide()
+
+    def _on_field_picker_closed(self):
+        """Called when the user closes the field picker via its X button."""
+        self._field_picker_visible = False
+        self._set_all_picker_buttons(False)
+
+    def _update_field_picker(self):
+        """Populate the field picker from the active dynamic group."""
+        if not self._field_picker_visible:
+            return
+        group = self._dynamic_groups.get(self._current_mode)
+        if group is not None:
+            self._field_picker.set_group(
+                group.dsn, group.tables, group.display_names)
+        else:
+            self._field_picker.clear()
+
+    def _on_picker_field_requested(self, table: str, column: str,
+                                   type_name: str, display: str):
+        """Double-click in field picker — delegate to the active dynamic group."""
+        group = self._dynamic_groups.get(self._current_mode)
+        if group is not None:
+            group._on_field_requested(table, column, type_name, display)
 
     # ── Dynamic group management ─────────────────────────────────────
 
@@ -693,6 +679,13 @@ class AuditWindow(FramelessWindowBase):
         self._dynamic_groups[name] = group
         self._dynamic_group_container.addWidget(group)
 
+        # Wire field picker button in the group's footer
+        group.btn_field_picker.toggled.connect(self._toggle_field_picker)
+
+        # Auto-save when group config changes
+        group.config_changed.connect(
+            lambda n=name: self._auto_save_group(n))
+
         # Create mode button
         btn = QPushButton(name)
         btn.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
@@ -711,10 +704,13 @@ class AuditWindow(FramelessWindowBase):
         if btn is None:
             return
         menu = QMenu(self)
+        act_rename = menu.addAction("Rename group")
         act_delete = menu.addAction(f"Delete group '{group_name}'")
         act_save = menu.addAction("Save group")
         chosen = menu.exec(btn.mapToGlobal(pos))
-        if chosen is act_delete:
+        if chosen is act_rename:
+            self._rename_dynamic_group(group_name)
+        elif chosen is act_delete:
             reply = QMessageBox.question(
                 self, "Delete Group?",
                 f"Delete group '{group_name}'? This cannot be undone.",
@@ -743,6 +739,48 @@ class AuditWindow(FramelessWindowBase):
 
         delete_group(name)
 
+    def _rename_dynamic_group(self, old_name: str):
+        """Rename a dynamic group — updates button, group, and disk file."""
+        new_name, ok = QInputDialog.getText(
+            self, "Rename Group", "New group name:", text=old_name)
+        if not ok or not new_name.strip():
+            return
+        new_name = new_name.strip()
+        if new_name == old_name:
+            return
+        if group_exists(new_name):
+            QMessageBox.warning(self, "Name Taken",
+                                f"A group named '{new_name}' already exists.")
+            return
+
+        group = self._dynamic_groups.pop(old_name)
+        group.group_name = new_name
+        group._lbl_group_name.setText(new_name)
+        self._dynamic_groups[new_name] = group
+
+        # Update button
+        btn = self._dynamic_buttons.pop(old_name)
+        btn.setText(new_name)
+        btn.clicked.disconnect()
+        btn.clicked.connect(lambda checked, n=new_name: self._switch_mode(n))
+        btn.customContextMenuRequested.disconnect()
+        btn.customContextMenuRequested.connect(
+            lambda pos, n=new_name: self._on_group_btn_context_menu(n, pos))
+        self._dynamic_buttons[new_name] = btn
+
+        # Update auto-save connection
+        group.config_changed.disconnect()
+        group.config_changed.connect(
+            lambda n=new_name: self._auto_save_group(n))
+
+        # Update disk: delete old, save new
+        delete_group(old_name)
+        save_group(new_name, group.get_config())
+
+        # Switch mode if currently active
+        if self._current_mode == old_name:
+            self._current_mode = new_name
+
     def _load_saved_groups(self):
         """Load all saved dynamic groups from disk on startup."""
         for name in list_groups():
@@ -761,12 +799,54 @@ class AuditWindow(FramelessWindowBase):
         for name, group in self._dynamic_groups.items():
             save_group(name, group.get_config())
 
+    def _restore_ui_settings(self):
+        """Restore window-level UI settings (field picker sizes, etc.)."""
+        ui = load_ui_settings()
+        picker_state = ui.get("field_picker")
+        if picker_state:
+            self._field_picker.set_state(picker_state)
+
+    def _auto_save_group(self, name: str):
+        """Auto-save a single dynamic group to disk (called by debounce timer)."""
+        group = self._dynamic_groups.get(name)
+        if group:
+            save_group(name, group.get_config())
+
+    def closeEvent(self, event):
+        """Save all dynamic groups on window close."""
+        # Stop any pending debounce timers and flush immediately
+        for group in self._dynamic_groups.values():
+            group._save_timer.stop()
+        self._save_all_dynamic_groups()
+        # Save UI settings (field picker sizes, etc.)
+        ui = load_ui_settings()
+        ui["field_picker"] = self._field_picker.get_state()
+        ui["field_picker_visible"] = self._field_picker_visible
+        save_ui_settings(ui)
+        # Hide the dockable field picker
+        self._field_picker.hide()
+        super().closeEvent(event)
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if hasattr(self, "_field_picker"):
+            self._field_picker.follow_parent()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_field_picker"):
+            self._field_picker.follow_parent()
+
     # ── Unique Value Registry ────────────────────────────────────────
 
     def _open_registry(self):
         """Open the Unique Value Registry viewer window."""
-        from .unique_value_registry_window import UniqueValueRegistryWindow
-        UniqueValueRegistryWindow.show_instance(parent=None)
+        try:
+            from .unique_value_registry_window import UniqueValueRegistryWindow
+            UniqueValueRegistryWindow.show_instance(parent=None)
+        except Exception as exc:
+            logger.exception("Failed to open registry window")
+            QMessageBox.warning(self, "Registry Error", str(exc))
 
     # ── Query building ───────────────────────────────────────────────
 
@@ -805,18 +885,9 @@ class AuditWindow(FramelessWindowBase):
             ("plancode", self.plancode_tab),
         ]
 
-    def _tai_criteria_tabs(self):
-        """Return (key, tab) pairs for TAI tabs that support get_state/set_state."""
-        return [
-            ("tai_all", self.tai_all_tab),
-            ("tai_cession", self.tai_cession_tab),
-            ("tai_transactions", self.tai_transactions_tab),
-            ("tai_reserve", self.tai_reserve_tab),
-        ]
-
     def _all_criteria_tabs(self):
         """Return (key, tab) pairs for all tabs that support get_state/set_state."""
-        return self._cyberlife_criteria_tabs() + self._tai_criteria_tabs()
+        return self._cyberlife_criteria_tabs()
 
     def _get_full_state(self) -> dict:
         """Collect the complete form state from all tabs + bottom bar."""
@@ -944,25 +1015,11 @@ class AuditWindow(FramelessWindowBase):
         self.cmb_profile.blockSignals(False)
         self._update_profile_buttons()
 
-    def _on_clear_tai(self):
-        """Reset only TAI tabs to defaults."""
-        for _key, tab in self._tai_criteria_tabs():
-            tab.set_state({})
-        self.txt_max_count_tai.setText("25")
-        self.cmb_profile.blockSignals(True)
-        self.cmb_profile.setCurrentIndex(0)
-        self.cmb_profile.blockSignals(False)
-        self._update_profile_buttons()
-
     # ── Run audit ────────────────────────────────────────────────────
 
     def _set_all_rows(self):
         """Clear max count (fetch all rows)."""
         self.txt_max_count.setText("")
-
-    def _set_all_rows_tai(self):
-        """Clear TAI max count (fetch all rows)."""
-        self.txt_max_count_tai.setText("")
 
     def _run_audit(self):
         """Execute the audit query and display results."""
@@ -1061,253 +1118,6 @@ class AuditWindow(FramelessWindowBase):
             self.build_sql_tab.btn_run_sql.setEnabled(True)
             self.build_sql_tab.btn_run_sql.setText("Run this SQL")
 
-    # ── TAI audit ────────────────────────────────────────────────────
-
-    def _build_tai_sql(self) -> str:
-        """Build TAI SQL — delegates to tai_query.build_tai_sql."""
-        return build_tai_sql(
-            self.tai_cession_tab,
-            self.txt_max_count_tai.text().strip(),
-        )
-
-    # ── Compare button state ─────────────────────────────────────────
-
-    _RUN_AUDIT_STYLE = (
-        "QPushButton { background-color: #C00000; color: white; border: 1px solid #900; "
-        "border-radius: 3px; }"
-        "QPushButton:hover { background-color: #E00000; }"
-    )
-    _RUN_COMPARE_STYLE = (
-        "QPushButton { background-color: #1565C0; color: white; border: 1px solid #0D47A1; "
-        "border-radius: 3px; }"
-        "QPushButton:hover { background-color: #1976D2; }"
-    )
-
-    def _on_compare_ready(self, ready: bool):
-        """Switch the Run button between audit and compare modes."""
-        if ready:
-            self.btn_run_tai.setText("Run\nCompare")
-            self.btn_run_tai.setStyleSheet(self._RUN_COMPARE_STYLE)
-        else:
-            self.btn_run_tai.setText("Run\nAudit")
-            self.btn_run_tai.setStyleSheet(self._RUN_AUDIT_STYLE)
-
-    def _run_tai_audit(self):
-        """Execute TAI audit — routes to cession or TAICyberTAIFd based on active tab."""
-        current_tab = self.tai_tabs.currentWidget()
-
-        # TAICyberTAIFd tab
-        if current_tab is self.tai_transactions_tab:
-            self._run_taicybertaifd_audit()
-            return
-
-        # ALL tab
-        if current_tab is self.tai_all_tab:
-            self._run_tai_all_audit()
-            return
-
-        # TAI Cession tab (or any other tab) — existing behaviour
-        ct = self.tai_cession_tab
-        if ct.is_compare_ready():
-            self._run_tai_compare()
-            return
-
-        try:
-            sql = self._build_tai_sql()
-        except Exception as exc:
-            logger.exception("Failed to build TAI SQL")
-            QMessageBox.warning(self, "SQL Build Error", str(exc))
-            return
-
-        # Show SQL in TAI SQL tab
-        self.tai_sql_tab.set_sql(sql)
-
-        self.btn_run_tai.setEnabled(False)
-        self.btn_run_tai.setText("Running...")
-        self.lbl_query_time_tai.setText("Query time:")
-        self.lbl_print_time_tai.setText("Print time:")
-        self.lbl_total_time_tai.setText("Total time:")
-        self.lbl_result_count_tai.setText("Result count:")
-
-        from PyQt6.QtWidgets import QApplication
-        QApplication.processEvents()
-
-        try:
-            df, t_query = run_tai_query(sql)
-
-            t1 = time.time()
-            self.tai_results_tab.set_results(df)
-            t_print = time.time() - t1
-            t_total = t_query + t_print
-
-            self.lbl_query_time_tai.setText(f"Query time:  {fmt_time(t_query)}")
-            self.lbl_print_time_tai.setText(f"Print time:  {fmt_time(t_print)}")
-            self.lbl_total_time_tai.setText(f"Total time:  {fmt_time(t_total)}")
-            self.lbl_result_count_tai.setText(f"Result count:   {len(df)}")
-
-            # Switch to Results tab in TAI tab widget
-            self.tai_tabs.setCurrentWidget(self.tai_results_tab)
-
-        except Exception as exc:
-            logger.exception("TAI audit query failed")
-            msg = str(exc)
-            if hasattr(exc, 'args') and len(exc.args) >= 2:
-                msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-            QMessageBox.warning(self, "Query Error", msg)
-        finally:
-            self.btn_run_tai.setEnabled(True)
-            self._on_compare_ready(self.tai_cession_tab.is_compare_ready())
-
-    def _run_taicybertaifd_audit(self):
-        """Execute a TAICyberTAIFd query and display results."""
-        ct = self.tai_transactions_tab
-        try:
-            sql = build_taicybertaifd_sql(ct, self.txt_max_count_tai.text().strip())
-        except Exception as exc:
-            logger.exception("Failed to build TAICyberTAIFd SQL")
-            QMessageBox.warning(self, "SQL Build Error", str(exc))
-            return
-
-        self.tai_sql_tab.set_sql(sql)
-
-        self.btn_run_tai.setEnabled(False)
-        self.btn_run_tai.setText("Running...")
-        self.lbl_query_time_tai.setText("Query time:")
-        self.lbl_print_time_tai.setText("Print time:")
-        self.lbl_total_time_tai.setText("Total time:")
-        self.lbl_result_count_tai.setText("Result count:")
-
-        from PyQt6.QtWidgets import QApplication
-        QApplication.processEvents()
-
-        try:
-            all_cols = ct.chk_all_columns.isChecked()
-            df, t_query = run_taicybertaifd_query(sql, all_columns=all_cols)
-
-            t1 = time.time()
-            self.tai_results_tab.set_results(df)
-            t_print = time.time() - t1
-            t_total = t_query + t_print
-
-            self.lbl_query_time_tai.setText(f"Query time:  {fmt_time(t_query)}")
-            self.lbl_print_time_tai.setText(f"Print time:  {fmt_time(t_print)}")
-            self.lbl_total_time_tai.setText(f"Total time:  {fmt_time(t_total)}")
-            self.lbl_result_count_tai.setText(f"Result count:   {len(df)}")
-
-            self.tai_tabs.setCurrentWidget(self.tai_results_tab)
-
-        except Exception as exc:
-            logger.exception("TAICyberTAIFd query failed")
-            msg = str(exc)
-            if hasattr(exc, 'args') and len(exc.args) >= 2:
-                msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-            QMessageBox.warning(self, "Query Error", msg)
-        finally:
-            self.btn_run_tai.setEnabled(True)
-            self.btn_run_tai.setText("Run\nAudit")
-
-    def _run_tai_all_audit(self):
-        """Execute a UNION ALL query across all four TAI tables."""
-        ct = self.tai_all_tab
-        try:
-            sql = build_tai_all_sql(ct, self.txt_max_count_tai.text().strip())
-        except Exception as exc:
-            logger.exception("Failed to build TAI All SQL")
-            QMessageBox.warning(self, "SQL Build Error", str(exc))
-            return
-
-        self.tai_sql_tab.set_sql(sql)
-
-        self.btn_run_tai.setEnabled(False)
-        self.btn_run_tai.setText("Running...")
-        self.lbl_query_time_tai.setText("Query time:")
-        self.lbl_print_time_tai.setText("Print time:")
-        self.lbl_total_time_tai.setText("Total time:")
-        self.lbl_result_count_tai.setText("Result count:")
-
-        from PyQt6.QtWidgets import QApplication
-        QApplication.processEvents()
-
-        try:
-            df, t_query = run_tai_all_query(sql)
-
-            t1 = time.time()
-            self.tai_results_tab.set_results(df)
-            t_print = time.time() - t1
-            t_total = t_query + t_print
-
-            self.lbl_query_time_tai.setText(f"Query time:  {fmt_time(t_query)}")
-            self.lbl_print_time_tai.setText(f"Print time:  {fmt_time(t_print)}")
-            self.lbl_total_time_tai.setText(f"Total time:  {fmt_time(t_total)}")
-            self.lbl_result_count_tai.setText(f"Result count:   {len(df)}")
-
-            self.tai_tabs.setCurrentWidget(self.tai_results_tab)
-
-        except Exception as exc:
-            logger.exception("TAI All query failed")
-            msg = str(exc)
-            if hasattr(exc, 'args') and len(exc.args) >= 2:
-                msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-            QMessageBox.warning(self, "Query Error", msg)
-        finally:
-            self.btn_run_tai.setEnabled(True)
-            self.btn_run_tai.setText("Run\nAudit")
-
-    def _run_tai_compare(self):
-        """Run the month-end compare and show results in Compare Results tab."""
-        ct = self.tai_cession_tab
-        eom1 = ct.txt_eom1.text().strip()
-        eom2 = ct.txt_eom2.text().strip()
-
-        self.btn_run_tai.setEnabled(False)
-        self.btn_run_tai.setText("Running...")
-        self.lbl_query_time_tai.setText("Query time:")
-        self.lbl_print_time_tai.setText("Print time:")
-        self.lbl_total_time_tai.setText("Total time:")
-        self.lbl_result_count_tai.setText("Result count:")
-
-        from PyQt6.QtWidgets import QApplication
-        QApplication.processEvents()
-
-        try:
-            df1_only, df2_only, t_query = run_tai_compare(ct, eom1, eom2)
-
-            t1 = time.time()
-            # Ensure Compare Results tab is visible
-            if self._tai_compare_tab_idx < 0:
-                self._tai_compare_tab_idx = self.tai_tabs.addTab(
-                    self.tai_compare_tab, "Compare Results")
-            self.tai_compare_tab.set_results(df1_only, df2_only, eom1, eom2)
-            t_print = time.time() - t1
-            t_total = t_query + t_print
-
-            total_rows = len(df1_only) + len(df2_only)
-            self.lbl_query_time_tai.setText(f"Query time:  {fmt_time(t_query)}")
-            self.lbl_print_time_tai.setText(f"Print time:  {fmt_time(t_print)}")
-            self.lbl_total_time_tai.setText(f"Total time:  {fmt_time(t_total)}")
-            self.lbl_result_count_tai.setText(
-                f"Result count:   {len(df1_only)} / {len(df2_only)}")
-
-            # Show the SQL used (both queries)
-            from .tai_query import build_tai_compare_sql
-            sql_text = (f"-- {eom1}\n"
-                        f"{build_tai_compare_sql(ct, eom1)}\n\n"
-                        f"-- {eom2}\n"
-                        f"{build_tai_compare_sql(ct, eom2)}")
-            self.tai_sql_tab.set_sql(sql_text)
-
-            self.tai_tabs.setCurrentWidget(self.tai_compare_tab)
-
-        except Exception as exc:
-            logger.exception("TAI compare query failed")
-            msg = str(exc)
-            if hasattr(exc, 'args') and len(exc.args) >= 2:
-                msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-            QMessageBox.warning(self, "Query Error", msg)
-        finally:
-            self.btn_run_tai.setEnabled(True)
-            self._on_compare_ready(self.tai_cession_tab.is_compare_ready())
-
     # ── PolView integration ─────────────────────────────────────
 
     def _on_tab_context_menu(self, pos):
@@ -1328,17 +1138,6 @@ class AuditWindow(FramelessWindowBase):
                 self._build_sql_tab_index = -1
             elif widget is self.build_sql_results_tab:
                 self._build_sql_results_tab_index = -1
-
-    # TAI company code → CyberLife company code
-    _TAI_TO_CL_COMPANY = {
-        "101": "01", "104": "04", "106": "06",
-        "108": "08", "130": "26", "FFL": "26",
-    }
-
-    def _open_polview_tai(self, policy_number: str, company_code: str):
-        """Convert TAI company code to CyberLife and open PolView."""
-        cl_code = self._TAI_TO_CL_COMPANY.get(company_code, company_code)
-        self._open_polview_with_policy(policy_number, cl_code)
 
     def set_polview_window(self, polview_window):
         """Set a shared PolView window (from the parent app)."""

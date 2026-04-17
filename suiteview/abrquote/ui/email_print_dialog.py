@@ -486,13 +486,16 @@ class EmailPrintDialog(QDialog):
                 f' font-weight:bold; font-size:10pt; padding:5px 12px;'
                 f' border-top:1px solid {border_c}; border-bottom:1px solid {border_c};">{title}</td></tr>'
             )
+            is_warn = (title == "Warnings")
             for lbl, val in pairs:
+                val_color = "#CC0000" if is_warn else value_fg
+                val_align = "left" if is_warn else "right"
                 html += (
                     f'<tr>'
                     f'<td style="padding:3px 12px; color:{label_fg}; white-space:nowrap;'
                     f' border-bottom:1px solid #EDF2F7;">{lbl}</td>'
-                    f'<td style="padding:3px 12px; font-weight:bold; color:{value_fg};'
-                    f' text-align:right; white-space:nowrap;'
+                    f'<td style="padding:3px 12px; font-weight:bold; color:{val_color};'
+                    f' text-align:{val_align}; white-space:nowrap;'
                     f' border-bottom:1px solid #EDF2F7;">{val}</td>'
                     f'</tr>'
                 )
@@ -514,7 +517,11 @@ class EmailPrintDialog(QDialog):
             lines.append("")
             if title:
                 lines.append(f"— {title} —")
+            is_warn = (title == "Warnings")
             for lbl, val in pairs:
-                lines.append(f"  {lbl:<{label_w}}  {val:>{value_w}}")
+                if is_warn:
+                    lines.append(f"  {lbl:<{label_w}}  {val}")
+                else:
+                    lines.append(f"  {lbl:<{label_w}}  {val:>{value_w}}")
 
         return "\n".join(lines)

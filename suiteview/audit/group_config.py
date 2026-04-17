@@ -64,3 +64,25 @@ def delete_group(name: str):
 
 def group_exists(name: str) -> bool:
     return (_GROUPS_DIR / f"{name}.json").exists()
+
+
+def load_ui_settings() -> dict:
+    """Load window-level UI settings (field picker sizes, etc.)."""
+    _ensure_dir()
+    path = _GROUPS_DIR / "_ui_settings.json"
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        logger.exception("Failed to load UI settings")
+        return {}
+
+
+def save_ui_settings(settings: dict):
+    """Save window-level UI settings."""
+    _ensure_dir()
+    path = _GROUPS_DIR / "_ui_settings.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=2)

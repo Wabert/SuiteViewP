@@ -31,6 +31,8 @@ a = Analysis(
         ('suiteview/polview/data/policy_record_db2_tables.json', 'suiteview/polview/data'),
         # PolView config
         ('suiteview/polview/config/field_tooltips.json', 'suiteview/polview/config'),
+        # Audit Tool assets
+        ('suiteview/audit/tabs/_checkmark.png', 'suiteview/audit/tabs'),
     ],
     hiddenimports=[
         'PyQt6', 'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets',
@@ -47,6 +49,9 @@ a = Analysis(
         'win32api',
         'win32gui',
         'win32con',
+        'suiteview.audit',
+        'suiteview.audit.audit_window',
+        'suiteview.audit.main',
     ],
     hookspath=[],
     hooksconfig={},

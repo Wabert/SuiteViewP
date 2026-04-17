@@ -37,9 +37,10 @@ _BTN_STYLE = (
 
 _LIST_STYLE = (
     "QListWidget { border: 1px solid #1E5BA8; background-color: white;"
-    " font-size: 8pt; }"
+    " font-size: 8pt; outline: none; }"
     "QListWidget::item { padding: 0px 4px; }"
     "QListWidget::item:selected { background-color: #A0C4E8; color: black; }"
+    "QListWidget::item:focus { outline: none; border: none; }"
 )
 
 
@@ -57,13 +58,23 @@ class _TableLoaderThread(QThread):
             conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True, timeout=15)
             cursor = conn.cursor()
             tables = []
-            for row in cursor.tables():
-                # row.table_name, row.table_type, row.table_schem
-                if row.table_type in ("TABLE", "VIEW"):
-                    schema = row.table_schem or ""
-                    name = row.table_name
-                    full = f"{schema}.{name}" if schema else name
-                    tables.append(full)
+            try:
+                rows = cursor.tables()
+                while True:
+                    try:
+                        row = next(rows)
+                    except StopIteration:
+                        break
+                    except Exception:
+                        continue  # skip rows that cause conversion errors
+                    if row.table_type in ("TABLE", "VIEW"):
+                        schema = row.table_schem or ""
+                        name = row.table_name
+                        full = f"{schema}.{name}" if schema else name
+                        tables.append(full)
+            except Exception as exc:
+                logger.warning("Error iterating tables for %s: %s",
+                               self.dsn, exc)
             conn.close()
             self.tables_loaded.emit(sorted(tables))
         except Exception as exc:

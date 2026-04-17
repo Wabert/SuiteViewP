@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from . import shared_field_registry as registry
+from .tabs._styles import make_checkbox as _make_checkbox
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,10 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
 
     def __init__(self, parent=None):
         saved = self._load_geometry_settings()
+        self._current_field_id = None
+        self._expanded = False  # More/Less state
+        self._show_inactive = False
+        self._value_rows: list[dict] = []  # raw data backing the model
         super().__init__(
             title="Unique Value Registry",
             default_size=(saved.get("w", 1100), saved.get("h", 540)),
@@ -176,11 +181,10 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         )
         if "x" in saved and "y" in saved:
             self.move(saved["x"], saved["y"])
-        self._current_field_id = None
-        self._expanded = False  # More/Less state
-        self._show_inactive = False
-        self._value_rows: list[dict] = []  # raw data backing the model
-        self._load_registrations()
+        try:
+            self._load_registrations()
+        except Exception:
+            logger.exception("Failed to load registrations on startup")
 
     @classmethod
     def show_instance(cls, parent=None):
@@ -259,6 +263,8 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.tree.header().setStretchLastSection(True)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tree.currentItemChanged.connect(self._on_tree_selection_changed)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._on_tree_context_menu)
         left_lay.addWidget(self.tree)
 
         splitter.addWidget(left_panel)
@@ -320,8 +326,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
 
         action_bar.addStretch()
 
-        self.chk_inactive = QCheckBox("Show Inactive")
-        self.chk_inactive.setFont(_FONT_SMALL)
+        self.chk_inactive = _make_checkbox("Show Inactive")
         self.chk_inactive.setToolTip("Include inactive values in the table")
         self.chk_inactive.toggled.connect(self._toggle_inactive)
         action_bar.addWidget(self.chk_inactive)
@@ -448,8 +453,9 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self._value_rows = registry.get_values_full(
             field_id, include_inactive=self._show_inactive)
 
-        # Block signals while populating to avoid triggering itemChanged
-        self.value_model.blockSignals(True)
+        # Disconnect itemChanged while populating to avoid triggering edits
+        # (blockSignals would starve the proxy model of rowsInserted signals)
+        self.value_model.itemChanged.disconnect(self._on_item_changed)
         self.value_model.clear()
         self.value_model.setHorizontalHeaderLabels(_ALL_HEADERS)
 
@@ -526,7 +532,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
 
             self.value_model.appendRow(row_items)
 
-        self.value_model.blockSignals(False)
+        self.value_model.itemChanged.connect(self._on_item_changed)
 
         # Column sizing
         self.value_table.resizeColumnsToContents()
@@ -602,6 +608,107 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.lbl_field_title.setText(f"{table_name}.{col_name}")
         self._show_values(reg_id)
 
+    def _on_tree_context_menu(self, pos):
+        """Right-click menu on tree: permanently delete a table or field."""
+        item = self.tree.itemAt(pos)
+        if item is None:
+            return
+
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background-color: white; border: 1px solid #1E5BA8;"
+            "  font-size: 9pt; }"
+            "QMenu::item { padding: 4px 20px; }"
+            "QMenu::item:selected { background-color: #A0C4E8; color: black; }"
+        )
+
+        field_id = item.data(0, Qt.ItemDataRole.UserRole)
+        if field_id is not None:
+            # This is a field (leaf) node
+            parent = item.parent()
+            table_name = parent.text(0) if parent else ""
+            col_name = item.text(0)
+            act_del = menu.addAction(
+                f"Permanently Delete \"{col_name}\" from Registry")
+            chosen = menu.exec(self.tree.viewport().mapToGlobal(pos))
+            if chosen == act_del:
+                self._permanently_delete_field(
+                    field_id, table_name, col_name)
+        else:
+            # This is a table (group) node
+            table_name = item.text(0)
+            field_count = item.childCount()
+            act_del = menu.addAction(
+                f"Permanently Delete \"{table_name}\" "
+                f"({field_count} field(s)) from Registry")
+            chosen = menu.exec(self.tree.viewport().mapToGlobal(pos))
+            if chosen == act_del:
+                self._permanently_delete_table(table_name, field_count)
+
+    def _permanently_delete_field(self, field_id: int, table_name: str,
+                                  col_name: str):
+        """Prompt and permanently delete a single field registration."""
+        reply = QMessageBox.warning(
+            self, "Permanently Delete Field",
+            f"Are you sure you want to permanently delete "
+            f"\"{table_name}.{col_name}\" and all of its values "
+            f"from the registry?\n\n"
+            f"This action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            registry.permanently_delete_field(field_id)
+        except Exception as exc:
+            QMessageBox.warning(self, "Delete Error",
+                                f"Could not delete field:\n\n{exc}")
+            return
+        if self._current_field_id == field_id:
+            self._current_field_id = None
+            self.value_model.itemChanged.disconnect(self._on_item_changed)
+            self.value_model.clear()
+            self.value_model.setHorizontalHeaderLabels(_ALL_HEADERS)
+            self.value_model.itemChanged.connect(self._on_item_changed)
+            self.lbl_field_title.setText("Select a field \u2192")
+            self.lbl_stats.setText("")
+            self.btn_add.setEnabled(False)
+            self.btn_export.setEnabled(False)
+            self.btn_deactivate.setEnabled(False)
+        self._load_registrations()
+
+    def _permanently_delete_table(self, table_name: str, field_count: int):
+        """Prompt and permanently delete all fields for a table."""
+        reply = QMessageBox.warning(
+            self, "Permanently Delete Table",
+            f"Are you sure you want to permanently delete "
+            f"\"{table_name}\" and all {field_count} field(s) "
+            f"(including all their values) from the registry?\n\n"
+            f"This action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            registry.permanently_delete_table(table_name)
+        except Exception as exc:
+            QMessageBox.warning(self, "Delete Error",
+                                f"Could not delete table:\n\n{exc}")
+            return
+        self._current_field_id = None
+        self.value_model.itemChanged.disconnect(self._on_item_changed)
+        self.value_model.clear()
+        self.value_model.setHorizontalHeaderLabels(_ALL_HEADERS)
+        self.value_model.itemChanged.connect(self._on_item_changed)
+        self.lbl_field_title.setText("Select a field \u2192")
+        self.lbl_stats.setText("")
+        self.btn_add.setEnabled(False)
+        self.btn_export.setEnabled(False)
+        self.btn_deactivate.setEnabled(False)
+        self._load_registrations()
+
     def _on_value_selection_changed(self, selected, _deselected):
         has_sel = len(self.value_table.selectionModel().selectedRows()) > 0
         self.btn_deactivate.setEnabled(has_sel)
@@ -621,7 +728,9 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         for r in regs:
             try:
                 registry.fetch_and_register(
-                    r["table_name"], r["column_name"], r.get("display_name", ""))
+                    r["table_name"], r["column_name"],
+                    r.get("display_name", ""),
+                    source_dsn=r.get("source_dsn") or "")
             except Exception as exc:
                 errors.append(f"{r['table_name']}.{r['column_name']}: {exc}")
 
@@ -659,10 +768,10 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         if reply == QMessageBox.StandardButton.Yes:
             registry.delete_registration(reg_id)
             self._current_field_id = None
-            self.value_model.blockSignals(True)
+            self.value_model.itemChanged.disconnect(self._on_item_changed)
             self.value_model.clear()
             self.value_model.setHorizontalHeaderLabels(_ALL_HEADERS)
-            self.value_model.blockSignals(False)
+            self.value_model.itemChanged.connect(self._on_item_changed)
             self.lbl_field_title.setText("Select a field \u2192")
             self.lbl_stats.setText("")
             self.btn_add.setEnabled(False)

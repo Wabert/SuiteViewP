@@ -12,6 +12,7 @@ import os
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QListWidget, QAbstractItemView, QStyledItemDelegate,
+    QStyleOptionViewItem,
 )
 from PyQt6.QtGui import QFont
 
@@ -49,6 +50,11 @@ class TightItemDelegate(QStyledItemDelegate):
         sh = super().sizeHint(option, index)
         return QSize(sh.width(), self.ROW_H)
 
+    def initStyleOption(self, option: QStyleOptionViewItem, index):
+        super().initStyleOption(option, index)
+        from PyQt6.QtWidgets import QStyle
+        option.state &= ~QStyle.StateFlag.State_HasFocus
+
 
 # ── Styled checkbox (blue indicator, white checkmark) ──────────────────
 
@@ -78,9 +84,10 @@ def make_listbox(items: list[str], *, height_rows: int = 10,
     lb.setUniformItemSizes(True)
     bg_color = "white" if enabled else "#F0F0F0"
     lb.setStyleSheet(
-        f"QListWidget {{ border: 1px solid #1E5BA8; background-color: {bg_color}; }}"
+        f"QListWidget {{ border: 1px solid #1E5BA8; background-color: {bg_color}; outline: none; }}"
         "QListWidget::item { padding: 0px 2px; border: none; }"
         "QListWidget::item:selected { background-color: #A0C4E8; color: black; border: none; }"
+        "QListWidget::item:focus { outline: none; border: none; }"
     )
     if multi:
         lb.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
@@ -99,6 +106,11 @@ class _ComboItemDelegate(QStyledItemDelegate):
     def sizeHint(self, option, index):
         sh = super().sizeHint(option, index)
         return QSize(sh.width(), _ROW_H)
+
+    def initStyleOption(self, option: QStyleOptionViewItem, index):
+        super().initStyleOption(option, index)
+        from PyQt6.QtWidgets import QStyle
+        option.state &= ~QStyle.StateFlag.State_HasFocus
 
 
 class WidePopupComboBox(QComboBox):

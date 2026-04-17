@@ -26,7 +26,7 @@ from ..constants import (
     BILLING_FORM_ITEMS, GRACE_INDICATOR_ITEMS, SUSPENSE_CODE_ITEMS,
     COMPANY_ITEMS, MARKET_ORG_ITEMS, POLICYNUMBER_CRITERIA_ITEMS,
 )
-from ._styles import style_combo as _style_combo
+from ._styles import style_combo as _style_combo, make_checkbox as _make_checkbox
 
 # ── Compact sizing helpers ──────────────────────────────────────────────
 _FONT = QFont("Segoe UI", 9)
@@ -68,45 +68,6 @@ def _make_listbox(items: list[str], *, height_rows: int = 10,
     lb.setFixedHeight(height_rows * _ROW_H + 4)
     lb.setEnabled(enabled)
     return lb
-
-
-def _make_checkbox(text: str, *, checked: bool = False) -> QCheckBox:
-    cb = QCheckBox(text)
-    cb.setFont(_FONT)
-    cb.setChecked(checked)
-    # Generate a white checkmark icon for the checked state
-    import os, base64
-    _checkmark_path = os.path.join(os.path.dirname(__file__), "_checkmark.png")
-    if not os.path.exists(_checkmark_path):
-        _create_checkmark_icon(_checkmark_path)
-    # Normalize path for stylesheet (forward slashes)
-    icon_path = _checkmark_path.replace("\\", "/")
-    cb.setStyleSheet(
-        "QCheckBox::indicator { border: 1px solid #1E5BA8; width: 12px; height: 12px; background-color: white; }"
-        "QCheckBox::indicator:checked {"
-        "  background-color: #1E5BA8; border: 1px solid #14407A;"
-        f"  image: url({icon_path});"
-        "}"
-    )
-    return cb
-
-
-def _create_checkmark_icon(path: str):
-    """Create a small white checkmark PNG icon."""
-    from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor
-    from PyQt6.QtCore import Qt, QPoint
-    pix = QPixmap(12, 12)
-    pix.fill(QColor(0, 0, 0, 0))  # transparent
-    p = QPainter(pix)
-    pen = QPen(QColor("white"))
-    pen.setWidth(2)
-    p.setPen(pen)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    # Draw checkmark: short stroke then long stroke
-    p.drawLine(QPoint(2, 6), QPoint(5, 9))
-    p.drawLine(QPoint(5, 9), QPoint(10, 3))
-    p.end()
-    pix.save(path)
 
 
 def _connect_checkbox_listbox(chk: QCheckBox, lb: QListWidget):

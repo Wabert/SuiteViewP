@@ -10,6 +10,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import time
+
+import pandas as pd
 import pyodbc
 from PyQt6.QtCore import Qt, QMimeData, QPoint, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag, QCursor
@@ -18,7 +21,11 @@ from PyQt6.QtWidgets import (
     QListWidget, QAbstractItemView, QPushButton, QMessageBox,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QSplitter,
     QGroupBox, QApplication, QMenu, QInputDialog,
+    QStyledItemDelegate, QWidget,
 )
+
+from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from ..tabs._styles import TightItemDelegate
 
 if TYPE_CHECKING:
     pass
@@ -55,13 +62,23 @@ _TREE_STYLE = (
 
 _LIST_STYLE = (
     "QListWidget { border: 1px solid #1E5BA8; background-color: white;"
-    " font-size: 9pt; }"
+    " font-size: 9pt; outline: none; }"
     "QListWidget::item { padding: 2px 4px; }"
     "QListWidget::item:selected { background-color: #A0C4E8; color: black; }"
+    "QListWidget::item:focus { outline: none; border: none; }"
 )
 
 # MIME type for dragging fields from this dialog
 FIELD_DRAG_MIME = "application/x-audit-field-drag"
+
+
+class _DisplayNameOnlyDelegate(QStyledItemDelegate):
+    """Only allows editing on column 3 (Display Name); all others are read-only."""
+
+    def createEditor(self, parent, option, index):
+        if index.column() != 3:
+            return None  # reject editing on non-display-name columns
+        return super().createEditor(parent, option, index)
 
 
 class _FieldLoaderThread(QThread):
@@ -87,7 +104,14 @@ class _FieldLoaderThread(QThread):
                 schema, table = None, parts[0]
 
             columns = []
-            for row in cursor.columns(table=table, schema=schema):
+            rows = cursor.columns(table=table, schema=schema)
+            while True:
+                try:
+                    row = next(rows)
+                except StopIteration:
+                    break
+                except Exception:
+                    continue
                 col_name = row.column_name
                 type_name = row.type_name
                 col_size = row.column_size
@@ -100,7 +124,7 @@ class _FieldLoaderThread(QThread):
 
 
 class DraggableFieldTree(QTreeWidget):
-    """QTreeWidget that supports dragging field items out."""
+    """QTreeWidget that supports dragging field items out (multi-select)."""
 
     field_double_clicked = pyqtSignal(str, str, str)  # table, column, display_name
 
@@ -108,22 +132,31 @@ class DraggableFieldTree(QTreeWidget):
         super().__init__(parent)
         self.setDragEnabled(True)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection)
 
     def startDrag(self, supportedActions):
-        item = self.currentItem()
-        if item is None:
+        items = self.selectedItems()
+        if not items:
             return
-        col_name = item.text(0)
-        type_name = item.text(1)
-        display = item.text(3)
-        table = item.data(0, Qt.ItemDataRole.UserRole)
-        if not table:
+
+        # Build multi-field payload: one entry per line
+        lines = []
+        for item in items:
+            col_name = item.text(0)
+            type_name = item.text(1)
+            display = item.text(3)
+            table = item.data(0, Qt.ItemDataRole.UserRole)
+            if not table:
+                continue
+            lines.append(f"{table}|{col_name}|{type_name}|{display}")
+
+        if not lines:
             return
 
         drag = QDrag(self)
         mime = QMimeData()
-        # Encode: table|column|type|display_name
-        payload = f"{table}|{col_name}|{type_name}|{display}"
+        payload = "\n".join(lines)
         mime.setData(FIELD_DRAG_MIME, payload.encode("utf-8"))
         drag.setMimeData(mime)
         drag.exec(Qt.DropAction.CopyAction)
@@ -139,9 +172,14 @@ class TablesDialog(QDialog):
                  display_names: dict[str, str],
                  parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Tables & Fields")
-        self.setMinimumSize(750, 500)
+        self.setWindowFlags(
+            Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+        self.setMinimumSize(900, 750)
+        self.resize(900, 750)
         self.setFont(_FONT)
+
+        # Drag state for custom title bar
+        self._drag_pos = None
 
         self._dsn = dsn
         self._tables = list(tables)
@@ -153,9 +191,62 @@ class TablesDialog(QDialog):
         self._build_ui()
         self._refresh_table_list()
 
+    def paintEvent(self, event):
+        """Draw gold border around the dialog (matching FramelessWindowBase)."""
+        super().paintEvent(event)
+        from PyQt6.QtGui import QPainter, QPen, QColor
+        p = QPainter(self)
+        pen = QPen(QColor("#D4A017"))
+        pen.setWidth(2)
+        p.setPen(pen)
+        p.drawRect(self.rect().adjusted(1, 1, -1, -1))
+        p.end()
+
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setSpacing(6)
+        root.setContentsMargins(2, 2, 2, 2)
+        root.setSpacing(0)
+
+        # ── Custom title bar (matches FramelessWindowBase theme) ─────
+        header = QWidget()
+        header.setFixedHeight(32)
+        header.setStyleSheet(
+            "QWidget { background: qlineargradient(x1:0, y1:0, x2:1, y2:1,"
+            " stop:0 #1E5BA8, stop:0.5 #0D3A7A, stop:1 #082B5C); }")
+        header.setCursor(Qt.CursorShape.ArrowCursor)
+        hlay = QHBoxLayout(header)
+        hlay.setContentsMargins(10, 2, 6, 2)
+        hlay.setSpacing(6)
+
+        title_lbl = QLabel("Tables && Fields")
+        title_lbl.setStyleSheet(
+            "QLabel { color: white; font-size: 14px; font-weight: bold;"
+            " font-style: italic; background: transparent; }")
+        hlay.addWidget(title_lbl)
+        hlay.addStretch()
+
+        btn_close = QPushButton("✕")
+        btn_close.setFixedSize(28, 22)
+        btn_close.setStyleSheet(
+            "QPushButton { background: transparent; border: none;"
+            " color: #D4A017; font-size: 14px; font-weight: bold; }"
+            "QPushButton:hover { background-color: #E81123; }")
+        btn_close.clicked.connect(self.accept)
+        hlay.addWidget(btn_close)
+
+        # Enable drag-to-move on the header
+        header.mousePressEvent = self._header_mouse_press
+        header.mouseMoveEvent = self._header_mouse_move
+        header.mouseReleaseEvent = self._header_mouse_release
+
+        root.addWidget(header)
+
+        # ── Body ─────────────────────────────────────────────────────
+        body = QWidget()
+        body.setStyleSheet("QWidget { background-color: white; }")
+        body_lay = QVBoxLayout(body)
+        body_lay.setSpacing(6)
+        body_lay.setContentsMargins(6, 6, 6, 6)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -166,6 +257,7 @@ class TablesDialog(QDialog):
 
         self.list_tables = QListWidget()
         self.list_tables.setStyleSheet(_LIST_STYLE)
+        self.list_tables.setItemDelegate(TightItemDelegate(self.list_tables))
         self.list_tables.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
         self.list_tables.currentItemChanged.connect(self._on_table_selected)
@@ -183,6 +275,17 @@ class TablesDialog(QDialog):
         self.btn_remove_table.setFixedHeight(22)
         self.btn_remove_table.clicked.connect(self._on_remove_table)
         tbl_btns.addWidget(self.btn_remove_table)
+
+        self.btn_view_table = QPushButton("View")
+        self.btn_view_table.setStyleSheet(
+            "QPushButton { background-color: #2E7D32; color: white;"
+            " border: 1px solid #1B5E20; border-radius: 2px;"
+            " padding: 2px 8px; font-size: 8pt; }"
+            "QPushButton:hover { background-color: #388E3C; }")
+        self.btn_view_table.setFixedHeight(22)
+        self.btn_view_table.setToolTip("Preview first 1000 rows of the selected table")
+        self.btn_view_table.clicked.connect(self._on_view_table)
+        tbl_btns.addWidget(self.btn_view_table)
 
         tbl_btns.addStretch()
         left_lay.addLayout(tbl_btns)
@@ -208,6 +311,7 @@ class TablesDialog(QDialog):
         self.tree_fields.setColumnCount(5)
         self.tree_fields.setRootIsDecorated(False)
         self.tree_fields.setAlternatingRowColors(True)
+        self.tree_fields.setItemDelegate(_DisplayNameOnlyDelegate(self.tree_fields))
         header = self.tree_fields.header()
         header.setDefaultSectionSize(120)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
@@ -240,16 +344,28 @@ class TablesDialog(QDialog):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
 
-        root.addWidget(splitter, 1)
+        body_lay.addWidget(splitter, 1)
 
-        # ── Close button ─────────────────────────────────────────────
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        btn_close = QPushButton("Close")
-        btn_close.setFixedHeight(26)
-        btn_close.clicked.connect(self.accept)
-        btn_row.addWidget(btn_close)
-        root.addLayout(btn_row)
+        # Hint label at bottom
+        hint2 = QLabel("Multi-select fields with Ctrl+Click, then drag onto a tab.")
+        hint2.setFont(QFont("Segoe UI", 7))
+        hint2.setStyleSheet("color: #888;")
+        body_lay.addWidget(hint2)
+
+        root.addWidget(body, 1)
+
+    # ── Title bar drag-to-move ───────────────────────────────────────
+
+    def _header_mouse_press(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.pos()
+
+    def _header_mouse_move(self, event):
+        if self._drag_pos is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+
+    def _header_mouse_release(self, event):
+        self._drag_pos = None
 
     def _refresh_table_list(self):
         self.list_tables.clear()
@@ -305,11 +421,8 @@ class TablesDialog(QDialog):
                 nullable,
             ])
             item.setData(0, Qt.ItemDataRole.UserRole, table)
-            # Only Display Name column (3) is editable — handled via delegate/double-click
-            item.setFlags(
-                (item.flags() | Qt.ItemFlag.ItemIsEditable)
-                & ~Qt.ItemFlag.ItemIsEditable
-            )
+            # Allow editing — delegate restricts to Display Name column only
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
             self.tree_fields.addTopLevelItem(item)
 
         self.lbl_field_status.setText(f"{len(columns)} fields")
@@ -354,7 +467,7 @@ class TablesDialog(QDialog):
         act_place = menu.addAction("Place on Tab")
         chosen = menu.exec(self.tree_fields.viewport().mapToGlobal(pos))
         if chosen is act_rename:
-            self._edit_display_name_inline(item)
+            self.tree_fields.editItem(item, 3)
         elif chosen is act_place:
             self._on_field_double_clicked(item, 0)
 
@@ -375,8 +488,8 @@ class TablesDialog(QDialog):
     def _on_field_double_clicked(self, item: QTreeWidgetItem, column: int):
         """Double-click → request auto-placement on current tab."""
         if column == 3:
-            # Double-clicking the display name column should edit it
-            self._edit_display_name_inline(item)
+            # Double-clicking the display name column edits it inline
+            self.tree_fields.editItem(item, 3)
             return
         table = item.data(0, Qt.ItemDataRole.UserRole)
         col_name = item.text(0)
@@ -411,6 +524,16 @@ class TablesDialog(QDialog):
             self._field_cache.pop(table, None)
             self._refresh_table_list()
 
+    def _on_view_table(self):
+        """Open a preview window showing the first 1000 rows."""
+        current = self.list_tables.currentItem()
+        if current is None:
+            QMessageBox.information(self, "No Table", "Select a table first.")
+            return
+        table = current.text()
+        dlg = _TablePreviewDialog(self._dsn, table, self)
+        dlg.show()
+
     # ── Public accessors ─────────────────────────────────────────────
 
     def get_tables(self) -> list[str]:
@@ -440,6 +563,7 @@ class _AddTableDialog(QDialog):
 
         self.list_tables = QListWidget()
         self.list_tables.setStyleSheet(_LIST_STYLE)
+        self.list_tables.setItemDelegate(TightItemDelegate(self.list_tables))
         self.list_tables.setSelectionMode(
             QAbstractItemView.SelectionMode.MultiSelection)
         lay.addWidget(self.list_tables)
@@ -468,7 +592,14 @@ class _AddTableDialog(QDialog):
             conn = pyodbc.connect(f"DSN={dsn}", autocommit=True, timeout=15)
             cursor = conn.cursor()
             tables = []
-            for row in cursor.tables():
+            rows = cursor.tables()
+            while True:
+                try:
+                    row = next(rows)
+                except StopIteration:
+                    break
+                except Exception:
+                    continue
                 if row.table_type in ("TABLE", "VIEW"):
                     schema = row.table_schem or ""
                     name = row.table_name
@@ -497,3 +628,117 @@ class _AddTableDialog(QDialog):
 
     def get_selected(self) -> list[str]:
         return self._selected
+
+
+class _PreviewLoaderThread(QThread):
+    """Background thread to fetch preview rows from a table."""
+    data_loaded = pyqtSignal(object)   # pandas DataFrame
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, dsn: str, table_name: str, dialect: str, parent=None):
+        super().__init__(parent)
+        self.dsn = dsn
+        self.table_name = table_name
+        self.dialect = dialect
+
+    def run(self):
+        try:
+            conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True, timeout=30)
+            cursor = conn.cursor()
+            if self.dialect == "DB2":
+                sql = f'SELECT * FROM {self.table_name} FETCH FIRST 1000 ROWS ONLY'
+            else:
+                sql = f'SELECT TOP 1000 * FROM {self.table_name}'
+            cursor.execute(sql)
+            columns = [desc[0] for desc in cursor.description]
+            rows = cursor.fetchall()
+            conn.close()
+            df = pd.DataFrame([list(r) for r in rows], columns=columns)
+            self.data_loaded.emit(df)
+        except Exception as exc:
+            self.error_occurred.emit(str(exc))
+
+
+class _TablePreviewDialog(QDialog):
+    """Non-modal dialog showing the first 1000 rows of a table."""
+
+    def __init__(self, dsn: str, table_name: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Preview — {table_name}")
+        self.setWindowFlags(
+            Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
+        self.resize(1000, 600)
+        self.setFont(_FONT)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+
+        self._dsn = dsn
+        self._table_name = table_name
+        self._loader: _PreviewLoaderThread | None = None
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setSpacing(4)
+
+        from suiteview.ui.widgets.filter_table_view import FilterTableView
+        self.table = FilterTableView(self)
+        tv = self.table.table_view
+        tv.verticalHeader().setVisible(False)
+        tv.verticalHeader().setDefaultSectionSize(16)
+        tv.verticalHeader().setMinimumSectionSize(14)
+        tv.setSelectionBehavior(tv.SelectionBehavior.SelectRows)
+        tv.setEditTriggers(tv.EditTrigger.NoEditTriggers)
+        tv.setStyleSheet("""
+            QTableView#filterTableView {
+                gridline-color: transparent;
+                background-color: white;
+                alternate-background-color: white;
+                selection-background-color: #e0e8f0;
+                selection-color: black;
+                font-size: 9pt;
+                border: none;
+            }
+            QTableView#filterTableView::item {
+                padding: 0px 2px;
+                border: none;
+            }
+            QHeaderView::section {
+                background-color: #e8e8e8;
+                color: #000000;
+                font-weight: normal;
+                font-size: 8pt;
+                padding: 1px 16px 1px 4px;
+                border: 1px solid #c0c0c0;
+            }
+        """)
+        lay.addWidget(self.table, 1)
+
+        self.lbl_status = QLabel("Loading...")
+        self.lbl_status.setFont(QFont("Segoe UI", 8))
+        self.lbl_status.setStyleSheet("color: #666;")
+        lay.addWidget(self.lbl_status)
+
+        self._load_data()
+
+    def _load_data(self):
+        from suiteview.core.odbc_utils import detect_dialect
+        dialect = detect_dialect(self._dsn)
+        self._loader = _PreviewLoaderThread(
+            self._dsn, self._table_name, dialect, self)
+        self._loader.data_loaded.connect(self._on_data_loaded)
+        self._loader.error_occurred.connect(self._on_error)
+        self._loader.start()
+
+    def _on_data_loaded(self, df):
+        t0 = time.time()
+        self.table.set_dataframe(df, limit_rows=False)
+        elapsed = time.time() - t0
+        self.lbl_status.setText(
+            f"{len(df)} rows  |  {len(df.columns)} columns  |  "
+            f"loaded in {elapsed:.1f}s")
+        self._loader = None
+
+    def _on_error(self, msg: str):
+        self.lbl_status.setText("Error loading data")
+        QMessageBox.warning(self, "Preview Error",
+                            f"Failed to load data:\n\n{msg}")
+        self._loader = None

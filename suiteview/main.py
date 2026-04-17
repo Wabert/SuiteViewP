@@ -10,8 +10,42 @@ from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
 logger = logging.getLogger(__name__)
 
 
+def _check_single_instance():
+    """Ensure only one instance of SuiteView is running.
+    
+    Returns True if this is the first instance, False if another is already running.
+    """
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        # Use use_last_error=True so ctypes captures GetLastError reliably
+        _kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        _kernel32.CreateMutexW.argtypes = [wt.LPVOID, wt.BOOL, wt.LPCWSTR]
+        _kernel32.CreateMutexW.restype = wt.HANDLE
+        mutex = _kernel32.CreateMutexW(None, True, "SuiteView_SingleInstance_Mutex")
+        ERROR_ALREADY_EXISTS = 183
+        if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+            # Try to find and activate the existing SuiteView window
+            hwnd = ctypes.windll.user32.FindWindowW(None, "SuiteView")
+            if hwnd:
+                SW_RESTORE = 9
+                ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            return False
+        # Keep a reference so the mutex isn't garbage-collected
+        _check_single_instance._mutex = mutex
+        return True
+    except Exception:
+        # If mutex check fails (non-Windows), allow launch
+        return True
+
+
 def main():
     """Application entry point"""
+    # Prevent multiple instances
+    if not _check_single_instance():
+        sys.exit(0)
+
     # Clear corrupted win32com gen_py cache if it exists (prevents Excel export errors)
     try:
         import win32com
