@@ -1,11 +1,11 @@
 """
-Create Group Dialog — ODBC DSN picker + table selector + group naming.
+Create Query Dialog — ODBC DSN picker + table selector + query naming.
 
 Flow:
   1. User selects an ODBC DSN from a searchable list
   2. Tables from that DSN are loaded and shown in a searchable, multi-select list
-  3. User names the group
-  4. Returns (group_name, dsn, [table_names])
+  3. User names the query
+  4. Returns (query_name, dsn, [table_names])
 """
 from __future__ import annotations
 
@@ -81,12 +81,12 @@ class _TableLoaderThread(QThread):
             self.error_occurred.emit(str(exc))
 
 
-class CreateGroupDialog(QDialog):
-    """Dialog to create a new dynamic audit group."""
+class CreateQueryDialog(QDialog):
+    """Dialog to create a new dynamic query."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Create New Group")
+        self.setWindowTitle("Create New Query")
         self.setMinimumSize(700, 500)
         self.setFont(_FONT)
 
@@ -106,9 +106,9 @@ class CreateGroupDialog(QDialog):
 
         # ── Group name ───────────────────────────────────────────────
         name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("Group Name:"))
+        name_row.addWidget(QLabel("Query Name:"))
         self.txt_name = QLineEdit()
-        self.txt_name.setPlaceholderText("Enter a name for this group...")
+        self.txt_name.setPlaceholderText("Enter a name for this query...")
         self.txt_name.setFixedHeight(24)
         name_row.addWidget(self.txt_name)
         root.addLayout(name_row)
@@ -175,7 +175,7 @@ class CreateGroupDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
 
-        self.btn_create = QPushButton("Create Group")
+        self.btn_create = QPushButton("Create Query")
         self.btn_create.setStyleSheet(_BTN_STYLE)
         self.btn_create.setFixedHeight(30)
         self.btn_create.clicked.connect(self._on_create)
@@ -253,7 +253,7 @@ class CreateGroupDialog(QDialog):
         name = self.txt_name.text().strip()
         if not name:
             QMessageBox.warning(self, "Missing Name",
-                                "Please enter a group name.")
+                                "Please enter a query name.")
             return
         if not self._selected_dsn:
             QMessageBox.warning(self, "No DSN Selected",
@@ -273,5 +273,9 @@ class CreateGroupDialog(QDialog):
         self.accept()
 
     def get_result(self) -> tuple[str, str, list[str]]:
-        """Return (group_name, dsn, [table_names]) after accept."""
+        """Return (query_name, dsn, [table_names]) after accept."""
         return self._result_name, self._result_dsn, self._result_tables
+
+
+# Backward-compatible alias
+CreateGroupDialog = CreateQueryDialog

@@ -7,16 +7,28 @@ if __name__ == '__main__':
     import sys
     from pathlib import Path
     import traceback
-    
+
     # Add parent directory to path so we can import suiteview
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    
+    _root = Path(__file__).parent.parent
+    sys.path.insert(0, str(_root))
+
+    # Under pythonw.exe there is no console — redirect stderr to a crash log
+    # so fatal errors are not silently swallowed.
+    _crash_log = _root / "suiteview_crash.log"
+    if sys.executable.lower().endswith("pythonw.exe"):
+        try:
+            _crash_fh = open(_crash_log, "w", encoding="utf-8")
+            sys.stderr = _crash_fh
+            sys.stdout = _crash_fh
+        except Exception:
+            pass
+
     # Custom exception handler to catch Qt crashes
     def exception_hook(exctype, value, tb):
         print("UNHANDLED EXCEPTION:")
         traceback.print_exception(exctype, value, tb)
         sys.__excepthook__(exctype, value, tb)
-    
+
     sys.excepthook = exception_hook
     
     try:
@@ -38,13 +50,13 @@ if __name__ == '__main__':
             # Kill it so this new instance can start.
             import subprocess, os, signal
             result = subprocess.run(
-                ["wmic", "process", "where",
-                 "name='pythonw.exe'", "get", "processid"],
+                ["tasklist", "/FI", "IMAGENAME eq pythonw.exe",
+                 "/FO", "CSV", "/NH"],
                 capture_output=True, text=True)
             for line in result.stdout.splitlines():
-                line = line.strip()
-                if line.isdigit():
-                    pid = int(line)
+                parts = line.strip().strip('"').split('","')
+                if len(parts) >= 2 and parts[1].isdigit():
+                    pid = int(parts[1])
                     if pid != os.getpid():
                         try:
                             os.kill(pid, signal.SIGTERM)

@@ -440,3 +440,85 @@ def permanently_delete_table(table_name: str) -> None:
         raise
     finally:
         conn.close()
+
+
+def list_table_columns(dsn: str, table_name: str) -> list[tuple[str, str, int, str]]:
+    """Return all columns for a table from the ODBC driver.
+
+    Parameters
+    ----------
+    dsn : str
+        ODBC DSN name to connect to.
+    table_name : str
+        Fully-qualified table name (e.g. ``DB2TAB.LH_BAS_POL``).
+
+    Returns a list of (column_name, type_name, column_size, nullable)
+    tuples.
+    """
+    parts = table_name.split(".", 1)
+    schema, table = (parts[0], parts[1]) if len(parts) == 2 else (None, parts[0])
+    live_dsn = dsn or _DSN
+    conn = pyodbc.connect(f"DSN={live_dsn}", autocommit=True, timeout=15)
+    try:
+        cursor = conn.cursor()
+        columns = []
+        for row in cursor.columns(table=table, schema=schema):
+            columns.append((
+                row.column_name,
+                row.type_name,
+                row.column_size,
+                "Yes" if row.nullable else "No",
+            ))
+        return columns
+    finally:
+        conn.close()
+
+
+def preview_table_rows(dsn: str, table_name: str,
+                       max_rows: int = 1000) -> tuple[list[str], list[tuple]]:
+    """Return the first *max_rows* rows from a table.
+
+    Parameters
+    ----------
+    dsn : str
+        ODBC DSN name.
+    table_name : str
+        Fully-qualified table name.
+    max_rows : int
+        Maximum number of rows to return.
+
+    Returns ``(column_names, rows)`` where *rows* is a list of tuples.
+    """
+    from suiteview.core.odbc_utils import detect_dialect, DB2
+
+    live_dsn = dsn or _DSN
+    dialect = detect_dialect(live_dsn)
+
+    # Quote identifiers per dialect
+    if dialect == DB2:
+        def _q(name: str) -> str:
+            return f'"{name}"'
+    else:
+        def _q(name: str) -> str:
+            return f"[{name}]"
+
+    if "." in table_name:
+        parts = table_name.split(".")
+        quoted_table = ".".join(_q(p) for p in parts)
+    else:
+        quoted_table = _q(table_name)
+
+    if dialect == DB2:
+        sql = f"SELECT * FROM {quoted_table} FETCH FIRST {max_rows} ROWS ONLY"
+    else:
+        sql = f"SELECT TOP {max_rows} * FROM {quoted_table}"
+
+    conn = pyodbc.connect(f"DSN={live_dsn}", autocommit=True, timeout=30)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        col_names = [d[0] for d in cursor.description]
+        rows = cursor.fetchall()
+        return col_names, [tuple(r) for r in rows]
+    finally:
+        conn.close()

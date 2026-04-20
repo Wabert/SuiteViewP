@@ -20,7 +20,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QRunnable, QThreadPool, QTimer, pyqtSignal
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +122,80 @@ class Message:
         )
 
 
+class _PollSignals(QObject):
+    """Signals emitted by the background poll worker."""
+    finished = pyqtSignal(list, set, list)  # (new_msgs, current_files, users)
+
+
+class _PollWorker(QRunnable):
+    """Performs all network I/O for a single poll cycle off the main thread."""
+
+    def __init__(self, inbox: Path, shared_root: Path,
+                 known_files: set[str], display_name: str):
+        super().__init__()
+        self.signals = _PollSignals()
+        self._inbox = inbox
+        self._shared_root = shared_root
+        self._known_files = known_files
+        self._display_name = display_name
+        self.setAutoDelete(True)
+
+    def run(self):
+        # Write heartbeat profile
+        profile = self._inbox / ".profile.json"
+        data = {
+            "display_name": self._display_name,
+            "last_seen": datetime.now().isoformat(timespec="seconds"),
+        }
+        try:
+            profile.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+        # List current inbox files
+        try:
+            current_files = {
+                f.name for f in self._inbox.iterdir()
+                if f.suffix == ".json" and f.name.startswith("msg_")
+            }
+        except OSError:
+            self.signals.finished.emit([], self._known_files, [])
+            return
+
+        # Read new arrivals
+        new_msgs: list[Message] = []
+        arrivals = current_files - self._known_files
+        for fname in sorted(arrivals):
+            try:
+                raw = json.loads(
+                    (self._inbox / fname).read_text(encoding="utf-8"))
+                new_msgs.append(Message.from_dict(raw, filename=fname))
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Scan online users
+        users: list[tuple[str, str]] = []
+        try:
+            for entry in self._shared_root.iterdir():
+                if not entry.is_dir():
+                    continue
+                uname = entry.name.lower()
+                prof = entry / ".profile.json"
+                display = uname
+                if prof.exists():
+                    try:
+                        d = json.loads(prof.read_text(encoding="utf-8"))
+                        display = d.get("display_name", uname)
+                    except (json.JSONDecodeError, OSError):
+                        pass
+                users.append((uname, display))
+        except OSError:
+            pass
+        users.sort(key=lambda u: u[1].lower())
+
+        self.signals.finished.emit(new_msgs, current_files, users)
+
+
 class MessageService(QObject):
     """Handles sending and receiving messages via shared network folder.
 
@@ -145,6 +219,11 @@ class MessageService(QObject):
         self._known_files: set[str] = set()
         self._known_users: list[tuple[str, str]] = []
         self._available = False
+        self._poll_in_flight = False
+
+        # Thread pool for background network I/O
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(1)
 
         # ── Ensure our own inbox folder + profile exist ──────────
         try:
@@ -280,36 +359,26 @@ class MessageService(QObject):
             pass
 
     def _poll(self):
-        """Check inbox for new message files."""
-        if not self._available:
+        """Kick off a background worker to check inbox — no I/O on main thread."""
+        if not self._available or self._poll_in_flight:
             return
-        # Refresh profile heartbeat every poll
-        self._write_profile()
+        self._poll_in_flight = True
+        worker = _PollWorker(
+            self._inbox, SHARED_MSG_ROOT,
+            set(self._known_files), self._display_name,
+        )
+        worker.signals.finished.connect(self._on_poll_done)
+        self._pool.start(worker)
 
-        new_msgs: list[Message] = []
-        try:
-            current_files = {
-                f.name for f in self._inbox.iterdir()
-                if f.suffix == ".json" and f.name.startswith("msg_")
-            }
-        except OSError:
-            return
-
-        arrivals = current_files - self._known_files
-        for fname in sorted(arrivals):
-            try:
-                data = json.loads(
-                    (self._inbox / fname).read_text(encoding="utf-8"))
-                new_msgs.append(Message.from_dict(data, filename=fname))
-            except (json.JSONDecodeError, OSError):
-                pass
+    def _on_poll_done(self, new_msgs: list, current_files: set,
+                      users: list):
+        """Handle poll results back on the main thread."""
+        self._poll_in_flight = False
         self._known_files = current_files
 
         if new_msgs:
             self.new_messages.emit(new_msgs)
 
-        # Check for user-list changes
-        users = self.get_online_users()
         if users != self._known_users:
             self._known_users = users
             self.users_changed.emit(users)

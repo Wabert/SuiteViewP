@@ -128,6 +128,8 @@ class FramelessWindowBase(QWidget):
             }}
         """)
         bar.setCursor(Qt.CursorShape.ArrowCursor)
+        bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        bar.customContextMenuRequested.connect(self._header_context_menu)
 
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(12, 4, 8, 4)
@@ -224,6 +226,22 @@ class FramelessWindowBase(QWidget):
                      'top-left', 'top-right', 'bottom-left'):
             w = _ResizeEdge(self, edge)
             self._resize_widgets.append((edge, w))
+
+    def set_size_grip_visible(self, visible: bool):
+        """Show or hide the bottom-right corner resize grip."""
+        if hasattr(self, 'size_grip'):
+            self.size_grip.setVisible(visible)
+
+    def _header_context_menu(self, pos):
+        """Right-click menu on the header bar."""
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self)
+        grip_visible = hasattr(self, 'size_grip') and self.size_grip.isVisible()
+        act_grip = menu.addAction(
+            "Hide resize grip" if grip_visible else "Show resize grip")
+        chosen = menu.exec(self.header_bar.mapToGlobal(pos))
+        if chosen is act_grip:
+            self.set_size_grip_visible(not grip_visible)
 
     # â”€â”€ Edge detection helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

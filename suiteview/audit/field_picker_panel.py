@@ -15,7 +15,7 @@ from PyQt6.QtCore import Qt, QMimeData, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QAbstractItemView, QSplitter, QFrame,
+    QListWidget, QAbstractItemView, QSplitter, QFrame, QPushButton, QMenu,
 )
 
 from .tabs._styles import TightItemDelegate
@@ -31,18 +31,51 @@ _FONT_SMALL = QFont("Segoe UI", 8)
 
 FIELD_DRAG_MIME = "application/x-audit-field-drag"
 
-_LIST_STYLE = (
-    "QListWidget { border: 1px solid #1E5BA8; background-color: white;"
-    " font-size: 9pt; outline: none; }"
-    "QListWidget::item { padding: 0px 2px; border: none; }"
-    "QListWidget::item:selected { background-color: #A0C4E8; color: black; border: none; }"
-    "QListWidget::item:focus { outline: none; border: none; }"
-)
+# ── Purple-themed styles ──────────────────────────────────────────
+_PURPLE = "#7C3AED"
+_PURPLE_DARK = "#6D28D9"
+_PURPLE_LIGHT = "#DDD6FE"
+_PURPLE_BG = "#EDE9FE"
+_PURPLE_HOVER = "#8B5CF6"
+_PURPLE_DEEP = "#4C1D95"
+
+def _make_list_style(border: str, sel_bg: str, sel_fg: str) -> str:
+    return (
+        f"QListWidget {{ border: 1px solid {border}; background-color: white;"
+        f" font-size: 9pt; outline: none; }}"
+        f"QListWidget::item {{ padding: 0px 2px; border: none; }}"
+        f"QListWidget::item:selected {{ background-color: {sel_bg}; color: {sel_fg}; border: none; }}"
+        f"QListWidget::item:focus {{ outline: none; border: none; }}"
+    )
+
+_QUERY_LIST_STYLE = _make_list_style(_PURPLE, _PURPLE_LIGHT, _PURPLE_DEEP)
+_TABLE_LIST_STYLE = _make_list_style(_PURPLE, _PURPLE_LIGHT, _PURPLE_DEEP)
+_FIELD_LIST_STYLE = _make_list_style(_PURPLE, _PURPLE_LIGHT, _PURPLE_DEEP)
 
 _HEADER_STYLE = (
-    "QLabel { color: #1E5BA8; font-size: 8pt; font-weight: bold;"
-    " padding: 2px 4px; background-color: #E8F0FB;"
-    " border: 1px solid #C0D0E0; border-radius: 2px; }"
+    f"QLabel {{ color: white; font-size: 8pt; font-weight: bold;"
+    f" padding: 2px 4px; background-color: {_PURPLE};"
+    f" border: 1px solid {_PURPLE_DARK}; border-radius: 2px; }}"
+)
+
+_SEARCH_STYLE = (
+    f"QLineEdit {{ border: 1px solid {_PURPLE}; border-radius: 2px;"
+    f" padding: 1px 4px; font-size: 8pt; }}"
+    f"QLineEdit:focus {{ border: 1px solid {_PURPLE_DARK}; }}"
+)
+
+_BTN_STYLE = (
+    f"QPushButton {{ background-color: {_PURPLE_BG}; color: {_PURPLE_DARK};"
+    f" border: 1px solid {_PURPLE}; border-radius: 2px;"
+    f" padding: 1px 6px; font-size: 8pt; }}"
+    f"QPushButton:hover {{ background-color: {_PURPLE_LIGHT}; }}"
+)
+
+_NEW_BTN_STYLE = (
+    f"QPushButton {{ background-color: {_PURPLE}; color: white;"
+    f" border: 1px solid {_PURPLE_DARK}; border-radius: 2px;"
+    f" padding: 1px 6px; font-size: 8pt; font-weight: bold; }}"
+    f"QPushButton:hover {{ background-color: {_PURPLE_HOVER}; }}"
 )
 
 
@@ -115,13 +148,17 @@ class DraggableFieldList(QListWidget):
 
 
 class FieldPickerPanel(QWidget):
-    """Side panel showing Fields (left) and Tables (right) for easy drag-drop."""
+    """Side panel: Query list | Tables list | Fields list with teal theme."""
     field_requested = pyqtSignal(str, str, str, str)  # table, column, type, display
+    tables_changed = pyqtSignal(list)  # emitted when tables added via + Table
+    query_clicked = pyqtSignal(str)    # query name clicked → load it
+    new_query_requested = pyqtSignal()  # user clicked "+ New"
+    splitter_changed = pyqtSignal()     # internal column widths changed
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumWidth(200)
-        self.setMaximumWidth(400)
+        self.setMinimumWidth(300)
+        self.setMaximumWidth(600)
 
         self._dsn: str = ""
         self._tables: list[str] = []
@@ -129,6 +166,8 @@ class FieldPickerPanel(QWidget):
         self._current_table: str = ""
         self._loader: _FieldLoaderThread | None = None
         self._field_cache: dict[str, list[tuple]] = {}
+        self._pending_sizes: list[int] | None = None
+        self._last_good_sizes: list[int] | None = None
 
         self._build_ui()
 
@@ -139,11 +178,117 @@ class FieldPickerPanel(QWidget):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(4)
+        splitter.setStyleSheet(
+            f"QSplitter::handle {{ background: {_PURPLE_LIGHT}; }}"
+            f"QSplitter::handle:hover {{ background: {_PURPLE}; }}")
 
-        # ── Left: Fields ─────────────────────────────────────────
+        # ── Left: Queries ────────────────────────────────────────
+        queries_frame = QWidget()
+        queries_frame.setStyleSheet(f"QWidget {{ background-color: {_PURPLE_BG}; }}")
+        ql = QVBoxLayout(queries_frame)
+        ql.setContentsMargins(4, 4, 2, 4)
+        ql.setSpacing(3)
+
+        lbl_queries = QLabel("Query")
+        lbl_queries.setStyleSheet(_HEADER_STYLE)
+        ql.addWidget(lbl_queries)
+
+        self.txt_query_search = QLineEdit()
+        self.txt_query_search.setFont(_FONT_SMALL)
+        self.txt_query_search.setPlaceholderText("Search queries...")
+        self.txt_query_search.setClearButtonEnabled(True)
+        self.txt_query_search.setFixedHeight(22)
+        self.txt_query_search.setStyleSheet(_SEARCH_STYLE)
+        self.txt_query_search.textChanged.connect(self._filter_queries)
+        ql.addWidget(self.txt_query_search)
+
+        self.list_queries = QListWidget()
+        self.list_queries.setFont(_FONT)
+        self.list_queries.setStyleSheet(_QUERY_LIST_STYLE)
+        self.list_queries.setItemDelegate(TightItemDelegate(self.list_queries))
+        self.list_queries.setUniformItemSizes(True)
+        self.list_queries.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.list_queries.itemClicked.connect(self._on_query_clicked)
+        ql.addWidget(self.list_queries)
+
+        btn_new = QPushButton("+ New")
+        btn_new.setFont(_FONT_SMALL)
+        btn_new.setFixedHeight(20)
+        btn_new.setStyleSheet(_NEW_BTN_STYLE)
+        btn_new.clicked.connect(self.new_query_requested)
+        ql.addWidget(btn_new)
+
+        splitter.addWidget(queries_frame)
+
+        # ── Middle: Tables ───────────────────────────────────────
+        tables_frame = QWidget()
+        tables_frame.setStyleSheet(f"QWidget {{ background-color: {_PURPLE_BG}; }}")
+        tl = QVBoxLayout(tables_frame)
+        tl.setContentsMargins(2, 4, 2, 4)
+        tl.setSpacing(3)
+
+        lbl_tables = QLabel("Tables")
+        lbl_tables.setStyleSheet(_HEADER_STYLE)
+        tl.addWidget(lbl_tables)
+
+        self.txt_table_search = QLineEdit()
+        self.txt_table_search.setFont(_FONT_SMALL)
+        self.txt_table_search.setPlaceholderText("Search tables...")
+        self.txt_table_search.setClearButtonEnabled(True)
+        self.txt_table_search.setFixedHeight(22)
+        self.txt_table_search.setStyleSheet(_SEARCH_STYLE)
+        self.txt_table_search.textChanged.connect(self._filter_tables)
+        tl.addWidget(self.txt_table_search)
+
+        self.list_tables = QListWidget()
+        self.list_tables.setFont(_FONT)
+        self.list_tables.setStyleSheet(_TABLE_LIST_STYLE)
+        self.list_tables.setItemDelegate(TightItemDelegate(self.list_tables))
+        self.list_tables.setUniformItemSizes(True)
+        self.list_tables.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.list_tables.currentItemChanged.connect(self._on_table_selected)
+        self.list_tables.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_tables.customContextMenuRequested.connect(
+            self._show_table_context_menu)
+        tl.addWidget(self.list_tables)
+
+        # ── + Table / View buttons ─────────────────────────────────
+        tbl_btns = QHBoxLayout()
+        tbl_btns.setContentsMargins(0, 0, 0, 0)
+        tbl_btns.setSpacing(3)
+
+        self.btn_add_table = QPushButton("+ Table")
+        self.btn_add_table.setFont(_FONT_SMALL)
+        self.btn_add_table.setFixedHeight(20)
+        self.btn_add_table.setStyleSheet(_BTN_STYLE)
+        self.btn_add_table.clicked.connect(self._on_add_table)
+        tbl_btns.addWidget(self.btn_add_table)
+
+        self.btn_view_table = QPushButton("View")
+        self.btn_view_table.setFont(_FONT_SMALL)
+        self.btn_view_table.setFixedHeight(20)
+        self.btn_view_table.setStyleSheet(
+            f"QPushButton {{ background-color: {_PURPLE_DARK}; color: white;"
+            f" border: 1px solid {_PURPLE_DEEP}; border-radius: 2px;"
+            f" padding: 1px 6px; font-size: 8pt; }}"
+            f"QPushButton:hover {{ background-color: {_PURPLE}; }}")
+        self.btn_view_table.setToolTip("Preview first 1000 rows")
+        self.btn_view_table.clicked.connect(self._on_view_table)
+        tbl_btns.addWidget(self.btn_view_table)
+
+        tbl_btns.addStretch()
+        tl.addLayout(tbl_btns)
+
+        splitter.addWidget(tables_frame)
+
+        # ── Right: Fields ────────────────────────────────────────
         fields_frame = QWidget()
+        fields_frame.setStyleSheet(f"QWidget {{ background-color: {_PURPLE_BG}; }}")
         fl = QVBoxLayout(fields_frame)
-        fl.setContentsMargins(4, 4, 2, 4)
+        fl.setContentsMargins(2, 4, 4, 4)
         fl.setSpacing(3)
 
         lbl_fields = QLabel("Fields")
@@ -155,12 +300,13 @@ class FieldPickerPanel(QWidget):
         self.txt_search.setPlaceholderText("Search fields...")
         self.txt_search.setClearButtonEnabled(True)
         self.txt_search.setFixedHeight(22)
+        self.txt_search.setStyleSheet(_SEARCH_STYLE)
         self.txt_search.textChanged.connect(self._filter_fields)
         fl.addWidget(self.txt_search)
 
         self.list_fields = DraggableFieldList()
         self.list_fields.setFont(_FONT)
-        self.list_fields.setStyleSheet(_LIST_STYLE)
+        self.list_fields.setStyleSheet(_FIELD_LIST_STYLE)
         self.list_fields.setItemDelegate(TightItemDelegate(self.list_fields))
         self.list_fields.setUniformItemSizes(True)
         self.list_fields.itemDoubleClicked.connect(self._on_field_double_clicked)
@@ -168,48 +314,78 @@ class FieldPickerPanel(QWidget):
 
         self.lbl_status = QLabel("")
         self.lbl_status.setFont(_FONT_SMALL)
-        self.lbl_status.setStyleSheet("color: #666;")
+        self.lbl_status.setStyleSheet(f"color: {_PURPLE_DARK};")
         fl.addWidget(self.lbl_status)
 
         splitter.addWidget(fields_frame)
 
-        # ── Right: Tables ────────────────────────────────────────
-        tables_frame = QWidget()
-        tl = QVBoxLayout(tables_frame)
-        tl.setContentsMargins(2, 4, 4, 4)
-        tl.setSpacing(3)
-
-        lbl_tables = QLabel("Tables")
-        lbl_tables.setStyleSheet(_HEADER_STYLE)
-        tl.addWidget(lbl_tables)
-
-        self.list_tables = QListWidget()
-        self.list_tables.setFont(_FONT)
-        self.list_tables.setStyleSheet(_LIST_STYLE)
-        self.list_tables.setItemDelegate(TightItemDelegate(self.list_tables))
-        self.list_tables.setUniformItemSizes(True)
-        self.list_tables.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection)
-        self.list_tables.currentItemChanged.connect(self._on_table_selected)
-        tl.addWidget(self.list_tables)
-
-        splitter.addWidget(tables_frame)
-
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(0, 1)  # queries
+        splitter.setStretchFactor(1, 1)  # tables
+        splitter.setStretchFactor(2, 3)  # fields
 
         self._splitter = splitter
+        splitter.splitterMoved.connect(self._on_splitter_moved)
         root.addWidget(splitter)
 
     # ── State persistence ─────────────────────────────────────────
 
+    def _on_splitter_moved(self, pos, index):
+        self._last_good_sizes = self._splitter.sizes()
+        self.splitter_changed.emit()
+
     def get_state(self) -> dict:
-        return {"splitter_sizes": self._splitter.sizes()}
+        sizes = self._splitter.sizes()
+        if all(s == 0 for s in sizes) and self._last_good_sizes:
+            sizes = self._last_good_sizes
+        return {"splitter_sizes": sizes}
 
     def set_state(self, state: dict):
         sizes = state.get("splitter_sizes")
-        if sizes and len(sizes) == 2:
+        if sizes and len(sizes) == 3 and any(s > 0 for s in sizes):
+            self._pending_sizes = list(sizes)
+            self._last_good_sizes = list(sizes)
             self._splitter.setSizes(sizes)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._pending_sizes:
+            from PyQt6.QtCore import QTimer
+            sizes = self._pending_sizes
+            self._pending_sizes = None
+            QTimer.singleShot(0, lambda: self._splitter.setSizes(sizes))
+
+    # ── Query list API ────────────────────────────────────────────
+
+    def set_queries(self, names: list[str]):
+        """Populate the query list with saved query names."""
+        self.list_queries.blockSignals(True)
+        self.list_queries.clear()
+        for name in sorted(names, key=str.lower):
+            self.list_queries.addItem(name)
+        self.list_queries.blockSignals(False)
+
+    def highlight_query(self, name: str):
+        """Select the given query name in the list (no signal)."""
+        self.list_queries.blockSignals(True)
+        for i in range(self.list_queries.count()):
+            item = self.list_queries.item(i)
+            item.setSelected(item.text() == name)
+        self.list_queries.blockSignals(False)
+
+    def _filter_queries(self, text: str):
+        filt = text.strip().lower()
+        for i in range(self.list_queries.count()):
+            item = self.list_queries.item(i)
+            item.setHidden(filt not in item.text().lower() if filt else False)
+
+    def _on_query_clicked(self, item):
+        self.query_clicked.emit(item.text())
+
+    def _filter_tables(self, text: str):
+        filt = text.strip().lower()
+        for i in range(self.list_tables.count()):
+            item = self.list_tables.item(i)
+            item.setHidden(filt not in item.text().lower() if filt else False)
 
     # ── Public API ────────────────────────────────────────────────
 
@@ -301,3 +477,59 @@ class FieldPickerPanel(QWidget):
         if info:
             table, col, type_name, display = info
             self.field_requested.emit(table, col, type_name, display)
+
+    # ── Table context menu / buttons ─────────────────────────────
+
+    def _show_table_context_menu(self, pos):
+        """Right-click a table → show field details in a popup."""
+        item = self.list_tables.itemAt(pos)
+        if item is None:
+            return
+        table = item.text()
+        # Load fields first (if not cached)
+        if table not in self._field_cache:
+            self._load_fields(table)
+            return  # will populate once loaded asynchronously
+
+        columns = self._field_cache[table]
+        menu = QMenu(self)
+
+        # Build a mini summary of fields
+        act_view = menu.addAction(f"View  ({len(columns)} fields)")
+        menu.addSeparator()
+        for col_name, type_name, size, nullable in columns[:20]:
+            menu.addAction(f"  {col_name}  ({type_name})")
+        if len(columns) > 20:
+            menu.addAction(f"  ... {len(columns) - 20} more")
+
+        chosen = menu.exec(self.list_tables.mapToGlobal(pos))
+        if chosen is act_view:
+            self._on_view_table()
+
+    def _on_add_table(self):
+        """Open the Add Table dialog to add more tables from the DSN."""
+        if not self._dsn:
+            return
+        from .dialogs.tables_dialog import _AddTableDialog
+        dlg = _AddTableDialog(self._dsn, self._tables, self)
+        from PyQt6.QtWidgets import QDialog
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_tables = dlg.get_selected()
+            for t in new_tables:
+                if t not in self._tables:
+                    self._tables.append(t)
+            self.list_tables.clear()
+            self.list_tables.addItems(self._tables)
+            self.tables_changed.emit(self._tables)
+
+    def _on_view_table(self):
+        """Preview first 1000 rows of the selected table."""
+        current = self.list_tables.currentItem()
+        if current is None:
+            return
+        if not self._dsn:
+            return
+        table = current.text()
+        from .dialogs.tables_dialog import _TablePreviewDialog
+        dlg = _TablePreviewDialog(self._dsn, table, self)
+        dlg.show()

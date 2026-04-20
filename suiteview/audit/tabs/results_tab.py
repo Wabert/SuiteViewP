@@ -25,6 +25,8 @@ class ResultsTab(QWidget):
 
     # Emitted on double-click: (policy_number, company_code)
     policy_double_clicked = pyqtSignal(str, str)
+    # Emitted when the user clicks Pin: carries the current DataFrame
+    pin_requested = pyqtSignal(object)  # pd.DataFrame
 
     def __init__(self, parent=None):
         super().__init__(parent)

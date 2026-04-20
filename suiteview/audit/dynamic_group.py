@@ -1,7 +1,7 @@
 """
-DynamicGroup — a full mode (tab set + footer) for user-created audit groups.
+DynamicQuery — a full mode (tab set + footer) for user-created audit groups.
 
-Each DynamicGroup manages:
+Each DynamicQuery manages:
   - A QTabWidget with an initial "All" tab + Results + SQL tabs
   - A bottom bar with Tables, Clear All, timing, max count, Run Audit
   - Dynamic field placement on tabs via drag-drop from Tables dialog
@@ -13,13 +13,12 @@ import logging
 import time
 
 import pandas as pd
-import pyodbc
 from PyQt6.QtCore import Qt, QMimeData, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QTabBar,
-    QLabel, QLineEdit, QPushButton, QMessageBox, QMenu,
-    QApplication, QInputDialog, QComboBox, QScrollArea,
+    QLabel, QPushButton, QMessageBox, QMenu,
+    QInputDialog, QComboBox, QScrollArea,
 )
 
 from .tabs.field_row import FieldRow, FieldGrid
@@ -33,6 +32,8 @@ from .tabs._styles import _FONT, style_combo as _style_combo
 from .sql_helpers import fmt_time
 from .dynamic_query import build_dynamic_sql, build_join_sql, collect_field_filters
 from .dialogs.tables_dialog import TablesDialog, FIELD_DRAG_MIME
+from .ui.bottom_bar import AuditBottomBar
+from .query_runner import run_button_context, execute_odbc_query
 from suiteview.core.odbc_utils import detect_dialect
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,13 @@ _CLEAR_BTN_STYLE = (
     " border: 1px solid #14407A; border-radius: 2px;"
     " padding: 1px 8px; font-size: 9pt; }"
     "QPushButton:hover { background-color: #2A6BC4; }"
+)
+
+_SAVE_QUERY_BTN_STYLE = (
+    "QPushButton { background-color: #7C3AED; color: white;"
+    " border: 1px solid #6D28D9; border-radius: 3px;"
+    " padding: 2px 10px; font-size: 9pt; font-weight: bold; }"
+    "QPushButton:hover { background-color: #8B5CF6; }"
 )
 
 _TABLES_BTN_STYLE = (
@@ -73,7 +81,7 @@ def _detect_widget_mode(type_name: str) -> str:
 
 
 class DynamicTab(QScrollArea):
-    """A single criteria tab for a dynamic group — wraps a FieldGrid."""
+    """A single criteria tab for a dynamic query — wraps a FieldGrid."""
 
     def __init__(self, tab_name: str = "All", dsn: str = "", parent=None):
         super().__init__(parent)
@@ -197,23 +205,30 @@ class DynamicTab(QScrollArea):
             self.grid.set_state(grid_state)
 
 
-class DynamicGroup(QWidget):
-    """Complete mode widget for a user-created dynamic group.
+class DynamicQuery(QWidget):
+    """Complete mode widget for a user-created dynamic query.
 
     Contains tab widget + bottom bar. Meant to be shown/hidden by AuditWindow
     like cyberlife/tai modes.
     """
     config_changed = pyqtSignal()
+    dataset_pinned = pyqtSignal(object)  # PinnedDataset
+    query_saved = pyqtSignal(object)     # SavedQuery
+    query_deleted = pyqtSignal(str)      # query name deleted
 
     def __init__(self, name: str, dsn: str, tables: list[str],
                  display_names: dict[str, str] | None = None,
-                 parent=None):
+                 parent=None, saved_query_name: str = ""):
         super().__init__(parent)
-        self.group_name = name
+        self.query_name = name
         self.dsn = dsn
         self.dialect = detect_dialect(dsn)
         self.tables = list(tables)  # mutable — tables can be added/removed
         self.display_names: dict[str, str] = display_names or {}
+
+        # Temp group tracking: non-empty means this is a loaded saved query
+        self._saved_query_name = saved_query_name
+        self._is_temp = bool(saved_query_name)
 
         self._tabs_dialog: TablesDialog | None = None
         self._loading = False  # suppress auto-save during set_config
@@ -243,11 +258,19 @@ class DynamicGroup(QWidget):
         self.tab_widget = QTabWidget()
         self.tab_widget.setFont(_FONT)
         self.tab_widget.setStyleSheet(
-            "QTabWidget::pane { border-top: 3px solid #1E5BA8;"
-            " border-bottom: 3px solid #1E5BA8;"
-            " border-left: 1px solid #999; border-right: 1px solid #999; }"
-            "QTabBar::tab { padding: 2px 8px; min-height: 20px; font-size: 9pt; }"
-            "QTabBar::tab:selected { font-weight: bold; }"
+            "QTabWidget::pane { border-top: 3px solid #7C3AED;"
+            " border-bottom: 3px solid #7C3AED;"
+            " border-left: 1px solid #999; border-right: 1px solid #999;"
+            " background-color: #EDE9FE; }"
+            "QTabBar { background-color: #EDE9FE; }"
+            "QTabBar::tab { padding: 2px 8px; min-height: 20px; font-size: 9pt;"
+            " background-color: #DDD6FE; border: 1px solid #7C3AED;"
+            " border-bottom: none; border-top-left-radius: 3px;"
+            " border-top-right-radius: 3px; margin-right: 1px; }"
+            "QTabBar::tab:selected { font-weight: bold;"
+            " background-color: #EDE9FE; color: #4C1D95; }"
+            "QTabBar::tab:!selected { background-color: #DDD6FE; color: #444; }"
+            "QTabBar::tab:hover:!selected { background-color: #C4B5FD; }"
         )
 
         # Right-click tab bar for add/rename/remove
@@ -270,6 +293,7 @@ class DynamicGroup(QWidget):
 
         self.results_tab = ResultsTab()
         self.tab_widget.addTab(self.results_tab, "Results")
+        self.results_tab.pin_requested.connect(self._on_pin_requested)
 
         self.sql_tab = SqlTab()
         self.tab_widget.addTab(self.sql_tab, "SQL")
@@ -287,100 +311,54 @@ class DynamicGroup(QWidget):
         root.addWidget(self.tab_widget, 1)
 
         # ── Bottom bar ───────────────────────────────────────────────
-        self.bottom_bar = QWidget()
-        self.bottom_bar.setFixedHeight(50)
-        self.bottom_bar.setStyleSheet(
-            "QWidget { background-color: #D6E4F0; }")
-        btm = QHBoxLayout(self.bottom_bar)
-        btm.setSpacing(8)
-        btm.setContentsMargins(4, 2, 4, 2)
+        self.bottom_bar = AuditBottomBar(
+            bg_color="#EDE9FE", run_label="Run\nAudit",
+            run_style=_RUN_BTN_STYLE)
 
-        # 0) Group name label (far left)
-        self._lbl_group_name = QLabel(self.group_name)
-        self._lbl_group_name.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self._lbl_group_name.setStyleSheet("QLabel { color: #1E5BA8; }")
-        btm.addWidget(self._lbl_group_name)
-        btm.addSpacing(4)
+        # Convenience aliases
+        self.btn_all = self.bottom_bar.btn_all
+        self.txt_max_count = self.bottom_bar.txt_max_count
+        self.lbl_result_count = self.bottom_bar.lbl_result_count
+        self.lbl_query_time = self.bottom_bar.lbl_query_time
+        self.lbl_print_time = self.bottom_bar.lbl_print_time
+        self.lbl_total_time = self.bottom_bar.lbl_total_time
+        self.btn_run = self.bottom_bar.btn_run
 
-        # 1) Tables button
-        self.btn_tables = QPushButton("Tables")
-        self.btn_tables.setFont(_FONT_BOLD)
-        self.btn_tables.setFixedSize(60, 36)
-        self.btn_tables.setStyleSheet(_TABLES_BTN_STYLE)
-        self.btn_tables.setToolTip("Browse tables and fields in this group")
-        self.btn_tables.clicked.connect(self._open_tables_dialog)
-        btm.addWidget(self.btn_tables)
+        # Left side: query name label
+        _name_with_db = f"{self.query_name}  {{{self.dsn}}}"
+        self._lbl_query_name = QLabel(_name_with_db)
+        self._lbl_query_name.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+        self._lbl_query_name.setStyleSheet("QLabel { color: #7C3AED; }")
+        self.bottom_bar.left_layout.addWidget(self._lbl_query_name)
 
-        # 1b) Field Picker button (next to Tables)
-        self.btn_field_picker = QPushButton("Field Picker")
-        self.btn_field_picker.setFont(QFont("Segoe UI", 8))
-        self.btn_field_picker.setFixedHeight(36)
-        self.btn_field_picker.setStyleSheet(_TABLES_BTN_STYLE)
-        self.btn_field_picker.setToolTip("Toggle the field picker side panel")
-        self.btn_field_picker.setCheckable(True)
-        btm.addWidget(self.btn_field_picker)
+        # Action buttons: Save Query
+        if self._is_temp:
+            self.btn_save_query = QPushButton("Save")
+            self.btn_save_query.setFont(_FONT_BOLD)
+            self.btn_save_query.setFixedSize(55, 36)
+            self.btn_save_query.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
+            self.btn_save_query.setToolTip(
+                f"Update saved query \"{self._saved_query_name}\"")
+            self.btn_save_query.clicked.connect(self._save_query_update)
+            self.bottom_bar.action_layout.addWidget(self.btn_save_query)
 
-        # 2) Clear All button
-        self.btn_clear = QPushButton("Clear All")
-        self.btn_clear.setFont(_FONT)
-        self.btn_clear.setFixedSize(60, 36)
-        self.btn_clear.setStyleSheet(_CLEAR_BTN_STYLE)
-        self.btn_clear.clicked.connect(self._clear_all)
-        btm.addWidget(self.btn_clear)
+            self.btn_save_as = QPushButton("Save As")
+            self.btn_save_as.setFont(_FONT_BOLD)
+            self.btn_save_as.setFixedSize(65, 36)
+            self.btn_save_as.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
+            self.btn_save_as.setToolTip("Save a copy under a new name")
+            self.btn_save_as.clicked.connect(self._save_query)
+            self.bottom_bar.action_layout.addWidget(self.btn_save_as)
+        else:
+            self.btn_save_query = QPushButton("Save Query")
+            self.btn_save_query.setFont(_FONT_BOLD)
+            self.btn_save_query.setFixedSize(85, 36)
+            self.btn_save_query.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
+            self.btn_save_query.setToolTip("Save this query design for later use")
+            self.btn_save_query.clicked.connect(self._save_query)
+            self.bottom_bar.action_layout.addWidget(self.btn_save_query)
 
-        btm.addStretch()
-
-        # 4) All + Max Count + Result Count
-        count_stack = QVBoxLayout()
-        count_stack.setSpacing(2)
-        count_stack.setContentsMargins(0, 0, 0, 0)
-
-        mc_row = QHBoxLayout()
-        mc_row.setSpacing(3)
-        mc_row.setContentsMargins(0, 0, 0, 0)
-        self.btn_all = QPushButton("All")
-        self.btn_all.setFont(QFont("Segoe UI", 8))
-        self.btn_all.setFixedSize(28, 18)
-        self.btn_all.clicked.connect(self._set_all_rows)
-        mc_row.addWidget(self.btn_all)
-        self.txt_max_count = QLineEdit("25")
-        self.txt_max_count.setFont(QFont("Segoe UI", 8))
-        self.txt_max_count.setFixedSize(36, 18)
-        self.txt_max_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mc_row.addWidget(self.txt_max_count)
-        lbl_mc = QLabel("Max Count")
-        lbl_mc.setFont(QFont("Segoe UI", 8))
-        mc_row.addWidget(lbl_mc)
-        count_stack.addLayout(mc_row)
-
-        self.lbl_result_count = QLabel("Result count:")
-        self.lbl_result_count.setFont(QFont("Segoe UI", 8))
-        count_stack.addWidget(self.lbl_result_count)
-
-        btm.addLayout(count_stack)
-        btm.addSpacing(12)
-
-        # 5) Timing labels
-        time_stack = QVBoxLayout()
-        time_stack.setSpacing(0)
-        time_stack.setContentsMargins(0, 0, 0, 0)
-        self.lbl_query_time = QLabel("Query time:")
-        self.lbl_print_time = QLabel("Print time:")
-        self.lbl_total_time = QLabel("Total time:")
-        for lbl in (self.lbl_query_time, self.lbl_print_time, self.lbl_total_time):
-            lbl.setFont(QFont("Segoe UI", 8))
-            time_stack.addWidget(lbl)
-        btm.addLayout(time_stack)
-
-        btm.addSpacing(12)
-
-        # 6) Run Audit (far right)
-        self.btn_run = QPushButton("Run\nAudit")
-        self.btn_run.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self.btn_run.setFixedSize(60, 36)
-        self.btn_run.setStyleSheet(_RUN_BTN_STYLE)
         self.btn_run.clicked.connect(self._run_audit)
-        btm.addWidget(self.btn_run)
 
         root.addWidget(self.bottom_bar)
 
@@ -535,9 +513,6 @@ class DynamicGroup(QWidget):
         self.lbl_total_time.setText("Total time:")
         self._schedule_save()
 
-    def _set_all_rows(self):
-        self.txt_max_count.setText("")
-
     # ── Auto-save ────────────────────────────────────────────────────
 
     def _schedule_save(self):
@@ -551,7 +526,7 @@ class DynamicGroup(QWidget):
     def _run_audit(self):
         if not self.tables:
             QMessageBox.warning(self, "No Tables",
-                                "This group has no tables. Use the Tables "
+                                "This query has no tables. Use the Tables "
                                 "button to add tables.")
             return
 
@@ -596,46 +571,133 @@ class DynamicGroup(QWidget):
 
         self.sql_tab.set_sql(sql)
 
-        self.btn_run.setEnabled(False)
-        self.btn_run.setText("Running...")
-        self.lbl_query_time.setText("Query time:")
-        self.lbl_print_time.setText("Print time:")
-        self.lbl_total_time.setText("Total time:")
-        self.lbl_result_count.setText("Result count:")
-        QApplication.processEvents()
+        with run_button_context(self.btn_run, bar=self.bottom_bar):
+            t0 = time.time()
+            try:
+                columns, rows = execute_odbc_query(self.dsn, sql)
+                t_query = time.time() - t0
 
-        t0 = time.time()
-        try:
-            conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True)
-            cursor = conn.cursor()
-            cursor.execute(sql)
-            columns = [desc[0] for desc in cursor.description]
-            rows = cursor.fetchall()
-            conn.close()
-            t_query = time.time() - t0
+                t1 = time.time()
+                df = pd.DataFrame([list(r) for r in rows], columns=columns)
+                self.results_tab.set_results(df)
+                t_print = time.time() - t1
+                t_total = time.time() - t0
 
-            t1 = time.time()
-            df = pd.DataFrame([list(r) for r in rows], columns=columns)
-            self.results_tab.set_results(df)
-            t_print = time.time() - t1
-            t_total = time.time() - t0
+                self.lbl_query_time.setText(f"Query time:  {fmt_time(t_query)}")
+                self.lbl_print_time.setText(f"Print time:  {fmt_time(t_print)}")
+                self.lbl_total_time.setText(f"Total time:  {fmt_time(t_total)}")
+                self.lbl_result_count.setText(f"Result count:   {len(df)}")
 
-            self.lbl_query_time.setText(f"Query time:  {fmt_time(t_query)}")
-            self.lbl_print_time.setText(f"Print time:  {fmt_time(t_print)}")
-            self.lbl_total_time.setText(f"Total time:  {fmt_time(t_total)}")
-            self.lbl_result_count.setText(f"Result count:   {len(df)}")
+                self.tab_widget.setCurrentWidget(self.results_tab)
 
-            self.tab_widget.setCurrentWidget(self.results_tab)
+            except Exception as exc:
+                logger.exception("Dynamic audit query failed")
+                msg = str(exc)
+                if hasattr(exc, 'args') and len(exc.args) >= 2:
+                    msg = f"{exc.args[0]}\n\n{exc.args[1]}"
+                QMessageBox.warning(self, "Query Error", msg)
 
-        except Exception as exc:
-            logger.exception("Dynamic audit query failed")
-            msg = str(exc)
-            if hasattr(exc, 'args') and len(exc.args) >= 2:
-                msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-            QMessageBox.warning(self, "Query Error", msg)
-        finally:
-            self.btn_run.setEnabled(True)
-            self.btn_run.setText("Run\nAudit")
+    # ── Save Query ───────────────────────────────────────────────────
+
+    def _save_query_update(self):
+        """Overwrite the linked saved query with the current config."""
+        from suiteview.audit.saved_query import SavedQuery
+        from suiteview.audit import saved_query_store as sq_store
+
+        name = self._saved_query_name
+        if not name:
+            return
+
+        sql = self.sql_tab.txt_sql.toPlainText().strip()
+        config = self.get_config()
+
+        sq = SavedQuery(
+            name=name,
+            source_group=self.query_name,
+            dsn=self.dsn,
+            tables=list(self.tables),
+            display_names=dict(self.display_names),
+            config=config,
+            sql=sql,
+        )
+        sq_store.save_query(sq)
+        self.query_saved.emit(sq)
+
+        QMessageBox.information(
+            self, "Query Saved",
+            f"Query \"{name}\" updated successfully.")
+
+    def _save_query(self):
+        """Snapshot the current designer config as a saved query."""
+        from suiteview.audit.saved_query import SavedQuery
+        from suiteview.audit import saved_query_store as sq_store
+
+        name, ok = QInputDialog.getText(
+            self, "Save Query",
+            "Query name:",
+            text="",
+        )
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+
+        if sq_store.query_exists(name):
+            reply = QMessageBox.question(
+                self, "Overwrite?",
+                f"A query named \"{name}\" already exists.\nOverwrite it?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        sql = self.sql_tab.txt_sql.toPlainText().strip()
+        config = self.get_config()
+
+        sq = SavedQuery(
+            name=name,
+            source_group=self.query_name,
+            dsn=self.dsn,
+            tables=list(self.tables),
+            display_names=dict(self.display_names),
+            config=config,
+            sql=sql,
+        )
+        sq_store.save_query(sq)
+        self.query_saved.emit(sq)
+
+        QMessageBox.information(
+            self, "Query Saved",
+            f"Query \"{name}\" saved successfully.")
+
+    # ── Pin to Workbench ───────────────────────────────────────────
+
+    def _on_pin_requested(self, df: pd.DataFrame):
+        """Pin the current results to the Workbench dataset store."""
+        from suiteview.workbench.models import PinnedDataset
+        from suiteview.workbench import dataset_store as store
+
+        sql = self.sql_tab.txt_sql.toPlainText().strip()
+        name, ok = QInputDialog.getText(
+            self, "Pin to Workbench",
+            "Dataset name:",
+            text=f"{self.query_name} — {len(df)} rows",
+        )
+        if not ok or not name.strip():
+            return
+
+        ds = PinnedDataset.from_dataframe(
+            df,
+            name=name.strip(),
+            source_type="dynamic_group",
+            source_label=f"{self.query_name} ({self.dsn})",
+            source_sql=sql,
+        )
+        store.save_dataset(ds)
+
+        self.results_tab.lbl_status.setText(
+            f"📌 Pinned \"{ds.name}\" ({ds.shape_label})")
+        self.dataset_pinned.emit(ds)
 
     # ── Build SQL feature ────────────────────────────────────────────
 
@@ -649,43 +711,34 @@ class DynamicGroup(QWidget):
 
     def _run_build_sql(self, sql: str):
         """Execute user-edited SQL and show results in Build SQL Results."""
-        self.build_sql_tab.btn_run_sql.setEnabled(False)
-        self.build_sql_tab.btn_run_sql.setText("Running...")
-        QApplication.processEvents()
+        with run_button_context(
+            self.build_sql_tab.btn_run_sql,
+            restore_text="Run this SQL",
+        ):
+            try:
+                columns, rows = execute_odbc_query(self.dsn, sql)
+                df = pd.DataFrame([list(r) for r in rows], columns=columns)
 
-        try:
-            conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True)
-            cursor = conn.cursor()
-            cursor.execute(sql)
-            columns = [desc[0] for desc in cursor.description]
-            rows = cursor.fetchall()
-            conn.close()
+                if self._build_sql_results_tab_index < 0:
+                    self._build_sql_results_tab_index = self.tab_widget.addTab(
+                        self.build_sql_results_tab, "Build SQL Results")
 
-            df = pd.DataFrame([list(r) for r in rows], columns=columns)
+                self.build_sql_results_tab.set_results(df)
+                self.tab_widget.setCurrentWidget(self.build_sql_results_tab)
 
-            if self._build_sql_results_tab_index < 0:
-                self._build_sql_results_tab_index = self.tab_widget.addTab(
-                    self.build_sql_results_tab, "Build SQL Results")
-
-            self.build_sql_results_tab.set_results(df)
-            self.tab_widget.setCurrentWidget(self.build_sql_results_tab)
-
-        except Exception as exc:
-            logger.exception("Build SQL query failed")
-            msg = str(exc)
-            if hasattr(exc, 'args') and len(exc.args) >= 2:
-                msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-            QMessageBox.warning(self, "Query Error", msg)
-        finally:
-            self.build_sql_tab.btn_run_sql.setEnabled(True)
-            self.build_sql_tab.btn_run_sql.setText("Run this SQL")
+            except Exception as exc:
+                logger.exception("Build SQL query failed")
+                msg = str(exc)
+                if hasattr(exc, 'args') and len(exc.args) >= 2:
+                    msg = f"{exc.args[0]}\n\n{exc.args[1]}"
+                QMessageBox.warning(self, "Query Error", msg)
 
     # ── State persistence ────────────────────────────────────────────
 
     def get_config(self) -> dict:
-        """Return the full group config for save."""
+        """Return the full query config for save."""
         return {
-            "name": self.group_name,
+            "name": self.query_name,
             "dsn": self.dsn,
             "tables": self.tables,
             "display_names": self.display_names,

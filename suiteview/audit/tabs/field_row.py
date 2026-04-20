@@ -328,6 +328,7 @@ class FieldRow(QWidget):
         self._desc_map: dict[str, str] = {}  # value → description
         self._pre_pin_size: tuple[int, int] | None = None
         self._pre_range_size: tuple[int, int] | None = None
+        self._forge_unique_provider: callable | None = None  # (query, col) → [str]
 
         # Display options
         self._display_name_shown = False   # stacked: name on top, input below
@@ -808,12 +809,23 @@ class FieldRow(QWidget):
     # ── Combo population ─────────────────────────────────────────────
 
     def _populate_combo(self):
-        from ..shared_field_registry import get_field_id, get_values
         prev = self.cmb.currentText()
         self.cmb.clear()
         self.cmb.addItem("")
+
+        # DataForge local values take priority
+        forge_vals = self._get_forge_values()
+        if forge_vals:
+            for val in sorted(forge_vals, reverse=True)[:_MAX_COMBO_ITEMS]:
+                self.cmb.addItem(val)
+            idx = self.cmb.findText(prev)
+            if idx >= 0:
+                self.cmb.setCurrentIndex(idx)
+            return
+
         if not self._registry_info:
             return
+        from ..shared_field_registry import get_field_id, get_values
         table, column, _ = self._registry_info[:3]
         fid = get_field_id(table, column)
         if fid is not None:
@@ -838,33 +850,40 @@ class FieldRow(QWidget):
             self._list_popup = None
             return
 
-        from ..shared_field_registry import get_field_id, get_values, get_values_full
-        if not self._registry_info:
-            return
-        table, column, display = self._registry_info[:3]
+        # DataForge local values take priority
+        forge_vals = self._get_forge_values()
+        if forge_vals:
+            items = sorted(forge_vals, reverse=True)
+            self._desc_map = {}
+            display = self.field_key.split(".", 1)[-1] if "." in self.field_key else self.field_key
+        elif self._registry_info:
+            from ..shared_field_registry import get_field_id, get_values, get_values_full
+            table, column, display = self._registry_info[:3]
 
-        items: list[str] = []
-        self._desc_map = {}
-        fid = get_field_id(table, column)
-        if fid is not None:
-            if self._show_descriptions:
-                rows = get_values_full(fid)
-                items = sorted([r["field_value"] for r in rows],
-                               reverse=True)
-                self._desc_map = {
-                    r["field_value"]: r.get("value_description") or ""
-                    for r in rows
-                }
-            else:
-                items = sorted([v for v, _c in get_values(fid)],
-                               reverse=True)
+            items: list[str] = []
+            self._desc_map = {}
+            fid = get_field_id(table, column)
+            if fid is not None:
+                if self._show_descriptions:
+                    rows = get_values_full(fid)
+                    items = sorted([r["field_value"] for r in rows],
+                                   reverse=True)
+                    self._desc_map = {
+                        r["field_value"]: r.get("value_description") or ""
+                        for r in rows
+                    }
+                else:
+                    items = sorted([v for v, _c in get_values(fid)],
+                                   reverse=True)
 
-        if not items:
-            QMessageBox.information(
-                self, "No Registered Values",
-                f"No unique values registered for {table}.{column}.\n"
-                "Right-click the field and choose "
-                "\"Find & Register Unique Values\" first.")
+            if not items:
+                QMessageBox.information(
+                    self, "No Registered Values",
+                    f"No unique values registered for {table}.{column}.\n"
+                    "Right-click the field and choose "
+                    "\"Find & Register Unique Values\" first.")
+                return
+        else:
             return
 
         selected_set = set(self._list_selected)
@@ -998,6 +1017,21 @@ class FieldRow(QWidget):
                 f"Find && Register Unique Values  ({table}.{column})")
             act_open = menu.addAction("Open Unique Value Registry")
 
+        # DataForge local unique values (when dataset is loaded in memory)
+        act_forge_scan = None
+        if self._forge_unique_provider:
+            parts = self.field_key.split(".", 1)
+            if len(parts) == 2:
+                q_name, c_name = parts
+                vals = self._forge_unique_provider(q_name, c_name)
+                if vals:
+                    act_forge_scan = menu.addAction(
+                        f"Scan Unique Values  ({len(vals)} values in memory)")
+                else:
+                    act_forge_scan = menu.addAction(
+                        "Scan Unique Values  (no data loaded)")
+                    act_forge_scan.setEnabled(False)
+
         menu.addSeparator()
         act_regex = menu.addAction("Open Regex / LIKE Help")
 
@@ -1039,6 +1073,8 @@ class FieldRow(QWidget):
             self._find_and_register()
         elif chosen is act_open:
             self._open_registry()
+        elif chosen is act_forge_scan:
+            self._apply_forge_unique_values()
         elif chosen is act_regex:
             self._show_regex_help()
         else:
@@ -1057,7 +1093,7 @@ class FieldRow(QWidget):
         if ok and new_name.strip():
             new_name = new_name.strip()
             self._lbl.setText(new_name)
-            # Notify the parent DynamicGroup if it has update_display_name
+            # Notify the parent DynamicQuery if it has update_display_name
             grid = self.parent()
             if grid:
                 tab = grid.parent()
@@ -1211,6 +1247,38 @@ class FieldRow(QWidget):
     def _open_registry(self):
         from ..unique_value_registry_window import UniqueValueRegistryWindow
         UniqueValueRegistryWindow.show_instance(parent=None)
+
+    def _apply_forge_unique_values(self):
+        """Load unique values from the in-memory DataForge dataset."""
+        if not self._forge_unique_provider:
+            return
+        parts = self.field_key.split(".", 1)
+        if len(parts) != 2:
+            return
+        q_name, c_name = parts
+        vals = self._forge_unique_provider(q_name, c_name)
+        if not vals:
+            QMessageBox.information(
+                self, "No Data",
+                f"No data loaded for query \"{q_name}\".\n"
+                "Right-click the query in the Queries dialog and choose "
+                "\"Run Query\" first.")
+            return
+        # Store locally for combo/list population
+        self._forge_cached_values = vals
+        QMessageBox.information(
+            self, "Unique Values",
+            f"{c_name}:  {len(vals)} distinct values found in memory.")
+
+    def _get_forge_values(self) -> list[str]:
+        """Return cached forge unique values, or fetch live if provider set."""
+        if hasattr(self, '_forge_cached_values') and self._forge_cached_values:
+            return self._forge_cached_values
+        if self._forge_unique_provider:
+            parts = self.field_key.split(".", 1)
+            if len(parts) == 2:
+                return self._forge_unique_provider(*parts)
+        return []
 
     # ── Drag support (initiated from the grip) ───────────────────────
 

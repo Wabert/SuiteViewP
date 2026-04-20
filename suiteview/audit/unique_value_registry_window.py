@@ -27,6 +27,19 @@ from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from . import shared_field_registry as registry
 from .tabs._styles import make_checkbox as _make_checkbox
 
+
+def _database_display_name(source_dsn: str | None, database_name: str | None) -> str:
+    """Derive a display label for the database node.
+
+    Uses the ODBC DSN name when available, otherwise falls back to the
+    stored database_name.
+    """
+    if source_dsn:
+        return source_dsn
+    if database_name:
+        return database_name
+    return "Unknown Database"
+
 logger = logging.getLogger(__name__)
 
 _FONT = QFont("Segoe UI", 9)
@@ -36,6 +49,12 @@ _FONT_SMALL = QFont("Segoe UI", 8)
 
 _HEADER_COLORS = ("#1E5BA8", "#0D3A7A", "#082B5C")
 _BORDER_COLOR = "#D4A017"
+
+# Tree node data roles
+_ROLE_FIELD_ID = Qt.ItemDataRole.UserRole       # int  — field_id (leaf nodes)
+_ROLE_DSN = Qt.ItemDataRole.UserRole + 1         # str  — ODBC DSN name
+_ROLE_TABLE_NAME = Qt.ItemDataRole.UserRole + 2  # str  — qualified table name
+_ROLE_NODE_TYPE = Qt.ItemDataRole.UserRole + 3   # str  — "db" | "table" | "field"
 
 # Column indices — basic view
 _COL_VALUE = 0
@@ -324,6 +343,15 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.btn_export.setEnabled(False)
         action_bar.addWidget(self.btn_export)
 
+        self.btn_view = QPushButton("View Table")
+        self.btn_view.setFont(_FONT_SMALL)
+        self.btn_view.setFixedHeight(22)
+        self.btn_view.setStyleSheet(_BTN_STYLE)
+        self.btn_view.setToolTip("Preview first 1000 rows of the selected table")
+        self.btn_view.clicked.connect(self._view_table_data)
+        self.btn_view.setEnabled(False)
+        action_bar.addWidget(self.btn_view)
+
         action_bar.addStretch()
 
         self.chk_inactive = _make_checkbox("Show Inactive")
@@ -401,51 +429,92 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
     # ── Data loading ─────────────────────────────────────────────────
 
     def _load_registrations(self):
-        """Populate the left navigation tree from the registry."""
+        """Populate the left navigation tree from the registry.
+
+        Three-level hierarchy: Database (DSN) → Table → Field.
+        Database and Table nodes are selectable — clicking them shows
+        connection details or table columns respectively.
+        """
         self.tree.clear()
         regs = registry.list_registrations()
 
-        # Group by table_name
-        table_groups: dict[str, list[dict]] = {}
+        # Group by database → table → fields
+        # Also track the DSN used per db_label
+        db_groups: dict[str, dict[str, list[dict]]] = {}
+        db_dsn_map: dict[str, str] = {}  # db_label → source_dsn
         for r in regs:
-            table_groups.setdefault(r["table_name"], []).append(r)
+            db_label = _database_display_name(
+                r.get("source_dsn"), r.get("database_name"))
+            table_name = r["table_name"]
+            db_groups.setdefault(db_label, {}).setdefault(table_name, []).append(r)
+            if r.get("source_dsn"):
+                db_dsn_map[db_label] = r["source_dsn"]
 
         total_registrations = len(regs)
+        total_tables = sum(len(tables) for tables in db_groups.values())
 
-        for table_name, items in sorted(table_groups.items()):
-            table_node = QTreeWidgetItem(self.tree)
-            table_node.setText(0, table_name)
-            table_node.setFont(0, _FONT_BOLD)
-            table_node.setForeground(0, QColor("#0A1E5E"))
-            table_node.setExpanded(True)
-            table_node.setFlags(
-                table_node.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        for db_label, table_groups in sorted(db_groups.items()):
+            dsn_name = db_dsn_map.get(db_label, db_label)
 
-            for reg in items:
-                child = QTreeWidgetItem(table_node)
-                child.setText(0, reg["display_name"] or reg["column_name"])
-                child.setText(1, str(reg["value_count"]))
-                # Format timestamp compactly
-                try:
-                    ts = reg.get("last_scanned_at")
-                    if ts:
-                        dt = datetime.fromisoformat(str(ts))
-                        child.setText(2, dt.strftime("%m/%d %H:%M"))
-                    else:
-                        child.setText(2, "\u2014")
-                except (ValueError, TypeError):
-                    child.setText(2, "\u2014")
-                child.setData(0, Qt.ItemDataRole.UserRole, reg["field_id"])
-                child.setToolTip(
+            # Database node (top level) — selectable to show ODBC details
+            db_node = QTreeWidgetItem(self.tree)
+            db_node.setText(0, db_label)
+            db_node.setFont(0, _FONT_BOLD)
+            db_node.setForeground(0, QColor("#0A1E5E"))
+            db_node.setExpanded(True)
+            db_node.setData(0, _ROLE_NODE_TYPE, "db")
+            db_node.setData(0, _ROLE_DSN, dsn_name)
+
+            for table_name, items in sorted(table_groups.items()):
+                # Table node (second level) — selectable to show columns
+                table_node = QTreeWidgetItem(db_node)
+                table_node.setText(0, table_name)
+                table_node.setFont(0, _FONT_BOLD)
+                table_node.setForeground(0, QColor("#1E5BA8"))
+                table_node.setExpanded(True)
+                table_node.setData(0, _ROLE_NODE_TYPE, "table")
+                table_node.setData(0, _ROLE_DSN, dsn_name)
+                table_node.setData(0, _ROLE_TABLE_NAME, table_name)
+
+                # Collect registered column names for this table
+                registered_cols = {r["column_name"] for r in items}
+                table_node.setData(
+                    0, _ROLE_FIELD_ID, None)  # no field_id for table nodes
+                table_node.setToolTip(
                     0,
-                    f"{reg['table_name']}.{reg['column_name']}\n"
-                    f"{reg['value_count']} unique values\n"
-                    f"Last scanned: {reg.get('last_scanned_at', '\u2014')}",
+                    f"{table_name}\n"
+                    f"{len(items)} registered field(s)\n"
+                    f"{len(registered_cols)} unique column(s)",
                 )
+
+                for reg in items:
+                    child = QTreeWidgetItem(table_node)
+                    child.setText(0, reg["display_name"] or reg["column_name"])
+                    child.setText(1, str(reg["value_count"]))
+                    # Format timestamp compactly
+                    try:
+                        ts = reg.get("last_scanned_at")
+                        if ts:
+                            dt = datetime.fromisoformat(str(ts))
+                            child.setText(2, dt.strftime("%m/%d %H:%M"))
+                        else:
+                            child.setText(2, "\u2014")
+                    except (ValueError, TypeError):
+                        child.setText(2, "\u2014")
+                    child.setData(0, _ROLE_FIELD_ID, reg["field_id"])
+                    child.setData(0, _ROLE_NODE_TYPE, "field")
+                    child.setData(0, _ROLE_DSN, dsn_name)
+                    child.setData(0, _ROLE_TABLE_NAME, table_name)
+                    child.setToolTip(
+                        0,
+                        f"{reg['table_name']}.{reg['column_name']}\n"
+                        f"{reg['value_count']} unique values\n"
+                        f"Last scanned: {reg.get('last_scanned_at', '\u2014')}",
+                    )
 
         self.lbl_summary.setText(
             f"{total_registrations} registration(s) across "
-            f"{len(table_groups)} table(s)")
+            f"{total_tables} table(s) in {len(db_groups)} database(s)")
 
     def _show_values(self, field_id: int):
         """Load and display values for the selected field."""
@@ -597,22 +666,241 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
     def _on_tree_selection_changed(self, current, _previous):
         if current is None:
             return
-        reg_id = current.data(0, Qt.ItemDataRole.UserRole)
-        if reg_id is None:
-            return  # table group node, not a leaf
+        node_type = current.data(0, _ROLE_NODE_TYPE)
 
-        # Update title
-        parent = current.parent()
-        table_name = parent.text(0) if parent else ""
-        col_name = current.text(0)
-        self.lbl_field_title.setText(f"{table_name}.{col_name}")
-        self._show_values(reg_id)
+        if node_type == "field":
+            reg_id = current.data(0, _ROLE_FIELD_ID)
+            if reg_id is None:
+                return
+            parent = current.parent()
+            table_name = parent.text(0) if parent else ""
+            col_name = current.text(0)
+            self.lbl_field_title.setText(f"{table_name}.{col_name}")
+            self._show_values(reg_id)
+            self.btn_view.setEnabled(True)
+        elif node_type == "table":
+            dsn = current.data(0, _ROLE_DSN) or ""
+            table_name = current.data(0, _ROLE_TABLE_NAME) or current.text(0)
+            self._show_table_columns(dsn, table_name, current)
+            self.btn_view.setEnabled(True)
+        elif node_type == "db":
+            dsn = current.data(0, _ROLE_DSN) or current.text(0)
+            self._show_dsn_details(dsn)
+            self.btn_view.setEnabled(False)
+        else:
+            self.btn_view.setEnabled(False)
+
+    def _show_table_columns(self, dsn: str, table_name: str,
+                            table_node: QTreeWidgetItem):
+        """Show all columns of the table; highlight registered ones."""
+        self._current_field_id = None
+        self.lbl_field_title.setText(f"{table_name}  (all columns)")
+
+        # Collect registered column names from child nodes
+        registered_cols: set[str] = set()
+        regs = registry.list_registrations()
+        for r in regs:
+            if r["table_name"] == table_name:
+                registered_cols.add(r["column_name"].upper())
+
+        # Fetch all columns from ODBC
+        try:
+            columns = registry.list_table_columns(dsn, table_name)
+        except Exception as exc:
+            logger.error("Failed to list columns for %s: %s", table_name, exc)
+            self.lbl_stats.setText(f"Error: {exc}")
+            self.value_model.itemChanged.disconnect(self._on_item_changed)
+            self.value_model.clear()
+            self.value_model.setHorizontalHeaderLabels(
+                ["Column", "Type", "Size", "Nullable", "Registered"])
+            self.value_model.itemChanged.connect(self._on_item_changed)
+            self.btn_add.setEnabled(False)
+            self.btn_export.setEnabled(False)
+            self.btn_deactivate.setEnabled(False)
+            return
+
+        self.value_model.itemChanged.disconnect(self._on_item_changed)
+        self.value_model.clear()
+        headers = ["Column", "Type", "Size", "Nullable", "Registered"]
+        self.value_model.setHorizontalHeaderLabels(headers)
+
+        registered_count = 0
+        for col_name, type_name, col_size, nullable in columns:
+            is_reg = col_name.upper() in registered_cols
+            if is_reg:
+                registered_count += 1
+
+            item_name = QStandardItem(col_name)
+            item_name.setEditable(False)
+            if is_reg:
+                item_name.setFont(_FONT_BOLD)
+                item_name.setForeground(QColor("#1E5BA8"))
+
+            item_type = QStandardItem(str(type_name))
+            item_type.setEditable(False)
+
+            item_size = QStandardItem(str(col_size) if col_size else "")
+            item_size.setEditable(False)
+            item_size.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+            item_null = QStandardItem(nullable)
+            item_null.setEditable(False)
+            item_null.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+
+            item_reg = QStandardItem("\u2713" if is_reg else "")
+            item_reg.setEditable(False)
+            item_reg.setTextAlignment(
+                Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+            if is_reg:
+                item_reg.setForeground(QColor("#228B22"))
+                item_reg.setFont(_FONT_BOLD)
+
+            self.value_model.appendRow(
+                [item_name, item_type, item_size, item_null, item_reg])
+
+        self.value_model.itemChanged.connect(self._on_item_changed)
+
+        # Column sizing
+        self.value_table.resizeColumnsToContents()
+        hdr = self.value_table.horizontalHeader()
+        hdr.setStretchLastSection(False)
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        for c in range(2, 5):
+            hdr.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+
+        # Hide extended value columns that don't apply
+        for col in range(5, self.value_model.columnCount()):
+            self.value_table.setColumnHidden(col, True)
+
+        self.lbl_stats.setText(
+            f"{len(columns)} column(s)  |  "
+            f"{registered_count} registered")
+        self.btn_add.setEnabled(False)
+        self.btn_export.setEnabled(False)
+        self.btn_deactivate.setEnabled(False)
+
+    def _show_dsn_details(self, dsn: str):
+        """Show ODBC connection details for a DSN in the right panel."""
+        from suiteview.core.odbc_utils import get_dsn_details
+
+        self._current_field_id = None
+        self.lbl_field_title.setText(f"Connection: {dsn}")
+
+        details = get_dsn_details(dsn)
+
+        self.value_model.itemChanged.disconnect(self._on_item_changed)
+        self.value_model.clear()
+        headers = ["Property", "Value"]
+        self.value_model.setHorizontalHeaderLabels(headers)
+
+        for key, val in details.items():
+            if key == "Password":
+                val = "********"
+            item_key = QStandardItem(key)
+            item_key.setEditable(False)
+            item_key.setFont(_FONT_BOLD)
+
+            item_val = QStandardItem(str(val))
+            item_val.setEditable(False)
+
+            self.value_model.appendRow([item_key, item_val])
+
+        self.value_model.itemChanged.connect(self._on_item_changed)
+
+        # Column sizing
+        self.value_table.resizeColumnsToContents()
+        hdr = self.value_table.horizontalHeader()
+        hdr.setStretchLastSection(True)
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
+        # Hide extra columns
+        for col in range(2, self.value_model.columnCount()):
+            self.value_table.setColumnHidden(col, True)
+
+        self.lbl_stats.setText(f"{len(details)} properties")
+        self.btn_add.setEnabled(False)
+        self.btn_export.setEnabled(False)
+        self.btn_deactivate.setEnabled(False)
+
+    def _view_table_data(self):
+        """Preview first 1000 rows of the currently selected table."""
+        current = self.tree.currentItem()
+        if current is None:
+            return
+
+        node_type = current.data(0, _ROLE_NODE_TYPE)
+
+        # Determine DSN and table from the selected node
+        if node_type == "table":
+            dsn = current.data(0, _ROLE_DSN) or ""
+            table_name = current.data(0, _ROLE_TABLE_NAME) or current.text(0)
+        elif node_type == "field":
+            dsn = current.data(0, _ROLE_DSN) or ""
+            table_name = current.data(0, _ROLE_TABLE_NAME) or ""
+        else:
+            return
+
+        if not table_name:
+            return
+
+        self.btn_view.setEnabled(False)
+        self.btn_view.setText("Loading\u2026")
+        QApplication.processEvents()
+
+        try:
+            col_names, rows = registry.preview_table_rows(dsn, table_name)
+        except Exception as exc:
+            logger.error("Failed to preview %s: %s", table_name, exc)
+            QMessageBox.warning(self, "Preview Error",
+                                f"Could not load table data:\n\n{exc}")
+            self.btn_view.setText("View Table")
+            self.btn_view.setEnabled(True)
+            return
+
+        self._current_field_id = None
+        self.lbl_field_title.setText(
+            f"{table_name}  ({len(rows):,} rows)")
+
+        self.value_model.itemChanged.disconnect(self._on_item_changed)
+        self.value_model.clear()
+        self.value_model.setHorizontalHeaderLabels(col_names)
+
+        for row in rows:
+            items = []
+            for val in row:
+                item = QStandardItem(
+                    str(val) if val is not None else "(NULL)")
+                item.setEditable(False)
+                items.append(item)
+            self.value_model.appendRow(items)
+
+        self.value_model.itemChanged.connect(self._on_item_changed)
+
+        self.value_table.resizeColumnsToContents()
+        hdr = self.value_table.horizontalHeader()
+        hdr.setStretchLastSection(True)
+
+        self.lbl_stats.setText(
+            f"{len(rows):,} row(s)  |  {len(col_names)} column(s)")
+        self.btn_add.setEnabled(False)
+        self.btn_export.setEnabled(False)
+        self.btn_deactivate.setEnabled(False)
+        self.btn_view.setText("View Table")
+        self.btn_view.setEnabled(True)
 
     def _on_tree_context_menu(self, pos):
         """Right-click menu on tree: permanently delete a table or field."""
         item = self.tree.itemAt(pos)
         if item is None:
             return
+
+        node_type = item.data(0, _ROLE_NODE_TYPE)
+        if node_type == "db":
+            return  # no context menu for database nodes
 
         menu = QMenu(self)
         menu.setStyleSheet(
@@ -622,9 +910,10 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             "QMenu::item:selected { background-color: #A0C4E8; color: black; }"
         )
 
-        field_id = item.data(0, Qt.ItemDataRole.UserRole)
-        if field_id is not None:
-            # This is a field (leaf) node
+        if node_type == "field":
+            field_id = item.data(0, _ROLE_FIELD_ID)
+            if field_id is None:
+                return
             parent = item.parent()
             table_name = parent.text(0) if parent else ""
             col_name = item.text(0)
@@ -634,8 +923,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             if chosen == act_del:
                 self._permanently_delete_field(
                     field_id, table_name, col_name)
-        else:
-            # This is a table (group) node
+        elif node_type == "table":
             table_name = item.text(0)
             field_count = item.childCount()
             act_del = menu.addAction(
@@ -751,7 +1039,9 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         current = self.tree.currentItem()
         if current is None:
             return
-        reg_id = current.data(0, Qt.ItemDataRole.UserRole)
+        if current.data(0, _ROLE_NODE_TYPE) != "field":
+            return
+        reg_id = current.data(0, _ROLE_FIELD_ID)
         if reg_id is None:
             return
 
@@ -827,15 +1117,17 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
                                     f"Could not deactivate:\n\n{exc}")
 
     def _select_registration(self, field_id: int):
-        """Find and select a tree item by field ID."""
+        """Find and select a tree item by field ID (3-level tree)."""
         root = self.tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            group = root.child(i)
-            for j in range(group.childCount()):
-                child = group.child(j)
-                if child.data(0, Qt.ItemDataRole.UserRole) == field_id:
-                    self.tree.setCurrentItem(child)
-                    return
+        for i in range(root.childCount()):            # db nodes
+            db_node = root.child(i)
+            for j in range(db_node.childCount()):     # table nodes
+                table_node = db_node.child(j)
+                for k in range(table_node.childCount()):  # field nodes
+                    child = table_node.child(k)
+                    if child.data(0, _ROLE_FIELD_ID) == field_id:
+                        self.tree.setCurrentItem(child)
+                        return
 
     # ── Value table context menu ──────────────────────────────────
 
@@ -949,18 +1241,19 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
     def refresh_and_select(self, table_name: str, column_name: str):
         """Reload registrations and select the given table.column entry."""
         self._load_registrations()
-        # Find and select the matching entry
+        # Find and select the matching entry (3-level tree)
         root = self.tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            group = root.child(i)
-            if group.text(0) == table_name:
-                for j in range(group.childCount()):
-                    child = group.child(j)
-                    rid = child.data(0, Qt.ItemDataRole.UserRole)
-                    if rid is not None:
-                        # Look up the actual column name
-                        regs = registry.list_registrations()
-                        for r in regs:
-                            if r["field_id"] == rid and r["column_name"] == column_name:
-                                self.tree.setCurrentItem(child)
-                                return
+        regs = registry.list_registrations()
+        for i in range(root.childCount()):            # db nodes
+            db_node = root.child(i)
+            for j in range(db_node.childCount()):     # table nodes
+                tbl_node = db_node.child(j)
+                if tbl_node.text(0) == table_name:
+                    for k in range(tbl_node.childCount()):  # field nodes
+                        child = tbl_node.child(k)
+                        rid = child.data(0, _ROLE_FIELD_ID)
+                        if rid is not None:
+                            for r in regs:
+                                if r["field_id"] == rid and r["column_name"] == column_name:
+                                    self.tree.setCurrentItem(child)
+                                    return
