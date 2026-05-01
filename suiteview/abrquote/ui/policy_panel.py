@@ -14,11 +14,13 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QDate
+from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QComboBox, QPushButton,
     QGroupBox, QFrame, QMessageBox, QDialog,
     QTableWidgetItem, QDateEdit, QSizePolicy,
+    QApplication,
 )
 
 from ..models.abr_data import ABRPolicyData, RiderInfo
@@ -433,6 +435,9 @@ class PolicyPanel(QWidget):
         region = "CKPR"  # Always CKPR
         self._hide_company_chooser()
         self.retrieve_btn.setEnabled(False)
+        self.retrieve_btn.setText("Loading...")
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        QApplication.processEvents()
 
         try:
             if company_code is None:
@@ -482,6 +487,8 @@ class PolicyPanel(QWidget):
         except Exception as e:
             logger.error(f"Error retrieving policy: {e}")
         finally:
+            QApplication.restoreOverrideCursor()
+            self.retrieve_btn.setText("Get")
             self.retrieve_btn.setEnabled(True)
 
     def _show_company_chooser(self, companies: list[str]):

@@ -518,7 +518,7 @@ class ResultsPanel(QWidget):
         else:
             new_benefit = round(custom_face - new_discount - admin_fee, 2)
 
-        new_ratio = new_benefit / custom_face if custom_face > 0 else 0.0
+        new_ratio = max(0.0, new_benefit) / custom_face if custom_face > 0 else 0.0
 
         if new_benefit < 0:
             self.full_benefit_label.setText(
@@ -538,6 +538,87 @@ class ResultsPanel(QWidget):
             )
             self._full_apv_labels["apv_fd"].setText(
                 self._fmt_money(self._result.apv_fd * ratio)
+            )
+
+        # ── Max Partial Acceleration — recalculate with custom face ────
+        min_face = (self._result.full_eligible_db
+                    - self._result.partial_eligible_db)
+        partial_eligible = max(0.0, custom_face - min_face)
+        at_min_face = partial_eligible <= 0
+
+        self._partial_not_allowed_label.setVisible(at_min_face)
+        has_partial_loan = self._result.partial_loan_repayment > 0
+        for w in self._partial_static_widgets:
+            w.setVisible(not at_min_face)
+        for key, val in self._partial_labels.items():
+            if key == "loan_repayment":
+                val.setVisible(not at_min_face and has_partial_loan)
+            else:
+                val.setVisible(not at_min_face)
+        self._partial_loan_lbl.setVisible(not at_min_face and has_partial_loan)
+        self.partial_benefit_label.setVisible(not at_min_face)
+        self.partial_ratio_label.setVisible(not at_min_face)
+        for val in self._partial_apv_labels.values():
+            val.setVisible(not at_min_face)
+
+        if not at_min_face:
+            if orig_eligible > 0:
+                partial_ratio_scale = partial_eligible / orig_eligible
+            else:
+                partial_ratio_scale = 0.0
+
+            partial_discount = round(orig_discount * partial_ratio_scale, 2)
+            partial_loan = (
+                round(orig_loan * partial_ratio_scale, 2)
+                if orig_loan > 0 else 0.0
+            )
+            if partial_loan > 0:
+                partial_benefit = round(
+                    partial_eligible - partial_discount - admin_fee - partial_loan, 2
+                )
+                self._partial_labels["loan_repayment"].setText(
+                    self._fmt_money(partial_loan)
+                )
+            else:
+                partial_benefit = round(
+                    partial_eligible - partial_discount - admin_fee, 2
+                )
+
+            partial_new_ratio = (
+                max(0.0, partial_benefit) / partial_eligible
+                if partial_eligible > 0 else 0.0
+            )
+
+            self._partial_labels["eligible_db"].setText(
+                self._fmt_money(partial_eligible)
+            )
+            self._partial_labels["actuarial_discount"].setText(
+                self._fmt_money(partial_discount)
+            )
+            self._partial_labels["admin_fee"].setText(
+                self._fmt_money(admin_fee)
+            )
+
+            if partial_benefit < 0:
+                self.partial_benefit_label.setText(
+                    f"$0.00  (calc result: {self._fmt_money(partial_benefit)})"
+                )
+            else:
+                self.partial_benefit_label.setText(
+                    self._fmt_money(partial_benefit)
+                )
+            self.partial_ratio_label.setText(
+                f"{partial_new_ratio * 100:.2f}%"
+            )
+
+            self._partial_apv_labels["apv_fb"].setText(
+                self._fmt_money(self._result.apv_fb * partial_ratio_scale)
+            )
+            self._partial_apv_labels["apv_fp"].setText(
+                self._fmt_money(self._result.apv_fp * partial_ratio_scale)
+            )
+            self._partial_apv_labels["apv_fd"].setText(
+                self._fmt_money(self._result.apv_fd * partial_ratio_scale)
             )
 
     def set_calc_data(

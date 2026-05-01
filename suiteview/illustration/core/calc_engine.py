@@ -280,6 +280,7 @@ class IllustrationEngine:
         ded = calculate_deduction(
             av, policy, config, rates, rate_year,
             attained_age, prem.premiums_to_date,
+            monthly_mtp=math.trunc(policy.mtp * 100) / 100,
         )
         av = ded.av_after_deduction
 
@@ -394,6 +395,8 @@ class IllustrationEngine:
             epu_charge=ded.epu_charge,
             mfee_charge=ded.mfee_charge,
             av_charge=ded.av_charge,
+            pw_charge=ded.pw_charge,
+            benefit_charges=ded.benefit_charges,
             total_deduction=ded.total_deduction,
             av_after_deduction=ded.av_after_deduction,
             # Interest

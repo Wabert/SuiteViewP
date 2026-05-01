@@ -13,6 +13,8 @@ inheriting from FramelessWindowBase for SuiteView-consistent chrome.
 
 from typing import Optional
 
+import subprocess
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QPushButton, QLabel, QMessageBox, QApplication,
@@ -22,6 +24,8 @@ from PyQt6.QtCore import Qt
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.core.db2_connection import DB2Connection
+from suiteview.core.db2_constants import REGION_DSN_MAP, DEFAULT_REGION
+from suiteview.core.odbc_utils import is_password_error
 from ..models.policy_information import PolicyInformation
 
 from .styles import (
@@ -36,6 +40,41 @@ from .tabs import (
     AdvProdValuesTab, ActivityTab, DividendsTab, LoansTab, RawTableTab,
     PolicyListWindow, PolicySupportTab, ReinsuranceTab,
 )
+
+
+def _open_odbc_manager():
+    """Launch the Windows ODBC Data Source Administrator."""
+    try:
+        subprocess.Popen(["odbcad32.exe"])
+    except OSError:
+        try:
+            subprocess.Popen([r"C:\Windows\System32\odbcad32.exe"])
+        except OSError:
+            pass
+
+
+def _show_odbc_warning(parent, dsn: str, error_detail: str = ""):
+    """Show a warning about ODBC connection failure with an Open ODBC Manager button."""
+    msg = QMessageBox(parent)
+    msg.setIcon(QMessageBox.Icon.Warning)
+    msg.setWindowTitle("ODBC Connection Failed")
+    msg.setText(
+        f"Connection to {dsn} failed.\n\n"
+        "This likely means you need to update your ODBC password.\n\n"
+        "1.  Click \"Open Manager\" below\n"
+        f"2.  Double-click on {dsn} to open it\n"
+        "3.  Update your password, then click Test to verify it works\n"
+        "4.  Close the ODBC Manager and retry your policy lookup"
+    )
+
+    odbc_btn = msg.addButton("Open Manager", QMessageBox.ButtonRole.ActionRole)
+    msg.addButton(QMessageBox.StandardButton.Close)
+    msg.exec()
+
+    if msg.clickedButton() == odbc_btn:
+        _open_odbc_manager()
+        # Clear cached connections so next lookup picks up new creds
+        DB2Connection.close_all()
 
 
 class GetPolicyWindow(FramelessWindowBase):
@@ -59,7 +98,7 @@ class GetPolicyWindow(FramelessWindowBase):
 
         super().__init__(
             title="SuiteView:  PolView",
-            default_size=(1000, 780),
+            default_size=(1200, 780),
             min_size=(400, 400),
             parent=parent,
             header_colors=POLVIEW_HEADER_COLORS,
@@ -310,9 +349,13 @@ class GetPolicyWindow(FramelessWindowBase):
             self.policy_list_window.add_policy(region, company, policy)
 
     def _on_policy_removed_from_list(self, policy_number: str, region: str):
-        """Evict a single policy from the cache."""
-        cache_key = (policy_number, region)
-        self._policy_cache.pop(cache_key, None)
+        """Evict all cache entries for this policy+region (any company)."""
+        keys_to_remove = [
+            k for k in self._policy_cache
+            if k[0] == policy_number and k[1] == region
+        ]
+        for k in keys_to_remove:
+            del self._policy_cache[k]
 
     def _on_all_policies_removed(self):
         """Evict all policies from the cache."""
@@ -385,10 +428,10 @@ class GetPolicyWindow(FramelessWindowBase):
         # Show loading indicator immediately
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
 
-        cache_key = (policy_number, region)
+        cache_key = (policy_number, region, company_code)
 
         # Check cache first
-        if cache_key in self._policy_cache:
+        if company_code and cache_key in self._policy_cache:
             self._show_status(f"Loading policy {policy_number} from cache...")
             QApplication.processEvents()
             cached = self._policy_cache[cache_key]
@@ -477,9 +520,20 @@ class GetPolicyWindow(FramelessWindowBase):
                     return
 
             if not self._policy.exists:
+                error_text = self._policy.last_error or ""
+                # Detect connection / auth errors and offer ODBC Manager
+                if error_text and is_password_error(error_text):
+                    dsn = REGION_DSN_MAP.get(region, "NEON_DSN")
+                    QApplication.restoreOverrideCursor()
+                    _show_odbc_warning(self, dsn, error_detail=error_text)
+                    self._show_status(
+                        f"{dsn} connection failed — update your ODBC password and retry"
+                    )
+                    return
+
                 QMessageBox.warning(
                     self, "Not Found",
-                    f"Policy {policy_number} not found in {region}\n{self._policy.last_error}",
+                    f"Policy {policy_number} not found in {region}\n{error_text}",
                 )
                 self._show_status("Policy not found")
                 return
@@ -502,8 +556,9 @@ class GetPolicyWindow(FramelessWindowBase):
                 "Region": region,
             }
 
-            # Store in cache
-            self._policy_cache[cache_key] = {
+            # Store in cache (keyed by policy+region+company)
+            store_key = (policy_number, region, company_code)
+            self._policy_cache[store_key] = {
                 "policy": self._policy,
                 "policy_info": dict(self._policy_info),
                 "where_clause": self._where_clause,
@@ -547,6 +602,15 @@ class GetPolicyWindow(FramelessWindowBase):
             )
 
         except Exception as e:
+            error_text = str(e)
+            if is_password_error(error_text):
+                dsn = REGION_DSN_MAP.get(region, "NEON_DSN")
+                QApplication.restoreOverrideCursor()
+                _show_odbc_warning(self, dsn, error_detail=error_text)
+                self._show_status(
+                    f"{dsn} connection failed — update your ODBC password and retry"
+                )
+                return
             QMessageBox.critical(self, "Error", f"Failed to load policy: {e}")
             self._show_status(f"Error: {e}")
         finally:

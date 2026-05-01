@@ -218,6 +218,9 @@ class DisplayTab(QWidget):
             "   Prem Rate (02), Premium (01)"
         )
         c5.addWidget(self.Checkbox_DisplayTradRates)
+        c5.addWidget(_spacer())
+        self.chk_monthly_deduction = _cb("Monthly Deduction (75)")
+        c5.addWidget(self.chk_monthly_deduction)
         c5.addStretch()
         cols.addLayout(c5)
 

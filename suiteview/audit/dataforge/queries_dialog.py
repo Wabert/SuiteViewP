@@ -24,8 +24,8 @@ from PyQt6.QtWidgets import (
     QTextEdit, QApplication,
 )
 
-from suiteview.audit.saved_query import SavedQuery
-from suiteview.audit import saved_query_store as sq_store
+from suiteview.audit.qdefinition import QDefinition
+from suiteview.audit import qdef_store
 from suiteview.audit.tabs._styles import TightItemDelegate
 
 if TYPE_CHECKING:
@@ -184,7 +184,8 @@ class QueriesFieldsDialog(QDialog):
     # Emitted when user clicks View to preview query results
     view_query_requested = pyqtSignal(str)  # query_name
 
-    def __init__(self, source_queries: dict[str, SavedQuery], parent=None):
+    def __init__(self, source_queries: dict[str, QDefinition], parent=None,
+                 forge_name: str = ""):
         super().__init__(parent)
         self.setWindowFlags(
             Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
@@ -193,7 +194,8 @@ class QueriesFieldsDialog(QDialog):
         self.setFont(_FONT)
 
         self._drag_pos = None
-        self._sources: dict[str, SavedQuery] = dict(source_queries)
+        self._sources: dict[str, QDefinition] = dict(source_queries)
+        self._forge_name = forge_name
         self._current_query: str = ""
         self._loader: _QueryFieldLoaderThread | None = None
         self._field_cache: dict[str, list[tuple]] = {}  # query_name → [(col, type, size, null)]
@@ -229,7 +231,7 @@ class QueriesFieldsDialog(QDialog):
         hlay.setContentsMargins(10, 2, 6, 2)
         hlay.setSpacing(6)
 
-        title_lbl = QLabel("Queries && Fields")
+        title_lbl = QLabel("Query Definitions && Fields")
         title_lbl.setStyleSheet(
             "QLabel { color: white; font-size: 14px; font-weight: bold;"
             " font-style: italic; background: transparent; }")
@@ -261,7 +263,7 @@ class QueriesFieldsDialog(QDialog):
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # ── Left: Query list ─────────────────────────────────────────
-        left = QGroupBox("Queries")
+        left = QGroupBox("Query Definitions")
         left_lay = QVBoxLayout(left)
         left_lay.setSpacing(4)
 
@@ -278,7 +280,7 @@ class QueriesFieldsDialog(QDialog):
         left_lay.addWidget(self.list_queries)
 
         q_btns = QHBoxLayout()
-        self.btn_add_query = QPushButton("+ Add")
+        self.btn_add_query = QPushButton("+ QDef")
         self.btn_add_query.setStyleSheet(_BTN_SMALL_STYLE)
         self.btn_add_query.setFixedHeight(22)
         self.btn_add_query.clicked.connect(self._on_add_query)
@@ -687,12 +689,12 @@ class QueriesFieldsDialog(QDialog):
     # ── Add / Remove queries ─────────────────────────────────────────
 
     def _on_add_query(self):
-        """Show a picker to add saved queries as sources."""
-        all_queries = sq_store.list_queries()
+        """Show a picker to add saved queries as sources (mirrors _AddTableDialog)."""
+        all_queries = qdef_store.list_qdefs(forge_name=self._forge_name)
         if not all_queries:
             QMessageBox.information(
-                self, "No Saved Queries",
-                "No saved queries found. Create and save a query first.")
+                self, "No QDefinitions",
+                "No QDefinitions found. Create and save a QDefinition first.")
             return
 
         current_names = set(self._sources.keys())
@@ -703,33 +705,49 @@ class QueriesFieldsDialog(QDialog):
                 "All saved queries are already added as sources.")
             return
 
-        # Show a checkable list dialog
         dlg = QDialog(self)
-        dlg.setWindowTitle("Add Source Queries")
-        dlg.setMinimumSize(350, 400)
+        dlg.setWindowTitle("Add Query Definitions")
+        dlg.setMinimumSize(400, 400)
         lay = QVBoxLayout(dlg)
 
-        lbl = QLabel("Select saved queries to add:")
-        lbl.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        lay.addWidget(lbl)
+        txt_search = QLineEdit()
+        txt_search.setPlaceholderText("Search QDefinitions...")
+        txt_search.setClearButtonEnabled(True)
+        txt_search.setFixedHeight(24)
+        lay.addWidget(txt_search)
 
         lst = QListWidget()
-        lst.setFont(_FONT)
+        lst.setStyleSheet(_LIST_STYLE)
+        lst.setItemDelegate(TightItemDelegate(lst))
+        lst.setSelectionMode(
+            QAbstractItemView.SelectionMode.MultiSelection)
         for sq in available:
-            from PyQt6.QtWidgets import QListWidgetItem
-            item = QListWidgetItem(sq.name)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Unchecked)
-            lst.addItem(item)
+            lst.addItem(sq.name)
         lay.addWidget(lst, 1)
 
-        from PyQt6.QtWidgets import QDialogButtonBox
-        bbox = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel)
-        bbox.accepted.connect(dlg.accept)
-        bbox.rejected.connect(dlg.reject)
-        lay.addWidget(bbox)
+        lbl_status = QLabel(f"{len(available)} available")
+        lbl_status.setFont(QFont("Segoe UI", 8))
+        lbl_status.setStyleSheet("color: #666;")
+        lay.addWidget(lbl_status)
+
+        def _filter(text):
+            filt = text.strip().lower()
+            for i in range(lst.count()):
+                item = lst.item(i)
+                item.setHidden(filt not in item.text().lower() if filt else False)
+
+        txt_search.textChanged.connect(_filter)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_add = QPushButton("Add Selected")
+        btn_add.setStyleSheet(_BTN_STYLE)
+        btn_add.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_add)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_row.addWidget(btn_cancel)
+        lay.addLayout(btn_row)
 
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
@@ -737,7 +755,7 @@ class QueriesFieldsDialog(QDialog):
         added = []
         for i in range(lst.count()):
             item = lst.item(i)
-            if item.checkState() == Qt.CheckState.Checked:
+            if item.isSelected():
                 name = item.text()
                 sq = next((q for q in all_queries if q.name == name), None)
                 if sq:
@@ -764,7 +782,7 @@ class QueriesFieldsDialog(QDialog):
 
     # ── Public accessors ─────────────────────────────────────────────
 
-    def get_sources(self) -> dict[str, SavedQuery]:
+    def get_sources(self) -> dict[str, QDefinition]:
         return dict(self._sources)
 
     def get_source_names(self) -> list[str]:

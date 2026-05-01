@@ -108,7 +108,7 @@ class ABRPolicyData:
 
     @property
     def is_smoker(self) -> bool:
-        return self.rate_class.upper() in ("S", "Q", "T")
+        return self.rate_class.upper() in ("S", "Q")
 
     @property
     def face_per_thousand(self) -> float:

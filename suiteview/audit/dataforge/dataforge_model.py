@@ -1,6 +1,6 @@
 """
 DataForge model — a cross-query dataset definition that merges multiple
-saved queries using pandas operations.
+QDefinitions using pandas operations.
 
 Persisted as JSON in ~/.suiteview/saved_dataforges/<name>.json
 """
@@ -13,8 +13,8 @@ from typing import Any
 
 @dataclass
 class DataForgeSource:
-    """One saved-query input to a DataForge."""
-    query_name: str          # name of the SavedQuery
+    """One QDefinition input to a DataForge."""
+    query_name: str          # name of the QDefinition
     alias: str = ""          # short alias for referencing in joins/filters
 
     def to_dict(self) -> dict:
@@ -30,7 +30,7 @@ class DataForgeSource:
 
 @dataclass
 class DataForge:
-    """A named DataForge — merges saved queries via pandas."""
+    """A named DataForge — merges QDefinitions via pandas."""
     name: str
     sources: list[DataForgeSource] = field(default_factory=list)
     config: dict[str, Any] = field(default_factory=dict)  # filter/join/display state

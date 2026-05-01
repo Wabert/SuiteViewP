@@ -83,19 +83,18 @@ def get_table_rating_numeric(table_letter: str) -> int:
 # =============================================================================
 
 # Sex + rate_class → VBT block key
-# N = Non-smoker (preferred), S = Smoker
-# P = Preferred Non-smoker, Q = Preferred Smoker (mapped like N/S for VBT)
-# R = Preferred Plus Non-smoker, T = Tobacco user
+# Nonsmoker: N, P, R, T (Standard Plus nonsmoker)
+# Smoker:    S, Q
 VBT_BLOCK_MAP: Dict[Tuple[str, str], str] = {
     # Male
-    ("M", "N"): "MN", ("M", "P"): "MN", ("M", "R"): "MN",
-    ("M", "S"): "MS", ("M", "Q"): "MS", ("M", "T"): "MS",
+    ("M", "N"): "MN", ("M", "P"): "MN", ("M", "R"): "MN", ("M", "T"): "MN",
+    ("M", "S"): "MS", ("M", "Q"): "MS",
     # Female
-    ("F", "N"): "FN", ("F", "P"): "FN", ("F", "R"): "FN",
-    ("F", "S"): "FS", ("F", "Q"): "FS", ("F", "T"): "FS",
+    ("F", "N"): "FN", ("F", "P"): "FN", ("F", "R"): "FN", ("F", "T"): "FN",
+    ("F", "S"): "FS", ("F", "Q"): "FS",
     # Unisex — default to male non-smoker
-    ("U", "N"): "MN", ("U", "P"): "MN", ("U", "R"): "MN",
-    ("U", "S"): "MS", ("U", "Q"): "MS", ("U", "T"): "MS",
+    ("U", "N"): "MN", ("U", "P"): "MN", ("U", "R"): "MN", ("U", "T"): "MN",
+    ("U", "S"): "MS", ("U", "Q"): "MS",
 }
 
 

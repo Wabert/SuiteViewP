@@ -63,3 +63,7 @@ node_modules/
 # *.accdb
 # *.mdb
 # *.csv
+
+# Large media files
+*.mp4
+*.mov

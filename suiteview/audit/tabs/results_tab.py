@@ -6,6 +6,7 @@ Compact table with green column headers matching VBA frmAudit Results tab.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 import pandas as pd
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -31,6 +32,7 @@ class ResultsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._df: pd.DataFrame | None = None
+        self._query_context: dict | None = None  # SQL, DSN, columns, types, source_design
         self._build_ui()
 
     def _build_ui(self):
@@ -109,6 +111,20 @@ class ResultsTab(QWidget):
         self.btn_export.clicked.connect(self._export_to_excel)
         bottom.addWidget(self.btn_export)
 
+        self.btn_save_qdef = QPushButton("Save QDef")
+        self.btn_save_qdef.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        self.btn_save_qdef.setFixedSize(90, 28)
+        self.btn_save_qdef.setStyleSheet(
+            "QPushButton { background-color: #7C3AED; color: white;"
+            " border: 1px solid #6D28D9; border-radius: 3px; }"
+            "QPushButton:hover { background-color: #8B5CF6; }"
+            "QPushButton:disabled { background-color: #C4B5FD; }"
+        )
+        self.btn_save_qdef.setEnabled(False)
+        self.btn_save_qdef.setToolTip("Save as a Query Definition")
+        self.btn_save_qdef.clicked.connect(self._on_save_qdef)
+        bottom.addWidget(self.btn_save_qdef)
+
         root.addLayout(bottom)
 
         # Double-click on row → open policy in PolView
@@ -151,6 +167,26 @@ class ResultsTab(QWidget):
         self.lbl_status.setText(
             f"Showing all {row_count} rows" if row_count else "")
         self.btn_export.setEnabled(row_count > 0)
+        self.btn_save_qdef.setEnabled(row_count > 0 and self._query_context is not None)
+
+    def set_query_context(self, *, sql: str, dsn: str, source_design: str = "",
+                          result_columns: list[str] = None,
+                          column_types: dict[str, str] = None,
+                          tables: list[str] = None,
+                          display_names: dict[str, str] = None):
+        """Store the query metadata needed to create a QDefinition."""
+        self._query_context = {
+            "sql": sql,
+            "dsn": dsn,
+            "source_design": source_design,
+            "result_columns": result_columns or [],
+            "column_types": column_types or {},
+            "tables": tables or [],
+            "display_names": display_names or {},
+        }
+        # Re-check enable state
+        if self._df is not None and len(self._df) > 0:
+            self.btn_save_qdef.setEnabled(True)
 
     # ── Excel export ─────────────────────────────────────────────────
 
@@ -305,3 +341,42 @@ class ResultsTab(QWidget):
         ws.Columns(1).AutoFit()
         ws.Columns(2).AutoFit()
         ws.Columns(3).AutoFit()
+
+    # ── Save QDefinition ─────────────────────────────────────────────
+
+    def _on_save_qdef(self):
+        """Open dialog to save a QDefinition from current results."""
+        if not self._query_context or self._df is None:
+            return
+
+        from suiteview.audit.tabs.save_qdef_dialog import SaveQDefDialog
+        ctx = self._query_context
+        suggested = f"{ctx.get('source_design', 'Query')}_{datetime.now().strftime('%Y%m%d_%H%M')}"
+        dlg = SaveQDefDialog(suggested_name=suggested, parent=self)
+        if dlg.exec():
+            from suiteview.audit.qdefinition import QDefinition
+            from suiteview.audit import qdef_store
+
+            name = dlg.selected_name()
+            forge = dlg.selected_forge()
+            if not name:
+                return
+
+            # Derive column types from DataFrame if not provided
+            col_types = ctx.get("column_types", {})
+            if not col_types and self._df is not None:
+                col_types = {col: str(self._df[col].dtype) for col in self._df.columns}
+
+            qd = QDefinition(
+                name=name,
+                forge_name=forge,
+                sql=ctx["sql"],
+                dsn=ctx["dsn"],
+                source_design=ctx.get("source_design", ""),
+                result_columns=ctx.get("result_columns", list(self._df.columns)),
+                column_types=col_types,
+                tables=ctx.get("tables", []),
+                display_names=ctx.get("display_names", {}),
+            )
+            qdef_store.save_qdef(qd)
+            QMessageBox.information(self, "Saved", f"QDefinition '{name}' saved to DataForge '{forge}'.")

@@ -35,7 +35,7 @@ The target aesthetic for all data tables is a **dense, information-first data gr
 - **Column sorting and filtering are expected by default.** Click a header to sort; click a filter icon/area to get a checklist filter popup per column. These should be toggleable parameters (e.g. `sortable=True`, `filterable=True`) so callers can opt out for simple tables.
 - **Selection is subtle** — light highlight, no bold focus rectangles.
 
-This applies regardless of framework or widget. The goal is maximum data density with minimal decoration.
+This applies regardless of framework or widget. The goal is maximum data density with padding or marge.
 
 ---
 
@@ -91,3 +91,13 @@ ws = wb.ActiveSheet
 - Convert non-primitive types (datetime, Decimal, etc.) to `str` before writing to avoid COM type errors.
 - Set `ws.Name` to something meaningful (max 31 chars — Excel sheet name limit).
 - Do **not** call `wb.SaveAs()` — leave the workbook unsaved.
+
+---
+
+## Data Abstraction — Query Design / Query Definition / Data Snapshot
+
+- **Query Design** — A reusable, parameterized template that defines the structure of a query (tables, joins, columns) while leaving specific filter values and inputs to be supplied at execution time.
+
+- **Query Definition** — A fully-specified, executable query that captures the exact SQL, bound parameter values, target database, connection, and expected result schema (field names and types), produced by applying specific inputs to a Query Design.
+
+- **Data Snapshot** — The materialized rows and columns of data returned by executing a Query Definition at a specific point in time.

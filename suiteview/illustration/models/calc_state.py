@@ -67,6 +67,8 @@ class MonthlyState:
     epu_charge: float = 0.0
     mfee_charge: float = 0.0
     av_charge: float = 0.0         # % of AV charge (monthly, not /12)
+    pw_charge: float = 0.0         # Premium Waiver benefit charge
+    benefit_charges: float = 0.0   # Total benefit/rider charges
     total_deduction: float = 0.0
     av_after_deduction: float = 0.0
 

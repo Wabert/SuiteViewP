@@ -8,6 +8,10 @@ Adapts SQL dialect (quoting, row limiting) based on the target backend.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from suiteview.audit.common_table import CommonTable
 
 logger = logging.getLogger(__name__)
 
@@ -398,6 +402,7 @@ def build_join_sql(
     from_expr = _table_alias(primary_table, primary_alias)
 
     join_clauses: list[str] = []
+    joined_tables: set[str] = {primary_table}
     for ji in join_infos:
         jtype = ji["join_type"]
         lt = ji["left_table"]
@@ -405,13 +410,27 @@ def build_join_sql(
         al = ji["alias_left"]
         ar = ji["alias_right"]
 
+        # If the right table is already in FROM scope (e.g. primary)
+        # but the left table is not, swap so the new table gets JOINed.
+        swapped = False
+        if rt in joined_tables and lt not in joined_tables:
+            lt, rt = rt, lt
+            al, ar = ar, al
+            swapped = True
+
+        joined_tables.add(rt)
         join_target = _table_alias(rt, ar)
 
-        # Build ON clause
+        # Build ON clause — use alias_map for globally consistent aliases
+        al_eff = alias_map.get(lt, al)
+        ar_eff = alias_map.get(rt, ar)
+
         on_parts = []
         for left_col, right_col in ji["on_pairs"]:
-            l_ref = _col_ref(al, left_col, dialect) if al else f"{lt}.{q(left_col)}"
-            r_ref = _col_ref(ar, right_col, dialect) if ar else f"{rt}.{q(right_col)}"
+            if swapped:
+                left_col, right_col = right_col, left_col
+            l_ref = _col_ref(al_eff, left_col, dialect) if al_eff else f"{lt}.{q(left_col)}"
+            r_ref = _col_ref(ar_eff, right_col, dialect) if ar_eff else f"{rt}.{q(right_col)}"
             on_parts.append(f"{l_ref} = {r_ref}")
 
         # Extra conditions go into ON clause
@@ -433,3 +452,67 @@ def build_join_sql(
     sql += fetch_clause
 
     return sql
+
+
+# ── Common Table CTE generation ─────────────────────────────────────
+
+def build_common_table_cte(
+    tables: list[CommonTable],
+    dialect: str = SQL_SERVER,
+) -> str:
+    """Render CommonTable objects as a WITH clause prefix.
+
+    DB2 VALUES syntax:
+        WITH TableName (col1, col2) AS (
+            VALUES ('a', 'b'), ('c', 'd')
+        )
+
+    SQL Server VALUES syntax:
+        WITH TableName (col1, col2) AS (
+            SELECT * FROM (VALUES
+                ('a', 'b'), ('c', 'd')
+            ) AS t(col1, col2)
+        )
+
+    Returns empty string when *tables* is empty.
+    """
+    if not tables:
+        return ""
+
+    cte_parts: list[str] = []
+    for ct in tables:
+        col_names = ", ".join(c["name"] for c in ct.columns)
+
+        # Format each row as a VALUES tuple
+        row_strs: list[str] = []
+        for row in ct.rows:
+            vals: list[str] = []
+            for i, col_def in enumerate(ct.columns):
+                raw = row[i] if i < len(row) else ""
+                ctype = col_def.get("type", "TEXT")
+                if ctype in ("INTEGER", "DECIMAL") and raw != "":
+                    vals.append(str(raw))
+                else:
+                    vals.append(f"'{_escape(str(raw))}'")
+            row_strs.append(f"({', '.join(vals)})")
+
+        values_block = ",\n        ".join(row_strs)
+
+        if dialect == DB2:
+            cte = (
+                f"{ct.name} ({col_names}) AS (\n"
+                f"    VALUES {values_block}\n"
+                f")"
+            )
+        else:
+            # SQL Server / Access
+            cte = (
+                f"{ct.name} ({col_names}) AS (\n"
+                f"    SELECT * FROM (VALUES\n"
+                f"        {values_block}\n"
+                f"    ) AS _t({col_names})\n"
+                f")"
+            )
+        cte_parts.append(cte)
+
+    return "WITH " + ",\n".join(cte_parts)

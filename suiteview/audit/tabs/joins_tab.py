@@ -362,10 +362,12 @@ class JoinCard(QWidget):
         self._left_cols: list[str] = []
         self._right_cols: list[str] = []
         self._all_cols: list[str] = []
+        self._common_table_cols: dict[str, list[tuple[str, str]]] = {}
         self._loader: _KeyLoaderThread | None = None
         self._auto_matched = False
         self._collapsed = False
         self._pre_collapse_h = 0
+        self._alias_lookup: callable | None = None  # (table_name) -> str|None
 
         # Drag / resize state
         self._drag_start: QPoint | None = None
@@ -791,11 +793,62 @@ class JoinCard(QWidget):
 
     # ── Table change → auto-key detection ────────────────────────
 
+    def update_common_tables(self, common_cols: dict[str, list[tuple[str, str]]]):
+        """Update the mapping of common table names to their columns.
+
+        Args:
+            common_cols: {table_name: [(col_name, type_name), ...]}
+        """
+        self._common_table_cols = dict(common_cols)
+
     def _on_tables_changed(self):
         left = self.cmb_left_table.currentText().strip()
         right = self.cmb_right_table.currentText().strip()
+
+        # Auto-fill aliases from sibling cards
+        if self._alias_lookup:
+            if left and not self.txt_alias_left.text().strip():
+                known = self._alias_lookup(left)
+                if known:
+                    self.txt_alias_left.setText(known)
+            if right and not self.txt_alias_right.text().strip():
+                known = self._alias_lookup(right)
+                if known:
+                    self.txt_alias_right.setText(known)
+
         if not left or not right or left == right:
             self.lbl_status.setText("")
+            return
+
+        # Check if either table is a common table (CTE) — supply
+        # columns directly instead of loading via ODBC.
+        left_is_ct = left in self._common_table_cols
+        right_is_ct = right in self._common_table_cols
+
+        if left_is_ct or right_is_ct:
+            left_cols = self._common_table_cols.get(left, [])
+            right_cols = self._common_table_cols.get(right, [])
+
+            if not left_is_ct or not right_is_ct:
+                # One side is a real DB table — load it via ODBC,
+                # then merge with the common-table side.
+                db_table = right if left_is_ct else left
+                ct_cols = left_cols if left_is_ct else right_cols
+                self.lbl_status.setText("Loading keys...")
+                self._loader = _KeyLoaderThread(
+                    self._dsn, db_table, db_table, self)
+                # Stash common-table info for the callback
+                self._pending_ct_side = "left" if left_is_ct else "right"
+                self._pending_ct_cols = ct_cols
+                self._loader.keys_loaded.connect(
+                    self._on_keys_loaded_mixed)
+                self._loader.error_occurred.connect(self._on_keys_error)
+                self._loader.start()
+            else:
+                # Both sides are common tables — no ODBC needed
+                self._on_keys_loaded(
+                    left, right, [], [],
+                    left_cols, right_cols)
             return
 
         self.lbl_status.setText("Loading keys...")
@@ -803,6 +856,22 @@ class JoinCard(QWidget):
         self._loader.keys_loaded.connect(self._on_keys_loaded)
         self._loader.error_occurred.connect(self._on_keys_error)
         self._loader.start()
+
+    def _on_keys_loaded_mixed(self, db_table, _db_table2, db_pks, _db_pks2,
+                              db_cols, _db_cols2):
+        """Callback when one side is a common table and the other is a DB table."""
+        ct_side = getattr(self, '_pending_ct_side', 'left')
+        ct_cols = getattr(self, '_pending_ct_cols', [])
+        left = self.cmb_left_table.currentText().strip()
+        right = self.cmb_right_table.currentText().strip()
+        if ct_side == 'left':
+            self._on_keys_loaded(left, right, [], db_pks,
+                                ct_cols, db_cols)
+        else:
+            self._on_keys_loaded(left, right, db_pks, [],
+                                db_cols, ct_cols)
+        self._pending_ct_side = None
+        self._pending_ct_cols = None
 
     def _on_keys_loaded(self, left_table, right_table, left_pks, right_pks,
                         left_cols, right_cols):
@@ -1049,6 +1118,7 @@ class JoinsTab(QScrollArea):
         self._positions: dict[str, tuple[int, int]] = {}
         self._sizes: dict[str, tuple[int, int]] = {}
         self._drag_hotspot: QPoint = QPoint(0, 0)
+        self._common_table_cols: dict[str, list[tuple[str, str]]] = {}
 
         self.setWidgetResizable(True)
         self.setHorizontalScrollBarPolicy(
@@ -1094,8 +1164,23 @@ class JoinsTab(QScrollArea):
             y += ch + 8
         return (4, self._snap(y))
 
+    def _get_alias_for_table(self, table_name: str) -> str | None:
+        """Return the alias used for *table_name* in any existing card."""
+        for card in self._cards:
+            if card.cmb_left_table.currentText().strip() == table_name:
+                a = card.txt_alias_left.text().strip()
+                if a:
+                    return a
+            if card.cmb_right_table.currentText().strip() == table_name:
+                a = card.txt_alias_right.text().strip()
+                if a:
+                    return a
+        return None
+
     def _add_card(self, state: dict | None = None) -> JoinCard:
         card = JoinCard(self._tables, self._dsn, parent=self._canvas)
+        card._alias_lookup = self._get_alias_for_table
+        card.update_common_tables(self._common_table_cols)
         card.state_changed.connect(self._on_card_changed)
         card.remove_requested.connect(self._remove_card)
 
@@ -1208,6 +1293,24 @@ class JoinsTab(QScrollArea):
         self._tables = list(tables)
         for card in self._cards:
             card.update_tables(tables)
+
+    def update_common_tables(self, common_cols: dict[str, list[tuple[str, str]]]):
+        """Update common table column info and add/remove them from the table list.
+
+        Args:
+            common_cols: {table_name: [(col_name, type_name), ...]}
+        """
+        # Remove old common table names from the table list
+        old_ct_names = set(self._common_table_cols.keys())
+        base_tables = [t for t in self._tables if t not in old_ct_names]
+
+        self._common_table_cols = dict(common_cols)
+
+        # Append new common table names to the table list
+        self._tables = base_tables + sorted(common_cols.keys())
+        for card in self._cards:
+            card.update_tables(self._tables)
+            card.update_common_tables(common_cols)
 
     # ── Public accessors ─────────────────────────────────────────
 

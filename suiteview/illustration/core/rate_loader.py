@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import Dict, List
 
 from suiteview.core.rates import Rates
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
@@ -33,6 +33,10 @@ class IllustrationRates:
 
     # Shadow account (CCV) COI rates (duration-based)
     shadow_coi: List = field(default_factory=list)
+
+    # Benefit COI rates — keyed by combined type+subtype string (e.g. "39" for PW)
+    # Each value is a 1-indexed list by policy year (benefit duration)
+    benefit_coi: Dict[str, List] = field(default_factory=dict)
 
     # Single values
     mtp: float = 0.0
@@ -130,5 +134,27 @@ def load_rates(
             "COI", config.shadow_plancode, seg.issue_age, seg.rate_sex,
             seg.rate_class, scale=1, band=seg.original_band,
         ) or []
+
+    # Load benefit COI rates — keyed by combined type+subtype string
+    # Uses base insured sex/rateclass and policy band (per spec)
+    # Benefits with type '#' are administrative/informational — skip entirely
+    for ben in policy.benefits:
+        if not ben.is_active:
+            continue
+        if (ben.benefit_type or "").startswith("#"):
+            continue
+        ben_key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+        if not ben_key or ben_key in result.benefit_coi:
+            continue
+        ben_rates = rates_db.get_rates(
+            "BENCOI", policy.plancode,
+            issue_age=seg.issue_age,
+            sex=seg.rate_sex,
+            rateclass=seg.rate_class,
+            scale=1,
+            band=seg.band,
+            benefit_type=ben_key,
+        )
+        result.benefit_coi[ben_key] = ben_rates or []
 
     return result

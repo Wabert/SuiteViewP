@@ -41,7 +41,10 @@ def is_messaging_available() -> bool:
     """
     global _messaging_available
     if _messaging_available is None:
-        _messaging_available = SHARED_MSG_ROOT.is_dir()
+        try:
+            _messaging_available = SHARED_MSG_ROOT.is_dir()
+        except OSError:
+            _messaging_available = False
         if not _messaging_available:
             logger.info("Messaging disabled — shared folder unreachable (%s)",
                         SHARED_MSG_ROOT)

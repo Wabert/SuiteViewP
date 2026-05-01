@@ -377,6 +377,16 @@ class ABRQuoteWindow(FramelessWindowBase):
         if self._policy and self._assessment:
             self._run_calculation()
 
+    def _get_current_accel_inputs(self) -> tuple[float, float]:
+        """Return the current (accel_amount, min_face_amount) from assessment inputs."""
+        raw = self.assessment_panel._face_input.text().replace("$", "").replace(",", "").strip()
+        try:
+            accel = float(raw)
+        except ValueError:
+            accel = self._policy.face_amount if self._policy else 0.0
+        min_face = self.assessment_panel.get_min_face_amount()
+        return (accel, min_face)
+
     # ── Full calculation pipeline ───────────────────────────────────────
 
     def _run_calculation(self):
@@ -750,6 +760,9 @@ class ABRQuoteWindow(FramelessWindowBase):
             )
             self.output_panel.set_derived_values(
                 self.assessment_panel.get_derived_display_values()
+            )
+            self.output_panel.set_accel_inputs_fn(
+                self._get_current_accel_inputs
             )
 
             self.status_label.setText("ABR Quote calculated successfully.")

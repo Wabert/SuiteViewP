@@ -17,8 +17,8 @@ from PyQt6.QtWidgets import (
     QMenu,
 )
 
-from suiteview.audit.saved_query import SavedQuery
-from suiteview.audit import saved_query_store as sq_store
+from suiteview.audit.qdefinition import QDefinition
+from suiteview.audit import qdef_store
 from suiteview.audit.tabs._styles import TightItemDelegate
 
 if TYPE_CHECKING:
@@ -137,8 +137,9 @@ class QueryFieldPicker(QWidget):
         self.setMinimumWidth(300)
         self.setMaximumWidth(600)
 
-        self._sources: dict[str, SavedQuery] = {}  # query_name → SavedQuery
+        self._sources: dict[str, QDefinition] = {}  # query_name → QDefinition
         self._current_query: str = ""
+        self._current_forge_name: str = ""
         self._pending_sizes: list[int] | None = None
         self._last_good_sizes: list[int] | None = None
 
@@ -201,13 +202,13 @@ class QueryFieldPicker(QWidget):
         ql.setContentsMargins(2, 4, 2, 4)
         ql.setSpacing(3)
 
-        lbl_queries = QLabel("Queries")
+        lbl_queries = QLabel("Query Definitions")
         lbl_queries.setStyleSheet(_HEADER_STYLE)
         ql.addWidget(lbl_queries)
 
         self.txt_query_search = QLineEdit()
         self.txt_query_search.setFont(_FONT_SMALL)
-        self.txt_query_search.setPlaceholderText("Search queries...")
+        self.txt_query_search.setPlaceholderText("Search QDefs...")
         self.txt_query_search.setClearButtonEnabled(True)
         self.txt_query_search.setFixedHeight(22)
         self.txt_query_search.setStyleSheet(_SEARCH_STYLE)
@@ -222,6 +223,10 @@ class QueryFieldPicker(QWidget):
         self.list_queries.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
         self.list_queries.currentItemChanged.connect(self._on_query_selected)
+        self.list_queries.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_queries.customContextMenuRequested.connect(
+            self._on_query_context_menu)
         ql.addWidget(self.list_queries)
 
         # ── + Query / View buttons ─────────────────────────────
@@ -229,7 +234,7 @@ class QueryFieldPicker(QWidget):
         q_btns.setContentsMargins(0, 0, 0, 0)
         q_btns.setSpacing(3)
 
-        self.btn_add_query = QPushButton("+ Query")
+        self.btn_add_query = QPushButton("+ QDef")
         self.btn_add_query.setFont(_FONT_SMALL)
         self.btn_add_query.setFixedHeight(20)
         self.btn_add_query.setStyleSheet(_BTN_STYLE)
@@ -294,16 +299,19 @@ class QueryFieldPicker(QWidget):
 
     # ── Public API ────────────────────────────────────────────────
 
-    def set_sources(self, source_query_names: list[str]):
+    def set_sources(self, source_query_names: list[str], forge_name: str = ""):
         """Load query names and their field metadata."""
         self._sources.clear()
         self._current_query = ""
+        self._current_forge_name = forge_name
         self.list_queries.clear()
         self.list_fields.clear()
         self.lbl_status.setText("")
 
         for name in source_query_names:
-            sq = sq_store.load_query(name)
+            sq = qdef_store.load_qdef(name, forge_name=forge_name)
+            if not sq:
+                sq = qdef_store.load_qdef(name)  # fallback: search all forges
             if sq:
                 self._sources[name] = sq
                 self.list_queries.addItem(name)
@@ -315,7 +323,10 @@ class QueryFieldPicker(QWidget):
         """Add a single query source."""
         if query_name in self._sources:
             return
-        sq = sq_store.load_query(query_name)
+        # Try scoped forge first, then search all forges
+        sq = qdef_store.load_qdef(query_name, forge_name=self._current_forge_name)
+        if not sq:
+            sq = qdef_store.load_qdef(query_name)
         if sq:
             self._sources[query_name] = sq
             self.list_queries.addItem(query_name)
@@ -441,24 +452,136 @@ class QueryFieldPicker(QWidget):
     # ── Query buttons ─────────────────────────────────────────
 
     def _on_add_query(self):
-        """Pick a saved query to add as a DataForge source."""
-        all_queries = sq_store.list_queries()
+        """Open a dialog to pick QDefinitions to add as DataForge sources."""
+        from PyQt6.QtWidgets import QDialog
+        all_queries = qdef_store.list_qdefs()  # show QDefs from all forges + Commons
         existing = set(self._sources.keys())
         available = [sq for sq in all_queries if sq.name not in existing]
         if not available:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self, "No QDefinitions",
+                "No QDefinitions available to add.")
             return
 
-        menu = QMenu(self)
-        for sq in available:
-            menu.addAction(f"{sq.name}  ({sq.dsn})")
+        _add_list_style = (
+            "QListWidget { border: 1px solid " + _TEAL + "; background-color: white;"
+            " font-size: 9pt; outline: none; }"
+            "QListWidget::item { padding: 0px 2px; border: none; }"
+            "QListWidget::item:selected { background-color: " + _TEAL_LIGHT + ";"
+            " color: " + _TEAL_DEEP + "; border: none; }"
+            "QListWidget::item:focus { outline: none; border: none; }"
+        )
 
-        chosen = menu.exec(self.btn_add_query.mapToGlobal(
-            self.btn_add_query.rect().topRight()))
-        if chosen:
-            # Extract name from "name  (dsn)" label
-            name = chosen.text().split("  (")[0]
-            self.add_source(name)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add Query Definitions")
+        dlg.setMinimumSize(400, 400)
+        lay = QVBoxLayout(dlg)
+
+        txt_search = QLineEdit()
+        txt_search.setPlaceholderText("Search QDefinitions...")
+        txt_search.setClearButtonEnabled(True)
+        txt_search.setFixedHeight(24)
+        lay.addWidget(txt_search)
+
+        lst = QListWidget()
+        lst.setStyleSheet(_add_list_style)
+        lst.setItemDelegate(TightItemDelegate(lst))
+        lst.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        for sq in available:
+            lst.addItem(f"{sq.name}  ({sq.dsn})")
+        lay.addWidget(lst, 1)
+
+        lbl_status = QLabel(f"{len(available)} available")
+        lbl_status.setFont(QFont("Segoe UI", 8))
+        lbl_status.setStyleSheet("color: #666;")
+        lay.addWidget(lbl_status)
+
+        def _filter(text):
+            t = text.lower()
+            for i in range(lst.count()):
+                item = lst.item(i)
+                item.setHidden(t not in item.text().lower())
+        txt_search.textChanged.connect(_filter)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_add = QPushButton("Add Selected")
+        btn_add.setStyleSheet(_NEW_BTN_STYLE)
+        btn_add.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_add)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setStyleSheet(_BTN_STYLE)
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_row.addWidget(btn_cancel)
+        lay.addLayout(btn_row)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        added = []
+        for item in lst.selectedItems():
+            # Extract name from "name  (dsn)" format
+            text = item.text()
+            name = text.split("  (")[0] if "  (" in text else text
+            if name and name not in self._sources:
+                self.add_source(name)
+                added.append(name)
+
+        if added:
             self.sources_changed.emit(list(self._sources.keys()))
+
+    def _on_query_context_menu(self, pos):
+        """Right-click context menu on the Query Definitions list."""
+        item = self.list_queries.itemAt(pos)
+        if item is None:
+            return
+        query_name = item.text()
+
+        menu = QMenu(self)
+        act_rename = menu.addAction("Rename")
+        chosen = menu.exec(self.list_queries.viewport().mapToGlobal(pos))
+        if chosen == act_rename:
+            self._rename_qdef(query_name)
+
+    def _rename_qdef(self, old_name: str):
+        """Rename a QDefinition from the DataForge picker."""
+        from PyQt6.QtWidgets import QInputDialog, QMessageBox
+        new_name, ok = QInputDialog.getText(
+            self, "Rename QDefinition", "New name:", text=old_name)
+        if not ok or not new_name.strip() or new_name.strip() == old_name:
+            return
+        new_name = new_name.strip()
+
+        forge = self._current_forge_name
+        if qdef_store.qdef_exists(new_name, forge_name=forge):
+            QMessageBox.warning(
+                self, "Name Exists",
+                f"A QDefinition named '{new_name}' already exists.")
+            return
+
+        qd = qdef_store.load_qdef(old_name, forge_name=forge)
+        if not qd:
+            return
+
+        # Save under new name, move snapshot, delete old
+        qd.name = new_name
+        qdef_store.save_qdef(qd)
+        old_snap = qdef_store.snapshot_path(old_name, forge_name=forge)
+        if old_snap.exists():
+            old_snap.rename(qdef_store.snapshot_path(new_name, forge_name=forge))
+        qdef_store.delete_qdef(old_name, forge_name=forge)
+
+        # Update the source reference
+        if old_name in self._sources:
+            self._sources[new_name] = self._sources.pop(old_name)
+            self._sources[new_name].name = new_name
+
+        # Refresh the list
+        self.list_queries.clear()
+        for name in self._sources:
+            self.list_queries.addItem(name)
+        self.sources_changed.emit(list(self._sources.keys()))
 
     def _on_view_query(self):
         """Preview the selected query's results."""

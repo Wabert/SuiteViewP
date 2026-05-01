@@ -466,10 +466,12 @@ class PolicyData:
         except Exception as e:
             self._exists = False
             self._cancelled = True
-            self._last_error = str(e)
+            # Walk the exception chain to find the real driver message
+            from suiteview.core.db2_connection import _extract_odbc_message
+            self._last_error = _extract_odbc_message(e)
             print(
                 f"[PolicyData] ERROR loading policy {self._policy_number} "
-                f"(region={self._region}): {e}",
+                f"(region={self._region}): {self._last_error}",
                 file=sys.stderr,
             )
 

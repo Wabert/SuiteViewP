@@ -47,7 +47,7 @@ class SavedQueriesShelf(QWidget):
         root.setSpacing(0)
 
         # ── Header label ─────────────────────────────────────────────
-        lbl_title = QLabel("Queries")
+        lbl_title = QLabel("QDesigner")
         lbl_title.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         lbl_title.setFixedHeight(24)
         lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)

@@ -21,6 +21,38 @@ class DB2ConnectionError(Exception):
     pass
 
 
+def _extract_odbc_message(exc: BaseException) -> str:
+    """Walk the exception chain and extract the real ODBC driver message.
+
+    pyodbc sometimes triggers a SystemError that wraps the actual
+    pyodbc.Error.  This function digs through __cause__ and __context__
+    to find the most informative message.
+    """
+    # Collect all exceptions in the chain
+    seen = []
+    e = exc
+    while e is not None:
+        seen.append(e)
+        e = getattr(e, '__cause__', None) or getattr(e, '__context__', None)
+        if e in seen:
+            break
+
+    # Prefer pyodbc.Error with args[1] (driver message)
+    for e in seen:
+        if isinstance(e, pyodbc.Error) and len(getattr(e, 'args', ())) >= 2:
+            msg = e.args[1]
+            if isinstance(msg, str) and msg:
+                return msg
+
+    # Fallback: any exception with a useful args[1]
+    for e in seen:
+        if len(getattr(e, 'args', ())) >= 2 and isinstance(e.args[1], str):
+            return e.args[1]
+
+    # Last resort: str() of the original
+    return str(exc)
+
+
 class DB2Connection:
     """
     Manages DB2 database connections via ODBC DSN.
@@ -79,10 +111,31 @@ class DB2Connection:
             DB2Connection._connections[self.region] = self._connection
             
             return self._connection
-            
+
         except pyodbc.Error as e:
+            # Direct pyodbc error — driver message is in args[1]
+            msg = _extract_odbc_message(e)
             raise DB2ConnectionError(
-                f"Failed to connect to {self.dsn}: {str(e)}"
+                f"Failed to connect to {self.dsn}: {msg}"
+            ) from e
+
+        except SystemError as e:
+            # pyodbc bug: sometimes raises SystemError wrapping the real error.
+            # Try to dig the pyodbc.Error out of the exception context.
+            msg = _extract_odbc_message(e)
+            if "returned a result" in msg:
+                # Could not extract real message — provide a helpful fallback
+                msg = (
+                    "Connection refused by the server. "
+                    "This usually means your ODBC password needs to be updated."
+                )
+            raise DB2ConnectionError(
+                f"Failed to connect to {self.dsn}: {msg}"
+            ) from e
+
+        except Exception as e:
+            raise DB2ConnectionError(
+                f"Failed to connect to {self.dsn}: {_extract_odbc_message(e)}"
             ) from e
     
     def close(self):

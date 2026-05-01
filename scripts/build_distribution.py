@@ -1,17 +1,19 @@
 """
 SuiteView Distribution Builder
 ================================
-Builds SuiteView into a distributable folder with all required data files.
+Builds SuiteView or SuiteViewLight into a distributable folder with all required data files.
 
 Steps:
   1. Cleans previous build artifacts
-  2. Runs PyInstaller with SuiteView.spec
+  2. Runs PyInstaller with the appropriate .spec file
   3. Creates a ZIP archive for easy distribution
 
 Usage:
-  python scripts/build_distribution.py
+  python scripts/build_distribution.py            # Full SuiteView build
+  python scripts/build_distribution.py --light     # SuiteViewLight build
 """
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -21,12 +23,6 @@ from pathlib import Path
 # Project root
 PROJECT_ROOT = Path(__file__).parent.parent
 os.chdir(PROJECT_ROOT)
-
-# ── Configuration ───────────────────────────────────────────────────────
-
-SPEC_FILE = PROJECT_ROOT / "SuiteView.spec"
-DIST_DIR = PROJECT_ROOT / "dist"
-DIST_NAME = "SuiteView"
 
 # ── Resolve venv Python ────────────────────────────────────────────────
 # PyInstaller MUST run under the venv interpreter so that it discovers
@@ -55,9 +51,24 @@ def step(msg: str):
 
 
 def main():
-    print(r"""
+    parser = argparse.ArgumentParser(description="Build SuiteView distribution")
+    parser.add_argument("--light", action="store_true",
+                        help="Build SuiteViewLight (core tools only)")
+    args = parser.parse_args()
+
+    if args.light:
+        dist_name = "SuiteViewLight"
+        spec_file = PROJECT_ROOT / "SuiteViewLight.spec"
+    else:
+        dist_name = "SuiteView"
+        spec_file = PROJECT_ROOT / "SuiteView.spec"
+
+    dist_dir = PROJECT_ROOT / "dist"
+
+    print(rf"""
     ╔═══════════════════════════════════════════╗
-    ║      SuiteView Distribution Builder       ║
+    ║   {dist_name:^37s}   ║
+    ║        Distribution Builder               ║
     ╚═══════════════════════════════════════════╝
     """)
 
@@ -66,8 +77,8 @@ def main():
     # ── Step 1: Clean previous build ───────────────────────────────
     step("Step 1: Cleaning previous build artifacts")
     
-    build_dir = PROJECT_ROOT / "build" / DIST_NAME
-    dist_output = DIST_DIR / DIST_NAME
+    build_dir = PROJECT_ROOT / "build" / dist_name
+    dist_output = dist_dir / dist_name
     
     if build_dir.exists():
         print(f"  Removing {build_dir}")
@@ -86,7 +97,7 @@ def main():
         PYTHON_EXE, "-m", "PyInstaller",
         "--clean",
         "--noconfirm",
-        str(SPEC_FILE),
+        str(spec_file),
     ]
     
     print(f"  Running: {' '.join(cmd)}")
@@ -103,7 +114,7 @@ def main():
     # ── Step 3: Create ZIP archive ─────────────────────────────────
     step("Step 3: Creating distribution ZIP")
     
-    zip_path = DIST_DIR / f"{DIST_NAME}"
+    zip_path = dist_dir / f"{dist_name}"
     
     if dist_output.exists():
         print(f"  Creating: {zip_path}.zip")
@@ -120,18 +131,19 @@ def main():
         print("  ⚠ Distribution folder not found, skipping ZIP")
     
     # ── Done ───────────────────────────────────────────────────────
+    exe_name = f"{dist_name}.exe"
     print(f"""
     ╔═══════════════════════════════════════════════════════╗
     ║                  BUILD COMPLETE!                      ║
     ╠═══════════════════════════════════════════════════════╣
     ║                                                       ║
-    ║  Distribution folder: dist/{DIST_NAME}/               ║
-    ║  ZIP archive:         dist/{DIST_NAME}.zip            ║
+    ║  Distribution folder: dist/{dist_name}/               ║
+    ║  ZIP archive:         dist/{dist_name}.zip            ║
     ║                                                       ║
     ║  To distribute:                                       ║
     ║  1. Send the ZIP to coworkers                         ║
     ║  2. They extract it to any folder                     ║
-    ║  3. Run SuiteView.exe                                 ║
+    ║  3. Run {exe_name:<44s}║
     ║                                                       ║
     ║  Requirements for coworkers:                          ║
     ║  • Windows 10/11                                      ║

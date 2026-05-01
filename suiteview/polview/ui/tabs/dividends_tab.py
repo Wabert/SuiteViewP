@@ -58,9 +58,10 @@ class DividendsTab(QWidget):
 
         # Paid Up Additions section (14 Seg)
         self.pua_group = StyledTableGroup("Paid Up Additions (14 Seg)")
-        self.pua_group.table.setColumnCount(7)
+        self.pua_group.table.setColumnCount(9)
         self.pua_group.table.setHorizontalHeaderLabels([
             "Eff Date", "Phs", "FromPrem", "Mat Date", "Amount", "Mort Tbl", "Int Rate",
+            "Div Earned", "Earn Date",
         ])
         bottom_row.addWidget(self.pua_group, 1)
 
@@ -216,13 +217,55 @@ class DividendsTab(QWidget):
             if not rows:
                 return
 
+            def _amount_value(raw_amount) -> float:
+                try:
+                    if raw_amount is None or str(raw_amount).strip() == "":
+                        return 0.0
+                    return float(raw_amount)
+                except Exception:
+                    return 0.0
+
+            # Build date buckets in source order. Rows are already ordered by MVRY_DT DESC,
+            # and we preserve the existing display order exactly as returned.
+            seen_dates = set()
+            date_keys_in_order = []
+            date_display_by_key = {}
+            for row in rows:
+                eff_date = row.get("MVRY_DT")
+                date_key = format_date(eff_date, "%Y-%m-%d") if eff_date else ""
+                if not date_key:
+                    continue
+                if date_key not in seen_dates:
+                    seen_dates.add(date_key)
+                    date_keys_in_order.append(date_key)
+                    date_display_by_key[date_key] = format_date(eff_date, US_DATE_FMT)
+
+            prior_date_by_key = {
+                date_keys_in_order[idx]: date_keys_in_order[idx + 1]
+                for idx in range(len(date_keys_in_order) - 1)
+            }
+
+            # Keep per-date/per-key amount lists so repeated rows can be matched independently.
+            amounts_by_date_key = {}
+            for row in rows:
+                eff_date = row.get("MVRY_DT")
+                date_key = format_date(eff_date, "%Y-%m-%d") if eff_date else ""
+                phs = str(row.get("COV_PHA_NBR", "") or "")
+                from_prem = str(row.get("PUA_PUR_SRC_CD", "") or "")
+                bucket_key = (date_key, phs, from_prem)
+                amounts_by_date_key.setdefault(bucket_key, []).append(_amount_value(row.get("PUA_AMT")))
+
+            occurrence_idx_by_bucket = {}
+
             table.setRowCount(len(rows))
             for row_idx, row in enumerate(rows):
                 eff_date = row.get("MVRY_DT")
                 table.setItem(row_idx, 0, QTableWidgetItem(format_date(eff_date, US_DATE_FMT)))
 
-                table.setItem(row_idx, 1, QTableWidgetItem(str(row.get("COV_PHA_NBR", "") or "")))
-                table.setItem(row_idx, 2, QTableWidgetItem(str(row.get("PUA_PUR_SRC_CD", "") or "")))
+                phs = str(row.get("COV_PHA_NBR", "") or "")
+                from_prem = str(row.get("PUA_PUR_SRC_CD", "") or "")
+                table.setItem(row_idx, 1, QTableWidgetItem(phs))
+                table.setItem(row_idx, 2, QTableWidgetItem(from_prem))
 
                 mat_date_months = row.get("PUA_MT_MO_YR_NBR")
                 mat_date_str = self._months_to_date(int(mat_date_months) if mat_date_months else 0, issue_day)
@@ -238,6 +281,32 @@ class DividendsTab(QWidget):
                     table.setItem(row_idx, 6, QTableWidgetItem(f"{float(int_rate)/100:.2%}"))
                 else:
                     table.setItem(row_idx, 6, QTableWidgetItem(""))
+
+                # Div Earned/Earn Date are based on previous effective-date bucket.
+                current_date_key = format_date(eff_date, "%Y-%m-%d") if eff_date else ""
+                prior_date_key = prior_date_by_key.get(current_date_key)
+                if prior_date_key:
+                    current_bucket = (current_date_key, phs, from_prem)
+                    prior_bucket = (prior_date_key, phs, from_prem)
+
+                    occurrence_idx = occurrence_idx_by_bucket.get(current_bucket, 0)
+                    occurrence_idx_by_bucket[current_bucket] = occurrence_idx + 1
+
+                    current_amount = _amount_value(row.get("PUA_AMT"))
+                    prior_amounts = amounts_by_date_key.get(prior_bucket, [])
+                    prior_amount = prior_amounts[occurrence_idx] if occurrence_idx < len(prior_amounts) else 0.0
+                    div_earned = current_amount - prior_amount
+
+                    table.setItem(row_idx, 7, QTableWidgetItem(f"{div_earned:,.2f}"))
+                    table.setItem(
+                        row_idx,
+                        8,
+                        QTableWidgetItem(date_display_by_key.get(prior_date_key, prior_date_key)),
+                    )
+                else:
+                    # Oldest effective date has no prior date to compare against.
+                    table.setItem(row_idx, 7, QTableWidgetItem(""))
+                    table.setItem(row_idx, 8, QTableWidgetItem(""))
 
             table.autoFitAllColumns()
         except Exception as e:

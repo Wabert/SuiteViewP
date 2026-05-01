@@ -272,29 +272,42 @@ class OutputPanel(QWidget):
         self._mort_detail: list[dict] = []
         self._apv_detail: list[dict] = []
         self._apv_summary: dict = {}
+        self._accel_inputs_fn = None  # callback returning (accel_amount, min_face)
         self._policy_folder_path = ""
         self._tools_root_path = self._get_tools_root_path()
+        self._sync_warned = False
         
         self._setup_ui()
         
         # Initialize
         self._update_ui_state()
+        self._check_onedrive_sync()
 
-    def _get_process_control_dir(self) -> str:
+    def _get_onedrive_dir(self) -> str:
         username = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
         return os.path.join(
             "C:\\Users", username,
             "OneDrive - American National Insurance Company",
-            "Life Product - Process_Control",
         )
 
     def _get_tools_root_path(self) -> str:
-        # Base path: Process_Control/Task/Accelerated Death Benefit (ABR11 & ABR14)
         return os.path.join(
-            self._get_process_control_dir(),
-            "Task",
-            "Accelerated Death Benefit (ABR11 & ABR14)"
+            self._get_onedrive_dir(),
+            "Life Product - Accelerated_Benefits",
+            "Accelerated Death Benefit (ABR11 & ABR14)",
         )
+
+    def _is_onedrive_synced(self) -> bool:
+        """Check whether the OneDrive folder is actively synced (not just a local directory)."""
+        onedrive_dir = self._get_onedrive_dir()
+        ini_path = os.path.join(onedrive_dir, "desktop.ini")
+        if os.path.isfile(ini_path):
+            try:
+                with open(ini_path, "r", encoding="utf-8", errors="ignore") as f:
+                    return "OneDrive" in f.read()
+            except (PermissionError, OSError):
+                pass
+        return False
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -573,6 +586,23 @@ class OutputPanel(QWidget):
     def set_derived_values(self, derived_values: dict):
         self._derived_values = derived_values or {}
 
+    def set_accel_inputs(self, accel_amount: float, min_face_amount: float):
+        self._accel_inputs_fn = lambda: (accel_amount, min_face_amount)
+
+    def set_accel_inputs_fn(self, fn):
+        """Set a callback that returns (accel_amount, min_face_amount) at print time."""
+        self._accel_inputs_fn = fn
+
+    def _get_accel_inputs(self) -> tuple[float, float]:
+        """Return current (accel_amount, min_face_amount) from callback or defaults."""
+        if self._accel_inputs_fn:
+            try:
+                return self._accel_inputs_fn()
+            except Exception:
+                pass
+        p = self._policy
+        return (p.face_amount if p else 0.0, p.min_face_amount if p else 0.0)
+
     def _update_ui_state(self):
         if not self._policy:
             self._policy_folder_label.setText("No policy loaded")
@@ -729,8 +759,40 @@ class OutputPanel(QWidget):
 
     # ── Actions ─────────────────────────────────────────────────────────
 
+    def _check_onedrive_sync(self):
+        """Warn once if the OneDrive folder does not appear to be synced."""
+        if self._sync_warned:
+            return
+        onedrive_dir = self._get_onedrive_dir()
+        if not os.path.isdir(onedrive_dir):
+            self._sync_warned = True
+            QMessageBox.warning(
+                self, "OneDrive Not Found",
+                f"The OneDrive folder was not found:\n\n"
+                f"{onedrive_dir}\n\n"
+                "Please make sure OneDrive is installed and you are signed in "
+                "with your corporate account."
+            )
+        elif not self._is_onedrive_synced():
+            self._sync_warned = True
+            QMessageBox.warning(
+                self, "OneDrive Sync Issue",
+                f"The OneDrive folder exists but does not appear to be actively "
+                f"synced to SharePoint:\n\n"
+                f"{onedrive_dir}\n\n"
+                "Files saved here may only exist locally and will NOT be visible "
+                "to others on SharePoint.\n\n"
+                "To fix this:\n"
+                "1. Open the SharePoint site in your browser\n"
+                "2. Navigate to the document library\n"
+                "3. Click the 'Sync' button in the toolbar"
+            )
+
     def _on_create_policy_folder(self):
         if not self._policy_folder_path:
+            return
+        if not self._is_onedrive_synced():
+            self._check_onedrive_sync()
             return
         try:
             os.makedirs(self._policy_folder_path, exist_ok=True)
@@ -921,6 +983,7 @@ class OutputPanel(QWidget):
             row = _write_field(ws1, row, "Flat Cease Date:", p.flat_cease_date.strftime("%m/%d/%Y"))
         else:
             row = _write_field(ws1, row, "Flat Cease Date:", "—")
+        row = _write_field(ws1, row, "Reinsurers:", p.reinsurers or "(none)")
 
         row += 1
         row = _write_section(ws1, "Quote Parameters", row)
@@ -961,6 +1024,9 @@ class OutputPanel(QWidget):
                 row = _write_field(ws2, row, "  Return to Normal:", "Yes" if a.use_return_10yr else "No")
             if a.use_le:
                 row = _write_field(ws2, row, "Life Expectancy:", f"{a.life_expectancy_years} years")
+            if hasattr(a, 'use_increased_decrement') and a.use_increased_decrement:
+                row = _write_field(ws2, row, "Increased Decrement:", f"{a.direct_increased_decrement:.0f}%")
+                row = _write_field(ws2, row, "  Start/Stop Year:", f"{a.incr_decrement_start_year} — {a.incr_decrement_stop_year}")
             if a.use_table:
                 row = _write_field(ws2, row, "Table (rating):", f"{a.direct_table_rating}")
                 row = _write_field(ws2, row, "  Start/Stop Year:", f"{a.table_start_year} — {a.table_stop_year}")
@@ -1011,23 +1077,88 @@ class OutputPanel(QWidget):
             row = _write_field(ws2, row, "Life Expectancy (rounded):", f"{a.life_expectancy_rounded}")
 
         row += 1
+        is_ul = p and p.product_type in ("UL", "IUL", "ISWL")
+
         row = _write_section(ws2, "Results Summary", row)
-        row = _write_field(ws2, row, "Full Accel Benefit:", f"${r.full_accel_benefit:,.2f}")
-        row = _write_field(ws2, row, "Full Benefit Ratio:", f"{r.full_benefit_ratio * 100:.2f}%")
+        ws2.column_dimensions['C'].width = max(ws2.column_dimensions['C'].width or 0, 20)
+        ws2.column_dimensions['D'].width = max(ws2.column_dimensions['D'].width or 0, 25)
+
+        # Full Acceleration breakdown
+        ws2.cell(row=row, column=1, value="FULL ACCELERATION").font = Font(bold=True, size=11, underline="single")
+        row += 1
+        accel_display, _ = self._get_accel_inputs()
+        row = _write_field(ws2, row, "Acceleration Amount Input:", f"${accel_display:,.2f}" if accel_display else "—")
+        full_start_row = row
+        row = _write_field(ws2, row, "Eligible Death Benefit:", f"${r.full_eligible_db:,.2f}")
+        row = _write_field(ws2, row, "Actuarial Discount:", f"${r.full_actuarial_discount:,.2f}")
+        row = _write_field(ws2, row, "Administrative Fee:", f"${r.full_admin_fee:,.2f}")
+        if r.full_loan_repayment > 0:
+            row = _write_field(ws2, row, "Loan Repayment:", f"${r.full_loan_repayment:,.2f}")
+        row = _write_field(ws2, row, "Accelerated Benefit:", f"${r.full_accel_benefit:,.2f}")
+        row = _write_field(ws2, row, "Benefit Ratio:", f"{r.full_benefit_ratio * 100:.2f}%")
+
+        # Full APV — columns C-D beside Full Acceleration
+        for j, (apv_lbl, apv_val) in enumerate([
+            ("APV_FB:", f"${r.apv_fb:,.2f}"),
+            ("APV_FP:", f"${r.apv_fp:,.2f}"),
+            ("APV_FD:", f"${r.apv_fd:,.2f}"),
+        ]):
+            ws2.cell(row=full_start_row + j, column=3, value=apv_lbl).font = label_font
+            ws2.cell(row=full_start_row + j, column=4, value=apv_val).font = value_font
+
+        row += 1  # blank separator
+
+        # Max Partial Acceleration breakdown
         if r.partial_eligible_db > 0:
-            row = _write_field(ws2, row, "Partial Accel Benefit:", f"${r.partial_accel_benefit:,.2f}")
-            row = _write_field(ws2, row, "Partial Benefit Ratio:", f"{r.partial_benefit_ratio * 100:.2f}%")
+            ws2.cell(row=row, column=1, value="MAX PARTIAL ACCELERATION").font = Font(bold=True, size=11, underline="single")
+            row += 1
+            _, min_face_display = self._get_accel_inputs()
+            row = _write_field(ws2, row, "Min Face Amount Input:", f"${min_face_display:,.0f}")
+            partial_start_row = row
+            row = _write_field(ws2, row, "Eligible Death Benefit:", f"${r.partial_eligible_db:,.2f}")
+            row = _write_field(ws2, row, "Actuarial Discount:", f"${r.partial_actuarial_discount:,.2f}")
+            row = _write_field(ws2, row, "Administrative Fee:", f"${r.partial_admin_fee:,.2f}")
+            if r.partial_loan_repayment > 0:
+                row = _write_field(ws2, row, "Loan Repayment:", f"${r.partial_loan_repayment:,.2f}")
+            row = _write_field(ws2, row, "Accelerated Benefit:", f"${r.partial_accel_benefit:,.2f}")
+            row = _write_field(ws2, row, "Benefit Ratio:", f"{r.partial_benefit_ratio * 100:.2f}%")
+
+            # Partial APV — proportionally scaled, columns C-D
+            if r.full_eligible_db > 0:
+                ratio = r.partial_eligible_db / r.full_eligible_db
+            else:
+                ratio = 0.0
+            for j, (apv_lbl, apv_val) in enumerate([
+                ("APV_FB:", f"${r.apv_fb * ratio:,.2f}"),
+                ("APV_FP:", f"${r.apv_fp * ratio:,.2f}"),
+                ("APV_FD:", f"${r.apv_fd * ratio:,.2f}"),
+            ]):
+                ws2.cell(row=partial_start_row + j, column=3, value=apv_lbl).font = label_font
+                ws2.cell(row=partial_start_row + j, column=4, value=apv_val).font = value_font
         else:
             row = _write_field(ws2, row, "Partial Acceleration:", "NOT ALLOWED — At Minimum Face")
-        row = _write_field(ws2, row, "Premium Before:", r.premium_before)
+
+        row += 1  # blank separator
+
+        # Premium Impact
+        if is_ul:
+            row = _write_field(ws2, row, "Last Monthly Deduction:", r.premium_before)
+        else:
+            row = _write_field(ws2, row, "Premium Before:", r.premium_before)
         row = _write_field(ws2, row, "After (Full Accel):", f"${r.premium_after_full:,.2f}")
         if r.partial_eligible_db > 0:
             row = _write_field(ws2, row, "After (Partial):", r.premium_after_partial)
         else:
             row = _write_field(ws2, row, "After (Partial):", "NOT ALLOWED")
-        row = _write_field(ws2, row, "APV_FB:", f"${r.apv_fb:,.2f}")
-        row = _write_field(ws2, row, "APV_FP:", f"${r.apv_fp:,.2f}")
-        row = _write_field(ws2, row, "APV_FD:", f"${r.apv_fd:,.2f}")
+
+        # Messages
+        if r.messages:
+            row += 1
+            row = _write_section(ws2, "Messages", row)
+            for msg in r.messages:
+                ws2.cell(row=row, column=1, value=f"\u2022 {msg}").font = Font(bold=True, size=10, color="C62828")
+                ws2.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+                row += 1
 
         # ── Sheet 3: Mortality Derivation ───────────────────────────────
         ws3 = wb.create_sheet("Mortality Derivation")

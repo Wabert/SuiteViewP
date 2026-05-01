@@ -2,12 +2,57 @@
 """SuiteView Data Manager - Main entry point"""
 
 import sys
+import os
 import logging
+import traceback
+from datetime import datetime
+from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import qInstallMessageHandler, QtMsgType
 from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
 
 logger = logging.getLogger(__name__)
+
+# -- Crash log setup -------------------------------------------------------
+_LOG_DIR = Path.home() / ".suiteview"
+_CRASH_LOG = _LOG_DIR / "crash.log"
+
+
+def _setup_crash_log():
+    """Configure logging to write to ~/.suiteview/crash.log and install
+    a global exception hook so unhandled errors are captured even when
+    the exe is launched by double-click (no console)."""
+    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    file_handler = logging.FileHandler(_CRASH_LOG, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s  %(levelname)-8s  %(name)s  %(message)s")
+    )
+    logging.root.addHandler(file_handler)
+    logging.root.setLevel(logging.INFO)
+
+    # Rotate: keep only the last 500 KB
+    try:
+        if _CRASH_LOG.exists() and _CRASH_LOG.stat().st_size > 500_000:
+            text = _CRASH_LOG.read_text(encoding="utf-8", errors="replace")
+            _CRASH_LOG.write_text(text[-250_000:], encoding="utf-8")
+    except Exception:
+        pass
+
+    def _excepthook(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        logging.critical(
+            "Unhandled exception:\n%s",
+            "".join(traceback.format_exception(exc_type, exc_value, exc_tb)),
+        )
+
+    sys.excepthook = _excepthook
+
+    logger.info("=" * 60)
+    logger.info("SuiteView starting  %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 
 def _check_single_instance():
@@ -42,9 +87,13 @@ def _check_single_instance():
 
 def main():
     """Application entry point"""
+    _setup_crash_log()
+
     # Prevent multiple instances
     if not _check_single_instance():
+        logger.info("Another instance already running — exiting")
         sys.exit(0)
+    logger.info("Single-instance check passed")
 
     # Clear corrupted win32com gen_py cache if it exists (prevents Excel export errors)
     try:
@@ -61,9 +110,9 @@ def main():
     # Qt message handler (suppress non-critical warnings)
     def qt_message_handler(mode, context, message):
         if mode == QtMsgType.QtCriticalMsg:
-            print(f"Qt Critical: {message}")
+            logging.getLogger("Qt").critical(message)
         elif mode == QtMsgType.QtFatalMsg:
-            print(f"Qt Fatal: {message}")
+            logging.getLogger("Qt").critical("FATAL: %s", message)
         # Suppress warnings for cleaner output
     
     qInstallMessageHandler(qt_message_handler)
@@ -71,11 +120,18 @@ def main():
     # Create Qt application - don't quit when last window closes (we have tray)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    logger.info("QApplication created")
 
     # Create and show the main SuiteView window
     try:
+        logger.info("Creating SuiteViewTaskbar...")
         suiteview = SuiteViewTaskbar()
-        suiteview.setWindowTitle("SuiteView")
+        logger.info("SuiteViewTaskbar created successfully")
+        # Set window title based on executable name
+        if getattr(sys, 'frozen', False) and 'SuiteViewLight' in sys.executable:
+            suiteview.setWindowTitle("SuiteView Light")
+        else:
+            suiteview.setWindowTitle("SuiteView")
         # Window starts in compact mini-bar mode at bottom-right corner
         # (positioning is handled inside SuiteViewTaskbar.__init__)
         

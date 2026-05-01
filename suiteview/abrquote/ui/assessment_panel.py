@@ -697,11 +697,11 @@ class AssessmentPanel(QWidget):
             }}
         """
 
-        self._accel_label = QLabel("Acceleration amount:")
+        self._accel_label = QLabel("Full Face Amount:")
         self._accel_label.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {CRIMSON_DARK};")
         accel_row.addWidget(self._accel_label)
 
-        self._accel_reset_btn = QPushButton("Reset Accel Amount")
+        self._accel_reset_btn = QPushButton("Reset Full Face")
         self._accel_reset_btn.setStyleSheet(_reset_btn_style)
         self._accel_reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._accel_reset_btn.clicked.connect(self._on_accel_reset)
@@ -1054,11 +1054,14 @@ class AssessmentPanel(QWidget):
 
     def display_results(self, result: ABRQuoteResult):
         """Populate the right-column result fields."""
+        is_first_display = self._result is None
         self._result = result
         self.results_column.setVisible(True)
 
-        # Default the acceleration amount based on DB option
-        self._populate_default_acceleration_amount()
+        # Default the acceleration amount based on DB option —
+        # only on the first display; preserve user edits on recalcs.
+        if is_first_display:
+            self._populate_default_acceleration_amount()
         self.res_full_group.setTitle("Full Acceleration")
 
         # Full acceleration
@@ -1187,6 +1190,17 @@ class AssessmentPanel(QWidget):
         else:
             self.res_messages_label.setText("")
 
+        # If user had a custom acceleration amount, re-apply proportional
+        # recalculation so the Full Acceleration section stays in sync.
+        if not is_first_display:
+            raw = self._face_input.text().replace("$", "").replace(",", "").strip()
+            try:
+                current = float(raw)
+            except ValueError:
+                current = 0.0
+            if current > 0 and abs(current - self._default_accel_amount) >= 0.01:
+                self._on_face_calc()
+
     # ── Acceleration amount controls ──────────────────────────────────
 
     def _populate_default_acceleration_amount(self):
@@ -1212,7 +1226,7 @@ class AssessmentPanel(QWidget):
         self._update_accel_reset_visibility()
 
     def _on_face_calc(self):
-        """Recalculate the Full Acceleration section with the user-entered face."""
+        """Recalculate Full Acceleration (and Max Partial) with the user-entered full face amount."""
         if not self._policy or not self._result:
             return
 
@@ -1223,34 +1237,19 @@ class AssessmentPanel(QWidget):
             self.res_messages_label.setText("\u2022 Please enter a valid numeric face amount.")
             return
 
-        total_face = self._policy.face_amount
         result = self._result
 
-        max_partial_eligible = result.partial_eligible_db
-        warning_msg = ""
-        if (max_partial_eligible > 0
-                and custom_face > max_partial_eligible
-                and abs(custom_face - total_face) >= 0.01):
-            warning_msg = (
-                f"\u2022 Accelerating this amount would drop the face below the "
-                f"minimum. Max partial eligible is ${max_partial_eligible:,.2f}."
-            )
-
-        # Clear any prior validation message
-        if warning_msg:
-            self.res_messages_label.setText(warning_msg)
-        elif result.messages:
+        # Restore any result messages (remove stale validation messages)
+        if result.messages:
             bullets = "\n\n".join(f"\u2022 {m}" for m in result.messages)
             self.res_messages_label.setText(bullets)
         else:
             self.res_messages_label.setText("")
 
-        is_full = abs(custom_face - total_face) < 0.01
-        self.res_full_group.setTitle(
-            "Full Acceleration" if is_full else "Partial Acceleration"
-        )
+        # Title always stays Full Acceleration
+        self.res_full_group.setTitle("Full Acceleration")
 
-        # Proportional recalculation
+        # ── Full Acceleration — proportional recalculation ─────────────
         orig_eligible = result.full_eligible_db
         orig_discount = result.full_actuarial_discount
         admin_fee = result.full_admin_fee
@@ -1316,6 +1315,77 @@ class AssessmentPanel(QWidget):
             )
             self._res_full_apv_labels["apv_fd"].setText(
                 self._fmt_money(result.apv_fd * ratio)
+            )
+
+        # ── Max Partial Acceleration — (Full Face - Min Face) ──────────
+        min_face = self.get_min_face_amount()
+        partial_eligible = max(0.0, custom_face - min_face)
+        at_min_face = partial_eligible <= 0
+        self._partial_not_allowed_label.setVisible(at_min_face)
+        for w in self._res_partial_static_widgets:
+            if w in (self._partial_sv_lbl, self._partial_accel_lbl):
+                w.setVisible(not at_min_face and result.partial_surrender_value > 0)
+            else:
+                w.setVisible(not at_min_face)
+        has_partial_loan = result.partial_loan_repayment > 0
+        has_partial_sv = result.partial_surrender_value > 0
+        for key, val in self._res_partial_labels.items():
+            if key == "loan_repayment":
+                val.setVisible(not at_min_face and has_partial_loan)
+            elif key == "surrender_value":
+                val.setVisible(not at_min_face and has_partial_sv)
+            else:
+                val.setVisible(not at_min_face)
+        self._partial_loan_lbl.setVisible(not at_min_face and has_partial_loan)
+        for val in self._res_partial_apv_labels.values():
+            val.setVisible(not at_min_face)
+        self.res_partial_benefit_label.setVisible(not at_min_face)
+        self.res_partial_ratio_label.setVisible(not at_min_face)
+
+        if not at_min_face:
+            if orig_eligible > 0:
+                partial_ratio = partial_eligible / orig_eligible
+            else:
+                partial_ratio = 0.0
+
+            partial_discount = round(orig_discount * partial_ratio, 2)
+            partial_loan = round(orig_loan * partial_ratio, 2) if orig_loan > 0 else 0.0
+            if partial_loan > 0:
+                partial_benefit = round(partial_eligible - partial_discount - admin_fee - partial_loan, 2)
+                self._res_partial_labels["loan_repayment"].setText(self._fmt_money(partial_loan))
+            else:
+                partial_benefit = round(partial_eligible - partial_discount - admin_fee, 2)
+
+            partial_new_ratio = max(0.0, partial_benefit) / partial_eligible if partial_eligible > 0 else 0.0
+
+            self._res_partial_labels["eligible_db"].setText(self._fmt_money(partial_eligible))
+            self._res_partial_labels["actuarial_discount"].setText(self._fmt_money(partial_discount))
+            self._res_partial_labels["admin_fee"].setText(self._fmt_money(admin_fee))
+
+            if partial_benefit < 0:
+                self.res_partial_benefit_label.setText(
+                    f"$0.00  (calc: {self._fmt_money(partial_benefit)})"
+                )
+            else:
+                self.res_partial_benefit_label.setText(self._fmt_money(partial_benefit))
+            self.res_partial_ratio_label.setText(f"{partial_new_ratio * 100:.2f}%")
+
+            if has_partial_sv:
+                partial_sv = round(orig_sv * partial_ratio, 2)
+                self._res_partial_labels["surrender_value"].setText(self._fmt_money(partial_sv))
+                self.res_partial_accel_benefit_label.setText(
+                    self._fmt_money(max(max(0.0, partial_benefit), partial_sv))
+                )
+            self.res_partial_accel_benefit_label.setVisible(not at_min_face and has_partial_sv)
+
+            self._res_partial_apv_labels["apv_fb"].setText(
+                self._fmt_money(result.apv_fb * partial_ratio)
+            )
+            self._res_partial_apv_labels["apv_fp"].setText(
+                self._fmt_money(result.apv_fp * partial_ratio)
+            )
+            self._res_partial_apv_labels["apv_fd"].setText(
+                self._fmt_money(result.apv_fd * partial_ratio)
             )
 
         self._update_accel_reset_visibility()
@@ -1511,6 +1581,15 @@ class AssessmentPanel(QWidget):
             return
         from .calc_viewer import CalcViewerDialog
         after_partial = self.res_premium_after_partial_input.text().strip()
+
+        # Read current face/min-face input values
+        accel_raw = self._face_input.text().replace("$", "").replace(",", "").strip()
+        try:
+            accel_val = float(accel_raw)
+        except ValueError:
+            accel_val = 0.0
+        min_face_val = self.get_min_face_amount()
+
         viewer = CalcViewerDialog(
             mortality_rows=self._mort_detail,
             apv_rows=self._apv_detail,
@@ -1522,6 +1601,8 @@ class AssessmentPanel(QWidget):
             derived_values=self.get_derived_display_values(),
             after_partial_override=after_partial,
             warnings=self._get_current_warnings(),
+            accel_amount_input=accel_val,
+            min_face_amount_input=min_face_val,
             parent=None,
         )
         viewer.show()

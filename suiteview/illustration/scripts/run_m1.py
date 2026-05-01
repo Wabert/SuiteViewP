@@ -79,6 +79,9 @@ def main() -> None:
     print(f"  CTP:          ${policy.ctp:,.2f}")
     print(f"  Segments:     {len(policy.segments)}")
     print(f"  Benefits:     {len(policy.benefits)}")
+    for b in policy.benefits:
+        bkey = (b.benefit_type or "") + (b.benefit_subtype or "")
+        print(f"    [{bkey}] age={b.issue_age} units={b.units:.3f} vpu={b.vpu:.2f}")
 
     # ── Apply overrides ───────────────────────────────────────
     if args.rate is not None:
@@ -100,15 +103,15 @@ def main() -> None:
     results = engine.project(policy, months=args.months)
 
     # ── Console output ────────────────────────────────────────
-    print(f"\n{'='*160}")
+    print(f"\n{'='*172}")
     print(f"{'Dur':>4}  {'Yr':>3} {'Mo':>3}  {'Age':>3}  "
           f"{'Gross Prem':>12}  {'Net Prem':>12}  {'AV aft Prem':>12}  "
           f"{'Std DB':>12}  {'Corr Amt':>10}  {'Gross DB':>12}  "
           f"{'NAR Cov1':>12}  {'NAR Corr':>10}  "
           f"{'COI Cov1':>10}  {'COI Corr':>10}  {'COI Tot':>10}  "
-          f"{'EPU':>8}  {'Tot Ded':>10}  "
+          f"{'EPU':>8}  {'BenChg':>8}  {'Tot Ded':>10}  "
           f"{'Interest':>10}  {'End AV':>12}")
-    print(f"{'='*160}")
+    print(f"{'='*172}")
 
     for s in results:
         flag = " LAPSE" if s.lapsed else ""
@@ -124,7 +127,7 @@ def main() -> None:
             f"{s.nar_cov1:>12,.2f}  {s.nar_corr:>10,.2f}  "
             f"{s.coi_charge_cov1:>10,.2f}  {s.coi_charge_corr:>10,.2f}  "
             f"{s.coi_charge:>10,.2f}  "
-            f"{s.epu_charge:>8,.2f}  {s.total_deduction:>10,.2f}  "
+            f"{s.epu_charge:>8,.2f}  {s.benefit_charges:>8,.2f}  {s.total_deduction:>10,.2f}  "
             f"{s.interest_credited:>10,.2f}  {s.av_end_of_month:>12,.2f}"
             f"{flag}{label}"
         )

@@ -205,7 +205,7 @@ class IllustrationPolicyData:
 
     @property
     def is_smoker(self) -> bool:
-        return self.rate_class.upper() in ("S", "Q", "T")
+        return self.rate_class.upper() in ("S", "Q")
 
     @property
     def base_segment(self) -> Optional[CoverageSegment]:

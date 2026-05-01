@@ -49,6 +49,9 @@ class DeductionResult:
     epu_charge: float = 0.0
     mfee_charge: float = 0.0
     av_charge: float = 0.0
+    # Benefit charges (Step 2 riders/benefits)
+    pw_charge: float = 0.0          # Premium Waiver (type 3 subtype 9)
+    benefit_charges: float = 0.0    # Total of all benefit charges
     total_deduction: float = 0.0
     av_after_deduction: float = 0.0
 
@@ -61,6 +64,7 @@ def calculate_deduction(
     rate_year: int,
     attained_age: int,
     premiums_to_date: float,
+    monthly_mtp: float = 0.0,
 ) -> DeductionResult:
     """Calculate monthly deduction charges.
 
@@ -72,6 +76,7 @@ def calculate_deduction(
         rate_year: Current policy year for rate table lookup.
         attained_age: Current attained age for corridor lookup.
         premiums_to_date: Cumulative premiums (for DBO C).
+        monthly_mtp: Monthly minimum target premium (for PW charge basis).
 
     Returns:
         DeductionResult with all deduction-stage outputs.
@@ -184,8 +189,40 @@ def calculate_deduction(
         poav_rate = get_rate(rates, "poav", rate_year)
         av_charge = max(0.0, mAV * poav_rate)
 
-    # ── 3.2.10 Total deduction (cols 515-516) ────────────────
-    total_deduction = coi_charge + epu_charge + mfee_charge + av_charge
+    # ── 3.2.10 Benefit charges ────────────────────────────────
+    # Computed AFTER base deduction — PW waives greater of MTP or base deduction
+    pw_charge = 0.0
+    benefit_charges = 0.0
+
+    base_deduction = coi_charge + epu_charge + mfee_charge + av_charge
+
+    for ben in policy.benefits:
+        if not ben.is_active:
+            continue
+        if (ben.benefit_type or "").startswith("#"):
+            continue
+        ben_key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+        ben_rates = rates.benefit_coi.get(ben_key, [])
+        if not ben_rates:
+            continue
+
+        # Rate indexed by policy year (benefit issued at policy inception)
+        idx = rate_year if rate_year < len(ben_rates) else len(ben_rates) - 1
+        if idx < 1:
+            idx = 1
+        ben_coi_rate = float(ben_rates[idx]) if ben_rates[idx] is not None else 0.0
+
+        if ben_key == "39":  # Premium Waiver — charge on greater of MTP or base deduction
+            charge = ben_coi_rate * max(monthly_mtp, base_deduction)
+            pw_charge = charge
+        else:
+            # Generic benefit: units-based charge
+            charge = (ben.units / 1000.0) * ben_coi_rate
+
+        benefit_charges += charge
+
+    # ── 3.2.11 Total deduction (cols 515-516) ────────────────
+    total_deduction = base_deduction + benefit_charges
     av_after_deduction = mAV - total_deduction
 
     return DeductionResult(
@@ -208,6 +245,8 @@ def calculate_deduction(
         epu_charge=epu_charge,
         mfee_charge=mfee_charge,
         av_charge=av_charge,
+        pw_charge=pw_charge,
+        benefit_charges=benefit_charges,
         total_deduction=total_deduction,
         av_after_deduction=av_after_deduction,
     )

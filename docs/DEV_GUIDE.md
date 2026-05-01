@@ -595,3 +595,48 @@ excel.ScreenUpdating = True
 - Always wrap in `try/except ImportError` with a user-facing `QMessageBox`.
 - `openpyxl` is reserved for **batch/headless** file generation only, never for
   interactive "Export to Excel" buttons.
+
+---
+
+## Build & Distribution
+
+SuiteView ships as **two distributions** built with PyInstaller:
+
+| Distribution | Spec File | Description |
+|---|---|---|
+| **SuiteView** | `SuiteView.spec` | Full suite — all tools and modules |
+| **SuiteViewLight** | `SuiteViewLight.spec` | Lightweight — core tools only |
+
+### SuiteView (Full)
+
+Includes everything:
+
+**Taskbar buttons:** PolView (P), FileNav (F), ABR Quote (A), Audit/QueryTool (Q), ScratchPad (📝), File History (H)
+
+**Tools menu:** View Screenshots, PolView, ABR Quote, Mainframe Navigator, Audit Tool, Email Attachments (dev), Task Tracker (dev), Rate File Converter (dev), App Data Location
+
+### SuiteViewLight
+
+Stripped-down build for users who only need the essentials:
+
+**Taskbar buttons:** PolView (P), FileNav (F), ABR Quote (A)
+
+**Tools menu:** View Screenshots, App Data Location
+
+**Excluded from Light:** Audit Tool, ScratchPad, File History, Mainframe Navigator, Email Attachments, Task Tracker, Rate File Converter, messaging badge
+
+### How Light Mode Works
+
+The app detects its own executable name at startup. If the exe is named `SuiteViewLight`, it sets `LIGHT_MODE = True` in `suiteview_taskbar.py`, which hides the extra buttons and menu items. Both builds share the same source code — only the spec file and exe name differ.
+
+### Building
+
+```bash
+# Full build
+python scripts/build_distribution.py
+
+# Light build
+python scripts/build_distribution.py --light
+```
+
+Both produce a folder + ZIP in `dist/`.

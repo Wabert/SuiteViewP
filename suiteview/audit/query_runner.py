@@ -28,6 +28,52 @@ def execute_odbc_query(dsn: str, sql: str) -> tuple[list[str], list]:
     return columns, rows
 
 
+# Mapping from pyodbc type codes to readable SQL type names
+_TYPE_CODE_MAP = {
+    str: "VARCHAR",
+    int: "INTEGER",
+    float: "DOUBLE",
+    bool: "BOOLEAN",
+}
+
+
+def execute_odbc_query_with_types(dsn: str, sql: str) -> tuple[list[str], list, dict[str, str]]:
+    """Execute SQL via ODBC and return (columns, rows, column_types).
+
+    column_types maps column name → SQL type string (e.g. 'VARCHAR(50)', 'INTEGER').
+    """
+    conn = pyodbc.connect(f"DSN={dsn}", autocommit=True)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        columns = [desc[0] for desc in cursor.description]
+        col_types: dict[str, str] = {}
+        for desc in cursor.description:
+            name = desc[0]
+            type_code = desc[1]       # Python type object
+            display_size = desc[2]    # display size
+            internal_size = desc[3]   # internal size
+            precision = desc[4]       # precision
+            scale = desc[5]           # scale
+
+            base = _TYPE_CODE_MAP.get(type_code, type_code.__name__ if hasattr(type_code, '__name__') else str(type_code))
+
+            if type_code is str and internal_size:
+                col_types[name] = f"VARCHAR({internal_size})"
+            elif base in ("DOUBLE", "float") and precision:
+                if scale:
+                    col_types[name] = f"DECIMAL({precision},{scale})"
+                else:
+                    col_types[name] = f"DECIMAL({precision})"
+            else:
+                col_types[name] = base
+
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+    return columns, rows, col_types
+
+
 def execute_to_dataframe(dsn: str, sql: str) -> pd.DataFrame:
     """Execute SQL via ODBC and return a DataFrame."""
     columns, rows = execute_odbc_query(dsn, sql)

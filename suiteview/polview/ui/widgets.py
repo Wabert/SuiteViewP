@@ -1151,7 +1151,8 @@ class CopyableLabel(QLabel):
         copy_action = menu.addAction("Copy")
         action = menu.exec(self.mapToGlobal(pos))
         if action == copy_action:
-            QApplication.clipboard().setText(self.text())
+            selected = self.selectedText()
+            QApplication.clipboard().setText(selected if selected else self.text())
 
 
 class ClickableTooltipLabel(QLabel):
@@ -1401,6 +1402,85 @@ class TableDataWidget(QTableWidget):
         self.verticalHeader().setMinimumSectionSize(16)
         self.verticalHeader().setDefaultSectionSize(16)  # Compact row height
         self._apply_compact_style()
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
+
+    def _show_context_menu(self, pos):
+        """Show context menu for copying cell, row, or entire table."""
+        from PyQt6.QtWidgets import QMenu, QApplication
+        menu = QMenu(self)
+        menu.setStyleSheet(CONTEXT_MENU_STYLE)
+
+        item = self.itemAt(pos)
+        if item:
+            copy_cell_action = menu.addAction("Copy Cell")
+        else:
+            copy_cell_action = None
+
+        copy_row_action = menu.addAction("Copy Row")
+        copy_table_action = menu.addAction("Copy Entire Table")
+        menu.addSeparator()
+        dump_excel_action = menu.addAction("Dump to Excel")
+
+        action = menu.exec(self.mapToGlobal(pos))
+
+        if action == copy_cell_action and item:
+            QApplication.clipboard().setText(item.text())
+        elif action == copy_row_action:
+            row = self.currentRow()
+            if row >= 0:
+                cells = []
+                for c in range(self.columnCount()):
+                    it = self.item(row, c)
+                    cells.append(it.text() if it else "")
+                QApplication.clipboard().setText("\t".join(cells))
+        elif action == copy_table_action:
+            self._copy_table_to_clipboard()
+        elif action == dump_excel_action:
+            self._dump_to_excel()
+
+    def _copy_table_to_clipboard(self):
+        """Copy all table data (headers + rows) to clipboard."""
+        from PyQt6.QtWidgets import QApplication
+        lines = []
+        headers = []
+        for i in range(self.columnCount()):
+            h_item = self.horizontalHeaderItem(i)
+            headers.append(h_item.text() if h_item else "")
+        if any(headers):
+            lines.append("\t".join(headers))
+        for row in range(self.rowCount()):
+            if self.isRowHidden(row):
+                continue
+            cells = []
+            for col in range(self.columnCount()):
+                it = self.item(row, col)
+                cells.append(it.text() if it else "")
+            lines.append("\t".join(cells))
+        QApplication.clipboard().setText("\n".join(lines))
+
+    def _dump_to_excel(self):
+        """Open a fresh Excel workbook and dump table data."""
+        try:
+            from win32com.client import dynamic
+            excel = dynamic.Dispatch("Excel.Application")
+            excel.Visible = True
+            excel.ScreenUpdating = False
+            wb = excel.Workbooks.Add()
+            ws = wb.ActiveSheet
+            for col in range(self.columnCount()):
+                h_item = self.horizontalHeaderItem(col)
+                ws.Cells(1, col + 1).Value = h_item.text() if h_item else ""
+            for row in range(self.rowCount()):
+                if self.isRowHidden(row):
+                    continue
+                for col in range(self.columnCount()):
+                    it = self.item(row, col)
+                    ws.Cells(row + 2, col + 1).Value = it.text() if it else ""
+            excel.ScreenUpdating = True
+        except Exception as exc:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Excel Export", f"Could not export: {exc}")
     
     def _apply_compact_style(self):
         """Apply compact flat styling with minimal row height."""

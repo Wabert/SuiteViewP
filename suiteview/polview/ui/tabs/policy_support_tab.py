@@ -50,13 +50,27 @@ def _get_process_control_dir() -> str:
         "Life Product - Process_Control",
     )
 
+
+def _get_onedrive_dir() -> str:
+    username = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
+    return os.path.join(
+        "C:\\Users", username,
+        "OneDrive - American National Insurance Company",
+    )
+
+
+def _get_abr_root_dir() -> str:
+    return os.path.join(
+        _get_onedrive_dir(),
+        "Life Product - Accelerated_Benefits",
+    )
+
 def _get_policy_support_dir() -> str:
     return os.path.join(_get_process_control_dir(), "Policy Support")
 
 def _get_abr_dir() -> str:
     return os.path.join(
-        _get_process_control_dir(),
-        "Task",
+        _get_abr_root_dir(),
         "Accelerated Death Benefit (ABR11 & ABR14)",
     )
 
@@ -83,14 +97,14 @@ TOOL_FOLDERS = [
      r"Task\Policy Support"),
     ("Tools\\Whole Life Nonforfeiture Calc",
      r"Tools\Whole Life Nonforfeiture Calc"),
-    ("Task\\Accelerated Death Benefit (ABR11 & ABR14)",
-     r"Task\Accelerated Death Benefit (ABR11 & ABR14)"),
 ]
 
 # Absolute-path tool folders (not relative to Process Control)
 _ABS_TOOL_FOLDERS = [
     ("Cyberlife Reference Files",
      r"C:\Users\ab7y02\OneDrive - American National Insurance Company\Life Product - Data\Cyberlife Reference Files"),
+    ("Task\\Accelerated Death Benefit (ABR11 & ABR14)",
+     _get_abr_dir()),
 ]
 
 
@@ -990,14 +1004,26 @@ class PolicySupportTab(QWidget):
     # -- OneDrive check ----------------------------------------------------
 
     def _check_onedrive(self) -> bool:
-        """Check if the Process_Control SharePoint library is synced to OneDrive.
+        """Check if the active SharePoint library is synced to OneDrive.
 
         Shows a warning label inside this tab if not found.
         Returns True if the folder exists, False otherwise.
         Note: this only affects the Policy Support tab — the rest of PolView
         works fine without the OneDrive link.
         """
-        exists = os.path.isdir(_get_process_control_dir())
+        if self._current_mode == self.MODE_ABR:
+            required_dir = _get_abr_root_dir()
+            library_name = "Life Product - Accelerated_Benefits"
+        else:
+            required_dir = _get_process_control_dir()
+            library_name = "Life Product - Process_Control"
+
+        exists = os.path.isdir(required_dir)
+        self._onedrive_warning_label.setText(
+            "⚠️  SharePoint library not linked to OneDrive.\n"
+            f"To use Policy Support, sync the '{library_name}'\n"
+            "library to your OneDrive."
+        )
         self._onedrive_warning_label.setVisible(not exists)
         # Hide library path row when there's nothing useful to show
         self._library_path_label.setVisible(exists)

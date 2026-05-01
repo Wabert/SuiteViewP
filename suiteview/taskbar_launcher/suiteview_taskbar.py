@@ -30,12 +30,24 @@ from suiteview.ui.widgets.bookmark_widgets import (
 import logging
 logger = logging.getLogger(__name__)
 
-from suiteview.messaging.message_service import MessageService, is_messaging_available
-from suiteview.messaging.inbox_widget import MessageInbox
+try:
+    from suiteview.messaging.message_service import MessageService, is_messaging_available
+    from suiteview.messaging.inbox_widget import MessageInbox
+except Exception:
+    logger.info("Messaging module unavailable — skipping")
+    MessageService = None  # type: ignore[assignment,misc]
+    MessageInbox = None    # type: ignore[assignment,misc]
+
+    def is_messaging_available() -> bool:
+        return False
 
 # DEV_MODE is True when running from source, False when running as a PyInstaller exe.
 # Experimental features (PolView, Audit, Task Tracker, etc.) are only shown in DEV_MODE.
 DEV_MODE = not getattr(sys, 'frozen', False)
+
+# LIGHT_MODE is True when the exe is named SuiteViewLight.
+# Light builds only include PolView, FileNav, ABR Quote, View Screenshots, and App Data Location.
+LIGHT_MODE = getattr(sys, 'frozen', False) and 'SuiteViewLight' in os.path.basename(sys.executable)
 
 
 class NavigableTreeView(DropTreeView):
@@ -2050,16 +2062,20 @@ class SuiteViewTaskbar(QWidget):
         # Create PolView eagerly so all tools share the same instance
         # (only if the polview package is available in this deployment)
         try:
+            logger.info("Importing PolView...")
             from suiteview.polview.ui.main_window import GetPolicyWindow
+            logger.info("Creating GetPolicyWindow...")
             self.polview_window = GetPolicyWindow()
             self._setup_child_window(self.polview_window, "PolView")
+            logger.info("PolView created successfully")
         except ImportError:
             logger.info("PolView package not available — skipping")
         except Exception as e:
-            logger.error(f"Failed to pre-create PolView: {e}")
+            logger.error(f"Failed to pre-create PolView: {e}", exc_info=True)
 
-        # Messaging service (only when shared folder is reachable)
-        self._messaging_enabled = is_messaging_available()
+        # Messaging service (only when shared folder is reachable, disabled in Light mode)
+        logger.info("Checking messaging availability (LIGHT_MODE=%s)...", LIGHT_MODE)
+        self._messaging_enabled = is_messaging_available() and not LIGHT_MODE
         if self._messaging_enabled:
             self._msg_service = MessageService(self)
             self._msg_inbox = MessageInbox()
@@ -2072,13 +2088,17 @@ class SuiteViewTaskbar(QWidget):
         self._shared_splitter_sizes = None  # Will be set from first tab or saved
         self._syncing_splitter = False  # Prevent recursive updates
         
+        logger.info("Calling init_ui...")
         self.init_ui()
+        logger.info("init_ui complete")
         
         # Add resize grips to corners
         self._add_resize_grips()
         
         # Setup system tray
+        logger.info("Setting up system tray...")
         self._setup_system_tray()
+        logger.info("System tray setup complete")
 
         # Connect messaging signals
         if self._messaging_enabled:
@@ -2183,11 +2203,12 @@ class SuiteViewTaskbar(QWidget):
         
         tray_menu.addSeparator()
         
-        self._mainframe_action = QAction("💻 Mainframe Navigator", self)
-        self._mainframe_action.triggered.connect(self._open_mainframe)
-        tray_menu.addAction(self._mainframe_action)
+        if not LIGHT_MODE:
+            self._mainframe_action = QAction("💻 Mainframe Navigator", self)
+            self._mainframe_action.triggered.connect(self._open_mainframe)
+            tray_menu.addAction(self._mainframe_action)
         
-        if DEV_MODE:
+        if DEV_MODE and not LIGHT_MODE:
             self._data_action = QAction("🗄️ Data Manager", self)
             self._data_action.triggered.connect(self._open_data_manager)
             tray_menu.addAction(self._data_action)
@@ -2205,9 +2226,10 @@ class SuiteViewTaskbar(QWidget):
         self._abrquote_action.triggered.connect(self._open_abrquote)
         tray_menu.addAction(self._abrquote_action)
         
-        self._audit_action = QAction("🔍 Audit Tool", self)
-        self._audit_action.triggered.connect(self._open_audit)
-        tray_menu.addAction(self._audit_action)
+        if not LIGHT_MODE:
+            self._audit_action = QAction("🔍 Audit Tool", self)
+            self._audit_action.triggered.connect(self._open_audit)
+            tray_menu.addAction(self._audit_action)
         
         tray_menu.addSeparator()
         
@@ -3318,7 +3340,8 @@ class SuiteViewTaskbar(QWidget):
             }
         """)
         self.audit_btn.clicked.connect(self._open_audit)
-        header_layout.addWidget(self.audit_btn)
+        if not LIGHT_MODE:
+            header_layout.addWidget(self.audit_btn)
         
         # ====== WINDOW CAPTURE BUTTON (blue dot) - HIDDEN FOR NOW ======
         # Functionality preserved in _capture_active_window() for future use
@@ -3376,7 +3399,8 @@ class SuiteViewTaskbar(QWidget):
             }
         """)
         self.scratchpad_window_btn.clicked.connect(self._toggle_scratchpad_window)
-        header_layout.addWidget(self.scratchpad_window_btn)
+        if not LIGHT_MODE:
+            header_layout.addWidget(self.scratchpad_window_btn)
 
         # ====== FILE OPEN HISTORY BUTTON (teal "H" with gold trim) ======
         self.file_history_btn = QPushButton("H")
@@ -3404,7 +3428,8 @@ class SuiteViewTaskbar(QWidget):
             }
         """)
         self.file_history_btn.clicked.connect(self._toggle_file_open_history)
-        header_layout.addWidget(self.file_history_btn)
+        if not LIGHT_MODE:
+            header_layout.addWidget(self.file_history_btn)
 
         # Tools dropdown menu button - gold text only
         self.tools_menu_btn = QPushButton("Tools")
@@ -3446,12 +3471,13 @@ class SuiteViewTaskbar(QWidget):
         """)
         # Apps submenu
         self.tools_menu.addAction("View Screenshots", self._open_screenshot)
-        # PolView, ABR Quote, and Mainframe Nav are always available
-        self.tools_menu.addAction("PolView", self._open_polview)
-        self.tools_menu.addAction("ABR Quote", self._open_abrquote)
-        self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)
-        self.tools_menu.addAction("Audit Tool", self._open_audit)
-        if DEV_MODE:
+        if not LIGHT_MODE:
+            # PolView, ABR Quote, and Mainframe Nav are always available in full build
+            self.tools_menu.addAction("PolView", self._open_polview)
+            self.tools_menu.addAction("ABR Quote", self._open_abrquote)
+            self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)
+            self.tools_menu.addAction("Audit Tool", self._open_audit)
+        if DEV_MODE and not LIGHT_MODE:
             self.tools_menu.addAction("Email Attachments", self._open_email_attachments)
             self.tools_menu.addAction("Task Tracker", self._open_task_tracker)
             self.tools_menu.addAction("Rate File Converter", self._open_rate_manager)

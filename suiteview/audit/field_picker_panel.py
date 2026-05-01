@@ -12,10 +12,11 @@ from typing import TYPE_CHECKING
 
 import pyodbc
 from PyQt6.QtCore import Qt, QMimeData, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QDrag
+from PyQt6.QtGui import QFont, QDrag, QColor, QBrush
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QAbstractItemView, QSplitter, QFrame, QPushButton, QMenu,
+    QListWidgetItem,
 )
 
 from .tabs._styles import TightItemDelegate
@@ -166,6 +167,7 @@ class FieldPickerPanel(QWidget):
         self._current_table: str = ""
         self._loader: _FieldLoaderThread | None = None
         self._field_cache: dict[str, list[tuple]] = {}
+        self._common_table_cols: dict[str, list[tuple]] = {}
         self._pending_sizes: list[int] | None = None
         self._last_good_sizes: list[int] | None = None
 
@@ -189,7 +191,7 @@ class FieldPickerPanel(QWidget):
         ql.setContentsMargins(4, 4, 2, 4)
         ql.setSpacing(3)
 
-        lbl_queries = QLabel("Query")
+        lbl_queries = QLabel("QDesign")
         lbl_queries.setStyleSheet(_HEADER_STYLE)
         ql.addWidget(lbl_queries)
 
@@ -398,12 +400,60 @@ class FieldPickerPanel(QWidget):
         self._field_cache.clear()
         self._current_table = ""
 
+        self._rebuild_table_list()
+
+    def set_common_tables(
+        self, common_cols: dict[str, list[tuple[str, str]]]
+    ):
+        """Update common table entries in the table list.
+
+        Args:
+            common_cols: {table_name: [(col_name, type_name), ...]}
+        """
+        # Remove old common table names from regular tables list
+        old_names = set(self._common_table_cols.keys())
+        self._tables = [t for t in self._tables if t not in old_names]
+        self._common_table_cols = dict(common_cols)
+
+        # Pre-populate field cache for common tables
+        for name, cols in common_cols.items():
+            # Convert (col_name, type_name) to the standard 4-tuple format
+            self._field_cache[name] = [
+                (col_name, type_name, "", "") for col_name, type_name in cols
+            ]
+
+        self._rebuild_table_list()
+
+    def _rebuild_table_list(self):
+        """Rebuild the table list widget with DB tables + common tables."""
+        prev = self._current_table
         self.list_tables.clear()
         self.list_fields.clear()
         self.lbl_status.setText("")
 
-        self.list_tables.addItems(self._tables)
-        if self._tables:
+        # Add regular DB tables
+        for t in self._tables:
+            self.list_tables.addItem(t)
+
+        # Add common tables with grey styling
+        ct_names = sorted(self._common_table_cols.keys())
+        for name in ct_names:
+            item = QListWidgetItem(f"\u25cb {name}")  # small circle prefix
+            item.setForeground(QBrush(QColor("#666666")))
+            item.setBackground(QBrush(QColor("#F0F0F0")))
+            item.setToolTip(f"Common Table: {name}")
+            item.setData(Qt.ItemDataRole.UserRole, name)  # store real name
+            self.list_tables.addItem(item)
+
+        # Restore selection or default to first
+        if prev:
+            for i in range(self.list_tables.count()):
+                itm = self.list_tables.item(i)
+                real = itm.data(Qt.ItemDataRole.UserRole) or itm.text()
+                if real == prev:
+                    self.list_tables.setCurrentRow(i)
+                    return
+        if self.list_tables.count() > 0:
             self.list_tables.setCurrentRow(0)
 
     def clear(self):
@@ -412,6 +462,7 @@ class FieldPickerPanel(QWidget):
         self._tables = []
         self._display_names = {}
         self._field_cache.clear()
+        self._common_table_cols.clear()
         self._current_table = ""
         self.list_tables.clear()
         self.list_fields.clear()
@@ -422,13 +473,15 @@ class FieldPickerPanel(QWidget):
     def _on_table_selected(self, current, previous):
         if current is None:
             return
-        table = current.text()
+        # Use UserRole data for common tables (stores the real name)
+        table = current.data(Qt.ItemDataRole.UserRole) or current.text()
         if table == self._current_table:
             return
         self._current_table = table
         self._load_fields(table)
 
     def _load_fields(self, table: str):
+        # Common tables and cached tables can be served immediately
         if table in self._field_cache:
             self._populate_fields(table, self._field_cache[table])
             return

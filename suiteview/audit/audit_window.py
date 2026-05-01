@@ -32,12 +32,14 @@ from .tabs.display_tab import DisplayTab
 from .tabs.results_tab import ResultsTab
 from .tabs.sql_tab import SqlTab
 from .tabs.plancode_tab import PlancodeTab
+from .tabs.common_tables_tab import CommonTablesTab
 from .tabs.build_sql_tab import BuildSqlTab
 from .tabs.build_sql_results_tab import BuildSqlResultsTab
 from .tabs._styles import style_combo as _style_combo
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import DEFAULT_SCHEMA, REGION_SCHEMA_MAP
 from .cyberlife_query import build_cyberlife_sql
+from .dynamic_query import build_common_table_cte
 from .sql_helpers import fmt_time
 from .dynamic_group import DynamicQuery
 from .field_picker_panel import FieldPickerPanel
@@ -90,10 +92,15 @@ class AuditWindow(FramelessWindowBase):
         # ── Mode tracking ─────────────────────────────────────────
         self._current_mode = "cyberlife"
         # Registry and +Group buttons — placed in the window header bar
+        # Gold trim style for all header buttons
+        _GOLD = "#D4A017"
+        _GOLD_BTN_BASE = (
+            " color: {gold}; border: 1px solid {gold}; border-radius: 3px;"
+            " padding: 2px 10px; font-size: 8pt;"
+        ).format(gold=_GOLD)
         _HEADER_BTN_STYLE = (
-            "QPushButton { background-color: rgba(255,255,255,0.15); color: white;"
-            " border: 1px solid rgba(255,255,255,0.3); border-radius: 3px;"
-            " padding: 2px 10px; font-size: 8pt; }"
+            "QPushButton { background-color: rgba(255,255,255,0.10);"
+            + _GOLD_BTN_BASE + " }"
             "QPushButton:hover { background-color: rgba(255,255,255,0.25); }"
         )
         self.btn_registry = QPushButton("Registry")
@@ -104,12 +111,11 @@ class AuditWindow(FramelessWindowBase):
         self.btn_registry.clicked.connect(self._open_registry)
         # Cyberlife header button (view toggle)
         _CYB_HDR_BTN_STYLE = (
-            "QPushButton { background-color: rgba(10,42,92,0.8); color: white;"
-            " border: 1px solid rgba(10,42,92,0.9); border-radius: 3px;"
-            " padding: 2px 10px; font-size: 8pt; }"
+            "QPushButton { background-color: rgba(10,42,92,0.8);"
+            + _GOLD_BTN_BASE + " }"
             "QPushButton:hover { background-color: rgba(30,91,168,0.8); }"
             "QPushButton:checked { background-color: #0A2A5C;"
-            " border: 1px solid #061D40; }"
+            " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
         )
         self.btn_cyberlife = QPushButton("Cyberlife")
         self.btn_cyberlife.setFont(QFont("Segoe UI", 8))
@@ -120,27 +126,25 @@ class AuditWindow(FramelessWindowBase):
         self.btn_cyberlife.setToolTip("Switch to the Cyberlife audit view")
         self.btn_cyberlife.clicked.connect(self._on_cyberlife_header_clicked)
         _WB_BTN_STYLE = (
-            "QPushButton { background-color: rgba(124,58,237,0.7); color: white;"
-            " border: 1px solid rgba(124,58,237,0.9); border-radius: 3px;"
-            " padding: 2px 10px; font-size: 8pt; }"
+            "QPushButton { background-color: rgba(124,58,237,0.7);"
+            + _GOLD_BTN_BASE + " }"
             "QPushButton:hover { background-color: rgba(139,92,246,0.8); }"
             "QPushButton:checked { background-color: #7C3AED;"
-            " border: 1px solid #6D28D9; }"
+            " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
         )
-        self.btn_workbench = QPushButton("Queries")
+        self.btn_workbench = QPushButton("QDesigner")
         self.btn_workbench.setFont(QFont("Segoe UI", 8))
         self.btn_workbench.setFixedHeight(24)
         self.btn_workbench.setCheckable(True)
         self.btn_workbench.setStyleSheet(_WB_BTN_STYLE)
-        self.btn_workbench.setToolTip("Switch to the Queries view")
+        self.btn_workbench.setToolTip("Switch to the Query Designer view")
         self.btn_workbench.clicked.connect(self._toggle_saved_queries_shelf)
         _DF_BTN_STYLE = (
-            "QPushButton { background-color: rgba(13,148,136,0.7); color: white;"
-            " border: 1px solid rgba(13,148,136,0.9); border-radius: 3px;"
-            " padding: 2px 10px; font-size: 8pt; }"
+            "QPushButton { background-color: rgba(13,148,136,0.7);"
+            + _GOLD_BTN_BASE + " }"
             "QPushButton:hover { background-color: rgba(20,184,166,0.8); }"
             "QPushButton:checked { background-color: #0D9488;"
-            " border: 1px solid #0F766E; }"
+            " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
         )
         self.btn_dataforge = QPushButton("DataForge")
         self.btn_dataforge.setFont(QFont("Segoe UI", 8))
@@ -149,13 +153,38 @@ class AuditWindow(FramelessWindowBase):
         self.btn_dataforge.setStyleSheet(_DF_BTN_STYLE)
         self.btn_dataforge.setToolTip("Switch to the DataForge view")
         self.btn_dataforge.clicked.connect(self._toggle_dataforge_shelf)
+        # QDef viewer button
+        _QDEF_BTN_STYLE = (
+            "QPushButton { background-color: rgba(124,58,237,0.4);"
+            + _GOLD_BTN_BASE + " }"
+            "QPushButton:hover { background-color: rgba(124,58,237,0.6); }"
+        )
+        self.btn_qdef = QPushButton("QDef")
+        self.btn_qdef.setFont(QFont("Segoe UI", 8))
+        self.btn_qdef.setFixedHeight(24)
+        self.btn_qdef.setStyleSheet(_QDEF_BTN_STYLE)
+        self.btn_qdef.setToolTip("Open the QDefinition viewer")
+        self.btn_qdef.clicked.connect(self._open_qdef_viewer)
+        # Common Tables manager button
+        self.btn_common_tables = QPushButton("Common Tables")
+        self.btn_common_tables.setFont(QFont("Segoe UI", 8))
+        self.btn_common_tables.setFixedHeight(24)
+        self.btn_common_tables.setStyleSheet(_HEADER_BTN_STYLE)
+        self.btn_common_tables.setToolTip("Manage user-defined lookup / translation tables")
+        self.btn_common_tables.clicked.connect(self._open_common_tables)
         # Insert into header bar layout before window control buttons
+        # Group 1: Registry, QDef, Common Tables (tools) — then spacer — Group 2: Cyberlife, QDesigner, DataForge (modes)
+        from PyQt6.QtWidgets import QSpacerItem, QSizePolicy
         header_layout = self.header_bar.layout()
         insert_pos = header_layout.count() - 3  # before min/max/close
         header_layout.insertWidget(insert_pos, self.btn_registry)
-        header_layout.insertWidget(insert_pos + 1, self.btn_cyberlife)
-        header_layout.insertWidget(insert_pos + 2, self.btn_workbench)
-        header_layout.insertWidget(insert_pos + 3, self.btn_dataforge)
+        header_layout.insertWidget(insert_pos + 1, self.btn_qdef)
+        header_layout.insertWidget(insert_pos + 2, self.btn_common_tables)
+        header_layout.insertItem(insert_pos + 3,
+            QSpacerItem(20, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum))
+        header_layout.insertWidget(insert_pos + 4, self.btn_cyberlife)
+        header_layout.insertWidget(insert_pos + 5, self.btn_workbench)
+        header_layout.insertWidget(insert_pos + 6, self.btn_dataforge)
         # Dynamic query storage
         self._dynamic_queries: dict[str, DynamicQuery] = {}
         # Track which unpinned query is currently active
@@ -211,6 +240,9 @@ class AuditWindow(FramelessWindowBase):
         # Plancode tab
         self.plancode_tab = PlancodeTab()
         self.tabs.addTab(self.plancode_tab, "Plancode")
+        # Common Tables tab
+        self.cyb_common_tables_tab = CommonTablesTab()
+        self.tabs.addTab(self.cyb_common_tables_tab, "Common Tables")
         # SQL tab
         self.sql_tab = SqlTab()
         self.tabs.addTab(self.sql_tab, "SQL")
@@ -440,6 +472,7 @@ class AuditWindow(FramelessWindowBase):
             dq = self._dynamic_queries[mode]
             self._field_picker.set_group(
                 dq.dsn, dq.tables, dq.display_names)
+            self._push_common_tables_to_picker(dq)
             raw_name = mode.removeprefix("▸ ")
             self._field_picker.highlight_query(raw_name)
         else:
@@ -457,7 +490,8 @@ class AuditWindow(FramelessWindowBase):
         fg = self._dataforge_groups.get(mode)
         if fg:
             self._forge_field_picker.set_sources(
-                list(fg._sources.keys()))
+                list(fg._sources.keys()),
+                forge_name=fg._saved_forge_name)
             raw_name = mode.removeprefix("⚙ ")
             self._forge_field_picker.highlight_forge(raw_name)
         self._content_splitter.setStyleSheet(
@@ -477,8 +511,24 @@ class AuditWindow(FramelessWindowBase):
         if group is not None:
             self._field_picker.set_group(
                 group.dsn, group.tables, group.display_names)
+            self._push_common_tables_to_picker(group)
         else:
             self._field_picker.clear()
+
+    def _on_common_tables_changed(self, common_cols: dict):
+        """A DynamicQuery's common tables changed — refresh field picker."""
+        # Only update picker if the emitting group is the active one
+        group = self._dynamic_queries.get(self._current_mode)
+        if group is not None:
+            self._field_picker.set_common_tables(common_cols)
+
+    def _push_common_tables_to_picker(self, group):
+        """Push a DynamicQuery's common table info to the field picker."""
+        common_cols: dict[str, list[tuple[str, str]]] = {}
+        for ct in group.common_tables_tab.get_selected_tables():
+            cols = [(c["name"], c.get("type", "TEXT")) for c in ct.columns]
+            common_cols[ct.name] = cols
+        self._field_picker.set_common_tables(common_cols)
     def _on_picker_field_requested(self, table: str, column: str,
                                    type_name: str, display: str):
         """Double-click in field picker — delegate to the active dynamic query."""
@@ -527,7 +577,8 @@ class AuditWindow(FramelessWindowBase):
         group = self._dataforge_groups.get(display)
         if group is not None:
             self._forge_field_picker.set_sources(
-                list(group._sources.keys()))
+                list(group._sources.keys()),
+                forge_name=group._saved_forge_name)
             self._forge_field_picker.highlight_forge(forge.name)
     def _refresh_picker_forge_list(self):
         """Refresh the forge list in the forge field picker from saved forges."""
@@ -539,12 +590,16 @@ class AuditWindow(FramelessWindowBase):
         """Queries list was changed in the forge picker — sync back to the group."""
         group = self._dataforge_groups.get(self._current_mode)
         if group is not None:
-            from suiteview.audit import saved_query_store as sq_store
+            from suiteview.audit import qdef_store
+            forge_name = group._saved_forge_name or ""
             for name in source_names:
                 if name not in group._sources:
-                    sq = sq_store.load_query(name)
-                    if sq:
-                        group.add_source_query(sq)
+                    qd = qdef_store.load_qdef(name, forge_name=forge_name)
+                    if not qd:
+                        qd = qdef_store.load_qdef(name)  # fallback: search all
+                    if qd:
+                        group.add_source_query(qd)
+            group._schedule_save()
     # ── Dynamic query management ─────────────────────────────────────
     def _on_add_group(self):
         """Open the Create Query dialog and add a new dynamic query."""
@@ -583,6 +638,7 @@ class AuditWindow(FramelessWindowBase):
         self._dynamic_query_container.addWidget(group)
         group.query_saved.connect(lambda _: self._refresh_picker_query_list())
         group.query_deleted.connect(self._on_query_deleted_from_group)
+        group.common_tables_changed.connect(self._on_common_tables_changed)
     def _close_group(self, name: str):
         """Close a query group — removes from UI."""
         self._remove_query(name)
@@ -693,12 +749,33 @@ class AuditWindow(FramelessWindowBase):
         except Exception as exc:
             logger.exception("Failed to open registry window")
             QMessageBox.warning(self, "Registry Error", str(exc))
+    # ── QDefinition Viewer ───────────────────────────────────────────
+    def _open_qdef_viewer(self):
+        """Open the QDefinition viewer window."""
+        try:
+            from .qdef_viewer_window import QDefViewerWindow
+            QDefViewerWindow.show_instance(parent=None)
+        except Exception as exc:
+            logger.exception("Failed to open QDef viewer window")
+            QMessageBox.warning(self, "QDef Error", str(exc))
+    # ── Common Tables Manager ────────────────────────────────────────
+    def _open_common_tables(self):
+        """Open the Common Tables manager dialog."""
+        try:
+            from .common_table_dialog import CommonTableDialog
+            dlg = CommonTableDialog.show_instance(parent=None)
+            # Refresh the tab when tables change
+            dlg.tables_changed.connect(
+                self.cyb_common_tables_tab.refresh_available)
+        except Exception as exc:
+            logger.exception("Failed to open Common Tables dialog")
+            QMessageBox.warning(self, "Common Tables Error", str(exc))
     # ── Query building ───────────────────────────────────────────────
     def _build_sql(self) -> str:
         """Build the CyberLife audit SQL — delegates to cyberlife_query module."""
         region = self.cmb_region.currentText()
         schema = REGION_SCHEMA_MAP.get(region, DEFAULT_SCHEMA)
-        return build_cyberlife_sql(
+        sql = build_cyberlife_sql(
             schema=schema,
             sys_code=self.cmb_system.currentText().strip(),
             max_count_text=self.txt_max_count.text().strip(),
@@ -711,6 +788,19 @@ class AuditWindow(FramelessWindowBase):
             benefits_tab=self.benefits_tab,
             transaction_tab=self.transaction_tab,
         )
+
+        # Prepend Common Table CTEs if any are selected
+        common_tables = self.cyb_common_tables_tab.get_selected_tables()
+        if common_tables:
+            cte_prefix = build_common_table_cte(common_tables, dialect="DB2")
+            # Cyberlife SQL starts with 'WITH COVERAGE1 AS ...'
+            # Merge by replacing 'WITH' with the common tables CTE + comma
+            if sql.strip().upper().startswith("WITH "):
+                sql = cte_prefix + ",\n" + sql.strip()[4:]  # strip 'WITH'
+            else:
+                sql = cte_prefix + "\n" + sql
+
+        return sql
     # ── Profile management ───────────────────────────────────────────
     def _cyberlife_criteria_tabs(self):
         """Return (key, tab) pairs for Cyberlife tabs that support get_state/set_state."""
@@ -752,6 +842,11 @@ class AuditWindow(FramelessWindowBase):
                 t1 = time.time()
                 df = pd.DataFrame([list(r) for r in rows], columns=columns)
                 self.results_tab.set_results(df)
+                self.results_tab.set_query_context(
+                    sql=sql, dsn=db.dsn,
+                    source_design="Cyberlife",
+                    result_columns=columns,
+                )
                 t_print = time.time() - t1
                 t_total = time.time() - t0
                 self.lbl_query_time.setText(f"Query time:  {fmt_time(t_query)}")
@@ -854,6 +949,7 @@ class AuditWindow(FramelessWindowBase):
         self._dynamic_query_container.addWidget(group)
         group.query_saved.connect(lambda _: self._refresh_picker_query_list())
         group.query_deleted.connect(self._on_query_deleted_from_group)
+        group.common_tables_changed.connect(self._on_common_tables_changed)
         # Restore saved config into the group (marks clean after load)
         group.set_config(config)
         # Switch to new query first, then remove old (avoids flash to Cyberlife)

@@ -8,10 +8,11 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidgetItem, QMessageBox,
 )
+from PyQt6.QtCore import Qt
 
 from suiteview.core.db2_connection import DB2Connection
 from ..styles import BLUE_LIGHT, BLUE_DARK, BLUE_PRIMARY, GOLD_LIGHT, GOLD_PRIMARY
-from ..widgets import TableDataWidget
+from ..widgets import CopyableLabel, TableDataWidget
 
 
 class RawTableTab(QWidget):
@@ -34,8 +35,12 @@ class RawTableTab(QWidget):
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(4, 4, 4, 0)
 
-        self.table_label = QLabel("Select a table from the left panel")
+        self.table_label = CopyableLabel("Select a table from the left panel")
         self.table_label.setStyleSheet("font-weight: bold;")
+        self.table_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.table_label.setCursor(Qt.CursorShape.IBeamCursor)
         header_layout.addWidget(self.table_label)
 
         header_layout.addStretch()

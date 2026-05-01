@@ -187,6 +187,7 @@ def build_cyberlife_sql(
     disp_trad_cv_cov1 = dt.chk_trad_cv_cov1.isChecked()
     disp_account_value = dt.chk_account_value.isChecked()
     disp_insured1_info = dt.chk_insured1_info.isChecked()
+    disp_monthly_deduction = dt.chk_monthly_deduction.isChecked()
 
     needs_grace_table = has_gpe_date or grace_indicator or disp_gpe_date
 
@@ -518,6 +519,19 @@ def build_cyberlife_sql(
         sql_parts.append(f"      AND MV.CK_CMP_CD = TEMPPOLTOTALS.CK_CMP_CD")
         sql_parts.append(f"      AND MV.TCH_POL_ID = TEMPPOLTOTALS.TCH_POL_ID)")
 
+    # Monthly Deduction CTE (CINS_AMT + OTH_PRM_AMT + EXP_CRG_AMT at most recent MVRY_DT)
+    if disp_monthly_deduction:
+        sql_parts.append(f", MONTHLY_DED AS (")
+        sql_parts.append(f"  SELECT MV.CK_SYS_CD, MV.CK_CMP_CD, MV.TCH_POL_ID")
+        sql_parts.append(f"    , (COALESCE(MV.CINS_AMT, 0) + COALESCE(MV.OTH_PRM_AMT, 0) + COALESCE(MV.EXP_CRG_AMT, 0)) MONTHLY_DED_AMT")
+        sql_parts.append(f"    , MV.MVRY_DT MONTHLY_DED_DT")
+        sql_parts.append(f"  FROM {schema}.LH_POL_MVRY_VAL MV")
+        sql_parts.append(f"  WHERE MV.MVRY_DT = (")
+        sql_parts.append(f"    SELECT MAX(MV2.MVRY_DT) FROM {schema}.LH_POL_MVRY_VAL MV2")
+        sql_parts.append(f"    WHERE MV2.CK_SYS_CD = MV.CK_SYS_CD")
+        sql_parts.append(f"      AND MV2.CK_CMP_CD = MV.CK_CMP_CD")
+        sql_parts.append(f"      AND MV2.TCH_POL_ID = MV.TCH_POL_ID))")
+
     # INTERPOLATION_MONTHS CTE (shared by ISWL_GCV, Trad CV, Account Value)
     if needs_interpolation:
         sql_parts.append(f", INTERPOLATION_MONTHS AS (")
@@ -805,6 +819,9 @@ def build_cyberlife_sql(
         sql_parts.append("  , MVVAL.TOTALPREM")
     if disp_prem_ytd:
         sql_parts.append("  , LH_POL_YR_TOT_at_MaxDuration.YTD_TOT_PMT_AMT")
+    if disp_monthly_deduction:
+        sql_parts.append("  , MONTHLY_DED.MONTHLY_DED_AMT")
+        sql_parts.append("  , VARCHAR_FORMAT(MONTHLY_DED.MONTHLY_DED_DT, 'MM/DD/YYYY') MONTHLY_DED_DT")
     if disp_policy_debt:
         sql_parts.append("  , POLICYDEBT.LOAN_PRINCIPLE")
         sql_parts.append("  , POLICYDEBT.LOAN_ACCRUED")
@@ -1055,6 +1072,11 @@ def build_cyberlife_sql(
         sql_parts.append("    ON POLICY1.CK_SYS_CD = MVVAL.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = MVVAL.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = MVVAL.TCH_POL_ID")
+    if disp_monthly_deduction:
+        sql_parts.append("  LEFT OUTER JOIN MONTHLY_DED")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = MONTHLY_DED.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = MONTHLY_DED.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = MONTHLY_DED.TCH_POL_ID")
     if needs_iswl_gcv:
         sql_parts.append("  INNER JOIN ISWL_INTERPOLATED_GCV")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = ISWL_INTERPOLATED_GCV.CK_SYS_CD")

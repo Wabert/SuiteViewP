@@ -26,14 +26,15 @@ from .tabs.results_tab import ResultsTab
 from .tabs.sql_tab import SqlTab
 from .tabs.select_tab import SelectTab
 from .tabs.joins_tab import JoinsTab
+from .tabs.common_tables_tab import CommonTablesTab
 from .tabs.build_sql_tab import BuildSqlTab
 from .tabs.build_sql_results_tab import BuildSqlResultsTab
 from .tabs._styles import _FONT, style_combo as _style_combo
 from .sql_helpers import fmt_time
-from .dynamic_query import build_dynamic_sql, build_join_sql, collect_field_filters
+from .dynamic_query import build_dynamic_sql, build_join_sql, collect_field_filters, build_common_table_cte
 from .dialogs.tables_dialog import TablesDialog, FIELD_DRAG_MIME
 from .ui.bottom_bar import AuditBottomBar
-from .query_runner import run_button_context, execute_odbc_query
+from .query_runner import run_button_context, execute_odbc_query, execute_odbc_query_with_types
 from suiteview.core.odbc_utils import detect_dialect
 
 logger = logging.getLogger(__name__)
@@ -212,6 +213,7 @@ class DynamicQuery(QWidget):
     like cyberlife/tai modes.
     """
     config_changed = pyqtSignal()
+    common_tables_changed = pyqtSignal(dict)  # {name: [(col, type), ...]}
     dataset_pinned = pyqtSignal(object)  # PinnedDataset
     query_saved = pyqtSignal(object)     # SavedQuery
     query_deleted = pyqtSignal(str)      # query name deleted
@@ -243,6 +245,8 @@ class DynamicQuery(QWidget):
 
         # Wire child signals for auto-save
         self.joins_tab.state_changed.connect(self._schedule_save)
+        self.common_tables_tab.state_changed.connect(self._schedule_save)
+        self.common_tables_tab.state_changed.connect(self._sync_common_tables_to_joins)
         self.select_tab.state_changed.connect(self._schedule_save)
         self.txt_max_count.textChanged.connect(self._schedule_save)
         # Wire existing criteria tabs
@@ -286,6 +290,10 @@ class DynamicQuery(QWidget):
         # Joins tab — for building table joins
         self.joins_tab = JoinsTab(tables=self.tables, dsn=self.dsn)
         self.tab_widget.addTab(self.joins_tab, "Joins")
+
+        # Common Tables tab — for including user-defined CTE tables
+        self.common_tables_tab = CommonTablesTab()
+        self.tab_widget.addTab(self.common_tables_tab, "Common Tables")
 
         # Select tab — for managing SELECT columns
         self.select_tab = SelectTab()
@@ -464,8 +472,19 @@ class DynamicQuery(QWidget):
         self.display_names = dlg.get_display_names()
         # Propagate table list to joins tab
         self.joins_tab.update_tables(self.tables)
+        # Re-sync common tables so they stay in the joins table list
+        self._sync_common_tables_to_joins()
         self._tabs_dialog = None
         self._schedule_save()
+
+    def _sync_common_tables_to_joins(self):
+        """Push common table names + column info to the Joins tab and picker."""
+        common_cols: dict[str, list[tuple[str, str]]] = {}
+        for ct in self.common_tables_tab.get_selected_tables():
+            cols = [(c["name"], c.get("type", "TEXT")) for c in ct.columns]
+            common_cols[ct.name] = cols
+        self.joins_tab.update_common_tables(common_cols)
+        self.common_tables_changed.emit(common_cols)
 
     def _on_field_requested(self, table: str, column: str,
                             type_name: str, display: str):
@@ -548,6 +567,9 @@ class DynamicQuery(QWidget):
         # Collect join info from Joins tab
         join_infos = self.joins_tab.get_join_infos()
 
+        # Collect common tables for CTE prefix
+        common_tables = self.common_tables_tab.get_selected_tables()
+
         try:
             if join_infos:
                 sql = build_join_sql(
@@ -564,22 +586,36 @@ class DynamicQuery(QWidget):
                     display_all=display_all,
                     distinct=show_distinct,
                     dialect=self.dialect)
+
+            # Prepend Common Table CTEs
+            cte_prefix = build_common_table_cte(common_tables, self.dialect)
+            if cte_prefix:
+                sql = cte_prefix + "\n" + sql
         except Exception as exc:
             logger.exception("Failed to build dynamic SQL")
             QMessageBox.warning(self, "SQL Build Error", str(exc))
             return
 
         self.sql_tab.set_sql(sql)
+        logger.info("Generated SQL:\n%s", sql)
 
         with run_button_context(self.btn_run, bar=self.bottom_bar):
             t0 = time.time()
             try:
-                columns, rows = execute_odbc_query(self.dsn, sql)
+                columns, rows, col_types = execute_odbc_query_with_types(self.dsn, sql)
                 t_query = time.time() - t0
 
                 t1 = time.time()
                 df = pd.DataFrame([list(r) for r in rows], columns=columns)
                 self.results_tab.set_results(df)
+                self.results_tab.set_query_context(
+                    sql=sql, dsn=self.dsn,
+                    source_design=self.query_name,
+                    result_columns=columns,
+                    column_types=col_types,
+                    tables=self.tables,
+                    display_names=self.display_names,
+                )
                 t_print = time.time() - t1
                 t_total = time.time() - t0
 
@@ -591,7 +627,7 @@ class DynamicQuery(QWidget):
                 self.tab_widget.setCurrentWidget(self.results_tab)
 
             except Exception as exc:
-                logger.exception("Dynamic audit query failed")
+                logger.exception("Dynamic audit query failed\nSQL:\n%s", sql)
                 msg = str(exc)
                 if hasattr(exc, 'args') and len(exc.args) >= 2:
                     msg = f"{exc.args[0]}\n\n{exc.args[1]}"
@@ -745,6 +781,7 @@ class DynamicQuery(QWidget):
             "max_count": self.txt_max_count.text(),
             "tabs": [tab.get_state() for tab in self._criteria_tabs],
             "joins_tab": self.joins_tab.get_state(),
+            "common_tables_tab": self.common_tables_tab.get_state(),
             "select_tab": self.select_tab.get_state(),
         }
 
@@ -785,7 +822,14 @@ class DynamicQuery(QWidget):
                     tab = self._add_criteria_tab(tab_name)
                     tab.set_state(ts)
 
-            # Restore Joins tab state
+            # Restore Common Tables tab state (before Joins so names are available)
+            ct_state = config.get("common_tables_tab")
+            if ct_state:
+                self.common_tables_tab.set_state(ct_state)
+            # Push common table column info to Joins tab
+            self._sync_common_tables_to_joins()
+
+            # Restore Joins tab state (after common tables are in the combo)
             joins_state = config.get("joins_tab")
             if joins_state:
                 self.joins_tab.set_state(joins_state)

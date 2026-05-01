@@ -22,8 +22,8 @@ from PyQt6.QtWidgets import (
     QApplication, QInputDialog, QTextEdit, QScrollArea,
 )
 
-from suiteview.audit.saved_query import SavedQuery
-from suiteview.audit import saved_query_store as sq_store
+from suiteview.audit.qdefinition import QDefinition
+from suiteview.audit import qdef_store
 from suiteview.audit.dataforge.dataforge_model import DataForge, DataForgeSource
 from suiteview.audit.dataforge import dataforge_store as df_store
 from suiteview.audit.tabs.field_row import FieldRow, FieldGrid
@@ -279,176 +279,8 @@ class ForgeCodeTab(QWidget):
         QApplication.clipboard().setText(self.txt_code.toPlainText())
 
 
-# ── Joins Tab for DataForge ──────────────────────────────────────────
-
-class ForgeJoinsTab(QWidget):
-    """Configure pandas merge operations between query datasets."""
-    state_changed = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._joins: list[dict] = []  # [{left, right, left_on, right_on, how}]
-        self._query_names: list[str] = []
-        self._build_ui()
-
-    def _build_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(4, 4, 4, 4)
-        root.setSpacing(4)
-
-        lbl = QLabel("Merge Operations — link query datasets together")
-        lbl.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        lbl.setStyleSheet("color: #0D9488;")
-        root.addWidget(lbl)
-
-        self._joins_container = QVBoxLayout()
-        self._joins_container.setSpacing(4)
-        root.addLayout(self._joins_container)
-
-        root.addStretch()
-
-        btn_add = QPushButton("+ Add Merge")
-        btn_add.setFont(QFont("Segoe UI", 9))
-        btn_add.setFixedHeight(28)
-        btn_add.setStyleSheet(
-            "QPushButton { background: #0D9488; color: white; border: none;"
-            " border-radius: 3px; padding: 2px 12px; }"
-            "QPushButton:hover { background: #0F766E; }")
-        btn_add.clicked.connect(self._add_join_card)
-        root.addWidget(btn_add)
-
-    def update_queries(self, query_names: list[str]):
-        self._query_names = list(query_names)
-        # Update combos in existing cards
-        for i in range(self._joins_container.count()):
-            item = self._joins_container.itemAt(i)
-            if item and item.widget():
-                card = item.widget()
-                for combo in card.findChildren(QPushButton):
-                    pass  # cards will be rebuilt
-
-    def _add_join_card(self):
-        """Add a merge configuration card."""
-        from PyQt6.QtWidgets import QComboBox, QFrame
-        card = QFrame()
-        card.setFrameShape(QFrame.Shape.StyledPanel)
-        card.setStyleSheet(
-            "QFrame { background: #E6F5F3; border: 1px solid #B2DFDB;"
-            " border-radius: 4px; padding: 4px; }")
-        lay = QHBoxLayout(card)
-        lay.setContentsMargins(8, 4, 8, 4)
-        lay.setSpacing(6)
-
-        cmb_left = QComboBox()
-        cmb_left.setFont(_FONT)
-        cmb_left.addItems(self._query_names)
-        cmb_left.setMinimumWidth(100)
-        lay.addWidget(QLabel("Left:"))
-        lay.addWidget(cmb_left)
-
-        txt_left_on = QLineEdit()
-        txt_left_on.setFont(_FONT)
-        txt_left_on.setPlaceholderText("left key column")
-        txt_left_on.setMinimumWidth(100)
-        lay.addWidget(QLabel("on"))
-        lay.addWidget(txt_left_on)
-
-        from PyQt6.QtWidgets import QComboBox as _CB
-        cmb_how = QComboBox()
-        cmb_how.setFont(_FONT)
-        cmb_how.addItems(["inner", "left", "right", "outer"])
-        cmb_how.setFixedWidth(70)
-        lay.addWidget(cmb_how)
-
-        cmb_right = QComboBox()
-        cmb_right.setFont(_FONT)
-        cmb_right.addItems(self._query_names)
-        cmb_right.setMinimumWidth(100)
-        lay.addWidget(QLabel("Right:"))
-        lay.addWidget(cmb_right)
-
-        txt_right_on = QLineEdit()
-        txt_right_on.setFont(_FONT)
-        txt_right_on.setPlaceholderText("right key column")
-        txt_right_on.setMinimumWidth(100)
-        lay.addWidget(QLabel("on"))
-        lay.addWidget(txt_right_on)
-
-        btn_remove = QPushButton("X")
-        btn_remove.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        btn_remove.setFixedSize(20, 20)
-        btn_remove.setStyleSheet(
-            "QPushButton { background: #EF4444; color: white; border: none;"
-            " border-radius: 2px; }"
-            "QPushButton:hover { background: #DC2626; }")
-        btn_remove.clicked.connect(lambda: self._remove_join_card(card))
-        lay.addWidget(btn_remove)
-
-        # Store references on card
-        card._cmb_left = cmb_left
-        card._cmb_right = cmb_right
-        card._txt_left_on = txt_left_on
-        card._txt_right_on = txt_right_on
-        card._cmb_how = cmb_how
-
-        # Signal changes
-        for w in (cmb_left, cmb_right, cmb_how):
-            w.currentIndexChanged.connect(lambda: self.state_changed.emit())
-        for w in (txt_left_on, txt_right_on):
-            w.textChanged.connect(lambda: self.state_changed.emit())
-
-        self._joins_container.addWidget(card)
-        self.state_changed.emit()
-
-    def _remove_join_card(self, card):
-        self._joins_container.removeWidget(card)
-        card.deleteLater()
-        self.state_changed.emit()
-
-    def get_merge_ops(self) -> list[dict]:
-        """Return list of merge operation dicts."""
-        ops = []
-        for i in range(self._joins_container.count()):
-            item = self._joins_container.itemAt(i)
-            if not item or not item.widget():
-                continue
-            card = item.widget()
-            if not hasattr(card, '_cmb_left'):
-                continue
-            ops.append({
-                "left": card._cmb_left.currentText(),
-                "right": card._cmb_right.currentText(),
-                "left_on": card._txt_left_on.text().strip(),
-                "right_on": card._txt_right_on.text().strip(),
-                "how": card._cmb_how.currentText(),
-            })
-        return ops
-
-    def get_state(self) -> dict:
-        return {"merges": self.get_merge_ops()}
-
-    def set_state(self, state: dict):
-        # Clear existing
-        while self._joins_container.count():
-            item = self._joins_container.takeAt(0)
-            if item and item.widget():
-                item.widget().deleteLater()
-        # Rebuild
-        for m in state.get("merges", []):
-            self._add_join_card()
-            card = self._joins_container.itemAt(
-                self._joins_container.count() - 1).widget()
-            idx = card._cmb_left.findText(m.get("left", ""))
-            if idx >= 0:
-                card._cmb_left.setCurrentIndex(idx)
-            idx = card._cmb_right.findText(m.get("right", ""))
-            if idx >= 0:
-                card._cmb_right.setCurrentIndex(idx)
-            card._txt_left_on.setText(m.get("left_on", ""))
-            card._txt_right_on.setText(m.get("right_on", ""))
-            idx = card._cmb_how.findText(m.get("how", "inner"))
-            if idx >= 0:
-                card._cmb_how.setCurrentIndex(idx)
+# ── Joins Tab for DataForge (card-based canvas) ─────────────────────
+from suiteview.audit.dataforge.forge_joins_tab import ForgeJoinsTab  # noqa: F401
 
 
 # ── Display Tab for DataForge ────────────────────────────────────────
@@ -553,8 +385,8 @@ class DataForgeGroup(QWidget):
         self.forge_name = name
         self._saved_forge_name = saved_forge_name
 
-        # Source queries: name → SavedQuery
-        self._sources: dict[str, SavedQuery] = {}
+        # Source queries: name → QDefinition
+        self._sources: dict[str, QDefinition] = {}
         self._datasets: dict[str, pd.DataFrame] = {}  # in-memory query results
         self._queries_dialog = None
         self._loading = False
@@ -684,7 +516,8 @@ class DataForgeGroup(QWidget):
             return
 
         from suiteview.audit.dataforge.queries_dialog import QueriesFieldsDialog
-        dlg = QueriesFieldsDialog(self._sources, self)
+        dlg = QueriesFieldsDialog(self._sources, self,
+                                   forge_name=self._saved_forge_name)
         dlg.setWindowModality(Qt.WindowModality.NonModal)
         dlg.field_requested.connect(self.on_field_requested)
         dlg.sources_changed.connect(self._on_sources_changed)
@@ -699,7 +532,8 @@ class DataForgeGroup(QWidget):
         """Sync sources when the dialog is closed."""
         new_sources = dlg.get_sources()
         self._sources = new_sources
-        self.joins_tab.update_queries(list(self._sources.keys()))
+        self.joins_tab.update_queries(list(self._sources.keys()),
+                                     self._query_columns_map())
         self._schedule_save()
         self._queries_dialog = None
 
@@ -708,13 +542,20 @@ class DataForgeGroup(QWidget):
         # Reload sources from the dialog
         if self._queries_dialog:
             self._sources = self._queries_dialog.get_sources()
-            self.joins_tab.update_queries(list(self._sources.keys()))
+            self.joins_tab.update_queries(list(self._sources.keys()),
+                                         self._query_columns_map())
             self._schedule_save()
 
-    def add_source_query(self, sq: SavedQuery):
+    def _query_columns_map(self) -> dict[str, list[str]]:
+        """Build {query_name: [col, ...]} from current sources."""
+        return {name: sq.result_columns
+                for name, sq in self._sources.items()}
+
+    def add_source_query(self, sq: QDefinition):
         """Programmatically add a source query."""
         self._sources[sq.name] = sq
-        self.joins_tab.update_queries(list(self._sources.keys()))
+        self.joins_tab.update_queries(list(self._sources.keys()),
+                                     self._query_columns_map())
 
     # ── Field placement (from picker) ────────────────────────────────
 
@@ -1206,10 +1047,13 @@ class DataForgeGroup(QWidget):
 
             # Restore sources
             for name in config.get("sources", []):
-                sq = sq_store.load_query(name)
+                sq = qdef_store.load_qdef(name, forge_name=self._saved_forge_name)
+                if not sq:
+                    sq = qdef_store.load_qdef(name)  # fallback: search all
                 if sq:
                     self._sources[name] = sq
-            self.joins_tab.update_queries(list(self._sources.keys()))
+            self.joins_tab.update_queries(list(self._sources.keys()),
+                                         self._query_columns_map())
 
             # Restore filter tabs
             tab_states = config.get("filter_tabs", [])

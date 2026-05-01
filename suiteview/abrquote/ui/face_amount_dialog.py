@@ -479,7 +479,7 @@ class FaceAmountDialog(QDialog):
             new_discount = 0.0
 
         new_benefit = round(custom_face - new_discount - admin_fee, 2)
-        new_ratio = new_benefit / custom_face if custom_face > 0 else 0.0
+        new_ratio = max(0.0, new_benefit) / custom_face if custom_face > 0 else 0.0
 
         self._full_labels["eligible_db"].setText(self._fmt_money(custom_face))
         self._full_labels["actuarial_discount"].setText(
