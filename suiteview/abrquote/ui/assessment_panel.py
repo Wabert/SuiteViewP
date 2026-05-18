@@ -697,11 +697,11 @@ class AssessmentPanel(QWidget):
             }}
         """
 
-        self._accel_label = QLabel("Full Face Amount:")
+        self._accel_label = QLabel("Full Death Benefit:")
         self._accel_label.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {CRIMSON_DARK};")
         accel_row.addWidget(self._accel_label)
 
-        self._accel_reset_btn = QPushButton("Reset Full Face")
+        self._accel_reset_btn = QPushButton("Reset")
         self._accel_reset_btn.setStyleSheet(_reset_btn_style)
         self._accel_reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._accel_reset_btn.clicked.connect(self._on_accel_reset)
@@ -711,7 +711,7 @@ class AssessmentPanel(QWidget):
         self._face_input = QLineEdit()
         self._face_input.setStyleSheet(INPUT_STYLE)
         self._face_input.setFixedWidth(150)
-        self._face_input.setPlaceholderText("Face amount")
+        self._face_input.setPlaceholderText("Death benefit")
         accel_row.addWidget(self._face_input)
 
         self._face_calc_btn = QPushButton("Calc")
@@ -1094,9 +1094,7 @@ class AssessmentPanel(QWidget):
         self.res_full_accel_benefit_label.setVisible(has_sv)
         if has_sv:
             self._res_full_labels["surrender_value"].setText(self._fmt_money(result.full_surrender_value))
-            calc_benefit = max(0.0, result.full_accel_benefit)
-            accel_benefit = max(calc_benefit, result.full_surrender_value)
-            self.res_full_accel_benefit_label.setText(self._fmt_money(accel_benefit))
+            self.res_full_accel_benefit_label.setText(self._fmt_money(result.full_accelerated_benefit))
 
         # Full APV components
         self._res_full_apv_labels["apv_fb"].setText(self._fmt_money(result.apv_fb))
@@ -1151,9 +1149,7 @@ class AssessmentPanel(QWidget):
             # Surrender Value and Accelerated Benefit for partial
             if has_partial_sv:
                 self._res_partial_labels["surrender_value"].setText(self._fmt_money(result.partial_surrender_value))
-                calc_benefit = max(0.0, result.partial_accel_benefit)
-                accel_benefit = max(calc_benefit, result.partial_surrender_value)
-                self.res_partial_accel_benefit_label.setText(self._fmt_money(accel_benefit))
+                self.res_partial_accel_benefit_label.setText(self._fmt_money(result.partial_accelerated_benefit))
 
             # Partial APV components (proportionally scaled)
             if result.full_eligible_db > 0:
@@ -1206,21 +1202,12 @@ class AssessmentPanel(QWidget):
     def _populate_default_acceleration_amount(self):
         """Set the default acceleration amount based on DB option.
 
-        DB Option A (code "1"): Face Amount
-        DB Option B (code "2"): Face Amount + Account Value
-        DB Option C (code "3"): Face Amount + Total Premiums Paid
-        Otherwise:              Face Amount
+        Uses the shared policy default so Option B/C handling stays aligned
+        with the calculation engine.
         """
         if not self._policy:
             return
-        p = self._policy
-        db_opt = p.db_option
-        if db_opt == "2":
-            default_amount = p.face_amount + p.account_value
-        elif db_opt == "3":
-            default_amount = p.face_amount + p.premiums_paid_to_date
-        else:
-            default_amount = p.face_amount
+        default_amount = self._policy.default_death_benefit
         self._default_accel_amount = default_amount
         self._face_input.setText(f"{default_amount:,.2f}")
         self._update_accel_reset_visibility()
@@ -1624,9 +1611,7 @@ class AssessmentPanel(QWidget):
         r = self._result
         p = self._policy
         full_calc = max(0.0, r.full_accel_benefit)
-        full_accel = max(full_calc, r.full_surrender_value) if r.full_surrender_value > 0 else full_calc
         partial_calc = max(0.0, r.partial_accel_benefit)
-        partial_accel = max(partial_calc, r.partial_surrender_value) if r.partial_surrender_value > 0 else partial_calc
         lines = [
             "ABR QUOTE SUMMARY",
             f"Policy: {p.policy_number if p else 'N/A'}",
@@ -1640,13 +1625,13 @@ class AssessmentPanel(QWidget):
         if r.full_loan_repayment > 0:
             lines.append(f"  Loan Repayment:     {self._fmt_money(r.full_loan_repayment)}")
         lines += [
-            f"  Calc. Benefit:      {self._fmt_money(full_calc)}",
+            f"  Calculated Benefit: {self._fmt_money(full_calc)}",
             f"  Benefit Ratio:      {r.full_benefit_ratio * 100:.2f}%",
         ]
         if r.full_surrender_value > 0:
             lines += [
                 f"  Surrender Value:    {self._fmt_money(r.full_surrender_value)}",
-                f"  Accel. Benefit:     {self._fmt_money(full_accel)}",
+                f"  Accelerated Benefit:{self._fmt_money(r.full_accelerated_benefit)}",
             ]
         lines += [
             "",
@@ -1658,13 +1643,13 @@ class AssessmentPanel(QWidget):
         if r.partial_loan_repayment > 0:
             lines.append(f"  Loan Repayment:     {self._fmt_money(r.partial_loan_repayment)}")
         lines += [
-            f"  Calc. Benefit:      {self._fmt_money(partial_calc)}",
+            f"  Calculated Benefit: {self._fmt_money(partial_calc)}",
             f"  Benefit Ratio:      {r.partial_benefit_ratio * 100:.2f}%",
         ]
         if r.partial_surrender_value > 0:
             lines += [
                 f"  Surrender Value:    {self._fmt_money(r.partial_surrender_value)}",
-                f"  Accel. Benefit:     {self._fmt_money(partial_accel)}",
+                f"  Accelerated Benefit:{self._fmt_money(r.partial_accelerated_benefit)}",
             ]
         lines += [
             "",

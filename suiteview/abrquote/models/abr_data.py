@@ -71,7 +71,9 @@ class ABRPolicyData:
     min_face_amount: float = 50_000.0
     db_option: str = ""               # Death benefit option: "1"=A (Level), "2"=B (Increasing), "3"=C (ROP)
     account_value: float = 0.0        # UL/IUL accumulation value
+    surrender_value: float = 0.0      # UL/IUL/ISWL surrender/cash value
     premiums_paid_to_date: float = 0.0  # Total premiums paid to date
+    valuation_date: Optional[date] = None  # Last monthliversary date for UL/IUL values
     issue_date: Optional[date] = None
     maturity_age: int = 95
     maturity_date: Optional[date] = None  # COV_MT_EXP_DT from base coverage
@@ -113,6 +115,15 @@ class ABRPolicyData:
     @property
     def face_per_thousand(self) -> float:
         return self.face_amount / 1000.0
+
+    @property
+    def default_death_benefit(self) -> float:
+        db_option = str(self.db_option or "").strip().upper()
+        if db_option in ("2", "B"):
+            return self.face_amount + self.account_value
+        if db_option in ("3", "C"):
+            return self.face_amount + self.premiums_paid_to_date
+        return self.face_amount
 
 
 @dataclass
@@ -265,7 +276,8 @@ class ABRQuoteResult:
     full_actuarial_discount: float = 0.0
     full_admin_fee: float = 0.0
     full_loan_repayment: float = 0.0
-    full_accel_benefit: float = 0.0
+    full_accel_benefit: float = 0.0       # Calculated benefit before UL surrender floor
+    full_accelerated_benefit: float = 0.0 # Greater of calculated benefit and surrender value
     full_benefit_ratio: float = 0.0
     full_surrender_value: float = 0.0     # UL/IUL/ISWL: surrender/cash value
 
@@ -274,7 +286,8 @@ class ABRQuoteResult:
     partial_actuarial_discount: float = 0.0
     partial_admin_fee: float = 0.0
     partial_loan_repayment: float = 0.0
-    partial_accel_benefit: float = 0.0
+    partial_accel_benefit: float = 0.0       # Calculated benefit before UL surrender floor
+    partial_accelerated_benefit: float = 0.0 # Greater of calculated benefit and surrender value
     partial_benefit_ratio: float = 0.0
     partial_surrender_value: float = 0.0  # UL/IUL/ISWL: prorated surrender value
 

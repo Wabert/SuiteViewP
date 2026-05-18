@@ -22,14 +22,6 @@ from .mortality_engine import MortalityEngine
 
 logger = logging.getLogger(__name__)
 
-# Try importing scipy; provide fallback if not available
-try:
-    from scipy.optimize import brentq
-    HAS_SCIPY = True
-except ImportError:
-    HAS_SCIPY = False
-    logger.warning("scipy not available — goal seek will use bisection fallback")
-
 
 def _bisect_fallback(
     func: Callable[[float], float],
@@ -75,15 +67,8 @@ def _root_find(
     b: float,
     xtol: float = 1e-6,
 ) -> float:
-    """Find root using scipy.brentq or bisection fallback."""
-    if HAS_SCIPY:
-        try:
-            return brentq(func, a, b, xtol=xtol, maxiter=200)
-        except ValueError:
-            logger.warning("brentq failed, trying bisection fallback")
-            return _bisect_fallback(func, a, b, xtol=xtol)
-    else:
-        return _bisect_fallback(func, a, b, xtol=xtol)
+    """Find root using bisection."""
+    return _bisect_fallback(func, a, b, xtol=xtol)
 
 
 def find_table_rating(

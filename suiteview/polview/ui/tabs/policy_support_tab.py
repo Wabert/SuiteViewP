@@ -77,34 +77,30 @@ def _get_abr_dir() -> str:
 
 # ---------------------------------------------------------------------------
 # Pinned tool folders shown on the Available Tools home screen
-# Each entry: (display_label, relative_path_from_process_control)
+# Each entry: (display_label, relative_path_from_onedrive_root)
 # ---------------------------------------------------------------------------
 
 TOOL_FOLDERS = [
     ("Tools\\Illustration\\RERUN",
-     r"Tools\Illustration\RERUN"),
+    r"Life Product - Process_Control\Tools\Illustration\RERUN"),
     ("Tools\\Illustration\\Product Models\\TERM",
-     r"Tools\Illustration\Product Models\TERM"),
+    r"Life Product - Process_Control\Tools\Illustration\Product Models\TERM"),
     ("Task\\Policy Support\\Term Premiums Illustrations\\TERM TEMPLATE",
-     r"Task\Policy Support\Term Premiums Illustrations\TERM TEMPLATE"),
+    r"Life Product - Process_Control\Task\Policy Support\Term Premiums Illustrations\TERM TEMPLATE"),
     ("Task\\Policy Support\\Guideline and TAMRA\\Guideline Adjust for Exception Prems",
-     r"Task\Policy Support\Guideline and TAMRA\Guideline Adjust for Exception Prems"),
+    r"Life Product - Process_Control\Task\Policy Support\Guideline and TAMRA\Guideline Adjust for Exception Prems"),
     ("Task\\Policy Support\\Mistatement",
-     r"Task\Policy Support\Mistatement"),
+    r"Life Product - Process_Control\Task\Policy Support\Mistatement"),
     ("Task\\Policy Support\\Interpolated_Terminal_Reserve",
-     r"Task\Policy Support\Interpolated_Terminal_Reserve"),
+    r"Life Product - Process_Control\Task\Policy Support\Interpolated_Terminal_Reserve"),
     ("Task\\Policy Support",
-     r"Task\Policy Support"),
+    r"Life Product - Process_Control\Task\Policy Support"),
     ("Tools\\Whole Life Nonforfeiture Calc",
-     r"Tools\Whole Life Nonforfeiture Calc"),
-]
-
-# Absolute-path tool folders (not relative to Process Control)
-_ABS_TOOL_FOLDERS = [
+    r"Life Product - Process_Control\Tools\Whole Life Nonforfeiture Calc"),
     ("Cyberlife Reference Files",
-     r"C:\Users\ab7y02\OneDrive - American National Insurance Company\Life Product - Data\Cyberlife Reference Files"),
+    r"Life Product - Data\Cyberlife Reference Files"),
     ("Task\\Accelerated Death Benefit (ABR11 & ABR14)",
-     _get_abr_dir()),
+    r"Life Product - Accelerated_Benefits\Accelerated Death Benefit (ABR11 & ABR14)"),
 ]
 
 
@@ -983,13 +979,12 @@ class PolicySupportTab(QWidget):
             title="Available Tools",
             list_widget_class=_DraggableToolsList,
         )
-        # Build home entries: process-control-relative folders + absolute folders
-        pc = _get_process_control_dir()
+        # Build home entries from the current user's OneDrive root.
+        onedrive_root = _get_onedrive_dir()
         home_entries = [
-            (label, os.path.join(pc, rel_path))
+            (label, os.path.join(onedrive_root, rel_path))
             for label, rel_path in TOOL_FOLDERS
         ]
-        home_entries += list(_ABS_TOOL_FOLDERS)
         self._tools_explorer.set_home_entries(home_entries)
         cl.addWidget(self._tools_explorer, 3)
 

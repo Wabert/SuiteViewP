@@ -4,6 +4,11 @@ ABR Quote — "Crimson Slate" theme constants and QSS stylesheets.
 Theme: Deep crimson/burgundy headers with slate-blue accents.
 """
 
+from pathlib import Path
+
+# Resolve the white down-arrow SVG next to this file (forward slashes for Qt QSS)
+_ARROW_ICON = (Path(__file__).parent / "arrow_down_white.svg").as_posix()
+
 # =============================================================================
 # CRIMSON SLATE COLOR SCHEME — Deep crimson with slate-blue accents
 # =============================================================================
@@ -81,6 +86,7 @@ DATEEDIT_STYLE = f"""
         border: 1px solid {CRIMSON_PRIMARY};
         border-radius: 4px;
         padding: 4px 8px;
+        padding-right: 28px;
         font-size: 12px;
         color: {GRAY_DARK};
     }}
@@ -89,8 +95,21 @@ DATEEDIT_STYLE = f"""
         background-color: #F5F8FF;
     }}
     QDateEdit::drop-down {{
-        border: none;
-        width: 20px;
+        subcontrol-origin: border;
+        subcontrol-position: top right;
+        width: 24px;
+        background-color: {CRIMSON_PRIMARY};
+        border-left: 1px solid {CRIMSON_DARK};
+        border-top-right-radius: 3px;
+        border-bottom-right-radius: 3px;
+    }}
+    QDateEdit::drop-down:hover {{
+        background-color: {CRIMSON_DARK};
+    }}
+    QDateEdit::down-arrow {{
+        image: url({_ARROW_ICON});
+        width: 10px;
+        height: 6px;
     }}
 """
 

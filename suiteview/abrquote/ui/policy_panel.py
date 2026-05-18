@@ -15,6 +15,7 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QDate
 from PyQt6.QtGui import QCursor
+from PyQt6.QtGui import QWheelEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QComboBox, QPushButton,
@@ -47,6 +48,18 @@ from .abr_styles import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class CalendarOnlyDateEdit(QDateEdit):
+    """QDateEdit that disables scroll-wheel and keyboard step-up/down.
+    The only way to change the date is through the calendar popup.
+    """
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        event.ignore()
+
+    def stepBy(self, steps: int) -> None:
+        pass  # disable all step/increment behaviour
 
 
 class PolicyPanel(QWidget):
@@ -102,7 +115,7 @@ class PolicyPanel(QWidget):
         lbl_qd.setStyleSheet(LABEL_HEADER_STYLE)
         lookup_grid.addWidget(lbl_qd, 0, 2)
 
-        self.quote_date_edit = QDateEdit()
+        self.quote_date_edit = CalendarOnlyDateEdit()
         self.quote_date_edit.setCalendarPopup(True)
         self.quote_date_edit.setDate(QDate.currentDate())
         self.quote_date_edit.setDisplayFormat("M/d/yyyy")
@@ -160,7 +173,7 @@ class PolicyPanel(QWidget):
             ("Issue Age:", "issue_age"),
             ("Attained Age:", "attained_age"),
             ("Rate Class:", "rate_class"),
-            ("Face Amount:", "face_amount"),
+            ("Total Death Benefit:", "face_amount"),
             ("DB Option:", "db_option"),
             ("Account Value:", "account_value"),
             ("Premiums Paid:", "premiums_paid"),
@@ -551,7 +564,8 @@ class PolicyPanel(QWidget):
         labels["issue_age"].setText(str(p.issue_age) if p.issue_age else "—")
         labels["attained_age"].setText(str(p.attained_age) if p.attained_age else "—")
         labels["rate_class"].setText(p.rate_class or "—")
-        labels["face_amount"].setText(f"${p.face_amount:,.2f}" if p.face_amount else "—")
+        death_benefit = p.default_death_benefit
+        labels["face_amount"].setText(f"${death_benefit:,.2f}" if death_benefit else "—")
 
         # UL/IUL-only fields: DB Option, Account Value, Premiums Paid
         is_ul = p.product_type in ("UL", "IUL", "ISWL")
@@ -603,11 +617,19 @@ class PolicyPanel(QWidget):
             if p.flat_cease_date else "—"
         )
 
-        # Valuation Date — always current date regardless of quote date
-        today = date.today()
-        labels["valuation_date"].setText(
-            f"{today.month}/{today.day}/{today.year}  (as of today)"
-        )
+        if is_ul and p.valuation_date:
+            labels["valuation_date"].setText(
+                f"{p.valuation_date.month}/{p.valuation_date.day}/{p.valuation_date.year}  (last monthliversary)"
+            )
+        elif p.valuation_date:
+            labels["valuation_date"].setText(
+                f"{p.valuation_date.month}/{p.valuation_date.day}/{p.valuation_date.year}"
+            )
+        else:
+            today = date.today()
+            labels["valuation_date"].setText(
+                f"{today.month}/{today.day}/{today.year}  (as of today)"
+            )
         labels["valuation_date"].setStyleSheet(
             f"color: {CRIMSON_DARK}; font-size: 11px; font-style: italic;"
         )
@@ -628,7 +650,11 @@ class PolicyPanel(QWidget):
         # UL input group — show for UL/IUL/ISWL, hide for all others
         is_ul = p.product_type in ("UL", "IUL", "ISWL")
         self.ul_input_frame.setVisible(is_ul)
-        if not is_ul:
+        if is_ul:
+            self.ul_surrender_value_input.setText(
+                f"{p.surrender_value:,.2f}" if p.surrender_value else ""
+            )
+        else:
             self.ul_level_prem_input.clear()
             self.ul_loan_payoff_input.clear()
             self.ul_surrender_value_input.clear()
@@ -909,33 +935,27 @@ class PolicyPanel(QWidget):
         if detail_data["type"] == "coverage":
             cov = detail_data["cov"]
             row = 0
-            add_row(row, "Phase:", cov.cov_pha_nbr); row += 1
-            add_row(row, "Form:", cov.form_number); row += 1
             add_row(row, "Plancode:", cov.plancode); row += 1
-            add_row(row, "Issue Date:", cov.issue_date.strftime("%m/%d/%Y") if cov.issue_date else ""); row += 1
-            add_row(row, "Maturity Date:", cov.maturity_date.strftime("%m/%d/%Y") if cov.maturity_date else ""); row += 1
-            add_row(row, "Face Amount:", f"${cov.face_amount:,.2f}" if cov.face_amount else ""); row += 1
-            add_row(row, "Issue Age:", cov.issue_age); row += 1
-            add_row(row, "Gender:", cov.sex_desc or cov.sex_code); row += 1
-            add_row(row, "Rate Class:", f"{cov.rate_class} - {cov.rate_class_desc}" if cov.rate_class_desc else cov.rate_class); row += 1
-            tbl = cov.table_rating or 0
-            add_row(row, "Table Rating:", str(tbl)); row += 1
-            flat = cov.flat_extra
-            add_row(row, "Annual Flat Extra:", f"${flat:,.2f}" if flat and float(flat) > 0 else "None"); row += 1
-            add_row(row, "Flat Cease:", cov.flat_cease_date.strftime("%m/%d/%Y") if cov.flat_cease_date else ""); row += 1
-            add_row(row, "Status:", cov.cov_status_desc or cov.cov_status); row += 1
+            add_row(row, "Phase:", cov.cov_pha_nbr); row += 1
             add_row(row, "Person Code:", f"{cov.person_code} - {cov.person_desc}" if cov.person_desc else cov.person_code); row += 1
-            from suiteview.audit.models.audit_constants import LIVES_COVERED_CODES
-            lives_desc = LIVES_COVERED_CODES.get(cov.lives_cov_cd, "")
-            lives_display = f"{cov.lives_cov_cd} - {lives_desc}" if lives_desc else cov.lives_cov_cd
-            add_row(row, "Lives Covered:", lives_display); row += 1
+            add_row(row, "Person Sequence:", cov.prs_seq_nbr); row += 1
+            add_row(row, "Issue Date:", cov.issue_date.strftime("%m/%d/%Y") if cov.issue_date else ""); row += 1
+            # Cease date: NXT_CHG_DT for active coverages, maturity date as fallback
+            cease = cov.nxt_chg_dt or cov.maturity_date
+            add_row(row, "Cease Date:", cease.strftime("%m/%d/%Y") if cease else ""); row += 1
+            add_row(row, "Cov Status Code:", cov.nxt_chg_typ_cd or ""); row += 1
+            add_row(row, "Lives Covered:", cov.lives_cov_cd or ""); row += 1
+            add_row(row, "Units:", f"{cov.units:,.2f}" if cov.units else ""); row += 1
             add_row(row, "VPU:", f"{cov.vpu:,.3f}" if cov.vpu else ""); row += 1
-            rate_val = cov.rate
-            add_row(row, "Rate:", str(rate_val) if rate_val is not None else ""); row += 1
-            if cov.cola_indicator == "1":
-                add_row(row, "COLA:", "Yes"); row += 1
-            if cov.gio_indicator == "Y":
-                add_row(row, "GIO:", "Yes"); row += 1
+            add_row(row, "Issue Age:", cov.issue_age); row += 1
+            add_row(row, "Sex:", cov.sex_desc or cov.sex_code); row += 1
+            add_row(row, "Rate Class:", f"{cov.rate_class} - {cov.rate_class_desc}" if cov.rate_class_desc else cov.rate_class); row += 1
+            tbl_code = cov.table_rating_code or ""
+            tbl_num = cov.table_rating or 0
+            if tbl_code:
+                add_row(row, "Rating:", f"{tbl_code} ({tbl_num * 25}%)"); row += 1
+            else:
+                add_row(row, "Rating:", "Standard"); row += 1
 
         elif detail_data["type"] == "benefit":
             bnf = detail_data["bnf"]

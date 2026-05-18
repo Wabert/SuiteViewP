@@ -215,7 +215,7 @@ class LoansTab(QWidget):
         self._reg_group.set_value("reg_impaired", "")
 
         # Preferred group visibility
-        if pref_pri > 0:
+        if pref_pri != 0:
             self._pref_group.setVisible(True)
             self._pref_group.set_value("pref_principal", format_currency(pref_pri))
             self._pref_group.set_value("pref_accrued", format_currency(pref_acc))
@@ -242,15 +242,19 @@ class LoansTab(QWidget):
             return
 
         detail_rows = []
+        reg_credit = policy.data_item("LH_NON_TRD_POL", "LN_CRE_ITS_RT")
+        pref_credit = policy.data_item("LH_NON_TRD_POL", "PRF_LN_ITS_CRE_RT")
         for row in rows:
             mv_date = row.get("MVRY_DT")
             pref = str(row.get("PRF_LN_IND", "0") or "0")
-            fund = str(row.get("FUND_ID", "") or "")
-            phs = str(row.get("COV_PHA_NBR", "") or "")
+            fund = str(row.get("FND_ID_CD") or row.get("FUND_ID") or "")
+            phs = str(row.get("FND_VAL_PHA_NBR") or row.get("COV_PHA_NBR") or "")
             principal = row.get("LN_PRI_AMT", 0) or 0
             accrued = row.get("POL_LN_ITS_AMT", 0) or 0
             charge_rt = row.get("LN_CRG_ITS_RT")
             credit_rt = row.get("LN_CRE_ITS_RT")
+            if not credit_rt:
+                credit_rt = pref_credit if pref == "1" and pref_credit else reg_credit
             int_status = str(row.get("LN_ITS_AMT_TYP_CD", "") or "")
             detail_rows.append({
                 "date": mv_date,
@@ -279,7 +283,6 @@ class LoansTab(QWidget):
         self._reg_group.set_value("reg_accrued", format_currency(reg_acc))
 
         # Impaired crediting rate & charge rate from LH_NON_TRD_POL
-        reg_credit = policy.data_item("LH_NON_TRD_POL", "LN_CRE_ITS_RT")
         reg_charge = policy.data_item("LH_NON_TRD_POL", "LN_ITS_CRG_RT")
         self._reg_group.set_value("reg_impaired", f"{float(reg_credit):.2f}%" if reg_credit else "")
         self._reg_group.set_value("reg_charge", f"{float(reg_charge):.2f}%" if reg_charge else "")
@@ -292,11 +295,10 @@ class LoansTab(QWidget):
         self._summary_group.set_value("loan_type_value", translate_loan_type_code(ln_typ))
 
         # Preferred
-        if lr.preferred_loans_available and pref_pri > 0:
+        if lr.preferred_loans_available and pref_pri != 0:
             self._pref_group.setVisible(True)
             self._pref_group.set_value("pref_principal", format_currency(pref_pri))
             self._pref_group.set_value("pref_accrued", format_currency(pref_acc))
-            pref_credit = policy.data_item("LH_NON_TRD_POL", "PRF_LN_ITS_CRE_RT")
             pref_charge = policy.data_item("LH_NON_TRD_POL", "PRF_LN_ITS_CRG_RT")
             self._pref_group.set_value("pref_impaired", f"{float(pref_credit):.2f}%" if pref_credit else "")
             self._pref_group.set_value("pref_charge", f"{float(pref_charge):.2f}%" if pref_charge else "")
@@ -305,7 +307,7 @@ class LoansTab(QWidget):
 
         # Variable (IUL only)
         product_type = getattr(policy, "product_type", "")
-        if product_type == "IUL" and (var_pri > 0 or var_acc > 0):
+        if product_type == "IUL" and (var_pri != 0 or var_acc != 0):
             self._var_group.setVisible(True)
             self._var_group.set_value("var_principal", format_currency(var_pri))
             self._var_group.set_value("var_accrued", format_currency(var_acc))

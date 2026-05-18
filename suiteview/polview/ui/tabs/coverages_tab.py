@@ -270,8 +270,8 @@ class CoveragesTab(QWidget):
                 flat_val = float(flat) if flat else 0
             except Exception:
                 flat_val = 0
-            self._set_item(row_idx, col, format_amount(flat) if flat_val > 0 else ""); col += 1
-            self._set_item(row_idx, col, format_date(getattr(cov, 'flat_cease_date', None)) if flat_val > 0 else ""); col += 1
+            self._set_item(row_idx, col, format_amount(flat) if flat_val != 0 else ""); col += 1
+            self._set_item(row_idx, col, format_date(getattr(cov, 'flat_cease_date', None)) if flat_val != 0 else ""); col += 1
             # Status, CeaseDate, Rate
             status = getattr(cov, 'nxt_chg_typ_cd', '') or getattr(cov, 'cov_status', '')
             self._set_item(row_idx, col, status); col += 1

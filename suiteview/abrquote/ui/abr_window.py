@@ -652,15 +652,16 @@ class ABRQuoteWindow(FramelessWindowBase):
                     loan_amount = 0.0
                 sv_text = self.policy_panel.ul_surrender_value_input.text().strip().replace(",", "").replace("$", "")
                 try:
-                    surrender_value = float(sv_text) if sv_text else 0.0
+                    surrender_value = float(sv_text) if sv_text else float(p.surrender_value or 0.0)
                 except ValueError:
-                    surrender_value = 0.0
+                    surrender_value = float(p.surrender_value or 0.0)
 
             full = apv_engine.compute_full_acceleration(
                 admin_fee=admin_fee,
                 apv_summary=self._apv_summary,
                 loan_repayment=loan_amount,
                 surrender_value=surrender_value,
+                eligible_death_benefit=p.default_death_benefit,
             )
 
             partial = apv_engine.compute_partial_acceleration(
@@ -698,6 +699,7 @@ class ABRQuoteWindow(FramelessWindowBase):
                 full_admin_fee=full["admin_fee"],
                 full_loan_repayment=full.get("loan_repayment", 0.0),
                 full_accel_benefit=full["accelerated_benefit"],
+                full_accelerated_benefit=full.get("final_accelerated_benefit", full["accelerated_benefit"]),
                 full_benefit_ratio=full["benefit_ratio"],
                 full_surrender_value=full.get("surrender_value", 0.0),
                 # Partial
@@ -706,6 +708,7 @@ class ABRQuoteWindow(FramelessWindowBase):
                 partial_admin_fee=partial["admin_fee"],
                 partial_loan_repayment=partial.get("loan_repayment", 0.0),
                 partial_accel_benefit=partial["accelerated_benefit"],
+                partial_accelerated_benefit=partial.get("final_accelerated_benefit", partial["accelerated_benefit"]),
                 partial_benefit_ratio=partial["benefit_ratio"],
                 partial_surrender_value=partial.get("surrender_value", 0.0),
                 # Premium

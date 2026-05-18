@@ -1094,8 +1094,11 @@ class OutputPanel(QWidget):
         row = _write_field(ws2, row, "Administrative Fee:", f"${r.full_admin_fee:,.2f}")
         if r.full_loan_repayment > 0:
             row = _write_field(ws2, row, "Loan Repayment:", f"${r.full_loan_repayment:,.2f}")
-        row = _write_field(ws2, row, "Accelerated Benefit:", f"${r.full_accel_benefit:,.2f}")
+        row = _write_field(ws2, row, "Calculated Benefit:", f"${max(0.0, r.full_accel_benefit):,.2f}")
         row = _write_field(ws2, row, "Benefit Ratio:", f"{r.full_benefit_ratio * 100:.2f}%")
+        if r.full_surrender_value > 0:
+            row = _write_field(ws2, row, "Surrender Value:", f"${r.full_surrender_value:,.2f}")
+            row = _write_field(ws2, row, "Accelerated Benefit:", f"${r.full_accelerated_benefit:,.2f}")
 
         # Full APV — columns C-D beside Full Acceleration
         for j, (apv_lbl, apv_val) in enumerate([
@@ -1120,8 +1123,11 @@ class OutputPanel(QWidget):
             row = _write_field(ws2, row, "Administrative Fee:", f"${r.partial_admin_fee:,.2f}")
             if r.partial_loan_repayment > 0:
                 row = _write_field(ws2, row, "Loan Repayment:", f"${r.partial_loan_repayment:,.2f}")
-            row = _write_field(ws2, row, "Accelerated Benefit:", f"${r.partial_accel_benefit:,.2f}")
+            row = _write_field(ws2, row, "Calculated Benefit:", f"${max(0.0, r.partial_accel_benefit):,.2f}")
             row = _write_field(ws2, row, "Benefit Ratio:", f"{r.partial_benefit_ratio * 100:.2f}%")
+            if r.partial_surrender_value > 0:
+                row = _write_field(ws2, row, "Surrender Value:", f"${r.partial_surrender_value:,.2f}")
+                row = _write_field(ws2, row, "Accelerated Benefit:", f"${r.partial_accelerated_benefit:,.2f}")
 
             # Partial APV — proportionally scaled, columns C-D
             if r.full_eligible_db > 0:

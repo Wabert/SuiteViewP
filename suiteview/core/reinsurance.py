@@ -35,7 +35,7 @@ ODBC_DSN = "UL_Rates"
 TAI_CESSION_COLUMNS = [
     "Co", "Pol", "Cov", "CessSeq", "ReinsCo", "RepCo",
     "FromDt", "ToDt", "RepDt", "PolDt", "ReinsDt", "PolStatus",
-    "Treaty", "TreatyRef", "TreatyGrp", "TrtyJoinMeth", "ReinsTyp",
+    "Treaty", "TreatyRef", "TreatyGrp", "TrtyJoinMeth", "ReinsTyp", "AF",
     "Plan", "SrchPlan", "ProdCD", "Face", "Retn", "Ceded",
     "NAR", "Filler6", "monthEnd",
 ]

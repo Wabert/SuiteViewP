@@ -168,7 +168,11 @@ class LoanRecords:
         return self._policy.data_item_count("LH_FND_VAL_LOAN")
 
     def loan_fund_id(self, index: int) -> str:
-        return str(self._policy.data_item("LH_FND_VAL_LOAN", "FUND_ID", index) or "")
+        return str(
+            self._policy.data_item("LH_FND_VAL_LOAN", "FND_ID_CD", index)
+            or self._policy.data_item("LH_FND_VAL_LOAN", "FUND_ID", index)
+            or ""
+        )
 
     def loan_fund_mv_date(self, index: int) -> Optional[date]:
         return parse_date(self._policy.data_item("LH_FND_VAL_LOAN", "MVRY_DT", index))
@@ -202,7 +206,7 @@ class LoanRecords:
             mv_date = str(row.get("MVRY_DT", ""))
             if "9999" not in mv_date:
                 continue
-            fund_id = str(row.get("FUND_ID", ""))
+            fund_id = str(row.get("FND_ID_CD") or row.get("FUND_ID") or "")
             pref_ind = str(row.get("PRF_LN_IND", "0"))
             is_variable = (fund_id == "LZ")
             is_preferred = (pref_ind == "1" and not is_variable)

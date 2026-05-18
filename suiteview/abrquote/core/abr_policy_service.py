@@ -224,6 +224,54 @@ def build_abr_policy(
         except Exception as e:
             logger.debug(f"Error building rider list: {e}")
 
+        # Sum face amounts for all coverages on the primary insured
+        # (person_code == "00", prs_seq_nbr == 1).  This captures multi-
+        # segment policies (e.g. two IUL14 base coverages) correctly.
+        primary_face_amount = 0.0
+        try:
+            primary_covs = [
+                c for c in coverages
+                if c.person_code == "00"
+                and c.prs_seq_nbr == 1
+                and int(c.lives_cov_cd or 1) <= 1
+            ]
+            if primary_covs:
+                primary_face_amount = sum(float(c.face_amount or 0) for c in primary_covs)
+        except Exception:
+            pass
+        if not primary_face_amount:
+            primary_face_amount = float(pi.base_face_amount or 0)
+
+        account_value = 0.0
+        surrender_value = 0.0
+        valuation_date = None
+        try:
+            mv_account_value = pi.mv_av(0)
+            if mv_account_value is not None:
+                account_value = float(mv_account_value)
+            else:
+                account_value = float(pi.accumulation_value or 0)
+        except Exception:
+            try:
+                account_value = float(pi.accumulation_value or 0)
+            except Exception:
+                account_value = 0.0
+        try:
+            surrender_value = float(pi.cash_surrender_value or 0)
+        except Exception:
+            surrender_value = 0.0
+        try:
+            mv_date = pi.mv_date(0)
+            if mv_date and mv_date.year < 9999:
+                valuation_date = mv_date
+            else:
+                valuation_date = pi.valuation_date
+        except Exception:
+            try:
+                valuation_date = pi.valuation_date
+            except Exception:
+                valuation_date = None
+
         policy = ABRPolicyData(
             policy_number=policy_num,
             region=region,
@@ -233,10 +281,12 @@ def build_abr_policy(
             sex=sex,
             rate_sex=rate_sex,
             rate_class=pi.base_rate_class or "N",
-            face_amount=float(pi.base_face_amount or 0),
+            face_amount=primary_face_amount,
             db_option=pi.db_option_code or "",
-            account_value=float(pi.accumulation_value or 0),
+            account_value=account_value,
+            surrender_value=surrender_value,
             premiums_paid_to_date=float(pi.total_premiums_paid or 0),
+            valuation_date=valuation_date,
             issue_date=(
                 pi.issue_date
                 or (pi.get_coverages()[0].issue_date if pi.get_coverages() else None)

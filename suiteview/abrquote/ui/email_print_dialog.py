@@ -98,8 +98,10 @@ class EmailPrintDialog(QDialog):
             ("Life Expectancy in Years:", "life_expectancy"),
             ("Substandard to achieve mortality:", "substandard"),
             ("", ""),
-            ("Full Acceleration Benefit:", "full_accel_benefit"),
+            ("Calculated Benefit:", "full_accel_benefit"),
             ("Benefit Ratio (Accl Ben/Full DB):", "full_benefit_ratio"),
+            ("Surrender Value:", "full_surrender_value"),
+            ("Accelerated Benefit:", "full_accelerated_benefit"),
             ("Reinsurers:", "reinsurers"),
         ]
 
@@ -257,6 +259,8 @@ class EmailPrintDialog(QDialog):
             self._set("product", r.plan_description or p.plan_code if p else "—")
             self._set("full_accel_benefit", self._fmt(r.full_accel_benefit))
             self._set("full_benefit_ratio", f"{r.full_benefit_ratio * 100:.2f}%")
+            self._set("full_surrender_value", self._fmt(r.full_surrender_value) if r.full_surrender_value > 0 else "—")
+            self._set("full_accelerated_benefit", self._fmt(r.full_accelerated_benefit) if r.full_surrender_value > 0 else "—")
 
         if a:
             self._set("acceleration", a.rider_type)
@@ -267,11 +271,11 @@ class EmailPrintDialog(QDialog):
             if a.use_five_year and a.use_ten_year and (a.derived_table_rating_5yr > 0 or a.derived_table_rating_10yr > 0):
                 # Dual solve — show both table rating periods
                 if a.derived_table_rating_5yr > 0:
-                    sub_parts.append(f"Table {int(round(a.derived_table_rating_5yr))} (yrs 1-5)")
+                    sub_parts.append(f"Table {a.derived_table_rating_5yr:.2f} (yrs 1-5)")
                 if a.derived_table_rating_10yr > 0:
-                    sub_parts.append(f"Table {int(round(a.derived_table_rating_10yr))} (yrs 6-10)")
+                    sub_parts.append(f"Table {a.derived_table_rating_10yr:.2f} (yrs 6-10)")
             elif a.derived_table_rating > 0:
-                sub_parts.append(f"Table {int(round(a.derived_table_rating))}")
+                sub_parts.append(f"Table {a.derived_table_rating:.2f}")
             if a.use_increased_decrement and a.direct_increased_decrement > 0:
                 sub_parts.append(f"ID {a.direct_increased_decrement:.0f}% (yr {a.incr_decrement_start_year}-{a.incr_decrement_stop_year})")
             self._set("substandard", "  |  ".join(sub_parts) if sub_parts else "None")
@@ -431,11 +435,11 @@ class EmailPrintDialog(QDialog):
                 if a.use_five_year and a.use_ten_year and (a.derived_table_rating_5yr > 0 or a.derived_table_rating_10yr > 0):
                     # Dual solve — show both table rating periods
                     if a.derived_table_rating_5yr > 0:
-                        sub_parts.append(f"Table {int(round(a.derived_table_rating_5yr))} (yrs 1-5)")
+                        sub_parts.append(f"Table {a.derived_table_rating_5yr:.2f} (yrs 1-5)")
                     if a.derived_table_rating_10yr > 0:
-                        sub_parts.append(f"Table {int(round(a.derived_table_rating_10yr))} (yrs 6-10)")
+                        sub_parts.append(f"Table {a.derived_table_rating_10yr:.2f} (yrs 6-10)")
                 elif a.derived_table_rating > 0:
-                    sub_parts.append(f"Table {int(round(a.derived_table_rating))}")
+                    sub_parts.append(f"Table {a.derived_table_rating:.2f}")
                 if a.use_increased_decrement and a.direct_increased_decrement > 0:
                     sub_parts.append(f"ID {a.direct_increased_decrement:.0f}% (yr {a.incr_decrement_start_year}-{a.incr_decrement_stop_year})")
                 sec3.append(("Substandard to achieve mortality:", "  |  ".join(sub_parts) if sub_parts else "None"))
@@ -446,8 +450,11 @@ class EmailPrintDialog(QDialog):
         if r:
             full_benefit = max(r.full_accel_benefit, 0)
             full_ratio = r.full_benefit_ratio if r.full_accel_benefit >= 0 else 0.0
-            sec4.append(("Full Acceleration Benefit:", self._fmt(full_benefit)))
+            sec4.append(("Calculated Benefit:", self._fmt(full_benefit)))
             sec4.append(("Benefit Ratio (Accl Ben/Full DB):", f"{full_ratio * 100:.2f}%"))
+            if r.full_surrender_value > 0:
+                sec4.append(("Surrender Value:", self._fmt(r.full_surrender_value)))
+                sec4.append(("Accelerated Benefit:", self._fmt(r.full_accelerated_benefit)))
         sec4.append(("Reinsurers:", p.reinsurers if p and p.reinsurers else "(none)"))
         if sec4:
             sections.append(("Result", sec4))

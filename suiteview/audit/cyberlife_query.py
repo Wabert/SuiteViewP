@@ -123,6 +123,10 @@ def build_cyberlife_sql(
                         pt.txt_app_date_hi.text().strip())
     has_billing_prem = bool(pt.txt_billing_prem_lo.text().strip() or
                             pt.txt_billing_prem_hi.text().strip())
+    policy_product_indicator_codes = []
+    if pt.chk_product_indicator.isChecked():
+        policy_product_indicator_codes = selected_codes(pt.list_product_indicator)
+    policy_has_product_indicator = bool(policy_product_indicator_codes)
 
     # ── Display tab checkbox states ──────────────────────────────
     disp_paid_to = dt.chk_paid_to_date.isChecked()
@@ -217,7 +221,10 @@ def build_cyberlife_sql(
         p2t.chk_def_life.isChecked() or
         (at.chk_grace_rule.isChecked() and at.list_grace_rule.selectedItems()) or
         (at.chk_db_option.isChecked() and at.list_db_option.selectedItems()))
-    has_modcovsall = bool(p2t.chk_cov_gio.isChecked() or p2t.chk_cov_cola.isChecked())
+    has_modcovsall = bool(
+        p2t.chk_cov_gio.isChecked() or
+        p2t.chk_cov_cola.isChecked() or
+        policy_has_product_indicator)
     has_52r = bool(p2t.chk_is_replacement.isChecked() or p2t.chk_has_replacement_pol.isChecked())
     has_skipped_rein = p2t.chk_skipped_cov_rein.isChecked()
     has_slr = bool(p2t.chk_std_loan_payment.isChecked() and p2t.list_std_loan_payment.selectedItems())
@@ -1021,6 +1028,10 @@ def build_cyberlife_sql(
         sql_parts.append("    AND MODCOVSALL.CK_CMP_CD = COVSALL.CK_CMP_CD")
         sql_parts.append("    AND MODCOVSALL.TCH_POL_ID = COVSALL.TCH_POL_ID")
         sql_parts.append("    AND MODCOVSALL.COV_PHA_NBR = COVSALL.COV_PHA_NBR")
+        if policy_has_product_indicator:
+            sql_parts.append(
+                f"    AND MODCOVSALL.AN_PRD_ID IN "
+                f"({in_list(policy_product_indicator_codes)})")
     if has_52r or disp_replacement_pol:
         _52r_join = "INNER JOIN" if has_52r else "LEFT OUTER JOIN"
         sql_parts.append(f"  {_52r_join} {schema}.TH_USER_REPLACEMENT USERDEF_52R")
@@ -1557,11 +1568,7 @@ def build_cyberlife_sql(
         if codes:
             wheres.append(f"COVSALL.PRD_LIN_TYP_CD IN ({in_list(codes)})")
 
-    # -- Policy tab: Product indicator (checkbox + listbox → any cov) --
-    if pt.chk_product_indicator.isChecked():
-        codes = selected_codes(pt.list_product_indicator)
-        if codes:
-            wheres.append(f"COVSALL.ADV_PRD_IND IN ({in_list(codes)})")
+    # -- Policy tab: Product indicator is applied in the MODCOVSALL join. --
 
     # -- Policy tab: State (checkbox + listbox) --
     if pt.chk_state.isChecked():

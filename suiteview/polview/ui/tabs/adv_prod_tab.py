@@ -39,13 +39,18 @@ class AdvProdValuesTab(QWidget):
 
         self.unimpaired_values = StyledInfoTableGroup("Unimpaired Fund Values", show_info=False)
         self.unimpaired_values.setup_table(["FundID", "Amount"])
-        self.unimpaired_values.setFixedSize(292, 156)
+        self.unimpaired_values.setFixedSize(195, 156)
         fund_values_row.addWidget(self.unimpaired_values)
 
         self.impaired_values = StyledInfoTableGroup("Impaired Fund Values", show_info=False)
         self.impaired_values.setup_table(["FundID", "Amount"])
-        self.impaired_values.setFixedSize(292, 156)
+        self.impaired_values.setFixedSize(195, 156)
         fund_values_row.addWidget(self.impaired_values)
+
+        self.allocation_percent = StyledInfoTableGroup("Allocation Percent", show_info=False)
+        self.allocation_percent.setup_table(["FundID", "Percent"])
+        self.allocation_percent.setFixedSize(195, 156)
+        fund_values_row.addWidget(self.allocation_percent)
 
         left_column.addLayout(fund_values_row)
 
@@ -91,6 +96,7 @@ class AdvProdValuesTab(QWidget):
         self.fund_history.load_table_data([])
         self.unimpaired_values.load_table_data([])
         self.impaired_values.load_table_data([])
+        self.allocation_percent.load_table_data([])
 
         try:
             if not policy.is_advanced_product:
@@ -100,6 +106,7 @@ class AdvProdValuesTab(QWidget):
             self._load_monthliversary_from_policy(policy)
             self._load_fund_history_from_policy(policy)
             self._load_fund_summary_from_policy(policy)
+            self._load_premium_allocation_from_policy(policy)
         except Exception as e:
             import traceback, sys
             print(f"[AdvProdValuesTab] Error loading data: {e}", file=sys.stderr)
@@ -148,7 +155,7 @@ class AdvProdValuesTab(QWidget):
                         ccv_total += float(amt)
                     except Exception:
                         pass
-        if ccv_total > 0:
+        if ccv_total != 0:
             self.policy_info.set_value("ccv", format_currency(ccv_total))
 
         if policy.guaranteed_interest_rate:
@@ -256,7 +263,19 @@ class AdvProdValuesTab(QWidget):
                 fnd_cd = str(row.get("FND_ID_CD", "")).strip()
                 if fnd_cd and fnd_cd != "LZ":
                     amt = float(row.get("LN_PRI_AMT", 0) or 0)
-                    if amt > 0:
+                    if amt != 0:
                         loan_totals[fnd_cd] = loan_totals.get(fnd_cd, 0) + amt
 
         self.impaired_values.load_table_data([[fnd, format_currency(amt)] for fnd, amt in sorted(loan_totals.items())])
+
+    def _load_premium_allocation_from_policy(self, policy):
+        allocation_rows = []
+        for fund_id, percent in sorted(policy.get_premium_allocation_dict().items()):
+            clean_fund_id = str(fund_id).strip()
+            try:
+                display_percent = f"{float(percent) / 100:.2%}"
+            except Exception:
+                display_percent = str(percent)
+            allocation_rows.append([clean_fund_id, display_percent])
+
+        self.allocation_percent.load_table_data(allocation_rows)

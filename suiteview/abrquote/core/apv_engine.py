@@ -187,6 +187,7 @@ class APVEngine:
         apv_summary: dict,
         loan_repayment: float = 0.0,
         surrender_value: float = 0.0,
+        eligible_death_benefit: float | None = None,
     ) -> dict:
         """Compute full accelerated benefit.
 
@@ -197,14 +198,20 @@ class APVEngine:
             surrender_value: Policy surrender/cash value (UL/IUL/ISWL only).
 
         Returns dict with:
-            eligible_db, actuarial_discount, admin_fee,
-            loan_repayment, surrender_value, accelerated_benefit, benefit_ratio
+            eligible_db, actuarial_discount, admin_fee, loan_repayment,
+            surrender_value, calculated_benefit, accelerated_benefit, benefit_ratio
         """
-        face = self.policy.face_amount
-        actuarial_discount = apv_summary["actuarial_discount"]
+        base_face = self.policy.face_amount
+        face = eligible_death_benefit if eligible_death_benefit is not None else base_face
+        base_discount = apv_summary["actuarial_discount"]
+        if base_face > 0 and face != base_face:
+            actuarial_discount = round(base_discount * (face / base_face), 2)
+        else:
+            actuarial_discount = base_discount
 
-        accel_benefit = round(face - actuarial_discount - admin_fee - loan_repayment, 2)
-        benefit_ratio = max(0.0, accel_benefit) / face if face > 0 else 0.0
+        calculated_benefit = round(face - actuarial_discount - admin_fee - loan_repayment, 2)
+        accelerated_benefit = max(max(0.0, calculated_benefit), surrender_value)
+        benefit_ratio = max(0.0, calculated_benefit) / face if face > 0 else 0.0
 
         return {
             "eligible_db": face,
@@ -212,7 +219,9 @@ class APVEngine:
             "admin_fee": admin_fee,
             "loan_repayment": loan_repayment,
             "surrender_value": surrender_value,
-            "accelerated_benefit": accel_benefit,
+            "calculated_benefit": calculated_benefit,
+            "accelerated_benefit": calculated_benefit,
+            "final_accelerated_benefit": accelerated_benefit,
             "benefit_ratio": round(benefit_ratio, 6),
         }
 
@@ -268,8 +277,9 @@ class APVEngine:
             partial_loan = 0.0
             partial_surrender = 0.0
 
-        accel_benefit = round(eligible_partial - partial_discount - admin_fee - partial_loan, 2)
-        benefit_ratio = max(0.0, accel_benefit) / eligible_partial if eligible_partial > 0 else 0.0
+        calculated_benefit = round(eligible_partial - partial_discount - admin_fee - partial_loan, 2)
+        accelerated_benefit = max(max(0.0, calculated_benefit), partial_surrender)
+        benefit_ratio = max(0.0, calculated_benefit) / eligible_partial if eligible_partial > 0 else 0.0
 
         return {
             "eligible_db": eligible_partial,
@@ -277,6 +287,8 @@ class APVEngine:
             "admin_fee": admin_fee,
             "loan_repayment": partial_loan,
             "surrender_value": partial_surrender,
-            "accelerated_benefit": accel_benefit,
+            "calculated_benefit": calculated_benefit,
+            "accelerated_benefit": calculated_benefit,
+            "final_accelerated_benefit": accelerated_benefit,
             "benefit_ratio": round(benefit_ratio, 6),
         }
