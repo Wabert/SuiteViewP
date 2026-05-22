@@ -13,18 +13,58 @@ from PyQt6.QtCore import Qt, QMimeData, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QAbstractItemView, QSplitter, QPushButton,
+    QListWidget, QListWidgetItem, QAbstractItemView, QSplitter, QPushButton,
     QMenu,
 )
 
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit import qdef_store
+from suiteview.audit.query_object import qdefinition_from_query_object
+from suiteview.audit import query_object_store
 from suiteview.audit.tabs._styles import TightItemDelegate
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+def _load_query_source(name: str, forge_name: str = "") -> QDefinition | None:
+    """Load a DataForge source by name from QDefs first, then QueryObjects."""
+    sq = qdef_store.load_qdef(name, forge_name=forge_name)
+    if not sq:
+        sq = qdef_store.load_qdef(name)
+    if sq:
+        return sq
+    obj = query_object_store.load_object(name)
+    if obj:
+        return qdefinition_from_query_object(obj)
+    return None
+
+
+def _list_query_sources() -> list[QDefinition]:
+    """Return QDefinition-shaped sources from QDefs plus object-only QueryObjects."""
+    sources: dict[str, QDefinition] = {qd.name: qd for qd in qdef_store.list_qdefs()}
+    for obj in query_object_store.list_objects():
+        if obj.name not in sources:
+            sources[obj.name] = qdefinition_from_query_object(obj)
+    return sorted(sources.values(), key=lambda qd: qd.name.lower())
+
+
+def _source_kind_label(source: QDefinition) -> str:
+    kind = getattr(source, "query_object_kind", "")
+    labels = {
+        "visual_query": "Visual",
+        "executable_query": "Executable",
+        "cyberlife_query": "Cyberlife",
+        "manual_sql": "Manual SQL",
+        "adhoc_source": "Ad Hoc",
+    }
+    if kind in labels:
+        return labels[kind]
+    if source.source_design:
+        return "Executable"
+    return "Query"
 
 _FONT = QFont("Segoe UI", 9)
 _FONT_BOLD = QFont("Segoe UI", 9, QFont.Weight.Bold)
@@ -202,13 +242,13 @@ class QueryFieldPicker(QWidget):
         ql.setContentsMargins(2, 4, 2, 4)
         ql.setSpacing(3)
 
-        lbl_queries = QLabel("Query Definitions")
+        lbl_queries = QLabel("Query Objects")
         lbl_queries.setStyleSheet(_HEADER_STYLE)
         ql.addWidget(lbl_queries)
 
         self.txt_query_search = QLineEdit()
         self.txt_query_search.setFont(_FONT_SMALL)
-        self.txt_query_search.setPlaceholderText("Search QDefs...")
+        self.txt_query_search.setPlaceholderText("Search objects...")
         self.txt_query_search.setClearButtonEnabled(True)
         self.txt_query_search.setFixedHeight(22)
         self.txt_query_search.setStyleSheet(_SEARCH_STYLE)
@@ -234,7 +274,7 @@ class QueryFieldPicker(QWidget):
         q_btns.setContentsMargins(0, 0, 0, 0)
         q_btns.setSpacing(3)
 
-        self.btn_add_query = QPushButton("+ QDef")
+        self.btn_add_query = QPushButton("+ Object")
         self.btn_add_query.setFont(_FONT_SMALL)
         self.btn_add_query.setFixedHeight(20)
         self.btn_add_query.setStyleSheet(_BTN_STYLE)
@@ -309,9 +349,7 @@ class QueryFieldPicker(QWidget):
         self.lbl_status.setText("")
 
         for name in source_query_names:
-            sq = qdef_store.load_qdef(name, forge_name=forge_name)
-            if not sq:
-                sq = qdef_store.load_qdef(name)  # fallback: search all forges
+            sq = _load_query_source(name, forge_name=forge_name)
             if sq:
                 self._sources[name] = sq
                 self.list_queries.addItem(name)
@@ -323,10 +361,7 @@ class QueryFieldPicker(QWidget):
         """Add a single query source."""
         if query_name in self._sources:
             return
-        # Try scoped forge first, then search all forges
-        sq = qdef_store.load_qdef(query_name, forge_name=self._current_forge_name)
-        if not sq:
-            sq = qdef_store.load_qdef(query_name)
+        sq = _load_query_source(query_name, forge_name=self._current_forge_name)
         if sq:
             self._sources[query_name] = sq
             self.list_queries.addItem(query_name)
@@ -452,16 +487,16 @@ class QueryFieldPicker(QWidget):
     # ── Query buttons ─────────────────────────────────────────
 
     def _on_add_query(self):
-        """Open a dialog to pick QDefinitions to add as DataForge sources."""
+        """Open a dialog to pick query objects to add as DataForge sources."""
         from PyQt6.QtWidgets import QDialog
-        all_queries = qdef_store.list_qdefs()  # show QDefs from all forges + Commons
+        all_queries = _list_query_sources()
         existing = set(self._sources.keys())
         available = [sq for sq in all_queries if sq.name not in existing]
         if not available:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.information(
-                self, "No QDefinitions",
-                "No QDefinitions available to add.")
+                self, "No Query Objects",
+                "No query objects are available to add.")
             return
 
         _add_list_style = (
@@ -474,12 +509,12 @@ class QueryFieldPicker(QWidget):
         )
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("Add Query Definitions")
+        dlg.setWindowTitle("Add Query Objects")
         dlg.setMinimumSize(400, 400)
         lay = QVBoxLayout(dlg)
 
         txt_search = QLineEdit()
-        txt_search.setPlaceholderText("Search QDefinitions...")
+        txt_search.setPlaceholderText("Search query objects...")
         txt_search.setClearButtonEnabled(True)
         txt_search.setFixedHeight(24)
         lay.addWidget(txt_search)
@@ -489,7 +524,10 @@ class QueryFieldPicker(QWidget):
         lst.setItemDelegate(TightItemDelegate(lst))
         lst.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         for sq in available:
-            lst.addItem(f"{sq.name}  ({sq.dsn})")
+            suffix = f"  ({sq.dsn})" if sq.dsn else ""
+            item = QListWidgetItem(f"{sq.name}  [{_source_kind_label(sq)}]{suffix}")
+            item.setData(Qt.ItemDataRole.UserRole, sq.name)
+            lst.addItem(item)
         lay.addWidget(lst, 1)
 
         lbl_status = QLabel(f"{len(available)} available")
@@ -521,9 +559,7 @@ class QueryFieldPicker(QWidget):
 
         added = []
         for item in lst.selectedItems():
-            # Extract name from "name  (dsn)" format
-            text = item.text()
-            name = text.split("  (")[0] if "  (" in text else text
+            name = item.data(Qt.ItemDataRole.UserRole) or item.text()
             if name and name not in self._sources:
                 self.add_source(name)
                 added.append(name)
@@ -532,7 +568,7 @@ class QueryFieldPicker(QWidget):
             self.sources_changed.emit(list(self._sources.keys()))
 
     def _on_query_context_menu(self, pos):
-        """Right-click context menu on the Query Definitions list."""
+        """Right-click context menu on the Query Objects list."""
         item = self.list_queries.itemAt(pos)
         if item is None:
             return
@@ -557,7 +593,7 @@ class QueryFieldPicker(QWidget):
         if qdef_store.qdef_exists(new_name, forge_name=forge):
             QMessageBox.warning(
                 self, "Name Exists",
-                f"A QDefinition named '{new_name}' already exists.")
+                f"A query object named '{new_name}' already exists.")
             return
 
         qd = qdef_store.load_qdef(old_name, forge_name=forge)

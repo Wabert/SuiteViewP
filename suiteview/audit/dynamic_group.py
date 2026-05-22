@@ -339,14 +339,14 @@ class DynamicQuery(QWidget):
         self._lbl_query_name.setStyleSheet("QLabel { color: #7C3AED; }")
         self.bottom_bar.left_layout.addWidget(self._lbl_query_name)
 
-        # Action buttons: Save Query
+        # Action buttons: Save Query Object
         if self._is_temp:
             self.btn_save_query = QPushButton("Save")
             self.btn_save_query.setFont(_FONT_BOLD)
             self.btn_save_query.setFixedSize(55, 36)
             self.btn_save_query.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
             self.btn_save_query.setToolTip(
-                f"Update saved query \"{self._saved_query_name}\"")
+                f"Update query object \"{self._saved_query_name}\"")
             self.btn_save_query.clicked.connect(self._save_query_update)
             self.bottom_bar.action_layout.addWidget(self.btn_save_query)
 
@@ -354,15 +354,15 @@ class DynamicQuery(QWidget):
             self.btn_save_as.setFont(_FONT_BOLD)
             self.btn_save_as.setFixedSize(65, 36)
             self.btn_save_as.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
-            self.btn_save_as.setToolTip("Save a copy under a new name")
+            self.btn_save_as.setToolTip("Save a copy as a new query object")
             self.btn_save_as.clicked.connect(self._save_query)
             self.bottom_bar.action_layout.addWidget(self.btn_save_as)
         else:
-            self.btn_save_query = QPushButton("Save Query")
+            self.btn_save_query = QPushButton("Save Object")
             self.btn_save_query.setFont(_FONT_BOLD)
             self.btn_save_query.setFixedSize(85, 36)
             self.btn_save_query.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
-            self.btn_save_query.setToolTip("Save this query design for later use")
+            self.btn_save_query.setToolTip("Save this visual query as a reusable Query Object")
             self.btn_save_query.clicked.connect(self._save_query)
             self.bottom_bar.action_layout.addWidget(self.btn_save_query)
 
@@ -633,7 +633,7 @@ class DynamicQuery(QWidget):
                     msg = f"{exc.args[0]}\n\n{exc.args[1]}"
                 QMessageBox.warning(self, "Query Error", msg)
 
-    # ── Save Query ───────────────────────────────────────────────────
+    # ── Save Query Object ────────────────────────────────────────────
 
     def _save_query_update(self):
         """Overwrite the linked saved query with the current config."""
@@ -660,8 +660,8 @@ class DynamicQuery(QWidget):
         self.query_saved.emit(sq)
 
         QMessageBox.information(
-            self, "Query Saved",
-            f"Query \"{name}\" updated successfully.")
+            self, "Query Object Saved",
+            f"Query object \"{name}\" updated successfully.")
 
     def _save_query(self):
         """Snapshot the current designer config as a saved query."""
@@ -669,8 +669,8 @@ class DynamicQuery(QWidget):
         from suiteview.audit import saved_query_store as sq_store
 
         name, ok = QInputDialog.getText(
-            self, "Save Query",
-            "Query name:",
+            self, "Save Query Object",
+            "Object name:",
             text="",
         )
         if not ok or not name.strip():
@@ -703,8 +703,8 @@ class DynamicQuery(QWidget):
         self.query_saved.emit(sq)
 
         QMessageBox.information(
-            self, "Query Saved",
-            f"Query \"{name}\" saved successfully.")
+            self, "Query Object Saved",
+            f"Query object \"{name}\" saved successfully.")
 
     # ── Pin to Workbench ───────────────────────────────────────────
 

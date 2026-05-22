@@ -26,12 +26,41 @@ from PyQt6.QtWidgets import (
 
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit import qdef_store
+from suiteview.audit.query_object import qdefinition_from_query_object
+from suiteview.audit import query_object_store
 from suiteview.audit.tabs._styles import TightItemDelegate
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+def _list_query_sources(forge_name: str = "") -> list[QDefinition]:
+    """Return QDefinition-shaped sources from QDefs plus object-only QueryObjects."""
+    sources: dict[str, QDefinition] = {
+        qd.name: qd for qd in qdef_store.list_qdefs(forge_name=forge_name)
+    }
+    for obj in query_object_store.list_objects():
+        if obj.name not in sources:
+            sources[obj.name] = qdefinition_from_query_object(obj)
+    return sorted(sources.values(), key=lambda qd: qd.name.lower())
+
+
+def _source_kind_label(source: QDefinition) -> str:
+    kind = getattr(source, "query_object_kind", "")
+    labels = {
+        "visual_query": "Visual",
+        "executable_query": "Executable",
+        "cyberlife_query": "Cyberlife",
+        "manual_sql": "Manual SQL",
+        "adhoc_source": "Ad Hoc",
+    }
+    if kind in labels:
+        return labels[kind]
+    if source.source_design:
+        return "Executable"
+    return "Query"
 
 _FONT = QFont("Segoe UI", 9)
 
@@ -231,7 +260,7 @@ class QueriesFieldsDialog(QDialog):
         hlay.setContentsMargins(10, 2, 6, 2)
         hlay.setSpacing(6)
 
-        title_lbl = QLabel("Query Definitions && Fields")
+        title_lbl = QLabel("Query Objects && Fields")
         title_lbl.setStyleSheet(
             "QLabel { color: white; font-size: 14px; font-weight: bold;"
             " font-style: italic; background: transparent; }")
@@ -263,7 +292,7 @@ class QueriesFieldsDialog(QDialog):
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # ── Left: Query list ─────────────────────────────────────────
-        left = QGroupBox("Query Definitions")
+        left = QGroupBox("Query Objects")
         left_lay = QVBoxLayout(left)
         left_lay.setSpacing(4)
 
@@ -280,7 +309,7 @@ class QueriesFieldsDialog(QDialog):
         left_lay.addWidget(self.list_queries)
 
         q_btns = QHBoxLayout()
-        self.btn_add_query = QPushButton("+ QDef")
+        self.btn_add_query = QPushButton("+ Object")
         self.btn_add_query.setStyleSheet(_BTN_SMALL_STYLE)
         self.btn_add_query.setFixedHeight(22)
         self.btn_add_query.clicked.connect(self._on_add_query)
@@ -689,12 +718,12 @@ class QueriesFieldsDialog(QDialog):
     # ── Add / Remove queries ─────────────────────────────────────────
 
     def _on_add_query(self):
-        """Show a picker to add saved queries as sources (mirrors _AddTableDialog)."""
-        all_queries = qdef_store.list_qdefs(forge_name=self._forge_name)
+        """Show a picker to add query objects as sources."""
+        all_queries = _list_query_sources(forge_name=self._forge_name)
         if not all_queries:
             QMessageBox.information(
-                self, "No QDefinitions",
-                "No QDefinitions found. Create and save a QDefinition first.")
+                self, "No Query Objects",
+                "No query objects found. Save or import a query object first.")
             return
 
         current_names = set(self._sources.keys())
@@ -706,12 +735,12 @@ class QueriesFieldsDialog(QDialog):
             return
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("Add Query Definitions")
+        dlg.setWindowTitle("Add Query Objects")
         dlg.setMinimumSize(400, 400)
         lay = QVBoxLayout(dlg)
 
         txt_search = QLineEdit()
-        txt_search.setPlaceholderText("Search QDefinitions...")
+        txt_search.setPlaceholderText("Search query objects...")
         txt_search.setClearButtonEnabled(True)
         txt_search.setFixedHeight(24)
         lay.addWidget(txt_search)
@@ -722,7 +751,10 @@ class QueriesFieldsDialog(QDialog):
         lst.setSelectionMode(
             QAbstractItemView.SelectionMode.MultiSelection)
         for sq in available:
-            lst.addItem(sq.name)
+            suffix = f"  ({sq.dsn})" if sq.dsn else ""
+            item = QListWidgetItem(f"{sq.name}  [{_source_kind_label(sq)}]{suffix}")
+            item.setData(Qt.ItemDataRole.UserRole, sq.name)
+            lst.addItem(item)
         lay.addWidget(lst, 1)
 
         lbl_status = QLabel(f"{len(available)} available")
@@ -756,7 +788,7 @@ class QueriesFieldsDialog(QDialog):
         for i in range(lst.count()):
             item = lst.item(i)
             if item.isSelected():
-                name = item.text()
+                name = item.data(Qt.ItemDataRole.UserRole) or item.text()
                 sq = next((q for q in all_queries if q.name == name), None)
                 if sq:
                     self._sources[name] = sq

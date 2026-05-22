@@ -24,6 +24,9 @@ from PyQt6.QtWidgets import (
 
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit import qdef_store
+from suiteview.audit.query_object import qdefinition_from_query_object
+from suiteview.audit import query_object_store
+from suiteview.audit.adhoc_source_intake import dataframe_from_adhoc_metadata
 from suiteview.audit.dataforge.dataforge_model import DataForge, DataForgeSource
 from suiteview.audit.dataforge import dataforge_store as df_store
 from suiteview.audit.tabs.field_row import FieldRow, FieldGrid
@@ -557,6 +560,10 @@ class DataForgeGroup(QWidget):
         self.joins_tab.update_queries(list(self._sources.keys()),
                                      self._query_columns_map())
 
+    def add_source_object(self, query_object):
+        """Programmatically add a QueryObject source via QDefinition adapter."""
+        self.add_source_query(qdefinition_from_query_object(query_object))
+
     # ── Field placement (from picker) ────────────────────────────────
 
     def on_field_requested(self, query_name: str, col_name: str):
@@ -579,15 +586,16 @@ class DataForgeGroup(QWidget):
     def _run_single_query(self, query_name: str):
         """Execute a single source query and cache its DataFrame."""
         sq = self._sources.get(query_name)
-        if not sq or not sq.sql:
+        if not sq:
+            return
+        if not sq.sql and not self._is_adhoc_source(sq):
             QMessageBox.warning(
                 self, "Missing SQL",
                 f"Query \"{query_name}\" has no SQL. Run and re-save it first.")
             return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            columns, rows = execute_odbc_query(sq.dsn, sq.sql)
-            df = pd.DataFrame([list(r) for r in rows], columns=columns)
+            df = self._load_source_dataframe(sq)
             self._datasets[query_name] = df
             QApplication.restoreOverrideCursor()
             if self._queries_dialog and self._queries_dialog.isVisible():
@@ -615,7 +623,9 @@ class DataForgeGroup(QWidget):
     def _view_query_results(self, query_name: str):
         """Show query results in a preview window. Load if not cached."""
         sq = self._sources.get(query_name)
-        if not sq or not sq.sql:
+        if not sq:
+            return
+        if not sq.sql and not self._is_adhoc_source(sq):
             QMessageBox.warning(
                 self, "Missing SQL",
                 f"Query \"{query_name}\" has no SQL. Run and re-save it first.")
@@ -633,8 +643,7 @@ class DataForgeGroup(QWidget):
             QApplication.processEvents()
 
             try:
-                columns, rows = execute_odbc_query(sq.dsn, sq.sql)
-                df = pd.DataFrame([list(r) for r in rows], columns=columns)
+                df = self._load_source_dataframe(sq)
                 self._datasets[query_name] = df
                 if self._queries_dialog and self._queries_dialog.isVisible():
                     self._queries_dialog.update_data_status(
@@ -663,6 +672,21 @@ class DataForgeGroup(QWidget):
             self._preview_windows = []
         self._preview_windows.append(win)
 
+    @staticmethod
+    def _is_adhoc_source(sq: QDefinition) -> bool:
+        return getattr(sq, "query_object_kind", "") == "adhoc_source"
+
+    def _load_source_dataframe(self, sq: QDefinition) -> pd.DataFrame:
+        if self._is_adhoc_source(sq):
+            metadata = getattr(sq, "query_object_source_metadata", {}) or {}
+            return dataframe_from_adhoc_metadata(
+                sq.source_design,
+                metadata,
+                columns=sq.result_columns,
+            )
+        columns, rows = execute_odbc_query(sq.dsn, sq.sql)
+        return pd.DataFrame([list(r) for r in rows], columns=columns)
+
     # ── Dirty tracking ────────────────────────────────────────────────
 
     @property
@@ -684,7 +708,7 @@ class DataForgeGroup(QWidget):
         """Execute all source queries, merge with pandas, apply filters."""
         if not self._sources:
             QMessageBox.warning(self, "No Sources",
-                                "Add at least one saved query via the Queries button.")
+                                "Add at least one query object via the Objects button.")
             return
 
         with run_button_context(
@@ -698,15 +722,13 @@ class DataForgeGroup(QWidget):
             try:
                 # Step 1: Execute each source query's SQL
                 for name, sq in self._sources.items():
-                    if not sq.sql:
+                    if not sq.sql and not self._is_adhoc_source(sq):
                         QMessageBox.warning(
                             self, "Missing SQL",
                             f"Query \"{name}\" has no SQL. Run and re-save it first.")
                         return
-                    sqls[name] = sq.sql
-                    columns, rows = execute_odbc_query(sq.dsn, sq.sql)
-                    datasets[name] = pd.DataFrame(
-                        [list(r) for r in rows], columns=columns)
+                    sqls[name] = sq.sql or f"Ad hoc source: {sq.source_design}"
+                    datasets[name] = self._load_source_dataframe(sq)
 
                 # Cache datasets so field picker can see them
                 self._datasets.update(datasets)
@@ -1050,6 +1072,10 @@ class DataForgeGroup(QWidget):
                 sq = qdef_store.load_qdef(name, forge_name=self._saved_forge_name)
                 if not sq:
                     sq = qdef_store.load_qdef(name)  # fallback: search all
+                if not sq:
+                    obj = query_object_store.load_object(name)
+                    if obj:
+                        sq = qdefinition_from_query_object(obj)
                 if sq:
                     self._sources[name] = sq
             self.joins_tab.update_queries(list(self._sources.keys()),

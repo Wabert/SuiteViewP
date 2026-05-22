@@ -111,9 +111,9 @@ class ResultsTab(QWidget):
         self.btn_export.clicked.connect(self._export_to_excel)
         bottom.addWidget(self.btn_export)
 
-        self.btn_save_qdef = QPushButton("Save QDef")
+        self.btn_save_qdef = QPushButton("Save Object")
         self.btn_save_qdef.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self.btn_save_qdef.setFixedSize(90, 28)
+        self.btn_save_qdef.setFixedSize(95, 28)
         self.btn_save_qdef.setStyleSheet(
             "QPushButton { background-color: #7C3AED; color: white;"
             " border: 1px solid #6D28D9; border-radius: 3px; }"
@@ -121,7 +121,7 @@ class ResultsTab(QWidget):
             "QPushButton:disabled { background-color: #C4B5FD; }"
         )
         self.btn_save_qdef.setEnabled(False)
-        self.btn_save_qdef.setToolTip("Save as a Query Definition")
+        self.btn_save_qdef.setToolTip("Save these results as a reusable executable Query Object")
         self.btn_save_qdef.clicked.connect(self._on_save_qdef)
         bottom.addWidget(self.btn_save_qdef)
 
@@ -342,10 +342,10 @@ class ResultsTab(QWidget):
         ws.Columns(2).AutoFit()
         ws.Columns(3).AutoFit()
 
-    # ── Save QDefinition ─────────────────────────────────────────────
+    # ── Save executable Query Object ─────────────────────────────────
 
     def _on_save_qdef(self):
-        """Open dialog to save a QDefinition from current results."""
+        """Open dialog to save an executable Query Object from current results."""
         if not self._query_context or self._df is None:
             return
 
@@ -379,4 +379,4 @@ class ResultsTab(QWidget):
                 display_names=ctx.get("display_names", {}),
             )
             qdef_store.save_qdef(qd)
-            QMessageBox.information(self, "Saved", f"QDefinition '{name}' saved to DataForge '{forge}'.")
+            QMessageBox.information(self, "Saved", f"Query object '{name}' saved to DataForge '{forge}'.")

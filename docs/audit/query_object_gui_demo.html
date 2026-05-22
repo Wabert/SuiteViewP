@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audit Query Object Workflow Prototype</title>
+  <style>
+    :root {
+      --ink: #17202a;
+      --muted: #5c6670;
+      --line: #cfd7df;
+      --line-strong: #9ba8b5;
+      --panel: #f7f9fb;
+      --panel-2: #edf3f7;
+      --work: #ffffff;
+      --blue: #1f5f99;
+      --blue-soft: #dceaf5;
+      --teal: #207f79;
+      --teal-soft: #dff0ed;
+      --gold: #a57918;
+      --gold-soft: #f2e6c7;
+      --red: #a33a31;
+      --red-soft: #f3dddd;
+      --green: #2c6f42;
+      --green-soft: #dcecdf;
+      --shadow: 0 4px 14px rgba(31, 52, 71, 0.10);
+      --radius: 3px;
+      font-family: Aptos, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(135deg, rgba(31, 95, 153, 0.08), transparent 32%),
+        linear-gradient(315deg, rgba(32, 127, 121, 0.10), transparent 36%),
+        #e8eef3;
+    }
+
+    button, input, select, textarea { font: inherit; }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 280px minmax(720px, 1fr) 340px;
+      grid-template-rows: 52px 1fr;
+    }
+
+    .topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      background: #f9fbfc;
+      border-bottom: 1px solid var(--line);
+      box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+    }
+
+    .brand {
+      font-weight: 700;
+      letter-spacing: 0;
+      color: var(--blue);
+      margin-right: 10px;
+      white-space: nowrap;
+    }
+
+    .query-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 8px;
+      background: var(--blue-soft);
+      border: 1px solid #b9d0e2;
+      border-radius: var(--radius);
+      min-width: 260px;
+    }
+
+    .query-name span:first-child {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .query-name strong { font-size: 15px; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 20px;
+      padding: 1px 6px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .pill.registered { border-color: #9cc8a8; background: var(--green-soft); color: var(--green); }
+    .pill.adhoc { border-color: #dbbf75; background: var(--gold-soft); color: #72510d; }
+    .pill.manual { border-color: #d7aaa6; background: var(--red-soft); color: var(--red); }
+    .pill.local { border-color: #9fcac7; background: var(--teal-soft); color: var(--teal); }
+
+    .top-actions {
+      margin-left: auto;
+      display: flex;
+      gap: 6px;
+    }
+
+    .btn {
+      border: 1px solid var(--line-strong);
+      background: #fff;
+      color: var(--ink);
+      border-radius: var(--radius);
+      min-height: 28px;
+      padding: 4px 9px;
+      cursor: pointer;
+    }
+
+    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .btn.green { background: var(--green); border-color: var(--green); color: #fff; }
+    .btn.ghost { background: transparent; }
+    .btn.small { min-height: 24px; padding: 3px 7px; font-size: 12px; }
+
+    .sidebar, .rightbar {
+      background: rgba(247, 249, 251, 0.94);
+      border-right: 1px solid var(--line);
+      overflow: auto;
+    }
+
+    .rightbar {
+      border-right: none;
+      border-left: 1px solid var(--line);
+    }
+
+    .section {
+      padding: 8px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section h2 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      letter-spacing: 0;
+      color: #2d3b48;
+    }
+
+    .search {
+      width: 100%;
+      min-height: 28px;
+      padding: 4px 7px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: #fff;
+      margin-bottom: 8px;
+    }
+
+    .object-list, .source-list, .field-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .object-card, .source-card, .field-card {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: var(--radius);
+      padding: 6px 7px;
+      cursor: pointer;
+    }
+
+    .object-card.active {
+      border-color: var(--blue);
+      background: var(--blue-soft);
+    }
+
+    .object-card strong, .source-card strong, .field-card strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 3px;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .workspace {
+      min-width: 0;
+      overflow: auto;
+      padding: 12px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 10px;
+      border-bottom: 1px solid var(--line-strong);
+    }
+
+    .tab {
+      border: 1px solid var(--line-strong);
+      border-bottom: none;
+      background: var(--panel-2);
+      padding: 6px 10px;
+      border-radius: 6px 6px 0 0;
+      cursor: pointer;
+      font-weight: 600;
+      color: #42505c;
+    }
+
+    .tab.active {
+      background: #fff;
+      color: var(--blue);
+      position: relative;
+      top: 1px;
+    }
+
+    .view {
+      display: none;
+      background: rgba(255,255,255,0.96);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      min-height: 620px;
+    }
+
+    .view.active { display: block; }
+
+    .view-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+
+    .view-head h1 {
+      margin: 0;
+      font-size: 18px;
+      color: #22313f;
+    }
+
+    .view-head .spacer { flex: 1; }
+
+    .content {
+      padding: 10px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--work);
+      overflow: hidden;
+    }
+
+    .panel h3 {
+      margin: 0;
+      padding: 7px 9px;
+      font-size: 13px;
+      color: #253544;
+      background: var(--panel-2);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-body { padding: 10px; }
+
+    .dropzone {
+      border: 1px dashed #8fa6bb;
+      background: #f7fbff;
+      border-radius: var(--radius);
+      padding: 8px;
+      min-height: 68px;
+    }
+
+    .dropzone strong { display: block; margin-bottom: 4px; }
+
+    .source-row, .input-row, .output-row, .join-row {
+      display: grid;
+      gap: 6px;
+      align-items: center;
+      border-bottom: 1px solid #edf1f4;
+      padding: 5px 4px;
+      min-height: 38px;
+    }
+
+    .source-row { grid-template-columns: 1.2fr 0.8fr auto; }
+    .input-row { grid-template-columns: 1.2fr 0.8fr 1fr 0.5fr auto; }
+    .output-row { grid-template-columns: 1.2fr 0.7fr 1fr 0.6fr auto; }
+    .join-row { grid-template-columns: 1fr 0.7fr 1fr 1.1fr auto; }
+
+    .row-head {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      font-weight: 700;
+      background: #f9fbfc;
+    }
+
+    .cell-title { font-weight: 700; font-size: 13px; }
+    .cell-sub { color: var(--muted); font-size: 12px; }
+
+    select, .mini-input {
+      width: 100%;
+      min-height: 28px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 4px 6px;
+    }
+
+    .builder-strip {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+      margin-bottom: 12px;
+    }
+
+    .step-card {
+      flex: 1;
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 9px;
+      min-height: 64px;
+    }
+
+    .step-card:nth-child(2) { border-left-color: var(--gold); }
+    .step-card:nth-child(3) { border-left-color: var(--teal); }
+    .step-card:nth-child(4) { border-left-color: var(--green); }
+    .step-card strong { display: block; margin-bottom: 4px; }
+    .step-card span { color: var(--muted); font-size: 12px; line-height: 1.35; }
+
+    .sql-box, .json-box {
+      width: 100%;
+      min-height: 250px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: #17202a;
+      color: #eaf2f8;
+      padding: 12px;
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 13px;
+      line-height: 1.45;
+      resize: vertical;
+    }
+
+    .manual-layer {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .note {
+      border-left: 4px solid var(--gold);
+      background: #fff8e6;
+      padding: 9px 10px;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      color: #59420c;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr 36px 1fr 36px 1fr;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .flow-node {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 8px;
+      min-height: 110px;
+    }
+
+    .flow-node h4 { margin: 0 0 6px; }
+    .flow-arrow { text-align: center; color: var(--blue); font-size: 24px; font-weight: 700; }
+
+    .schema-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .schema-table th, .schema-table td {
+      border-bottom: 1px solid #e5eaee;
+      padding: 6px;
+      text-align: left;
+    }
+
+    .schema-table th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      background: #f9fbfc;
+    }
+
+    @media (max-width: 1180px) {
+      .app { grid-template-columns: 240px minmax(620px, 1fr); }
+      .rightbar { display: none; }
+    }
+
+    @media (max-width: 820px) {
+      .app { display: block; }
+      .topbar { position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
+      .sidebar, .rightbar { display: block; border: none; max-height: none; }
+      .grid-2, .grid-3, .manual-layer, .flow { grid-template-columns: 1fr; }
+      .flow-arrow { display: none; }
+      .source-row, .input-row, .output-row, .join-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">SuiteView Audit Query Studio</div>
+      <div class="query-name"><span>Query Object</span><strong id="activeName">Policy Premium Audit</strong></div>
+      <span class="pill registered">Registered metadata</span>
+      <span class="pill adhoc">Ad hoc source friendly</span>
+      <span class="pill local">Reusable object</span>
+      <div class="top-actions">
+        <button class="btn">Preview</button>
+        <button class="btn primary">Save Object</button>
+        <button class="btn green">Run</button>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <div class="section">
+        <h2>Query Objects</h2>
+        <input class="search" placeholder="Search saved objects">
+        <div class="object-list">
+          <div class="object-card active" data-name="Policy Premium Audit">
+            <strong>Policy Premium Audit</strong>
+            <div class="meta">Visual query · DB2 CKPR · 8 outputs</div>
+          </div>
+          <div class="object-card" data-name="Cyberlife Base Extract">
+            <strong>Cyberlife Base Extract</strong>
+            <div class="meta">Classic Cyberlife builder · saved as object</div>
+          </div>
+          <div class="object-card" data-name="TAI Cession Snapshot">
+            <strong>TAI Cession Snapshot</strong>
+            <div class="meta">SQL Server · reusable in joins</div>
+          </div>
+          <div class="object-card" data-name="Manual Claims Extract">
+            <strong>Manual Claims Extract</strong>
+            <div class="meta">Manual SQL · result schema stored</div>
+          </div>
+          <div class="object-card" data-name="CSV Producer Mapping">
+            <strong>CSV Producer Mapping</strong>
+            <div class="meta">Ad hoc CSV · promoted to catalog</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Add Source</h2>
+        <div class="source-list">
+          <div class="source-card"><strong>Registered database table</strong><div class="meta">Known DSN/table/field metadata</div></div>
+          <div class="source-card"><strong>Discover new table</strong><div class="meta">Read ODBC metadata now, optionally register later</div></div>
+          <div class="source-card"><strong>CSV / Excel / flat file</strong><div class="meta">Infer schema, preview, then use as local source</div></div>
+          <div class="source-card"><strong>Cyberlife builder output</strong><div class="meta">Wrap existing complex Cyberlife query as a source object</div></div>
+          <div class="source-card"><strong>Saved query object</strong><div class="meta">Join against another object's output schema</div></div>
+          <div class="source-card"><strong>Manual SQL</strong><div class="meta">Paste SQL, run once to learn output columns</div></div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <nav class="tabs" aria-label="Query workflow tabs">
+        <button class="tab active" data-tab="sources">Sources</button>
+        <button class="tab" data-tab="cyberlife">Cyberlife Bridge</button>
+        <button class="tab" data-tab="inputs">Inputs</button>
+        <button class="tab" data-tab="outputs">Outputs</button>
+        <button class="tab" data-tab="joins">Joins</button>
+        <button class="tab" data-tab="sql">SQL</button>
+        <button class="tab" data-tab="run">Run Object</button>
+      </nav>
+
+      <section class="view active" id="sources">
+        <div class="view-head">
+          <h1>Sources</h1>
+          <span class="pill registered">cataloged</span>
+          <span class="pill adhoc">temporary allowed</span>
+          <div class="spacer"></div>
+          <button class="btn small">Scan Metadata</button>
+          <button class="btn small primary">Add Source</button>
+        </div>
+        <div class="content">
+          <div class="builder-strip">
+            <div class="step-card"><strong>1. Add anything</strong><span>Stable DB table, new ODBC table, CSV, Excel file, saved query, common table, or manual SQL.</span></div>
+            <div class="step-card"><strong>2. Use immediately</strong><span>Ad hoc sources get a temporary schema and can be queried without a full catalog entry.</span></div>
+            <div class="step-card"><strong>3. Promote later</strong><span>If useful, save metadata, relationships, and value lists into the SQL catalog.</span></div>
+            <div class="step-card"><strong>4. Reuse as object</strong><span>The saved query becomes a source for later joins.</span></div>
+          </div>
+
+          <div class="grid-2">
+            <div class="panel">
+              <h3>Current Object Sources</h3>
+              <div class="panel-body">
+                <div class="source-row row-head"><div>Name</div><div>Mode</div><div>Action</div></div>
+                <div class="source-row"><div><div class="cell-title">Cyberlife Base Extract</div><div class="cell-sub">classic Cyberlife query result</div></div><span class="pill local">query object</span><button class="btn small">Open</button></div>
+                <div class="source-row"><div><div class="cell-title">DB2TAB.LH_BAS_POL</div><div class="cell-sub">CKPR production DSN</div></div><span class="pill registered">registered</span><button class="btn small">Fields</button></div>
+                <div class="source-row"><div><div class="cell-title">DB2TAB.LH_COV_PHA</div><div class="cell-sub">joined as Coverage</div></div><span class="pill registered">registered</span><button class="btn small">Fields</button></div>
+                <div class="source-row"><div><div class="cell-title">producer_map_may.csv</div><div class="cell-sub">local file · inferred columns</div></div><span class="pill adhoc">ad hoc</span><button class="btn small">Promote</button></div>
+                <div class="source-row"><div><div class="cell-title">TAI Cession Snapshot</div><div class="cell-sub">saved query object</div></div><span class="pill local">object</span><button class="btn small">Open</button></div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>Ad Hoc Intake</h3>
+              <div class="panel-body">
+                <div class="dropzone">
+                  <strong>Drop CSV, Excel, SQLite, Access, or flat file here</strong>
+                  <div class="meta">The first run creates a local temporary source. You can use it in filters and joins, then decide whether to register it.</div>
+                </div>
+                <table class="schema-table" style="margin-top:10px">
+                  <thead><tr><th>Column</th><th>Inferred Type</th><th>Control</th><th>Status</th></tr></thead>
+                  <tbody>
+                    <tr><td>producer_id</td><td>Text</td><td>List</td><td><span class="pill adhoc">temporary</span></td></tr>
+                    <tr><td>territory</td><td>Text</td><td>Combo</td><td><span class="pill adhoc">temporary</span></td></tr>
+                    <tr><td>effective_date</td><td>Date</td><td>Range</td><td><span class="pill adhoc">temporary</span></td></tr>
+                  </tbody>
+                </table>
+                <div class="note" style="margin-top:10px">
+                  Promotion is optional. A one-off file can remain temporary; a recurring monthly file can be registered with its source pattern, expected columns, value lists, and common joins.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="cyberlife">
+        <div class="view-head">
+          <h1>Cyberlife Bridge</h1>
+          <span class="pill local">classic builder stays intact</span>
+          <span class="pill registered">result schema captured</span>
+          <div class="spacer"></div>
+          <button class="btn small">Open Cyberlife Builder</button>
+          <button class="btn small primary">Save as Query Object</button>
+        </div>
+        <div class="content">
+          <div class="note" style="margin-bottom:10px">
+            The existing Cyberlife screen should not be forced into the generic builder. It becomes a specialized object producer: build the complex Cyberlife query there, run or preview it, then save its SQL, criteria snapshot, parameters, and result schema as one reusable query object.
+          </div>
+
+          <div class="grid-3">
+            <div class="panel">
+              <h3>1. Build in Cyberlife</h3>
+              <div class="panel-body">
+                <table class="schema-table">
+                  <tbody>
+                    <tr><th>Tool</th><td>Existing Cyberlife Audit tabs</td></tr>
+                    <tr><th>Strength</th><td>Complex policy/coverage/rider/benefit logic</td></tr>
+                    <tr><th>Output</th><td>Generated SQL plus selected display fields</td></tr>
+                    <tr><th>Keep</th><td>All current Cyberlife controls</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>2. Save Object Contract</h3>
+              <div class="panel-body">
+                <table class="schema-table">
+                  <tbody>
+                    <tr><th>Name</th><td>Cyberlife Base Extract</td></tr>
+                    <tr><th>Inputs</th><td>Region, system, max count, criteria profile</td></tr>
+                    <tr><th>SQL</th><td>Compiled Cyberlife SQL</td></tr>
+                    <tr><th>Schema</th><td>PolicyNo, Company, Plan, Status, Premium...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>3. Reuse Here</h3>
+              <div class="panel-body">
+                <table class="schema-table">
+                  <tbody>
+                    <tr><th>As Source</th><td>Join to TAI, CSV, SQL Server tables</td></tr>
+                    <tr><th>As Input</th><td>Expose selected parameters for rerun</td></tr>
+                    <tr><th>As Output</th><td>Stable named result fields</td></tr>
+                    <tr><th>As Snapshot</th><td>Optional staged result for cross joins</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel" style="margin-top:12px">
+            <h3>Cyberlife Query Object Fields</h3>
+            <div class="panel-body">
+              <div class="output-row row-head"><div>Field</div><div>Role</div><div>Alias</div><div>Status</div><div>Action</div></div>
+              <div class="output-row"><div><div class="cell-title">TCH_POL_ID</div><div class="cell-sub">from Cyberlife SELECT</div></div><select><option>join key</option></select><input class="mini-input" value="policy_number"><span class="pill registered">registered</span><button class="btn small">Values</button></div>
+              <div class="output-row"><div><div class="cell-title">CK_CMP_CD</div><div class="cell-sub">from Cyberlife SELECT</div></div><select><option>join key</option></select><input class="mini-input" value="company"><span class="pill registered">registered</span><button class="btn small">Values</button></div>
+              <div class="output-row"><div><div class="cell-title">PLN_DES_SER_CD</div><div class="cell-sub">from Coverage CTE</div></div><select><option>output</option></select><input class="mini-input" value="plan_code"><span class="pill registered">registered</span><button class="btn small">Values</button></div>
+              <div class="output-row"><div><div class="cell-title">CurrentDuration</div><div class="cell-sub">computed by Cyberlife query</div></div><select><option>output</option></select><input class="mini-input" value="current_duration"><span class="pill local">object field</span><button class="btn small">Describe</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="inputs">
+        <div class="view-head">
+          <h1>Inputs</h1>
+          <span class="pill">WHERE controls</span>
+          <div class="spacer"></div>
+          <button class="btn small">Add Field</button>
+          <button class="btn small">Register Values</button>
+        </div>
+        <div class="content">
+          <div class="panel">
+            <h3>Filter Controls</h3>
+            <div class="panel-body">
+              <div class="input-row row-head"><div>Field</div><div>Operator</div><div>Value Control</div><div>Required</div><div>Action</div></div>
+              <div class="input-row"><div><div class="cell-title">Policy Status</div><div class="cell-sub">LH_BAS_POL.STAT_CD</div></div><select><option>in list</option></select><select><option>Active, Pending</option></select><select><option>No</option></select><button class="btn small">Values</button></div>
+              <div class="input-row"><div><div class="cell-title">Issue Date</div><div class="cell-sub">LH_COV_PHA.ISS_DT</div></div><select><option>between</option></select><input class="mini-input" value="2024-01-01 to 2024-12-31"><select><option>No</option></select><button class="btn small">Edit</button></div>
+              <div class="input-row"><div><div class="cell-title">Producer Territory</div><div class="cell-sub">producer_map_may.csv.territory</div></div><select><option>equals</option></select><select><option>Midwest</option></select><select><option>No</option></select><button class="btn small">Promote</button></div>
+              <div class="input-row"><div><div class="cell-title">Policy Number</div><div class="cell-sub">LH_BAS_POL.TCH_POL_ID</div></div><select><option>starts with</option></select><input class="mini-input" value="10"><select><option>No</option></select><button class="btn small">Edit</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="outputs">
+        <div class="view-head">
+          <h1>Outputs</h1>
+          <span class="pill">SELECT fields</span>
+          <div class="spacer"></div>
+          <button class="btn small">Add Output</button>
+          <button class="btn small">Alias Fields</button>
+        </div>
+        <div class="content">
+          <div class="panel">
+            <h3>Result Schema for This Query Object</h3>
+            <div class="panel-body">
+              <div class="output-row row-head"><div>Output</div><div>Aggregate</div><div>Alias</div><div>Type</div><div>Action</div></div>
+              <div class="output-row"><div><div class="cell-title">Policy Number</div><div class="cell-sub">POL.TCH_POL_ID</div></div><select><option>display</option></select><input class="mini-input" value="policy_number"><span class="pill">Text</span><button class="btn small">Move</button></div>
+              <div class="output-row"><div><div class="cell-title">Company</div><div class="cell-sub">POL.CK_CMP_CD</div></div><select><option>display</option></select><input class="mini-input" value="company"><span class="pill">Text</span><button class="btn small">Move</button></div>
+              <div class="output-row"><div><div class="cell-title">Coverage Premium</div><div class="cell-sub">COV.BILL_PREM</div></div><select><option>SUM</option></select><input class="mini-input" value="total_premium"><span class="pill">Decimal</span><button class="btn small">Move</button></div>
+              <div class="output-row"><div><div class="cell-title">Territory</div><div class="cell-sub">producer_map_may.csv.territory</div></div><select><option>display</option></select><input class="mini-input" value="territory"><span class="pill adhoc">Text</span><button class="btn small">Promote</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="joins">
+        <div class="view-head">
+          <h1>Joins</h1>
+          <span class="pill">tables and query objects</span>
+          <div class="spacer"></div>
+          <button class="btn small">Suggest Joins</button>
+          <button class="btn small primary">Add Join</button>
+        </div>
+        <div class="content">
+          <div class="panel">
+            <h3>Join Plan</h3>
+            <div class="panel-body">
+              <div class="join-row row-head"><div>Left</div><div>Type</div><div>Right</div><div>Keys</div><div>Action</div></div>
+              <div class="join-row"><div><div class="cell-title">Cyberlife Base Extract</div><div class="cell-sub">classic builder output</div></div><select><option>LEFT</option></select><div><div class="cell-title">producer_map_may.csv</div><div class="cell-sub">ad hoc source</div></div><input class="mini-input" value="producer_id"><button class="btn small">Promote</button></div>
+              <div class="join-row"><div><div class="cell-title">Policy Premium Audit</div><div class="cell-sub">current object</div></div><select><option>LEFT</option></select><div><div class="cell-title">TAI Cession Snapshot</div><div class="cell-sub">saved query object</div></div><input class="mini-input" value="policy_number, company"><button class="btn small">Edit</button></div>
+            </div>
+          </div>
+
+          <div class="note" style="margin-top:12px">
+            Same-database joins can compile directly into SQL. Cross-database joins become an execution plan: run each source with pushed-down filters, materialize the result, then join locally or in a SQL Server staging area.
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="sql">
+        <div class="view-head">
+          <h1>SQL</h1>
+          <span class="pill">generated plus manual layer</span>
+          <div class="spacer"></div>
+          <button class="btn small">Validate</button>
+          <button class="btn small primary">Move to Manual Object</button>
+        </div>
+        <div class="content">
+          <textarea class="sql-box" spellcheck="false">WITH producer_map_may AS (
+    SELECT * FROM local_file('producer_map_may.csv')
+),
+PolicyPremiumAudit AS (
+    SELECT
+    CYB.policy_number,
+    CYB.company,
+    CYB.plan_code,
+        MAP.territory
+  FROM saved_query_object('Cyberlife Base Extract') CYB
+    LEFT JOIN producer_map_may MAP
+    ON CYB.producer_id = MAP.producer_id
+  WHERE CYB.status_code IN ('A', 'P')
+)
+SELECT * FROM PolicyPremiumAudit</textarea>
+
+          <div class="manual-layer">
+            <div class="panel">
+              <h3>Manual WHERE / HAVING Layer</h3>
+              <div class="panel-body"><textarea class="mini-input" style="height:90px" spellcheck="false">AND CYB.current_duration >= 2</textarea></div>
+            </div>
+            <div class="panel">
+              <h3>Manual Output Expression</h3>
+              <div class="panel-body"><textarea class="mini-input" style="height:90px" spellcheck="false">CASE WHEN MAP.territory IS NULL THEN 'Unmapped' ELSE MAP.territory END AS mapped_territory</textarea></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="run">
+        <div class="view-head">
+          <h1>Run Object</h1>
+          <span class="pill">execution plan</span>
+          <div class="spacer"></div>
+          <button class="btn small">Save Snapshot</button>
+          <button class="btn small green">Run Plan</button>
+        </div>
+        <div class="content">
+          <div class="flow">
+            <div class="flow-node"><h4>Run Specialized Producers</h4><div class="meta">Cyberlife builds its own complex SQL and returns a named result schema.</div></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-node"><h4>Materialize Ad Hoc Sources</h4><div class="meta">CSV/manual/cross-database outputs become local temp tables or SQL Server staging tables.</div></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-node"><h4>Join and Save Object</h4><div class="meta">The combined result schema becomes a reusable source for the next query object.</div></div>
+          </div>
+
+          <div class="grid-2" style="margin-top:12px">
+            <div class="panel">
+              <h3>Object Summary</h3>
+              <div class="panel-body">
+                <table class="schema-table">
+                  <tbody>
+                    <tr><th>Name</th><td>Policy Premium Audit</td></tr>
+                    <tr><th>Sources</th><td>1 Cyberlife object, 1 ad hoc file, 1 TAI object</td></tr>
+                    <tr><th>Outputs</th><td>4 fields</td></tr>
+                    <tr><th>Join Mode</th><td>Hybrid: DB2 SQL plus staged local join</td></tr>
+                    <tr><th>Reusable As</th><td>QueryObject.Policy Premium Audit</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="panel">
+              <h3>Saved Object Contract</h3>
+              <div class="panel-body"><textarea class="json-box" spellcheck="false">{
+  "name": "Policy Premium Audit",
+  "kind": "query_object",
+  "sources": ["Cyberlife Base Extract", "producer_map_may.csv", "TAI Cession Snapshot"],
+  "inputs": ["status", "issue_date", "territory"],
+  "outputs": ["policy_number", "company", "total_premium", "territory"],
+  "can_join_on": ["policy_number", "company"],
+  "metadata_status": "mixed_registered_and_adhoc"
+}</textarea></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="rightbar">
+      <div class="section">
+        <h2>Fields for Selected Source</h2>
+        <input class="search" placeholder="Search fields">
+        <div class="field-list">
+          <div class="field-card"><strong>TCH_POL_ID</strong><div class="meta">Text · key candidate · registered values available</div></div>
+          <div class="field-card"><strong>CK_CMP_CD</strong><div class="meta">Text · registered · common join key</div></div>
+          <div class="field-card"><strong>STAT_CD</strong><div class="meta">Text · combo/list control</div></div>
+          <div class="field-card"><strong>ISS_DT</strong><div class="meta">Date · range control</div></div>
+          <div class="field-card"><strong>BILL_PREM</strong><div class="meta">Decimal · output aggregate candidate</div></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Metadata Status</h2>
+        <table class="schema-table">
+          <tbody>
+            <tr><td>Cyberlife object</td><td><span class="pill local">producer</span></td></tr>
+            <tr><td>Stable DB2 tables</td><td><span class="pill registered">cataloged</span></td></tr>
+            <tr><td>TAI saved query</td><td><span class="pill local">object</span></td></tr>
+            <tr><td>Producer CSV</td><td><span class="pill adhoc">temporary</span></td></tr>
+            <tr><td>Manual SQL layer</td><td><span class="pill manual">override</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <h2>Promotion Path</h2>
+        <div class="note">
+          Ad hoc sources should not block query building. Use them immediately, then promote only the ones worth keeping into the central SQL catalog. Promotion stores expected columns, source pattern, refresh rules, value scans, and suggested joins.
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.tab');
+    const views = document.querySelectorAll('.view');
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.forEach((t) => t.classList.remove('active'));
+        views.forEach((v) => v.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    const objectCards = document.querySelectorAll('.object-card');
+    const activeName = document.getElementById('activeName');
+    objectCards.forEach((card) => {
+      card.addEventListener('click', () => {
+        objectCards.forEach((c) => c.classList.remove('active'));
+        card.classList.add('active');
+        activeName.textContent = card.dataset.name;
+      });
+    });
+  </script>
+</body>
+</html>

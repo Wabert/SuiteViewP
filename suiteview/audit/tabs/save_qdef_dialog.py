@@ -1,6 +1,6 @@
 """
-Save QDefinition dialog — lets the user enter a new name or pick
-an existing QDef to overwrite, and choose the target DataForge.
+Save executable Query Object dialog — writes the technical QDefinition record
+used by DataForge while presenting Query Object language to users.
 """
 from __future__ import annotations
 
@@ -18,11 +18,11 @@ _FONT = QFont("Segoe UI", 9)
 
 
 class SaveQDefDialog(QDialog):
-    """Dialog to save a QDefinition — new name or overwrite existing."""
+    """Dialog to save an executable Query Object."""
 
     def __init__(self, suggested_name: str = "", parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Save QDefinition")
+        self.setWindowTitle("Save Query Object")
         self.setFixedSize(420, 260)
         self.setFont(_FONT)
 
@@ -67,7 +67,7 @@ class SaveQDefDialog(QDialog):
 
         self.txt_name = QLineEdit(suggested_name)
         self.txt_name.setFont(_FONT)
-        self.txt_name.setPlaceholderText("Enter QDefinition name")
+        self.txt_name.setPlaceholderText("Enter query object name")
         root.addWidget(self.txt_name)
 
         # ── Overwrite option ─────────────────────────────────────────

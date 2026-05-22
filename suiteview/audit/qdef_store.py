@@ -139,6 +139,12 @@ def save_qdef(qd: QDefinition) -> None:
     path = d / f"{_safe_filename(qd.name)}.json"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(qd.to_dict(), f, indent=2)
+    try:
+        from suiteview.audit.query_object import object_from_qdefinition
+        from suiteview.audit import query_object_store
+        query_object_store.save_object(object_from_qdefinition(qd))
+    except Exception:
+        logger.exception("Failed to publish query object for QDefinition: %s", qd.name)
 
 
 def delete_qdef(name: str, forge_name: str = "") -> None:
@@ -152,6 +158,11 @@ def delete_qdef(name: str, forge_name: str = "") -> None:
             json_path.unlink()
         if parquet_path.exists():
             parquet_path.unlink()
+        try:
+            from suiteview.audit import query_object_store
+            query_object_store.delete_object(name)
+        except Exception:
+            logger.exception("Failed to delete query object for QDefinition: %s", name)
     else:
         # Search all forges
         for d in _QDEFS_DIR.iterdir():
@@ -164,6 +175,11 @@ def delete_qdef(name: str, forge_name: str = "") -> None:
             if parquet_path.exists():
                 parquet_path.unlink()
                 break
+        try:
+            from suiteview.audit import query_object_store
+            query_object_store.delete_object(name)
+        except Exception:
+            logger.exception("Failed to delete query object for QDefinition: %s", name)
 
 
 def qdef_exists(name: str, forge_name: str = "") -> bool:

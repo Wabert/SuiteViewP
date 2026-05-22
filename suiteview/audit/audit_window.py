@@ -14,8 +14,8 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QComboBox, QPushButton,
-    QMessageBox, QMenu, QInputDialog,
-    QSplitter,
+    QMessageBox, QDialog, QInputDialog,
+    QSplitter, QFileDialog,
 )
 from suiteview.core.db2_constants import DEFAULT_REGION
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
@@ -52,6 +52,69 @@ _FONT = QFont("Segoe UI", 9)
 # Theme — default SuiteView blue header, gold border
 _HEADER_COLORS = ("#1E5BA8", "#0D3A7A", "#082B5C")
 _BORDER_COLOR = "#D4A017"
+
+
+class QueryObjectModeDialog(QDialog):
+    """Dense chooser for the four Query Object creation modes."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.selected_mode = ""
+        self.setWindowTitle("New Query Object")
+        self.setModal(True)
+        self.resize(640, 260)
+        self._build_ui()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(8)
+        self.setStyleSheet(
+            "QDialog { background-color: #F0F0F0; }"
+            "QLabel#title { color: #1E5BA8; font-size: 14pt; font-weight: bold; }"
+            "QPushButton { text-align: left; background: white; border: 1px solid #A0C4E8;"
+            " border-left: 5px solid #1E5BA8; padding: 8px 10px; color: #111; }"
+            "QPushButton:hover { background: #E8F0FB; border-color: #1E5BA8; }"
+        )
+
+        title = QLabel("New Query Object")
+        title.setObjectName("title")
+        root.addWidget(title)
+
+        modes = [
+            (
+                "cyberlife",
+                "Cyberlife Object",
+                "Policy extract builder with Cyberlife criteria and generated DB2 SQL",
+            ),
+            (
+                "visual",
+                "Visual Query Object",
+                "Table-driven builder for sources, inputs, outputs, joins, and preview",
+            ),
+            (
+                "manual_sql",
+                "Manual SQL Object",
+                "Paste or edit SQL, run it, capture output schema, then save object",
+            ),
+            (
+                "file",
+                "CSV / Excel Object",
+                "Import a file, inspect columns, preview/filter rows, and promote metadata",
+            ),
+        ]
+        for mode, heading, detail in modes:
+            button = QPushButton(f"{heading}\n{detail}")
+            button.setFont(QFont("Segoe UI", 9))
+            button.setFixedHeight(46)
+            button.clicked.connect(lambda checked=False, value=mode: self._choose(value))
+            root.addWidget(button)
+
+    def _choose(self, mode: str):
+        self.selected_mode = mode
+        self.accept()
+
+
 class AuditWindow(FramelessWindowBase):
     """Top-level audit window, replicating VBA frmAudit layout."""
     def __init__(self, region: str = DEFAULT_REGION, parent=None):
@@ -109,6 +172,18 @@ class AuditWindow(FramelessWindowBase):
         self.btn_registry.setStyleSheet(_HEADER_BTN_STYLE)
         self.btn_registry.setToolTip("Open the Unique Value Registry viewer")
         self.btn_registry.clicked.connect(self._open_registry)
+        self.btn_objects = QPushButton("Objects")
+        self.btn_objects.setFont(QFont("Segoe UI", 8))
+        self.btn_objects.setFixedHeight(24)
+        self.btn_objects.setStyleSheet(_HEADER_BTN_STYLE)
+        self.btn_objects.setToolTip("Open the unified Query Object browser")
+        self.btn_objects.clicked.connect(self._open_query_object_viewer)
+        self.btn_new_object = QPushButton("New Object")
+        self.btn_new_object.setFont(QFont("Segoe UI", 8))
+        self.btn_new_object.setFixedHeight(24)
+        self.btn_new_object.setStyleSheet(_HEADER_BTN_STYLE)
+        self.btn_new_object.setToolTip("Create a Cyberlife, visual, SQL, or file-backed Query Object")
+        self.btn_new_object.clicked.connect(self._show_new_object_menu)
         # Cyberlife header button (view toggle)
         _CYB_HDR_BTN_STYLE = (
             "QPushButton { background-color: rgba(10,42,92,0.8);"
@@ -132,12 +207,12 @@ class AuditWindow(FramelessWindowBase):
             "QPushButton:checked { background-color: #7C3AED;"
             " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
         )
-        self.btn_workbench = QPushButton("QDesigner")
+        self.btn_workbench = QPushButton("Query Studio")
         self.btn_workbench.setFont(QFont("Segoe UI", 8))
         self.btn_workbench.setFixedHeight(24)
         self.btn_workbench.setCheckable(True)
         self.btn_workbench.setStyleSheet(_WB_BTN_STYLE)
-        self.btn_workbench.setToolTip("Switch to the Query Designer view")
+        self.btn_workbench.setToolTip("Switch to the visual Query Object builder")
         self.btn_workbench.clicked.connect(self._toggle_saved_queries_shelf)
         _DF_BTN_STYLE = (
             "QPushButton { background-color: rgba(13,148,136,0.7);"
@@ -153,18 +228,26 @@ class AuditWindow(FramelessWindowBase):
         self.btn_dataforge.setStyleSheet(_DF_BTN_STYLE)
         self.btn_dataforge.setToolTip("Switch to the DataForge view")
         self.btn_dataforge.clicked.connect(self._toggle_dataforge_shelf)
-        # QDef viewer button
+        # Advanced executable-definition viewer button
         _QDEF_BTN_STYLE = (
             "QPushButton { background-color: rgba(124,58,237,0.4);"
             + _GOLD_BTN_BASE + " }"
             "QPushButton:hover { background-color: rgba(124,58,237,0.6); }"
         )
-        self.btn_qdef = QPushButton("QDef")
+        self.btn_qdef = QPushButton("Advanced")
         self.btn_qdef.setFont(QFont("Segoe UI", 8))
         self.btn_qdef.setFixedHeight(24)
         self.btn_qdef.setStyleSheet(_QDEF_BTN_STYLE)
-        self.btn_qdef.setToolTip("Open the QDefinition viewer")
+        self.btn_qdef.setToolTip("Open the technical QDefinition viewer")
         self.btn_qdef.clicked.connect(self._open_qdef_viewer)
+        self.btn_qdef.setVisible(False)
+        self.btn_save_object = QPushButton("Save Cyberlife Object")
+        self.btn_save_object.setFont(QFont("Segoe UI", 8))
+        self.btn_save_object.setFixedHeight(24)
+        self.btn_save_object.setStyleSheet(_HEADER_BTN_STYLE)
+        self.btn_save_object.setToolTip(
+            "Save the current Cyberlife builder output as a reusable Query Object")
+        self.btn_save_object.clicked.connect(self._save_cyberlife_query_object)
         # Common Tables manager button
         self.btn_common_tables = QPushButton("Common Tables")
         self.btn_common_tables.setFont(QFont("Segoe UI", 8))
@@ -173,18 +256,20 @@ class AuditWindow(FramelessWindowBase):
         self.btn_common_tables.setToolTip("Manage user-defined lookup / translation tables")
         self.btn_common_tables.clicked.connect(self._open_common_tables)
         # Insert into header bar layout before window control buttons
-        # Group 1: Registry, QDef, Common Tables (tools) — then spacer — Group 2: Cyberlife, QDesigner, DataForge (modes)
+        # Group 1: object tools — then spacer — Group 2: Cyberlife, Query Studio, DataForge (modes)
         from PyQt6.QtWidgets import QSpacerItem, QSizePolicy
         header_layout = self.header_bar.layout()
         insert_pos = header_layout.count() - 3  # before min/max/close
-        header_layout.insertWidget(insert_pos, self.btn_registry)
-        header_layout.insertWidget(insert_pos + 1, self.btn_qdef)
-        header_layout.insertWidget(insert_pos + 2, self.btn_common_tables)
-        header_layout.insertItem(insert_pos + 3,
+        header_layout.insertWidget(insert_pos, self.btn_objects)
+        header_layout.insertWidget(insert_pos + 1, self.btn_new_object)
+        header_layout.insertWidget(insert_pos + 2, self.btn_registry)
+        header_layout.insertWidget(insert_pos + 3, self.btn_save_object)
+        header_layout.insertWidget(insert_pos + 4, self.btn_common_tables)
+        header_layout.insertItem(insert_pos + 5,
             QSpacerItem(20, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum))
-        header_layout.insertWidget(insert_pos + 4, self.btn_cyberlife)
-        header_layout.insertWidget(insert_pos + 5, self.btn_workbench)
-        header_layout.insertWidget(insert_pos + 6, self.btn_dataforge)
+        header_layout.insertWidget(insert_pos + 6, self.btn_cyberlife)
+        header_layout.insertWidget(insert_pos + 7, self.btn_workbench)
+        header_layout.insertWidget(insert_pos + 8, self.btn_dataforge)
         # Dynamic query storage
         self._dynamic_queries: dict[str, DynamicQuery] = {}
         # Track which unpinned query is currently active
@@ -591,12 +676,18 @@ class AuditWindow(FramelessWindowBase):
         group = self._dataforge_groups.get(self._current_mode)
         if group is not None:
             from suiteview.audit import qdef_store
+            from suiteview.audit import query_object_store
+            from suiteview.audit.query_object import qdefinition_from_query_object
             forge_name = group._saved_forge_name or ""
             for name in source_names:
                 if name not in group._sources:
                     qd = qdef_store.load_qdef(name, forge_name=forge_name)
                     if not qd:
                         qd = qdef_store.load_qdef(name)  # fallback: search all
+                    if not qd:
+                        obj = query_object_store.load_object(name)
+                        if obj:
+                            qd = qdefinition_from_query_object(obj)
                     if qd:
                         group.add_source_query(qd)
             group._schedule_save()
@@ -758,6 +849,94 @@ class AuditWindow(FramelessWindowBase):
         except Exception as exc:
             logger.exception("Failed to open QDef viewer window")
             QMessageBox.warning(self, "QDef Error", str(exc))
+    def _open_query_object_viewer(self):
+        """Open the unified Query Object browser window."""
+        try:
+            from .query_object_viewer_window import QueryObjectViewerWindow
+            QueryObjectViewerWindow.show_instance(parent=None)
+        except Exception as exc:
+            logger.exception("Failed to open Query Object browser")
+            QMessageBox.warning(self, "Query Object Error", str(exc))
+
+    def _show_new_object_menu(self):
+        """Show the Query Object creation chooser."""
+        dlg = QueryObjectModeDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        chosen = dlg.selected_mode
+        if chosen == "cyberlife":
+            self._start_cyberlife_object()
+        elif chosen == "visual":
+            self._start_visual_query_object()
+        elif chosen == "manual_sql":
+            self._start_manual_sql_object()
+        elif chosen == "file":
+            self._import_file_query_object()
+
+    def _start_cyberlife_object(self):
+        """Switch to Cyberlife; the header Save button publishes the object."""
+        self._switch_mode("cyberlife")
+        QMessageBox.information(
+            self,
+            "Cyberlife Object",
+            "Build the Cyberlife criteria, then use Save Cyberlife Object.",
+        )
+
+    def _start_visual_query_object(self):
+        """Start the visual Query Object builder flow."""
+        self.btn_workbench.setChecked(True)
+        self._toggle_saved_queries_shelf(True)
+        self._on_add_group()
+
+    def _start_manual_sql_object(self):
+        """Open the Manual SQL builder tab as the first Manual SQL Object step."""
+        self._switch_mode("cyberlife")
+        self._on_move_to_build("")
+        QMessageBox.information(
+            self,
+            "Manual SQL Object",
+            "Paste SQL, run it to learn output columns, then save the results as an object.",
+        )
+
+    def _import_file_query_object(self):
+        """Import a CSV/Excel file directly into the Query Object catalog."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import CSV / Excel Object",
+            "",
+            "Data Files (*.csv *.xlsx *.xlsm *.xls);;CSV Files (*.csv);;Excel Files (*.xlsx *.xlsm *.xls)",
+        )
+        if not path:
+            return
+        default_name = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].rsplit(".", 1)[0]
+        name, ok = QInputDialog.getText(
+            self,
+            "CSV / Excel Object Name",
+            "Object name:",
+            text=default_name,
+        )
+        if not ok or not name.strip():
+            return
+        try:
+            from suiteview.audit.adhoc_source_intake import query_object_from_file
+            from suiteview.audit import query_object_store
+
+            obj = query_object_from_file(path, name=name.strip())
+            query_object_store.save_object(obj)
+        except Exception as exc:
+            logger.exception("File QueryObject import failed: %s", path)
+            QMessageBox.warning(
+                self,
+                "Import Failed",
+                f"Could not import CSV / Excel object:\n\n{exc}",
+            )
+            return
+        QMessageBox.information(
+            self,
+            "Query Object Imported",
+            f"Imported \"{obj.name}\" with {len(obj.fields)} fields.",
+        )
+        self._open_query_object_viewer()
     # ── Common Tables Manager ────────────────────────────────────────
     def _open_common_tables(self):
         """Open the Common Tables manager dialog."""
@@ -816,6 +995,74 @@ class AuditWindow(FramelessWindowBase):
             ("display", self.display_tab),
             ("plancode", self.plancode_tab),
         ]
+    def _cyberlife_query_object_state(self) -> dict:
+        """Return the Cyberlife builder state stored in a QueryObject config."""
+        return {
+            "max_count": self.txt_max_count.text().strip(),
+            "common_tables": self.cyb_common_tables_tab.get_state(),
+            "tabs": {
+                key: tab.get_state()
+                for key, tab in self._cyberlife_criteria_tabs()
+            },
+        }
+    def _save_cyberlife_query_object(self):
+        """Publish current Cyberlife builder SQL/state as one QueryObject."""
+        if self._current_mode != "cyberlife":
+            QMessageBox.information(
+                self, "Save Object",
+                "Switch to Cyberlife to save the Cyberlife builder as an object.")
+            return
+        try:
+            sql = self._build_sql()
+        except Exception as exc:
+            logger.exception("Failed to build Cyberlife SQL for QueryObject")
+            QMessageBox.warning(self, "SQL Build Error", str(exc))
+            return
+
+        name, ok = QInputDialog.getText(
+            self, "Save Query Object",
+            "Object name:",
+            text="Cyberlife Base Extract",
+        )
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+
+        region = self.cmb_region.currentText()
+        system_code = self.cmb_system.currentText().strip()
+        try:
+            dsn = DB2Connection(region).dsn
+        except Exception:
+            dsn = region
+
+        result_columns: list[str] = []
+        column_types: dict[str, str] = {}
+        ctx = getattr(self.results_tab, "_query_context", None)
+        if ctx:
+            result_columns = list(ctx.get("result_columns", []))
+            column_types = dict(ctx.get("column_types", {}))
+        elif getattr(self.results_tab, "_df", None) is not None:
+            df = self.results_tab._df
+            result_columns = list(df.columns)
+            column_types = {col: str(df[col].dtype) for col in df.columns}
+
+        from suiteview.audit.query_object import cyberlife_query_object
+        from suiteview.audit import query_object_store
+
+        qo = cyberlife_query_object(
+            name,
+            sql=sql,
+            dsn=dsn,
+            region=region,
+            system_code=system_code,
+            criteria=self._cyberlife_query_object_state(),
+            result_columns=result_columns,
+            column_types=column_types,
+        )
+        query_object_store.save_object(qo)
+        QMessageBox.information(
+            self, "Query Object Saved",
+            f"Cyberlife query object \"{name}\" saved successfully.")
     def _on_clear_cyberlife(self):
         """Reset only Cyberlife tabs to defaults."""
         for _key, tab in self._cyberlife_criteria_tabs():
@@ -1048,6 +1295,7 @@ class AuditWindow(FramelessWindowBase):
     def _run_build_sql(self, sql: str):
         """Execute user-edited SQL and show results in Build SQL Results."""
         region = self.cmb_region.currentText()
+        db = None
         with run_button_context(
             self.build_sql_tab.btn_run_sql,
             restore_text="Run this SQL",
@@ -1060,7 +1308,11 @@ class AuditWindow(FramelessWindowBase):
                 if self._build_sql_results_tab_index < 0:
                     self._build_sql_results_tab_index = self.tabs.addTab(
                         self.build_sql_results_tab, "Build SQL Results")
-                self.build_sql_results_tab.set_results(df)
+                self.build_sql_results_tab.set_results(
+                    df,
+                    sql=sql,
+                    dsn=getattr(db, "dsn", region),
+                )
                 self.tabs.setCurrentWidget(self.build_sql_results_tab)
             except Exception as exc:
                 logger.exception("Build SQL query failed")

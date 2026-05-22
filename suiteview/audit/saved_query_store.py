@@ -60,6 +60,12 @@ def save_query(sq: SavedQuery) -> None:
     path = _QUERIES_DIR / f"{_safe_filename(sq.name)}.json"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(sq.to_dict(), f, indent=2)
+    try:
+        from suiteview.audit.query_object import object_from_saved_query
+        from suiteview.audit import query_object_store
+        query_object_store.save_object(object_from_saved_query(sq))
+    except Exception:
+        logger.exception("Failed to publish query object for saved query: %s", sq.name)
 
 
 def delete_query(name: str) -> None:
@@ -67,6 +73,11 @@ def delete_query(name: str) -> None:
     path = _QUERIES_DIR / f"{_safe_filename(name)}.json"
     if path.exists():
         path.unlink()
+    try:
+        from suiteview.audit import query_object_store
+        query_object_store.delete_object(name)
+    except Exception:
+        logger.exception("Failed to delete query object for saved query: %s", name)
 
 
 def query_exists(name: str) -> bool:
