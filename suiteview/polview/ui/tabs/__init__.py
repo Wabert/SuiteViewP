@@ -15,7 +15,7 @@ from .dividends_tab import DividendsTab
 from .loans_tab import LoansTab
 from .raw_table_tab import RawTableTab
 from .policy_list_tab import PolicyListWindow
-from .policy_support_tab import PolicySupportTab
+from .policy_support_tab import PolicySupportTab, PolicyLibraryTab
 from .reinsurance_tab import ReinsuranceTab
 
 __all__ = [
@@ -30,5 +30,6 @@ __all__ = [
     "RawTableTab",
     "PolicyListWindow",
     "PolicySupportTab",
+    "PolicyLibraryTab",
     "ReinsuranceTab",
 ]

@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QGroupBox, QGridLayout,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu,
-    QStyledItemDelegate, QSizePolicy,
+    QStyledItemDelegate, QSizePolicy, QLineEdit, QTableWidgetItem,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QSize, QMimeData, QUrl
 from PyQt6.QtGui import QColor, QDrag, QPixmap, QPainter, QFont
@@ -32,6 +32,7 @@ from ..styles import (
     GOLD_PRIMARY, GOLD_TEXT, GOLD_DARK, GOLD_LIGHT,
     POLICY_INFO_FRAME_STYLE,
 )
+from ..widgets import FixedHeaderTableWidget
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -67,6 +68,9 @@ def _get_abr_root_dir() -> str:
 
 def _get_policy_support_dir() -> str:
     return os.path.join(_get_process_control_dir(), "Policy Support")
+
+def _get_policy_library_dir() -> str:
+    return os.path.join(_get_policy_support_dir(), "POLICY_LIBRARY")
 
 def _get_abr_dir() -> str:
     return os.path.join(
@@ -109,6 +113,7 @@ TOOL_FOLDERS = [
 # ---------------------------------------------------------------------------
 
 DEFAULT_TASK_CATEGORIES = [
+    "Annual_Statement",
     "Annuity_Rider",
     "Cash_Value_Quote",
     "Decrease",
@@ -209,6 +214,19 @@ _ACTION_BTN_STYLE = f"""
     QPushButton:disabled {{
         background: {GRAY_MID}; color: {GRAY_DARK}; border-color: {GRAY_MID};
     }}
+"""
+
+_FILTER_INPUT_STYLE = f"""
+    QLineEdit {{
+        background: {WHITE};
+        color: {GRAY_DARK};
+        border: 1px solid {GRAY_MID};
+        border-radius: 3px;
+        padding: 3px 6px;
+        font-size: 11px;
+        min-height: 18px;
+    }}
+    QLineEdit:focus {{ border-color: {GREEN_PRIMARY}; }}
 """
 
 _MODE_BTN_ACTIVE_STYLE = f"""
@@ -809,6 +827,167 @@ class _DoubleClickablePathLabel(QLabel):
         super().mouseDoubleClickEvent(event)
 
 
+class _PolicyLibraryGrid(FixedHeaderTableWidget):
+    """FixedHeaderTableWidget with an additional all-column text search."""
+
+    def __init__(self, parent=None, status_callback=None):
+        super().__init__(parent=parent, filterable=True)
+        self._general_filter_text = ""
+        self._status_callback = status_callback
+
+    def set_general_filter_text(self, text: str):
+        self._general_filter_text = text.strip().lower()
+        self._apply_filters()
+
+    def visible_row_count(self) -> int:
+        return sum(
+            not self._data_table.isRowHidden(row)
+            for row in range(self._data_table.rowCount())
+        )
+
+    def _apply_filters(self):
+        super()._apply_filters()
+        if self._general_filter_text:
+            for row in range(self._data_table.rowCount()):
+                if self._data_table.isRowHidden(row):
+                    continue
+                row_matches = False
+                for col in range(self._data_table.columnCount()):
+                    item = self._data_table.item(row, col)
+                    if item and self._general_filter_text in item.text().lower():
+                        row_matches = True
+                        break
+                self._data_table.setRowHidden(row, not row_matches)
+        if self._status_callback:
+            self._status_callback(self.visible_row_count(), self._data_table.rowCount())
+
+
+# ---------------------------------------------------------------------------
+# PolicyLibraryTab
+# ---------------------------------------------------------------------------
+
+class PolicyLibraryTab(QWidget):
+    """Searchable index of Policy Support library folders."""
+
+    HEADERS = ("Product Type", "Policy Number", "Category")
+
+    def __init__(self, parent=None, root_path: str = ""):
+        super().__init__(parent)
+        self._root_path = root_path or _get_policy_library_dir()
+        self._setup_ui()
+
+    def _setup_ui(self):
+        self.setStyleSheet(f"background-color: {WHITE};")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(6)
+
+        info_frame = QGroupBox("Policy Library")
+        info_frame.setStyleSheet(POLICY_INFO_FRAME_STYLE)
+        info_layout = QGridLayout(info_frame)
+        info_layout.setContentsMargins(8, 20, 8, 6)
+        info_layout.setHorizontalSpacing(8)
+        info_layout.setVerticalSpacing(4)
+
+        lbl_s = (f"font-size: 11px; font-weight: bold; color: {GREEN_DARK}; "
+                 f"background: transparent; border: none;")
+        folder_label = QLabel("Folder Location:")
+        folder_label.setStyleSheet(lbl_s)
+        info_layout.addWidget(folder_label, 0, 0)
+
+        self._path_label = _DoubleClickablePathLabel(self._root_path)
+        self._path_label.set_open_path(self._root_path)
+        self._path_label.setStyleSheet(_PATH_LABEL_STYLE)
+        self._path_label.setWordWrap(True)
+        info_layout.addWidget(self._path_label, 0, 1)
+
+        self._refresh_btn = QPushButton("Refresh")
+        self._refresh_btn.setStyleSheet(_ACTION_BTN_STYLE)
+        self._refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._refresh_btn.clicked.connect(self.refresh)
+        info_layout.addWidget(self._refresh_btn, 0, 2)
+
+        self._status_label = QLabel("")
+        self._status_label.setStyleSheet(_STATUS_STYLE)
+        info_layout.addWidget(self._status_label, 1, 1, 1, 2)
+        info_layout.setColumnStretch(1, 1)
+        layout.addWidget(info_frame)
+
+        self._search_input = QLineEdit()
+        self._search_input.setPlaceholderText("Search product type, policy number, or category")
+        self._search_input.setStyleSheet(_FILTER_INPUT_STYLE)
+        self._search_input.textChanged.connect(self._apply_filters)
+        layout.addWidget(self._search_input)
+
+        self._table = _PolicyLibraryGrid(status_callback=self._update_filter_status)
+        self._table.setColumnCount(len(self.HEADERS))
+        self._table.setHorizontalHeaderLabels(self.HEADERS)
+        self._table._data_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table._data_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table._data_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._table._data_table.setSortingEnabled(True)
+        self._table._data_table.doubleClicked.connect(self._open_selected_folder)
+        layout.addWidget(self._table, 1)
+
+    def refresh(self):
+        rows = self._scan_library()
+        self._table._data_table.setSortingEnabled(False)
+        self._table.setRowCount(0)
+        for product_type, policy_number, category, folder_path in rows:
+            row = self._table.rowCount()
+            self._table._data_table.insertRow(row)
+            for col, value in enumerate((product_type, policy_number, category)):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.ItemDataRole.UserRole, folder_path)
+                self._table.setItem(row, col, item, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._table._data_table.setSortingEnabled(True)
+        self._table.autoFitAllColumns()
+        self._apply_filters()
+
+    def _scan_library(self):
+        rows = set()
+        if not os.path.isdir(self._root_path):
+            self._status_label.setText("Policy Library folder was not found")
+            return []
+
+        for product_type in sorted(os.listdir(self._root_path)):
+            product_path = os.path.join(self._root_path, product_type)
+            if not os.path.isdir(product_path):
+                continue
+            for policy_number in sorted(os.listdir(product_path)):
+                policy_path = os.path.join(product_path, policy_number)
+                if not os.path.isdir(policy_path):
+                    continue
+
+                found_category = False
+                for current_path, dir_names, _file_names in os.walk(policy_path):
+                    dir_names.sort()
+                    if current_path == policy_path:
+                        continue
+                    category = os.path.relpath(current_path, policy_path).replace(os.sep, "\\")
+                    rows.add((product_type, policy_number, category, current_path))
+                    found_category = True
+
+                if not found_category:
+                    rows.add((product_type, policy_number, "", policy_path))
+
+        self._status_label.setText(f"{len(rows)} library folders indexed")
+        return sorted(rows, key=lambda row: (row[0].lower(), row[1].lower(), row[2].lower()))
+
+    def _apply_filters(self):
+        self._table.set_general_filter_text(self._search_input.text())
+
+    def _update_filter_status(self, visible_count: int, total: int):
+        if os.path.isdir(self._root_path):
+            self._status_label.setText(f"Showing {visible_count} of {total} library folders")
+
+    def _open_selected_folder(self, index):
+        item = self._table.item(index.row(), 0)
+        folder_path = item.data(Qt.ItemDataRole.UserRole) if item else ""
+        if folder_path and os.path.isdir(folder_path):
+            os.startfile(folder_path)
+
+
 # ---------------------------------------------------------------------------
 # PolicySupportTab
 # ---------------------------------------------------------------------------
@@ -822,6 +1001,7 @@ class PolicySupportTab(QWidget):
     """
 
     folder_opened = pyqtSignal(str)
+    policy_library_requested = pyqtSignal()
 
     # Mode constants
     MODE_POLICY_SUPPORT = "policy_support"
@@ -897,6 +1077,12 @@ class PolicySupportTab(QWidget):
         self._onedrive_warning_label.setVisible(False)
         ig.addWidget(self._onedrive_warning_label, 0, 2, 2, 1)  # span rows 0–1
 
+        self._policy_library_btn = QPushButton("Policy Library")
+        self._policy_library_btn.setStyleSheet(_ACTION_BTN_STYLE)
+        self._policy_library_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._policy_library_btn.clicked.connect(self.policy_library_requested.emit)
+        ig.addWidget(self._policy_library_btn, 0, 3)
+
         ig.addWidget(self._mk_lbl("Library Path:", lbl_s), 1, 0)
         self._library_path_label = _DoubleClickablePathLabel("")
         self._library_path_label.setStyleSheet(_PATH_LABEL_STYLE)
@@ -913,7 +1099,7 @@ class PolicySupportTab(QWidget):
         self._create_folder_btn.setStyleSheet(_ACTION_BTN_STYLE)
         self._create_folder_btn.clicked.connect(self._on_create_policy_folder)
         self._create_folder_btn.setVisible(False)
-        ig.addWidget(self._create_folder_btn, 2, 2)
+        ig.addWidget(self._create_folder_btn, 2, 3)
 
         ig.setColumnStretch(1, 1)
 
@@ -1121,11 +1307,13 @@ class PolicySupportTab(QWidget):
             self._btn_mode_polsup.setStyleSheet(_MODE_BTN_ACTIVE_STYLE)
             self._btn_mode_abr.setStyleSheet(_MODE_BTN_INACTIVE_STYLE)
             self._info_frame.setTitle("Policy Support")
+            self._policy_library_btn.setVisible(True)
             self._apply_green_theme()
         else:
             self._btn_mode_polsup.setStyleSheet(_MODE_BTN_INACTIVE_STYLE)
             self._btn_mode_abr.setStyleSheet(_MODE_BTN_ABR_ACTIVE_STYLE)
             self._info_frame.setTitle("ABR Policy Support")
+            self._policy_library_btn.setVisible(False)
             self._apply_abr_theme()
 
         # Reload data with the new mode

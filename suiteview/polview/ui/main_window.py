@@ -38,7 +38,7 @@ from .tree_panel import PolicyRecordTreePanel
 from .tabs import (
     CoveragesTab, PolicyTab, TargetsAccumulatorsTab, PersonsTab,
     AdvProdValuesTab, ActivityTab, DividendsTab, LoansTab, RawTableTab,
-    PolicyListWindow, PolicySupportTab, ReinsuranceTab,
+    PolicyListWindow, PolicySupportTab, PolicyLibraryTab, ReinsuranceTab,
 )
 
 
@@ -189,6 +189,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self.raw_table_tab = RawTableTab()
 
         self.policy_support_tab = PolicySupportTab()
+        self.policy_library_tab = PolicyLibraryTab()
         self._policies_with_support_tab: set = set()  # track which policies have PS tab open
 
         self.tabs.addTab(self.coverages_tab, "Coverages")
@@ -202,6 +203,7 @@ class GetPolicyWindow(FramelessWindowBase):
 
         # Connect CoveragesTab signal to show Policy Support tab
         self.coverages_tab.policy_support_requested.connect(self._show_policy_support_tab)
+        self.policy_support_tab.policy_library_requested.connect(self._show_policy_library_tab)
 
         tabs_layout.addWidget(self.tabs)
 
@@ -412,6 +414,20 @@ class GetPolicyWindow(FramelessWindowBase):
         # Switch to the tab
         self.tabs.setCurrentWidget(self.policy_support_tab)
         self._show_status("Policy Support tab opened")
+
+    def _show_policy_library_tab(self):
+        """Show the searchable Policy Library tab."""
+        library_idx = self.tabs.indexOf(self.policy_library_tab)
+        if library_idx < 0:
+            raw_idx = self.tabs.indexOf(self.raw_table_tab)
+            if raw_idx >= 0:
+                self.tabs.insertTab(raw_idx, self.policy_library_tab, "Policy Library")
+            else:
+                self.tabs.addTab(self.policy_library_tab, "Policy Library")
+
+        self.policy_library_tab.refresh()
+        self.tabs.setCurrentWidget(self.policy_library_tab)
+        self._show_status("Policy Library tab opened")
 
     # == Policy loading ====================================================
 
