@@ -14,7 +14,11 @@ from dateutil.relativedelta import relativedelta
 from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_config
 from suiteview.illustration.core.interest_calc import credit_interest
 from suiteview.illustration.core.loan_handler import LoanState, accrue_loan_interest, capitalize_loans
-from suiteview.illustration.core.monthly_deduction import calculate_deduction
+from suiteview.illustration.core.monthly_deduction import (
+    _coverage_year,
+    _rate_from_schedule,
+    calculate_deduction,
+)
 from suiteview.illustration.core.premium_handler import apply_premium
 from suiteview.illustration.core.rate_loader import (
     IllustrationRates,
@@ -73,6 +77,20 @@ class IllustrationEngine:
             if policy.valuation_date
             else policy.issue_date + relativedelta(months=policy.duration)
         )
+        monthly_mtp_0 = math.trunc(policy.mtp * 100) / 100
+        md_check_av_before_deduction = policy.account_value + policy.system_monthly_deduction
+        ded0 = calculate_deduction(
+            md_check_av_before_deduction,
+            policy,
+            config,
+            rates,
+            rate_year_inforce,
+            policy.attained_age,
+            policy.premiums_paid_to_date,
+            monthly_mtp=monthly_mtp_0,
+            projection_date=month_date_inforce,
+            bln_round_charge=True,
+        )
         intr0 = credit_interest(
             policy.account_value, policy, config, rates, bonus,
             rate_year_inforce, policy.attained_age, month_date_inforce,
@@ -107,7 +125,6 @@ class IllustrationEngine:
         )
 
         # Safety Net / Lapse Protection for inforce month
-        monthly_mtp_0 = math.trunc(policy.mtp * 100) / 100
         accumulated_mtp_0 = policy.accumulated_mtp
         accum_mtp_less_prem_0 = (
             policy.premiums_paid_to_date - policy.withdrawals_to_date
@@ -127,8 +144,9 @@ class IllustrationEngine:
             and shd0.shadow_eav_less_debt > 0
         )
 
-        scr_rate_0 = get_rate(rates, "scr", rate_year_inforce)
-        surrender_charge_0 = scr_rate_0 * policy.units
+        scr_rate_0, surrender_charge_0, scr_rates_by_coverage_0, surrender_charges_by_coverage_0 = _calculate_surrender_charge(
+            policy, rates, rate_year_inforce, month_date_inforce
+        )
         surrender_value_0 = max(
             intr0.av_end_of_month - surrender_charge_0 - loan0.policy_debt, 0.0
         )
@@ -141,7 +159,58 @@ class IllustrationEngine:
             policy_month=policy.policy_month,
             duration=policy.duration,
             attained_age=policy.attained_age,
+            av_after_premium=md_check_av_before_deduction,
+            # Deduction check
+            nar_av=ded0.nar_av,
+            standard_db=ded0.standard_db,
+            corridor_rate=ded0.corridor_rate,
+            gross_db=ded0.gross_db,
+            corr_amount=ded0.corr_amount,
+            db_by_coverage=ded0.db_by_coverage,
+            discounted_db_by_coverage=ded0.discounted_db_by_coverage,
+            discounted_db_cov1=ded0.discounted_db_cov1,
+            discounted_db_corr=ded0.discounted_db_corr,
+            discounted_db=ded0.discounted_db,
+            total_db=ded0.total_db,
+            total_discounted_db=ded0.total_discounted_db,
+            nar_by_coverage=ded0.nar_by_coverage,
+            nar_cov1=ded0.nar_cov1,
+            nar_corr=ded0.nar_corr,
+            nar=ded0.nar,
+            total_nar=ded0.total_nar,
+            coi_rates_by_coverage=ded0.coi_rates_by_coverage,
+            coi_charges_by_coverage=ded0.coi_charges_by_coverage,
+            coi_rate=ded0.coi_rate,
+            coi_charge_cov1=ded0.coi_charge_cov1,
+            coi_charge_corr=ded0.coi_charge_corr,
+            coi_charge=ded0.coi_charge,
+            total_coi_charge=ded0.total_coi_charge,
+            epu_rate=ded0.epu_rate,
+            epu_charge=ded0.epu_charge,
+            epu_rates_by_coverage=ded0.epu_rates_by_coverage,
+            epu_charges_by_coverage=ded0.epu_charges_by_coverage,
+            mfee_charge=ded0.mfee_charge,
+            av_charge=ded0.av_charge,
+            pw_charge=ded0.pw_charge,
+            benefit_charges=ded0.benefit_charges,
+            benefit_amounts=ded0.benefit_amounts,
+            benefit_rates=ded0.benefit_rates,
+            benefit_charge_detail=ded0.benefit_charge_detail,
+            rider_charges=ded0.rider_charges,
+            rider_amounts=ded0.rider_amounts,
+            rider_rates=ded0.rider_rates,
+            rider_charge_detail=ded0.rider_charge_detail,
+            total_deduction=ded0.total_deduction,
             av_after_deduction=policy.account_value,
+            system_coi_charge=policy.system_coi_charge,
+            system_expense_charge=policy.system_expense_charge,
+            system_other_charge=policy.system_other_charge,
+            system_monthly_deduction=policy.system_monthly_deduction,
+            md_check_av_before_deduction=md_check_av_before_deduction,
+            md_check_calculated_deduction=ded0.total_deduction,
+            md_check_deduction_variance=ded0.total_deduction - policy.system_monthly_deduction,
+            md_check_calculated_av_after_deduction=ded0.av_after_deduction,
+            md_check_av_variance=ded0.av_after_deduction - policy.account_value,
             # Set 1: Loan cap/repay (beginning of month — from policy inputs)
             rg_loan_princ=policy.regular_loan_principal,
             rg_loan_accrued=policy.regular_loan_accrued,
@@ -214,7 +283,9 @@ class IllustrationEngine:
             av_less_loans=av_less_loans_0,
             # End-of-month values
             scr_rate=scr_rate_0,
+            scr_rates_by_coverage=scr_rates_by_coverage_0,
             surrender_charge=surrender_charge_0,
+            surrender_charges_by_coverage=surrender_charges_by_coverage_0,
             surrender_value=surrender_value_0,
         )
 
@@ -281,6 +352,7 @@ class IllustrationEngine:
             av, policy, config, rates, rate_year,
             attained_age, prem.premiums_to_date,
             monthly_mtp=math.trunc(policy.mtp * 100) / 100,
+            projection_date=month_date,
         )
         av = ded.av_after_deduction
 
@@ -333,8 +405,9 @@ class IllustrationEngine:
         )
 
         # ── Step 4: End-of-Month Values ──────────────────────
-        scr_rate = get_rate(rates, "scr", rate_year)
-        surrender_charge = scr_rate * policy.units
+        scr_rate, surrender_charge, scr_rates_by_coverage, surrender_charges_by_coverage = _calculate_surrender_charge(
+            policy, rates, rate_year, month_date
+        )
         surrender_value = max(av - surrender_charge - accrual_loan.policy_debt, 0.0)
 
         ending_db = ded.gross_db
@@ -381,22 +454,40 @@ class IllustrationEngine:
             corridor_rate=ded.corridor_rate,
             gross_db=ded.gross_db,
             corr_amount=ded.corr_amount,
+            db_by_coverage=ded.db_by_coverage,
+            discounted_db_by_coverage=ded.discounted_db_by_coverage,
             discounted_db_cov1=ded.discounted_db_cov1,
             discounted_db_corr=ded.discounted_db_corr,
             discounted_db=ded.discounted_db,
+            total_db=ded.total_db,
+            total_discounted_db=ded.total_discounted_db,
+            nar_by_coverage=ded.nar_by_coverage,
             nar_cov1=ded.nar_cov1,
             nar_corr=ded.nar_corr,
             nar=ded.nar,
+            total_nar=ded.total_nar,
+            coi_rates_by_coverage=ded.coi_rates_by_coverage,
+            coi_charges_by_coverage=ded.coi_charges_by_coverage,
             coi_rate=ded.coi_rate,
             coi_charge_cov1=ded.coi_charge_cov1,
             coi_charge_corr=ded.coi_charge_corr,
             coi_charge=ded.coi_charge,
+            total_coi_charge=ded.total_coi_charge,
             epu_rate=ded.epu_rate,
             epu_charge=ded.epu_charge,
+            epu_rates_by_coverage=ded.epu_rates_by_coverage,
+            epu_charges_by_coverage=ded.epu_charges_by_coverage,
             mfee_charge=ded.mfee_charge,
             av_charge=ded.av_charge,
             pw_charge=ded.pw_charge,
             benefit_charges=ded.benefit_charges,
+            benefit_amounts=ded.benefit_amounts,
+            benefit_rates=ded.benefit_rates,
+            benefit_charge_detail=ded.benefit_charge_detail,
+            rider_charges=ded.rider_charges,
+            rider_amounts=ded.rider_amounts,
+            rider_rates=ded.rider_rates,
+            rider_charge_detail=ded.rider_charge_detail,
             total_deduction=ded.total_deduction,
             av_after_deduction=ded.av_after_deduction,
             # Interest
@@ -421,7 +512,9 @@ class IllustrationEngine:
             policy_debt=accrual_loan.policy_debt,
             # End-of-month
             scr_rate=scr_rate,
+            scr_rates_by_coverage=scr_rates_by_coverage,
             surrender_charge=surrender_charge,
+            surrender_charges_by_coverage=surrender_charges_by_coverage,
             surrender_value=surrender_value,
             ending_db=ending_db,
             # Tracking
@@ -477,20 +570,16 @@ class IllustrationEngine:
         policy: IllustrationPolicyData,
         config: PlancodeConfig,
     ) -> IllustrationRates:
-        """Load rates with engine-level caching."""
+        """Load rates for the current policy.
+
+        IllustrationRates includes policy-specific rider and benefit schedules,
+        so it cannot be safely reused across policies with the same base rate
+        attributes.
+        """
         seg = policy.base_segment
         if seg is None:
             return IllustrationRates()
-
-        cache_key = (
-            f"{policy.plancode}|{seg.issue_age}|{seg.rate_sex}|"
-            f"{seg.rate_class}|{seg.band}"
-        )
-
-        if cache_key not in self._rates_cache:
-            self._rates_cache[cache_key] = load_rates(policy, config)
-
-        return self._rates_cache[cache_key]
+        return load_rates(policy, config)
 
 
 def _advance_month(policy_year: int, policy_month: int) -> tuple[int, int]:
@@ -498,3 +587,35 @@ def _advance_month(policy_year: int, policy_month: int) -> tuple[int, int]:
     if policy_month == 12:
         return policy_year + 1, 1
     return policy_year, policy_month + 1
+
+
+def _calculate_surrender_charge(
+    policy: IllustrationPolicyData,
+    rates: IllustrationRates,
+    rate_year: int,
+    projection_date,
+):
+    segments = policy.segments or [policy.base_segment]
+    segments = [segment for segment in segments if segment is not None]
+    if not segments:
+        scr_rate = get_rate(rates, "scr", rate_year)
+        surrender_charge = scr_rate * policy.units
+        return scr_rate, surrender_charge, {}, {}
+
+    scr_rates_by_coverage = {}
+    surrender_charges_by_coverage = {}
+    for index, segment in enumerate(segments, start=1):
+        segment_schedule = rates.segment_scr.get(segment.coverage_phase, rates.scr)
+        segment_rate_year = _coverage_year(segment, projection_date, rate_year)
+        segment_scr_rate = _rate_from_schedule(segment_schedule, segment_rate_year)
+        segment_surrender_charge = segment_scr_rate * segment.units
+        key = f"cov{index}"
+        scr_rates_by_coverage[key] = segment_scr_rate
+        surrender_charges_by_coverage[key] = segment_surrender_charge
+
+    return (
+        scr_rates_by_coverage.get("cov1", 0.0),
+        sum(surrender_charges_by_coverage.values()),
+        scr_rates_by_coverage,
+        surrender_charges_by_coverage,
+    )

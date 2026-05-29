@@ -45,6 +45,7 @@ class CoverageInfo:
     rate_class_desc: str
     table_rating: Optional[int]         # From LH_SST_XTR_CRG (numeric: A=1..P=16)
     table_rating_code: str              # From LH_SST_XTR_CRG (letter: "A"-"P" or "")
+    table_cease_date: Optional[date]    # From LH_SST_XTR_CRG table rating row
     cola_indicator: str                 # TH_COV_PHA.COLA_INCR_IND
     gio_indicator: str                  # TH_COV_PHA.OPT_EXER_IND
     flat_extra: Optional[Decimal]       # From LH_SST_XTR_CRG

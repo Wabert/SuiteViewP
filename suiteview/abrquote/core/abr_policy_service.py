@@ -224,23 +224,7 @@ def build_abr_policy(
         except Exception as e:
             logger.debug(f"Error building rider list: {e}")
 
-        # Sum face amounts for all coverages on the primary insured
-        # (person_code == "00", prs_seq_nbr == 1).  This captures multi-
-        # segment policies (e.g. two IUL14 base coverages) correctly.
-        primary_face_amount = 0.0
-        try:
-            primary_covs = [
-                c for c in coverages
-                if c.person_code == "00"
-                and c.prs_seq_nbr == 1
-                and int(c.lives_cov_cd or 1) <= 1
-            ]
-            if primary_covs:
-                primary_face_amount = sum(float(c.face_amount or 0) for c in primary_covs)
-        except Exception:
-            pass
-        if not primary_face_amount:
-            primary_face_amount = float(pi.base_face_amount or 0)
+        primary_face_amount = float(pi.primary_insured_face_amount or 0)
 
         account_value = 0.0
         surrender_value = 0.0

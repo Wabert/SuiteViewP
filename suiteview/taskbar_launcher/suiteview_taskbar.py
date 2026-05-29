@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
                               QPushButton, QLabel, QFrame, QMenu, QLineEdit, QTreeView, QStyle, QTabBar, QToolButton,
                               QListWidget, QListWidgetItem, QSplitter, QAbstractItemView, QScrollArea,
                               QSystemTrayIcon, QApplication, QSizePolicy, QComboBox, QMessageBox)
-from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint, QRect
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint, QRect, QTimer
 from PyQt6.QtGui import QAction, QCursor, QMouseEvent, QIcon, QPainter, QColor, QPen, QPixmap, QFont, QBrush
 
 # Import the base FileExplorerCore
@@ -2038,6 +2038,9 @@ class SuiteViewTaskbar(QWidget):
         self._stored_geometry = None
         self._compact_bar_pos = None   # Last known compact bar position
         self._appbar_registered = False  # True when registered as Windows AppBar
+        self._bar_refresh_pending = False
+        self._ignore_screen_events_until = 0.0
+        self._screen_signal_refs = []
         
         # Resize edge detection
         self._resize_margin = 6
@@ -2099,6 +2102,8 @@ class SuiteViewTaskbar(QWidget):
         logger.info("Setting up system tray...")
         self._setup_system_tray()
         logger.info("System tray setup complete")
+
+        self._connect_screen_change_handlers()
 
         # Connect messaging signals
         if self._messaging_enabled:
@@ -2200,18 +2205,21 @@ class SuiteViewTaskbar(QWidget):
         self._show_action = QAction("Show SuiteView", self)
         self._show_action.triggered.connect(self._show_from_tray)
         tray_menu.addAction(self._show_action)
+
+        self._refresh_bar_action = QAction("Refresh Bar", self)
+        self._refresh_bar_action.triggered.connect(self._refresh_bar_position)
+        tray_menu.addAction(self._refresh_bar_action)
         
         tray_menu.addSeparator()
+
+        self._file_nav_action = QAction("📁 File Nav", self)
+        self._file_nav_action.triggered.connect(self._open_file_nav)
+        tray_menu.addAction(self._file_nav_action)
         
         if not LIGHT_MODE:
             self._mainframe_action = QAction("💻 Mainframe Navigator", self)
             self._mainframe_action.triggered.connect(self._open_mainframe)
             tray_menu.addAction(self._mainframe_action)
-        
-        if DEV_MODE and not LIGHT_MODE:
-            self._data_action = QAction("🗄️ Data Manager", self)
-            self._data_action.triggered.connect(self._open_data_manager)
-            tray_menu.addAction(self._data_action)
         
         self._screenshot_action = QAction("📸 View Screenshots", self)
         self._screenshot_action.triggered.connect(self._open_screenshot)
@@ -2246,6 +2254,66 @@ class SuiteViewTaskbar(QWidget):
         
         # Also set the window icon
         self.setWindowIcon(self._build_suiteview_icon(64))
+
+    def _connect_screen_change_handlers(self):
+        """Refresh the compact AppBar when Windows monitor geometry changes."""
+        app = QApplication.instance()
+        if app is None:
+            return
+
+        app.screenAdded.connect(self._on_screen_added)
+        app.screenRemoved.connect(self._schedule_bar_refresh)
+        app.primaryScreenChanged.connect(self._schedule_bar_refresh)
+
+        for screen in app.screens():
+            self._connect_screen_signals(screen)
+
+    def _connect_screen_signals(self, screen):
+        if screen is None or screen in self._screen_signal_refs:
+            return
+        screen.geometryChanged.connect(self._schedule_bar_refresh)
+        screen.availableGeometryChanged.connect(self._schedule_bar_refresh)
+        self._screen_signal_refs.append(screen)
+
+    def _on_screen_added(self, screen):
+        self._connect_screen_signals(screen)
+        self._schedule_bar_refresh()
+
+    def _schedule_bar_refresh(self, *_args):
+        if time.monotonic() < self._ignore_screen_events_until:
+            return
+        if self._bar_refresh_pending:
+            return
+        self._bar_refresh_pending = True
+        QTimer.singleShot(750, self._run_scheduled_bar_refresh)
+
+    def _run_scheduled_bar_refresh(self):
+        self._bar_refresh_pending = False
+        if self._is_compact_mode or self._is_floating_mode:
+            self._refresh_bar_position()
+
+    def _refresh_bar_position(self):
+        """Recompute the mini-bar geometry against the current primary screen."""
+        if getattr(self, '_is_floating_mode', False):
+            self._move_floating_bar_to_current_screen()
+            return
+
+        if not self._is_compact_mode:
+            return
+
+        self._unregister_appbar()
+        self._enter_compact_mode(initial=True)
+
+    def _move_floating_bar_to_current_screen(self):
+        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        if screen is None:
+            return
+        avail = screen.availableGeometry()
+        bar_h = self.height() or 42
+        bar_w = min(max(self.width() or 320, 320), avail.width())
+        bar_x = avail.x() + (avail.width() - bar_w) // 2
+        bar_y = avail.bottom() - bar_h - 10
+        self.setGeometry(bar_x, bar_y, bar_w, bar_h)
     
     def _on_tray_activated(self, reason):
         """Handle tray icon clicks"""
@@ -2852,17 +2920,24 @@ class SuiteViewTaskbar(QWidget):
     
     def _bring_to_front(self, window):
         """Show a child window and reliably bring it to the foreground."""
+        if window.windowState() & Qt.WindowState.WindowMinimized:
+            window.setWindowState((window.windowState() & ~Qt.WindowState.WindowMinimized) | Qt.WindowState.WindowActive)
+            window.showNormal()
         window.show()
-        window.activateWindow()
         window.raise_()
+        window.activateWindow()
         # On Windows, raise_() often fails due to focus-stealing prevention.
         # Use the Win32 API to force the window to the foreground.
         try:
             import ctypes
             hwnd = int(window.winId())
-            ctypes.windll.user32.SetForegroundWindow(hwnd)
+            user32 = ctypes.windll.user32
+            if user32.IsIconic(hwnd):
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            user32.SetForegroundWindow(hwnd)
         except Exception:
             pass
+        QTimer.singleShot(0, lambda: (window.raise_(), window.activateWindow()))
 
     def _setup_child_window(self, window, title):
         """Setup a child window with hide-on-close behavior"""
@@ -4156,6 +4231,8 @@ class SuiteViewTaskbar(QWidget):
         bottom so maximised / snapped windows never overlap our bar.
         """
         try:
+            self._ignore_screen_events_until = time.monotonic() + 1.5
+
             import ctypes
             import ctypes.wintypes as wt
 
@@ -4273,6 +4350,8 @@ class SuiteViewTaskbar(QWidget):
         try:
             if not getattr(self, '_appbar_registered', False):
                 return
+            self._ignore_screen_events_until = time.monotonic() + 1.5
+
             import ctypes
             import ctypes.wintypes as wt
 

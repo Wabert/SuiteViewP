@@ -31,14 +31,14 @@ from ..models.policy_information import PolicyInformation
 from .styles import (
     TAB_WIDGET_STYLE,
     GREEN_BG, GOLD_TEXT, GOLD_PRIMARY,
-    POLVIEW_HEADER_COLORS, POLVIEW_BORDER_COLOR,
+    POLVIEW_HEADER_COLORS, POLVIEW_DUPLICATE_HEADER_COLORS, POLVIEW_BORDER_COLOR,
 )
 from .widgets import PolicyLookupBar
 from .tree_panel import PolicyRecordTreePanel
 from .tabs import (
     CoveragesTab, PolicyTab, TargetsAccumulatorsTab, PersonsTab,
     AdvProdValuesTab, ActivityTab, DividendsTab, LoansTab, RawTableTab,
-    PolicyListWindow, PolicySupportTab, PolicyLibraryTab, ReinsuranceTab,
+    PolicyListWindow, PolicySupportTab, PolicyLibraryTab, ReinsuranceTab, AnnuityRiderTab,
 )
 
 
@@ -84,7 +84,9 @@ class GetPolicyWindow(FramelessWindowBase):
     Uses PolicyInformation for centralized data access.
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, enable_policy_list: bool = True):
+        self._enable_policy_list = enable_policy_list
+        self._window_bg = GREEN_BG if enable_policy_list else "#E8F5E9"
         self._db: Optional[DB2Connection] = None
         self._policy: Optional[PolicyInformation] = None
         self._current_policy = None
@@ -92,6 +94,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self._where_clause = None
         self._policy_info = {}
         self._policy_history = []
+        self._child_polview_windows = []
         self._history_panel_visible = False
         # Cache: (policy_number, region) -> (PolicyInformation, policy_info_dict, where_clause)
         self._policy_cache: dict = {}
@@ -101,7 +104,11 @@ class GetPolicyWindow(FramelessWindowBase):
             default_size=(1200, 780),
             min_size=(400, 400),
             parent=parent,
-            header_colors=POLVIEW_HEADER_COLORS,
+            header_colors=(
+                POLVIEW_HEADER_COLORS
+                if self._enable_policy_list
+                else POLVIEW_DUPLICATE_HEADER_COLORS
+            ),
             border_color=POLVIEW_BORDER_COLOR,
         )
 
@@ -115,7 +122,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self._tree_visible = False
 
         body = QWidget()
-        body.setStyleSheet(f"background-color: {GREEN_BG};")
+        body.setStyleSheet(f"background-color: {self._window_bg};")
         main_layout = QVBoxLayout(body)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -124,37 +131,38 @@ class GetPolicyWindow(FramelessWindowBase):
         self.lookup_bar = PolicyLookupBar()
         self.lookup_bar.policy_requested.connect(self._on_get_policy)  # (policy, region, company)
         self.lookup_bar.company_chosen.connect(self._on_get_policy)    # (policy, region, company)
-        # Add "☰ List" toggle button to the lookup bar, right after Get button
-        self.list_toggle_btn = QPushButton("☰ List")
-        self.list_toggle_btn.setCheckable(True)
-        self.list_toggle_btn.setToolTip("Toggle Policy List panel")
-        self.list_toggle_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: 1px solid #D4A017;
-                border-radius: 3px;
-                min-width: 56px; max-width: 56px;
-                min-height: 24px; max-height: 24px;
-                font-size: 11px; font-weight: bold;
-                color: #D4A017;
-                padding: 0 6px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.15);
-                color: #FFD700;
-            }
-            QPushButton:checked {
-                background-color: rgba(212, 160, 23, 0.3);
-                color: #FFD700;
-            }
-        """)
-        self.list_toggle_btn.clicked.connect(self._toggle_policy_list)
-        self.lookup_bar.layout().addWidget(self.list_toggle_btn)
+        if self._enable_policy_list:
+            # Add "☰ List" toggle button to the lookup bar, right after Get button
+            self.list_toggle_btn = QPushButton("☰ List")
+            self.list_toggle_btn.setCheckable(True)
+            self.list_toggle_btn.setToolTip("Toggle Policy List panel")
+            self.list_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: 1px solid #D4A017;
+                    border-radius: 3px;
+                    min-width: 56px; max-width: 56px;
+                    min-height: 24px; max-height: 24px;
+                    font-size: 11px; font-weight: bold;
+                    color: #D4A017;
+                    padding: 0 6px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(255, 255, 255, 0.15);
+                    color: #FFD700;
+                }
+                QPushButton:checked {
+                    background-color: rgba(212, 160, 23, 0.3);
+                    color: #FFD700;
+                }
+            """)
+            self.list_toggle_btn.clicked.connect(self._toggle_policy_list)
+            self.lookup_bar.layout().addWidget(self.list_toggle_btn)
         main_layout.addWidget(self.lookup_bar)
 
         # Main content area
         content_widget = QWidget()
-        content_widget.setStyleSheet(f"background-color: {GREEN_BG};")
+        content_widget.setStyleSheet(f"background-color: {self._window_bg};")
         content_layout = QHBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
@@ -169,7 +177,7 @@ class GetPolicyWindow(FramelessWindowBase):
 
         # Tabs (main content, always visible)
         tabs_container = QWidget()
-        tabs_container.setStyleSheet(f"background-color: {GREEN_BG};")
+        tabs_container.setStyleSheet(f"background-color: {self._window_bg};")
         tabs_layout = QVBoxLayout(tabs_container)
         tabs_layout.setContentsMargins(10, 10, 10, 10)
         tabs_layout.setSpacing(10)
@@ -187,6 +195,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self.loans_tab = LoansTab()
         self.reinsurance_tab = ReinsuranceTab()
         self.raw_table_tab = RawTableTab()
+        self.annuity_rider_tab = AnnuityRiderTab()
 
         self.policy_support_tab = PolicySupportTab()
         self.policy_library_tab = PolicyLibraryTab()
@@ -204,6 +213,7 @@ class GetPolicyWindow(FramelessWindowBase):
         # Connect CoveragesTab signal to show Policy Support tab
         self.coverages_tab.policy_support_requested.connect(self._show_policy_support_tab)
         self.policy_support_tab.policy_library_requested.connect(self._show_policy_library_tab)
+        self.coverages_tab.annuity_rider_requested.connect(self._show_annuity_rider_tab)
 
         tabs_layout.addWidget(self.tabs)
 
@@ -245,9 +255,11 @@ class GetPolicyWindow(FramelessWindowBase):
 
         # Bottom bar: status label + dimension label
         bottom_bar = QWidget()
+        bottom_top = "#0A3D0A" if self._enable_policy_list else "#2E7D32"
+        bottom_bot = "#2E7D32" if self._enable_policy_list else "#66BB6A"
         bottom_bar.setStyleSheet(f"""
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #0A3D0A, stop:1 #2E7D32);
+                stop:0 {bottom_top}, stop:1 {bottom_bot});
             border-top: 2px solid #D4A017;
         """)
         bottom_layout = QHBoxLayout(bottom_bar)
@@ -278,8 +290,8 @@ class GetPolicyWindow(FramelessWindowBase):
 
         main_layout.addWidget(bottom_bar)
 
-        # Policy List side-window
-        self._create_policy_list_window()
+        if self._enable_policy_list:
+            self._create_policy_list_window()
 
         return body
 
@@ -317,6 +329,9 @@ class GetPolicyWindow(FramelessWindowBase):
         self.policy_list_window.policy_selected.connect(
             self._on_policy_selected_from_list
         )
+        self.policy_list_window.policy_open_requested.connect(
+            self._open_policy_in_new_window
+        )
         self.policy_list_window.policy_removed.connect(
             self._on_policy_removed_from_list
         )
@@ -332,6 +347,8 @@ class GetPolicyWindow(FramelessWindowBase):
     # == Policy List helpers ===============================================
 
     def _toggle_policy_list(self):
+        if not self._enable_policy_list:
+            return
         self._history_panel_visible = not self._history_panel_visible
         if self._history_panel_visible:
             self.policy_list_window.show_docked()
@@ -341,13 +358,53 @@ class GetPolicyWindow(FramelessWindowBase):
             self.list_toggle_btn.setChecked(self._history_panel_visible)
 
     def _on_policy_selected_from_list(self, region: str, company: str, policy: str):
+        if not self.isVisible():
+            self.show()
+            self._history_panel_visible = True
+            if hasattr(self, "policy_list_window"):
+                self.policy_list_window.show_docked()
+            if hasattr(self, "list_toggle_btn"):
+                self.list_toggle_btn.setChecked(True)
+
+        if self._is_current_policy(region, company, policy):
+            self._show_status(f"Policy {policy} ({company}) is already loaded")
+            return
+
         self.lookup_bar.region_input.setText(region)
         self.lookup_bar.company_input.setText(company)
         self.lookup_bar.policy_input.setText(policy)
         self.lookup_bar._on_get_policy()
 
+    def _is_current_policy(self, region: str, company: str, policy: str) -> bool:
+        if not self._policy or not self._policy.exists:
+            return False
+        current_company = str(self._policy_info.get("CompanyCode", "")).strip()
+        return (
+            str(self._current_region or "").strip().upper() == str(region or "").strip().upper()
+            and str(self._current_policy or "").strip().upper() == str(policy or "").strip().upper()
+            and current_company.upper() == str(company or "").strip().upper()
+        )
+
+    def _open_policy_in_new_window(self, region: str, company: str, policy: str):
+        window = GetPolicyWindow(enable_policy_list=False)
+        self._child_polview_windows.append(window)
+        window.destroyed.connect(
+            lambda _=None, w=window: self._forget_child_polview_window(w)
+        )
+        window.show()
+        window.lookup_bar.region_input.setText(region)
+        window.lookup_bar.company_input.setText(company)
+        window.lookup_bar.policy_input.setText(policy)
+        window.lookup_bar._on_get_policy()
+        window.raise_()
+        window.activateWindow()
+
+    def _forget_child_polview_window(self, window):
+        if window in self._child_polview_windows:
+            self._child_polview_windows.remove(window)
+
     def _add_policy_to_history(self, region: str, company: str, policy: str):
-        if hasattr(self, "policy_list_window"):
+        if self._enable_policy_list and hasattr(self, "policy_list_window"):
             self.policy_list_window.add_policy(region, company, policy)
 
     def _on_policy_removed_from_list(self, policy_number: str, region: str):
@@ -379,9 +436,36 @@ class GetPolicyWindow(FramelessWindowBase):
             s = self.size()
             self._dim_label.setText(f"{s.width()} × {s.height()}")
 
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if not hasattr(self, "policy_list_window"):
+            return
+        if event.type() == event.Type.WindowStateChange:
+            if self.policy_list_window.is_docked:
+                if self.isMinimized():
+                    self.policy_list_window.hide()
+                elif self._history_panel_visible:
+                    self.policy_list_window.show_docked()
+        elif event.type() == event.Type.ActivationChange and self.isActiveWindow():
+            if self.policy_list_window.isVisible() and self.policy_list_window.is_docked:
+                self.policy_list_window.raise_()
+
     def closeEvent(self, event):
+        if (
+            self._enable_policy_list
+            and hasattr(self, "policy_list_window")
+            and self.policy_list_window.isVisible()
+        ):
+            if self.policy_list_window.is_docked:
+                self.policy_list_window.detach()
+            self._history_panel_visible = True
+            if hasattr(self, "list_toggle_btn"):
+                self.list_toggle_btn.setChecked(True)
+            self.policy_list_window.show()
+            self.policy_list_window.raise_()
         if self._db:
             self._db.close()
+            self._db = None
         event.accept()
 
     # == Policy Support tab =================================================
@@ -428,6 +512,28 @@ class GetPolicyWindow(FramelessWindowBase):
         self.policy_library_tab.refresh()
         self.tabs.setCurrentWidget(self.policy_library_tab)
         self._show_status("Policy Library tab opened")
+
+    def _show_annuity_rider_tab(self, coverage=None):
+        """Show the Annuity Rider tab for eligible rider coverage double-clicks."""
+        if not self._policy or not self._policy.exists:
+            return
+
+        if coverage is not None:
+            plancode = str(getattr(coverage, "plancode", "")).strip().upper()
+            if plancode != "0699830R":
+                return
+
+        rider_idx = self.tabs.indexOf(self.annuity_rider_tab)
+        if rider_idx < 0:
+            raw_idx = self.tabs.indexOf(self.raw_table_tab)
+            if raw_idx >= 0:
+                self.tabs.insertTab(raw_idx, self.annuity_rider_tab, "Annuity Rider")
+            else:
+                self.tabs.addTab(self.annuity_rider_tab, "Annuity Rider")
+
+        self.annuity_rider_tab.load_data_from_policy(self._policy)
+        self.tabs.setCurrentWidget(self.annuity_rider_tab)
+        self._show_status("Annuity Rider tab opened")
 
     # == Policy loading ====================================================
 
@@ -714,6 +820,11 @@ class GetPolicyWindow(FramelessWindowBase):
             # This policy doesn't have the tab — remove if present
             if ps_idx >= 0:
                 self.tabs.removeTab(ps_idx)
+
+        # Annuity Rider tab is opened by double-clicking an eligible rider only.
+        rider_idx = self.tabs.indexOf(self.annuity_rider_tab)
+        if rider_idx >= 0:
+            self.tabs.removeTab(rider_idx)
 
     # == Tree selection handlers ===========================================
 

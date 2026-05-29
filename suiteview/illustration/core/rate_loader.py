@@ -17,8 +17,11 @@ class IllustrationRates:
 
     # Duration-based arrays
     coi: List = field(default_factory=list)
+    segment_coi: Dict[int, List] = field(default_factory=dict)
     epu: List = field(default_factory=list)
+    segment_epu: Dict[int, List] = field(default_factory=dict)
     scr: List = field(default_factory=list)
+    segment_scr: Dict[int, List] = field(default_factory=dict)
     mfee: List = field(default_factory=list)
     gint: List = field(default_factory=list)
     tpp: List = field(default_factory=list)
@@ -37,6 +40,9 @@ class IllustrationRates:
     # Benefit COI rates — keyed by combined type+subtype string (e.g. "39" for PW)
     # Each value is a 1-indexed list by policy year (benefit duration)
     benefit_coi: Dict[str, List] = field(default_factory=dict)
+
+    # Rider COI rates — keyed by RiderInfo.export_key (plancode_occurrence)
+    rider_rates: Dict[str, List] = field(default_factory=dict)
 
     # Single values
     mtp: float = 0.0
@@ -61,6 +67,21 @@ def get_rate(rates_obj: IllustrationRates, rate_name: str, index: int) -> float:
     return _safe_rate(arr, index)
 
 
+def _load_rider_coi_rates(rates_db: Rates, rider) -> List:
+    band = rates_db.get_band(rider.plancode, rider.face_amount)
+    if band is None:
+        band = rider.band if rider.band is not None else 1
+    rider.band = int(band)
+    return rates_db.get_coi(
+        rider.plancode,
+        rider.issue_age,
+        rider.rate_sex,
+        rider.rate_class,
+        scale=1,
+        band=rider.band,
+    ) or []
+
+
 def load_rates(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
@@ -76,19 +97,30 @@ def load_rates(
     if seg is None:
         return IllustrationRates()
 
+    segment_coi = {}
+    segment_epu = {}
+    segment_scr = {}
+    for base_seg in policy.segments:
+        segment_coi[base_seg.coverage_phase] = rates_db.get_rates(
+            "COI", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
+            base_seg.rate_class, scale=1, band=base_seg.band,
+        ) or []
+        segment_epu[base_seg.coverage_phase] = rates_db.get_rates(
+            "EPU", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
+            base_seg.rate_class, scale=1, band=base_seg.band,
+        ) or []
+        segment_scr[base_seg.coverage_phase] = rates_db.get_rates(
+            "SCR", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
+            base_seg.rate_class, scale=1, band=base_seg.band,
+        ) or []
+
     result = IllustrationRates(
-        coi=rates_db.get_rates(
-            "COI", policy.plancode, seg.issue_age, seg.rate_sex,
-            seg.rate_class, scale=1, band=seg.band,
-        ) or [],
-        epu=rates_db.get_rates(
-            "EPU", policy.plancode, seg.issue_age, seg.rate_sex,
-            seg.rate_class, scale=1, band=seg.band,
-        ) or [],
-        scr=rates_db.get_rates(
-            "SCR", policy.plancode, seg.issue_age, seg.rate_sex,
-            seg.rate_class, scale=1, band=seg.band,
-        ) or [],
+        coi=segment_coi.get(seg.coverage_phase, []),
+        segment_coi=segment_coi,
+        epu=segment_epu.get(seg.coverage_phase, []),
+        segment_epu=segment_epu,
+        scr=segment_scr.get(seg.coverage_phase, []),
+        segment_scr=segment_scr,
         mfee=rates_db.get_rates(
             "MFEE", policy.plancode, seg.issue_age, seg.rate_sex,
             seg.rate_class, scale=1, band=seg.band,
@@ -156,5 +188,13 @@ def load_rates(
             benefit_type=ben_key,
         )
         result.benefit_coi[ben_key] = ben_rates or []
+
+    # UL riders use the same UL_Rates COI tables as base coverages.
+    # Same-plancode coverages are base segments and are intentionally not in
+    # policy.riders; they will be handled by multi-segment base logic later.
+    for rider in policy.riders:
+        if not rider.is_active or not rider.plancode:
+            continue
+        result.rider_rates[rider.export_key] = _load_rider_coi_rates(rates_db, rider)
 
     return result

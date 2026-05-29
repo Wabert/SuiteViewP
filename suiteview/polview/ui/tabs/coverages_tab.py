@@ -2,7 +2,10 @@
 Coverages tab – Policy Info header, Coverages table, and Benefits table.
 """
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTableWidgetItem
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QTableWidgetItem,
+    QStyle, QStyleOptionGroupBox,
+)
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from ..formatting import format_date, format_amount, is_numeric
@@ -19,6 +22,7 @@ class CoveragesTab(QWidget):
 
     # Emitted when the user double-clicks the "Policy Info" header
     policy_support_requested = pyqtSignal()
+    annuity_rider_requested = pyqtSignal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -32,16 +36,16 @@ class CoveragesTab(QWidget):
 
         self.setStyleSheet(f"background-color: {WHITE};")
 
-        # Policy Info Header — 4 columns; col 4 is reserved for Reins Partner (row 3 only)
+        # Policy Info Header — 4 columns
         self.info_group = StyledInfoTableGroup("Policy Info", columns=4, show_table=False)
         self.info_group.setMaximumWidth(900)
         self.info_group.setMaximumHeight(140)
 
-        # Row 0 (3 fields; skip col 4 by advancing the counter manually)
+        # Row 0
         self.info_group.add_field("Policy", "policy_label", 80, 80)
         self.info_group.add_field("System Cd", "system_cd_label", 80, 80)
         self.info_group.add_field("Valuation Date", "eff_date_label", 80, 100)
-        self.info_group._current_col = 0; self.info_group._current_row += 1  # skip col 4
+        self.info_group.add_field("Total Death Benefit", "total_death_benefit_label", 110, 100)
         # Row 1 (4 fields — DB Option fills the 4th column for UL policies)
         self.info_group.add_field("Type", "type_label", 80, 80)
         self.info_group.add_field("Single/Joint", "joint_label", 80, 80)
@@ -68,6 +72,7 @@ class CoveragesTab(QWidget):
         self.suspense_label = self.info_group.suspense_label
         self.grace_label = self.info_group.grace_label
         self.eff_date_label = self.info_group.eff_date_label
+        self.total_death_benefit_label = self.info_group.total_death_benefit_label
         self.policy_year_label = self.info_group.policy_year_label
         self.att_age_label = self.info_group.att_age_label
         self.status_label = self.info_group.status_label
@@ -75,8 +80,6 @@ class CoveragesTab(QWidget):
         self.db_option_label = self.info_group.db_option_label
 
         # Make the "Policy Info" header double-clickable to open Policy Support
-        self.info_group.setToolTip("Double-click to open Policy Support")
-        self.info_group.setCursor(Qt.CursorShape.PointingHandCursor)
         self.info_group.installEventFilter(self)
 
         layout.addWidget(self.info_group)
@@ -84,6 +87,7 @@ class CoveragesTab(QWidget):
         # Coverages table
         self.cov_group = StyledInfoTableGroup("Coverages", show_info=False)
         self.cov_table = self.cov_group.table
+        self.cov_table._data_table.itemDoubleClicked.connect(self._on_coverage_double_clicked)
         layout.addWidget(self.cov_group, 2)
 
         # Benefits table
@@ -92,12 +96,24 @@ class CoveragesTab(QWidget):
         layout.addWidget(self.bnf_group, 1)
 
     def eventFilter(self, obj, event):
-        """Intercept double-click on the Policy Info group to emit signal."""
+        """Open Policy Support only when the Policy Info title is double-clicked."""
         from PyQt6.QtCore import QEvent
         if obj is self.info_group and event.type() == QEvent.Type.MouseButtonDblClick:
-            self.policy_support_requested.emit()
-            return True
+            if self._event_in_info_group_title(event):
+                self.policy_support_requested.emit()
+                return True
         return super().eventFilter(obj, event)
+
+    def _event_in_info_group_title(self, event) -> bool:
+        option = QStyleOptionGroupBox()
+        self.info_group.initStyleOption(option)
+        title_rect = self.info_group.style().subControlRect(
+            QStyle.ComplexControl.CC_GroupBox,
+            option,
+            QStyle.SubControl.SC_GroupBoxLabel,
+            self.info_group,
+        )
+        return title_rect.contains(event.pos())
 
     # ── helpers ───────────────────────────────────────────────────────────
 
@@ -131,11 +147,20 @@ class CoveragesTab(QWidget):
         except Exception:
             return str(value)
 
+    def _on_coverage_double_clicked(self, item):
+        row = item.row()
+        if row < 0 or row >= len(self._cov_data):
+            return
+        coverage = self._cov_data[row]
+        if str(getattr(coverage, "plancode", "")).strip().upper() == "0699830R":
+            self.annuity_rider_requested.emit(coverage)
+
     # ── data loading ─────────────────────────────────────────────────────
 
     def load_data_from_policy(self, policy: 'PolicyInformation'):
         """Load coverage data using PolicyInformation object."""
         # Clear old data first so stale values never remain when switching policies
+        self._cov_data = []
         self.info_group.clear_info()
         self.cov_table.setRowCount(0)
         self.bnf_table.setRowCount(0)
@@ -145,6 +170,7 @@ class CoveragesTab(QWidget):
                 return
             self._populate_status_labels_from_policy(policy)
             coverages = policy.get_coverages()
+            self._cov_data = list(coverages)
             self._populate_coverages_from_policy(policy, coverages)
             benefits = policy.get_benefits()
             self._populate_benefits_from_policy(benefits)
@@ -182,6 +208,8 @@ class CoveragesTab(QWidget):
             self.eff_date_label.setText("")
 
         self.policy_year_label.setText(str(policy.policy_year))
+
+        self.total_death_benefit_label.setText(format_amount(policy.total_death_benefit))
 
         att_age = policy.attained_age
         if att_age is not None:
@@ -221,7 +249,7 @@ class CoveragesTab(QWidget):
         columns = ["Phs", "Form", "COLA", "GIO", "Plancode", "IssueDate", "Mat Date", "Amount"]
         if is_ul_product:
             columns.append("Orig Amt")
-        columns.extend(["IssAge", "Gender", "Class", "Tbl", "Flat", "Flat Cease", "Status", "CeaseDate", "Rate", "AttAge", "PRS", "LIV", "VPU"])
+        columns.extend(["IssAge", "Gender", "Class", "Tbl", "Tbl Cease Date", "Flat", "Flat Cease", "Status", "CeaseDate", "Rate", "AttAge", "PRS", "LIV", "VPU"])
 
         self.cov_table.setColumnCount(len(columns))
         self.cov_table.setHorizontalHeaderLabels(columns)
@@ -265,6 +293,7 @@ class CoveragesTab(QWidget):
             self._set_item(row_idx, col, rate_class); col += 1
             tbl = getattr(cov, 'table_rating', None)
             self._set_item(row_idx, col, tbl if tbl and tbl != 0 else ""); col += 1
+            self._set_item(row_idx, col, format_date(getattr(cov, 'table_cease_date', None)) if tbl and tbl != 0 else ""); col += 1
             flat = getattr(cov, 'flat_extra', None)
             try:
                 flat_val = float(flat) if flat else 0

@@ -153,9 +153,9 @@ class Rates:
         elif rate_type in ("SCR",):
             key_parts.extend([issue_age, sex, rateclass, band])
         elif rate_type in ("BENMTP", "BENCTP"):
-            key_parts.extend([issue_age, band, benefit_type])
+            key_parts.extend([issue_age, sex, rateclass, band, benefit_type])
         elif rate_type in ("BENCOI",):
-            key_parts.extend([issue_age, band, benefit_type, scale])
+            key_parts.extend([issue_age, sex, rateclass, band, benefit_type, scale])
         elif rate_type in ("BANDSPECS", "PLNCRD", "PLNCRG", "RLNCRD", "RLNCRG"):
             pass  # Just rate_type and plancode
         elif rate_type in ("SNETPERIOD",):

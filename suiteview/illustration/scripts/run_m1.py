@@ -77,6 +77,13 @@ def main() -> None:
     print(f"  Curr Rate:    {policy.current_interest_rate}")
     print(f"  DOLI:         {policy.def_of_life_ins}")
     print(f"  CTP:          ${policy.ctp:,.2f}")
+    print(
+        "  Last MD:      "
+        f"${policy.system_monthly_deduction:,.2f} "
+        f"(COI ${policy.system_coi_charge:,.2f} + "
+        f"Exp ${policy.system_expense_charge:,.2f} + "
+        f"Other ${policy.system_other_charge:,.2f})"
+    )
     print(f"  Segments:     {len(policy.segments)}")
     print(f"  Benefits:     {len(policy.benefits)}")
     for b in policy.benefits:
@@ -109,7 +116,7 @@ def main() -> None:
           f"{'Std DB':>12}  {'Corr Amt':>10}  {'Gross DB':>12}  "
           f"{'NAR Cov1':>12}  {'NAR Corr':>10}  "
           f"{'COI Cov1':>10}  {'COI Corr':>10}  {'COI Tot':>10}  "
-          f"{'EPU':>8}  {'BenChg':>8}  {'Tot Ded':>10}  "
+          f"{'EPU':>8}  {'BenChg':>8}  {'RidChg':>8}  {'Tot Ded':>10}  "
           f"{'Interest':>10}  {'End AV':>12}")
     print(f"{'='*172}")
 
@@ -127,10 +134,20 @@ def main() -> None:
             f"{s.nar_cov1:>12,.2f}  {s.nar_corr:>10,.2f}  "
             f"{s.coi_charge_cov1:>10,.2f}  {s.coi_charge_corr:>10,.2f}  "
             f"{s.coi_charge:>10,.2f}  "
-            f"{s.epu_charge:>8,.2f}  {s.benefit_charges:>8,.2f}  {s.total_deduction:>10,.2f}  "
+            f"{s.epu_charge:>8,.2f}  {s.benefit_charges:>8,.2f}  "
+            f"{s.rider_charges:>8,.2f}  {s.total_deduction:>10,.2f}  "
             f"{s.interest_credited:>10,.2f}  {s.av_end_of_month:>12,.2f}"
             f"{flag}{label}"
         )
+
+    inforce = results[0]
+    print(
+        "\nMD Check: "
+        f"system ${inforce.system_monthly_deduction:,.2f}; "
+        f"calc ${inforce.md_check_calculated_deduction:,.2f}; "
+        f"variance ${inforce.md_check_deduction_variance:,.2f}; "
+        f"AV before MD ${inforce.md_check_av_before_deduction:,.2f}"
+    )
 
     if len(results) > 1:
         last = results[-1]

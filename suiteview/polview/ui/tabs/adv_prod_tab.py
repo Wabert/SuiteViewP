@@ -86,6 +86,7 @@ class AdvProdValuesTab(QWidget):
         self.policy_info.add_field("Guar Int Rate", "guar_int_rate", 85, 65, section, "guar_int_rate")
         self.policy_info.add_field("DB Dial-To Age", "db_dial_to_age", 85, 65, section, "db_dial_to_age")
         self.policy_info.add_field("Grace Rule Code", "grace_rule_code", 85, 65, section, "grace_rule_code")
+        self.policy_info.add_field("Corridor Rate", "corridor_rate", 85, 65, section, "corridor_rate")
 
     # ── PolicyInformation path ───────────────────────────────────────────
 
@@ -166,6 +167,12 @@ class AdvProdValuesTab(QWidget):
 
         if policy.grace_rule_code:
             self.policy_info.set_value("grace_rule_code", policy.grace_rule_code)
+
+        if policy.corridor_percent is not None:
+            try:
+                self.policy_info.set_value("corridor_rate", f"{float(policy.corridor_percent) / 100:.2%}")
+            except Exception:
+                self.policy_info.set_value("corridor_rate", str(policy.corridor_percent))
 
         if policy.short_pay_premium:
             self.policy_info.set_value("short_pay_prem", format_currency(policy.short_pay_premium))

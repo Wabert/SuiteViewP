@@ -4,6 +4,7 @@ Policy data classes, business logic, and translations.
 """
 
 from .policy_information import PolicyInformation, load_policy, close_all_connections
+from .reinsurance_information import ReinsuranceInformation
 from .cl_polrec.policy_data_classes import (
     CoverageInfo, BenefitInfo, AgentInfo, LoanInfo, MVValueInfo,
     ActivityInfo, PolicyNotFoundError,

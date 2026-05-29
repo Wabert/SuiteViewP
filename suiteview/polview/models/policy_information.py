@@ -617,6 +617,65 @@ class PolicyInformation:
             if cov.face_amount:
                 total += cov.face_amount
         return total
+
+    def _coverage_is_active(self, cov: CoverageInfo, as_of_date: Optional[date] = None) -> bool:
+        """Return whether a coverage is active as of the valuation date."""
+        effective_date = as_of_date or self.valuation_date or date.today()
+        if cov.terminate_date and cov.terminate_date <= effective_date:
+            return False
+
+        status = str(cov.nxt_chg_typ_cd or cov.cov_status or "").strip()
+        if status == "0":
+            return bool(cov.nxt_chg_dt and cov.nxt_chg_dt > effective_date)
+        return True
+
+    @staticmethod
+    def _covers_primary_insured(cov: CoverageInfo) -> bool:
+        """Return whether a coverage applies only to the primary insured."""
+        person_code = str(cov.person_code or "").strip()
+        if person_code not in ("", "00"):
+            return False
+        if cov.prs_seq_nbr not in (0, 1):
+            return False
+        try:
+            return int(str(cov.lives_cov_cd or "1").strip() or "1") <= 1
+        except (TypeError, ValueError):
+            return False
+
+    @property
+    def primary_insured_face_amount(self) -> Decimal:
+        """Active face amount covering the primary insured only."""
+        total = Decimal("0")
+        for cov in self.get_coverages():
+            if not self._covers_primary_insured(cov):
+                continue
+            if not self._coverage_is_active(cov):
+                continue
+            if cov.face_amount:
+                total += cov.face_amount
+
+        if total:
+            return total
+        return self.base_face_amount or Decimal("0")
+
+    @property
+    def total_death_benefit(self) -> Decimal:
+        """Total death benefit for the primary insured, including DB option B/C amounts."""
+        total = self.primary_insured_face_amount
+        db_option = str(self.db_option_code or "").strip().upper()
+
+        if db_option in ("2", "B"):
+            account_value = self.mv_av(0)
+            if account_value is None:
+                account_value = self.accumulation_value
+            if account_value:
+                total += account_value
+        elif db_option in ("3", "C"):
+            premiums_paid = self.total_premiums_paid
+            if premiums_paid:
+                total += premiums_paid
+
+        return total
     
     @property
     def base_issue_age(self) -> Optional[int]:
@@ -692,7 +751,8 @@ class PolicyInformation:
           (for UL products, coverage increases are added as additional base coverages)
         - is_base=False for riders (different plancode from coverage 1)
         
-        Substandard ratings (table_rating, flat_extra, flat_cease_date) and
+        Substandard ratings (table_rating, table_cease_date, flat_extra,
+        flat_cease_date) and
         TH_COV_PHA fields (cv_amount, nsp_amount) are populated during build.
 
         """
@@ -761,12 +821,15 @@ class PolicyInformation:
                 cov_ratings = all_ratings.get(cov_pha_nbr, [])
                 table_rating = None
                 table_rating_code = ""
+                table_cease_date = None
                 flat_extra = None
                 flat_cease_date = None
                 for r in cov_ratings:
                     if r.type_code == "T" and r.table_rating_numeric and r.table_rating_numeric > 0:
                         table_rating = r.table_rating_numeric
                         table_rating_code = r.table_rating or ""
+                        if r.flat_cease_date:
+                            table_cease_date = r.flat_cease_date
                     if r.type_code == "F":
                         if r.flat_amount:
                             flat_extra = r.flat_amount
@@ -807,6 +870,7 @@ class PolicyInformation:
                     rate_class_desc="",
                     table_rating=table_rating,
                     table_rating_code=table_rating_code,
+                    table_cease_date=table_cease_date,
                     cola_indicator=cola_indicator,
                     gio_indicator=gio_indicator,
                     flat_extra=flat_extra,
@@ -1224,7 +1288,10 @@ class PolicyInformation:
     @property
     def death_benefit(self) -> Optional[Decimal]:
         """Current death benefit."""
-        return self.total_records.DTH_BNF_AMT
+        total_records_value = self.total_records.DTH_BNF_AMT
+        if total_records_value is not None:
+            return total_records_value
+        return self.total_death_benefit
     
     @property
     def net_amount_at_risk(self) -> Optional[Decimal]:
@@ -2621,6 +2688,13 @@ class PolicyInformation:
         if 0 < index <= len(covs):
             return covs[index - 1].table_rating_code or ""
         return ""
+
+    def cov_table_cease_date(self, index: int) -> Optional[date]:
+        """Get coverage table rating cease date (1-based index). Delegates to get_coverages()."""
+        covs = self.get_coverages()
+        if 0 < index <= len(covs):
+            return covs[index - 1].table_cease_date
+        return None
     
     def cov_flat_extra(self, index: int) -> Optional[Decimal]:
         """Get coverage flat extra amount (1-based index). Delegates to get_coverages()."""
@@ -2767,6 +2841,10 @@ class PolicyInformation:
     def cov_band(self, cov_index: int) -> Optional[int]:
         """
         Get face amount band for coverage.
+
+        Base coverage bands are based on the total face amount across base
+        coverages. Rider coverage bands are based only on that rider's face
+        amount.
         
         Args:
             cov_index: Coverage index (1-based)
@@ -2781,11 +2859,17 @@ class PolicyInformation:
         if rates is None:
             self._band_cache[cov_index] = None
             return None
+
+        covs = self.get_coverages()
+        if not (0 < cov_index <= len(covs)):
+            self._band_cache[cov_index] = None
+            return None
+
+        cov = covs[cov_index - 1]
+        band_face = float(self.total_specified_amount if cov.is_base else (cov.face_amount or 0))
         
         plancode = self.cov_plancode(cov_index)
-        total_face = float(self.total_specified_amount or 0)
-        
-        band = rates.get_band(plancode, total_face)
+        band = rates.get_band(plancode, band_face)
         self._band_cache[cov_index] = band
         return band
     

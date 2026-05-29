@@ -13,6 +13,8 @@ from datetime import datetime
 
 import pyodbc
 
+from suiteview.core.odbc_utils import DB2, detect_dialect
+
 logger = logging.getLogger(__name__)
 
 _DSN = "UL_Rates"
@@ -78,14 +80,15 @@ def fetch_and_register(table_name: str, column_name: str,
     Returns a list of (value, count) tuples sorted by count descending.
     """
     # 1. Query live unique values
-    # Detect whether the target is DB2 (uses double-quote) or SQL Server
-    # (uses [brackets]).  Heuristic: if source_dsn is set and differs from
-    # the registry DSN we assume DB2.
-    _is_db2 = bool(source_dsn) and source_dsn != _DSN
+    live_dsn = source_dsn or _DSN
+    dialect = detect_dialect(live_dsn)
+    if dialect == DB2 and table_name.split(".", 1)[0].lower() == "dbo":
+        live_dsn = _DSN
+        dialect = detect_dialect(live_dsn)
 
     def _q(name: str) -> str:
         """Quote an identifier for the target DBMS."""
-        return f'"{name}"' if _is_db2 else f"[{name}]"
+        return f'"{name}"' if dialect == DB2 else f"[{name}]"
 
     if "." in table_name:
         parts = table_name.split(".")
@@ -98,10 +101,8 @@ def fetch_and_register(table_name: str, column_name: str,
         f"GROUP BY {_q(column_name)} "
         f"ORDER BY cnt DESC"
     )
-    logger.info("Unique value query: %s (dsn=%s)", sql, source_dsn or _DSN)
+    logger.info("Unique value query: %s (dsn=%s, dialect=%s)", sql, live_dsn, dialect)
 
-    # Use source_dsn for the live query if provided, otherwise registry DSN
-    live_dsn = source_dsn or _DSN
     live_conn = pyodbc.connect(f"DSN={live_dsn}", autocommit=True)
     try:
         cursor = live_conn.cursor()

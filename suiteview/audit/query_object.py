@@ -224,11 +224,12 @@ def _saved_query_output_fields(saved_query) -> list[QueryObjectField]:
 
 def _saved_query_input_fields(saved_query, existing: set[str]) -> list[QueryObjectField]:
     fields: list[QueryObjectField] = []
+    seen_inputs: set[str] = set()
     for tab in (saved_query.config or {}).get("tabs", []):
         grid = tab.get("grid", {})
         for field_key, state in grid.get("fields", {}).items():
             col = _column_name_from_key(field_key)
-            if not col or col in existing:
+            if not col or field_key in seen_inputs:
                 continue
             fields.append(QueryObjectField(
                 name=col,
@@ -237,7 +238,7 @@ def _saved_query_input_fields(saved_query, existing: set[str]) -> list[QueryObje
                 display_name=state.get("label_text") or saved_query.display_names.get(col, col),
                 metadata={"field_key": field_key, "mode": state.get("mode")},
             ))
-            existing.add(col)
+            seen_inputs.add(field_key)
     return fields
 
 

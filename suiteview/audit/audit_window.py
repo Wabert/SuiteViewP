@@ -9,13 +9,14 @@ from __future__ import annotations
 import logging
 import time
 import pandas as pd
+import pyodbc
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QComboBox, QPushButton,
     QMessageBox, QDialog, QInputDialog,
-    QSplitter, QFileDialog,
+    QSplitter, QFileDialog, QMenu,
 )
 from suiteview.core.db2_constants import DEFAULT_REGION
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
@@ -35,6 +36,8 @@ from .tabs.plancode_tab import PlancodeTab
 from .tabs.common_tables_tab import CommonTablesTab
 from .tabs.build_sql_tab import BuildSqlTab
 from .tabs.build_sql_results_tab import BuildSqlResultsTab
+from .tabs.manual_sql_object_editor import ManualSqlObjectEditor
+from .tabs.csv_excel_object_editor import CsvExcelObjectEditor
 from .tabs._styles import style_combo as _style_combo
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import DEFAULT_SCHEMA, REGION_SCHEMA_MAP
@@ -42,11 +45,12 @@ from .cyberlife_query import build_cyberlife_sql
 from .dynamic_query import build_common_table_cte
 from .sql_helpers import fmt_time
 from .dynamic_group import DynamicQuery
-from .field_picker_panel import FieldPickerPanel
+from .field_picker_panel import FieldPickerPanel, _indexed_column_names
 from .group_config import load_ui_settings, save_ui_settings
-from .ui.bottom_bar import AuditBottomBar
-from .query_runner import run_button_context
+from .ui.bottom_bar import AuditBottomBar, FOOTER_BG
+from .query_runner import execute_odbc_query, run_button_context
 from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+from .dialogs.tables_dialog import _clean_odbc_identifier
 logger = logging.getLogger(__name__)
 _FONT = QFont("Segoe UI", 9)
 # Theme — default SuiteView blue header, gold border
@@ -99,8 +103,8 @@ class QueryObjectModeDialog(QDialog):
             ),
             (
                 "file",
-                "CSV / Excel Object",
-                "Import a file, inspect columns, preview/filter rows, and promote metadata",
+                "File Source Object",
+                "Import CSV, Excel, delimited text, or fixed-width text and promote metadata",
             ),
         ]
         for mode, heading, detail in modes:
@@ -154,6 +158,8 @@ class AuditWindow(FramelessWindowBase):
         root.setSpacing(2)
         # ── Mode tracking ─────────────────────────────────────────
         self._current_mode = "cyberlife"
+        self._cyberlife_saved_object_name = ""
+        self._manual_sql_started = False
         # Registry and +Group buttons — placed in the window header bar
         # Gold trim style for all header buttons
         _GOLD = "#D4A017"
@@ -178,12 +184,24 @@ class AuditWindow(FramelessWindowBase):
         self.btn_objects.setStyleSheet(_HEADER_BTN_STYLE)
         self.btn_objects.setToolTip("Open the unified Query Object browser")
         self.btn_objects.clicked.connect(self._open_query_object_viewer)
-        self.btn_new_object = QPushButton("New Object")
-        self.btn_new_object.setFont(QFont("Segoe UI", 8))
-        self.btn_new_object.setFixedHeight(24)
-        self.btn_new_object.setStyleSheet(_HEADER_BTN_STYLE)
-        self.btn_new_object.setToolTip("Create a Cyberlife, visual, SQL, or file-backed Query Object")
-        self.btn_new_object.clicked.connect(self._show_new_object_menu)
+        self.lbl_build_mode = QLabel("Build Mode")
+        self.lbl_build_mode.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        self.lbl_build_mode.setStyleSheet("color: #D4A017; padding: 0 4px;")
+        self.btn_build_mode = QPushButton("Cyberlife")
+        self.btn_build_mode.setFont(QFont("Segoe UI", 8))
+        self.btn_build_mode.setFixedHeight(24)
+        self.btn_build_mode.setStyleSheet(_HEADER_BTN_STYLE)
+        self.btn_build_mode.setToolTip("Choose the Query Object build mode")
+        mode_menu = QMenu(self.btn_build_mode)
+        for mode, label in (
+            ("cyberlife", "Cyberlife"),
+            ("visual", "Visual Query"),
+            ("manual_sql", "Manual SQL"),
+            ("file", "File Source"),
+        ):
+            action = mode_menu.addAction(label)
+            action.triggered.connect(lambda checked=False, value=mode: self._on_build_mode_selected(value))
+        self.btn_build_mode.setMenu(mode_menu)
         # Cyberlife header button (view toggle)
         _CYB_HDR_BTN_STYLE = (
             "QPushButton { background-color: rgba(10,42,92,0.8);"
@@ -200,6 +218,7 @@ class AuditWindow(FramelessWindowBase):
         self.btn_cyberlife.setStyleSheet(_CYB_HDR_BTN_STYLE)
         self.btn_cyberlife.setToolTip("Switch to the Cyberlife audit view")
         self.btn_cyberlife.clicked.connect(self._on_cyberlife_header_clicked)
+        self.btn_cyberlife.setVisible(False)
         _WB_BTN_STYLE = (
             "QPushButton { background-color: rgba(124,58,237,0.7);"
             + _GOLD_BTN_BASE + " }"
@@ -214,6 +233,7 @@ class AuditWindow(FramelessWindowBase):
         self.btn_workbench.setStyleSheet(_WB_BTN_STYLE)
         self.btn_workbench.setToolTip("Switch to the visual Query Object builder")
         self.btn_workbench.clicked.connect(self._toggle_saved_queries_shelf)
+        self.btn_workbench.setVisible(False)
         _DF_BTN_STYLE = (
             "QPushButton { background-color: rgba(13,148,136,0.7);"
             + _GOLD_BTN_BASE + " }"
@@ -228,6 +248,7 @@ class AuditWindow(FramelessWindowBase):
         self.btn_dataforge.setStyleSheet(_DF_BTN_STYLE)
         self.btn_dataforge.setToolTip("Switch to the DataForge view")
         self.btn_dataforge.clicked.connect(self._toggle_dataforge_shelf)
+        self.btn_dataforge.setVisible(False)
         # Advanced executable-definition viewer button
         _QDEF_BTN_STYLE = (
             "QPushButton { background-color: rgba(124,58,237,0.4);"
@@ -241,13 +262,34 @@ class AuditWindow(FramelessWindowBase):
         self.btn_qdef.setToolTip("Open the technical QDefinition viewer")
         self.btn_qdef.clicked.connect(self._open_qdef_viewer)
         self.btn_qdef.setVisible(False)
-        self.btn_save_object = QPushButton("Save Cyberlife Object")
-        self.btn_save_object.setFont(QFont("Segoe UI", 8))
-        self.btn_save_object.setFixedHeight(24)
-        self.btn_save_object.setStyleSheet(_HEADER_BTN_STYLE)
+        _SAVE_OBJECT_BTN_STYLE = (
+            "QPushButton { background-color: #0A2A5C; color: #D4AF37;"
+            " border: 2px solid #D4AF37; border-radius: 3px;"
+            " padding: 1px 4px; font-size: 8pt; font-weight: bold; }"
+            "QPushButton:hover { background-color: #123C69; color: #F4D03F; }"
+            "QPushButton:disabled { background-color: #6B7A90; color: #E6D8A6;"
+            " border-color: #C9B46B; }"
+        )
+        self.btn_save_cyberlife = QPushButton("Save")
+        self.btn_save_cyberlife.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        self.btn_save_cyberlife.setFixedSize(60, 36)
+        self.btn_save_cyberlife.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
+        self.btn_save_cyberlife.setToolTip("Update the current Cyberlife Query Object")
+        self.btn_save_cyberlife.clicked.connect(self._save_cyberlife_query_object_update)
+        self.btn_save_cyberlife.setVisible(False)
+        self.btn_save_object = QPushButton("Save As")
+        self.btn_save_object.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        self.btn_save_object.setFixedSize(60, 36)
+        self.btn_save_object.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
         self.btn_save_object.setToolTip(
-            "Save the current Cyberlife builder output as a reusable Query Object")
-        self.btn_save_object.clicked.connect(self._save_cyberlife_query_object)
+            "Save the current Cyberlife builder output as a new Query Object")
+        self.btn_save_object.clicked.connect(self._save_cyberlife_query_object_as)
+        self.btn_new_cyberlife = QPushButton("New Query")
+        self.btn_new_cyberlife.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        self.btn_new_cyberlife.setFixedSize(78, 36)
+        self.btn_new_cyberlife.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
+        self.btn_new_cyberlife.setToolTip("Start a new Cyberlife Query Object")
+        self.btn_new_cyberlife.clicked.connect(self._new_cyberlife_query_object)
         # Common Tables manager button
         self.btn_common_tables = QPushButton("Common Tables")
         self.btn_common_tables.setFont(QFont("Segoe UI", 8))
@@ -256,20 +298,17 @@ class AuditWindow(FramelessWindowBase):
         self.btn_common_tables.setToolTip("Manage user-defined lookup / translation tables")
         self.btn_common_tables.clicked.connect(self._open_common_tables)
         # Insert into header bar layout before window control buttons
-        # Group 1: object tools — then spacer — Group 2: Cyberlife, Query Studio, DataForge (modes)
+        # Group 1: object tools — then spacer — Build Mode selector
         from PyQt6.QtWidgets import QSpacerItem, QSizePolicy
         header_layout = self.header_bar.layout()
         insert_pos = header_layout.count() - 3  # before min/max/close
         header_layout.insertWidget(insert_pos, self.btn_objects)
-        header_layout.insertWidget(insert_pos + 1, self.btn_new_object)
-        header_layout.insertWidget(insert_pos + 2, self.btn_registry)
-        header_layout.insertWidget(insert_pos + 3, self.btn_save_object)
-        header_layout.insertWidget(insert_pos + 4, self.btn_common_tables)
-        header_layout.insertItem(insert_pos + 5,
+        header_layout.insertWidget(insert_pos + 1, self.btn_registry)
+        header_layout.insertWidget(insert_pos + 2, self.btn_common_tables)
+        header_layout.insertItem(insert_pos + 3,
             QSpacerItem(20, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum))
-        header_layout.insertWidget(insert_pos + 6, self.btn_cyberlife)
-        header_layout.insertWidget(insert_pos + 7, self.btn_workbench)
-        header_layout.insertWidget(insert_pos + 8, self.btn_dataforge)
+        header_layout.insertWidget(insert_pos + 4, self.lbl_build_mode)
+        header_layout.insertWidget(insert_pos + 5, self.btn_build_mode)
         # Dynamic query storage
         self._dynamic_queries: dict[str, DynamicQuery] = {}
         # Track which unpinned query is currently active
@@ -337,7 +376,10 @@ class AuditWindow(FramelessWindowBase):
         # Build SQL Results tab (hidden until build query is run)
         self.build_sql_results_tab = BuildSqlResultsTab()
         self._build_sql_results_tab_index = -1
-        # Right-click on tab bar → close Build SQL / Build SQL Results
+        # Manual SQL Object editor screen (hidden until New Object chooses it)
+        self.manual_sql_object_tab = ManualSqlObjectEditor()
+        self.csv_excel_object_tab = CsvExcelObjectEditor()
+        # Right-click on tab bar → close transient SQL/object tabs
         self.tabs.tabBar().setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu)
         self.tabs.tabBar().customContextMenuRequested.connect(
@@ -345,7 +387,7 @@ class AuditWindow(FramelessWindowBase):
         _left_lay.addWidget(self.tabs, 1)  # stretch=1 so tabs fill
         # ── Cyberlife bottom bar ─────────────────────────────────────
         self.cyberlife_bottom_bar = AuditBottomBar(
-            bg_color="#C8D4E4", run_label="Run\nAudit")
+            bg_color=FOOTER_BG, run_label="Run")
         # Convenience aliases for existing code
         self.btn_all = self.cyberlife_bottom_bar.btn_all
         self.txt_max_count = self.cyberlife_bottom_bar.txt_max_count
@@ -354,19 +396,10 @@ class AuditWindow(FramelessWindowBase):
         self.lbl_print_time = self.cyberlife_bottom_bar.lbl_print_time
         self.lbl_total_time = self.cyberlife_bottom_bar.lbl_total_time
         self.btn_run = self.cyberlife_bottom_bar.btn_run
-        # Left side: Clear All + Region/SysCode
-        _CLEAR_BTN_STYLE = (
-            "QPushButton { background-color: #14407A; color: white;"
-            " border: 1px solid #0A2A5C; border-radius: 2px;"
-            " padding: 1px 8px; font-size: 9pt; }"
-            "QPushButton:hover { background-color: #1E5BA8; }"
-        )
-        self.btn_clear_cyberlife = QPushButton("Clear All")
-        self.btn_clear_cyberlife.setFont(_FONT)
-        self.btn_clear_cyberlife.setFixedSize(60, 36)
-        self.btn_clear_cyberlife.setStyleSheet(_CLEAR_BTN_STYLE)
-        self.cyberlife_bottom_bar.left_layout.addWidget(self.btn_clear_cyberlife)
-        self.cyberlife_bottom_bar.left_layout.addSpacing(4)
+        self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_new_cyberlife)
+        self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_save_object)
+        self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_save_cyberlife)
+        # Left side: Region/SysCode
         # Region + System Code stacked
         region_sys_stack = QVBoxLayout()
         region_sys_stack.setSpacing(2)
@@ -416,8 +449,37 @@ class AuditWindow(FramelessWindowBase):
         # ── Query blank placeholder (shown when Queries space has no active query) ──
         self._query_blank = QWidget()
         self._query_blank.setStyleSheet("QWidget { background-color: #EDE9FE; }")
+        query_blank_layout = QVBoxLayout(self._query_blank)
+        query_blank_layout.setContentsMargins(0, 0, 0, 0)
+        query_blank_layout.setSpacing(0)
+        query_blank_layout.addStretch()
+        self._query_blank_footer = AuditBottomBar(
+            bg_color=FOOTER_BG, run_label="Run")
+        self._query_blank_footer.btn_all.setVisible(False)
+        self._query_blank_footer.txt_max_count.setVisible(False)
+        self._query_blank_footer.lbl_max_count.setVisible(False)
+        self._btn_query_blank_new = QPushButton("New Query")
+        self._btn_query_blank_new.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        self._btn_query_blank_new.setFixedSize(78, 36)
+        self._btn_query_blank_new.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
+        self._btn_query_blank_new.setToolTip("Start a new Visual Query Object")
+        self._btn_query_blank_new.clicked.connect(self._start_visual_query_object)
+        self._query_blank_footer.action_layout.addWidget(self._btn_query_blank_new)
+        self._btn_query_blank_save_as = QPushButton("Save As")
+        self._btn_query_blank_save_as.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        self._btn_query_blank_save_as.setFixedSize(60, 36)
+        self._btn_query_blank_save_as.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
+        self._btn_query_blank_save_as.setToolTip("Create and save a new Visual Query Object")
+        self._btn_query_blank_save_as.clicked.connect(self._start_visual_query_object)
+        self._query_blank_footer.action_layout.addWidget(self._btn_query_blank_save_as)
+        self._query_blank_footer.btn_run.clicked.connect(self._start_visual_query_object)
+        query_blank_layout.addWidget(self._query_blank_footer)
         self._query_blank.setVisible(False)
         self._dynamic_query_container.addWidget(self._query_blank)
+        self.manual_sql_object_tab.setVisible(False)
+        self._dynamic_query_container.addWidget(self.manual_sql_object_tab)
+        self.csv_excel_object_tab.setVisible(False)
+        self._dynamic_query_container.addWidget(self.csv_excel_object_tab)
         # DataForge group storage
         self._dataforge_groups: dict[str, DataForgeGroup] = {}
         # ── Left picker panel (embedded) ───────────────────────────
@@ -426,7 +488,10 @@ class AuditWindow(FramelessWindowBase):
         self._field_picker = FieldPickerPanel()
         self._field_picker.field_requested.connect(self._on_picker_field_requested)
         self._field_picker.query_clicked.connect(self._on_picker_query_clicked)
-        self._field_picker.new_query_requested.connect(self._on_add_group)
+        self._field_picker.new_query_requested.connect(self._start_visual_query_object)
+        self._field_picker.pinned_tables_changed.connect(self._on_picker_pinned_tables_changed)
+        self._field_picker.common_table_requested.connect(self._on_picker_common_table_requested)
+        self._field_picker.common_table_remove_requested.connect(self._on_picker_common_table_remove_requested)
         self._field_picker.tables_changed.connect(self._on_picker_tables_changed)
         self._field_picker.splitter_changed.connect(self._schedule_save_ui)
         self._forge_field_picker = QueryFieldPicker()
@@ -463,6 +528,13 @@ class AuditWindow(FramelessWindowBase):
         self._content_splitter.setSizes([0, 900])
         self._content_splitter.splitterMoved.connect(self._on_content_splitter_moved)
         root.addWidget(self._content_splitter, 1)
+        self._mode_footer_host = QWidget()
+        self._mode_footer_host.setVisible(False)
+        self._mode_footer_layout = QVBoxLayout(self._mode_footer_host)
+        self._mode_footer_layout.setContentsMargins(0, 0, 0, 0)
+        self._mode_footer_layout.setSpacing(0)
+        self._active_mode_footer = None
+        root.addWidget(self._mode_footer_host)
         self._apply_initial_state()
         self._connect_signals()
         self._restore_ui_settings()
@@ -476,11 +548,17 @@ class AuditWindow(FramelessWindowBase):
         idx_sys = self.cmb_system.findText("I")
         if idx_sys >= 0:
             self.cmb_system.setCurrentIndex(idx_sys)
+        self.manual_sql_object_tab.set_connection_options(
+            self._manual_sql_odbc_connections(),
+            DB2Connection(self.cmb_region.currentText()).dsn,
+        )
     def _connect_signals(self):
         self.btn_run.clicked.connect(self._run_audit)
         self.sql_tab.move_to_build.connect(self._on_move_to_build)
         self.build_sql_tab.run_sql_requested.connect(self._run_build_sql)
-        self.btn_clear_cyberlife.clicked.connect(self._on_clear_cyberlife)
+        self.manual_sql_object_tab.preview_requested.connect(self._run_manual_sql_preview)
+        self.manual_sql_object_tab.save_requested.connect(self._save_manual_sql_object)
+        self.csv_excel_object_tab.saved.connect(lambda _: self._open_query_object_viewer())
     # ── Mode switching (Cyberlife / dynamic) ─────────────────────────
     # Cyberlife tab pane — darker blue top/bottom border
     _CYB_TAB_STYLE = (
@@ -511,10 +589,14 @@ class AuditWindow(FramelessWindowBase):
             is_cyberlife = (mode == "cyberlife")
             is_forge_blank = (mode == "__forge_blank__")
             is_query_blank = (mode == "__query_blank__")
+            is_manual_sql_object = (mode == "__manual_sql_object__")
+            is_csv_excel_object = (mode == "__csv_excel_object__")
             self.tabs.setVisible(is_cyberlife)
             self.cyberlife_bottom_bar.setVisible(is_cyberlife)
             self._forge_blank.setVisible(is_forge_blank)
             self._query_blank.setVisible(is_query_blank)
+            self.manual_sql_object_tab.setVisible(is_manual_sql_object)
+            self.csv_excel_object_tab.setVisible(is_csv_excel_object)
             # Only toggle the two affected widgets (prev + new)
             for name, q in self._dynamic_queries.items():
                 if name == mode:
@@ -533,10 +615,17 @@ class AuditWindow(FramelessWindowBase):
             self._enter_forge_mode(mode, prev_had_picker)
         elif mode in self._dynamic_queries or mode == "__query_blank__":
             self._enter_query_mode(mode, prev_had_picker)
+        elif mode == "__manual_sql_object__":
+            self._enter_manual_sql_object_mode()
+        elif mode == "__csv_excel_object__":
+            self._enter_csv_excel_object_mode()
         else:
             self._enter_cyberlife_mode()
     def _enter_cyberlife_mode(self):
         """Configure UI for Cyberlife mode."""
+        self._hide_mode_footer()
+        self.btn_build_mode.setText("Cyberlife")
+        self.btn_save_cyberlife.setVisible(bool(self._cyberlife_saved_object_name.strip()))
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(True)
         self.btn_cyberlife.blockSignals(False)
@@ -545,6 +634,7 @@ class AuditWindow(FramelessWindowBase):
         self._hide_picker_panel()
     def _enter_query_mode(self, mode: str, prev_had_picker: bool):
         """Configure UI for a dynamic query or the query-blank placeholder."""
+        self.btn_build_mode.setText("Visual Query")
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(False)
         self.btn_cyberlife.blockSignals(False)
@@ -555,18 +645,30 @@ class AuditWindow(FramelessWindowBase):
             "QSplitter::handle:hover { background: #7C3AED; }")
         if mode in self._dynamic_queries:
             dq = self._dynamic_queries[mode]
+            self._set_mode_footer(dq.bottom_bar)
+            self._field_picker.set_connection_options(
+                self._manual_sql_odbc_connections(), dq.dsn)
             self._field_picker.set_group(
-                dq.dsn, dq.tables, dq.display_names)
+                dq.dsn, dq.tables, dq.display_names,
+                preferred_table=self._preferred_query_table(dq),
+                pinned_tables=dq.pinned_tables)
+            dq.set_source_dsn(self._field_picker.current_connection())
             self._push_common_tables_to_picker(dq)
             raw_name = mode.removeprefix("▸ ")
             self._field_picker.highlight_query(raw_name)
         else:
+            self._set_mode_footer(self._query_blank_footer)
             self._field_picker.clear()
+            self._field_picker.set_connection_options(
+                self._manual_sql_odbc_connections(),
+                DB2Connection(self.cmb_region.currentText()).dsn,
+            )
         self._picker_stack.setCurrentWidget(self._field_picker)
         if not prev_had_picker:
             self._show_picker_panel()
     def _enter_forge_mode(self, mode: str, prev_had_picker: bool):
         """Configure UI for a DataForge or the forge-blank placeholder."""
+        self._hide_mode_footer()
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(False)
         self.btn_cyberlife.blockSignals(False)
@@ -585,17 +687,70 @@ class AuditWindow(FramelessWindowBase):
         self._picker_stack.setCurrentWidget(self._forge_field_picker)
         if not prev_had_picker:
             self._show_picker_panel()
+    def _enter_manual_sql_object_mode(self):
+        """Configure UI for the standalone Manual SQL Object editor."""
+        self._hide_mode_footer()
+        self.btn_build_mode.setText("Manual SQL")
+        self.btn_cyberlife.blockSignals(True)
+        self.btn_cyberlife.setChecked(False)
+        self.btn_cyberlife.blockSignals(False)
+        self.btn_workbench.setChecked(False)
+        self.btn_dataforge.setChecked(False)
+        self._save_picker_width()
+        self._hide_picker_panel()
+        self._content_splitter.setStyleSheet(
+            "QSplitter::handle { background: #AFC3DA; }"
+            "QSplitter::handle:hover { background: #1E5BA8; }")
+
+    def _enter_csv_excel_object_mode(self):
+        """Configure UI for the File Source Object editor."""
+        self._hide_mode_footer()
+        self.btn_build_mode.setText("File Source")
+        self.btn_cyberlife.blockSignals(True)
+        self.btn_cyberlife.setChecked(False)
+        self.btn_cyberlife.blockSignals(False)
+        self.btn_workbench.setChecked(False)
+        self.btn_dataforge.setChecked(False)
+        self._save_picker_width()
+        self._hide_picker_panel()
+        self._content_splitter.setStyleSheet(
+            "QSplitter::handle { background: #AFC3DA; }"
+            "QSplitter::handle:hover { background: #1E5BA8; }")
     def _save_picker_width(self):
         """Capture current picker width before switching modes."""
         if self._picker_container.isVisible():
             self._picker_width = self._content_splitter.sizes()[0]
+
+    def _set_mode_footer(self, footer: QWidget):
+        """Show a mode-specific footer across the full content width."""
+        if self._active_mode_footer is not footer:
+            if self._active_mode_footer is not None:
+                self._active_mode_footer.setVisible(False)
+            while self._mode_footer_layout.count():
+                item = self._mode_footer_layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.setVisible(False)
+            self._mode_footer_layout.addWidget(footer)
+            self._active_mode_footer = footer
+        footer.setVisible(True)
+        self._mode_footer_host.setVisible(True)
+
+    def _hide_mode_footer(self):
+        """Hide the full-width mode footer host."""
+        if self._active_mode_footer is not None:
+            self._active_mode_footer.setVisible(False)
+        self._mode_footer_host.setVisible(False)
     # ── Field Picker panel ───────────────────────────────────────────
     def _update_field_picker(self):
         """Populate the field picker from the active dynamic query."""
         group = self._dynamic_queries.get(self._current_mode)
         if group is not None:
+            self._field_picker.set_connection_options(
+                self._manual_sql_odbc_connections(), group.dsn)
             self._field_picker.set_group(
-                group.dsn, group.tables, group.display_names)
+                group.dsn, group.tables, group.display_names,
+                pinned_tables=group.pinned_tables)
             self._push_common_tables_to_picker(group)
         else:
             self._field_picker.clear()
@@ -619,6 +774,7 @@ class AuditWindow(FramelessWindowBase):
         """Double-click in field picker — delegate to the active dynamic query."""
         group = self._dynamic_queries.get(self._current_mode)
         if group is not None:
+            group.set_source_dsn(self._field_picker.current_connection())
             group._on_field_requested(table, column, type_name, display)
     def _on_picker_query_clicked(self, query_name: str):
         """User clicked a query name in the picker's query list."""
@@ -631,20 +787,65 @@ class AuditWindow(FramelessWindowBase):
         name = f"\u25b8 {sq.name}"
         group = self._dynamic_queries.get(name)
         if group is not None:
+            self._field_picker.set_connection_options(
+                self._manual_sql_odbc_connections(), group.dsn)
             self._field_picker.set_group(
-                group.dsn, group.tables, group.display_names)
+                group.dsn, group.tables, group.display_names,
+                preferred_table=self._preferred_query_table(group),
+                pinned_tables=group.pinned_tables)
             self._field_picker.highlight_query(sq.name)
     def _on_picker_tables_changed(self, tables: list[str]):
         """Tables list was changed in the picker — sync back to the query."""
         group = self._dynamic_queries.get(self._current_mode)
         if group is not None:
+            group.set_source_dsn(self._field_picker.current_connection())
             group.tables = list(tables)
+
+    def _on_picker_pinned_tables_changed(self, tables: list[str]):
+        """Pinned SQL Assist tables changed for the active Visual Query."""
+        group = self._dynamic_queries.get(self._current_mode)
+        if group is not None:
+            group.set_pinned_tables(tables)
+
+    def _on_picker_common_table_requested(self, table_name: str):
+        """Add a Common Table selected from SQL Assist to the active Visual Query."""
+        group = self._dynamic_queries.get(self._current_mode)
+        if group is None:
+            return
+        group.add_common_table(table_name)
+        self._push_common_tables_to_picker(group)
+        self._field_picker._preferred_table = table_name
+        self._field_picker._rebuild_table_list()
+
+    def _on_picker_common_table_remove_requested(self, table_name: str):
+        """Remove a Common Table selected from SQL Assist from the active Visual Query."""
+        group = self._dynamic_queries.get(self._current_mode)
+        if group is None:
+            return
+        group.remove_common_table(table_name)
+        self._push_common_tables_to_picker(group)
     def _refresh_picker_query_list(self):
         """Refresh the query list in the field picker from saved queries."""
         from suiteview.audit import saved_query_store as sq_store
         queries = sq_store.list_queries()
         names = [sq.name for sq in queries]
         self._field_picker.set_queries(names)
+
+    @staticmethod
+    def _preferred_query_table(group) -> str:
+        for table in group.tables:
+            if table:
+                return table
+        for tab in group._criteria_tabs:
+            for row in tab.grid._rows:
+                table = group._table_from_field_key(row.field_key)
+                if table:
+                    return table
+        for item in group.select_tab.get_select_columns():
+            table = group._table_from_field_key(item.get("field_key", ""))
+            if table:
+                return table
+        return ""
     def _on_forge_picker_field_requested(self, query_name: str, col_name: str):
         """Double-click in forge field picker — delegate to active DataForge group."""
         group = self._dataforge_groups.get(self._current_mode)
@@ -718,6 +919,28 @@ class AuditWindow(FramelessWindowBase):
         # Refresh query lists and switch
         self._refresh_picker_query_list()
         self._switch_mode(name)
+
+    def _create_blank_visual_query(self):
+        """Create an unsaved Visual Query builder without prompting."""
+        base_name = "Visual Query"
+        suffix = 1
+        name = base_name
+        while name in self._dynamic_queries:
+            suffix += 1
+            name = f"{base_name} {suffix}"
+
+        try:
+            dsn = DB2Connection(self.cmb_region.currentText()).dsn
+        except Exception:
+            dsn = self.cmb_region.currentText()
+
+        self._create_dynamic_query(name, dsn, [], saved_query_name="")
+        prev = self._active_unpinned
+        self._active_unpinned = name
+        self._switch_mode(name)
+        if prev and prev != name:
+            self._remove_query(prev)
+
     def _create_dynamic_query(self, name: str, dsn: str, tables: list[str],
                               display_names: dict[str, str] | None = None,
                               saved_query_name: str = ""):
@@ -730,6 +953,7 @@ class AuditWindow(FramelessWindowBase):
         group.query_saved.connect(lambda _: self._refresh_picker_query_list())
         group.query_deleted.connect(self._on_query_deleted_from_group)
         group.common_tables_changed.connect(self._on_common_tables_changed)
+        group.new_query_requested.connect(self._start_visual_query_object)
     def _close_group(self, name: str):
         """Close a query group — removes from UI."""
         self._remove_query(name)
@@ -853,10 +1077,57 @@ class AuditWindow(FramelessWindowBase):
         """Open the unified Query Object browser window."""
         try:
             from .query_object_viewer_window import QueryObjectViewerWindow
-            QueryObjectViewerWindow.show_instance(parent=None)
+            QueryObjectViewerWindow.show_instance(parent=self)
         except Exception as exc:
             logger.exception("Failed to open Query Object browser")
             QMessageBox.warning(self, "Query Object Error", str(exc))
+
+    def open_query_object_in_builder(self, object_name: str):
+        """Open a QueryObject in the builder that owns its editable design."""
+        from suiteview.audit import query_object_store, saved_query_store as sq_store
+        from suiteview.audit.query_object import (
+            OBJECT_KIND_ADHOC_SOURCE,
+            OBJECT_KIND_CYBERLIFE,
+            OBJECT_KIND_MANUAL_SQL,
+            OBJECT_KIND_VISUAL,
+        )
+
+        obj = query_object_store.load_object(object_name)
+        if obj is None:
+            QMessageBox.warning(
+                self,
+                "Query Object Missing",
+                f"Could not find query object \"{object_name}\".",
+            )
+            return
+        if obj.kind == OBJECT_KIND_MANUAL_SQL:
+            self.open_manual_sql_object(obj)
+            return
+        if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
+            self.open_csv_excel_object(obj)
+            return
+        if obj.kind == OBJECT_KIND_CYBERLIFE:
+            self.open_cyberlife_query_object(obj)
+            return
+        if obj.kind != OBJECT_KIND_VISUAL:
+            QMessageBox.information(
+                self,
+                "Builder Not Available",
+                "Only Cyberlife, visual Query Studio, Manual SQL, and File Source objects can be reopened in a designer right now.",
+            )
+            return
+
+        saved = sq_store.load_query(obj.name)
+        if saved is None:
+            QMessageBox.warning(
+                self,
+                "Saved Design Missing",
+                "This object does not have a matching saved visual design to reopen.",
+            )
+            return
+        self.btn_workbench.setChecked(True)
+        self._toggle_saved_queries_shelf(True)
+        self._on_load_saved_query(saved)
 
     def _show_new_object_menu(self):
         """Show the Query Object creation chooser."""
@@ -871,7 +1142,34 @@ class AuditWindow(FramelessWindowBase):
         elif chosen == "manual_sql":
             self._start_manual_sql_object()
         elif chosen == "file":
-            self._import_file_query_object()
+            self._start_csv_excel_object(reset=True)
+
+    def _on_build_mode_selected(self, mode: str):
+        """Switch the primary Audit build surface from the header selector."""
+        if mode == "cyberlife":
+            self.btn_build_mode.setText("Cyberlife")
+            self._switch_mode("cyberlife")
+        elif mode == "visual":
+            self.btn_build_mode.setText("Visual Query")
+            self._open_visual_query_builder()
+        elif mode == "manual_sql":
+            self.btn_build_mode.setText("Manual SQL")
+            self._start_manual_sql_object(reset=False)
+        elif mode == "file":
+            self.btn_build_mode.setText("File Source")
+            self._start_csv_excel_object(reset=False)
+
+    def _open_visual_query_builder(self):
+        """Open the tabbed Visual Query builder, creating one if needed."""
+        self.btn_workbench.setChecked(True)
+        if self._current_mode in self._dynamic_queries:
+            self._toggle_saved_queries_shelf(True)
+            return
+        if self._last_query_mode and self._last_query_mode in self._dynamic_queries:
+            self._switch_mode(self._last_query_mode)
+            self._refresh_picker_query_list()
+            return
+        self._start_visual_query_object()
 
     def _start_cyberlife_object(self):
         """Switch to Cyberlife; the header Save button publishes the object."""
@@ -883,35 +1181,87 @@ class AuditWindow(FramelessWindowBase):
         )
 
     def _start_visual_query_object(self):
-        """Start the visual Query Object builder flow."""
+        """Start a blank unsaved Visual Query Object builder."""
         self.btn_workbench.setChecked(True)
         self._toggle_saved_queries_shelf(True)
-        self._on_add_group()
+        self._create_blank_visual_query()
 
-    def _start_manual_sql_object(self):
-        """Open the Manual SQL builder tab as the first Manual SQL Object step."""
-        self._switch_mode("cyberlife")
-        self._on_move_to_build("")
-        QMessageBox.information(
-            self,
-            "Manual SQL Object",
-            "Paste SQL, run it to learn output columns, then save the results as an object.",
+    def _start_manual_sql_object(self, *, reset: bool = True):
+        """Open the dedicated Manual SQL Object editor shell."""
+        if reset or not self._manual_sql_started:
+            self.manual_sql_object_tab.new_object()
+            self._manual_sql_started = True
+        self.manual_sql_object_tab.set_connection_options(
+            self._manual_sql_odbc_connections(),
+            DB2Connection(self.cmb_region.currentText()).dsn,
         )
+        self._switch_mode("__manual_sql_object__")
+
+    def _start_csv_excel_object(self, *, reset: bool = True):
+        """Open the File Source Object landing page."""
+        if reset:
+            self.csv_excel_object_tab.new_object()
+        self._switch_mode("__csv_excel_object__")
+
+    def open_manual_sql_object(self, obj):
+        """Open a saved Manual SQL QueryObject in its editor."""
+        self._manual_sql_started = True
+        self.manual_sql_object_tab.load_object(obj)
+        self.manual_sql_object_tab.set_connection_options(
+            self._manual_sql_odbc_connections(),
+            obj.dsn or DB2Connection(self.cmb_region.currentText()).dsn,
+        )
+        self._switch_mode("__manual_sql_object__")
+
+    def open_csv_excel_object(self, obj):
+        """Open a saved File Source QueryObject in its editor."""
+        self.csv_excel_object_tab.load_object(obj)
+        self._switch_mode("__csv_excel_object__")
+
+    def open_cyberlife_query_object(self, obj):
+        """Open a saved Cyberlife QueryObject in the Cyberlife builder."""
+        config = obj.config or {}
+        criteria = config.get("criteria") or {}
+
+        region = config.get("region") or ""
+        if region:
+            idx = self.cmb_region.findText(region)
+            if idx >= 0:
+                self.cmb_region.setCurrentIndex(idx)
+
+        system_code = config.get("system_code") or ""
+        idx_sys = self.cmb_system.findText(system_code)
+        if idx_sys >= 0:
+            self.cmb_system.setCurrentIndex(idx_sys)
+
+        self.txt_max_count.setText(str(criteria.get("max_count", "25")))
+
+        common_tables = criteria.get("common_tables")
+        if common_tables:
+            self.cyb_common_tables_tab.set_state(common_tables)
+
+        tab_states = criteria.get("tabs") or {}
+        for key, tab in self._cyberlife_criteria_tabs():
+            tab.set_state(tab_states.get(key, {}))
+
+        self._cyberlife_saved_object_name = obj.name
+        self.btn_save_cyberlife.setVisible(True)
+        self._switch_mode("cyberlife")
 
     def _import_file_query_object(self):
-        """Import a CSV/Excel file directly into the Query Object catalog."""
+        """Import a file source directly into the Query Object catalog."""
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import CSV / Excel Object",
+            "Import File Source Object",
             "",
-            "Data Files (*.csv *.xlsx *.xlsm *.xls);;CSV Files (*.csv);;Excel Files (*.xlsx *.xlsm *.xls)",
+            "Data Files (*.csv *.txt *.dat *.psv *.tsv *.xlsx *.xlsm *.xls);;Text Files (*.csv *.txt *.dat *.psv *.tsv);;Excel Files (*.xlsx *.xlsm *.xls);;All Files (*.*)",
         )
         if not path:
             return
         default_name = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].rsplit(".", 1)[0]
         name, ok = QInputDialog.getText(
             self,
-            "CSV / Excel Object Name",
+            "File Source Object Name",
             "Object name:",
             text=default_name,
         )
@@ -928,7 +1278,7 @@ class AuditWindow(FramelessWindowBase):
             QMessageBox.warning(
                 self,
                 "Import Failed",
-                f"Could not import CSV / Excel object:\n\n{exc}",
+                f"Could not import file source object:\n\n{exc}",
             )
             return
         QMessageBox.information(
@@ -1005,7 +1355,35 @@ class AuditWindow(FramelessWindowBase):
                 for key, tab in self._cyberlife_criteria_tabs()
             },
         }
-    def _save_cyberlife_query_object(self):
+
+    def _new_cyberlife_query_object(self):
+        """Start a new unsaved Cyberlife Query Object."""
+        reply = QMessageBox.question(
+            self,
+            "Start New Query?",
+            "This will clear the current Cyberlife query builder. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._cyberlife_saved_object_name = ""
+        self.btn_save_cyberlife.setVisible(False)
+        self._on_clear_cyberlife()
+        self._switch_mode("cyberlife")
+
+    def _save_cyberlife_query_object_update(self):
+        """Update the current Cyberlife QueryObject, or Save As if none exists."""
+        if not self._cyberlife_saved_object_name:
+            self._save_cyberlife_query_object_as()
+            return
+        self._save_cyberlife_query_object(self._cyberlife_saved_object_name)
+
+    def _save_cyberlife_query_object_as(self):
+        """Save the current Cyberlife builder as a new QueryObject."""
+        self._save_cyberlife_query_object("")
+
+    def _save_cyberlife_query_object(self, object_name: str = ""):
         """Publish current Cyberlife builder SQL/state as one QueryObject."""
         if self._current_mode != "cyberlife":
             QMessageBox.information(
@@ -1019,14 +1397,16 @@ class AuditWindow(FramelessWindowBase):
             QMessageBox.warning(self, "SQL Build Error", str(exc))
             return
 
-        name, ok = QInputDialog.getText(
-            self, "Save Query Object",
-            "Object name:",
-            text="Cyberlife Base Extract",
-        )
-        if not ok or not name.strip():
-            return
-        name = name.strip()
+        name = object_name.strip()
+        if not name:
+            name, ok = QInputDialog.getText(
+                self, "Save Query Object",
+                "Object name:",
+                text=self._cyberlife_saved_object_name or "Cyberlife Base Extract",
+            )
+            if not ok or not name.strip():
+                return
+            name = name.strip()
 
         region = self.cmb_region.currentText()
         system_code = self.cmb_system.currentText().strip()
@@ -1060,6 +1440,8 @@ class AuditWindow(FramelessWindowBase):
             column_types=column_types,
         )
         query_object_store.save_object(qo)
+        self._cyberlife_saved_object_name = name
+        self.btn_save_cyberlife.setVisible(True)
         QMessageBox.information(
             self, "Query Object Saved",
             f"Cyberlife query object \"{name}\" saved successfully.")
@@ -1197,6 +1579,7 @@ class AuditWindow(FramelessWindowBase):
         group.query_saved.connect(lambda _: self._refresh_picker_query_list())
         group.query_deleted.connect(self._on_query_deleted_from_group)
         group.common_tables_changed.connect(self._on_common_tables_changed)
+        group.new_query_requested.connect(self._start_visual_query_object)
         # Restore saved config into the group (marks clean after load)
         group.set_config(config)
         # Switch to new query first, then remove old (avoids flash to Cyberlife)
@@ -1320,15 +1703,172 @@ class AuditWindow(FramelessWindowBase):
                 if hasattr(exc, 'args') and len(exc.args) >= 2:
                     msg = f"{exc.args[0]}\n\n{exc.args[1]}"
                 QMessageBox.warning(self, "Query Error", msg)
+    def _run_manual_sql_preview(self, sql: str):
+        """Execute Manual SQL Object preview and capture output schema."""
+        dsn = self.manual_sql_object_tab.current_connection()
+        if not dsn:
+            QMessageBox.warning(self, "ODBC Required", "Select an ODBC connection before previewing SQL.")
+            return
+        self.manual_sql_object_tab.set_running(True)
+        try:
+            t0 = time.time()
+            columns, rows = execute_odbc_query(dsn, sql)
+            t_query = time.time() - t0
+            t1 = time.time()
+            df = pd.DataFrame([list(r) for r in rows], columns=columns)
+            self.manual_sql_object_tab.set_preview_results(
+                df,
+                dsn=dsn,
+            )
+            t_print = time.time() - t1
+            footer = self.manual_sql_object_tab.bottom_bar
+            footer.lbl_query_time.setText(f"Query time: {fmt_time(t_query)}")
+            footer.lbl_print_time.setText(f"Print time: {fmt_time(t_print)}")
+            footer.lbl_total_time.setText(f"Total time: {fmt_time(t_query + t_print)}")
+        except Exception as exc:
+            logger.exception("Manual SQL object preview failed")
+            msg = str(exc)
+            if hasattr(exc, 'args') and len(exc.args) >= 2:
+                msg = f"{exc.args[0]}\n\n{exc.args[1]}"
+            QMessageBox.warning(self, "Query Error", msg)
+        finally:
+            self.manual_sql_object_tab.set_running(False)
+    def _load_manual_sql_assist_tables(self, dsn: str = ""):
+        """Load tables for the selected ODBC connection."""
+        dsn = dsn or self.manual_sql_object_tab.current_connection()
+        if not dsn:
+            self.manual_sql_object_tab.set_assist_error("Select an ODBC connection")
+            return
+        try:
+            conn = pyodbc.connect(f"DSN={dsn}", autocommit=True, timeout=15)
+            cursor = conn.cursor()
+            tables = []
+            for row in cursor.tables(tableType="TABLE"):
+                name = _clean_odbc_identifier(getattr(row, "table_name", ""))
+                row_schema = _clean_odbc_identifier(getattr(row, "table_schem", ""))
+                if name:
+                    tables.append(f"{row_schema}.{name}" if row_schema else name)
+            cursor.close()
+            conn.close()
+            self.manual_sql_object_tab.set_assist_tables(
+                sorted(set(tables), key=str.lower),
+                region=dsn,
+            )
+        except (pyodbc.Error, Exception) as exc:
+            logger.exception("Manual SQL assist table load failed")
+            self.manual_sql_object_tab.set_assist_error(f"Table load failed: {exc}")
+    def _load_manual_sql_assist_fields(self, dsn: str, table_name: str):
+        """Load columns for the selected ODBC table."""
+        dsn = dsn or self.manual_sql_object_tab.current_connection()
+        if not dsn:
+            self.manual_sql_object_tab.set_assist_error("Select an ODBC connection")
+            return
+        try:
+            conn = pyodbc.connect(f"DSN={dsn}", autocommit=True, timeout=15)
+            cursor = conn.cursor()
+            parts = [_clean_odbc_identifier(part) for part in table_name.split(".", 1)]
+            if len(parts) == 2:
+                schema, table = parts
+            else:
+                schema = None
+                table = parts[0]
+            indexed_names = _indexed_column_names(cursor, table, schema)
+            fields = []
+            for row in cursor.columns(table=table, schema=schema):
+                column_name = _clean_odbc_identifier(getattr(row, "column_name", ""))
+                fields.append((
+                    column_name,
+                    _clean_odbc_identifier(getattr(row, "type_name", "")),
+                    column_name.upper() in indexed_names,
+                ))
+            cursor.close()
+            conn.close()
+            self.manual_sql_object_tab.set_assist_fields(table_name, fields)
+        except (pyodbc.Error, Exception) as exc:
+            logger.exception("Manual SQL assist field load failed")
+            self.manual_sql_object_tab.set_assist_error(f"Field load failed: {exc}")
+    def _manual_sql_odbc_connections(self) -> list[tuple[str, str]]:
+        """Return saved ODBC connections plus system/user DSNs."""
+        saved: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        try:
+            from suiteview.data.repositories import get_connection_repository
+
+            for connection in get_connection_repository().get_all_connections():
+                connection_string = str(connection.get("connection_string") or "")
+                if not connection_string.upper().startswith("DSN="):
+                    continue
+                dsn = connection_string.split("=", 1)[1].strip()
+                dsn_key = dsn.lower()
+                if not dsn or dsn_key in seen:
+                    continue
+                name = str(connection.get("connection_name") or dsn)
+                saved.append((f"{name} ({dsn})", dsn))
+                seen.add(dsn_key)
+        except Exception:
+            logger.exception("Failed to load saved ODBC connections")
+
+        try:
+            for dsn in sorted(pyodbc.dataSources().keys(), key=str.lower):
+                dsn_key = dsn.lower()
+                if dsn_key in seen:
+                    continue
+                saved.append((dsn, dsn))
+                seen.add(dsn_key)
+        except Exception:
+            logger.exception("Failed to load system ODBC data sources")
+        return saved
+    def _save_manual_sql_object(self, payload: dict):
+        """Persist the Manual SQL editor payload as a QueryObject."""
+        from suiteview.audit.query_object import manual_sql_query_object
+        from suiteview.audit import query_object_store
+
+        old_name = payload.get("original_name", "")
+        new_name = payload["name"]
+        if new_name != old_name and query_object_store.object_exists(new_name):
+            QMessageBox.warning(
+                self,
+                "Name Already Exists",
+                f"A Query Object named \"{new_name}\" already exists.",
+            )
+            return
+        obj = manual_sql_query_object(
+            new_name,
+            sql=payload["sql"],
+            dsn=payload["dsn"],
+            result_columns=payload["result_columns"],
+            column_types=payload["column_types"],
+        )
+        obj.description = payload.get("description", "")
+        obj.tags = payload.get("tags", [])
+        obj.config = {"sql_assist": payload.get("sql_assist", {})}
+        existing_fields = payload.get("existing_fields") or []
+        if existing_fields:
+            old_name = payload.get("original_name", "")
+            for field in existing_fields:
+                if field.source == old_name:
+                    field.source = new_name
+            obj.fields = existing_fields
+        query_object_store.save_object(obj)
+        if old_name and old_name != new_name:
+            query_object_store.delete_object(old_name)
+        self.manual_sql_object_tab.load_object(obj)
+        QMessageBox.information(
+            self,
+            "Query Object Saved",
+            f"Manual SQL query object \"{obj.name}\" saved successfully.",
+        )
     # ── PolView integration ─────────────────────────────────────
     def _on_tab_context_menu(self, pos):
-        """Show a context menu to close Build SQL / Build SQL Results tabs."""
+        """Show a context menu to close transient SQL/object tabs."""
         tab_index = self.tabs.tabBar().tabAt(pos)
         if tab_index < 0:
             return
         widget = self.tabs.widget(tab_index)
-        # Only allow closing Build SQL tabs
-        if widget not in (self.build_sql_tab, self.build_sql_results_tab):
+        if widget not in (
+            self.build_sql_tab,
+            self.build_sql_results_tab,
+        ):
             return
         menu = QMenu(self)
         action = menu.addAction("Close tab")

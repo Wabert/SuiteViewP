@@ -2,14 +2,18 @@ import os
 import tempfile
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit.adhoc_source_intake import (
     dataframe_from_adhoc_metadata,
+    delimited_text_spec,
+    fixed_width_spec,
     promote_adhoc_source,
     promotion_metadata,
     query_adhoc_object,
     query_object_from_file,
+    replace_adhoc_source_path,
 )
 from suiteview.audit.query_object import (
     OBJECT_KIND_ADHOC_SOURCE,
@@ -27,12 +31,15 @@ from suiteview.audit.query_object import (
     qdefinition_from_query_object,
 )
 from suiteview.audit.query_object_store import (
+    copy_object,
     delete_object,
     list_objects,
     load_object,
     object_exists,
     save_object,
 )
+from suiteview.audit.query_object_viewer_window import _limited_preview_sql, _object_group_label, _preview_dialect_for_object
+from suiteview.audit.query_object_viewer_window import QueryObjectViewerWindow
 from suiteview.audit.saved_query import SavedQuery
 from suiteview.audit import qdef_store, saved_query_store
 
@@ -114,6 +121,36 @@ class QueryObjectTests(unittest.TestCase):
         self.assertEqual(roles["POL_ID"], "join_key")
         self.assertEqual(obj.result_columns, ["TCH_POL_ID", "POL_ID"])
 
+    def test_visual_query_field_can_be_output_and_input(self):
+        saved = SavedQuery(
+            name="Visual Input Output Query",
+            source_group="QDesigner Test",
+            dsn="CKPR_DSN",
+            tables=["DB2TAB.LH_BAS_POL"],
+            sql="SELECT TCH_POL_ID FROM DB2TAB.LH_BAS_POL",
+            result_columns=["TCH_POL_ID"],
+            config={
+                "tabs": [
+                    {
+                        "grid": {
+                            "fields": {
+                                "DB2TAB.LH_BAS_POL.TCH_POL_ID": {
+                                    "label_text": "Policy Number",
+                                    "mode": 0,
+                                }
+                            }
+                        }
+                    }
+                ],
+            },
+        )
+
+        obj = object_from_saved_query(saved)
+        roles = [field.role for field in obj.fields if field.name == "TCH_POL_ID"]
+
+        self.assertIn("output", roles)
+        self.assertIn("input", roles)
+
     def test_qdefinition_converts_to_executable_query_object(self):
         qdef = QDefinition(
             name="TAI Snapshot",
@@ -168,6 +205,76 @@ class QueryObjectTests(unittest.TestCase):
         self.assertEqual(obj.result_columns, ["CLAIM_ID", "AMOUNT"])
         self.assertEqual(obj.fields[1].data_type, "DECIMAL")
 
+    def test_preview_sql_uses_db2_limit_syntax(self):
+        preview_sql = _limited_preview_sql(
+            "SELECT TCH_POL_ID FROM DB2TAB.LH_BAS_POL",
+            25,
+            "DB2",
+        )
+
+        self.assertEqual(
+            preview_sql,
+            "SELECT TCH_POL_ID FROM DB2TAB.LH_BAS_POL FETCH FIRST 25 ROWS ONLY",
+        )
+
+    def test_preview_sql_keeps_db2_cte_at_top_level(self):
+        preview_sql = _limited_preview_sql(
+            "WITH COVERAGE1 AS (SELECT * FROM DB2TAB.LH_COV_PHA)\n"
+            "SELECT * FROM COVERAGE1",
+            25,
+            "DB2",
+        )
+
+        self.assertTrue(preview_sql.startswith("WITH COVERAGE1 AS"))
+        self.assertNotIn("SELECT * FROM (", preview_sql)
+        self.assertTrue(preview_sql.endswith("FETCH FIRST 25 ROWS ONLY"))
+
+    def test_preview_sql_inserts_db2_limit_before_isolation_clause(self):
+        preview_sql = _limited_preview_sql(
+            "SELECT TCH_POL_ID FROM DB2TAB.LH_BAS_POL WITH UR",
+            25,
+            "DB2",
+        )
+
+        self.assertEqual(
+            preview_sql,
+            "SELECT TCH_POL_ID FROM DB2TAB.LH_BAS_POL FETCH FIRST 25 ROWS ONLY WITH UR",
+        )
+
+    def test_preview_sql_uses_sql_server_limit_syntax(self):
+        preview_sql = _limited_preview_sql(
+            "SELECT Pol, Co FROM TAICession",
+            25,
+            "SQL_SERVER",
+        )
+
+        self.assertTrue(preview_sql.startswith("SELECT TOP 25 * FROM ("))
+        self.assertNotIn("FETCH FIRST", preview_sql)
+
+    def test_preview_dialect_prefers_detected_dsn_dialect(self):
+        obj = manual_sql_query_object(
+            "Manual SQL Server Object",
+            sql="SELECT Pol FROM TAICession",
+            dsn="UL_Rates",
+            result_columns=["Pol"],
+        )
+        obj.dialect = "DB2"
+
+        with patch("suiteview.audit.query_object_viewer_window.detect_dialect", return_value="SQL_SERVER"):
+            self.assertEqual(_preview_dialect_for_object(obj), "SQL_SERVER")
+
+    def test_preview_dialect_falls_back_to_saved_dialect(self):
+        obj = manual_sql_query_object(
+            "Manual DB2 Object",
+            sql="SELECT TCH_POL_ID FROM DB2TAB.LH_BAS_POL",
+            dsn="CKPR_DSN",
+            result_columns=["TCH_POL_ID"],
+        )
+        obj.dialect = "DB2"
+
+        with patch("suiteview.audit.query_object_viewer_window.detect_dialect", return_value="UNKNOWN"):
+            self.assertEqual(_preview_dialect_for_object(obj), "DB2")
+
     def test_cyberlife_query_object_marks_common_join_keys(self):
         obj = cyberlife_query_object(
             "Cyberlife Base Extract",
@@ -182,6 +289,7 @@ class QueryObjectTests(unittest.TestCase):
 
         roles = {field.name: field.role for field in obj.fields}
         self.assertEqual(obj.kind, OBJECT_KIND_CYBERLIFE)
+        self.assertTrue(QueryObjectViewerWindow._can_open_in_builder(obj))
         self.assertEqual(obj.dialect, "DB2")
         self.assertEqual(obj.sources[0].source_type, "specialized_builder")
         self.assertEqual(roles["TCH_POL_ID"], "join_key")
@@ -201,6 +309,16 @@ class QueryObjectTests(unittest.TestCase):
         self.assertEqual(obj.metadata_status, SOURCE_STATUS_ADHOC)
         self.assertEqual(obj.sources[0].status, SOURCE_STATUS_ADHOC)
         self.assertEqual(obj.result_columns, ["producer_id", "territory"])
+
+    def test_adhoc_sources_group_as_file_sources(self):
+        obj = adhoc_source_object(
+            "claims.txt",
+            source_type="csv",
+            metadata={"path": "C:/temp/claims.txt", "format": "delimited"},
+            columns=["Policy", "Claim"],
+        )
+
+        self.assertEqual(_object_group_label(obj), "File Sources")
 
     def test_csv_file_becomes_adhoc_query_object(self):
         with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as handle:
@@ -256,6 +374,124 @@ class QueryObjectTests(unittest.TestCase):
         self.assertEqual(list(df.columns), ["Policy", "Amount"])
         self.assertEqual(len(df), 1)
         self.assertEqual(df.iloc[0]["Policy"], "P1")
+
+    def test_delimited_text_file_becomes_adhoc_query_object(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+            handle.write("Policy|Amount|RunDate\n")
+            handle.write("P1|123.45|2026-05-21\n")
+            handle.write("P2|67.89|2026-05-22\n")
+            text_path = handle.name
+
+        try:
+            obj = query_object_from_file(
+                text_path,
+                name="Delimited Claims",
+                format_spec=delimited_text_spec(delimiter="|"),
+            )
+            df = dataframe_from_adhoc_metadata(
+                obj.sources[0].source_type,
+                obj.sources[0].metadata,
+                columns=["Policy", "Amount"],
+            )
+        finally:
+            os.unlink(text_path)
+
+        self.assertEqual(obj.sources[0].source_type, "csv")
+        self.assertEqual(obj.sources[0].metadata["format"], "delimited")
+        self.assertEqual(obj.sources[0].metadata["delimiter"], "|")
+        self.assertEqual(obj.result_columns, ["Policy", "Amount", "RunDate"])
+        self.assertEqual(list(df.columns), ["Policy", "Amount"])
+        self.assertEqual(len(df), 2)
+
+    def test_no_header_delimited_text_uses_assigned_column_names(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+            handle.write("P1,123.45,East\n")
+            handle.write("P2,67.89,West\n")
+            text_path = handle.name
+
+        try:
+            obj = query_object_from_file(
+                text_path,
+                name="No Header Claims",
+                format_spec=delimited_text_spec(
+                    delimiter=",",
+                    has_header=False,
+                    column_names=["Policy", "Amount", "Region"],
+                ),
+            )
+            df = query_adhoc_object(
+                obj,
+                columns=["Policy", "Region"],
+                filter_expr="Amount > 100",
+                limit=10,
+            )
+        finally:
+            os.unlink(text_path)
+
+        self.assertEqual(obj.result_columns, ["Policy", "Amount", "Region"])
+        self.assertEqual(obj.sources[0].metadata["column_names"], ["Policy", "Amount", "Region"])
+        self.assertEqual(list(df.columns), ["Policy", "Region"])
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.iloc[0]["Policy"], "P1")
+
+    def test_file_source_path_can_change_without_changing_columns(self):
+        first_path = ""
+        second_path = ""
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as first:
+            first.write("P1,123.45,East\n")
+            first_path = first.name
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as second:
+            second.write("P9,999.00,West\n")
+            second_path = second.name
+
+        try:
+            obj = query_object_from_file(
+                first_path,
+                name="Replaceable Claims",
+                format_spec=delimited_text_spec(
+                    delimiter=",",
+                    has_header=False,
+                    column_names=["Policy", "Amount", "Region"],
+                ),
+            )
+            original_columns = obj.result_columns[:]
+            replace_adhoc_source_path(obj, second_path)
+            df = query_adhoc_object(obj, columns=["Policy", "Amount"], limit=10)
+        finally:
+            if first_path:
+                os.unlink(first_path)
+            if second_path:
+                os.unlink(second_path)
+
+        self.assertEqual(obj.result_columns, original_columns)
+        self.assertEqual(obj.sources[0].metadata["path"], second_path)
+        self.assertEqual(obj.sources[0].metadata["column_names"], ["Policy", "Amount", "Region"])
+        self.assertEqual(df.iloc[0]["Policy"], "P9")
+        self.assertEqual(float(df.iloc[0]["Amount"]), 999.0)
+
+    def test_fixed_width_text_file_becomes_adhoc_query_object(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+            handle.write("P00011234520260521\n")
+            handle.write("P00020006720260522\n")
+            text_path = handle.name
+
+        spec = fixed_width_spec([
+            {"name": "Policy", "start": 1, "width": 5},
+            {"name": "Amount", "start": 6, "width": 5},
+            {"name": "RunDate", "start": 11, "width": 8},
+        ])
+        try:
+            obj = query_object_from_file(text_path, name="Fixed Claims", format_spec=spec)
+            df = query_adhoc_object(obj, columns=["Policy", "Amount"], limit=10)
+        finally:
+            os.unlink(text_path)
+
+        self.assertEqual(obj.sources[0].source_type, "fixed_width")
+        self.assertEqual(obj.sources[0].metadata["format"], "fixed_width")
+        self.assertEqual(obj.result_columns, ["Policy", "Amount", "RunDate"])
+        self.assertEqual(list(df.columns), ["Policy", "Amount"])
+        self.assertEqual(df.iloc[0]["Policy"], "P0001")
+        self.assertEqual(int(df.iloc[1]["Amount"]), 67)
 
     def test_query_adhoc_object_filters_file_rows(self):
         with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as handle:
@@ -335,6 +571,36 @@ class QueryObjectTests(unittest.TestCase):
 
             delete_object("monthly_mapping.csv")
             self.assertFalse(object_exists("monthly_mapping.csv"))
+
+        if old_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_dir
+
+    def test_query_object_store_copies_object_with_new_name(self):
+        old_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_dir
+            original = adhoc_source_object(
+                "Claims Source",
+                source_type="csv",
+                metadata={"path": "claims.txt", "column_names": ["Policy", "Claim"]},
+                columns=["Policy", "Claim"],
+            )
+            original.description = "Original file source"
+
+            save_object(original)
+            copied = copy_object("Claims Source", "Claims Source Copy")
+            loaded_original = load_object("Claims Source")
+            loaded_copy = load_object("Claims Source Copy")
+
+            self.assertIsNotNone(loaded_original)
+            self.assertIsNotNone(loaded_copy)
+            self.assertEqual(copied.name, "Claims Source Copy")
+            self.assertEqual(loaded_copy.description, "Original file source")
+            self.assertEqual(loaded_copy.sources[0].metadata["column_names"], ["Policy", "Claim"])
+            self.assertEqual(loaded_copy.result_columns, ["Policy", "Claim"])
+            self.assertNotEqual(loaded_original.created_at, loaded_copy.created_at)
 
         if old_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)

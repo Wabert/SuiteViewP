@@ -7,7 +7,9 @@ from typing import Dict, Optional
 
 
 _PLANCODE_DIR = Path(__file__).resolve().parent.parent / "plancodes"
+_PLANCODE_TABLE_PATH = _PLANCODE_DIR / "plancode_table.json"
 _CONFIG_CACHE: Dict[str, PlancodeConfig] = {}
+_TABLE_CACHE: Optional[Dict[str, dict]] = None
 
 
 @dataclass
@@ -18,8 +20,10 @@ class PlancodeConfig:
     product_name: str = ""
 
     # Interest
+    cint_key: str = ""
     int_calc_method: str = "Declared"   # "Declared", "IUL_Blend"
     interest_method: str = "ExactDays"  # "ExactDays", "MonthlyCompounding"
+    age_calc: str = ""
 
     # Premium loading
     premium_load: str = "Table"         # "Table" or flat rate (e.g., "0.05")
@@ -34,9 +38,11 @@ class PlancodeConfig:
 
     # AV charge
     poav_code: str = "0"                # "Table" or "0" (none)
+    poav_table: str = "0"
 
     # Bonus interest
     bonus: str = "Table"                # "Table" or "0" (none)
+    dbd: float = 0.0
 
     # Substandard
     table_rating_factor: float = 0.25
@@ -47,6 +53,7 @@ class PlancodeConfig:
     # Maturity
     premium_cease_age: int = 121
     maturity_age: int = 121
+    mature_endow_value: str = "SV"
 
     # Safety Net / Lapse
     snet_period: int = 10             # Safety net period in years from issue
@@ -54,9 +61,8 @@ class PlancodeConfig:
 
     # Dynamic banding
     dynamic_banding: int = 3            # 0 = none, 1 = issue band, 2 = current band, 3 = higher of
-
-    # Surrender charge
-    scr_code: str = "Table"
+    rachet_banding: bool = False
+    skipped_cov_rein: bool = False
 
     # Loans
     loan_type: str = "Arrears"           # "Arrears" or "Advance"
@@ -80,8 +86,37 @@ class PlancodeConfig:
     shadow_loan_impact: str = "Reduce"   # "Reduce" or "None"
 
 
+def _load_plancode_table() -> Dict[str, dict]:
+    global _TABLE_CACHE
+    if _TABLE_CACHE is not None:
+        return _TABLE_CACHE
+
+    if not _PLANCODE_TABLE_PATH.exists():
+        raise FileNotFoundError(
+            f"No plancode table found: {_PLANCODE_TABLE_PATH}"
+        )
+
+    with open(_PLANCODE_TABLE_PATH, "r") as f:
+        table_data = json.load(f)
+
+    rows = table_data.get("Plancodes", [])
+    _TABLE_CACHE = {
+        str(row.get("Plancode", "")).strip(): row
+        for row in rows
+        if str(row.get("Plancode", "")).strip()
+    }
+    return _TABLE_CACHE
+
+
+def _int_or_default(value, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def load_plancode(plancode: str) -> PlancodeConfig:
-    """Load plancode configuration from JSON file.
+    """Load plancode configuration from the plancode table JSON file.
 
     Args:
         plancode: Product plan code (e.g., "1U143900").
@@ -90,45 +125,49 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         PlancodeConfig populated from the JSON file.
 
     Raises:
-        FileNotFoundError: If no JSON config exists for the plancode.
+        FileNotFoundError: If the plancode table does not exist.
+        KeyError: If the plancode has no row in the table.
     """
     if plancode in _CONFIG_CACHE:
         return _CONFIG_CACHE[plancode]
 
-    json_path = _PLANCODE_DIR / f"{plancode}.json"
-    if not json_path.exists():
-        raise FileNotFoundError(
-            f"No plancode config found: {json_path}"
+    data = _load_plancode_table().get(plancode)
+    if data is None:
+        raise KeyError(
+            f"No plancode config found for {plancode} in {_PLANCODE_TABLE_PATH}"
         )
-
-    with open(json_path, "r") as f:
-        data = json.load(f)
 
     config = PlancodeConfig(
         plancode=plancode,
         product_name=data.get("ProductName", ""),
+        cint_key=data.get("CINT_Key", ""),
         int_calc_method=data.get("IntCalcMethod", "Declared"),
-        interest_method=data.get("InterestMethod", "ExactDays"),
+        interest_method=data.get("Interest_Method", data.get("InterestMethod", "ExactDays")),
+        age_calc=data.get("AgeCalc", ""),
         premium_load=data.get("PremiumLoad", "Table"),
         prem_flat_load=float(data.get("PremFlatLoad", 0)),
         epu_code=data.get("EPU_Code", "Table"),
         epu_sa_basis=data.get("EPU_SA_Basis", "CurrentSA"),
         mfee=str(data.get("MFEE", "5")),
-        poav_code=str(data.get("PoAV_Code", "0")),
+        poav_code=str(data.get("PoAV_Table", data.get("PoAV_Code", "0"))),
+        poav_table=str(data.get("PoAV_Table", data.get("PoAV_Code", "0"))),
         bonus=data.get("Bonus", "Table"),
+        dbd=float(data.get("DBD", 0)),
         table_rating_factor=float(data.get("TableRatingFactor", 0.25)),
         corridor_code=int(data.get("CorridorCode", 1)),
         premium_cease_age=int(data.get("PremiumCeaseAge", 121)),
         maturity_age=int(data.get("MaturityAge", 121)),
-        snet_period=int(data.get("SafetyNetPeriod", 10)),
-        lapse_value=data.get("LapseValue", "SV"),
+        mature_endow_value=data.get("MatureEndowValue", "SV"),
+        snet_period=_int_or_default(data.get("SafetyNetPeriod", 10), 0),
+        lapse_value=data.get("LapseTarget", data.get("LapseValue", "SV")),
         dynamic_banding=int(data.get("DynamicBanding", 3)),
-        scr_code=data.get("SCR_Code", "Table"),
+        rachet_banding=bool(data.get("Rachet_Banding", False)),
+        skipped_cov_rein=bool(data.get("SkippedCovRein", False)),
         loan_type=data.get("LoanType", "Arrears"),
-        loan_charge_rate_guar=float(data.get("LoanChargeRateGuar", 0)),
-        loan_charge_rate_curr=float(data.get("LoanChargeRateCurr", 0)),
-        pref_loan_charge_rate_guar=float(data.get("PrefLoanChargeRateGuar", 0)),
-        pref_loan_charge_rate_curr=float(data.get("PrefLoanChargeRateCurr", 0)),
+        loan_charge_rate_guar=float(data.get("LoanChargeRate", data.get("LoanChargeRateGuar", 0))),
+        loan_charge_rate_curr=float(data.get("LoanCollateralCreditRate", data.get("LoanChargeRateCurr", 0))),
+        pref_loan_charge_rate_guar=float(data.get("PrefLoanChargeRate", data.get("PrefLoanChargeRateGuar", 0))),
+        pref_loan_charge_rate_curr=float(data.get("PrefLoanCollateralCreditRate", data.get("PrefLoanChargeRateCurr", 0))),
         var_loan_available=bool(data.get("VarLoanAvailable", False)),
         # Shadow Account (CCV)
         shadow_plancode=data.get("ShadowPlancode", ""),

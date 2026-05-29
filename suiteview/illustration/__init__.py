@@ -22,6 +22,7 @@ from suiteview.illustration.models.policy_data import (
     CoverageSegment,
     BenefitInfo,
     IllustrationPolicyData,
+    RiderInfo,
 )
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
@@ -42,6 +43,7 @@ __all__ = [
     "CoverageSegment",
     "BenefitInfo",
     "IllustrationPolicyData",
+    "RiderInfo",
     "MonthlyState",
     "PlancodeConfig",
     "load_plancode",

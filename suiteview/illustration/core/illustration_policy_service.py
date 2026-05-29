@@ -9,6 +9,7 @@ from suiteview.illustration.models.policy_data import (
     BenefitInfo as IllBenefitInfo,
     CoverageSegment,
     IllustrationPolicyData,
+    RiderInfo,
 )
 
 
@@ -45,11 +46,16 @@ def build_illustration_data(
     face_amount = float(face_raw) if face_raw else 0.0
     units = face_amount / 1000.0 if face_amount else 0.0
     db_option = _translate_dbo(pi.db_option_code or "")
-    band = rates_db.get_band(plancode, face_amount) or 1
+    raw_band = rates_db.get_band(plancode, face_amount)
+    band = raw_band if raw_band is not None else 1
 
     # ── Account value ─────────────────────────────────────────
     av_raw = pi.mv_av(0)
     account_value = float(av_raw) if av_raw is not None else 0.0
+    system_coi_charge = float(pi.mv_coi_charge(0) or 0)
+    system_expense_charge = float(pi.mv_expense_charge(0) or 0)
+    system_other_charge = float(pi.mv_other_charge(0) or 0)
+    system_monthly_deduction = float(pi.mv_monthly_deduction(0) or 0)
 
     # ── Premium ───────────────────────────────────────────────
     modal_raw = pi.modal_premium
@@ -126,11 +132,22 @@ def build_illustration_data(
     except Exception:
         base_covs = []
 
+    substandard_by_phase = {}
+    try:
+        for rating in pi.get_substandard_ratings():
+            substandard_by_phase.setdefault(rating.coverage_phase, []).append(rating)
+    except Exception:
+        substandard_by_phase = {}
+
     for cov in base_covs:
         seg_face = float(cov.face_amount) if cov.face_amount else 0.0
         seg_orig_face = float(cov.orig_amount) if cov.orig_amount else seg_face
         seg_units = float(cov.units) if cov.units else seg_face / 1000.0
-        seg_band = rates_db.get_band(plancode, seg_face) or 1
+        try:
+            raw_seg_band = pi.cov_band(cov.cov_pha_nbr)
+        except Exception:
+            raw_seg_band = rates_db.get_band(plancode, face_amount)
+        seg_band = raw_seg_band if raw_seg_band is not None else 1
 
         # Get rate sex from coverage record
         try:
@@ -140,8 +157,17 @@ def build_illustration_data(
 
         seg_rate_class = cov.rate_class or rate_class
         seg_table = cov.table_rating if cov.table_rating is not None else 0
+        seg_table_cease = None
         seg_flat = float(cov.flat_extra) if cov.flat_extra else 0.0
         seg_flat_cease = cov.flat_cease_date
+        for rating in substandard_by_phase.get(cov.cov_pha_nbr, []):
+            if rating.type_code == "T" and rating.table_rating_numeric and rating.table_rating_numeric > 0:
+                seg_table = rating.table_rating_numeric
+                seg_table_cease = rating.flat_cease_date
+            elif rating.type_code == "F":
+                if rating.flat_amount:
+                    seg_flat = float(rating.flat_amount)
+                seg_flat_cease = rating.flat_cease_date
 
         segments.append(CoverageSegment(
             coverage_phase=cov.cov_pha_nbr,
@@ -157,6 +183,7 @@ def build_illustration_data(
             band=seg_band,
             original_band=seg_band,
             table_rating=seg_table,
+            table_cease_date=seg_table_cease,
             flat_extra=seg_flat,
             flat_cease_date=seg_flat_cease,
             status=cov.cov_status or "A",
@@ -171,9 +198,9 @@ def build_illustration_data(
     except Exception:
         raw_benefits = []
 
-    today = date.today()
+    as_of_date = valuation_date or date.today()
     for b in raw_benefits:
-        if b.cease_date and b.cease_date < today:
+        if b.cease_date and b.cease_date < as_of_date:
             continue
         benefits.append(IllBenefitInfo(
             coverage_phase=b.cov_pha_nbr,
@@ -187,6 +214,46 @@ def build_illustration_data(
             cease_date=b.cease_date,
             rating_factor=float(b.rating_factor) if b.rating_factor else 0.0,
             coi_rate=float(b.coi_rate) if b.coi_rate else None,
+            is_active=True,
+        ))
+
+    # ── Build rider list ──────────────────────────────────────
+    riders = []
+    rider_counts = {}
+    try:
+        raw_riders = pi.get_riders()
+    except Exception:
+        raw_riders = []
+
+    for rider in raw_riders:
+        rider_plancode = rider.plancode or ""
+        if not rider_plancode or rider_plancode == plancode:
+            continue
+        if _coverage_is_terminated(rider, as_of_date):
+            continue
+        rider_counts[rider_plancode] = rider_counts.get(rider_plancode, 0) + 1
+        rider_face = float(rider.face_amount) if rider.face_amount else 0.0
+        rider_units = float(rider.units) if rider.units else rider_face / 1000.0
+        raw_rider_band = rates_db.get_band(rider_plancode, rider_face)
+        rider_band = raw_rider_band if raw_rider_band is not None else 1
+        riders.append(RiderInfo(
+            coverage_phase=rider.cov_pha_nbr,
+            occurrence=rider_counts[rider_plancode],
+            plancode=rider_plancode,
+            issue_date=rider.issue_date,
+            issue_age=rider.issue_age or 0,
+            rate_sex=rider.sex_code or "",
+            rate_class=rider.rate_class or "",
+            face_amount=rider_face,
+            units=rider_units,
+            vpu=float(rider.vpu) if rider.vpu else 1000.0,
+            band=int(rider_band),
+            table_rating=rider.table_rating or 0,
+            flat_extra=float(rider.flat_extra) if rider.flat_extra else 0.0,
+            maturity_date=rider.maturity_date,
+            status=rider.cov_status or "",
+            premium_rate=float(rider.premium_rate) if rider.premium_rate else None,
+            coi_rate=float(rider.coi_rate) if rider.coi_rate else None,
             is_active=True,
         ))
 
@@ -223,6 +290,10 @@ def build_illustration_data(
         band=band,
         account_value=account_value,
         cost_basis=cost_basis,
+        system_coi_charge=system_coi_charge,
+        system_expense_charge=system_expense_charge,
+        system_other_charge=system_other_charge,
+        system_monthly_deduction=system_monthly_deduction,
         modal_premium=modal_premium,
         annual_premium=annual_premium,
         billing_frequency=billing_frequency,
@@ -257,6 +328,7 @@ def build_illustration_data(
         ccv_coi_rate=ccv_coi_rate,
         segments=segments,
         benefits=benefits,
+        riders=riders,
     )
 
 
@@ -273,6 +345,22 @@ def _translate_sex(code: str) -> str:
     if code in ("U", "0"):
         return "U"
     return code
+
+
+def _coverage_is_terminated(coverage, as_of_date: date) -> bool:
+    status = str(
+        getattr(coverage, "nxt_chg_typ_cd", "")
+        or getattr(coverage, "cov_status", "")
+        or ""
+    ).strip()
+    cease_date = getattr(coverage, "nxt_chg_dt", None)
+    terminate_date = getattr(coverage, "terminate_date", None)
+
+    if terminate_date and terminate_date <= as_of_date:
+        return True
+    if status == "0":
+        return cease_date is None or cease_date <= as_of_date
+    return False
 
 
 def _translate_dbo(code: str) -> str:

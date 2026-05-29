@@ -33,7 +33,7 @@ from .tabs._styles import _FONT, style_combo as _style_combo
 from .sql_helpers import fmt_time
 from .dynamic_query import build_dynamic_sql, build_join_sql, collect_field_filters, build_common_table_cte
 from .dialogs.tables_dialog import TablesDialog, FIELD_DRAG_MIME
-from .ui.bottom_bar import AuditBottomBar
+from .ui.bottom_bar import AuditBottomBar, FOOTER_BG
 from .query_runner import run_button_context, execute_odbc_query, execute_odbc_query_with_types
 from suiteview.core.odbc_utils import detect_dialect
 
@@ -56,10 +56,10 @@ _CLEAR_BTN_STYLE = (
 )
 
 _SAVE_QUERY_BTN_STYLE = (
-    "QPushButton { background-color: #7C3AED; color: white;"
-    " border: 1px solid #6D28D9; border-radius: 3px;"
-    " padding: 2px 10px; font-size: 9pt; font-weight: bold; }"
-    "QPushButton:hover { background-color: #8B5CF6; }"
+    "QPushButton { background-color: #0A2A5C; color: #D4AF37;"
+    " border: 2px solid #D4AF37; border-radius: 3px;"
+    " padding: 1px 4px; font-size: 8pt; font-weight: bold; }"
+    "QPushButton:hover { background-color: #123C69; color: #F4D03F; }"
 )
 
 _TABLES_BTN_STYLE = (
@@ -217,6 +217,7 @@ class DynamicQuery(QWidget):
     dataset_pinned = pyqtSignal(object)  # PinnedDataset
     query_saved = pyqtSignal(object)     # SavedQuery
     query_deleted = pyqtSignal(str)      # query name deleted
+    new_query_requested = pyqtSignal()
 
     def __init__(self, name: str, dsn: str, tables: list[str],
                  display_names: dict[str, str] | None = None,
@@ -227,6 +228,7 @@ class DynamicQuery(QWidget):
         self.dialect = detect_dialect(dsn)
         self.tables = list(tables)  # mutable — tables can be added/removed
         self.display_names: dict[str, str] = display_names or {}
+        self.pinned_tables: list[str] = []
 
         # Temp group tracking: non-empty means this is a loaded saved query
         self._saved_query_name = saved_query_name
@@ -253,28 +255,56 @@ class DynamicQuery(QWidget):
         for tab in self._criteria_tabs:
             tab.grid.state_changed.connect(self._schedule_save)
 
+    def set_source_dsn(self, dsn: str):
+        """Update this visual query to use the selected SQL Assist DSN."""
+        dsn = (dsn or "").strip()
+        if not dsn or dsn == self.dsn:
+            return
+        previous_dsn = self.dsn
+        self.dsn = dsn
+        self.dialect = detect_dialect(dsn)
+        self.joins_tab._dsn = dsn
+        for card in getattr(self.joins_tab, "_cards", []):
+            card._dsn = dsn
+        for tab in self._criteria_tabs:
+            tab.dsn = dsn
+            for row in tab.grid._rows:
+                if not row._registry_info or len(row._registry_info) < 3:
+                    continue
+                current_dsn = row._registry_info[3] if len(row._registry_info) > 3 else ""
+                if current_dsn and current_dsn != previous_dsn:
+                    continue
+                table, column, display = row._registry_info[:3]
+                row._registry_info = (table, column, display, dsn)
+        self._schedule_save()
+
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(2)
 
+        self._lbl_query_name = QLabel()
+        self._lbl_query_name.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        self._lbl_query_name.setStyleSheet("QLabel { color: #0A2A5C; padding: 2px 6px; }")
+        root.addWidget(self._lbl_query_name)
+
         # ── Tab widget ───────────────────────────────────────────────
         self.tab_widget = QTabWidget()
         self.tab_widget.setFont(_FONT)
         self.tab_widget.setStyleSheet(
-            "QTabWidget::pane { border-top: 3px solid #7C3AED;"
-            " border-bottom: 3px solid #7C3AED;"
+            "QTabWidget::pane { border-top: 3px solid #1E5BA8;"
+            " border-bottom: 3px solid #1E5BA8;"
             " border-left: 1px solid #999; border-right: 1px solid #999;"
-            " background-color: #EDE9FE; }"
-            "QTabBar { background-color: #EDE9FE; }"
+            " background-color: #F6F8FB; }"
+            "QTabBar { background-color: #F6F8FB; }"
             "QTabBar::tab { padding: 2px 8px; min-height: 20px; font-size: 9pt;"
-            " background-color: #DDD6FE; border: 1px solid #7C3AED;"
+            " background-color: #E8F0FB; border: 1px solid #1E5BA8;"
             " border-bottom: none; border-top-left-radius: 3px;"
             " border-top-right-radius: 3px; margin-right: 1px; }"
             "QTabBar::tab:selected { font-weight: bold;"
-            " background-color: #EDE9FE; color: #4C1D95; }"
-            "QTabBar::tab:!selected { background-color: #DDD6FE; color: #444; }"
-            "QTabBar::tab:hover:!selected { background-color: #C4B5FD; }"
+            " background-color: #F6F8FB; color: #0A2A5C; }"
+            "QTabBar::tab:!selected { background-color: #E8F0FB; color: #444; }"
+            "QTabBar::tab:hover:!selected { background-color: #D9E8F7; }"
         )
 
         # Right-click tab bar for add/rename/remove
@@ -291,9 +321,9 @@ class DynamicQuery(QWidget):
         self.joins_tab = JoinsTab(tables=self.tables, dsn=self.dsn)
         self.tab_widget.addTab(self.joins_tab, "Joins")
 
-        # Common Tables tab — for including user-defined CTE tables
+        # Common Tables state — driven from SQL Assist instead of a visible tab
         self.common_tables_tab = CommonTablesTab()
-        self.tab_widget.addTab(self.common_tables_tab, "Common Tables")
+        self.common_tables_tab.setVisible(False)
 
         # Select tab — for managing SELECT columns
         self.select_tab = SelectTab()
@@ -320,7 +350,7 @@ class DynamicQuery(QWidget):
 
         # ── Bottom bar ───────────────────────────────────────────────
         self.bottom_bar = AuditBottomBar(
-            bg_color="#EDE9FE", run_label="Run\nAudit",
+            bg_color=FOOTER_BG, run_label="Run",
             run_style=_RUN_BTN_STYLE)
 
         # Convenience aliases
@@ -332,43 +362,47 @@ class DynamicQuery(QWidget):
         self.lbl_total_time = self.bottom_bar.lbl_total_time
         self.btn_run = self.bottom_bar.btn_run
 
-        # Left side: query name label
-        _name_with_db = f"{self.query_name}  {{{self.dsn}}}"
-        self._lbl_query_name = QLabel(_name_with_db)
-        self._lbl_query_name.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
-        self._lbl_query_name.setStyleSheet("QLabel { color: #7C3AED; }")
-        self.bottom_bar.left_layout.addWidget(self._lbl_query_name)
+        self.btn_new_query = QPushButton("New Query")
+        self.btn_new_query.setFont(_FONT_BOLD)
+        self.btn_new_query.setFixedSize(78, 36)
+        self.btn_new_query.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
+        self.btn_new_query.setToolTip("Start a new Visual Query Object")
+        self.btn_new_query.clicked.connect(self._confirm_new_query)
+        self.bottom_bar.action_layout.addWidget(self.btn_new_query)
 
-        # Action buttons: Save Query Object
-        if self._is_temp:
-            self.btn_save_query = QPushButton("Save")
-            self.btn_save_query.setFont(_FONT_BOLD)
-            self.btn_save_query.setFixedSize(55, 36)
-            self.btn_save_query.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
-            self.btn_save_query.setToolTip(
-                f"Update query object \"{self._saved_query_name}\"")
-            self.btn_save_query.clicked.connect(self._save_query_update)
-            self.bottom_bar.action_layout.addWidget(self.btn_save_query)
+        # Action buttons: Save / Save As Query Object
+        self.btn_save_query = QPushButton("Save")
+        self.btn_save_query.setFont(_FONT_BOLD)
+        self.btn_save_query.setFixedSize(60, 36)
+        self.btn_save_query.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
+        self.btn_save_query.setToolTip("Update this visual Query Object")
+        self.btn_save_query.clicked.connect(self._save_or_update_query)
 
-            self.btn_save_as = QPushButton("Save As")
-            self.btn_save_as.setFont(_FONT_BOLD)
-            self.btn_save_as.setFixedSize(65, 36)
-            self.btn_save_as.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
-            self.btn_save_as.setToolTip("Save a copy as a new query object")
-            self.btn_save_as.clicked.connect(self._save_query)
-            self.bottom_bar.action_layout.addWidget(self.btn_save_as)
-        else:
-            self.btn_save_query = QPushButton("Save Object")
-            self.btn_save_query.setFont(_FONT_BOLD)
-            self.btn_save_query.setFixedSize(85, 36)
-            self.btn_save_query.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
-            self.btn_save_query.setToolTip("Save this visual query as a reusable Query Object")
-            self.btn_save_query.clicked.connect(self._save_query)
-            self.bottom_bar.action_layout.addWidget(self.btn_save_query)
+        self.btn_save_as = QPushButton("Save As")
+        self.btn_save_as.setFont(_FONT_BOLD)
+        self.btn_save_as.setFixedSize(60, 36)
+        self.btn_save_as.setStyleSheet(_SAVE_QUERY_BTN_STYLE)
+        self.btn_save_as.setToolTip("Save a copy as a new query object")
+        self.btn_save_as.clicked.connect(self._save_query)
+        self.bottom_bar.action_layout.addWidget(self.btn_save_as)
+        self.bottom_bar.action_layout.addWidget(self.btn_save_query)
+
+        self._update_builder_heading()
 
         self.btn_run.clicked.connect(self._run_audit)
 
         root.addWidget(self.bottom_bar)
+
+    def _confirm_new_query(self):
+        reply = QMessageBox.question(
+            self,
+            "Start New Query?",
+            "This will clear the current Visual Query builder. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.new_query_requested.emit()
 
     # ── Tab management ───────────────────────────────────────────────
 
@@ -486,9 +520,42 @@ class DynamicQuery(QWidget):
         self.joins_tab.update_common_tables(common_cols)
         self.common_tables_changed.emit(common_cols)
 
+    def add_common_table(self, name: str):
+        """Include a Common Table in this query."""
+        if not name:
+            return
+        state = self.common_tables_tab.get_state()
+        selected = list(state.get("selected_tables", []))
+        if name not in selected:
+            selected.append(name)
+        self.common_tables_tab.set_state({"selected_tables": selected})
+        self._sync_common_tables_to_joins()
+        self._schedule_save()
+
+    def set_pinned_tables(self, tables: list[str]):
+        """Persist the SQL Assist pinned table list for this query."""
+        seen: set[str] = set()
+        self.pinned_tables = []
+        for table in tables:
+            if table and table not in seen:
+                self.pinned_tables.append(table)
+                seen.add(table)
+        self._schedule_save()
+
+    def remove_common_table(self, name: str):
+        """Remove a Common Table from this query."""
+        if not name:
+            return
+        state = self.common_tables_tab.get_state()
+        selected = [t for t in state.get("selected_tables", []) if t != name]
+        self.common_tables_tab.set_state({"selected_tables": selected})
+        self._sync_common_tables_to_joins()
+        self._schedule_save()
+
     def _on_field_requested(self, table: str, column: str,
                             type_name: str, display: str):
         """Handle field placement request (double-click or drag) from Tables dialog."""
+        self._add_source_table(table)
         current = self.tab_widget.currentWidget()
         # If the Select tab is active, add to Select tab
         if isinstance(current, SelectTab):
@@ -505,6 +572,12 @@ class DynamicQuery(QWidget):
                 return
         current.add_field_auto(table, column, type_name, display or column)
         self._schedule_save()
+
+    def _add_source_table(self, table: str):
+        """Track a table introduced by a dropped SQL Assist field."""
+        if table and table not in self.tables:
+            self.tables.append(table)
+            self.joins_tab.update_tables(self.tables)
 
     # ── Field display name context menu ──────────────────────────────
 
@@ -542,15 +615,26 @@ class DynamicQuery(QWidget):
 
     # ── Run audit ────────────────────────────────────────────────────
 
+    @staticmethod
+    def _table_from_field_key(field_key: str) -> str:
+        parts = [part for part in field_key.split(".") if part]
+        if len(parts) < 2:
+            return ""
+        return ".".join(parts[:-1])
+
+    def _infer_tables_from_fields(
+        self,
+        field_filters: list[dict],
+        select_columns: list[dict],
+    ) -> list[str]:
+        tables: list[str] = []
+        for item in [*field_filters, *select_columns]:
+            table = self._table_from_field_key(item.get("field_key", ""))
+            if table and table not in tables:
+                tables.append(table)
+        return tables
+
     def _run_audit(self):
-        if not self.tables:
-            QMessageBox.warning(self, "No Tables",
-                                "This query has no tables. Use the Tables "
-                                "button to add tables.")
-            return
-
-        table_name = self.tables[0]  # primary table
-
         # Collect filters from ALL criteria tabs
         all_filters = []
         for tab in self._criteria_tabs:
@@ -566,6 +650,31 @@ class DynamicQuery(QWidget):
 
         # Collect join info from Joins tab
         join_infos = self.joins_tab.get_join_infos()
+
+        inferred_tables = self._infer_tables_from_fields(all_filters, select_cols)
+        if not self.tables and inferred_tables:
+            self.tables = list(inferred_tables)
+            self.joins_tab.update_tables(self.tables)
+
+        if not self.tables:
+            QMessageBox.warning(
+                self,
+                "No Tables",
+                "This query has no source table. Add fields from SQL Assist "
+                "to Filter or Display first.",
+            )
+            return
+
+        if not join_infos and len(inferred_tables) > 1:
+            QMessageBox.warning(
+                self,
+                "Joins Required",
+                "This query uses fields from multiple tables. Add join rules "
+                "on the Joins tab before running.",
+            )
+            return
+
+        table_name = self.tables[0]  # primary table
 
         # Collect common tables for CTE prefix
         common_tables = self.common_tables_tab.get_selected_tables()
@@ -635,6 +744,18 @@ class DynamicQuery(QWidget):
 
     # ── Save Query Object ────────────────────────────────────────────
 
+    def _last_result_schema(self) -> tuple[list[str], dict[str, str]]:
+        ctx = getattr(self.results_tab, "_query_context", None)
+        if ctx:
+            return (
+                list(ctx.get("result_columns", [])),
+                dict(ctx.get("column_types", {})),
+            )
+        df = getattr(self.results_tab, "_df", None)
+        if df is not None:
+            return list(df.columns), {col: str(df[col].dtype) for col in df.columns}
+        return [], {}
+
     def _save_query_update(self):
         """Overwrite the linked saved query with the current config."""
         from suiteview.audit.saved_query import SavedQuery
@@ -646,6 +767,7 @@ class DynamicQuery(QWidget):
 
         sql = self.sql_tab.txt_sql.toPlainText().strip()
         config = self.get_config()
+        result_columns, column_types = self._last_result_schema()
 
         sq = SavedQuery(
             name=name,
@@ -655,13 +777,23 @@ class DynamicQuery(QWidget):
             display_names=dict(self.display_names),
             config=config,
             sql=sql,
+            result_columns=result_columns,
+            column_types=column_types,
         )
         sq_store.save_query(sq)
         self.query_saved.emit(sq)
+        self._update_builder_heading()
 
         QMessageBox.information(
             self, "Query Object Saved",
             f"Query object \"{name}\" updated successfully.")
+
+    def _save_or_update_query(self):
+        """Save the current visual query, updating when it has a saved name."""
+        if self._saved_query_name:
+            self._save_query_update()
+            return
+        self._save_query()
 
     def _save_query(self):
         """Snapshot the current designer config as a saved query."""
@@ -689,6 +821,7 @@ class DynamicQuery(QWidget):
 
         sql = self.sql_tab.txt_sql.toPlainText().strip()
         config = self.get_config()
+        result_columns, column_types = self._last_result_schema()
 
         sq = SavedQuery(
             name=name,
@@ -698,13 +831,24 @@ class DynamicQuery(QWidget):
             display_names=dict(self.display_names),
             config=config,
             sql=sql,
+            result_columns=result_columns,
+            column_types=column_types,
         )
         sq_store.save_query(sq)
+        self._saved_query_name = name
+        self._update_builder_heading()
         self.query_saved.emit(sq)
 
         QMessageBox.information(
             self, "Query Object Saved",
             f"Query object \"{name}\" saved successfully.")
+
+    def _update_builder_heading(self):
+        name = self._saved_query_name.strip() or "(new)"
+        self._lbl_query_name.setText(f"Visual Query Object: {name}")
+        self.btn_save_query.setVisible(bool(self._saved_query_name.strip()))
+        self.btn_save_as.setVisible(True)
+        self.btn_new_query.setVisible(True)
 
     # ── Pin to Workbench ───────────────────────────────────────────
 
@@ -777,6 +921,7 @@ class DynamicQuery(QWidget):
             "name": self.query_name,
             "dsn": self.dsn,
             "tables": self.tables,
+            "pinned_tables": self.pinned_tables,
             "display_names": self.display_names,
             "max_count": self.txt_max_count.text(),
             "tabs": [tab.get_state() for tab in self._criteria_tabs],
@@ -791,6 +936,7 @@ class DynamicQuery(QWidget):
         try:
             self.display_names = config.get("display_names", {})
             self.tables = config.get("tables", self.tables)
+            self.pinned_tables = list(config.get("pinned_tables", []))
             self.txt_max_count.setText(config.get("max_count", "25"))
             tab_states = config.get("tabs", [])
             # Rebuild criteria tabs from saved state

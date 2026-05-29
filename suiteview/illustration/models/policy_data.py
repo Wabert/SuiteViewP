@@ -31,6 +31,7 @@ class CoverageSegment:
 
     # Substandard
     table_rating: int = 0       # 0 = standard, 1-16 = table A-P
+    table_cease_date: Optional[date] = None
     flat_extra: float = 0.0     # Per $1000 annual flat extra
     flat_cease_date: Optional[date] = None
 
@@ -59,6 +60,34 @@ class BenefitInfo:
     rating_factor: float = 0.0     # BNF_RT_FCT
     coi_rate: Optional[float] = None
     is_active: bool = True
+
+
+@dataclass
+class RiderInfo:
+    """A rider coverage from LH_COV_PHA with a different plancode than base."""
+
+    coverage_phase: int = 0
+    occurrence: int = 1
+    plancode: str = ""
+    issue_date: Optional[date] = None
+    issue_age: int = 0
+    rate_sex: str = ""
+    rate_class: str = ""
+    face_amount: float = 0.0
+    units: float = 0.0
+    vpu: float = 1000.0
+    band: int = 1
+    table_rating: int = 0
+    flat_extra: float = 0.0
+    maturity_date: Optional[date] = None
+    status: str = ""
+    premium_rate: Optional[float] = None
+    coi_rate: Optional[float] = None
+    is_active: bool = True
+
+    @property
+    def export_key(self) -> str:
+        return f"{self.plancode}_{self.occurrence}"
 
 
 @dataclass
@@ -98,6 +127,10 @@ class IllustrationPolicyData:
     # ── Account Value ─────────────────────────────────────────
     account_value: float = 0.0     # Current total fund value
     cost_basis: float = 0.0
+    system_coi_charge: float = 0.0
+    system_expense_charge: float = 0.0
+    system_other_charge: float = 0.0
+    system_monthly_deduction: float = 0.0
 
     # ── Premium ───────────────────────────────────────────────
     modal_premium: float = 0.0
@@ -164,6 +197,7 @@ class IllustrationPolicyData:
 
     # ── Benefits / Riders ─────────────────────────────────────
     benefits: List[BenefitInfo] = field(default_factory=list)
+    riders: List[RiderInfo] = field(default_factory=list)
 
     # ── Debug ─────────────────────────────────────────────────
     _debug_csv: float = 0.0

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
-from typing import Optional
+from typing import Dict, Optional
 
 
 @dataclass
@@ -48,29 +48,58 @@ class MonthlyState:
     corr_amount: float = 0.0       # gross_db - standard_db
 
     # Per-segment death benefit discount
+    db_by_coverage: Dict[str, float] = field(default_factory=dict)
+    discounted_db_by_coverage: Dict[str, float] = field(default_factory=dict)
     discounted_db_cov1: float = 0.0
     discounted_db_corr: float = 0.0
     discounted_db: float = 0.0
+    total_db: float = 0.0
+    total_discounted_db: float = 0.0
 
     # Per-segment NAR (FIFO: AV → cov1 first, corridor last)
+    nar_by_coverage: Dict[str, float] = field(default_factory=dict)
     nar_cov1: float = 0.0
     nar_corr: float = 0.0
     nar: float = 0.0               # total NAR
+    total_nar: float = 0.0
 
     # Per-segment COI (corridor uses cov1 rate)
+    coi_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
+    coi_charges_by_coverage: Dict[str, float] = field(default_factory=dict)
     coi_rate: float = 0.0
     coi_charge_cov1: float = 0.0
     coi_charge_corr: float = 0.0
     coi_charge: float = 0.0
+    total_coi_charge: float = 0.0
 
     epu_rate: float = 0.0
     epu_charge: float = 0.0
+    epu_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
+    epu_charges_by_coverage: Dict[str, float] = field(default_factory=dict)
     mfee_charge: float = 0.0
     av_charge: float = 0.0         # % of AV charge (monthly, not /12)
     pw_charge: float = 0.0         # Premium Waiver benefit charge
     benefit_charges: float = 0.0   # Total benefit/rider charges
+    benefit_amounts: Dict[str, float] = field(default_factory=dict)
+    benefit_rates: Dict[str, float] = field(default_factory=dict)
+    benefit_charge_detail: Dict[str, float] = field(default_factory=dict)
+    rider_charges: float = 0.0
+    rider_amounts: Dict[str, float] = field(default_factory=dict)
+    rider_rates: Dict[str, float] = field(default_factory=dict)
+    rider_charge_detail: Dict[str, float] = field(default_factory=dict)
     total_deduction: float = 0.0
     av_after_deduction: float = 0.0
+
+    # ── 2b. Inforce Monthly Deduction Check ─────────────────
+    system_coi_charge: float = 0.0
+    system_expense_charge: float = 0.0
+    system_other_charge: float = 0.0
+    system_monthly_deduction: float = 0.0
+    md_check_av_before_deduction: float = 0.0
+    md_check_calculated_deduction: float = 0.0
+    md_check_deduction_variance: float = 0.0
+    md_check_calculated_av_after_deduction: float = 0.0
+    md_check_av_variance: float = 0.0
 
     # ── 3. Interest Credit (cols 548-585) ─────
     days_in_month: int = 0
@@ -96,7 +125,9 @@ class MonthlyState:
 
     # ── 4. End-of-Month Values (cols 524-600) ─
     scr_rate: float = 0.0
+    scr_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
     surrender_charge: float = 0.0
+    surrender_charges_by_coverage: Dict[str, float] = field(default_factory=dict)
     surrender_value: float = 0.0
     ending_db: float = 0.0
 

@@ -17,8 +17,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from suiteview.core.reinsurance import (
-    fetch_tai_cession, TAICessionResult, TAI_CESSION_HEADERS,
+    TAI_CESSION_HEADERS,
 )
+from ...models.reinsurance_information import ReinsuranceInformation
 from ..widgets import StyledTableGroup
 
 
@@ -44,7 +45,6 @@ class ReinsuranceTab(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._last_result: TAICessionResult | None = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -106,35 +106,31 @@ class ReinsuranceTab(QWidget):
     # ── public helpers ───────────────────────────────────────────────────
 
     def has_reinsurance_data(self, policy) -> bool:
-        """Query TAICession and return True if records exist for this policy."""
+        """Return True if cached TAICession lookup has records for this policy."""
         if not policy:
             return False
         try:
-            result = fetch_tai_cession(policy.policy_number)
-            self._last_result = result
-            return result.found
+            info = ReinsuranceInformation.load(policy.policy_number, policy.region)
+            return info.tai_cession.found
         except Exception:
-            self._last_result = None
             return False
 
     # ── data loading ─────────────────────────────────────────────────────
 
     def load_data_from_policy(self, policy):
-        """Load reinsurance data from the cached TAICession result."""
+        """Load reinsurance data from cached TAICession information."""
         if not policy:
             return
 
-        # Use cached result from has_reinsurance_data() if available,
-        # otherwise query fresh
-        result = self._last_result
-        if result is None:
-            try:
-                result = fetch_tai_cession(policy.policy_number)
-            except Exception as e:
-                import traceback, sys
-                print(f"[ReinsuranceTab] Error: {e}", file=sys.stderr)
-                traceback.print_exc(file=sys.stderr)
-                return
+        try:
+            info = ReinsuranceInformation.load(policy.policy_number, policy.region)
+        except Exception as e:
+            import traceback, sys
+            print(f"[ReinsuranceTab] Error: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            return
+
+        result = info.tai_cession
 
         # ── Build search summary text ───────────────────────────────────
         co_code = getattr(policy, "company_code", "") or ""
@@ -149,21 +145,16 @@ class ReinsuranceTab(QWidget):
 
         # ── Multi-company check ─────────────────────────────────────────
         self._multi_co_label.setVisible(False)
-        try:
-            from ...models.policy_information import PolicyInformation
-            region = getattr(policy, "region", "CKPR") or "CKPR"
-            companies = PolicyInformation.find_companies(pol_num, region)
-            if len(companies) > 1:
-                co_list = ", ".join(companies)
-                self._multi_co_label.setText(
-                    f"⚠  This policy number exists in {len(companies)} "
-                    f"Cyberlife companies: {co_list}.  "
-                    f"TAICession records below are for ALL companies "
-                    f"(matched on policy number only)."
-                )
-                self._multi_co_label.setVisible(True)
-        except Exception:
-            pass  # If company check fails, just skip it
+        companies = info.companies
+        if len(companies) > 1:
+            co_list = ", ".join(companies)
+            self._multi_co_label.setText(
+                f"⚠  This policy number exists in {len(companies)} "
+                f"Cyberlife companies: {co_list}.  "
+                f"TAICession records below are for ALL companies "
+                f"(matched on policy number only)."
+            )
+            self._multi_co_label.setVisible(True)
 
         # ── Populate table or show "not found" ──────────────────────────
         table = self.cession_group.table
@@ -192,6 +183,3 @@ class ReinsuranceTab(QWidget):
                 f"as of month end date = {result.month_end}"
             )
             self._no_data_label.setVisible(True)
-
-        # Clear cached result
-        self._last_result = None

@@ -31,6 +31,10 @@
       "label": "Grace Rule Code",
       "tooltip": "Grace Period Rule Code - Determines how the grace period is calculated for this policy. Code comes from LH_NON_TRD_POL.GRA_THD_RLE_CD."
     },
+    "corridor_rate": {
+      "label": "Corridor Rate",
+      "tooltip": "Corridor Rate - The death benefit corridor percentage from LH_NON_TRD_POL.CDR_PCT."
+    },
     "short_pay_prem": {
       "label": "Short Pay Prem",
       "tooltip": "Short Pay Premium - The premium amount for policies that are set up with a limited pay duration."

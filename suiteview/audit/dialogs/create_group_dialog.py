@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QApplication, QSplitter, QGroupBox, QWidget,
 )
 
+from .tables_dialog import _clean_odbc_identifier
 from ..tabs._styles import TightItemDelegate
 
 logger = logging.getLogger(__name__)
@@ -68,10 +69,11 @@ class _TableLoaderThread(QThread):
                     except Exception:
                         continue  # skip rows that cause conversion errors
                     if row.table_type in ("TABLE", "VIEW"):
-                        schema = row.table_schem or ""
-                        name = row.table_name
+                        schema = _clean_odbc_identifier(row.table_schem)
+                        name = _clean_odbc_identifier(row.table_name)
                         full = f"{schema}.{name}" if schema else name
-                        tables.append(full)
+                        if full:
+                            tables.append(full)
             except Exception as exc:
                 logger.warning("Error iterating tables for %s: %s",
                                self.dsn, exc)

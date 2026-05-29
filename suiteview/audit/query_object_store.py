@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 
 from suiteview.audit.query_object import QueryObject
@@ -71,6 +72,31 @@ def save_object(query_object: QueryObject) -> None:
     path = object_path(query_object.name)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(query_object.to_dict(), handle, indent=2)
+
+
+def copy_object(source_name: str, new_name: str) -> QueryObject:
+    """Copy a query object to a new name and return the saved copy."""
+    source = load_object(source_name)
+    if source is None:
+        raise ValueError(f"Query object not found: {source_name}")
+    clean_name = new_name.strip()
+    if not clean_name:
+        raise ValueError("New query object name cannot be blank.")
+    if object_exists(clean_name):
+        raise ValueError(f"A Query Object named \"{clean_name}\" already exists.")
+
+    copied = QueryObject.from_dict(source.to_dict())
+    copied.name = clean_name
+    copied.created_at = datetime.now()
+    copied.updated_at = copied.created_at
+    for source_ref in copied.sources:
+        if source_ref.name == source_name:
+            source_ref.name = clean_name
+    for field in copied.fields:
+        if field.source == source_name:
+            field.source = clean_name
+    save_object(copied)
+    return copied
 
 
 def delete_object(name: str) -> None:

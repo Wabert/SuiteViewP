@@ -28,12 +28,17 @@ def _load_table() -> dict:
     return _CACHE
 
 
-def get_corridor_factor(plancode: str, attained_age: int) -> float:
+def get_corridor_factor(
+    plancode: str,
+    attained_age: int,
+    corridor_code: int | None = None,
+) -> float:
     """Look up the corridor factor for a plan code at a given attained age.
 
     Args:
         plancode: Product plan code (e.g., "1U143900").
         attained_age: Current attained age of the insured.
+        corridor_code: Optional corridor rate set from plancode config.
 
     Returns:
         Corridor factor (e.g. 1.34 at age 59).  Returns 1.0 if the
@@ -41,8 +46,10 @@ def get_corridor_factor(plancode: str, attained_age: int) -> float:
     """
     table = _load_table()
 
-    plancode_map: Dict[str, int] = table.get("plancode_map", {})
-    set_id = plancode_map.get(plancode)
+    set_id = corridor_code
+    if set_id is None:
+        plancode_map: Dict[str, int] = table.get("plancode_map", {})
+        set_id = plancode_map.get(plancode)
     if set_id is None:
         return 1.0
 

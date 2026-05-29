@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 )
 
 _FONT_SM = QFont("Segoe UI", 8)
+FOOTER_BG = "#C8D4E4"
 
 
 class AuditBottomBar(QWidget):
@@ -25,7 +26,10 @@ class AuditBottomBar(QWidget):
     ):
         super().__init__(parent)
         self.setFixedHeight(50)
-        self.setStyleSheet(f"QWidget {{ background-color: {bg_color}; }}")
+        self.setStyleSheet(
+            f"QWidget {{ background-color: {bg_color}; color: #111; }}"
+            "QLabel { background-color: transparent; }"
+        )
 
         layout = QHBoxLayout(self)
         layout.setSpacing(8)
@@ -38,6 +42,13 @@ class AuditBottomBar(QWidget):
         layout.addLayout(self.left_layout)
 
         layout.addStretch()
+
+        # Center action zone — save/save-as buttons sit just left of counts.
+        self.center_action_layout = QHBoxLayout()
+        self.center_action_layout.setSpacing(4)
+        self.center_action_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(self.center_action_layout)
+        layout.addSpacing(8)
 
         # ── All / Max Count / Result Count ──────────────────────
         count_stack = QVBoxLayout()
@@ -60,9 +71,9 @@ class AuditBottomBar(QWidget):
         self.txt_max_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
         mc_row.addWidget(self.txt_max_count)
 
-        lbl_mc = QLabel("Max Count")
-        lbl_mc.setFont(_FONT_SM)
-        mc_row.addWidget(lbl_mc)
+        self.lbl_max_count = QLabel("Max Count")
+        self.lbl_max_count.setFont(_FONT_SM)
+        mc_row.addWidget(self.lbl_max_count)
         count_stack.addLayout(mc_row)
 
         self.lbl_result_count = QLabel("Result count:")

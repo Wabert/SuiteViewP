@@ -219,8 +219,14 @@ class PolicyData:
         if not table_data or not table_data.get("rows"):
             return []
 
+        dict_rows = table_data.get("dict_rows")
+        if dict_rows is not None:
+            return dict_rows
+
         columns = table_data["columns"]
-        return [dict(zip(columns, row)) for row in table_data["rows"]]
+        dict_rows = [dict(zip(columns, row)) for row in table_data["rows"]]
+        table_data["dict_rows"] = dict_rows
+        return dict_rows
 
     def if_empty(self, value: Any, default: Any = "") -> Any:
         """Return *default* if *value* is ``None`` or empty string."""

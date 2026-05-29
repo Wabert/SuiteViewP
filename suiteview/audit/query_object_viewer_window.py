@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
+
+import pandas as pd
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
@@ -16,6 +19,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QFileDialog,
+    QGridLayout,
     QHeaderView,
     QHBoxLayout,
     QInputDialog,
@@ -23,6 +27,9 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QMenu,
+    QApplication,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -39,8 +46,16 @@ from suiteview.audit.adhoc_source_intake import (
     query_adhoc_object,
     query_object_from_file,
 )
-from suiteview.audit.query_object import OBJECT_KIND_ADHOC_SOURCE, QueryObject
+from suiteview.audit.query_object import (
+    OBJECT_KIND_ADHOC_SOURCE,
+    OBJECT_KIND_CYBERLIFE,
+    OBJECT_KIND_MANUAL_SQL,
+    OBJECT_KIND_VISUAL,
+    QueryObject,
+)
+from suiteview.audit.query_runner import execute_odbc_query
 from suiteview.audit import query_object_store
+from suiteview.core.odbc_utils import ACCESS, DB2, SQL_SERVER, UNKNOWN, detect_dialect
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
@@ -75,9 +90,38 @@ def _kind_label(kind: str) -> str:
         "executable_query": "Executable Queries",
         "cyberlife_query": "Cyberlife Objects",
         "manual_sql": "Manual SQL Objects",
-        "adhoc_source": "Ad Hoc Sources",
+        "adhoc_source": "File Sources",
     }
     return labels.get(kind, kind.replace("_", " ").title())
+
+
+def _object_group_label(obj: QueryObject) -> str:
+    if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
+        return "File Sources"
+    return _kind_label(obj.kind)
+
+
+def _preview_dialect_for_object(obj: QueryObject) -> str:
+    detected = detect_dialect(obj.dsn.strip()) if obj.dsn.strip() else UNKNOWN
+    if detected != UNKNOWN:
+        return detected
+    return obj.dialect.strip().upper() or UNKNOWN
+
+
+def _limited_preview_sql(sql: str, limit: int, dialect: str) -> str:
+    sql = sql.strip().rstrip(";")
+    if limit <= 0:
+        return sql
+    if dialect == DB2:
+        if re.search(r"\bFETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY\b", sql, re.IGNORECASE):
+            return sql
+        trailing_clause = re.search(r"\s+(WITH\s+UR(?:\s+OPTIMIZE\s+FOR\s+\d+\s+ROWS)?|OPTIMIZE\s+FOR\s+\d+\s+ROWS)\s*$", sql, re.IGNORECASE)
+        if trailing_clause:
+            return f"{sql[:trailing_clause.start()]} FETCH FIRST {limit} ROWS ONLY{sql[trailing_clause.start():]}"
+        return f"{sql} FETCH FIRST {limit} ROWS ONLY"
+    if dialect in {SQL_SERVER, ACCESS, UNKNOWN}:
+        return f"SELECT TOP {limit} * FROM (\n{sql}\n) AS QOBJ_PREVIEW"
+    return f"SELECT TOP {limit} * FROM (\n{sql}\n) AS QOBJ_PREVIEW"
 
 
 class QueryObjectViewerWindow(FramelessWindowBase):
@@ -88,11 +132,12 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def __init__(self, parent=None):
         self._current: QueryObject | None = None
         self._loading_detail = False
+        self._audit_parent = parent
         super().__init__(
             title="Query Object Browser",
             default_size=(1120, 620),
             min_size=(760, 420),
-            parent=parent,
+            parent=None,
             header_colors=_HEADER_COLORS,
             border_color=_BORDER_COLOR,
         )
@@ -103,6 +148,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             cls._instance = cls(parent)
             cls._instance.show()
         else:
+            if parent is not None:
+                cls._instance._audit_parent = parent
             cls._instance.refresh()
             cls._instance.raise_()
             cls._instance.activateWindow()
@@ -117,8 +164,12 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(4)
 
         left = QWidget()
+        left.setMinimumWidth(220)
+        left.setMaximumWidth(520)
+        left.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_lay = QVBoxLayout(left)
         left_lay.setContentsMargins(0, 0, 0, 0)
         left_lay.setSpacing(4)
@@ -130,6 +181,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        self.tree.setMinimumWidth(210)
+        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.tree.setFont(_FONT)
         self.tree.setStyleSheet(
             "QTreeWidget { border: 1px solid #1E5BA8; background: white; }"
@@ -137,26 +191,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             "QTreeWidget::item:selected { background-color: #A0C4E8; color: black; }"
         )
         self.tree.currentItemChanged.connect(self._on_tree_selection)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._show_tree_context_menu)
         left_lay.addWidget(self.tree, 1)
-
-        btn_row = QHBoxLayout()
-        btn_row.setContentsMargins(0, 0, 0, 0)
-        btn_row.setSpacing(4)
-
-        btn_import = QPushButton("Import File")
-        btn_import.setFont(_FONT_SMALL)
-        btn_import.setFixedHeight(24)
-        btn_import.setStyleSheet(_BTN_STYLE)
-        btn_import.clicked.connect(self._on_import_file)
-        btn_row.addWidget(btn_import)
-
-        btn_refresh = QPushButton("Refresh")
-        btn_refresh.setFont(_FONT_SMALL)
-        btn_refresh.setFixedHeight(24)
-        btn_refresh.setStyleSheet(_BTN_STYLE)
-        btn_refresh.clicked.connect(self.refresh)
-        btn_row.addWidget(btn_refresh)
-        left_lay.addLayout(btn_row)
 
         splitter.addWidget(left)
 
@@ -168,36 +205,49 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         info = QWidget()
         info_lay = QHBoxLayout(info)
         info_lay.setContentsMargins(0, 0, 0, 0)
-        info_lay.setSpacing(16)
+        info_lay.setSpacing(10)
 
         self.lbl_name = QLabel("Select a QueryObject")
         self.lbl_name.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         self.lbl_name.setStyleSheet("color: #1E5BA8;")
+        self.lbl_name.setFixedWidth(430)
+        self.lbl_name.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         info_lay.addWidget(self.lbl_name)
 
         self.lbl_kind = QLabel("")
         self.lbl_kind.setFont(_FONT)
         self.lbl_kind.setStyleSheet("color: #666;")
+        self.lbl_kind.setVisible(False)
         info_lay.addWidget(self.lbl_kind)
 
         self.lbl_status = QLabel("")
         self.lbl_status.setFont(_FONT)
         self.lbl_status.setStyleSheet("color: #666;")
+        self.lbl_status.setVisible(False)
         info_lay.addWidget(self.lbl_status)
         info_lay.addStretch()
 
+        self.btn_open_builder = QPushButton("Open in Builder")
+        self.btn_open_builder.setFont(_FONT_BOLD)
+        self.btn_open_builder.setFixedSize(116, 26)
+        self.btn_open_builder.setStyleSheet(_BTN_STYLE)
+        self.btn_open_builder.setToolTip("Open this object in its designer when available")
+        self.btn_open_builder.clicked.connect(self._on_open_builder)
+        info_lay.addWidget(self.btn_open_builder)
+
         self.btn_preview_file = QPushButton("Preview File")
         self.btn_preview_file.setFont(_FONT_BOLD)
-        self.btn_preview_file.setFixedSize(92, 26)
+        self.btn_preview_file.setText("Preview Data")
+        self.btn_preview_file.setFixedSize(98, 26)
         self.btn_preview_file.setStyleSheet(_BTN_STYLE)
         self.btn_preview_file.clicked.connect(self._on_preview_file)
         info_lay.addWidget(self.btn_preview_file)
 
-        self.btn_promote = QPushButton("Promote")
+        self.btn_promote = QPushButton("Register Source")
         self.btn_promote.setFont(_FONT_BOLD)
-        self.btn_promote.setFixedSize(82, 26)
+        self.btn_promote.setFixedSize(112, 26)
         self.btn_promote.setStyleSheet(_BTN_STYLE)
-        self.btn_promote.setToolTip("Mark a CSV/Excel ad hoc object as registered")
+        self.btn_promote.setToolTip("Mark a file source object as a registered, reusable source")
         self.btn_promote.clicked.connect(self._on_promote)
         info_lay.addWidget(self.btn_promote)
 
@@ -211,40 +261,39 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         right_lay.addWidget(info)
 
         editor = QWidget()
-        editor_lay = QHBoxLayout(editor)
-        editor_lay.setContentsMargins(0, 0, 0, 0)
-        editor_lay.setSpacing(6)
+        editor.setStyleSheet(
+            "QWidget { background: #FAFBFD; border: 1px solid #C9D8EA; }"
+            "QLabel { border: none; background: transparent; color: #444; }"
+            "QLineEdit { background: white; border: 1px solid #A0C4E8; padding: 2px 4px; }"
+        )
+        editor_lay = QGridLayout(editor)
+        editor_lay.setContentsMargins(6, 5, 6, 5)
+        editor_lay.setHorizontalSpacing(6)
+        editor_lay.setVerticalSpacing(4)
 
-        self.edit_name = self._make_line_edit(180)
-        self.edit_design = self._make_line_edit(130)
-        self.edit_dsn = self._make_line_edit(120)
-        self.edit_status = self._make_line_edit(110)
-        self.edit_tags = self._make_line_edit(180)
+        self.edit_name = self._make_line_edit(0)
+        self.edit_origin = self._make_line_edit(0)
+        self.edit_origin.setToolTip("Builder/source that created this object, such as Query Studio, Cyberlife, Manual SQL, or csv")
+        self.edit_tags = self._make_line_edit(0)
+        self.edit_tags.setToolTip("Optional comma-separated labels for grouping and finding objects later")
+        self.edit_description = self._make_line_edit(0)
 
-        for label, widget in (
-            ("Name", self.edit_name),
-            ("Design", self.edit_design),
-            ("DSN", self.edit_dsn),
-            ("Status", self.edit_status),
-            ("Tags", self.edit_tags),
-        ):
-            lbl = QLabel(label)
-            lbl.setFont(_FONT_SMALL)
-            lbl.setStyleSheet("color: #444;")
-            editor_lay.addWidget(lbl)
-            editor_lay.addWidget(widget)
+        self._add_editor_field(editor_lay, 0, 0, "Object", self.edit_name)
+        self._add_editor_field(editor_lay, 0, 2, "Builder", self.edit_origin)
+        self._add_editor_field(editor_lay, 1, 0, "Description", self.edit_description)
+        self._add_editor_field(editor_lay, 1, 2, "Tags", self.edit_tags)
 
-        self.btn_save = QPushButton("Save Changes")
+        self.btn_save = QPushButton("Save")
         self.btn_save.setFont(_FONT_BOLD)
-        self.btn_save.setFixedSize(110, 26)
+        self.btn_save.setFixedSize(72, 24)
         self.btn_save.setStyleSheet(_BTN_STYLE)
         self.btn_save.clicked.connect(self._on_save_changes)
-        editor_lay.addWidget(self.btn_save)
-        right_lay.addWidget(editor)
-
-        self.edit_description = self._make_line_edit(0)
-        self.edit_description.setPlaceholderText("Description")
-        right_lay.addWidget(self.edit_description)
+        editor_lay.addWidget(self.btn_save, 0, 4, 2, 1, Qt.AlignmentFlag.AlignTop)
+        editor_lay.setColumnStretch(1, 3)
+        editor_lay.setColumnStretch(3, 2)
+        editor_lay.setRowStretch(0, 0)
+        editor_lay.setRowStretch(1, 0)
+        editor_lay.setRowStretch(2, 1)
 
         self.tabs = QTabWidget()
         self.tabs.setFont(_FONT)
@@ -256,6 +305,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             " font-weight: bold; }"
             "QTabBar::tab:!selected { background: #E8F0FB; color: #444; }"
         )
+
+        self.tabs.addTab(editor, "Object")
 
         self.tbl_sources = self._make_table(["Name", "Type", "DSN", "Status"])
         self.tabs.addTab(self.tbl_sources, "Sources")
@@ -291,6 +342,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
         right_lay.addWidget(self.tabs, 1)
         splitter.addWidget(right)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
         splitter.setSizes([280, 840])
 
         root.addWidget(splitter, 1)
@@ -311,6 +364,13 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             " padding: 2px 4px; }"
         )
         return edit
+
+    @staticmethod
+    def _add_editor_field(layout: QGridLayout, row: int, col: int, label: str, widget: QLineEdit):
+        lbl = QLabel(label)
+        lbl.setFont(_FONT_SMALL)
+        layout.addWidget(lbl, row, col)
+        layout.addWidget(widget, row, col + 1)
 
     @staticmethod
     def _make_table(headers: list[str]) -> QTableWidget:
@@ -341,18 +401,18 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         objects = query_object_store.list_objects()
         groups: dict[str, list[QueryObject]] = {}
         for obj in objects:
-            groups.setdefault(obj.kind, []).append(obj)
+            groups.setdefault(_object_group_label(obj), []).append(obj)
 
         fallback_item = None
         selected_item = None
 
-        for kind in sorted(groups, key=_kind_label):
-            parent = QTreeWidgetItem([_kind_label(kind)])
+        for group_label in sorted(groups):
+            parent = QTreeWidgetItem([group_label])
             parent.setFont(0, _FONT_BOLD)
             parent.setForeground(0, QColor("#1E5BA8"))
             parent.setData(0, Qt.ItemDataRole.UserRole, None)
             self.tree.addTopLevelItem(parent)
-            for obj in groups[kind]:
+            for obj in groups[group_label]:
                 child = QTreeWidgetItem([obj.name])
                 child.setFont(0, _FONT)
                 child.setData(0, Qt.ItemDataRole.UserRole, obj.name)
@@ -383,15 +443,51 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return
         self._show_detail(obj)
 
+    def _show_tree_context_menu(self, pos):
+        item = self.tree.itemAt(pos)
+        if item is None:
+            return
+        name = item.data(0, Qt.ItemDataRole.UserRole)
+        if not name:
+            return
+        obj = query_object_store.load_object(name)
+        if obj is None:
+            return
+        self.tree.setCurrentItem(item)
+
+        menu = QMenu(self)
+        open_builder = menu.addAction("Open in Builder")
+        open_builder.setEnabled(self._can_open_in_builder(obj))
+        preview = menu.addAction("Preview Data")
+        preview.setEnabled(self._can_preview_object(obj))
+        copy_object = menu.addAction("Make Copy...")
+        register_source = None
+        if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
+            register_source = menu.addAction("Register Source")
+        menu.addSeparator()
+        delete = menu.addAction("Delete")
+
+        chosen = menu.exec(self.tree.viewport().mapToGlobal(pos))
+        if chosen is None:
+            return
+        if chosen == open_builder:
+            self._on_open_builder()
+        elif chosen == preview:
+            self._on_preview_file()
+        elif chosen == copy_object:
+            self._on_make_copy(obj.name)
+        elif register_source is not None and chosen == register_source:
+            self._on_promote()
+        elif chosen == delete:
+            self._on_delete()
+
     def _clear_detail(self):
         self._current = None
         self.lbl_name.setText("Select a QueryObject")
         self.lbl_kind.setText("")
         self.lbl_status.setText("")
         self.edit_name.clear()
-        self.edit_design.clear()
-        self.edit_dsn.clear()
-        self.edit_status.clear()
+        self.edit_origin.clear()
         self.edit_tags.clear()
         self.edit_description.clear()
         self.tbl_sources.setRowCount(0)
@@ -401,8 +497,10 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.tbl_fields.setRowCount(0)
         self.txt_sql.clear()
         self.txt_config.clear()
+        self.btn_open_builder.setEnabled(False)
         self.btn_preview_file.setEnabled(False)
         self.btn_promote.setEnabled(False)
+        self.btn_promote.setVisible(False)
         self.btn_delete.setEnabled(False)
         self.btn_save.setEnabled(False)
 
@@ -414,12 +512,12 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.lbl_status.setText(f"Status: {obj.metadata_status}    DSN: {obj.dsn or '-'}")
         self.btn_delete.setEnabled(True)
         self.btn_save.setEnabled(True)
-        self.btn_preview_file.setEnabled(obj.kind == OBJECT_KIND_ADHOC_SOURCE)
+        self.btn_open_builder.setEnabled(self._can_open_in_builder(obj))
+        self.btn_preview_file.setEnabled(self._can_preview_object(obj))
         self.btn_promote.setEnabled(obj.kind == OBJECT_KIND_ADHOC_SOURCE)
+        self.btn_promote.setVisible(obj.kind == OBJECT_KIND_ADHOC_SOURCE)
         self.edit_name.setText(obj.name)
-        self.edit_design.setText(obj.source_design)
-        self.edit_dsn.setText(obj.dsn)
-        self.edit_status.setText(obj.metadata_status)
+        self.edit_origin.setText("File Source" if obj.kind == OBJECT_KIND_ADHOC_SOURCE else obj.source_design or obj.kind)
         self.edit_tags.setText(", ".join(obj.tags))
         self.edit_description.setText(obj.description)
 
@@ -504,9 +602,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._current.name = new_name
         self._current.description = self.edit_description.text().strip()
         self._current.tags = [tag.strip() for tag in self.edit_tags.text().split(",") if tag.strip()]
-        self._current.source_design = self.edit_design.text().strip()
-        self._current.dsn = self.edit_dsn.text().strip()
-        self._current.metadata_status = self.edit_status.text().strip() or self._current.metadata_status
+        self._current.source_design = self.edit_origin.text().strip()
         self._current.sql = self.txt_sql.toPlainText().strip()
         self._current.fields = updated_fields
         self._current.updated_at = datetime.now()
@@ -516,6 +612,30 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             query_object_store.delete_object(old_name)
         self.refresh()
         QMessageBox.information(self, "Query Object Saved", f"Saved \"{new_name}\".")
+
+    def _on_open_builder(self):
+        if self._current is None:
+            return
+        parent = self._audit_parent or self.parent() or self._find_audit_window()
+        opener = getattr(parent, "open_query_object_in_builder", None)
+        if opener is None:
+            QMessageBox.information(
+                self,
+                "Builder Unavailable",
+                "Open the Query Object Browser from the Audit window to edit Query Objects.",
+            )
+            return
+        opener(self._current.name)
+
+    @staticmethod
+    def _find_audit_window():
+        app = QApplication.instance()
+        if app is None:
+            return None
+        for widget in app.topLevelWidgets():
+            if hasattr(widget, "open_query_object_in_builder"):
+                return widget
+        return None
 
     @staticmethod
     def _table_text(table: QTableWidget, row: int, col: int) -> str:
@@ -538,6 +658,43 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             "key": "join_key",
         }
         return aliases.get(normalized, "")
+
+    def _on_make_copy(self, source_name: str | None = None):
+        if source_name is None:
+            if self._current is None:
+                return
+            source_name = self._current.name
+        default_name = self._default_copy_name(source_name)
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Copy Query Object",
+            "New object name:",
+            text=default_name,
+        )
+        if not ok or not new_name.strip():
+            return
+        try:
+            copied = query_object_store.copy_object(source_name, new_name.strip())
+        except Exception as exc:
+            QMessageBox.warning(self, "Copy Failed", str(exc))
+            return
+        self.refresh()
+        self._select_object(copied.name)
+        QMessageBox.information(
+            self,
+            "Query Object Copied",
+            f"Created \"{copied.name}\" from \"{source_name}\".",
+        )
+
+    @staticmethod
+    def _default_copy_name(source_name: str) -> str:
+        base = f"{source_name} Copy"
+        if not query_object_store.object_exists(base):
+            return base
+        suffix = 2
+        while query_object_store.object_exists(f"{base} {suffix}"):
+            suffix += 1
+        return f"{base} {suffix}"
 
     def _on_delete(self):
         if self._current is None:
@@ -584,6 +741,21 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         dlg = FileObjectPreviewDialog(self._current, self)
         dlg.exec()
 
+    @staticmethod
+    def _can_open_in_builder(obj: QueryObject) -> bool:
+        return obj.kind in {
+            OBJECT_KIND_VISUAL,
+            OBJECT_KIND_CYBERLIFE,
+            OBJECT_KIND_MANUAL_SQL,
+            OBJECT_KIND_ADHOC_SOURCE,
+        }
+
+    @staticmethod
+    def _can_preview_object(obj: QueryObject) -> bool:
+        if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
+            return True
+        return bool(obj.sql.strip() and obj.dsn.strip())
+
     def _on_import_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -622,12 +794,12 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
 
 class FileObjectPreviewDialog(QDialog):
-    """Small query surface for CSV/Excel QueryObjects."""
+    """Small query surface for QueryObjects."""
 
     def __init__(self, query_object: QueryObject, parent=None):
         super().__init__(parent)
         self._query_object = query_object
-        self.setWindowTitle(f"Preview File - {query_object.name}")
+        self.setWindowTitle(f"Preview Data - {query_object.name}")
         self.resize(880, 520)
         self._build_ui()
         self._run_preview()
@@ -689,14 +861,33 @@ class FileObjectPreviewDialog(QDialog):
             QMessageBox.warning(self, "Invalid Rows", "Rows must be a number.")
             return
         try:
-            df = query_adhoc_object(
-                self._query_object,
-                columns=columns,
-                filter_expr=self.edit_filter.text(),
-                limit=limit,
-            )
+            if self._query_object.kind == OBJECT_KIND_ADHOC_SOURCE:
+                df = query_adhoc_object(
+                    self._query_object,
+                    columns=columns,
+                    filter_expr=self.edit_filter.text(),
+                    limit=limit,
+                )
+            else:
+                df = self._query_sql_object(columns=columns, filter_expr=self.edit_filter.text(), limit=limit)
         except Exception as exc:
-            QMessageBox.warning(self, "File Query Failed", str(exc))
+            QMessageBox.warning(self, "Preview Failed", str(exc))
             return
         self.table.set_dataframe(df, limit_rows=False)
         self.lbl_status.setText(f"{len(df)} rows x {len(df.columns)} columns")
+
+    def _query_sql_object(self, *, columns: list[str], filter_expr: str, limit: int) -> pd.DataFrame:
+        sql = self._query_object.sql.strip().rstrip(";")
+        dsn = self._query_object.dsn.strip()
+        if not sql or not dsn:
+            raise ValueError("This object does not have saved SQL and DSN information to preview.")
+        preview_sql = _limited_preview_sql(sql, limit, _preview_dialect_for_object(self._query_object))
+        result_columns, rows = execute_odbc_query(dsn, preview_sql)
+        df = pd.DataFrame([list(row) for row in rows], columns=result_columns)
+        if columns:
+            available = [column for column in columns if column in df.columns]
+            if available:
+                df = df[available]
+        if filter_expr.strip():
+            df = df.query(filter_expr.strip(), engine="python")
+        return df

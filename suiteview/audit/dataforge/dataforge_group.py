@@ -58,10 +58,10 @@ _CLEAR_BTN_STYLE = (
 )
 
 _SAVE_BTN_STYLE = (
-    "QPushButton { background-color: #D4AF37; color: #0A1E5E;"
-    " border: 1px solid #B8960F; border-radius: 3px;"
-    " padding: 2px 10px; font-size: 9pt; font-weight: bold; }"
-    "QPushButton:hover { background-color: #F4D03F; }"
+    "QPushButton { background-color: #0A2A5C; color: #D4AF37;"
+    " border: 2px solid #D4AF37; border-radius: 3px;"
+    " padding: 1px 4px; font-size: 8pt; font-weight: bold; }"
+    "QPushButton:hover { background-color: #123C69; color: #F4D03F; }"
 )
 
 _QUERIES_BTN_STYLE = (
@@ -470,17 +470,17 @@ class DataForgeGroup(QWidget):
         # Action buttons: Save / Save As / Delete
         self.btn_save = QPushButton("Save")
         self.btn_save.setFont(_FONT_BOLD)
-        self.btn_save.setFixedSize(55, 36)
+        self.btn_save.setFixedSize(60, 36)
         self.btn_save.setStyleSheet(_SAVE_BTN_STYLE)
         self.btn_save.clicked.connect(self._save_or_update)
-        self.bottom_bar.action_layout.addWidget(self.btn_save)
+        self.bottom_bar.center_action_layout.addWidget(self.btn_save)
 
         self.btn_save_as = QPushButton("Save As")
         self.btn_save_as.setFont(_FONT_BOLD)
-        self.btn_save_as.setFixedSize(65, 36)
+        self.btn_save_as.setFixedSize(60, 36)
         self.btn_save_as.setStyleSheet(_SAVE_BTN_STYLE)
         self.btn_save_as.clicked.connect(self._save_forge)
-        self.bottom_bar.action_layout.addWidget(self.btn_save_as)
+        self.bottom_bar.center_action_layout.addWidget(self.btn_save_as)
 
         _DELETE_BTN_STYLE = (
             "QPushButton { background-color: #C00000; color: white;"

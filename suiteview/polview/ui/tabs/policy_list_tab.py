@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QMenu,
 )
 from PyQt6.QtCore import QSize
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QAction
 
 from suiteview.core.db2_constants import REGIONS
@@ -31,9 +31,10 @@ class PolicyListWindow(DockableToolPanel):
     Drag the header to undock; double-click the header to re-dock.
     """
 
-    policy_selected = pyqtSignal(str, str, str)  # region, company, policy
-    policy_removed = pyqtSignal(str, str)          # policy_number, region  (for cache eviction)
-    all_policies_removed = pyqtSignal()            # clear entire cache
+    policy_selected = pyqtSignal(str, str, str)        # region, company, policy
+    policy_open_requested = pyqtSignal(str, str, str)  # region, company, policy
+    policy_removed = pyqtSignal(str, str)              # policy_number, region  (for cache eviction)
+    all_policies_removed = pyqtSignal()                # clear entire cache
 
     def __init__(self, parent_window=None):
         self._policy_history = []
@@ -41,6 +42,10 @@ class PolicyListWindow(DockableToolPanel):
         self._resize_start_x = 0
         self._resize_start_width = 0
         self._resize_start_parent_width = 0
+        self._pending_click_data = None
+        self._click_timer = QTimer()
+        self._click_timer.setSingleShot(True)
+        self._click_timer.timeout.connect(self._emit_pending_policy_selection)
 
         super().__init__(
             parent_window,
@@ -53,6 +58,34 @@ class PolicyListWindow(DockableToolPanel):
         )
 
     # -- DockableToolPanel overrides ----------------------------------------
+
+    def _set_window_owner(self, owned: bool):
+        parent = self._parent_window if owned else None
+        if self.parent() is parent:
+            return
+
+        was_visible = self.isVisible()
+        geometry = self.geometry()
+        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        self.setParent(parent, flags)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setGeometry(geometry)
+        if was_visible:
+            self.show()
+            self.raise_()
+
+    def show_docked(self):
+        self._set_window_owner(True)
+        super().show_docked()
+
+    def dock(self):
+        self._set_window_owner(True)
+        super().dock()
+
+    def detach(self):
+        super().detach()
+        self._set_window_owner(False)
 
     def build_header(self):
         """Green/gold gradient header bar with close button only."""
@@ -218,6 +251,7 @@ class PolicyListWindow(DockableToolPanel):
         self.history_list.setUniformItemSizes(True)
         self.history_list.setIconSize(QSize(0, 0))
         self.history_list.itemClicked.connect(self._on_item_clicked)
+        self.history_list.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.history_list.customContextMenuRequested.connect(self._show_context_menu)
         inner_layout.addWidget(self.history_list)
@@ -302,7 +336,30 @@ class PolicyListWindow(DockableToolPanel):
 
     def _on_item_clicked(self, item: QListWidgetItem):
         data = item.data(Qt.ItemDataRole.UserRole)
+        parent_hidden = (
+            self._parent_window is not None
+            and not self._parent_window.isVisible()
+        )
+        if data and (self.is_docked or parent_hidden):
+            self._pending_click_data = data
+            self._click_timer.start(220)
+
+    def _on_item_double_clicked(self, item: QListWidgetItem):
+        self._click_timer.stop()
+        self._pending_click_data = None
+        data = item.data(Qt.ItemDataRole.UserRole)
         if data:
+            region, company, policy = data
+            self.policy_open_requested.emit(region, company, policy)
+
+    def _emit_pending_policy_selection(self):
+        data = self._pending_click_data
+        self._pending_click_data = None
+        parent_hidden = (
+            self._parent_window is not None
+            and not self._parent_window.isVisible()
+        )
+        if data and (self.is_docked or parent_hidden):
             region, company, policy = data
             self.policy_selected.emit(region, company, policy)
 

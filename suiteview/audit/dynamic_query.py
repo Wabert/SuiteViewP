@@ -34,6 +34,18 @@ def _q(col: str, dialect: str = SQL_SERVER) -> str:
     return f"[{col}]"
 
 
+def _alias(name: str, dialect: str = SQL_SERVER) -> str:
+    """Quote a SELECT alias for the target dialect."""
+    if dialect == DB2:
+        return f'"{name}"'
+    return f"[{name}]"
+
+
+def _aggregate_alias(aggregate: str, column: str) -> str:
+    """Return a stable heading for aggregate result columns."""
+    return f"{aggregate}_{column}"
+
+
 def build_dynamic_sql(
     table_name: str,
     max_count: str,
@@ -120,7 +132,7 @@ def build_dynamic_sql(
             if agg == "display":
                 expr = q(col)
             else:
-                expr = f"{agg}({q(col)})"
+                expr = f"{agg}({q(col)}) AS {_alias(_aggregate_alias(agg, col), dialect)}"
             if expr not in seen:
                 seen.add(expr)
                 parts.append(expr)
@@ -365,7 +377,7 @@ def build_join_sql(
             if agg == "display":
                 expr = qcol
             else:
-                expr = f"{agg}({qcol})"
+                expr = f"{agg}({qcol}) AS {_alias(_aggregate_alias(agg, col), dialect)}"
             if expr not in seen:
                 seen.add(expr)
                 parts.append(expr)

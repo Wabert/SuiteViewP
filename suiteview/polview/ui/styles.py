@@ -53,6 +53,9 @@ GRAY_DARK  = "#2D3748"
 POLVIEW_HEADER_COLORS = (GREEN_GRADIENT_TOP, GREEN_RICH, GREEN_GRADIENT_BOT)
 POLVIEW_BORDER_COLOR  = GOLD_PRIMARY
 
+# Lighter header for duplicate PolView windows opened from the Policy List
+POLVIEW_DUPLICATE_HEADER_COLORS = ("#2E7D32", "#4CAF50", "#66BB6A")
+
 # =============================================================================
 # STYLESHEET DEFINITIONS
 # =============================================================================

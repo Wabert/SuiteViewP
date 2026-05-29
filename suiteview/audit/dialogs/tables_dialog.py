@@ -32,6 +32,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _clean_odbc_identifier(value: object) -> str:
+    return str(value or "").replace("\x00", "").strip()
+
+
+def _quote_qualified_table_name(table_name: str, dialect: str) -> str:
+    """Quote each part of a schema-qualified table name for preview SQL."""
+    parts = [_clean_odbc_identifier(part) for part in table_name.split(".", 1)]
+    parts = [part for part in parts if part]
+    if not parts:
+        return _clean_odbc_identifier(table_name)
+    if dialect == "DB2":
+        return ".".join(f'"{part.replace(chr(34), chr(34) + chr(34))}"' for part in parts)
+    return ".".join(f"[{part.replace(']', ']]')}]" for part in parts)
+
 _FONT = QFont("Segoe UI", 9)
 
 _BTN_STYLE = (
@@ -97,7 +112,7 @@ class _FieldLoaderThread(QThread):
             cursor = conn.cursor()
 
             # Parse schema.table
-            parts = self.table_name.split(".", 1)
+            parts = [_clean_odbc_identifier(part) for part in self.table_name.split(".", 1)]
             if len(parts) == 2:
                 schema, table = parts
             else:
@@ -112,8 +127,8 @@ class _FieldLoaderThread(QThread):
                     break
                 except Exception:
                     continue
-                col_name = row.column_name
-                type_name = row.type_name
+                col_name = _clean_odbc_identifier(row.column_name)
+                type_name = _clean_odbc_identifier(row.type_name)
                 col_size = row.column_size
                 nullable = "Yes" if row.nullable else "No"
                 columns.append((col_name, type_name, col_size, nullable))
@@ -601,8 +616,8 @@ class _AddTableDialog(QDialog):
                 except Exception:
                     continue
                 if row.table_type in ("TABLE", "VIEW"):
-                    schema = row.table_schem or ""
-                    name = row.table_name
+                    schema = _clean_odbc_identifier(row.table_schem)
+                    name = _clean_odbc_identifier(row.table_name)
                     full = f"{schema}.{name}" if schema else name
                     if full not in self._existing:
                         tables.append(full)
@@ -645,10 +660,11 @@ class _PreviewLoaderThread(QThread):
         try:
             conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True, timeout=30)
             cursor = conn.cursor()
+            table_name = _quote_qualified_table_name(self.table_name, self.dialect)
             if self.dialect == "DB2":
-                sql = f'SELECT * FROM {self.table_name} FETCH FIRST 1000 ROWS ONLY'
+                sql = f'SELECT * FROM {table_name} FETCH FIRST 1000 ROWS ONLY'
             else:
-                sql = f'SELECT TOP 1000 * FROM {self.table_name}'
+                sql = f'SELECT TOP 1000 * FROM {table_name}'
             cursor.execute(sql)
             columns = [desc[0] for desc in cursor.description]
             rows = cursor.fetchall()

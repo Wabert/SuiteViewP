@@ -96,9 +96,10 @@ _QUERY_LIST_STYLE = _make_list_style(_TEAL, _TEAL_LIGHT, _TEAL_DEEP)
 _FIELD_LIST_STYLE = _make_list_style(_TEAL, _TEAL_LIGHT, _TEAL_DEEP)
 
 _HEADER_STYLE = (
-    f"QLabel {{ color: white; font-size: 8pt; font-weight: bold;"
+    f"QLabel, QPushButton {{ color: white; font-size: 8pt; font-weight: bold;"
     f" padding: 2px 4px; background-color: {_TEAL};"
     f" border: 1px solid {_TEAL_DARK}; border-radius: 2px; }}"
+    f"QPushButton:hover {{ background-color: {_TEAL_HOVER}; }}"
 )
 
 _SEARCH_STYLE = (
@@ -180,6 +181,7 @@ class QueryFieldPicker(QWidget):
         self._sources: dict[str, QDefinition] = {}  # query_name → QDefinition
         self._current_query: str = ""
         self._current_forge_name: str = ""
+        self._fields_sort_ascending = True
         self._pending_sizes: list[int] | None = None
         self._last_good_sizes: list[int] | None = None
 
@@ -301,9 +303,12 @@ class QueryFieldPicker(QWidget):
         fl.setContentsMargins(2, 4, 4, 4)
         fl.setSpacing(3)
 
-        lbl_fields = QLabel("Fields")
-        lbl_fields.setStyleSheet(_HEADER_STYLE)
-        fl.addWidget(lbl_fields)
+        self.btn_fields_header = QPushButton("Fields ↑")
+        self.btn_fields_header.setFont(_FONT_BOLD)
+        self.btn_fields_header.setStyleSheet(_HEADER_STYLE)
+        self.btn_fields_header.setFixedHeight(22)
+        self.btn_fields_header.clicked.connect(self._toggle_fields_sort)
+        fl.addWidget(self.btn_fields_header)
 
         self.txt_search = QLineEdit()
         self.txt_search.setFont(_FONT_SMALL)
@@ -466,11 +471,22 @@ class QueryFieldPicker(QWidget):
             return
 
         field_data: dict[str, tuple] = {}
-        for col_name in columns:
+        sorted_columns = sorted(
+            columns,
+            key=lambda column: str(column).lower(),
+            reverse=not self._fields_sort_ascending,
+        )
+        for col_name in sorted_columns:
             self.list_fields.addItem(col_name)
             field_data[col_name] = (query_name, col_name)
         self.list_fields.set_field_data(field_data)
         self.lbl_status.setText(f"{len(columns)} fields")
+
+    def _toggle_fields_sort(self):
+        self._fields_sort_ascending = not self._fields_sort_ascending
+        self.btn_fields_header.setText("Fields ↑" if self._fields_sort_ascending else "Fields ↓")
+        if self._current_query:
+            self._populate_fields(self._current_query)
 
     def _filter_fields(self, text: str):
         filt = text.strip().lower()

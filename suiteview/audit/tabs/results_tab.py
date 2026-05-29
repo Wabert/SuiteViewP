@@ -48,6 +48,8 @@ class ResultsTab(QWidget):
         # Tighter rows
         tv.verticalHeader().setDefaultSectionSize(16)
         tv.verticalHeader().setMinimumSectionSize(14)
+        tv.setShowGrid(False)
+        tv.setAlternatingRowColors(False)
         # Full-row selection, no individual cell highlight
         tv.setSelectionBehavior(tv.SelectionBehavior.SelectRows)
 
@@ -111,20 +113,6 @@ class ResultsTab(QWidget):
         self.btn_export.clicked.connect(self._export_to_excel)
         bottom.addWidget(self.btn_export)
 
-        self.btn_save_qdef = QPushButton("Save Object")
-        self.btn_save_qdef.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self.btn_save_qdef.setFixedSize(95, 28)
-        self.btn_save_qdef.setStyleSheet(
-            "QPushButton { background-color: #7C3AED; color: white;"
-            " border: 1px solid #6D28D9; border-radius: 3px; }"
-            "QPushButton:hover { background-color: #8B5CF6; }"
-            "QPushButton:disabled { background-color: #C4B5FD; }"
-        )
-        self.btn_save_qdef.setEnabled(False)
-        self.btn_save_qdef.setToolTip("Save these results as a reusable executable Query Object")
-        self.btn_save_qdef.clicked.connect(self._on_save_qdef)
-        bottom.addWidget(self.btn_save_qdef)
-
         root.addLayout(bottom)
 
         # Double-click on row → open policy in PolView
@@ -167,7 +155,6 @@ class ResultsTab(QWidget):
         self.lbl_status.setText(
             f"Showing all {row_count} rows" if row_count else "")
         self.btn_export.setEnabled(row_count > 0)
-        self.btn_save_qdef.setEnabled(row_count > 0 and self._query_context is not None)
 
     def set_query_context(self, *, sql: str, dsn: str, source_design: str = "",
                           result_columns: list[str] = None,
@@ -184,9 +171,7 @@ class ResultsTab(QWidget):
             "tables": tables or [],
             "display_names": display_names or {},
         }
-        # Re-check enable state
-        if self._df is not None and len(self._df) > 0:
-            self.btn_save_qdef.setEnabled(True)
+        # Query context is retained for callers that need result metadata.
 
     # ── Excel export ─────────────────────────────────────────────────
 
