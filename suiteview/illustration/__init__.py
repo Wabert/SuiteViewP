@@ -36,6 +36,12 @@ from suiteview.illustration.core.illustration_policy_service import (
     build_illustration_data,
 )
 
+
+def launch_illustration():
+    """Launch the Illustration app GUI."""
+    from suiteview.illustration.main import create_illustration_window
+    return create_illustration_window()
+
 __all__ = [
     # Meta
     "__version__",
@@ -53,4 +59,6 @@ __all__ = [
     "load_rates",
     # Service
     "build_illustration_data",
+    # UI
+    "launch_illustration",
 ]

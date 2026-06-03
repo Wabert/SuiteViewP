@@ -6,6 +6,7 @@ override the directory with SUITEVIEW_QUERY_OBJECTS_DIR.
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -13,7 +14,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from suiteview.audit.query_object import QueryObject
+from suiteview.audit.query_object import OBJECT_KIND_VISUAL, QueryObject
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +96,62 @@ def copy_object(source_name: str, new_name: str) -> QueryObject:
     for field in copied.fields:
         if field.source == source_name:
             field.source = clean_name
+    _copy_saved_visual_design(source_name, clean_name, copied.created_at, source.kind)
     save_object(copied)
     return copied
+
+
+def _copy_saved_visual_design(source_name: str, new_name: str, created_at: datetime, kind: str) -> None:
+    if kind != OBJECT_KIND_VISUAL:
+        return
+    try:
+        from suiteview.audit import saved_query_store
+
+        saved = saved_query_store.load_query(source_name)
+        if saved is None:
+            logger.warning("No saved visual design found while copying query object: %s", source_name)
+            return
+        if saved_query_store.query_exists(new_name):
+            raise ValueError(f"A saved visual design named \"{new_name}\" already exists.")
+        copied_saved = copy.deepcopy(saved)
+        copied_saved.name = new_name
+        copied_saved.created_at = created_at
+        saved_query_store.save_query(copied_saved)
+    except ValueError:
+        raise
+    except Exception:
+        logger.exception("Failed to copy saved visual design for query object: %s", source_name)
+        raise
+
+
+def restore_saved_visual_design(query_object: QueryObject):
+    """Restore a missing SavedQuery design from a visual QueryObject snapshot."""
+    if query_object.kind != OBJECT_KIND_VISUAL or not query_object.config:
+        return None
+    try:
+        from suiteview.audit import saved_query_store
+        from suiteview.audit.saved_query import SavedQuery
+
+        existing = saved_query_store.load_query(query_object.name)
+        if existing is not None:
+            return existing
+        restored = SavedQuery(
+            name=query_object.name,
+            source_group=query_object.source_design,
+            dsn=query_object.dsn,
+            tables=[source.name for source in query_object.sources],
+            config=query_object.config,
+            sql=query_object.sql,
+            result_columns=query_object.result_columns,
+            column_types={field.name: field.data_type for field in query_object.fields if field.data_type},
+            created_at=query_object.created_at,
+        )
+        saved_query_store.save_query(restored)
+        save_object(query_object)
+        return restored
+    except Exception:
+        logger.exception("Failed to restore saved visual design for query object: %s", query_object.name)
+        raise
 
 
 def delete_object(name: str) -> None:

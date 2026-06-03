@@ -68,10 +68,13 @@ def build_illustration_data(
     # ── Duration / timing ─────────────────────────────────────
     policy_year = pi.policy_year or 1
     policy_month = pi.policy_month or 1
+    valuation_date = pi.valuation_date
+    if issue_date and valuation_date:
+        months_since_issue = _completed_months(issue_date, valuation_date)
+        policy_month = (months_since_issue % 12) + 1
     duration = (policy_year - 1) * 12 + policy_month
     att_age_raw = pi.attained_age
     attained_age = att_age_raw if att_age_raw is not None else (issue_age + policy_year - 1)
-    valuation_date = pi.valuation_date
 
     # ── Interest ──────────────────────────────────────────────
     guar_raw = pi.guaranteed_interest_rate
@@ -86,6 +89,8 @@ def build_illustration_data(
     glp = float(glp_raw) if glp_raw is not None else 0.0
     gsp_raw = pi.gsp
     gsp = float(gsp_raw) if gsp_raw is not None else 0.0
+    accum_glp_raw = pi.accumulated_glp_target
+    accumulated_glp = float(accum_glp_raw) if accum_glp_raw is not None else 0.0
     corr_raw = pi.corridor_percent
     corridor_pct = float(corr_raw) if corr_raw is not None else 100.0
 
@@ -107,11 +112,10 @@ def build_illustration_data(
     cost_basis = float(cost_basis_raw) if cost_basis_raw is not None else 0.0
 
     # ── Loans ─────────────────────────────────────────────────
-    # NOTE: DB2 regular loan values mapped to preferred for testing
-    reg_loan_prin = 0.0
-    reg_loan_acc = 0.0
-    pref_loan_prin = float(pi.total_regular_loan_principal or 0)
-    pref_loan_acc = float(pi.total_regular_loan_accrued or 0)
+    reg_loan_prin = float(pi.total_regular_loan_principal or 0)
+    reg_loan_acc = float(pi.total_regular_loan_accrued or 0)
+    pref_loan_prin = float(pi.total_preferred_loan_principal or 0)
+    pref_loan_acc = float(pi.total_preferred_loan_accrued or 0)
     var_loan_prin = float(pi.total_variable_loan_principal or 0)
     var_loan_acc = float(pi.total_variable_loan_accrued or 0)
 
@@ -309,6 +313,7 @@ def build_illustration_data(
         def_of_life_ins=def_of_life_ins,
         glp=glp,
         gsp=gsp,
+        accumulated_glp=accumulated_glp,
         corridor_percent=corridor_pct,
         mtp=mtp,
         accumulated_mtp=accumulated_mtp,
@@ -319,6 +324,7 @@ def build_illustration_data(
         regular_loan_accrued=reg_loan_acc,
         preferred_loan_principal=pref_loan_prin,
         preferred_loan_accrued=pref_loan_acc,
+        preferred_loans_available=bool(pi.preferred_loans_available),
         variable_loan_principal=var_loan_prin,
         variable_loan_accrued=var_loan_acc,
         withdrawals_to_date=withdrawals,
@@ -345,6 +351,13 @@ def _translate_sex(code: str) -> str:
     if code in ("U", "0"):
         return "U"
     return code
+
+
+def _completed_months(start: date, end: date) -> int:
+    months = (end.year - start.year) * 12 + (end.month - start.month)
+    if end.day < start.day:
+        months -= 1
+    return max(months, 0)
 
 
 def _coverage_is_terminated(coverage, as_of_date: date) -> bool:

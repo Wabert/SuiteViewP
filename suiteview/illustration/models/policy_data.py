@@ -176,6 +176,7 @@ class IllustrationPolicyData:
     regular_loan_accrued: float = 0.0
     preferred_loan_principal: float = 0.0
     preferred_loan_accrued: float = 0.0
+    preferred_loans_available: bool = False
     variable_loan_principal: float = 0.0
     variable_loan_accrued: float = 0.0
 

@@ -987,7 +987,7 @@ class StyledInfoTableGroup(QGroupBox):
         if tooltip_text:
             lbl = ClickableTooltipLabel(display_text, tooltip_text)
         else:
-            lbl = QLabel(display_text)
+            lbl = CopyableLabel(display_text)
         lbl.setStyleSheet(self._lbl_style)
         lbl.setFixedWidth(label_width)
         lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -1117,15 +1117,59 @@ class StyledInfoTableGroup(QGroupBox):
         from PyQt6.QtWidgets import QMenu, QApplication
         menu = QMenu(self)
         menu.setStyleSheet(CONTEXT_MENU_STYLE)
+
+        copy_all_action = None
+        if self._show_info and self._fields:
+            copy_all_action = menu.addAction("Copy All")
+            if self._show_table and self.table.rowCount() > 0:
+                menu.addSeparator()
         
         if self._show_table and self.table.rowCount() > 0:
             copy_table_action = menu.addAction("Copy Entire Table")
             dump_excel_action = menu.addAction("Dump to Excel")
             action = menu.exec(self.mapToGlobal(pos))
-            if action == copy_table_action:
+            if action == copy_all_action:
+                self._copy_all_to_clipboard()
+            elif action == copy_table_action:
                 self.table._copy_table_to_clipboard()
             elif action == dump_excel_action:
                 self.table._dump_to_excel()
+        else:
+            action = menu.exec(self.mapToGlobal(pos))
+            if action == copy_all_action:
+                self._copy_all_to_clipboard()
+
+    def _copy_all_to_clipboard(self):
+        """Copy the group title and all visible field values to the clipboard."""
+        from PyQt6.QtWidgets import QApplication
+
+        lines = [self.title()]
+        if hasattr(self, '_labels'):
+            for attr_name, value_label in self._fields.items():
+                label_widget = self._labels.get(attr_name)
+                if not label_widget or not value_label.isVisible():
+                    continue
+                if not label_widget.isVisible():
+                    continue
+                label_text = label_widget.text().rstrip(":").strip()
+                if label_text and label_text != "-":
+                    lines.append(f"{label_text}: {value_label.text().strip()}")
+
+        if self._show_table and self.table and self.table.rowCount() > 0:
+            headers = []
+            for col in range(self.table.columnCount()):
+                header_item = self.table._data_table.horizontalHeaderItem(col)
+                headers.append(header_item.text() if header_item else "")
+            if any(headers):
+                lines.append("\t".join(headers))
+            for row in range(self.table.rowCount()):
+                row_values = []
+                for col in range(self.table.columnCount()):
+                    item = self.table.item(row, col)
+                    row_values.append(item.text() if item else "")
+                lines.append("\t".join(row_values))
+
+        QApplication.clipboard().setText("\n".join(lines).strip())
 
 
 # Backward compatibility alias
@@ -1296,6 +1340,14 @@ class PolicyLookupBar(QWidget):
         # Store reference to top_row layout so main_window can add list toggle btn
         self._top_layout = layout
         outer_layout.addWidget(top_row)
+
+        self._secondary_controls = QWidget()
+        self._secondary_controls.setVisible(False)
+        self._secondary_layout = QHBoxLayout(self._secondary_controls)
+        self._secondary_layout.setContentsMargins(8, 0, 8, 2)
+        self._secondary_layout.setSpacing(4)
+        self._secondary_layout.addStretch()
+        outer_layout.addWidget(self._secondary_controls)
         
         # Company chooser row (hidden by default) — right-aligned below inputs
         self._company_chooser = QWidget()
@@ -1323,6 +1375,11 @@ class PolicyLookupBar(QWidget):
     def layout(self):
         """Return the top row layout so external code can add widgets to the bar."""
         return self._top_layout
+
+    def secondary_layout(self):
+        """Return the secondary row layout for optional controls below the lookup row."""
+        self._secondary_controls.setVisible(True)
+        return self._secondary_layout
     
     def _on_get_policy(self):
         self.hide_company_chooser()

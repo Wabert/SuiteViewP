@@ -122,3 +122,43 @@ def accrue_loan_interest(
         reg_loan_charge=rg_interest,
         pref_loan_charge=pf_interest,
     )
+
+
+def apply_new_fixed_loan(
+    loan: LoanState,
+    requested_amount: float,
+    account_value: float,
+    premiums_to_date: float,
+    withdrawals_to_date: float,
+    preferred_loans_available: bool,
+) -> LoanState:
+    """Allocate a new fixed-loan request between preferred and regular loans.
+
+    Preferred loan capacity is determined after monthly deduction using:
+
+        AV - current policy debt - (PremTD - AccumWDs)
+
+    Any remaining requested loan amount is added as regular loan principal.
+    """
+    loan_amount = max(requested_amount, 0.0)
+    if loan_amount == 0.0:
+        return loan
+
+    preferred_capacity = 0.0
+    if preferred_loans_available:
+        preferred_capacity = max(
+            account_value - loan.policy_debt - (premiums_to_date - withdrawals_to_date),
+            0.0,
+        )
+
+    preferred_amount = min(loan_amount, preferred_capacity)
+    regular_amount = loan_amount - preferred_amount
+
+    return LoanState(
+        rg_loan_princ=loan.rg_loan_princ + regular_amount,
+        rg_loan_accrued=loan.rg_loan_accrued,
+        pf_loan_princ=loan.pf_loan_princ + preferred_amount,
+        pf_loan_accrued=loan.pf_loan_accrued,
+        vbl_loan_princ=loan.vbl_loan_princ,
+        vbl_loan_accrued=loan.vbl_loan_accrued,
+    )

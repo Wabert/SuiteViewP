@@ -7,13 +7,22 @@ Public API:
 from __future__ import annotations
 
 import math
+from dataclasses import replace
+from enum import Enum
 from typing import Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
 
 from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_config
+from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
+from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.illustration.core.interest_calc import credit_interest
-from suiteview.illustration.core.loan_handler import LoanState, accrue_loan_interest, capitalize_loans
+from suiteview.illustration.core.loan_handler import (
+    LoanState,
+    accrue_loan_interest,
+    apply_new_fixed_loan,
+    capitalize_loans,
+)
 from suiteview.illustration.core.monthly_deduction import (
     _coverage_year,
     _rate_from_schedule,
@@ -27,8 +36,14 @@ from suiteview.illustration.core.rate_loader import (
 )
 from suiteview.illustration.core.shadow_calc import calculate_shadow
 from suiteview.illustration.models.calc_state import MonthlyState
+from suiteview.illustration.models.input_set import IllustrationInputSet
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
+
+
+class ProjectionTiming(str, Enum):
+    ILLUSTRATION = "illustration"
+    CYBERLIFE_MONTHLIVERSARY = "cyberlife_monthliversary"
 
 
 class IllustrationEngine:
@@ -45,6 +60,9 @@ class IllustrationEngine:
         self,
         policy: IllustrationPolicyData,
         months: Optional[int] = None,
+        future_inputs: Optional[IllustrationInputSet] = None,
+        timing: ProjectionTiming = ProjectionTiming.ILLUSTRATION,
+        stop_on_lapse: bool = True,
     ) -> List[MonthlyState]:
         """Run monthly projection from current policy state.
 
@@ -289,12 +307,31 @@ class IllustrationEngine:
             surrender_value=surrender_value_0,
         )
 
+        if timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY:
+            inforce = replace(
+                inforce,
+                av_after_deduction=policy.account_value,
+                av_end_of_month=policy.account_value,
+                interest_credited=0.0,
+                cumulative_interest=0.0,
+            )
+
+        compiled_inputs = compile_month_inputs(policy, future_inputs, total_months)
+
         results: List[MonthlyState] = [inforce]
         state = inforce
         for _ in range(total_months):
-            state = self.process_month(state, policy, config, rates, bonus)
+            month_inputs = compiled_inputs.get(state.duration + 1)
+            if timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY:
+                state = self.process_cyberlife_monthliversary(
+                    state, policy, config, rates, bonus, month_inputs=month_inputs,
+                )
+            else:
+                state = self.process_month(
+                    state, policy, config, rates, bonus, month_inputs=month_inputs,
+                )
             results.append(state)
-            if state.lapsed:
+            if stop_on_lapse and state.lapsed:
                 break
 
         return results
@@ -306,6 +343,7 @@ class IllustrationEngine:
         config: PlancodeConfig,
         rates: IllustrationRates,
         bonus: BonusConfig,
+        month_inputs=None,
     ) -> MonthlyState:
         """Process a single month of the calculation pipeline.
 
@@ -340,10 +378,21 @@ class IllustrationEngine:
             is_anniversary,
         )
 
+        # ── Step 0c: Apply external cash-flow inputs ──────────
+        cash_flows = apply_cash_flow_inputs(
+            av,
+            cap_loan,
+            state.withdrawals_to_date,
+            month_inputs,
+        )
+        av = cash_flows.av
+        cap_loan = cash_flows.loan_state
+
         # ── Step 1: Apply Premium ─────────────────────────────
         prem = apply_premium(
             av, policy, config, rates, rate_year,
             premiums_ytd, premiums_to_date, cost_basis,
+            gross_premium_override=month_inputs.total_premium if month_inputs is not None else None,
         )
         av = prem.av_after_premium
 
@@ -356,17 +405,27 @@ class IllustrationEngine:
         )
         av = ded.av_after_deduction
 
+        # ── Step 2b: Policy Values / New Fixed Loan ─────────
+        fixed_loan_state = apply_new_fixed_loan(
+            cap_loan,
+            month_inputs.regular_loan if month_inputs is not None else 0.0,
+            ded.av_after_deduction,
+            prem.premiums_to_date,
+            cash_flows.withdrawals_to_date,
+            policy.preferred_loans_available,
+        )
+
         # ── Step 3: Interest Credit ──────────────────────────
         intr = credit_interest(
             av, policy, config, rates, bonus, rate_year,
             attained_age, month_date,
-            reg_loan_balance=cap_loan.rg_loan_princ,
-            pref_loan_balance=cap_loan.pf_loan_princ,
+            reg_loan_balance=fixed_loan_state.rg_loan_princ,
+            pref_loan_balance=fixed_loan_state.pf_loan_princ,
         )
         av = intr.av_end_of_month
 
         # ── Step 3b: Loan Interest Accrual ────────────────────
-        accrual_loan = accrue_loan_interest(cap_loan, config, intr.days_in_month)
+        accrual_loan = accrue_loan_interest(fixed_loan_state, config, intr.days_in_month)
 
         # ── Step 3c: Shadow Account (CCV) ─────────────────────
         shd = calculate_shadow(
@@ -386,7 +445,7 @@ class IllustrationEngine:
         monthly_mtp = math.trunc(policy.mtp * 100) / 100
         accumulated_mtp = state.accumulated_mtp + monthly_mtp
         accum_mtp_less_prem = (
-            prem.premiums_to_date - state.withdrawals_to_date
+            prem.premiums_to_date - cash_flows.withdrawals_to_date
             - accrual_loan.policy_debt
         ) - accumulated_mtp
 
@@ -520,7 +579,7 @@ class IllustrationEngine:
             # Tracking
             premiums_ytd=prem.premiums_ytd,
             premiums_to_date=prem.premiums_to_date,
-            withdrawals_to_date=state.withdrawals_to_date,
+            withdrawals_to_date=cash_flows.withdrawals_to_date,
             cost_basis=prem.cost_basis,
             cumulative_interest=cumulative_interest,
             cumulative_charges=cumulative_charges,
@@ -565,6 +624,189 @@ class IllustrationEngine:
             lapsed=lapsed,
         )
 
+    def process_cyberlife_monthliversary(
+        self,
+        state: MonthlyState,
+        policy: IllustrationPolicyData,
+        config: PlancodeConfig,
+        rates: IllustrationRates,
+        bonus: BonusConfig,
+        month_inputs=None,
+    ) -> MonthlyState:
+        prior_date = state.date or policy.valuation_date or policy.issue_date
+        month_date = prior_date + relativedelta(months=1)
+        next_year, next_month, duration = _policy_counters_for_date(policy, month_date)
+        attained_age = policy.issue_age + (duration - 1) // 12
+        is_anniversary = next_month == 1
+        rate_year = next_year
+
+        premiums_ytd = 0.0 if is_anniversary else state.premiums_ytd
+        premiums_to_date = state.premiums_to_date
+        cost_basis = state.cost_basis
+
+        cap_loan = capitalize_loans(
+            state.end_rg_loan_princ, state.end_rg_loan_accrued,
+            state.end_pf_loan_princ, state.end_pf_loan_accrued,
+            state.end_vbl_loan_princ, state.end_vbl_loan_accrued,
+            is_anniversary,
+        )
+
+        intr = credit_interest(
+            state.av_end_of_month,
+            policy,
+            config,
+            rates,
+            bonus,
+            rate_year,
+            attained_age,
+            month_date,
+            reg_loan_balance=cap_loan.rg_loan_princ,
+            pref_loan_balance=cap_loan.pf_loan_princ,
+        )
+
+        cash_flows = apply_cash_flow_inputs(
+            intr.av_end_of_month,
+            cap_loan,
+            state.withdrawals_to_date,
+            month_inputs,
+        )
+        cap_loan = cash_flows.loan_state
+
+        prem = apply_premium(
+            cash_flows.av,
+            policy,
+            config,
+            rates,
+            rate_year,
+            premiums_ytd,
+            premiums_to_date,
+            cost_basis,
+            gross_premium_override=month_inputs.total_premium if month_inputs is not None else None,
+        )
+
+        ded = calculate_deduction(
+            prem.av_after_premium,
+            policy,
+            config,
+            rates,
+            rate_year,
+            attained_age,
+            prem.premiums_to_date,
+            monthly_mtp=math.trunc(policy.mtp * 100) / 100,
+            projection_date=month_date,
+        )
+
+        fixed_loan_state = apply_new_fixed_loan(
+            cap_loan,
+            month_inputs.regular_loan if month_inputs is not None else 0.0,
+            ded.av_after_deduction,
+            prem.premiums_to_date,
+            cash_flows.withdrawals_to_date,
+            policy.preferred_loans_available,
+        )
+        accrual_loan = accrue_loan_interest(fixed_loan_state, config, intr.days_in_month)
+        monthly_mtp = math.trunc(policy.mtp * 100) / 100
+        accumulated_mtp = state.accumulated_mtp + monthly_mtp
+        accum_mtp_less_prem = (
+            prem.premiums_to_date - cash_flows.withdrawals_to_date
+            - accrual_loan.policy_debt
+        ) - accumulated_mtp
+        av_less_loans = ded.av_after_deduction - accrual_loan.policy_debt
+
+        return MonthlyState(
+            date=month_date,
+            policy_year=next_year,
+            policy_month=next_month,
+            duration=duration,
+            attained_age=attained_age,
+            is_anniversary=is_anniversary,
+            rg_loan_princ=cap_loan.rg_loan_princ,
+            rg_loan_accrued=cap_loan.rg_loan_accrued,
+            pf_loan_princ=cap_loan.pf_loan_princ,
+            pf_loan_accrued=cap_loan.pf_loan_accrued,
+            vbl_loan_princ=cap_loan.vbl_loan_princ,
+            vbl_loan_accrued=cap_loan.vbl_loan_accrued,
+            gross_premium=prem.gross_premium,
+            prem_under_target=prem.prem_under_target,
+            prem_over_target=prem.prem_over_target,
+            target_load=prem.target_load,
+            excess_load=prem.excess_load,
+            flat_load=prem.flat_load,
+            total_premium_load=prem.total_premium_load,
+            net_premium=prem.net_premium,
+            av_after_premium=prem.av_after_premium,
+            nar_av=ded.nar_av,
+            standard_db=ded.standard_db,
+            corridor_rate=ded.corridor_rate,
+            gross_db=ded.gross_db,
+            corr_amount=ded.corr_amount,
+            db_by_coverage=ded.db_by_coverage,
+            discounted_db_by_coverage=ded.discounted_db_by_coverage,
+            discounted_db_cov1=ded.discounted_db_cov1,
+            discounted_db_corr=ded.discounted_db_corr,
+            discounted_db=ded.discounted_db,
+            total_db=ded.total_db,
+            total_discounted_db=ded.total_discounted_db,
+            nar_by_coverage=ded.nar_by_coverage,
+            nar_cov1=ded.nar_cov1,
+            nar_corr=ded.nar_corr,
+            nar=ded.nar,
+            total_nar=ded.total_nar,
+            coi_rates_by_coverage=ded.coi_rates_by_coverage,
+            coi_charges_by_coverage=ded.coi_charges_by_coverage,
+            coi_rate=ded.coi_rate,
+            coi_charge_cov1=ded.coi_charge_cov1,
+            coi_charge_corr=ded.coi_charge_corr,
+            coi_charge=ded.coi_charge,
+            total_coi_charge=ded.total_coi_charge,
+            epu_rate=ded.epu_rate,
+            epu_charge=ded.epu_charge,
+            epu_rates_by_coverage=ded.epu_rates_by_coverage,
+            epu_charges_by_coverage=ded.epu_charges_by_coverage,
+            mfee_charge=ded.mfee_charge,
+            av_charge=ded.av_charge,
+            pw_charge=ded.pw_charge,
+            benefit_charges=ded.benefit_charges,
+            benefit_amounts=ded.benefit_amounts,
+            benefit_rates=ded.benefit_rates,
+            benefit_charge_detail=ded.benefit_charge_detail,
+            rider_charges=ded.rider_charges,
+            rider_amounts=ded.rider_amounts,
+            rider_rates=ded.rider_rates,
+            rider_charge_detail=ded.rider_charge_detail,
+            total_deduction=ded.total_deduction,
+            av_after_deduction=ded.av_after_deduction,
+            days_in_month=intr.days_in_month,
+            annual_interest_rate=intr.annual_interest_rate,
+            bonus_interest_rate=intr.bonus_interest_rate,
+            effective_annual_rate=intr.effective_annual_rate,
+            monthly_interest_rate=intr.monthly_interest_rate,
+            reg_impaired_int=intr.reg_impaired_int,
+            pref_impaired_int=intr.pref_impaired_int,
+            interest_credited=intr.interest_credited,
+            av_end_of_month=ded.av_after_deduction,
+            reg_loan_charge=accrual_loan.reg_loan_charge,
+            pref_loan_charge=accrual_loan.pref_loan_charge,
+            end_rg_loan_princ=accrual_loan.rg_loan_princ,
+            end_rg_loan_accrued=accrual_loan.rg_loan_accrued,
+            end_pf_loan_princ=accrual_loan.pf_loan_princ,
+            end_pf_loan_accrued=accrual_loan.pf_loan_accrued,
+            end_vbl_loan_princ=accrual_loan.vbl_loan_princ,
+            end_vbl_loan_accrued=accrual_loan.vbl_loan_accrued,
+            policy_debt=accrual_loan.policy_debt,
+            premiums_ytd=prem.premiums_ytd,
+            premiums_to_date=prem.premiums_to_date,
+            withdrawals_to_date=cash_flows.withdrawals_to_date,
+            cost_basis=prem.cost_basis,
+            cumulative_interest=state.cumulative_interest + intr.interest_credited,
+            cumulative_charges=state.cumulative_charges + ded.total_deduction,
+            monthly_mtp=monthly_mtp,
+            accumulated_mtp=accumulated_mtp,
+            accum_mtp_less_prem=accum_mtp_less_prem,
+            av_less_loans=av_less_loans,
+            lapsed=state.lapsed or ded.av_after_deduction <= 0.0,
+        )
+
     def _load_rates(
         self,
         policy: IllustrationPolicyData,
@@ -587,6 +829,24 @@ def _advance_month(policy_year: int, policy_month: int) -> tuple[int, int]:
     if policy_month == 12:
         return policy_year + 1, 1
     return policy_year, policy_month + 1
+
+
+def _policy_counters_for_date(policy: IllustrationPolicyData, month_date) -> tuple[int, int, int]:
+    if policy.issue_date is None:
+        next_year, next_month = _advance_month(policy.policy_year, policy.policy_month)
+        return next_year, next_month, policy.duration + 1
+    completed_months = _completed_months(policy.issue_date, month_date)
+    duration = completed_months + 1
+    policy_year = (completed_months // 12) + 1
+    policy_month = (completed_months % 12) + 1
+    return policy_year, policy_month, duration
+
+
+def _completed_months(start, end) -> int:
+    months = (end.year - start.year) * 12 + (end.month - start.month)
+    if end.day < start.day:
+        months -= 1
+    return max(months, 0)
 
 
 def _calculate_surrender_charge(

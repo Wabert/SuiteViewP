@@ -46,6 +46,12 @@ def _aggregate_alias(aggregate: str, column: str) -> str:
     return f"{aggregate}_{column}"
 
 
+def _select_prefix(top_clause: str, distinct: bool, dialect: str) -> str:
+    if distinct and dialect != DB2:
+        return f"DISTINCT {top_clause}"
+    return f"{top_clause}{'DISTINCT ' if distinct else ''}"
+
+
 def build_dynamic_sql(
     table_name: str,
     max_count: str,
@@ -163,7 +169,7 @@ def build_dynamic_sql(
             if qcol not in plain_cols:
                 plain_cols.append(qcol)
 
-    sql = f"SELECT {top_clause}{'DISTINCT ' if distinct else ''}{col_expr}\nFROM {table_name}"
+    sql = f"SELECT {_select_prefix(top_clause, distinct, dialect)}{col_expr}\nFROM {table_name}"
     if wheres:
         sql += "\nWHERE " + "\n  AND ".join(wheres)
     if has_agg and plain_cols:
@@ -453,7 +459,7 @@ def build_join_sql(
         join_clauses.append(f"  {jtype} {join_target}\n    ON {on_clause}")
 
     # ── Assemble SQL ─────────────────────────────────────────────
-    sql = f"SELECT {top_clause}{'DISTINCT ' if distinct else ''}{col_expr}"
+    sql = f"SELECT {_select_prefix(top_clause, distinct, dialect)}{col_expr}"
     sql += f"\nFROM {from_expr}"
     for jc in join_clauses:
         sql += f"\n{jc}"

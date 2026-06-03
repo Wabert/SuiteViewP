@@ -2059,6 +2059,7 @@ class SuiteViewTaskbar(QWidget):
         self.audit_window = None
         self.ratemanager_window = None
         self.abrquote_window = None
+        self.illustration_window = None
         self.file_nav_window = None
         self.scratchpad_window = None
 
@@ -2376,7 +2377,7 @@ class SuiteViewTaskbar(QWidget):
             # Close all child windows
             for window in [self.db_window, self.mainframe_window, self.email_attachments_window, 
                            self.screenshot_window, self.polview_window, self.ratemanager_window,
-                           self.file_nav_window]:
+                           self.abrquote_window, self.illustration_window, self.file_nav_window]:
                 if window:
                     try:
                         window.close()
@@ -2829,6 +2830,29 @@ class SuiteViewTaskbar(QWidget):
                 self.abrquote_window = None  # reset so retry works
                 return
         self._bring_to_front(self.abrquote_window)
+
+    def _open_illustration(self):
+        """Open the Illustration app window"""
+        if self.illustration_window is not None:
+            try:
+                _ = self.illustration_window.isVisible()
+            except RuntimeError:
+                self.illustration_window = None
+
+        if self.illustration_window is None:
+            try:
+                from suiteview.illustration import launch_illustration
+                self.illustration_window = launch_illustration()
+                self._setup_child_window(self.illustration_window, "Illustration")
+            except Exception as e:
+                import traceback
+                tb = traceback.format_exc()
+                logger.error(f"Failed to open Illustration: {e}\n{tb}")
+                QMessageBox.critical(self, "Illustration Error",
+                                     f"Failed to open Illustration:\n\n{e}\n\n{tb}")
+                self.illustration_window = None
+                return
+        self._bring_to_front(self.illustration_window)
 
 
     def _open_rate_manager(self):
@@ -3388,6 +3412,34 @@ class SuiteViewTaskbar(QWidget):
         """)
         self.abrquote_btn.clicked.connect(self._open_abrquote)
         header_layout.addWidget(self.abrquote_btn)
+
+        # ====== ILLUSTRATION BUTTON (gold "I" on purple) ======
+        self.illustration_btn = QPushButton("I")
+        self.illustration_btn.setFixedSize(28, 28)
+        self.illustration_btn.setToolTip("Open Illustration")
+        self.illustration_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.illustration_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5E35A5, stop:1 #2A1458);
+                border: 2px solid #D4A017;
+                border-radius: 4px;
+                color: #FFD700;
+                font-size: 14px;
+                font-weight: bold;
+                font-family: 'Segoe UI', sans-serif;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7E57C2, stop:1 #5E35A5);
+                border-color: #FFD700;
+            }
+            QPushButton:pressed {
+                background: #2A1458;
+            }
+        """)
+        self.illustration_btn.clicked.connect(self._open_illustration)
+        header_layout.addWidget(self.illustration_btn)
         
         # ====== AUDIT BUTTON ("Q" — silver & blue) ======
         self.audit_btn = QPushButton("Q")
@@ -3550,6 +3602,7 @@ class SuiteViewTaskbar(QWidget):
             # PolView, ABR Quote, and Mainframe Nav are always available in full build
             self.tools_menu.addAction("PolView", self._open_polview)
             self.tools_menu.addAction("ABR Quote", self._open_abrquote)
+            self.tools_menu.addAction("Illustration", self._open_illustration)
             self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)
             self.tools_menu.addAction("Audit Tool", self._open_audit)
         if DEV_MODE and not LIGHT_MODE:
@@ -4019,7 +4072,7 @@ class SuiteViewTaskbar(QWidget):
     def _enter_floating_mode(self):
         """Undock the compact bar into a short, draggable floating bar.
         
-        Shows only:  SuiteView [ P ] [ F ] [ A ] [ Q ] [✕]
+        Shows only:  SuiteView [ P ] [ F ] [ A ] [ I ] [ Q ] [✕]
         The bar becomes draggable and is not docked to the taskbar.
         """
         # First unregister appbar so the desktop work area is restored
@@ -4062,6 +4115,8 @@ class SuiteViewTaskbar(QWidget):
             self.filenav_btn.show()
         if hasattr(self, 'abrquote_btn'):
             self.abrquote_btn.show()
+        if hasattr(self, 'illustration_btn'):
+            self.illustration_btn.show()
         if hasattr(self, 'audit_btn'):
             self.audit_btn.show()
         if hasattr(self, 'close_btn'):

@@ -15,6 +15,7 @@ Folder structure:
 import json
 import os
 import shutil
+from datetime import date, datetime
 from typing import Optional, List
 
 from PyQt6.QtWidgets import (
@@ -22,6 +23,7 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QGroupBox, QGridLayout,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu,
     QStyledItemDelegate, QSizePolicy, QLineEdit, QTableWidgetItem,
+    QStackedWidget,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QSize, QMimeData, QUrl
 from PyQt6.QtGui import QColor, QDrag, QPixmap, QPainter, QFont
@@ -33,6 +35,13 @@ from ..styles import (
     POLICY_INFO_FRAME_STYLE,
 )
 from ..widgets import FixedHeaderTableWidget
+from .annuity_rider_tab import AnnuityRiderTab, RIDER_PLANCODE
+from ...services.glp_exception import (
+    GlpExceptionResult,
+    calculate_glp_exception,
+    check_forecast_availability,
+    is_glp_exception_eligible,
+)
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -157,6 +166,13 @@ def _save_user_tasks(tasks: List[str]):
         json.dump(sorted(set(tasks)), f, indent=2)
 
 
+def _safe_anniversary(issue_date: date, year: int) -> date:
+    try:
+        return issue_date.replace(year=year)
+    except ValueError:
+        return issue_date.replace(year=year, day=28)
+
+
 # ---------------------------------------------------------------------------
 # Styling
 # ---------------------------------------------------------------------------
@@ -259,6 +275,34 @@ _MODE_BTN_INACTIVE_STYLE = f"""
         color: {GREEN_DARK};
         border-color: {GREEN_PRIMARY};
     }}
+    QPushButton:disabled {{
+        background: {GRAY_LIGHT};
+        color: {GRAY_MID};
+        border-color: {GRAY_MID};
+    }}
+"""
+
+_NAV_PANEL_STYLE = f"""
+    QWidget#PolicySupportNavPanel {{
+        background-color: {GREEN_SUBTLE};
+        border: 2px solid {GREEN_PRIMARY};
+        border-radius: 8px;
+    }}
+"""
+
+_RESULT_VALUE_STYLE = f"""
+    font-size: 11px;
+    color: {GREEN_DARK};
+    font-weight: bold;
+    background: transparent;
+    border: none;
+"""
+
+_RESULT_LABEL_STYLE = f"""
+    font-size: 11px;
+    color: {GRAY_DARK};
+    background: transparent;
+    border: none;
 """
 
 _NAV_BTN_STYLE = f"""
@@ -1006,6 +1050,8 @@ class PolicySupportTab(QWidget):
     # Mode constants
     MODE_POLICY_SUPPORT = "policy_support"
     MODE_ABR = "abr"
+    SECTION_ANNUITY_RIDER = "annuity_rider"
+    SECTION_GLP_EXCEPTION = "glp_exception"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1014,42 +1060,72 @@ class PolicySupportTab(QWidget):
         self._policy_library_path = ""
         self._user_tasks: List[str] = _load_user_tasks()
         self._current_mode = self.MODE_POLICY_SUPPORT
+        self._current_section = self.MODE_POLICY_SUPPORT
         self._setup_ui()
 
     # -- UI ----------------------------------------------------------------
 
     def _setup_ui(self):
         self.setStyleSheet(f"background-color: {WHITE};")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(4)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(8)
 
-        # ── Mode toggle buttons + Top info bar (same row) ─────────────────
+        nav_panel = QWidget()
+        nav_panel.setObjectName("PolicySupportNavPanel")
+        nav_panel.setStyleSheet(_NAV_PANEL_STYLE)
+        nav_panel.setFixedWidth(138)
+        nav_col = QVBoxLayout(nav_panel)
+        nav_col.setContentsMargins(8, 8, 8, 8)
+        nav_col.setSpacing(7)
+
         self._btn_mode_polsup = QPushButton("Policy Support")
-        self._btn_mode_polsup.setStyleSheet(_MODE_BTN_ACTIVE_STYLE)
         self._btn_mode_polsup.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_mode_polsup.clicked.connect(lambda: self._set_mode(self.MODE_POLICY_SUPPORT))
+        self._btn_mode_polsup.setMinimumWidth(108)
+        self._btn_mode_polsup.clicked.connect(
+            lambda: self._select_section(self.MODE_POLICY_SUPPORT)
+        )
+        nav_col.addWidget(self._btn_mode_polsup)
 
         self._btn_mode_abr = QPushButton("ABR")
-        self._btn_mode_abr.setStyleSheet(_MODE_BTN_INACTIVE_STYLE)
         self._btn_mode_abr.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_mode_abr.clicked.connect(lambda: self._set_mode(self.MODE_ABR))
+        self._btn_mode_abr.setMinimumWidth(108)
+        self._btn_mode_abr.clicked.connect(lambda: self._select_section(self.MODE_ABR))
+        nav_col.addWidget(self._btn_mode_abr)
 
-        # Stack buttons vertically on the left
-        btn_col = QVBoxLayout()
-        btn_col.setContentsMargins(0, 0, 0, 0)
-        btn_col.setSpacing(4)
-        btn_col.addStretch(1)
-        btn_col.addWidget(self._btn_mode_polsup)
-        btn_col.addWidget(self._btn_mode_abr)
-        btn_col.addStretch(1)
+        self._btn_mode_glp_exception = QPushButton("GLP Exception")
+        self._btn_mode_glp_exception.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_mode_glp_exception.setMinimumWidth(108)
+        self._btn_mode_glp_exception.clicked.connect(
+            lambda: self._select_section(self.SECTION_GLP_EXCEPTION)
+        )
+        nav_col.addWidget(self._btn_mode_glp_exception)
+
+        self._btn_mode_annuity = QPushButton("Annuity Rider")
+        self._btn_mode_annuity.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_mode_annuity.setMinimumWidth(108)
+        self._btn_mode_annuity.clicked.connect(
+            lambda: self._select_section(self.SECTION_ANNUITY_RIDER)
+        )
+        nav_col.addWidget(self._btn_mode_annuity)
+        nav_col.addStretch(1)
+
+        layout.addWidget(nav_panel)
+
+        self._content_stack = QStackedWidget()
+        self._content_stack.setStyleSheet(f"background-color: {WHITE};")
+
+        self._workspace_page = QWidget()
+        workspace_layout = QVBoxLayout(self._workspace_page)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(4)
 
         # ── Top info bar ──────────────────────────────────────────────────
         self._info_frame = QGroupBox("Policy Support")
         self._info_frame.setStyleSheet(POLICY_INFO_FRAME_STYLE)
         ig = QGridLayout(self._info_frame)
-        ig.setContentsMargins(8, 20, 8, 6)
-        ig.setHorizontalSpacing(8)
+        ig.setContentsMargins(8, 18, 8, 6)
+        ig.setHorizontalSpacing(6)
         ig.setVerticalSpacing(4)
 
         lbl_s = (f"font-size: 11px; font-weight: bold; color: {GREEN_DARK}; "
@@ -1102,14 +1178,7 @@ class PolicySupportTab(QWidget):
         ig.addWidget(self._create_folder_btn, 2, 3)
 
         ig.setColumnStretch(1, 1)
-
-        # Combine buttons + info group in one row
-        info_row = QHBoxLayout()
-        info_row.setContentsMargins(8, 0, 0, 0)
-        info_row.setSpacing(6)
-        info_row.addLayout(btn_col)
-        info_row.addWidget(self._info_frame, 1)
-        layout.addLayout(info_row)
+        workspace_layout.addWidget(self._info_frame)
 
         # Check OneDrive linkage immediately so the warning shows even before a policy loads
         self._check_onedrive()
@@ -1123,13 +1192,13 @@ class PolicySupportTab(QWidget):
             f"font-size: 10px; color: {GRAY_DARK}; background: transparent; "
             f"border: none; padding: 0px 2px;"
         )
-        layout.addWidget(hint)
+        workspace_layout.addWidget(hint)
 
         # ── Three-column middle ───────────────────────────────────────────
         cols = QWidget()
         cl = QHBoxLayout(cols)
         cl.setContentsMargins(0, 0, 0, 0)
-        cl.setSpacing(6)
+        cl.setSpacing(4)
 
         # Column 1 — Task Categories (draggable)
         self._cat_frame = QGroupBox("Task Categories")
@@ -1147,7 +1216,7 @@ class PolicySupportTab(QWidget):
         self._category_list.customContextMenuRequested.connect(self._on_category_context_menu)
         cat_fl.addWidget(self._category_list)
 
-        cl.addWidget(self._cat_frame, 2)
+        cl.addWidget(self._cat_frame, 3)
 
         # Column 2 — Policy Subfolders (drop target + mini explorer)
         sub_col = QVBoxLayout()
@@ -1158,7 +1227,7 @@ class PolicySupportTab(QWidget):
         self._subfolder_explorer.category_dropped.connect(self._on_category_dropped)
         self._subfolder_explorer.file_dropped.connect(self._on_file_dropped)
         sub_col.addWidget(self._subfolder_explorer, 1)
-        cl.addLayout(sub_col, 3)
+        cl.addLayout(sub_col, 5)
 
         # Column 3 — Available Tools (draggable mini explorer)
         self._tools_explorer = MiniExplorer(
@@ -1174,13 +1243,137 @@ class PolicySupportTab(QWidget):
         self._tools_explorer.set_home_entries(home_entries)
         cl.addWidget(self._tools_explorer, 3)
 
-        layout.addWidget(cols, 1)
+        workspace_layout.addWidget(cols, 1)
+
+        self._annuity_rider_tab = AnnuityRiderTab()
+        self._glp_exception_page = self._build_glp_exception_page()
+
+        self._content_stack.addWidget(self._workspace_page)
+        self._content_stack.addWidget(self._annuity_rider_tab)
+        self._content_stack.addWidget(self._glp_exception_page)
+        layout.addWidget(self._content_stack, 1)
+
+        self._refresh_section_buttons()
 
     @staticmethod
     def _mk_lbl(text: str, style: str) -> QLabel:
         l = QLabel(text)
         l.setStyleSheet(style)
         return l
+
+    def _build_glp_exception_page(self) -> QWidget:
+        page = QWidget()
+        page.setStyleSheet(f"background-color: {WHITE};")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        status_frame = QGroupBox("GLP Exception")
+        status_frame.setStyleSheet(POLICY_INFO_FRAME_STYLE)
+        sg = QGridLayout(status_frame)
+        sg.setContentsMargins(8, 18, 8, 6)
+        sg.setHorizontalSpacing(6)
+        sg.setVerticalSpacing(4)
+
+        lbl_s = (f"font-size: 11px; font-weight: bold; color: {GREEN_DARK}; "
+                 f"background: transparent; border: none;")
+        sg.addWidget(self._mk_lbl("Forecast Status:", lbl_s), 0, 0)
+        self._glp_forecast_status_label = QLabel("Load an eligible policy to check forecast data")
+        self._glp_forecast_status_label.setStyleSheet(_STATUS_STYLE)
+        self._glp_forecast_status_label.setWordWrap(True)
+        sg.addWidget(self._glp_forecast_status_label, 0, 1, 1, 3)
+
+        sg.addWidget(self._mk_lbl("Target Inforce Date:", lbl_s), 1, 0)
+        self._glp_target_date = QLineEdit()
+        self._glp_target_date.setPlaceholderText("MM/DD/YYYY")
+        self._glp_target_date.setStyleSheet(_FILTER_INPUT_STYLE)
+        sg.addWidget(self._glp_target_date, 1, 1)
+
+        self._glp_calculate_btn = QPushButton("Calculate")
+        self._glp_calculate_btn.setStyleSheet(_ACTION_BTN_STYLE)
+        self._glp_calculate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._glp_calculate_btn.clicked.connect(self._on_calculate_glp_exception)
+        sg.addWidget(self._glp_calculate_btn, 1, 2)
+
+        self._glp_note_label = QLabel(
+            "The New Accum GLP will cover the policy up to but not including the target date. "
+            "The New Accum GLP will need to be recalculated if a premium is paid or policy anniversary is crossed since this quote was calculated."
+        )
+        self._glp_note_label.setWordWrap(True)
+        self._glp_note_label.setStyleSheet(
+            f"font-size: 10px; color: {GRAY_DARK}; background: transparent; "
+            f"border: none; padding: 2px 4px;"
+        )
+        sg.addWidget(self._glp_note_label, 2, 0, 1, 4)
+        sg.setColumnStretch(3, 1)
+        layout.addWidget(status_frame)
+
+        results_frame = QGroupBox("Calculation")
+        results_frame.setStyleSheet(POLICY_INFO_FRAME_STYLE)
+        rg = QGridLayout(results_frame)
+        rg.setContentsMargins(10, 18, 10, 8)
+        rg.setHorizontalSpacing(18)
+        rg.setVerticalSpacing(4)
+        self._glp_result_labels = {}
+        rows = [
+            ("Current Valuation Date", "current_valuation_date", "date"),
+            ("Account Value", "account_value", "money"),
+            ("Premiums Paid To Date", "premiums_paid_to_date", "money"),
+            ("Premiums since Val Date", "premiums_since_valuation_date", "money"),
+            ("Adjusted Account Value", "adjusted_account_value", "money"),
+            ("Adjusted Premiums Paid To Date", "adjusted_premiums_paid_to_date", "money"),
+            ("Accum Withdrawals", "accumulated_withdrawals", "money"),
+            ("GLP", "glp", "money"),
+            ("GSP", "gsp", "money"),
+            ("Accum GLP", "accumulated_glp", "money"),
+            ("Months to Target Date", "months_to_target_date", "number"),
+            ("Total Monthly Deductions to Target Date", "total_monthly_deductions_to_target_date", "money"),
+            ("Total Required Premium to stay inforce to Target Date (before load)", "total_required_premium_before_load", "money"),
+            ("Premium Load Percent", "premium_load_percent", "percent"),
+            ("Flat Fee", "flat_fee", "money"),
+            ("Total Required Premium to stay inforce to Target Date (after load)", "total_required_premium_after_load", "money"),
+            ("Accum GLP prior to Target Date (without adjustment)", "accumulated_glp_prior_to_target", "money"),
+            ("Adjustment to AccumGLP needed", "adjustment_to_accum_glp_needed", "money"),
+            ("New Accum GLP", "new_accum_glp", "money"),
+        ]
+        for row, (label, key, kind) in enumerate(rows):
+            name = QLabel(label)
+            if key == "new_accum_glp":
+                name.setStyleSheet(_RESULT_LABEL_STYLE + f"font-weight: bold; color: {GREEN_DARK};")
+            else:
+                name.setStyleSheet(_RESULT_LABEL_STYLE)
+            value = QLabel("-")
+            value.setStyleSheet(_RESULT_VALUE_STYLE)
+            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            rg.addWidget(name, row, 0)
+            rg.addWidget(value, row, 1)
+            self._glp_result_labels[key] = (value, kind)
+        rg.setColumnStretch(1, 1)
+
+        self._glp_forecast_frame = QGroupBox("Monthly Forecast")
+        self._glp_forecast_frame.setStyleSheet(POLICY_INFO_FRAME_STYLE)
+        forecast_layout = QVBoxLayout(self._glp_forecast_frame)
+        forecast_layout.setContentsMargins(6, 18, 6, 6)
+        forecast_layout.setSpacing(0)
+        self._glp_forecast_table = FixedHeaderTableWidget()
+        self._glp_forecast_table.setColumnCount(7)
+        self._glp_forecast_table.setHorizontalHeaderLabels([
+            "Date", "Year", "Month", "Interest Credited", "Premium", "Monthly Deduction", "Account Value"
+        ])
+        self._glp_forecast_table._data_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._glp_forecast_table._data_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._glp_forecast_table._data_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        forecast_layout.addWidget(self._glp_forecast_table, 1)
+        self._glp_forecast_frame.setVisible(False)
+
+        body = QWidget()
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(6)
+        body_layout.addWidget(results_frame, 3)
+        body_layout.addWidget(self._glp_forecast_frame, 4)
+        layout.addWidget(body, 1)
+        return page
 
     # -- OneDrive check ----------------------------------------------------
 
@@ -1214,6 +1407,25 @@ class PolicySupportTab(QWidget):
 
     def load_data_from_policy(self, policy: 'PolicyInformation'):
         self._policy = policy
+        has_annuity_rider = self._has_annuity_rider(policy)
+        self._btn_mode_annuity.setEnabled(has_annuity_rider)
+        glp_eligible = is_glp_exception_eligible(policy)
+        self._btn_mode_glp_exception.setEnabled(glp_eligible)
+        if self._current_section == self.SECTION_GLP_EXCEPTION:
+            self._refresh_glp_exception_status()
+        elif hasattr(self, "_glp_forecast_status_label"):
+            self._clear_glp_exception_results()
+            self._glp_forecast_status_label.setText(
+                "Select GLP Exception to check forecast data"
+                if glp_eligible else
+                "GLP Exception is available only for UL policies using Guideline Premium."
+            )
+            self._glp_calculate_btn.setEnabled(False)
+
+        if has_annuity_rider:
+            self._annuity_rider_tab.load_data_from_policy(policy)
+        elif self._current_section == self.SECTION_ANNUITY_RIDER:
+            self._select_section(self.MODE_POLICY_SUPPORT, reload_policy=False)
 
         if not policy or not policy.exists:
             self._policy_folder_label.setText("No policy loaded")
@@ -1222,7 +1434,12 @@ class PolicySupportTab(QWidget):
             self._create_folder_btn.setVisible(False)
             self._category_list.clear()
             self._subfolder_explorer.set_root("")
+            self._btn_mode_abr.setEnabled(False)
+            self._btn_mode_glp_exception.setEnabled(False)
+            self._refresh_section_buttons()
             return
+
+        self._btn_mode_abr.setEnabled(True)
 
         # Bail out early if the SharePoint library isn't synced to OneDrive.
         # The rest of PolView works fine without it — only this tab needs it.
@@ -1232,6 +1449,7 @@ class PolicySupportTab(QWidget):
             self._status_label.setText("")
             self._create_folder_btn.setVisible(False)
             self._subfolder_explorer.set_root("")
+            self._refresh_section_buttons()
             return
 
         # Populate categories (disabled in ABR mode)
@@ -1294,31 +1512,202 @@ class PolicySupportTab(QWidget):
             )
             self._subfolder_explorer.set_root("")
 
+        self._refresh_section_buttons()
+
     # -- Mode switching -----------------------------------------------------
 
-    def _set_mode(self, mode: str):
+    def _set_mode(self, mode: str, *, reload_policy: bool = True):
         """Switch between Policy Support and ABR modes."""
         if mode == self._current_mode:
+            if reload_policy and self._policy:
+                self.load_data_from_policy(self._policy)
             return
         self._current_mode = mode
 
-        # Update button visuals + theme
         if mode == self.MODE_POLICY_SUPPORT:
-            self._btn_mode_polsup.setStyleSheet(_MODE_BTN_ACTIVE_STYLE)
-            self._btn_mode_abr.setStyleSheet(_MODE_BTN_INACTIVE_STYLE)
             self._info_frame.setTitle("Policy Support")
             self._policy_library_btn.setVisible(True)
             self._apply_green_theme()
         else:
-            self._btn_mode_polsup.setStyleSheet(_MODE_BTN_INACTIVE_STYLE)
-            self._btn_mode_abr.setStyleSheet(_MODE_BTN_ABR_ACTIVE_STYLE)
             self._info_frame.setTitle("ABR Policy Support")
             self._policy_library_btn.setVisible(False)
             self._apply_abr_theme()
 
-        # Reload data with the new mode
-        if self._policy:
+        if reload_policy and self._policy:
             self.load_data_from_policy(self._policy)
+
+    def _select_section(self, section: str, *, reload_policy: bool = True):
+        if section == self.SECTION_ANNUITY_RIDER and not self._btn_mode_annuity.isEnabled():
+            return
+        if section == self.MODE_ABR and not self._btn_mode_abr.isEnabled():
+            return
+        if section == self.SECTION_GLP_EXCEPTION and not self._btn_mode_glp_exception.isEnabled():
+            return
+
+        self._current_section = section
+        if section == self.SECTION_ANNUITY_RIDER:
+            self._content_stack.setCurrentWidget(self._annuity_rider_tab)
+            if reload_policy and self._policy and self._has_annuity_rider(self._policy):
+                self._annuity_rider_tab.load_data_from_policy(self._policy)
+        elif section == self.SECTION_GLP_EXCEPTION:
+            self._content_stack.setCurrentWidget(self._glp_exception_page)
+            self._refresh_glp_exception_status()
+        else:
+            self._content_stack.setCurrentWidget(self._workspace_page)
+            self._set_mode(section, reload_policy=reload_policy)
+
+        self._refresh_section_buttons()
+
+    def show_annuity_rider(self):
+        self._select_section(self.SECTION_ANNUITY_RIDER)
+
+    def _refresh_section_buttons(self):
+        self._btn_mode_polsup.setStyleSheet(
+            _MODE_BTN_ACTIVE_STYLE
+            if self._current_section == self.MODE_POLICY_SUPPORT
+            else _MODE_BTN_INACTIVE_STYLE
+        )
+        self._btn_mode_abr.setStyleSheet(
+            _MODE_BTN_ABR_ACTIVE_STYLE
+            if self._current_section == self.MODE_ABR
+            else _MODE_BTN_INACTIVE_STYLE
+        )
+        self._btn_mode_glp_exception.setStyleSheet(
+            _MODE_BTN_ACTIVE_STYLE
+            if self._current_section == self.SECTION_GLP_EXCEPTION
+            else _MODE_BTN_INACTIVE_STYLE
+        )
+        self._btn_mode_annuity.setStyleSheet(
+            _MODE_BTN_ACTIVE_STYLE
+            if self._current_section == self.SECTION_ANNUITY_RIDER
+            else _MODE_BTN_INACTIVE_STYLE
+        )
+
+    def _refresh_glp_exception_status(self):
+        if not hasattr(self, "_glp_forecast_status_label"):
+            return
+        self._clear_glp_exception_results()
+        if not self._policy or not self._policy.exists:
+            self._set_glp_status("Load an eligible policy to check forecast data")
+            self._glp_calculate_btn.setEnabled(False)
+            return
+        if not is_glp_exception_eligible(self._policy):
+            self._set_glp_status(
+                "GLP Exception is available only for UL policies using Guideline Premium."
+            )
+            self._glp_calculate_btn.setEnabled(False)
+            return
+        availability = check_forecast_availability(self._policy)
+        self._set_glp_status(availability.message, is_error=not availability.available)
+        self._glp_calculate_btn.setEnabled(availability.available)
+        self._glp_target_date.setText(self._next_anniversary_text(self._policy))
+
+    def _on_calculate_glp_exception(self):
+        if not self._policy:
+            return
+        target_text = self._glp_target_date.text().strip()
+        if not target_text:
+            self._set_glp_status("Enter a Target Inforce Date before calculating", is_error=True)
+            self._clear_glp_exception_results()
+            return
+        try:
+            target_date = datetime.strptime(target_text, "%m/%d/%Y").date()
+        except ValueError:
+            self._set_glp_status("Target Inforce Date must be entered as MM/DD/YYYY", is_error=True)
+            self._clear_glp_exception_results()
+            return
+        try:
+            result = calculate_glp_exception(self._policy, target_date)
+        except Exception as exc:
+            self._set_glp_status(str(exc), is_error=True)
+            self._clear_glp_exception_results()
+            return
+        self._set_glp_status("Data for forecasting is available")
+        self._display_glp_exception_result(result)
+
+    def _set_glp_status(self, text: str, *, is_error: bool = False):
+        if is_error:
+            self._glp_forecast_status_label.setStyleSheet(
+                "font-size: 10px; color: #C00000; font-weight: bold; "
+                "background: transparent; border: none; padding: 2px 4px;"
+            )
+        else:
+            self._glp_forecast_status_label.setStyleSheet(_STATUS_STYLE)
+        self._glp_forecast_status_label.setText(text)
+
+    @staticmethod
+    def _next_anniversary_text(policy: Optional['PolicyInformation']) -> str:
+        if not policy:
+            return ""
+        issue_date = getattr(policy, "issue_date", None)
+        val_date = getattr(policy, "valuation_date", None) or date.today()
+        if not issue_date:
+            return ""
+        anniversary = _safe_anniversary(issue_date, val_date.year)
+        if anniversary <= val_date:
+            anniversary = _safe_anniversary(issue_date, val_date.year + 1)
+        return anniversary.strftime("%m/%d/%Y")
+
+    def _clear_glp_exception_results(self):
+        if not hasattr(self, "_glp_result_labels"):
+            return
+        for value_label, _kind in self._glp_result_labels.values():
+            value_label.setText("-")
+        self._glp_forecast_table.setRowCount(0)
+        self._glp_forecast_frame.setVisible(False)
+
+    def _display_glp_exception_result(self, result: GlpExceptionResult):
+        for key, (value_label, kind) in self._glp_result_labels.items():
+            value = getattr(result, key)
+            if key == "new_accum_glp" and abs(result.adjustment_to_accum_glp_needed) < 0.005:
+                value_label.setText("NO ADJUSTMENT NEEDED")
+            elif kind == "money":
+                value_label.setText(f"${float(value):,.2f}")
+            elif kind == "percent":
+                value_label.setText(f"{float(value) * 100:.2f}%")
+            elif kind == "date":
+                value_label.setText(value.strftime("%m/%d/%Y") if value else "-")
+            else:
+                value_label.setText(f"{value:,}")
+        self._display_glp_forecast_rows(result)
+
+    def _display_glp_forecast_rows(self, result: GlpExceptionResult):
+        rows = result.forecast_rows
+        self._glp_forecast_frame.setVisible(bool(rows))
+        self._glp_forecast_table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            values = [
+                row.forecast_date.strftime("%m/%d/%Y") if row.forecast_date else "-",
+                f"{row.policy_year:,}",
+                f"{row.policy_month:,}",
+                f"${row.interest_credited:,.2f}",
+                f"${row.premium:,.2f}",
+                f"${row.monthly_deduction:,.2f}",
+                f"${row.account_value:,.2f}",
+            ]
+            for col_index, text in enumerate(values):
+                alignment = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                if col_index == 0:
+                    alignment = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                self._glp_forecast_table.setItem(
+                    row_index,
+                    col_index,
+                    QTableWidgetItem(text),
+                    alignment,
+                )
+        self._glp_forecast_table.autoFitAllColumns()
+
+    @staticmethod
+    def _has_annuity_rider(policy: Optional['PolicyInformation']) -> bool:
+        if not policy or not policy.exists:
+            return False
+        try:
+            return any(
+                str(getattr(coverage, "plancode", "")).strip().upper() == RIDER_PLANCODE
+                for coverage in policy.get_coverages()
+            )
+        except Exception:
+            return False
 
     def _apply_green_theme(self):
         """Restore the default green/gold Policy Support theme to all 4 group panels."""

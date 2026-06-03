@@ -4,7 +4,6 @@ Coverages tab – Policy Info header, Coverages table, and Benefits table.
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTableWidgetItem,
-    QStyle, QStyleOptionGroupBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -20,8 +19,6 @@ if TYPE_CHECKING:
 class CoveragesTab(QWidget):
     """Tab for Coverages view - matches VBA PopulateCoverges layout."""
 
-    # Emitted when the user double-clicks the "Policy Info" header
-    policy_support_requested = pyqtSignal()
     annuity_rider_requested = pyqtSignal(object)
 
     def __init__(self, parent=None):
@@ -38,34 +35,43 @@ class CoveragesTab(QWidget):
 
         # Policy Info Header — 4 columns
         self.info_group = StyledInfoTableGroup("Policy Info", columns=4, show_table=False)
-        self.info_group.setMaximumWidth(900)
-        self.info_group.setMaximumHeight(140)
+        self.info_group.setMaximumWidth(1040)
+        self.info_group.setMaximumHeight(180)
 
-        # Row 0
+        # Column layout requested by business users, defined row-wise for the grid.
         self.info_group.add_field("Policy", "policy_label", 80, 80)
-        self.info_group.add_field("System Cd", "system_cd_label", 80, 80)
-        self.info_group.add_field("Valuation Date", "eff_date_label", 80, 100)
-        self.info_group.add_field("Total Death Benefit", "total_death_benefit_label", 110, 100)
-        # Row 1 (4 fields — DB Option fills the 4th column for UL policies)
-        self.info_group.add_field("Type", "type_label", 80, 80)
-        self.info_group.add_field("Single/Joint", "joint_label", 80, 80)
-        self.info_group.add_field("Policy Year", "policy_year_label", 80, 100)
-        self.info_group.add_field("DB Option", "db_option_label", 80, 80)
-        # Row 2 (3 fields; skip col 4)
-        self.info_group.add_field("Company", "company_label", 80, 80)
         self.info_group.add_field("Suspense Code", "suspense_label", 80, 80)
-        self.info_group.add_field("Att Age", "att_age_label", 80, 100)
-        self.info_group._current_col = 0; self.info_group._current_row += 1  # skip col 4
-        # Row 3 (4 fields — Reins Partner fills the 4th column)
-        self.info_group.add_field("Region", "region_label", 80, 80)
-        self.info_group.add_field("Grace Indicator", "grace_label", 80, 80)
+        self.info_group.add_field("Valuation Date", "eff_date_label", 80, 100)
+        self.info_group.add_field("Billing Mode", "billing_mode_label", 80, 80)
+
+        self.info_group.add_field("Company", "company_label", 80, 80)
+        self.info_group.add_field("Grace Indicator", "grace_label", 90, 80)
+        self.info_group.add_field("Policy Year", "policy_year_label", 80, 100)
+        self.info_group.add_field("Billable Premium", "premium_label", 100, 80)
+
+        self.info_group.add_field("Market Org", "market_org_label", 80, 80)
+        self.info_group.add_field("Single/Joint", "joint_label", 80, 80)
+        self.info_group.add_field("Attained Age", "att_age_label", 80, 100)
+        self.info_group._current_col = 0; self.info_group._current_row += 1  # blank column 4
+
         self.info_group.add_field("Status", "status_label", 80, 100)
+        self.info_group.add_field("Issue State", "issue_state_label", 80, 80)
+        self.info_group.add_field("Total Death Benefit", "total_death_benefit_label", 110, 100)
+        self.info_group.add_field("System Cd", "system_cd_label", 80, 80)
+
         self.info_group.add_field("Reins Partner", "reins_partner_label", 80, 80)
+        self.info_group.add_field("Definition of Life", "definition_of_life_label", 110, 80)
+        self.info_group.add_field("DB Option", "db_option_label", 80, 80)
+        self.info_group.add_field("Region", "region_label", 80, 80)
 
         # Backward-compat aliases
         self.policy_label = self.info_group.policy_label
-        self.type_label = self.info_group.type_label
         self.company_label = self.info_group.company_label
+        self.market_org_label = self.info_group.market_org_label
+        self.issue_state_label = self.info_group.issue_state_label
+        self.definition_of_life_label = self.info_group.definition_of_life_label
+        self.billing_mode_label = self.info_group.billing_mode_label
+        self.premium_label = self.info_group.premium_label
         self.region_label = self.info_group.region_label
         self.system_cd_label = self.info_group.system_cd_label
         self.joint_label = self.info_group.joint_label
@@ -79,9 +85,6 @@ class CoveragesTab(QWidget):
         self.reins_partner_label = self.info_group.reins_partner_label
         self.db_option_label = self.info_group.db_option_label
 
-        # Make the "Policy Info" header double-clickable to open Policy Support
-        self.info_group.installEventFilter(self)
-
         layout.addWidget(self.info_group)
 
         # Coverages table
@@ -94,26 +97,6 @@ class CoveragesTab(QWidget):
         self.bnf_group = StyledInfoTableGroup("Benefits", show_info=False)
         self.bnf_table = self.bnf_group.table
         layout.addWidget(self.bnf_group, 1)
-
-    def eventFilter(self, obj, event):
-        """Open Policy Support only when the Policy Info title is double-clicked."""
-        from PyQt6.QtCore import QEvent
-        if obj is self.info_group and event.type() == QEvent.Type.MouseButtonDblClick:
-            if self._event_in_info_group_title(event):
-                self.policy_support_requested.emit()
-                return True
-        return super().eventFilter(obj, event)
-
-    def _event_in_info_group_title(self, event) -> bool:
-        option = QStyleOptionGroupBox()
-        self.info_group.initStyleOption(option)
-        title_rect = self.info_group.style().subControlRect(
-            QStyle.ComplexControl.CC_GroupBox,
-            option,
-            QStyle.SubControl.SC_GroupBoxLabel,
-            self.info_group,
-        )
-        return title_rect.contains(event.pos())
 
     # ── helpers ───────────────────────────────────────────────────────────
 
@@ -182,8 +165,13 @@ class CoveragesTab(QWidget):
     def _populate_status_labels_from_policy(self, policy: 'PolicyInformation'):
         coverages = policy.get_coverages()
         self.policy_label.setText(policy.policy_number)
-        self.type_label.setText(policy.product_type)
         self.company_label.setText(policy.company_code)
+        self.market_org_label.setText(policy.servicing_market_org)
+        self.issue_state_label.setText(policy.issue_state)
+        definition_of_life = policy.gpt_cvat
+        self.definition_of_life_label.setText("GP" if definition_of_life == "GPT" else definition_of_life)
+        self.billing_mode_label.setText(policy.billing_mode)
+        self.premium_label.setText(format_amount(policy.modal_premium))
         self.region_label.setText(policy.region)
         self.system_cd_label.setText(policy.system_code)
 

@@ -6,6 +6,7 @@ from typing import Optional, Dict, Set, List, Any
 import pandas as pd
 from functools import reduce
 import operator
+from pandas.api.types import is_numeric_dtype
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView, QListView, QAbstractItemView,
                               QHeaderView, QLineEdit, QPushButton, QMenu, QStyledItemDelegate,
                               QCheckBox, QScrollArea, QLabel, QFrame, QWidgetAction, QStyleOptionHeader, QStyle, QMessageBox)
@@ -123,6 +124,10 @@ class ClickableHeaderView(QHeaderView):
         
         logical_index = self.logicalIndexAt(event.pos())
         if logical_index >= 0:
+            if event.button() == QtCore.MouseButton.RightButton:
+                super().mousePressEvent(event)
+                return
+
             # First check if we're on a resize edge - if so, let default handler resize
             if self.is_on_resize_edge(event.pos(), logical_index):
                 logger.debug(f"Resize edge detected for column {logical_index} - allowing default resize")
@@ -144,7 +149,7 @@ class ClickableHeaderView(QHeaderView):
                 self.sort_clicked.emit(logical_index)
                 event.accept()
                 return
-            else:
+            elif event.button() == QtCore.MouseButton.LeftButton:
                 # Header area clicked (not icon, not resize edge) - emit sectionClicked signal
                 logger.debug(f"Header area clicked for column {logical_index} - emitting sectionClicked")
                 self.sectionClicked.emit(logical_index)
@@ -224,6 +229,9 @@ class PandasTableModel(QAbstractTableModel):
         self._original_df = df  # Keep original (no copy!)
         self._filtered_indices = df.index  # Indices after column filters
         self._display_indices = df.index   # Indices after global search
+        self._default_numeric_decimals: Optional[int] = None
+        self._column_decimals: Dict[str, Optional[int]] = {}
+        self._highlighted_cells: Dict[tuple[int, str], QColor] = {}
 
     def set_filtered_indices(self, indices: pd.Index):
         """Update the filtered indices (after column filters)"""
@@ -250,6 +258,48 @@ class PandasTableModel(QAbstractTableModel):
         """Get the currently displayed data"""
         return self._original_df.loc[self._display_indices]
 
+    def set_numeric_formatting(
+        self,
+        default_decimals: Optional[int] = None,
+        column_decimals: Optional[Dict[str, Optional[int]]] = None,
+    ):
+        self._default_numeric_decimals = default_decimals
+        self._column_decimals = dict(column_decimals or {})
+        if self.rowCount() > 0 and self.columnCount() > 0:
+            top_left = self.index(0, 0)
+            bottom_right = self.index(self.rowCount() - 1, self.columnCount() - 1)
+            self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.DisplayRole])
+
+    def set_highlighted_cells(self, highlighted_cells: Dict[tuple[int, str], QColor]):
+        self._highlighted_cells = dict(highlighted_cells)
+        if self.rowCount() > 0 and self.columnCount() > 0:
+            top_left = self.index(0, 0)
+            bottom_right = self.index(self.rowCount() - 1, self.columnCount() - 1)
+            self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.BackgroundRole])
+
+    def is_numeric_column(self, column_index: int) -> bool:
+        if column_index < 0 or column_index >= self.columnCount():
+            return False
+        return is_numeric_dtype(self._original_df.iloc[:, column_index])
+
+    def column_name(self, column_index: int) -> str:
+        return str(self._original_df.columns[column_index])
+
+    def decimal_mode_for_column(self, column_index: int) -> Optional[int]:
+        return self._column_decimals.get(self.column_name(column_index), self._default_numeric_decimals)
+
+    def format_value_for_column(self, column_name: str, value: Any) -> str:
+        if pd.isna(value):
+            return ""
+
+        if column_name in self._original_df.columns:
+            column_index = self._original_df.columns.get_loc(column_name)
+            if self.is_numeric_column(column_index):
+                decimals = self._column_decimals.get(column_name, self._default_numeric_decimals)
+                if decimals is not None:
+                    return f"{float(value):,.{decimals}f}"
+        return str(value)
+
     def rowCount(self, parent=QModelIndex()):
         return len(self._display_indices)
 
@@ -264,9 +314,10 @@ class PandasTableModel(QAbstractTableModel):
             # Use display indices to get actual row
             actual_row = self._display_indices[index.row()]
             value = self._original_df.iloc[self._original_df.index.get_loc(actual_row), index.column()]
-            if pd.isna(value):
-                return ""
-            return str(value)
+            return self.format_value_for_column(self.column_name(index.column()), value)
+
+        if role == Qt.ItemDataRole.BackgroundRole:
+            return self._highlighted_cells.get((index.row(), self.column_name(index.column())))
 
         if role == Qt.ItemDataRole.TextAlignmentRole:
             if hasattr(self, '_left_align_columns') and index.column() in self._left_align_columns:
@@ -701,6 +752,8 @@ class FilterTableView(QWidget):
         self._search_debounce_timer.setSingleShot(True)
         self._search_debounce_timer.timeout.connect(self._execute_search)
         self._pending_search_text = ""
+        self._default_numeric_decimals: Optional[int] = None
+        self._column_decimals: Dict[str, Optional[int]] = {}
         
         self.init_ui()
 
@@ -711,7 +764,9 @@ class FilterTableView(QWidget):
         layout.setSpacing(5)
 
         # Global search box at top
-        search_layout = QHBoxLayout()
+        self.search_bar = QWidget()
+        search_layout = QHBoxLayout(self.search_bar)
+        search_layout.setContentsMargins(0, 0, 0, 0)
         search_label = QLabel("🔍 Search:")
         search_layout.addWidget(search_label)
         
@@ -738,7 +793,7 @@ class FilterTableView(QWidget):
         clear_btn.clicked.connect(self.clear_all_filters)
         search_layout.addWidget(clear_btn)
 
-        layout.addLayout(search_layout)
+        layout.addWidget(self.search_bar)
 
         # Table view
         self.table_view = QTableView()
@@ -755,8 +810,8 @@ class FilterTableView(QWidget):
         self.table_view.horizontalHeader().setSectionsMovable(True)
         
         # More compact rows
-        self.table_view.verticalHeader().setDefaultSectionSize(20)  # Compact row height
-        self.table_view.verticalHeader().setMinimumSectionSize(18)
+        self.table_view.verticalHeader().setDefaultSectionSize(18)  # Compact row height
+        self.table_view.verticalHeader().setMinimumSectionSize(16)
         
         self.table_view.setStyleSheet("""
             QTableView#filterTableView {
@@ -791,7 +846,7 @@ class FilterTableView(QWidget):
             QHeaderView::section {
                 background-color: #f0f0f0;
                 color: #000000;
-                padding: 3px 20px 3px 4px;  /* Extra padding on right for sort icon */
+                padding: 1px 20px 1px 2px;  /* Extra padding on right for sort icon */
                 border: 1px solid #d0d0d0;
                 font-weight: normal;
                 font-size: 11px;
@@ -854,6 +909,7 @@ class FilterTableView(QWidget):
         logger.info(f"DataFrame loaded with {len(df)} rows, {len(df.columns)} columns - caches will be computed on demand")
         
         self.model = PandasTableModel(self.df)
+        self.model.set_numeric_formatting(self._default_numeric_decimals, self._column_decimals)
         self.table_view.setModel(self.model)
         
         # Reset filters and caches
@@ -871,6 +927,24 @@ class FilterTableView(QWidget):
         self.update_info_label()
         
         logger.info(f"FilterTableView loaded {len(df)} rows, {len(df.columns)} columns")
+
+    def set_search_visible(self, visible: bool):
+        self.search_bar.setVisible(visible)
+
+    def set_numeric_formatting(
+        self,
+        default_decimals: Optional[int] = None,
+        column_decimals: Optional[Dict[str, Optional[int]]] = None,
+    ):
+        self._default_numeric_decimals = default_decimals
+        if column_decimals is not None:
+            self._column_decimals = dict(column_decimals)
+        if self.model is not None:
+            self.model.set_numeric_formatting(self._default_numeric_decimals, self._column_decimals)
+
+    def set_highlighted_cells(self, highlighted_cells: Dict[tuple[int, str], QColor]):
+        if self.model is not None:
+            self.model.set_highlighted_cells(highlighted_cells)
     
     def on_sort_clicked(self, column_index: int):
         """Handle sort icon click - toggle sort order"""
@@ -1198,12 +1272,25 @@ class FilterTableView(QWidget):
             )
 
     def show_column_context_menu(self, pos):
-        """Show context menu for column operations (hide/show)"""
+        """Show context menu for column operations and numeric formatting."""
         column_index = self.header.logicalIndexAt(pos)
         if column_index < 0:
             return
 
         menu = QMenu(self)
+
+        if self.model is not None and self.model.is_numeric_column(column_index):
+            decimals_menu = menu.addMenu("Decimals")
+            for label, decimals in [("0", 0), ("2", 2), ("7", 7), ("Max", None)]:
+                action = QAction(label, self)
+                action.setCheckable(True)
+                action.setChecked(self.model.decimal_mode_for_column(column_index) == decimals)
+                action.triggered.connect(
+                    lambda checked=False, c=column_index, d=decimals: self.set_column_decimals(c, d)
+                )
+                decimals_menu.addAction(action)
+
+            menu.addSeparator()
         
         # Hide column option
         hide_action = QAction("Hide Column", self)
@@ -1221,6 +1308,13 @@ class FilterTableView(QWidget):
         """Show all hidden columns"""
         for i in range(self.model.columnCount()):
             self.table_view.showColumn(i)
+
+    def set_column_decimals(self, column_index: int, decimals: Optional[int]):
+        if self.model is None:
+            return
+        column_name = self.model.column_name(column_index)
+        self._column_decimals[column_name] = decimals
+        self.model.set_numeric_formatting(self._default_numeric_decimals, self._column_decimals)
 
     def show_table_context_menu(self, pos):
         """Show context menu for table cell operations"""
@@ -1281,18 +1375,14 @@ class FilterTableView(QWidget):
         logger.info(f"Copied cell value: {cell_value}")
     
     def copy_entire_table(self):
-        """Copy the entire original table to clipboard as tab-separated values"""
+        """Copy the entire original table to clipboard using displayed formatting."""
         if self.df is None:
             return
         
         from PyQt6.QtWidgets import QApplication
         
-        # Use reference to original DataFrame (no copy needed for export)
         df_to_copy = self.df
-        
-        # Convert to tab-separated string (Excel-friendly)
-        # Include headers
-        clipboard_text = df_to_copy.to_csv(sep='\t', index=False)
+        clipboard_text = self._dataframe_to_clipboard_text(df_to_copy)
         
         # Copy to clipboard
         clipboard = QApplication.clipboard()
@@ -1312,7 +1402,7 @@ class FilterTableView(QWidget):
         )
     
     def copy_filtered_table(self):
-        """Copy the currently filtered/displayed table to clipboard"""
+        """Copy the currently filtered/displayed table using displayed formatting."""
         if self.model is None:
             return
         
@@ -1321,8 +1411,7 @@ class FilterTableView(QWidget):
         # Get the currently displayed DataFrame
         df_to_copy = self.model.get_display_data()
         
-        # Convert to tab-separated string (Excel-friendly)
-        clipboard_text = df_to_copy.to_csv(sep='\t', index=False)
+        clipboard_text = self._dataframe_to_clipboard_text(df_to_copy)
         
         # Copy to clipboard
         clipboard = QApplication.clipboard()
@@ -1346,3 +1435,28 @@ class FilterTableView(QWidget):
         if self.model:
             return self.model.get_display_data()
         return pd.DataFrame()
+
+    def _visible_column_names_in_order(self) -> List[str]:
+        if self.model is None:
+            return []
+        names: List[str] = []
+        for visual_index in range(self.header.count()):
+            logical_index = self.header.logicalIndex(visual_index)
+            if self.table_view.isColumnHidden(logical_index):
+                continue
+            names.append(self.model.column_name(logical_index))
+        return names
+
+    def _dataframe_to_clipboard_text(self, df_to_copy: pd.DataFrame) -> str:
+        column_names = self._visible_column_names_in_order()
+        if not column_names:
+            column_names = list(df_to_copy.columns)
+
+        rows: List[str] = ["\t".join(column_names)]
+        for _, row in df_to_copy.loc[:, column_names].iterrows():
+            formatted = [
+                self.model.format_value_for_column(column_name, row[column_name]) if self.model is not None else str(row[column_name])
+                for column_name in column_names
+            ]
+            rows.append("\t".join(formatted))
+        return "\n".join(rows)

@@ -38,7 +38,7 @@ from .tree_panel import PolicyRecordTreePanel
 from .tabs import (
     CoveragesTab, PolicyTab, TargetsAccumulatorsTab, PersonsTab,
     AdvProdValuesTab, ActivityTab, DividendsTab, LoansTab, RawTableTab,
-    PolicyListWindow, PolicySupportTab, PolicyLibraryTab, ReinsuranceTab, AnnuityRiderTab,
+    PolicyListWindow, PolicySupportTab, PolicyLibraryTab, ReinsuranceTab,
 )
 
 
@@ -195,11 +195,9 @@ class GetPolicyWindow(FramelessWindowBase):
         self.loans_tab = LoansTab()
         self.reinsurance_tab = ReinsuranceTab()
         self.raw_table_tab = RawTableTab()
-        self.annuity_rider_tab = AnnuityRiderTab()
 
         self.policy_support_tab = PolicySupportTab()
         self.policy_library_tab = PolicyLibraryTab()
-        self._policies_with_support_tab: set = set()  # track which policies have PS tab open
 
         self.tabs.addTab(self.coverages_tab, "Coverages")
         self.tabs.addTab(self.policy_tab, "Policy")
@@ -207,11 +205,9 @@ class GetPolicyWindow(FramelessWindowBase):
         self.tabs.addTab(self.persons_tab, "Persons")
         # AdvProdValues tab added dynamically in _load_all_tabs() for advanced products only
         self.tabs.addTab(self.activity_tab, "Activity")
+        self.tabs.addTab(self.policy_support_tab, "Policy Support")
         self.tabs.addTab(self.raw_table_tab, "Raw Table")
-        # PolicySupport tab added dynamically via double-click on Policy Info header
 
-        # Connect CoveragesTab signal to show Policy Support tab
-        self.coverages_tab.policy_support_requested.connect(self._show_policy_support_tab)
         self.policy_support_tab.policy_library_requested.connect(self._show_policy_library_tab)
         self.coverages_tab.annuity_rider_requested.connect(self._show_annuity_rider_tab)
 
@@ -471,31 +467,10 @@ class GetPolicyWindow(FramelessWindowBase):
     # == Policy Support tab =================================================
 
     def _show_policy_support_tab(self):
-        """Show the Policy Support tab (triggered by double-click on Policy Info).
-
-        Dynamically adds the tab if not already present, loads the
-        current policy's data, and switches focus to it.
-        Records the policy so the tab reappears when switching back.
-        """
-        # Record this policy as having the PS tab
-        if self._policy and self._policy.exists:
-            key = f"{self._policy.company_code}_{self._policy.policy_number}"
-            self._policies_with_support_tab.add(key)
-
-        ps_idx = self.tabs.indexOf(self.policy_support_tab)
-        if ps_idx < 0:
-            # Insert before Raw Table (at the end of content tabs)
-            raw_idx = self.tabs.indexOf(self.raw_table_tab)
-            if raw_idx >= 0:
-                self.tabs.insertTab(raw_idx, self.policy_support_tab, "Policy Support")
-            else:
-                self.tabs.addTab(self.policy_support_tab, "Policy Support")
-
-        # Load data if we have a policy
+        """Show the always-visible Policy Support tab."""
         if self._policy and self._policy.exists:
             self.policy_support_tab.load_data_from_policy(self._policy)
 
-        # Switch to the tab
         self.tabs.setCurrentWidget(self.policy_support_tab)
         self._show_status("Policy Support tab opened")
 
@@ -514,7 +489,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self._show_status("Policy Library tab opened")
 
     def _show_annuity_rider_tab(self, coverage=None):
-        """Show the Annuity Rider tab for eligible rider coverage double-clicks."""
+        """Focus the embedded Annuity Rider section for eligible rider coverage."""
         if not self._policy or not self._policy.exists:
             return
 
@@ -523,17 +498,10 @@ class GetPolicyWindow(FramelessWindowBase):
             if plancode != "0699830R":
                 return
 
-        rider_idx = self.tabs.indexOf(self.annuity_rider_tab)
-        if rider_idx < 0:
-            raw_idx = self.tabs.indexOf(self.raw_table_tab)
-            if raw_idx >= 0:
-                self.tabs.insertTab(raw_idx, self.annuity_rider_tab, "Annuity Rider")
-            else:
-                self.tabs.addTab(self.annuity_rider_tab, "Annuity Rider")
-
-        self.annuity_rider_tab.load_data_from_policy(self._policy)
-        self.tabs.setCurrentWidget(self.annuity_rider_tab)
-        self._show_status("Annuity Rider tab opened")
+        self.policy_support_tab.load_data_from_policy(self._policy)
+        self.policy_support_tab.show_annuity_rider()
+        self.tabs.setCurrentWidget(self.policy_support_tab)
+        self._show_status("Annuity Rider opened")
 
     # == Policy loading ====================================================
 
@@ -804,27 +772,7 @@ class GetPolicyWindow(FramelessWindowBase):
             self.tabs.addTab(self.reinsurance_tab, "Reinsurance")
         self.reinsurance_tab.load_data_from_policy(self._policy)
 
-        # Policy Support tab -- show/hide based on per-policy tracking.
-        ps_idx = self.tabs.indexOf(self.policy_support_tab)
-        pol_key = f"{self._policy.company_code}_{self._policy.policy_number}"
-        if pol_key in self._policies_with_support_tab:
-            # This policy should have the tab — add if missing, refresh data
-            if ps_idx < 0:
-                raw_idx = self.tabs.indexOf(self.raw_table_tab)
-                if raw_idx >= 0:
-                    self.tabs.insertTab(raw_idx, self.policy_support_tab, "Policy Support")
-                else:
-                    self.tabs.addTab(self.policy_support_tab, "Policy Support")
-            self.policy_support_tab.load_data_from_policy(self._policy)
-        else:
-            # This policy doesn't have the tab — remove if present
-            if ps_idx >= 0:
-                self.tabs.removeTab(ps_idx)
-
-        # Annuity Rider tab is opened by double-clicking an eligible rider only.
-        rider_idx = self.tabs.indexOf(self.annuity_rider_tab)
-        if rider_idx >= 0:
-            self.tabs.removeTab(rider_idx)
+        self.policy_support_tab.load_data_from_policy(self._policy)
 
     # == Tree selection handlers ===========================================
 

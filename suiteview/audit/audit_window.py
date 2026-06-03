@@ -14,7 +14,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QLabel, QComboBox, QPushButton,
+    QLabel, QComboBox, QPushButton, QCheckBox,
     QMessageBox, QDialog, QInputDialog,
     QSplitter, QFileDialog, QMenu,
 )
@@ -396,6 +396,11 @@ class AuditWindow(FramelessWindowBase):
         self.lbl_print_time = self.cyberlife_bottom_bar.lbl_print_time
         self.lbl_total_time = self.cyberlife_bottom_bar.lbl_total_time
         self.btn_run = self.cyberlife_bottom_bar.btn_run
+        self.chk_coverage_level = QCheckBox("Coverage Level")
+        self.chk_coverage_level.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        self.chk_coverage_level.setToolTip(
+            "Return one row per matching coverage and show coverage-level values")
+        self.cyberlife_bottom_bar.action_layout.addWidget(self.chk_coverage_level)
         self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_new_cyberlife)
         self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_save_object)
         self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_save_cyberlife)
@@ -833,6 +838,11 @@ class AuditWindow(FramelessWindowBase):
 
     @staticmethod
     def _preferred_query_table(group) -> str:
+        preferred_table = getattr(group, "preferred_picker_table", None)
+        if callable(preferred_table):
+            table = preferred_table()
+            if table:
+                return table
         for table in group.tables:
             if table:
                 return table
@@ -1119,6 +1129,8 @@ class AuditWindow(FramelessWindowBase):
 
         saved = sq_store.load_query(obj.name)
         if saved is None:
+            saved = query_object_store.restore_saved_visual_design(obj)
+        if saved is None:
             QMessageBox.warning(
                 self,
                 "Saved Design Missing",
@@ -1235,6 +1247,7 @@ class AuditWindow(FramelessWindowBase):
             self.cmb_system.setCurrentIndex(idx_sys)
 
         self.txt_max_count.setText(str(criteria.get("max_count", "25")))
+        self.chk_coverage_level.setChecked(bool(criteria.get("coverage_level", False)))
 
         common_tables = criteria.get("common_tables")
         if common_tables:
@@ -1308,6 +1321,7 @@ class AuditWindow(FramelessWindowBase):
             schema=schema,
             sys_code=self.cmb_system.currentText().strip(),
             max_count_text=self.txt_max_count.text().strip(),
+            coverage_level=self.chk_coverage_level.isChecked(),
             policy_tab=self.policy_tab,
             display_tab=self.display_tab,
             policy2_tab=self.policy2_tab,
@@ -1349,6 +1363,7 @@ class AuditWindow(FramelessWindowBase):
         """Return the Cyberlife builder state stored in a QueryObject config."""
         return {
             "max_count": self.txt_max_count.text().strip(),
+            "coverage_level": self.chk_coverage_level.isChecked(),
             "common_tables": self.cyb_common_tables_tab.get_state(),
             "tabs": {
                 key: tab.get_state()
@@ -1450,6 +1465,7 @@ class AuditWindow(FramelessWindowBase):
         for _key, tab in self._cyberlife_criteria_tabs():
             tab.set_state({})
         self.txt_max_count.setText("25")
+        self.chk_coverage_level.setChecked(False)
     # ── Run audit ────────────────────────────────────────────────────
     def _run_audit(self):
         """Execute the audit query and display results."""
@@ -1559,6 +1575,7 @@ class AuditWindow(FramelessWindowBase):
         name = f"▸ {sq.name}"
         # If already loaded, switch first then clean up old
         if name in self._dynamic_queries:
+            self._dynamic_queries[name].focus_initial_builder_state()
             self._switch_mode(name)
             # Now safely remove previous unpinned (no flash — we already switched)
             prev = self._active_unpinned

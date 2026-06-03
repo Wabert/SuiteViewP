@@ -634,6 +634,39 @@ class DynamicQuery(QWidget):
                 tables.append(table)
         return tables
 
+    def _initial_focus_target(self) -> tuple[QWidget | None, str]:
+        """Return the first populated builder tab and its primary table."""
+        for tab in self._criteria_tabs:
+            if tab.grid._rows:
+                table = self._table_from_field_key(tab.grid._rows[0].field_key)
+                return tab, table
+
+        join_infos = self.joins_tab.get_join_infos()
+        if join_infos:
+            table = (join_infos[0].get("left_table") or join_infos[0].get("right_table") or "").strip()
+            return self.joins_tab, table
+
+        select_columns = self.select_tab.get_select_columns()
+        if select_columns:
+            table = self._table_from_field_key(select_columns[0].get("field_key", ""))
+            return self.select_tab, table
+
+        fallback = next((table for table in self.tables if table), "")
+        if self._criteria_tabs:
+            return self._criteria_tabs[0], fallback
+        return None, fallback
+
+    def preferred_picker_table(self) -> str:
+        """Return the table that best matches the first visible builder surface."""
+        _, table = self._initial_focus_target()
+        return table
+
+    def focus_initial_builder_state(self):
+        """Select the first populated tab when reopening a saved visual query."""
+        widget, _ = self._initial_focus_target()
+        if widget is not None:
+            self.tab_widget.setCurrentWidget(widget)
+
     def _run_audit(self):
         # Collect filters from ALL criteria tabs
         all_filters = []
@@ -984,5 +1017,7 @@ class DynamicQuery(QWidget):
             select_state = config.get("select_tab")
             if select_state:
                 self.select_tab.set_state(select_state)
+
+            self.focus_initial_builder_state()
         finally:
             self._loading = False

@@ -127,6 +127,8 @@ def credit_interest(
     else:
         interest = av_after_deduction * monthly_rate
 
+    interest = max(interest, 0.0)
+
     # ── 3.3.5 End-of-month AV ────────────────────────────────
     av_end = av_after_deduction + interest
 

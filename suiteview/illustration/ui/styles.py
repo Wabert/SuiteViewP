@@ -1,0 +1,197 @@
+"""Purple and gold UI styling for the Illustration app."""
+
+PURPLE_DARK = "#2A1458"
+PURPLE_RICH = "#4B2383"
+PURPLE_PRIMARY = "#5E35A5"
+PURPLE_LIGHT = "#7E57C2"
+PURPLE_BG = "#EDE7F6"
+PURPLE_SUBTLE = "#F6F1FB"
+GOLD_PRIMARY = "#D4A017"
+GOLD_TEXT = "#FFD54F"
+WHITE = "#FFFFFF"
+GRAY_DARK = "#2D3748"
+
+ILLUSTRATION_HEADER_COLORS = (PURPLE_DARK, PURPLE_RICH, PURPLE_PRIMARY)
+ILLUSTRATION_BORDER_COLOR = GOLD_PRIMARY
+
+TAB_WIDGET_STYLE = f"""
+    QTabWidget::pane {{
+        border: 1px solid {PURPLE_PRIMARY};
+        border-radius: 4px;
+        background-color: {PURPLE_BG};
+        top: -1px;
+    }}
+    QTabWidget {{
+        background-color: transparent;
+    }}
+    QTabBar::tab {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #E0E0E0, stop:1 #BDBDBD);
+        color: {GRAY_DARK};
+        padding: 8px 16px;
+        margin-right: 2px;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+    }}
+    QTabBar::tab:hover {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {PURPLE_LIGHT}, stop:1 {PURPLE_PRIMARY});
+        color: {WHITE};
+    }}
+    QTabBar::tab:selected {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {PURPLE_DARK}, stop:1 {PURPLE_RICH});
+        color: {GOLD_TEXT};
+        font-weight: bold;
+        border-bottom: 3px solid {GOLD_PRIMARY};
+    }}
+"""
+
+GROUP_STYLE = f"""
+    QGroupBox {{
+        font-weight: bold;
+        border: 2px solid {PURPLE_PRIMARY};
+        border-radius: 8px;
+        margin-top: 14px;
+        background-color: {WHITE};
+        color: {PURPLE_DARK};
+    }}
+    QGroupBox::title {{
+        subcontrol-origin: margin;
+        left: 12px;
+        padding: 2px 10px;
+        color: {GOLD_TEXT};
+        background-color: {PURPLE_PRIMARY};
+        border: 1px solid {GOLD_PRIMARY};
+        border-radius: 5px;
+    }}
+"""
+
+FUND_TABLE_STYLE = f"""
+    QFrame#outerFrame {{
+        background-color: {WHITE};
+        border: 1px solid {PURPLE_PRIMARY};
+        border-radius: 4px;
+    }}
+    QTableWidget {{
+        background-color: {WHITE};
+        border: none;
+        gridline-color: transparent;
+        font-size: 11px;
+        selection-background-color: {PURPLE_SUBTLE};
+        selection-color: {PURPLE_DARK};
+    }}
+    QHeaderView::section {{
+        background-color: {PURPLE_SUBTLE};
+        color: {PURPLE_DARK};
+        padding: 2px 4px;
+        border: none;
+        border-right: 1px solid #D8C8F0;
+        border-bottom: 1px solid {PURPLE_PRIMARY};
+        font-size: 10px;
+        font-weight: bold;
+        height: 18px;
+    }}
+    QHeaderView::section:last {{
+        border-right: none;
+    }}
+    QTableWidget::item {{
+        padding: 0px 4px;
+        border: none;
+    }}
+    QTableWidget::item:selected {{
+        background-color: {PURPLE_SUBTLE};
+        color: {PURPLE_DARK};
+        border: none;
+    }}
+"""
+
+INPUT_TABLE_STYLE = f"""
+    QTableWidget {{
+        background-color: {WHITE};
+        border: 1px solid {PURPLE_PRIMARY};
+        border-radius: 4px;
+        gridline-color: #D8C8F0;
+        font-size: 11px;
+        selection-background-color: {PURPLE_SUBTLE};
+        selection-color: {PURPLE_DARK};
+    }}
+    QHeaderView::section {{
+        background-color: {PURPLE_SUBTLE};
+        color: {PURPLE_DARK};
+        padding: 0px;
+        border: none;
+        border-right: 1px solid #D8C8F0;
+        border-bottom: 1px solid {PURPLE_PRIMARY};
+        font-size: 10px;
+        font-weight: bold;
+        height: 16px;
+    }}
+    QHeaderView::section:last {{
+        border-right: none;
+    }}
+    QTableWidget::item {{
+        padding: 0px;
+    }}
+"""
+
+VALUE_BUTTON_STYLE = f"""
+    QPushButton {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #B99AF0, stop:0.18 #7E57C2, stop:0.52 #5E35A5,
+            stop:0.54 #4B2383, stop:1 #2A1458);
+        color: {GOLD_TEXT};
+        border: 2px solid {GOLD_PRIMARY};
+        border-top-color: #FFE08A;
+        border-left-color: #FFE08A;
+        border-radius: 5px;
+        font-size: 10px;
+        font-weight: bold;
+        padding: 5px 11px;
+        min-height: 20px;
+    }}
+    QPushButton:hover {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #D1BEF7, stop:0.20 #9270D2, stop:0.55 #6E43B8,
+            stop:0.57 #5E35A5, stop:1 #3B1B70);
+        border-color: #FFE08A;
+        color: #FFF3B0;
+    }}
+    QPushButton:pressed {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #2A1458, stop:1 #5E35A5);
+        border-top-color: #9F7610;
+        border-left-color: #9F7610;
+        border-bottom-color: #FFE08A;
+        border-right-color: #FFE08A;
+        padding-top: 6px;
+        padding-bottom: 4px;
+    }}
+"""
+
+LIST_BUTTON_STYLE = f"""
+    QPushButton {{
+        background: transparent;
+        border: 1px solid {GOLD_PRIMARY};
+        border-radius: 3px;
+        min-width: 56px; max-width: 56px;
+        min-height: 24px; max-height: 24px;
+        font-size: 11px; font-weight: bold;
+        color: {GOLD_TEXT};
+        padding: 0 6px;
+    }}
+    QPushButton:hover {{
+        background-color: rgba(255, 255, 255, 0.15);
+    }}
+    QPushButton:checked {{
+        background-color: rgba(212, 160, 23, 0.30);
+    }}
+"""
+
+STATUS_BAR_STYLE = f"""
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {PURPLE_DARK}, stop:1 {PURPLE_PRIMARY});
+    border-top: 2px solid {GOLD_PRIMARY};
+"""

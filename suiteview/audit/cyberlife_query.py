@@ -83,6 +83,7 @@ def build_cyberlife_sql(
     plancode_tab,
     benefits_tab,
     transaction_tab=None,
+    coverage_level: bool = False,
 ) -> str:
     """Build the CyberLife audit SQL from all wired-up tab controls.
 
@@ -94,6 +95,8 @@ def build_cyberlife_sql(
         System code from the bottom bar.
     max_count_text : str
         Max row count text (empty string for all rows).
+    coverage_level : bool
+        When true, return one row per matching coverage instead of one policy/base row.
     policy_tab, display_tab, policy2_tab, adv_tab, coverages_tab,
     plancode_tab, benefits_tab, transaction_tab
         The tab widgets with filter controls.
@@ -103,6 +106,10 @@ def build_cyberlife_sql(
     p2t = policy2_tab
     at = adv_tab
     covt = coverages_tab
+    result_cov_alias = "RESULTCOV" if coverage_level else "COVERAGE1"
+    result_rnw_alias = "RESULTCOV_RENEWALS" if coverage_level else "COV1_RENEWALS"
+    result_table_alias = "RESULTCOV_TABLE_RATING" if coverage_level else "TABLE_RATING1"
+    result_flat_alias = "RESULTCOV_FLAT_EXTRA" if coverage_level else "FLAT_EXTRA1"
 
     # ── Check which range filters are active (for conditional SELECT columns) ──
     has_current_age = bool(pt.txt_current_age_lo.text().strip() or
@@ -657,6 +664,8 @@ def build_cyberlife_sql(
     sql_parts.append("SELECT DISTINCT")
     sql_parts.append("  CURRENT_DATE RunDate")
     sql_parts.append("  , POLICY1.CK_POLICY_NBR PolicyNumber")
+    if coverage_level:
+        sql_parts.append("  , RESULTCOV.COV_PHA_NBR CovPhase")
     sql_parts.append("  , POLICY1.CK_CMP_CD CompanyCode")
     sql_parts.append("  , POLICY1.PRM_PAY_STA_REA_CD StatusCode")
     sql_parts.append("  , POLICY1.SUS_CD SuspenseCode")
@@ -666,24 +675,24 @@ def build_cyberlife_sql(
     for code, st in _ISS_STATE_MAP:
         sql_parts.append(f"    WHEN POLICY1.POL_ISS_ST_CD = '{code}' THEN '{st}'")
     sql_parts.append("    ELSE POLICY1.POL_ISS_ST_CD END IssueState")
-    sql_parts.append("  , COVERAGE1.PLN_DES_SER_CD Plancode")
-    sql_parts.append("  , COVERAGE1.POL_FRM_NBR FormNumber")
-    sql_parts.append("  , VARCHAR_FORMAT(COVERAGE1.ISSUE_DT, 'MM/DD/YYYY') IssueDt")
-    sql_parts.append("  , COVERAGE1.INS_ISS_AGE IssueAge")
+    sql_parts.append(f"  , {result_cov_alias}.PLN_DES_SER_CD Plancode")
+    sql_parts.append(f"  , {result_cov_alias}.POL_FRM_NBR FormNumber")
+    sql_parts.append(f"  , VARCHAR_FORMAT({result_cov_alias}.ISSUE_DT, 'MM/DD/YYYY') IssueDt")
+    sql_parts.append(f"  , {result_cov_alias}.INS_ISS_AGE IssueAge")
     sql_parts.append("  , USERGEN.FUZGREIN_IND RGA_Ind")
 
     # ── Conditional SELECT columns for active range filters ──────
     duration_expr = ("TRUNCATE(MONTHS_BETWEEN('"
                      + today_str()
-                     + "', COVERAGE1.ISSUE_DT) / 12, 0)")
+                     + f"', {result_cov_alias}.ISSUE_DT) / 12, 0)")
     if has_current_age:
-        sql_parts.append(f"  , INTEGER(COVERAGE1.INS_ISS_AGE + {duration_expr}) CurrentAge")
+        sql_parts.append(f"  , INTEGER({result_cov_alias}.INS_ISS_AGE + {duration_expr}) CurrentAge")
     if has_pol_year:
         sql_parts.append(f"  , INTEGER({duration_expr} + 1) PolicyYear")
     if has_issue_month:
-        sql_parts.append("  , MONTH(COVERAGE1.ISSUE_DT) IssueMonth")
+        sql_parts.append(f"  , MONTH({result_cov_alias}.ISSUE_DT) IssueMonth")
     if has_issue_day:
-        sql_parts.append("  , DAY(COVERAGE1.ISSUE_DT) IssueDay")
+        sql_parts.append(f"  , DAY({result_cov_alias}.ISSUE_DT) IssueDay")
     if has_paid_to:
         sql_parts.append("  , VARCHAR_FORMAT(POLICY1.PRM_PAID_TO_DT, 'MM/DD/YYYY') PaidToDate")
     if has_gpe_date:
@@ -704,7 +713,7 @@ def build_cyberlife_sql(
     if disp_duration:
         sql_parts.append(f"  , INTEGER({duration_expr}) Duration")
     if disp_attained_age:
-        sql_parts.append(f"  , INTEGER(COVERAGE1.INS_ISS_AGE + {duration_expr}) AttainedAge")
+        sql_parts.append(f"  , INTEGER({result_cov_alias}.INS_ISS_AGE + {duration_expr}) AttainedAge")
 
     # Circle 3: Last Accounting Date / Last Financial Date
     if disp_last_acct:
@@ -752,11 +761,11 @@ def build_cyberlife_sql(
     if disp_mod_indicator or is_mdo:
         sql_parts.append("  , SUBSTR(POLICY1.USR_RES_CD, 1, 1) MDO")
     if disp_prod_line:
-        sql_parts.append("  , COVERAGE1.PRD_LIN_TYP_CD")
+        sql_parts.append(f"  , {result_cov_alias}.PRD_LIN_TYP_CD")
     if disp_sex_02:
-        sql_parts.append("  , COVERAGE1.INS_SEX_CD SEX_CD")
+        sql_parts.append(f"  , {result_cov_alias}.INS_SEX_CD SEX_CD")
     if disp_subseries:
-        sql_parts.append("  , COVERAGE1.LIF_PLN_SUB_SRE_CD SUBSERIES")
+        sql_parts.append(f"  , {result_cov_alias}.LIF_PLN_SUB_SRE_CD SUBSERIES")
     if disp_mec_status:
         sql_parts.append("  , (CASE")
         sql_parts.append("      WHEN POLICY1.MEC_STATUS_CD = '0' THEN '0 - NO'")
@@ -773,12 +782,12 @@ def build_cyberlife_sql(
     if disp_next_stmt:
         sql_parts.append("  , VARCHAR_FORMAT(POLICY1.NXT_SCH_STT_DT, 'MM/DD/YYYY') NextStatementDt")
     if disp_next_change:
-        sql_parts.append("  , COVERAGE1.NXT_CHG_TYP_CD NextChangeType")
-        sql_parts.append("  , VARCHAR_FORMAT(COVERAGE1.NXT_CHG_DT, 'MM/DD/YYYY') NextChangeDt")
+        sql_parts.append(f"  , {result_cov_alias}.NXT_CHG_TYP_CD NXT_CHG_TYP_CD")
+        sql_parts.append(f"  , VARCHAR_FORMAT({result_cov_alias}.NXT_CHG_DT, 'MM/DD/YYYY') NXT_CHG_DT")
     if disp_init_term:
-        sql_parts.append("  , COVERAGE1.INT_RNL_PER")
-        sql_parts.append("  , COVERAGE1.SBQ_RNL_STR_DUR")
-        sql_parts.append("  , COVERAGE1.SBQ_RNL_PER")
+        sql_parts.append(f"  , {result_cov_alias}.INT_RNL_PER")
+        sql_parts.append(f"  , {result_cov_alias}.SBQ_RNL_STR_DUR")
+        sql_parts.append(f"  , {result_cov_alias}.SBQ_RNL_PER")
 
     # Circle 8: Target / value display columns
     if disp_commission_target:
@@ -851,11 +860,11 @@ def build_cyberlife_sql(
 
     # Circle 10: Batch 4 — new JOINs / CTEs required
     if disp_substandard:
-        sql_parts.append("  , (CASE WHEN TABLE_RATING1.SST_XTR_RT_TBL_CD IS NULL THEN ' ' ELSE TABLE_RATING1.SST_XTR_RT_TBL_CD END) TableRating")
-        sql_parts.append("  , (CASE WHEN FLAT_EXTRA1.SST_XTR_UNT_AMT IS NULL THEN '0' ELSE FLAT_EXTRA1.SST_XTR_UNT_AMT END) MONTHFLAT")
+        sql_parts.append(f"  , (CASE WHEN {result_table_alias}.SST_XTR_RT_TBL_CD IS NULL THEN ' ' ELSE {result_table_alias}.SST_XTR_RT_TBL_CD END) TableRating")
+        sql_parts.append(f"  , (CASE WHEN {result_flat_alias}.SST_XTR_UNT_AMT IS NULL THEN '0' ELSE {result_flat_alias}.SST_XTR_UNT_AMT END) MONTHFLAT")
     if disp_sex_rateclass:
-        sql_parts.append("  , COV1_RENEWALS.RT_CLS_CD RenewalClass")
-        sql_parts.append("  , COV1_RENEWALS.RT_SEX_CD RenewalSex")
+        sql_parts.append(f"  , {result_rnw_alias}.RT_CLS_CD RenewalClass")
+        sql_parts.append(f"  , {result_rnw_alias}.RT_SEX_CD RenewalSex")
     if disp_tamra:
         sql_parts.append("  , TAMRA.SVPY_LVL_PRM_AMT TAMRA7PAY")
     if disp_gsp:
@@ -952,6 +961,11 @@ def build_cyberlife_sql(
     sql_parts.append("    ON POLICY1.CK_SYS_CD = COVERAGE1.CK_SYS_CD")
     sql_parts.append("    AND POLICY1.CK_CMP_CD = COVERAGE1.CK_CMP_CD")
     sql_parts.append("    AND POLICY1.TCH_POL_ID = COVERAGE1.TCH_POL_ID")
+    if coverage_level:
+        sql_parts.append(f"  INNER JOIN {schema}.LH_COV_PHA RESULTCOV")
+        sql_parts.append("    ON POLICY1.CK_SYS_CD = RESULTCOV.CK_SYS_CD")
+        sql_parts.append("    AND POLICY1.CK_CMP_CD = RESULTCOV.CK_CMP_CD")
+        sql_parts.append("    AND POLICY1.TCH_POL_ID = RESULTCOV.TCH_POL_ID")
     sql_parts.append(f"  LEFT OUTER JOIN {schema}.TH_USER_GENERIC USERGEN")
     sql_parts.append("    ON POLICY1.CK_SYS_CD = USERGEN.CK_SYS_CD")
     sql_parts.append("    AND POLICY1.CK_CMP_CD = USERGEN.CK_CMP_CD")
@@ -1032,6 +1046,15 @@ def build_cyberlife_sql(
             sql_parts.append(
                 f"    AND MODCOVSALL.AN_PRD_ID IN "
                 f"({in_list(policy_product_indicator_codes)})")
+    if coverage_level and policy_has_product_indicator:
+        sql_parts.append(f"  INNER JOIN {schema}.TH_COV_PHA RESULTCOV_MOD")
+        sql_parts.append("    ON RESULTCOV_MOD.CK_SYS_CD = RESULTCOV.CK_SYS_CD")
+        sql_parts.append("    AND RESULTCOV_MOD.CK_CMP_CD = RESULTCOV.CK_CMP_CD")
+        sql_parts.append("    AND RESULTCOV_MOD.TCH_POL_ID = RESULTCOV.TCH_POL_ID")
+        sql_parts.append("    AND RESULTCOV_MOD.COV_PHA_NBR = RESULTCOV.COV_PHA_NBR")
+        sql_parts.append(
+            f"    AND RESULTCOV_MOD.AN_PRD_ID IN "
+            f"({in_list(policy_product_indicator_codes)})")
     if has_52r or disp_replacement_pol:
         _52r_join = "INNER JOIN" if has_52r else "LEFT OUTER JOIN"
         sql_parts.append(f"  {_52r_join} {schema}.TH_USER_REPLACEMENT USERDEF_52R")
@@ -1263,9 +1286,22 @@ def build_cyberlife_sql(
         sql_parts.append("    AND COVERAGE1.COV_PHA_NBR = MODCOV1.COV_PHA_NBR")
 
     # Base cov: COV1_RENEWALS (LH_COV_INS_RNL_RT) for rateclass67 / sex67
-    if cov_needs_renewals or disp_sex_rateclass:
-        _rnw_join = "INNER JOIN" if cov_needs_renewals else "LEFT OUTER JOIN"
-        sql_parts.append(f"  {_rnw_join} {schema}.LH_COV_INS_RNL_RT COV1_RENEWALS")
+    if cov_needs_renewals:
+        sql_parts.append(f"  INNER JOIN {schema}.LH_COV_INS_RNL_RT COV1_RENEWALS")
+        sql_parts.append("    ON COVERAGE1.CK_SYS_CD = COV1_RENEWALS.CK_SYS_CD")
+        sql_parts.append("    AND COVERAGE1.CK_CMP_CD = COV1_RENEWALS.CK_CMP_CD")
+        sql_parts.append("    AND COVERAGE1.TCH_POL_ID = COV1_RENEWALS.TCH_POL_ID")
+        sql_parts.append("    AND COVERAGE1.COV_PHA_NBR = COV1_RENEWALS.COV_PHA_NBR")
+        sql_parts.append("    AND COV1_RENEWALS.PRM_RT_TYP_CD = 'C'")
+    if disp_sex_rateclass and coverage_level:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_COV_INS_RNL_RT RESULTCOV_RENEWALS")
+        sql_parts.append("    ON RESULTCOV.CK_SYS_CD = RESULTCOV_RENEWALS.CK_SYS_CD")
+        sql_parts.append("    AND RESULTCOV.CK_CMP_CD = RESULTCOV_RENEWALS.CK_CMP_CD")
+        sql_parts.append("    AND RESULTCOV.TCH_POL_ID = RESULTCOV_RENEWALS.TCH_POL_ID")
+        sql_parts.append("    AND RESULTCOV.COV_PHA_NBR = RESULTCOV_RENEWALS.COV_PHA_NBR")
+        sql_parts.append("    AND RESULTCOV_RENEWALS.PRM_RT_TYP_CD = 'C'")
+    elif disp_sex_rateclass:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_COV_INS_RNL_RT COV1_RENEWALS")
         sql_parts.append("    ON COVERAGE1.CK_SYS_CD = COV1_RENEWALS.CK_SYS_CD")
         sql_parts.append("    AND COVERAGE1.CK_CMP_CD = COV1_RENEWALS.CK_CMP_CD")
         sql_parts.append("    AND COVERAGE1.TCH_POL_ID = COV1_RENEWALS.TCH_POL_ID")
@@ -1273,9 +1309,26 @@ def build_cyberlife_sql(
         sql_parts.append("    AND COV1_RENEWALS.PRM_RT_TYP_CD = 'C'")
 
     # Base cov: TABLE_RATING1 (LH_SST_XTR_CRG) for Table (03)
-    if cov_base_table03 or disp_substandard:
-        _tr_join = "INNER JOIN" if cov_base_table03 else "LEFT OUTER JOIN"
-        sql_parts.append(f"  {_tr_join} {schema}.LH_SST_XTR_CRG TABLE_RATING1")
+    if cov_base_table03:
+        sql_parts.append(f"  INNER JOIN {schema}.LH_SST_XTR_CRG TABLE_RATING1")
+        sql_parts.append("    ON COVERAGE1.CK_SYS_CD = TABLE_RATING1.CK_SYS_CD")
+        sql_parts.append("    AND COVERAGE1.CK_CMP_CD = TABLE_RATING1.CK_CMP_CD")
+        sql_parts.append("    AND COVERAGE1.TCH_POL_ID = TABLE_RATING1.TCH_POL_ID")
+        sql_parts.append("    AND COVERAGE1.COV_PHA_NBR = TABLE_RATING1.COV_PHA_NBR")
+        sql_parts.append("    AND (TABLE_RATING1.SST_XTR_TYP_CD = '0'"
+                         " OR TABLE_RATING1.SST_XTR_TYP_CD = '1'"
+                         " OR TABLE_RATING1.SST_XTR_TYP_CD = '3')")
+    if disp_substandard and coverage_level:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_SST_XTR_CRG RESULTCOV_TABLE_RATING")
+        sql_parts.append("    ON RESULTCOV.CK_SYS_CD = RESULTCOV_TABLE_RATING.CK_SYS_CD")
+        sql_parts.append("    AND RESULTCOV.CK_CMP_CD = RESULTCOV_TABLE_RATING.CK_CMP_CD")
+        sql_parts.append("    AND RESULTCOV.TCH_POL_ID = RESULTCOV_TABLE_RATING.TCH_POL_ID")
+        sql_parts.append("    AND RESULTCOV.COV_PHA_NBR = RESULTCOV_TABLE_RATING.COV_PHA_NBR")
+        sql_parts.append("    AND (RESULTCOV_TABLE_RATING.SST_XTR_TYP_CD = '0'"
+                         " OR RESULTCOV_TABLE_RATING.SST_XTR_TYP_CD = '1'"
+                         " OR RESULTCOV_TABLE_RATING.SST_XTR_TYP_CD = '3')")
+    elif disp_substandard:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_SST_XTR_CRG TABLE_RATING1")
         sql_parts.append("    ON COVERAGE1.CK_SYS_CD = TABLE_RATING1.CK_SYS_CD")
         sql_parts.append("    AND COVERAGE1.CK_CMP_CD = TABLE_RATING1.CK_CMP_CD")
         sql_parts.append("    AND COVERAGE1.TCH_POL_ID = TABLE_RATING1.TCH_POL_ID")
@@ -1285,9 +1338,24 @@ def build_cyberlife_sql(
                          " OR TABLE_RATING1.SST_XTR_TYP_CD = '3')")
 
     # Base cov: FLAT_EXTRA1 (LH_SST_XTR_CRG) for Flat (03)
-    if cov_base_flat03 or disp_substandard:
-        _fe_join = "INNER JOIN" if cov_base_flat03 else "LEFT OUTER JOIN"
-        sql_parts.append(f"  {_fe_join} {schema}.LH_SST_XTR_CRG FLAT_EXTRA1")
+    if cov_base_flat03:
+        sql_parts.append(f"  INNER JOIN {schema}.LH_SST_XTR_CRG FLAT_EXTRA1")
+        sql_parts.append("    ON COVERAGE1.CK_SYS_CD = FLAT_EXTRA1.CK_SYS_CD")
+        sql_parts.append("    AND COVERAGE1.CK_CMP_CD = FLAT_EXTRA1.CK_CMP_CD")
+        sql_parts.append("    AND COVERAGE1.TCH_POL_ID = FLAT_EXTRA1.TCH_POL_ID")
+        sql_parts.append("    AND COVERAGE1.COV_PHA_NBR = FLAT_EXTRA1.COV_PHA_NBR")
+        sql_parts.append("    AND (FLAT_EXTRA1.SST_XTR_TYP_CD = '2'"
+                         " OR FLAT_EXTRA1.SST_XTR_TYP_CD = '4')")
+    if disp_substandard and coverage_level:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_SST_XTR_CRG RESULTCOV_FLAT_EXTRA")
+        sql_parts.append("    ON RESULTCOV.CK_SYS_CD = RESULTCOV_FLAT_EXTRA.CK_SYS_CD")
+        sql_parts.append("    AND RESULTCOV.CK_CMP_CD = RESULTCOV_FLAT_EXTRA.CK_CMP_CD")
+        sql_parts.append("    AND RESULTCOV.TCH_POL_ID = RESULTCOV_FLAT_EXTRA.TCH_POL_ID")
+        sql_parts.append("    AND RESULTCOV.COV_PHA_NBR = RESULTCOV_FLAT_EXTRA.COV_PHA_NBR")
+        sql_parts.append("    AND (RESULTCOV_FLAT_EXTRA.SST_XTR_TYP_CD = '2'"
+                         " OR RESULTCOV_FLAT_EXTRA.SST_XTR_TYP_CD = '4')")
+    elif disp_substandard:
+        sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_SST_XTR_CRG FLAT_EXTRA1")
         sql_parts.append("    ON COVERAGE1.CK_SYS_CD = FLAT_EXTRA1.CK_SYS_CD")
         sql_parts.append("    AND COVERAGE1.CK_CMP_CD = FLAT_EXTRA1.CK_CMP_CD")
         sql_parts.append("    AND COVERAGE1.TCH_POL_ID = FLAT_EXTRA1.TCH_POL_ID")
@@ -1500,13 +1568,15 @@ def build_cyberlife_sql(
     # -- Policy tab: Plancode (searches all coverages) --
     plancode = pt.txt_plancode.text().strip()
     if plancode:
-        wheres.append(f"COVSALL.PLN_DES_SER_CD = '{esc(plancode)}'")
+        cov_filter_alias = result_cov_alias if coverage_level else "COVSALL"
+        wheres.append(f"{cov_filter_alias}.PLN_DES_SER_CD = '{esc(plancode)}'")
 
     # -- Plancode tab: multiple plancodes (IN list) --
     plancode_list = plancode_tab.get_plancodes()
     if plancode_list:
+        cov_filter_alias = result_cov_alias if coverage_level else "COVSALL"
         wheres.append(
-            f"COVSALL.PLN_DES_SER_CD IN ({in_list(plancode_list)})")
+            f"{cov_filter_alias}.PLN_DES_SER_CD IN ({in_list(plancode_list)})")
 
     # -- Policy tab: Market Org --
     _mkt_org_map = {"MLM": "1", "CSSD": "2", "IMG": "7", "DIRECT": "D"}
@@ -1534,7 +1604,7 @@ def build_cyberlife_sql(
     # -- Policy tab: Form number (starts-with LIKE) --
     form_num = pt.txt_form_number.text().strip()
     if form_num:
-        wheres.append(f"COVERAGE1.POL_FRM_NBR LIKE '{esc(form_num)}%'")
+        wheres.append(f"{result_cov_alias}.POL_FRM_NBR LIKE '{esc(form_num)}%'")
 
     # -- Policy tab: Branch --
     branch = pt.txt_branch.text().strip()
@@ -1566,7 +1636,8 @@ def build_cyberlife_sql(
     if pt.chk_product_line.isChecked():
         codes = selected_codes(pt.list_product_line)
         if codes:
-            wheres.append(f"COVSALL.PRD_LIN_TYP_CD IN ({in_list(codes)})")
+            cov_filter_alias = result_cov_alias if coverage_level else "COVSALL"
+            wheres.append(f"{cov_filter_alias}.PRD_LIN_TYP_CD IN ({in_list(codes)})")
 
     # -- Policy tab: Product indicator is applied in the MODCOVSALL join. --
 
@@ -1606,16 +1677,16 @@ def build_cyberlife_sql(
                 wheres.append(f"({mode_clause})")
 
     # -- Policy tab: Issue age range --
-    add_int_range(wheres, "COVERAGE1.INS_ISS_AGE",
+    add_int_range(wheres, f"{result_cov_alias}.INS_ISS_AGE",
                   pt.txt_issue_age_lo, pt.txt_issue_age_hi)
 
     # -- Policy tab: Current age range (VBA: INS_ISS_AGE + Duration) --
     duration_expr = ("TRUNCATE(MONTHS_BETWEEN('"
                      + today_str()
-                     + "', COVERAGE1.ISSUE_DT) / 12, 0)")
+                     + f"', {result_cov_alias}.ISSUE_DT) / 12, 0)")
     add_int_range(
         wheres,
-        f"(COVERAGE1.INS_ISS_AGE + {duration_expr})",
+        f"({result_cov_alias}.INS_ISS_AGE + {duration_expr})",
         pt.txt_current_age_lo, pt.txt_current_age_hi)
 
     # -- Policy tab: Current policy year (Duration + 1) --
@@ -1625,15 +1696,15 @@ def build_cyberlife_sql(
         pt.txt_pol_year_lo, pt.txt_pol_year_hi)
 
     # -- Policy tab: Issue month range --
-    add_int_range(wheres, "MONTH(COVERAGE1.ISSUE_DT)",
+    add_int_range(wheres, f"MONTH({result_cov_alias}.ISSUE_DT)",
                   pt.txt_issue_month_lo, pt.txt_issue_month_hi)
 
     # -- Policy tab: Issue day range --
-    add_int_range(wheres, "DAY(COVERAGE1.ISSUE_DT)",
+    add_int_range(wheres, f"DAY({result_cov_alias}.ISSUE_DT)",
                   pt.txt_issue_day_lo, pt.txt_issue_day_hi)
 
     # -- Policy tab: Issued date range --
-    add_date_range(wheres, "COVERAGE1.ISSUE_DT",
+    add_date_range(wheres, f"{result_cov_alias}.ISSUE_DT",
                    pt.txt_issued_date_lo, pt.txt_issued_date_hi)
 
     # -- Policy tab: Paid to date range --
@@ -1941,6 +2012,19 @@ def build_cyberlife_sql(
     if cov_base_sex67:
         code = cov_base_sex67[0]
         wheres.append(f"COV1_RENEWALS.RT_SEX_CD = '{esc(code)}'")
+
+    if coverage_level:
+        rider_match_aliases = []
+        if rider1_info["active"]:
+            rider_match_aliases.append("RIDER1")
+        if rider2_info["active"]:
+            rider_match_aliases.append("RIDER2")
+        if rider_match_aliases:
+            checks = [
+                f"RESULTCOV.COV_PHA_NBR = {alias}.COV_PHA_NBR"
+                for alias in rider_match_aliases
+            ]
+            wheres.append("(" + " OR ".join(checks) + ")")
 
     # ── Assemble WHERE ───────────────────────────────────────────
     if wheres:

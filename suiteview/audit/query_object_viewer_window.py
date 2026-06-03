@@ -349,7 +349,6 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         root.addWidget(splitter, 1)
 
         self.refresh()
-        self._clear_detail()
         return body
 
     @staticmethod

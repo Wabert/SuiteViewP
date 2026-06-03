@@ -38,6 +38,7 @@ def apply_premium(
     premiums_ytd: float,
     premiums_to_date: float,
     cost_basis: float,
+    gross_premium_override: float | None = None,
 ) -> PremiumResult:
     """Apply one month's premium to account value.
 
@@ -54,7 +55,7 @@ def apply_premium(
     Returns:
         PremiumResult with all premium-stage outputs.
     """
-    gross_premium = policy.modal_premium
+    gross_premium = policy.modal_premium if gross_premium_override is None else gross_premium_override
 
     if gross_premium <= 0:
         return PremiumResult(

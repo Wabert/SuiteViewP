@@ -73,7 +73,7 @@ class DisplayTab(QWidget):
 
         self.chk_last_acct_date = _cb("Last Accounting Date (01)")
         self.chk_last_fin_date = _cb("Last Financial Date (01)")
-        self.chk_next_change_cov1 = _cb("Next Change - cov1  (02)")
+        self.chk_next_change_cov1 = _cb("Display Next Change (02)")
         for w in (self.chk_last_acct_date, self.chk_last_fin_date,
                   self.chk_next_change_cov1):
             c1.addWidget(w)

@@ -4,6 +4,8 @@ import unittest
 from datetime import datetime
 from unittest.mock import patch
 
+from PyQt6.QtWidgets import QApplication
+
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit.adhoc_source_intake import (
     dataframe_from_adhoc_metadata,
@@ -36,6 +38,7 @@ from suiteview.audit.query_object_store import (
     list_objects,
     load_object,
     object_exists,
+    restore_saved_visual_design,
     save_object,
 )
 from suiteview.audit.query_object_viewer_window import _limited_preview_sql, _object_group_label, _preview_dialect_for_object
@@ -607,6 +610,70 @@ class QueryObjectTests(unittest.TestCase):
         else:
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_dir
 
+    def test_visual_query_object_copy_copies_saved_design(self):
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_queries_dir = saved_query_store._QUERIES_DIR
+        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_queries:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+            saved_query_store._QUERIES_DIR = saved_query_store.Path(tmp_queries)
+            saved = SavedQuery(
+                name="Visual Premium Query",
+                source_group="Premium Group",
+                dsn="CKPR_DSN",
+                tables=["DB2TAB.LH_BAS_POL"],
+                sql="SELECT TCH_POL_ID FROM DB2TAB.LH_BAS_POL",
+                result_columns=["TCH_POL_ID"],
+            )
+            saved_query_store.save_query(saved)
+
+            copied = copy_object("Visual Premium Query", "Visual Premium Query Copy")
+            copied_design = saved_query_store.load_query("Visual Premium Query Copy")
+
+            self.assertEqual(copied.name, "Visual Premium Query Copy")
+            self.assertIsNotNone(copied_design)
+            self.assertEqual(copied_design.name, "Visual Premium Query Copy")
+            self.assertEqual(copied_design.sql, saved.sql)
+            self.assertEqual(copied_design.config, saved.config)
+
+        saved_query_store._QUERIES_DIR = old_queries_dir
+        if old_obj_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
+    def test_visual_query_object_restores_missing_saved_design(self):
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_queries_dir = saved_query_store._QUERIES_DIR
+        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_queries:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+            saved_query_store._QUERIES_DIR = saved_query_store.Path(tmp_queries)
+            obj = object_from_saved_query(SavedQuery(
+                name="Copied Before Fix",
+                source_group="Premium Group",
+                dsn="CKPR_DSN",
+                tables=["DB2TAB.LH_BAS_POL"],
+                sql="SELECT TCH_POL_ID FROM DB2TAB.LH_BAS_POL",
+                result_columns=["TCH_POL_ID"],
+                config={"select_tab": {"display_all": False}},
+            ))
+            obj.description = "Keep object metadata"
+            save_object(obj)
+
+            restored = restore_saved_visual_design(obj)
+            loaded_object = load_object("Copied Before Fix")
+
+            self.assertIsNotNone(restored)
+            self.assertEqual(restored.name, "Copied Before Fix")
+            self.assertEqual(restored.config, obj.config)
+            self.assertEqual(restored.sql, obj.sql)
+            self.assertEqual(loaded_object.description, "Keep object metadata")
+
+        saved_query_store._QUERIES_DIR = old_queries_dir
+        if old_obj_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
     def test_query_object_editable_metadata_round_trip(self):
         old_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -631,6 +698,35 @@ class QueryObjectTests(unittest.TestCase):
             self.assertEqual(loaded.tags, ["monthly", "workbench"])
             self.assertEqual(loaded.fields[0].role, "join_key")
             self.assertEqual(loaded.fields[0].display_name, "Policy Number")
+
+        if old_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_dir
+
+    def test_query_object_viewer_initial_selection_populates_detail(self):
+        old_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_dir
+            save_object(manual_sql_query_object(
+                "Initial Viewer Object",
+                sql="SELECT POLICY FROM WORK",
+                dsn="WORK_DSN",
+                result_columns=["POLICY"],
+            ))
+
+            app = QApplication.instance()
+            if app is None:
+                app = QApplication([])
+
+            window = QueryObjectViewerWindow()
+            try:
+                app.processEvents()
+
+                self.assertEqual(window.tree.currentItem().text(0), "Initial Viewer Object")
+                self.assertEqual(window.lbl_name.text(), "Initial Viewer Object")
+            finally:
+                window.close()
 
         if old_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
