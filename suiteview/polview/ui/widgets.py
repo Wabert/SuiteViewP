@@ -322,6 +322,7 @@ class FixedHeaderTableWidget(QWidget):
     
     def _setup_ui(self):
         """Setup the table inside a rounded frame."""
+        self.setAutoFillBackground(True)
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -424,6 +425,7 @@ class FixedHeaderTableWidget(QWidget):
         self._data_table.verticalHeader().setDefaultSectionSize(16)
         self._data_table.setAlternatingRowColors(False)
         self._data_table.setShowGrid(False)
+        self._data_table.viewport().setAutoFillBackground(True)
         
         # Header config — native interactive resize + double-click auto-fit
         header = self._data_table.horizontalHeader()
@@ -564,6 +566,12 @@ class FixedHeaderTableWidget(QWidget):
     def mapToGlobal(self, pos):
         """Map position to global coordinates."""
         return self._data_table.mapToGlobal(pos)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._data_table.viewport().update()
+        self._data_table.update()
+        self._outer_frame.update()
     
     # =========================================================================
     # Column Filtering (Excel-style)

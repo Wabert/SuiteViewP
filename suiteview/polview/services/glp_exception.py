@@ -8,7 +8,11 @@ from dateutil.relativedelta import relativedelta
 from suiteview.illustration.core.calc_engine import IllustrationEngine, ProjectionTiming
 from suiteview.illustration.core.illustration_policy_service import build_illustration_data
 from suiteview.illustration.core.rate_loader import load_rates
-from suiteview.illustration.models.input_set import IllustrationInputSet, ScheduledTransaction, TransactionKind
+from suiteview.illustration.models.input_set import (
+    DatedTransaction,
+    IllustrationInputSet,
+    TransactionKind,
+)
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
@@ -56,8 +60,14 @@ class GlpExceptionResult:
     flat_fee: float
     total_required_premium_after_load: float
     accumulated_glp_prior_to_target: float
-    adjustment_to_accum_glp_needed: float
+    premium_td_on_target_date: float
+    adjustment_to_accum_glp_pre_calc: float
+    new_glp: float | None
+    adjustment_to_accum_glp: float
     new_accum_glp: float
+    glp_adjustment_message: str
+    force_out_required: bool
+    force_out_amount: float
     forecast_rows: list[GlpForecastRow]
 
 
@@ -152,7 +162,7 @@ def calculate_glp_exception(policy, target_date: date) -> GlpExceptionResult:
         )
 
     level_premium = _solve_level_premium(ill_policy, months_to_target, engine)
-    solved_inputs = _level_premium_inputs(ill_policy.policy_year, level_premium)
+    solved_inputs = _level_premium_inputs(ill_policy, months_to_target, level_premium)
     solved = _project_full_horizon(
         engine,
         _policy_with_modal_premium(ill_policy, 0.0),
@@ -190,11 +200,25 @@ def _build_result(
 ) -> GlpExceptionResult:
     current_accumulated_glp = policy.accumulated_glp or 0.0
     accumulated_glp_prior_to_target = _accumulated_glp_to_target(policy, target_date)
-    adjustment = max(
-        0.0,
-        (policy.premiums_paid_to_date - policy.withdrawals_to_date + after_load)
-        - max(policy.gsp, accumulated_glp_prior_to_target),
-    )
+    premium_td_on_target_date = policy.premiums_paid_to_date + after_load
+    pre_calc_adjustment = max(0.0, premium_td_on_target_date - accumulated_glp_prior_to_target)
+
+    new_glp = None
+    adjustment = 0.0
+    force_out_required = False
+    force_out_amount = 0.0
+    adjustment_message = ""
+
+    if accumulated_glp_prior_to_target >= premium_td_on_target_date:
+        adjustment_message = "NO ADJUSTMENT NEEDED"
+    elif after_load <= 0.0:
+        force_out_required = True
+        force_out_amount = premium_td_on_target_date - accumulated_glp_prior_to_target
+    else:
+        adjustment_basis = current_accumulated_glp if policy.glp < 0.0 else accumulated_glp_prior_to_target
+        new_glp = 0.0 if policy.glp < 0.0 else policy.glp
+        adjustment = max(0.0, premium_td_on_target_date - adjustment_basis)
+
     new_accum_glp = current_accumulated_glp + adjustment
     return GlpExceptionResult(
         current_valuation_date=policy.valuation_date,
@@ -214,11 +238,16 @@ def _build_result(
         flat_fee=flat_fee,
         total_required_premium_after_load=after_load,
         accumulated_glp_prior_to_target=accumulated_glp_prior_to_target,
-        adjustment_to_accum_glp_needed=adjustment,
+        premium_td_on_target_date=premium_td_on_target_date,
+        adjustment_to_accum_glp_pre_calc=pre_calc_adjustment,
+        new_glp=new_glp,
+        adjustment_to_accum_glp=adjustment,
         new_accum_glp=new_accum_glp,
+        glp_adjustment_message=adjustment_message,
+        force_out_required=force_out_required,
+        force_out_amount=force_out_amount,
         forecast_rows=forecast_rows,
     )
-
 
 def _forecast_rows_from_projection(
     policy: IllustrationPolicyData,
@@ -254,6 +283,9 @@ def _forecast_rows_from_projection(
 
 
 def _solve_level_premium(policy: IllustrationPolicyData, months: int, engine: IllustrationEngine) -> float:
+    if policy.account_value < 1.0 and months <= 1:
+        return 0.0
+
     low = 0.0
     high = max(policy.system_monthly_deduction, policy.glp / 12.0, 100.0)
 
@@ -262,7 +294,7 @@ def _solve_level_premium(policy: IllustrationPolicyData, months: int, engine: Il
             engine,
             _policy_with_modal_premium(policy, 0.0),
             months=months,
-            future_inputs=_level_premium_inputs(policy.policy_year, level),
+            future_inputs=_level_premium_inputs(policy, months, level),
         )
         if len(projected) <= months:
             return -1.0
@@ -297,12 +329,32 @@ def _project_full_horizon(
     )
 
 
-def _level_premium_inputs(policy_year: int, amount: float) -> IllustrationInputSet:
-    return IllustrationInputSet(
-        scheduled_transactions=[
-            ScheduledTransaction(kind=TransactionKind.PREMIUM, policy_year=policy_year, amount=amount, mode="M")
-        ]
-    )
+def _level_premium_inputs(policy: IllustrationPolicyData, months: int, amount: float) -> IllustrationInputSet:
+    dated_transactions = []
+    if policy.issue_date is not None and months > 0:
+        first_level_offset = 1
+        if policy.account_value < 1.0:
+            first_projection_date = policy.issue_date + relativedelta(months=policy.duration)
+            dated_transactions.append(
+                DatedTransaction(
+                    kind=TransactionKind.PREMIUM,
+                    effective_date=first_projection_date,
+                    amount=1.0 - policy.account_value,
+                    subtype="catch_up_to_one",
+                )
+            )
+            first_level_offset = 2
+        for offset in range(first_level_offset, months + 1):
+            premium_date = policy.issue_date + relativedelta(months=policy.duration + offset - 1)
+            dated_transactions.append(
+                DatedTransaction(
+                    kind=TransactionKind.PREMIUM,
+                    effective_date=premium_date,
+                    amount=amount,
+                    subtype="level",
+                )
+            )
+    return IllustrationInputSet(dated_transactions=dated_transactions)
 
 
 def _policy_with_modal_premium(policy: IllustrationPolicyData, modal_premium: float) -> IllustrationPolicyData:
@@ -396,7 +448,7 @@ def _months_between_exclusive(start: date, target: date) -> int:
 
 def _accumulated_glp_to_target(policy: IllustrationPolicyData, target_date: date) -> float:
     accumulated_glp = policy.accumulated_glp or 0.0
-    if policy.issue_date is None or policy.valuation_date is None or policy.glp <= 0:
+    if policy.issue_date is None or policy.valuation_date is None:
         return accumulated_glp
 
     anniversary = policy.issue_date + relativedelta(years=policy.policy_year)

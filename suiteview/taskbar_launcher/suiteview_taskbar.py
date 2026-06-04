@@ -2063,19 +2063,9 @@ class SuiteViewTaskbar(QWidget):
         self.file_nav_window = None
         self.scratchpad_window = None
 
-        # Create PolView eagerly so all tools share the same instance
-        # (only if the polview package is available in this deployment)
-        try:
-            logger.info("Importing PolView...")
-            from suiteview.polview.ui.main_window import GetPolicyWindow
-            logger.info("Creating GetPolicyWindow...")
-            self.polview_window = GetPolicyWindow()
-            self._setup_child_window(self.polview_window, "PolView")
-            logger.info("PolView created successfully")
-        except ImportError:
-            logger.info("PolView package not available — skipping")
-        except Exception as e:
-            logger.error(f"Failed to pre-create PolView: {e}", exc_info=True)
+        # PolView is created lazily the first time it is requested. Keeping it
+        # lazy avoids a hidden native tool window flashing during taskbar startup.
+        logger.info("PolView will be created on first use")
 
         # Messaging service (only when shared folder is reachable, disabled in Light mode)
         logger.info("Checking messaging availability (LIGHT_MODE=%s)...", LIGHT_MODE)
@@ -2776,16 +2766,18 @@ class SuiteViewTaskbar(QWidget):
 
         region = self.compact_region_combo.currentText()
 
-        # Ensure PolView window exists
-        self._open_polview()
+        # Populate and load before the first show so a newly-created PolView
+        # window does not briefly appear as a small blank pythonw window.
+        window = self._get_polview_window()
+        if not window or not hasattr(window, 'lookup_bar'):
+            return
 
-        # Populate PolView's lookup bar and trigger the lookup
-        if self.polview_window and hasattr(self.polview_window, 'lookup_bar'):
-            lb = self.polview_window.lookup_bar
-            lb.region_input.setText(region)
-            lb.company_input.setText("")   # Let it auto-detect
-            lb.policy_input.setText(policy)
-            lb._on_get_policy()
+        lb = window.lookup_bar
+        lb.region_input.setText(region)
+        lb.company_input.setText("")   # Let it auto-detect
+        lb.policy_input.setText(policy)
+        lb._on_get_policy()
+        self._bring_to_front(window)
 
     def _open_audit(self):
         """Open the Audit Tool window"""

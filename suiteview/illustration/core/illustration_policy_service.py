@@ -104,7 +104,7 @@ def build_illustration_data(
     map_cease_date = getattr(pi, "map_date", None)
 
     # ── Premiums paid ─────────────────────────────────────────
-    paid_raw = pi.total_premiums_paid
+    paid_raw = pi.premium_td
     premiums_paid = float(paid_raw) if paid_raw is not None else 0.0
     ytd_raw = pi.premium_ytd
     premiums_ytd = float(ytd_raw) if ytd_raw is not None else 0.0

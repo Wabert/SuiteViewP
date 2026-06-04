@@ -55,7 +55,10 @@ class PolicyListWindow(DockableToolPanel):
             border_color=GOLD_PRIMARY,
             bg_color=BLUE_PRIMARY,
             corner_radius=8.0,
+            parent=parent_window,
         )
+        self._set_window_owner(True)
+        self.hide()
 
     # -- DockableToolPanel overrides ----------------------------------------
 

@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QGroupBox, QGridLayout,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu,
     QStyledItemDelegate, QSizePolicy, QLineEdit, QTableWidgetItem,
-    QStackedWidget,
+    QStackedWidget, QDialog, QTextEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QSize, QMimeData, QUrl
 from PyQt6.QtGui import QColor, QDrag, QPixmap, QPainter, QFont
@@ -173,6 +173,27 @@ def _safe_anniversary(issue_date: date, year: int) -> date:
         return issue_date.replace(year=year, day=28)
 
 
+GLP_HELP_TEXT = """GLP Exception quote - basic explanation
+
+This screen estimates whether a Universal Life policy can stay in force until the target inforce date without changing its Guideline Level Premium, also called GLP.
+
+The calculation starts with the current policy values from the valuation date. That includes the account value, premiums paid to date, accumulated withdrawals, the current GLP, the current GSP, and the current Accum GLP. Premiums paid to date includes both regular premiums and additional premiums.
+
+If premiums were paid after the valuation date, the tool adds those premiums to create the adjusted account value and adjusted premiums paid to date. This keeps the quote from using stale values.
+
+Next, the tool projects the policy month by month from the valuation date to the target inforce date. It applies monthly deductions, interest, loads, and any required forecast assumptions so it can estimate whether the account value survives through that period.
+
+If the policy can stay in force with no added premium, the tool still checks the guideline limits through the target date before deciding whether an adjustment is needed. This matters when GLP is negative: crossing an anniversary can lower Accum GLP, which may still require an Accum GLP adjustment even when the required premium is $0. The monthly forecast still displays so you can see how the account value moves over time with no added premium.
+
+If the policy needs premium to stay in force, the tool solves for the level premium needed through the target period. If the account value is negative, the first payment is the amount needed to bring the account value to $1.00, and the level premium starts after that. The Premium to get to Target Date line shows the total premium needed through the target period.
+
+The Accum GLP on Target Date line uses the current GLP through anniversaries crossed before the target date. PremTD on Target Date is the adjusted premiums paid to date plus the Premium to get to Target Date.
+
+If Accum GLP on Target Date is greater than or equal to PremTD on Target Date, no adjustment is needed. If Accum GLP on Target Date is less than PremTD on Target Date and premium is needed to get to the target date, the tool shows the New GLP, Adjustment to Accum GLP, and New Accum GLP. If no premium is needed but PremTD is still above Accum GLP on the target date, the tool shows the force-out amount.
+
+The goal of the quote is to answer a practical question: does this policy need an Accum GLP adjustment, and if so, how much, so the policy can remain in force up to the target date?"""
+
+
 # ---------------------------------------------------------------------------
 # Styling
 # ---------------------------------------------------------------------------
@@ -293,7 +314,7 @@ _NAV_PANEL_STYLE = f"""
 _RESULT_VALUE_STYLE = f"""
     font-size: 11px;
     color: {GREEN_DARK};
-    font-weight: bold;
+    font-weight: normal;
     background: transparent;
     border: none;
 """
@@ -1061,6 +1082,7 @@ class PolicySupportTab(QWidget):
         self._user_tasks: List[str] = _load_user_tasks()
         self._current_mode = self.MODE_POLICY_SUPPORT
         self._current_section = self.MODE_POLICY_SUPPORT
+        self._glp_quote_cache = {}
         self._setup_ui()
 
     # -- UI ----------------------------------------------------------------
@@ -1264,6 +1286,7 @@ class PolicySupportTab(QWidget):
     def _build_glp_exception_page(self) -> QWidget:
         page = QWidget()
         page.setStyleSheet(f"background-color: {WHITE};")
+        page.setAutoFillBackground(True)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -1295,6 +1318,23 @@ class PolicySupportTab(QWidget):
         self._glp_calculate_btn.clicked.connect(self._on_calculate_glp_exception)
         sg.addWidget(self._glp_calculate_btn, 1, 2)
 
+        button_bar = QHBoxLayout()
+        button_bar.setContentsMargins(0, 0, 0, 0)
+        button_bar.setSpacing(6)
+        self._glp_export_btn = QPushButton("Export")
+        self._glp_export_btn.setStyleSheet(_ACTION_BTN_STYLE)
+        self._glp_export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._glp_export_btn.setEnabled(False)
+        self._glp_export_btn.clicked.connect(self._export_glp_quote)
+        self._glp_helper_btn = QPushButton("Helper")
+        self._glp_helper_btn.setStyleSheet(_MODE_BTN_INACTIVE_STYLE)
+        self._glp_helper_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._glp_helper_btn.clicked.connect(self._show_glp_helper)
+        button_bar.addWidget(self._glp_export_btn)
+        button_bar.addWidget(self._glp_helper_btn)
+        button_bar.addStretch(1)
+        sg.addLayout(button_bar, 1, 3)
+
         self._glp_note_label = QLabel(
             "The New Accum GLP will cover the policy up to but not including the target date. "
             "The New Accum GLP will need to be recalculated if a premium is paid or policy anniversary is crossed since this quote was calculated."
@@ -1310,11 +1350,13 @@ class PolicySupportTab(QWidget):
 
         results_frame = QGroupBox("Calculation")
         results_frame.setStyleSheet(POLICY_INFO_FRAME_STYLE)
+        results_frame.setMinimumWidth(430)
         rg = QGridLayout(results_frame)
         rg.setContentsMargins(10, 18, 10, 8)
         rg.setHorizontalSpacing(18)
         rg.setVerticalSpacing(4)
         self._glp_result_labels = {}
+        self._glp_result_name_labels = {}
         rows = [
             ("Current Valuation Date", "current_valuation_date", "date"),
             ("Account Value", "account_value", "money"),
@@ -1325,37 +1367,61 @@ class PolicySupportTab(QWidget):
             ("Accum Withdrawals", "accumulated_withdrawals", "money"),
             ("GLP", "glp", "money"),
             ("GSP", "gsp", "money"),
-            ("Accum GLP", "accumulated_glp", "money"),
-            ("Months to Target Date", "months_to_target_date", "number"),
-            ("Total Monthly Deductions to Target Date", "total_monthly_deductions_to_target_date", "money"),
+            ("Accum GLP (Current)", "accumulated_glp", "money"),
+            ("", "glp_timing_separator", "thin_separator"),
             ("Total Required Premium to stay inforce to Target Date (before load)", "total_required_premium_before_load", "money"),
-            ("Premium Load Percent", "premium_load_percent", "percent"),
-            ("Flat Fee", "flat_fee", "money"),
-            ("Total Required Premium to stay inforce to Target Date (after load)", "total_required_premium_after_load", "money"),
-            ("Accum GLP prior to Target Date (without adjustment)", "accumulated_glp_prior_to_target", "money"),
-            ("Adjustment to AccumGLP needed", "adjustment_to_accum_glp_needed", "money"),
+            ("Premium to get to Target Date", "total_required_premium_after_load", "money"),
+            ("Accum GLP on Target Date", "accumulated_glp_prior_to_target", "money"),
+            ("PremTD on Target Date", "premium_td_on_target_date", "money"),
+            ("Adjustment to Accum GLP pre calc", "adjustment_to_accum_glp_pre_calc", "money"),
+            ("", "glp_decision_separator", "separator"),
+            ("New GLP", "new_glp", "money"),
+            ("Adjustment to Accum GLP", "adjustment_to_accum_glp", "money"),
             ("New Accum GLP", "new_accum_glp", "money"),
+            ("NO ADJUSTMENT NEEDED", "glp_adjustment_message", "message"),
+            ("FORCE-OUT REQUIRED", "force_out_required", "message"),
+            ("Force-out Amount", "force_out_amount", "money"),
         ]
+        self._glp_result_rows = rows
         for row, (label, key, kind) in enumerate(rows):
             name = QLabel(label)
-            if key == "new_accum_glp":
+            if kind in {"separator", "thin_separator"}:
+                name.setFixedHeight(10 if kind == "separator" else 6)
+                name.setStyleSheet(
+                    f"background: transparent; border: none; "
+                    f"border-top: {'2px dashed' if kind == 'separator' else '1px solid'} {GREEN_PRIMARY}; "
+                    f"margin-top: {'6px' if kind == 'separator' else '2px'};"
+                )
+                value = QLabel("")
+                rg.addWidget(name, row, 0, 1, 2)
+                self._glp_result_name_labels[key] = name
+                self._glp_result_labels[key] = (value, kind)
+                continue
+            if kind == "message":
+                name.setStyleSheet(_RESULT_LABEL_STYLE + f"font-weight: bold; color: {GREEN_DARK};")
+            elif key in {"new_glp", "new_accum_glp", "adjustment_to_accum_glp"}:
                 name.setStyleSheet(_RESULT_LABEL_STYLE + f"font-weight: bold; color: {GREEN_DARK};")
             else:
                 name.setStyleSheet(_RESULT_LABEL_STYLE)
             value = QLabel("-")
             value.setStyleSheet(_RESULT_VALUE_STYLE)
+            value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             rg.addWidget(name, row, 0)
             rg.addWidget(value, row, 1)
+            self._glp_result_name_labels[key] = name
             self._glp_result_labels[key] = (value, kind)
         rg.setColumnStretch(1, 1)
 
         self._glp_forecast_frame = QGroupBox("Monthly Forecast")
         self._glp_forecast_frame.setStyleSheet(POLICY_INFO_FRAME_STYLE)
+        self._glp_forecast_frame.setMinimumHeight(180)
         forecast_layout = QVBoxLayout(self._glp_forecast_frame)
         forecast_layout.setContentsMargins(6, 18, 6, 6)
         forecast_layout.setSpacing(0)
         self._glp_forecast_table = FixedHeaderTableWidget()
+        self._glp_forecast_table.setAutoFillBackground(True)
+        self._glp_forecast_table._data_table.viewport().setAutoFillBackground(True)
         self._glp_forecast_table.setColumnCount(7)
         self._glp_forecast_table.setHorizontalHeaderLabels([
             "Date", "Year", "Month", "Interest Credited", "Premium", "Monthly Deduction", "Account Value"
@@ -1367,6 +1433,8 @@ class PolicySupportTab(QWidget):
         self._glp_forecast_frame.setVisible(False)
 
         body = QWidget()
+        body.setAutoFillBackground(True)
+        body.setStyleSheet(f"background-color: {WHITE};")
         body_layout = QHBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(6)
@@ -1600,7 +1668,13 @@ class PolicySupportTab(QWidget):
         availability = check_forecast_availability(self._policy)
         self._set_glp_status(availability.message, is_error=not availability.available)
         self._glp_calculate_btn.setEnabled(availability.available)
-        self._glp_target_date.setText(self._next_anniversary_text(self._policy))
+        cached_quote = self._glp_quote_cache.get(self._glp_policy_cache_key(self._policy))
+        if cached_quote:
+            self._glp_target_date.setText(cached_quote["target_text"])
+            self._set_glp_status(cached_quote["status_text"])
+            self._display_glp_exception_result(cached_quote["result"])
+        else:
+            self._glp_target_date.setText(self._next_anniversary_text(self._policy))
 
     def _on_calculate_glp_exception(self):
         if not self._policy:
@@ -1622,8 +1696,14 @@ class PolicySupportTab(QWidget):
             self._set_glp_status(str(exc), is_error=True)
             self._clear_glp_exception_results()
             return
-        self._set_glp_status("Data for forecasting is available")
+        status_text = "Data for forecasting is available"
+        self._set_glp_status(status_text)
         self._display_glp_exception_result(result)
+        self._glp_quote_cache[self._glp_policy_cache_key(self._policy)] = {
+            "target_text": target_text,
+            "status_text": status_text,
+            "result": result,
+        }
 
     def _set_glp_status(self, text: str, *, is_error: bool = False):
         if is_error:
@@ -1648,19 +1728,42 @@ class PolicySupportTab(QWidget):
             anniversary = _safe_anniversary(issue_date, val_date.year + 1)
         return anniversary.strftime("%m/%d/%Y")
 
+    @staticmethod
+    def _glp_policy_cache_key(policy: Optional['PolicyInformation']) -> tuple[str, str, str, str]:
+        if not policy:
+            return "", "", "", ""
+        return (
+            str(getattr(policy, "region", "") or "").strip().upper(),
+            str(getattr(policy, "system_code", "") or "").strip().upper(),
+            str(getattr(policy, "company_code", "") or "").strip().upper(),
+            str(getattr(policy, "policy_number", "") or "").strip().upper(),
+        )
+
     def _clear_glp_exception_results(self):
         if not hasattr(self, "_glp_result_labels"):
             return
-        for value_label, _kind in self._glp_result_labels.values():
+        for key, (value_label, _kind) in self._glp_result_labels.items():
             value_label.setText("-")
+            value_label.setVisible(True)
+            self._glp_result_name_labels[key].setVisible(True)
         self._glp_forecast_table.setRowCount(0)
         self._glp_forecast_frame.setVisible(False)
+        self._glp_export_btn.setEnabled(False)
 
     def _display_glp_exception_result(self, result: GlpExceptionResult):
         for key, (value_label, kind) in self._glp_result_labels.items():
+            name_label = self._glp_result_name_labels[key]
+            visible = self._glp_result_row_visible(result, key)
+            name_label.setVisible(visible)
+            value_label.setVisible(visible)
+            if kind in {"separator", "thin_separator"}:
+                continue
+            if kind == "message":
+                value_label.setText("")
+                continue
             value = getattr(result, key)
-            if key == "new_accum_glp" and abs(result.adjustment_to_accum_glp_needed) < 0.005:
-                value_label.setText("NO ADJUSTMENT NEEDED")
+            if value is None:
+                value_label.setText("-")
             elif kind == "money":
                 value_label.setText(f"${float(value):,.2f}")
             elif kind == "percent":
@@ -1670,6 +1773,126 @@ class PolicySupportTab(QWidget):
             else:
                 value_label.setText(f"{value:,}")
         self._display_glp_forecast_rows(result)
+        self._glp_export_btn.setEnabled(True)
+
+    def _glp_result_row_visible(self, result: GlpExceptionResult, key: str) -> bool:
+        no_adjustment_needed = result.accumulated_glp_prior_to_target >= result.premium_td_on_target_date - 0.005
+        if key == "glp_adjustment_message":
+            return no_adjustment_needed
+        if key in {"force_out_required", "force_out_amount"}:
+            return result.force_out_required
+        if key in {"new_glp", "adjustment_to_accum_glp", "new_accum_glp"}:
+            if no_adjustment_needed or result.force_out_required:
+                return False
+            return key != "new_glp" or result.new_glp is not None
+        return True
+
+    def _export_glp_quote(self):
+        if not any(value_label.text() != "-" for value_label, _kind in self._glp_result_labels.values()):
+            QMessageBox.information(self, "Export GLP Quote", "Calculate a GLP quote before exporting.")
+            return
+        try:
+            import tempfile
+            import openpyxl
+            from openpyxl.styles import Alignment, Font, PatternFill
+            from openpyxl.utils import get_column_letter
+
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "GLP Quote"
+
+            title_fill = PatternFill(start_color="006100", end_color="006100", fill_type="solid")
+            header_fill = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+            title_font = Font(bold=True, color="FFFFFF", size=14)
+            header_font = Font(bold=True, color="006100")
+            bold_font = Font(bold=True)
+
+            policy_text = ""
+            if self._policy:
+                policy_text = " - ".join(
+                    part for part in (
+                        str(getattr(self._policy, "region", "") or "").strip(),
+                        str(getattr(self._policy, "company_code", "") or "").strip(),
+                        str(getattr(self._policy, "policy_number", "") or "").strip(),
+                    ) if part
+                )
+
+            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=7)
+            title_cell = ws.cell(row=1, column=1, value=f"GLP Exception Quote{f' - {policy_text}' if policy_text else ''}")
+            title_cell.fill = title_fill
+            title_cell.font = title_font
+            title_cell.alignment = Alignment(horizontal="center")
+
+            ws.cell(row=3, column=1, value="Target Inforce Date").font = bold_font
+            ws.cell(row=3, column=2, value=self._glp_target_date.text().strip())
+            ws.cell(row=4, column=1, value="Forecast Status").font = bold_font
+            ws.cell(row=4, column=2, value=self._glp_forecast_status_label.text())
+
+            row_num = 6
+            ws.cell(row=row_num, column=1, value="Calculation").fill = header_fill
+            ws.cell(row=row_num, column=1).font = header_font
+            ws.cell(row=row_num, column=2).fill = header_fill
+            row_num += 1
+            for label, key, _kind in self._glp_result_rows:
+                if not self._glp_result_name_labels[key].isVisible():
+                    continue
+                value_label, _ = self._glp_result_labels[key]
+                ws.cell(row=row_num, column=1, value=label)
+                ws.cell(row=row_num, column=2, value=value_label.text())
+                if key == "new_accum_glp":
+                    ws.cell(row=row_num, column=1).font = bold_font
+                    ws.cell(row=row_num, column=2).font = bold_font
+                row_num += 1
+
+            row_num += 2
+            ws.cell(row=row_num, column=1, value="Monthly Forecast").fill = header_fill
+            ws.cell(row=row_num, column=1).font = header_font
+            row_num += 1
+            for col_index in range(self._glp_forecast_table.columnCount()):
+                header_item = self._glp_forecast_table._data_table.horizontalHeaderItem(col_index)
+                cell = ws.cell(row=row_num, column=col_index + 1, value=header_item.text() if header_item else "")
+                cell.fill = header_fill
+                cell.font = header_font
+            row_num += 1
+            for table_row in range(self._glp_forecast_table.rowCount()):
+                for col_index in range(self._glp_forecast_table.columnCount()):
+                    item = self._glp_forecast_table.item(table_row, col_index)
+                    ws.cell(row=row_num, column=col_index + 1, value=item.text() if item else "")
+                row_num += 1
+
+            for col_index in range(1, ws.max_column + 1):
+                max_length = max(
+                    len(str(ws.cell(row=row_index, column=col_index).value or ""))
+                    for row_index in range(1, ws.max_row + 1)
+                )
+                ws.column_dimensions[get_column_letter(col_index)].width = min(max_length + 2, 55)
+
+            temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".xlsx", prefix="SuiteView_GLP_Quote_", delete=False)
+            temp_path = temp_file.name
+            temp_file.close()
+            wb.save(temp_path)
+            os.startfile(temp_path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Error", f"Failed to export GLP quote:\n{exc}")
+
+    def _show_glp_helper(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("GLP Exception Helper")
+        dialog.resize(620, 520)
+        layout = QVBoxLayout(dialog)
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText(GLP_HELP_TEXT)
+        text.setStyleSheet(
+            f"font-size: 11px; color: {GRAY_DARK}; background: {WHITE}; "
+            f"border: 1px solid {GRAY_MID};"
+        )
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(_ACTION_BTN_STYLE)
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(text, 1)
+        layout.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignRight)
+        dialog.exec()
 
     def _display_glp_forecast_rows(self, result: GlpExceptionResult):
         rows = result.forecast_rows
