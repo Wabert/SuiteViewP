@@ -200,7 +200,7 @@ def _build_result(
 ) -> GlpExceptionResult:
     current_accumulated_glp = policy.accumulated_glp or 0.0
     accumulated_glp_prior_to_target = _accumulated_glp_to_target(policy, target_date)
-    premium_td_on_target_date = policy.premiums_paid_to_date + after_load
+    premium_td_on_target_date = policy.premiums_paid_to_date + after_load - (policy.withdrawals_to_date or 0.0)
     pre_calc_adjustment = max(0.0, premium_td_on_target_date - accumulated_glp_prior_to_target)
 
     new_glp = None
@@ -219,7 +219,7 @@ def _build_result(
         new_glp = 0.0 if policy.glp < 0.0 else policy.glp
         adjustment = max(0.0, premium_td_on_target_date - adjustment_basis)
 
-    new_accum_glp = current_accumulated_glp + adjustment
+    new_accum_glp = premium_td_on_target_date
     return GlpExceptionResult(
         current_valuation_date=policy.valuation_date,
         account_value=original_account_value,

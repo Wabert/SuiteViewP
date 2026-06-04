@@ -76,7 +76,7 @@ def test_zero_premium_survival_still_reports_negative_glp_anniversary_adjustment
     assert result.force_out_amount == 1_000.0
     assert result.new_glp is None
     assert result.adjustment_to_accum_glp == 0.0
-    assert result.new_accum_glp == 10_000.0
+    assert result.new_accum_glp == result.premium_td_on_target_date
 
 
 def test_glp_level_premium_inputs_add_catch_up_premium_for_negative_account_value():
@@ -128,6 +128,42 @@ def test_glp_result_reports_no_glp_adjustment_when_pre_calc_not_needed():
     assert result.adjustment_to_accum_glp_pre_calc == 0.0
     assert result.new_glp is None
     assert result.adjustment_to_accum_glp == 0.0
+    assert result.new_accum_glp == result.premium_td_on_target_date
+    assert result.glp_adjustment_message == "NO ADJUSTMENT NEEDED"
+
+
+def test_glp_result_uses_premiums_less_accum_withdrawals_for_target_test():
+    policy = IllustrationPolicyData(
+        issue_date=date(2020, 7, 1),
+        valuation_date=date(2024, 6, 1),
+        policy_year=4,
+        account_value=50_000.0,
+        premiums_paid_to_date=12_000.0,
+        withdrawals_to_date=4_000.0,
+        accumulated_glp=10_000.0,
+        glp=-2_000.0,
+        gsp=0.0,
+    )
+
+    result = glp_exception._build_result(
+        policy,
+        date(2025, 7, 1),
+        13,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        [],
+        glp_exception.PremiumAdjustmentSinceValuation(),
+        policy.account_value,
+        policy.premiums_paid_to_date,
+    )
+
+    assert result.accumulated_glp_prior_to_target == 8_000.0
+    assert result.premium_td_on_target_date == 8_000.0
+    assert result.adjustment_to_accum_glp_pre_calc == 0.0
+    assert result.force_out_required is False
     assert result.glp_adjustment_message == "NO ADJUSTMENT NEEDED"
 
 
@@ -164,6 +200,41 @@ def test_glp_result_with_premium_needed_recalculates_adjustment_with_zero_glp():
     assert result.new_glp == 0.0
     assert result.adjustment_to_accum_glp == 2_000.0
     assert result.new_accum_glp == 12_000.0
+    assert result.force_out_required is False
+
+
+def test_glp_result_new_accum_glp_equals_target_premium_basis_when_adjustment_needed():
+    policy = IllustrationPolicyData(
+        issue_date=date(2020, 7, 1),
+        valuation_date=date(2024, 6, 1),
+        policy_year=4,
+        account_value=50_000.0,
+        premiums_paid_to_date=10_000.0,
+        withdrawals_to_date=1_000.0,
+        accumulated_glp=7_000.0,
+        glp=1_000.0,
+        gsp=0.0,
+    )
+
+    result = glp_exception._build_result(
+        policy,
+        date(2025, 7, 1),
+        13,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        4_000.0,
+        [],
+        glp_exception.PremiumAdjustmentSinceValuation(),
+        policy.account_value,
+        policy.premiums_paid_to_date,
+    )
+
+    assert result.accumulated_glp_prior_to_target == 8_000.0
+    assert result.premium_td_on_target_date == 13_000.0
+    assert result.adjustment_to_accum_glp == 5_000.0
+    assert result.new_accum_glp == result.premium_td_on_target_date
     assert result.force_out_required is False
 
 

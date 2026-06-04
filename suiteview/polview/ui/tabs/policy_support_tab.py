@@ -34,7 +34,7 @@ from ..styles import (
     GOLD_PRIMARY, GOLD_TEXT, GOLD_DARK, GOLD_LIGHT,
     POLICY_INFO_FRAME_STYLE,
 )
-from ..widgets import FixedHeaderTableWidget
+from ..widgets import CopyableLabel, FixedHeaderTableWidget
 from .annuity_rider_tab import AnnuityRiderTab, RIDER_PLANCODE
 from ...services.glp_exception import (
     GlpExceptionResult,
@@ -187,9 +187,9 @@ If the policy can stay in force with no added premium, the tool still checks the
 
 If the policy needs premium to stay in force, the tool solves for the level premium needed through the target period. If the account value is negative, the first payment is the amount needed to bring the account value to $1.00, and the level premium starts after that. The Premium to get to Target Date line shows the total premium needed through the target period.
 
-The Accum GLP on Target Date line uses the current GLP through anniversaries crossed before the target date. PremTD on Target Date is the adjusted premiums paid to date plus the Premium to get to Target Date.
+The Accum GLP on Target Date line uses the current GLP through anniversaries crossed before the target date. PremTD less AccumWD on Target Date is the adjusted premiums paid to date plus the Premium to get to Target Date, less accumulated withdrawals.
 
-If Accum GLP on Target Date is greater than or equal to PremTD on Target Date, no adjustment is needed. If Accum GLP on Target Date is less than PremTD on Target Date and premium is needed to get to the target date, the tool shows the New GLP, Adjustment to Accum GLP, and New Accum GLP. If no premium is needed but PremTD is still above Accum GLP on the target date, the tool shows the force-out amount.
+If Accum GLP on Target Date is greater than or equal to PremTD less AccumWD on Target Date, no adjustment is needed. If Accum GLP on Target Date is less than PremTD less AccumWD on Target Date and premium is needed to get to the target date, the tool shows the New GLP, Adjustment to Accum GLP, and New Accum GLP. If no premium is needed but PremTD less AccumWD is still above Accum GLP on the target date, the tool shows the force-out amount.
 
 The goal of the quote is to answer a practical question: does this policy need an Accum GLP adjustment, and if so, how much, so the policy can remain in force up to the target date?"""
 
@@ -1372,7 +1372,7 @@ class PolicySupportTab(QWidget):
             ("Total Required Premium to stay inforce to Target Date (before load)", "total_required_premium_before_load", "money"),
             ("Premium to get to Target Date", "total_required_premium_after_load", "money"),
             ("Accum GLP on Target Date", "accumulated_glp_prior_to_target", "money"),
-            ("PremTD on Target Date", "premium_td_on_target_date", "money"),
+            ("PremTD less AccumWD on Target Date", "premium_td_on_target_date", "money"),
             ("Adjustment to Accum GLP pre calc", "adjustment_to_accum_glp_pre_calc", "money"),
             ("", "glp_decision_separator", "separator"),
             ("New GLP", "new_glp", "money"),
@@ -1384,7 +1384,7 @@ class PolicySupportTab(QWidget):
         ]
         self._glp_result_rows = rows
         for row, (label, key, kind) in enumerate(rows):
-            name = QLabel(label)
+            name = QLabel(label) if kind in {"separator", "thin_separator"} else CopyableLabel(label)
             if kind in {"separator", "thin_separator"}:
                 name.setFixedHeight(10 if kind == "separator" else 6)
                 name.setStyleSheet(
@@ -1403,7 +1403,7 @@ class PolicySupportTab(QWidget):
                 name.setStyleSheet(_RESULT_LABEL_STYLE + f"font-weight: bold; color: {GREEN_DARK};")
             else:
                 name.setStyleSheet(_RESULT_LABEL_STYLE)
-            value = QLabel("-")
+            value = CopyableLabel("-")
             value.setStyleSheet(_RESULT_VALUE_STYLE)
             value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
