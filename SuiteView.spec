@@ -5,9 +5,10 @@ SuiteView Distribution Build Spec
 Builds SuiteView as a one-folder distribution with all required data files.
 
 Data files bundled:
-  - suiteview/ui/styles.qss           — UI stylesheet
-  - suiteview/polview/data/*.json     — PolView reference data (plancodes, mortality, benefits, etc.)
-  - suiteview/polview/config/*.json   — PolView field tooltips
+    - suiteview/ui/styles.qss - UI stylesheet
+    - suiteview/polview/data/*.json - PolView reference data (plancodes, mortality, benefits, etc.)
+    - suiteview/polview/config/*.json - PolView field tooltips
+    - suiteview/illustration/plancodes/*.json - Illustration GLP/plancode data
 
 Usage:
   python -m PyInstaller SuiteView.spec
@@ -31,6 +32,11 @@ a = Analysis(
         ('suiteview/polview/data/policy_record_db2_tables.json', 'suiteview/polview/data'),
         # PolView config
         ('suiteview/polview/config/field_tooltips.json', 'suiteview/polview/config'),
+        # Illustration / GLP Exception plancode and rate data
+        ('suiteview/illustration/plancodes/plancode_table.json', 'suiteview/illustration/plancodes'),
+        ('suiteview/illustration/plancodes/tRates_CORR.json', 'suiteview/illustration/plancodes'),
+        ('suiteview/illustration/plancodes/tRates_IntBonus.json', 'suiteview/illustration/plancodes'),
+        ('suiteview/illustration/plancodes/tRates_MDBR.json', 'suiteview/illustration/plancodes'),
         # Audit Tool assets
         ('suiteview/audit/tabs/_checkmark.png', 'suiteview/audit/tabs'),
     ],

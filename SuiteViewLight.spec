@@ -31,6 +31,11 @@ a = Analysis(
         ('suiteview/polview/data/policy_record_db2_tables.json', 'suiteview/polview/data'),
         # PolView config
         ('suiteview/polview/config/field_tooltips.json', 'suiteview/polview/config'),
+        # Illustration / GLP Exception plancode and rate data
+        ('suiteview/illustration/plancodes/plancode_table.json', 'suiteview/illustration/plancodes'),
+        ('suiteview/illustration/plancodes/tRates_CORR.json', 'suiteview/illustration/plancodes'),
+        ('suiteview/illustration/plancodes/tRates_IntBonus.json', 'suiteview/illustration/plancodes'),
+        ('suiteview/illustration/plancodes/tRates_MDBR.json', 'suiteview/illustration/plancodes'),
     ],
     hiddenimports=[
         'PyQt6', 'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets',
