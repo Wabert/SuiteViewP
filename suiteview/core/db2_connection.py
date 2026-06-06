@@ -195,92 +195,69 @@ class DB2Connection:
         # Add benign WITH clause
         return f"WITH DUMBY AS (SELECT 1 FROM SYSIBM.SYSDUMMY1) {sql}"
     
+    @staticmethod
+    def _is_link_failure(e: pyodbc.Error) -> bool:
+        """True if the error is a communication-link failure worth retrying once."""
+        error_code = e.args[0] if e.args else ""
+        return "08S01" in str(error_code) or "-2147467259" in str(e)
+
+    def _run(self, sql: str, params: tuple = None) -> Tuple[List[str], List[Tuple]]:
+        """Execute one statement and return (column_names, rows).
+
+        The cursor is always closed (even on error) to avoid leaks.
+        """
+        conn = self.connect()
+        cursor = conn.cursor()
+        try:
+            if params:
+                cursor.execute(sql, params)
+            else:
+                cursor.execute(sql)
+            columns = [desc[0] for desc in cursor.description] if cursor.description else []
+            rows = cursor.fetchall()
+            return columns, rows
+        finally:
+            cursor.close()
+
+    def _run_with_retry(self, sql: str, params: tuple = None) -> Tuple[List[str], List[Tuple]]:
+        """Run a statement, refreshing the connection and retrying once on a
+        communication-link failure (08S01)."""
+        sql = self._add_with_clause(sql)
+        try:
+            return self._run(sql, params)
+        except pyodbc.Error as e:
+            if self._is_link_failure(e):
+                self.close()
+                return self._run(sql, params)
+            raise
+
     def execute_query(self, sql: str, params: tuple = None) -> List[Tuple]:
         """
         Execute a query and return all results as a list of tuples.
-        
+
         Args:
             sql: SQL query string
             params: Optional query parameters
-            
+
         Returns:
             List of row tuples
         """
-        conn = self.connect()
-        sql = self._add_with_clause(sql)
-        
-        try:
-            cursor = conn.cursor()
-            if params:
-                cursor.execute(sql, params)
-            else:
-                cursor.execute(sql)
-            
-            rows = cursor.fetchall()
-            cursor.close()
-            return rows
-            
-        except pyodbc.Error as e:
-            # Check for communication link failure
-            error_code = e.args[0] if e.args else ""
-            if "08S01" in str(error_code) or "-2147467259" in str(e):
-                # Refresh connection and retry once
-                self.close()
-                conn = self.connect()
-                cursor = conn.cursor()
-                if params:
-                    cursor.execute(sql, params)
-                else:
-                    cursor.execute(sql)
-                rows = cursor.fetchall()
-                cursor.close()
-                return rows
-            raise
-    
+        _, rows = self._run_with_retry(sql, params)
+        return rows
+
     def execute_query_with_headers(self, sql: str, params: tuple = None) -> Tuple[List[str], List[Tuple]]:
         """
         Execute a query and return column headers along with results.
-        
+
         Args:
             sql: SQL query string
             params: Optional query parameters
-            
+
         Returns:
             Tuple of (column_names, rows)
         """
-        conn = self.connect()
-        sql = self._add_with_clause(sql)
-        
-        try:
-            cursor = conn.cursor()
-            if params:
-                cursor.execute(sql, params)
-            else:
-                cursor.execute(sql)
-            
-            # Get column names from cursor description
-            columns = [desc[0] for desc in cursor.description] if cursor.description else []
-            rows = cursor.fetchall()
-            cursor.close()
-            
-            return columns, rows
-            
-        except pyodbc.Error as e:
-            error_code = e.args[0] if e.args else ""
-            if "08S01" in str(error_code) or "-2147467259" in str(e):
-                self.close()
-                conn = self.connect()
-                cursor = conn.cursor()
-                if params:
-                    cursor.execute(sql, params)
-                else:
-                    cursor.execute(sql)
-                columns = [desc[0] for desc in cursor.description] if cursor.description else []
-                rows = cursor.fetchall()
-                cursor.close()
-                return columns, rows
-            raise
-    
+        return self._run_with_retry(sql, params)
+
     def execute_query_as_dict(self, sql: str, params: tuple = None) -> List[dict]:
         """
         Execute a query and return results as list of dictionaries.
