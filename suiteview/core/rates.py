@@ -37,13 +37,16 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import pyodbc
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Tuple
 
 try:
     from .db2_connection import DB2Connection
 except ImportError:
     DB2Connection = None
+
+logger = logging.getLogger(__name__)
 
 
 class RatesError(Exception):
@@ -175,64 +178,79 @@ class Rates:
         scale: int = None,
         band: int = None,
         benefit_type: str = None
-    ) -> str:
+    ) -> Tuple[str, list]:
         """
-        Create SQL query for rate lookup.
-        
+        Create a parameterized SQL query for rate lookup.
+
+        Returns a ``(sql, params)`` tuple where ``sql`` uses ``?`` placeholders
+        and ``params`` is the ordered list of bound values. Values are bound as
+        parameters (never string-interpolated) to avoid SQL injection and to
+        tolerate values containing quotes.
+
         Mirrors VBA CreateServerSQLString function.
         """
         rate_type = rate_type.upper()
-        
+
+        # Each entry: (sql_with_placeholders, [ordered params])
         sql_map = {
-            "EPP": f"SELECT Rate FROM Select_RATE_EPP WHERE Plancode='{plancode}' AND IssueVersion=1 AND Sex='{sex}' AND Rateclass='{rateclass}' AND Scale={scale} AND [Band]={band}",
-            "TPP": f"SELECT Rate FROM Select_RATE_TPP WHERE Plancode='{plancode}' AND IssueVersion=1 AND Sex='{sex}' AND Rateclass='{rateclass}' AND Scale={scale} AND [Band]={band}",
-            "FLATP": f"SELECT Rate FROM Select_RATE_FLATPREM WHERE Plancode='{plancode}' AND IssueVersion=1 AND Sex='{sex}' AND Rateclass='{rateclass}' AND Scale={scale} AND [Band]={band}",
-            "MFEE": f"SELECT Rate FROM Select_RATE_MFEE WHERE Plancode='{plancode}' AND IssueVersion=1 AND IssueAge={issue_age} AND Sex='{sex}' AND Rateclass='{rateclass}' AND Scale={scale} AND [Band]={band}",
-            "DBD": f"SELECT Rate FROM Select_RATE_DBD WHERE Plancode='{plancode}' AND IssueVersion=1",
-            "GINT": f"SELECT Rate FROM Select_RATE_GINT WHERE Plancode='{plancode}' AND IssueVersion=1",
-            "CORR": f"SELECT Rate FROM Select_RATE_CORR WHERE Plancode='{plancode}' AND IssueVersion=1 AND AttainedAge>={issue_age}",
-            "BONUSAV": f"SELECT Rate FROM Select_RATE_BONUSAV WHERE Plancode='{plancode}' AND IssueVersion=1 AND Scale={scale}",
-            "BONUSDUR": f"SELECT Rate FROM Select_RATE_BONUSDUR WHERE Plancode='{plancode}' AND IssueVersion=1 AND Scale={scale}",
-            "MTP": f"SELECT Rate FROM Select_RATE_MTP WHERE Plancode='{plancode}' AND IssueVersion=1 AND IssueAge={issue_age} AND Sex='{sex}' AND Rateclass='{rateclass}' AND [Band]={band}",
-            "CTP": f"SELECT Rate FROM Select_RATE_CTP WHERE Plancode='{plancode}' AND IssueVersion=1 AND IssueAge={issue_age} AND Sex='{sex}' AND Rateclass='{rateclass}' AND [Band]={band}",
-            "TBL1CTP": f"SELECT Rate FROM Select_RATE_TBL1CTP WHERE Plancode='{plancode}' AND IssueVersion=1 AND IssueAge={issue_age} AND Sex='{sex}' AND Rateclass='{rateclass}' AND [Band]={band}",
-            "TBL1MTP": f"SELECT Rate FROM Select_RATE_TBL1MTP WHERE Plancode='{plancode}' AND IssueVersion=1 AND IssueAge={issue_age} AND Sex='{sex}' AND Rateclass='{rateclass}' AND [Band]={band}",
-            "EPU": f"SELECT Rate FROM Select_RATE_EPU WHERE Plancode='{plancode}' AND IssueVersion=1 AND IssueAge={issue_age} AND Sex='{sex}' AND Rateclass='{rateclass}' AND Scale={scale} AND [Band]={band}",
-            "COI": f"SELECT Rate FROM Select_RATE_COI WHERE Plancode='{plancode}' AND IssueVersion=1 AND IssueAge={issue_age} AND Sex='{sex}' AND Rateclass='{rateclass}' AND Scale={scale} AND [Band]={band}",
-            "SCR": f"SELECT Rate FROM Select_RATE_SCR WHERE Plancode='{plancode}' AND IssueVersion=1 AND IssueAge={issue_age} AND Sex='{sex}' AND Rateclass='{rateclass}' AND [Band]={band}",
-            "BENMTP": f"SELECT Rate FROM Select_RATE_BENMTP WHERE Plancode='{plancode}' AND BenefitType='{benefit_type}' AND IssueVersion=1 AND IssueAge={issue_age} AND Sex='{sex}' AND Rateclass='{rateclass}' AND [Band]={band}",
-            "BENCTP": f"SELECT Rate FROM Select_RATE_BENCTP WHERE Plancode='{plancode}' AND BenefitType='{benefit_type}' AND IssueVersion=1 AND IssueAge={issue_age} AND Sex='{sex}' AND Rateclass='{rateclass}' AND [Band]={band}",
-            "BENCOI": f"SELECT Rate FROM Select_RATE_BENCOI WHERE Plancode='{plancode}' AND BenefitType='{benefit_type}' AND IssueVersion=1 AND IssueAge={issue_age} AND Sex='{sex}' AND Rateclass='{rateclass}' AND [Band]={band} AND Scale={scale}",
-            "BANDSPECS": f"SELECT SpecifiedAmount, [Band] FROM Select_RATE_BANDSPECS WHERE Plancode='{plancode}' AND IssueVersion=1",
-            "PLNCRD": f"SELECT Rate FROM Select_RATE_PLNCRD WHERE Plancode='{plancode}' AND IssueVersion=1",
-            "PLNCRG": f"SELECT Rate FROM Select_RATE_PLNCRG WHERE Plancode='{plancode}' AND IssueVersion=1",
-            "RLNCRD": f"SELECT Rate FROM Select_RATE_RLNCRD WHERE Plancode='{plancode}' AND IssueVersion=1",
-            "RLNCRG": f"SELECT Rate FROM Select_RATE_RLNCRG WHERE Plancode='{plancode}' AND IssueVersion=1",
-            "SNETPERIOD": f"SELECT Rate FROM Select_RATE_SNETPERIOD WHERE Plancode='{plancode}' AND IssueVersion=1 AND IssueAge={issue_age}",
-            "RATESPACE": f"SELECT POINT_PVSRB.[Sex], POINT_PVSRB.[Rateclass], POINT_PVSRB.[Band] FROM POINT_PVSRB WHERE [Plancode]='{plancode}' AND [IssueVersion]=1",
-            "COI_SCALE": f"SELECT Date, Scale FROM Select_SCALE_COI WHERE Plancode='{plancode}' AND IssueVersion=1",
+            "EPP": ("SELECT Rate FROM Select_RATE_EPP WHERE Plancode=? AND IssueVersion=1 AND Sex=? AND Rateclass=? AND Scale=? AND [Band]=?", [plancode, sex, rateclass, scale, band]),
+            "TPP": ("SELECT Rate FROM Select_RATE_TPP WHERE Plancode=? AND IssueVersion=1 AND Sex=? AND Rateclass=? AND Scale=? AND [Band]=?", [plancode, sex, rateclass, scale, band]),
+            "FLATP": ("SELECT Rate FROM Select_RATE_FLATPREM WHERE Plancode=? AND IssueVersion=1 AND Sex=? AND Rateclass=? AND Scale=? AND [Band]=?", [plancode, sex, rateclass, scale, band]),
+            "MFEE": ("SELECT Rate FROM Select_RATE_MFEE WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND Scale=? AND [Band]=?", [plancode, issue_age, sex, rateclass, scale, band]),
+            "DBD": ("SELECT Rate FROM Select_RATE_DBD WHERE Plancode=? AND IssueVersion=1", [plancode]),
+            "GINT": ("SELECT Rate FROM Select_RATE_GINT WHERE Plancode=? AND IssueVersion=1", [plancode]),
+            "CORR": ("SELECT Rate FROM Select_RATE_CORR WHERE Plancode=? AND IssueVersion=1 AND AttainedAge>=?", [plancode, issue_age]),
+            "BONUSAV": ("SELECT Rate FROM Select_RATE_BONUSAV WHERE Plancode=? AND IssueVersion=1 AND Scale=?", [plancode, scale]),
+            "BONUSDUR": ("SELECT Rate FROM Select_RATE_BONUSDUR WHERE Plancode=? AND IssueVersion=1 AND Scale=?", [plancode, scale]),
+            "MTP": ("SELECT Rate FROM Select_RATE_MTP WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, issue_age, sex, rateclass, band]),
+            "CTP": ("SELECT Rate FROM Select_RATE_CTP WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, issue_age, sex, rateclass, band]),
+            "TBL1CTP": ("SELECT Rate FROM Select_RATE_TBL1CTP WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, issue_age, sex, rateclass, band]),
+            "TBL1MTP": ("SELECT Rate FROM Select_RATE_TBL1MTP WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, issue_age, sex, rateclass, band]),
+            "EPU": ("SELECT Rate FROM Select_RATE_EPU WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND Scale=? AND [Band]=?", [plancode, issue_age, sex, rateclass, scale, band]),
+            "COI": ("SELECT Rate FROM Select_RATE_COI WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND Scale=? AND [Band]=?", [plancode, issue_age, sex, rateclass, scale, band]),
+            "SCR": ("SELECT Rate FROM Select_RATE_SCR WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, issue_age, sex, rateclass, band]),
+            "BENMTP": ("SELECT Rate FROM Select_RATE_BENMTP WHERE Plancode=? AND BenefitType=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, benefit_type, issue_age, sex, rateclass, band]),
+            "BENCTP": ("SELECT Rate FROM Select_RATE_BENCTP WHERE Plancode=? AND BenefitType=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, benefit_type, issue_age, sex, rateclass, band]),
+            "BENCOI": ("SELECT Rate FROM Select_RATE_BENCOI WHERE Plancode=? AND BenefitType=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=? AND Scale=?", [plancode, benefit_type, issue_age, sex, rateclass, band, scale]),
+            "BANDSPECS": ("SELECT SpecifiedAmount, [Band] FROM Select_RATE_BANDSPECS WHERE Plancode=? AND IssueVersion=1", [plancode]),
+            "PLNCRD": ("SELECT Rate FROM Select_RATE_PLNCRD WHERE Plancode=? AND IssueVersion=1", [plancode]),
+            "PLNCRG": ("SELECT Rate FROM Select_RATE_PLNCRG WHERE Plancode=? AND IssueVersion=1", [plancode]),
+            "RLNCRD": ("SELECT Rate FROM Select_RATE_RLNCRD WHERE Plancode=? AND IssueVersion=1", [plancode]),
+            "RLNCRG": ("SELECT Rate FROM Select_RATE_RLNCRG WHERE Plancode=? AND IssueVersion=1", [plancode]),
+            "SNETPERIOD": ("SELECT Rate FROM Select_RATE_SNETPERIOD WHERE Plancode=? AND IssueVersion=1 AND IssueAge=?", [plancode, issue_age]),
+            "RATESPACE": ("SELECT POINT_PVSRB.[Sex], POINT_PVSRB.[Rateclass], POINT_PVSRB.[Band] FROM POINT_PVSRB WHERE [Plancode]=? AND [IssueVersion]=1", [plancode]),
+            "COI_SCALE": ("SELECT Date, Scale FROM Select_SCALE_COI WHERE Plancode=? AND IssueVersion=1", [plancode]),
         }
-        
-        return sql_map.get(rate_type, "")
-    
-    def _fetch_rates(self, sql: str) -> Optional[List]:
-        """Execute SQL and return results."""
+
+        return sql_map.get(rate_type, ("", []))
+
+    def _fetch_rates(self, sql: str, params: list = None) -> Optional[List]:
+        """Execute the parameterized rate query and return result rows.
+
+        Returns ``None`` when the query legitimately matches no rows. Raises
+        ``RatesError`` on an actual database failure — a DB error must NOT be
+        silently turned into ``None``, because callers treat ``None`` as
+        "no rate" and would otherwise compute silently-wrong (zeroed) values.
+        """
         if not sql:
             return None
-        
+
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            cursor.execute(sql)
-            rows = cursor.fetchall()
-            cursor.close()
-            
-            if not rows:
-                return None
-            
-            return rows
-        except Exception:
+            try:
+                cursor.execute(sql, params or [])
+                rows = cursor.fetchall()
+            finally:
+                cursor.close()
+        except pyodbc.Error as e:
+            logger.error("Rate query failed: %s | SQL: %s | params: %r", e, sql, params)
+            raise RatesError(f"Rate lookup failed: {e}") from e
+
+        if not rows:
             return None
+
+        return rows
     
     def get_rates(
         self,
@@ -283,11 +301,11 @@ class Rates:
             return self._cache[rate_key]
         
         # Fetch from database
-        sql = self._create_sql(
+        sql, params = self._create_sql(
             rate_type, plancode, issue_age, sex, rateclass, scale, band, benefit_type
         )
-        
-        rows = self._fetch_rates(sql)
+
+        rows = self._fetch_rates(sql, params)
         
         if rows is None:
             self._cache[rate_key] = None
