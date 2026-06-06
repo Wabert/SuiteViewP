@@ -124,6 +124,28 @@ unchanged; don't convert a load path that shows an intentional error dialog to
 
 ---
 
+## §3b — DataForge Phase 1: live-data wiring (NEEDS LIVE DB2/SQL)
+
+The Phase 1 backbone (engine + editable-copy Source model + Snapshot store +
+Refresh/Re-sync orchestration) is built and unit-tested on the minipc with fake
+fetchers and synthetic data. Two pieces could not be exercised here:
+
+1. **`forge_runtime.default_fetch`** (`suiteview/audit/dataforge/forge_runtime.py`)
+   — the real data pull for a Source. For non-adhoc Sources it runs
+   `execute_odbc_query(obj.dsn, obj.sql)`; for adhoc it uses
+   `dataframe_from_adhoc_metadata`. **Verify** a Refresh against a live DB2
+   Cyberlife Query and a live SQL Server reinsurance Query actually writes a
+   correct parquet Snapshot under `~/.suiteview/saved_dataforges/<forge>/`.
+2. **Designer execution swap** — `dataforge_group.py::_run_forge` still does the
+   old pandas `pd.merge` path. Point it at `forge_runtime.run_saved_forge`
+   (DuckDB over Snapshots) and confirm the typical use case end-to-end in the
+   UI: Cyberlife policy data + SQL reinsurance, joined on company code + policy
+   number (+ coverage index), Source-filtered to one reinsurer. Compare row
+   counts/values against the old pandas result before trusting the swap.
+
+Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
+`pip install -r requirements.txt` on the laptop to pick it up.
+
 ## §4 — FUTURE: Tier 3 (larger refactors, not yet started)
 - Decompose `suiteview/taskbar_launcher/suiteview_taskbar.py` (very large).
 - Decompose `suiteview/database_manager/dbquery_screen.py`.
@@ -134,3 +156,6 @@ unchanged; don't convert a load path that shows an intentional error dialog to
 - **2026-06-06** — Created. Tier 2a (DB2Connection retry/cursor hardening) and
   Tier 2b (JsonStore + 3 migrations) done on `cleanup/tier2`. Tier 2c deferred
   (needs live DB2). §1 items from Tiers 1a/1b/2a still need live verification.
+- **2026-06-06** — Added §3b: DataForge Phase 1 backbone built/tested on the
+  minipc; live `default_fetch` pull + designer `_run_forge` DuckDB swap deferred
+  here.

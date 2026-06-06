@@ -10,6 +10,7 @@ pandas>=2.2.3
 pyodbc>=5.2.0
 openpyxl>=3.1.5
 duckdb>=1.1.0
+pyarrow>=17.0.0  # parquet engine for DataForge Snapshots
 
 # Security
 cryptography>=43.0.3
