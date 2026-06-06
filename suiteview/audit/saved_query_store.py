@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from suiteview.audit.saved_query import SavedQuery
+from suiteview.core.json_store import write_json
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +59,7 @@ def save_query(sq: SavedQuery) -> None:
     """Save a query. Overwrites if same name exists."""
     _ensure_dir()
     path = _QUERIES_DIR / f"{_safe_filename(sq.name)}.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(sq.to_dict(), f, indent=2)
+    write_json(path, sq.to_dict())
     try:
         from suiteview.audit.query_object import object_from_saved_query
         from suiteview.audit import query_object_store

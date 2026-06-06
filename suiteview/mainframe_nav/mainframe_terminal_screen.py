@@ -1444,12 +1444,9 @@ class MainframeTerminalScreen(QWidget):
     
     def _save_settings(self):
         """Save terminal settings to disk"""
-        import json
-        
+        from suiteview.core.json_store import write_json
+
         try:
-            # Ensure directory exists
-            self.settings_file.parent.mkdir(parents=True, exist_ok=True)
-            
             settings = {
                 'host': self.conn_host,
                 'port': self.conn_port,
@@ -1458,10 +1455,9 @@ class MainframeTerminalScreen(QWidget):
                 'userid': self.conn_userid,
                 'password': self.conn_password
             }
-            
-            with open(self.settings_file, 'w') as f:
-                json.dump(settings, f, indent=2)
-            
+
+            write_json(self.settings_file, settings)
+
             logger.info(f"Saved terminal settings to {self.settings_file}")
         except Exception as e:
             logger.error(f"Failed to save terminal settings: {e}")

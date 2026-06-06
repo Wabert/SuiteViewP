@@ -1471,9 +1471,9 @@ sql = build_query(
         filename = self.datasets_dir / f"{self.current_dataset.name}.json"
         
         try:
-            with open(filename, 'w') as f:
-                json.dump(self.current_dataset.to_dict(), f, indent=2)
-            
+            from suiteview.core.json_store import write_json
+            write_json(filename, self.current_dataset.to_dict())
+
             logger.info(f"Saved Data Set: {filename}")
             QMessageBox.information(self, "Saved", f"Data Set '{self.current_dataset.name}' saved successfully")
             
