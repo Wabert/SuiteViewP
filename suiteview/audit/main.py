@@ -3,7 +3,6 @@ Audit Tool — application entry point.
 """
 
 import sys
-from typing import Optional
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFont
 from suiteview.core.db2_constants import DEFAULT_REGION

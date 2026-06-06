@@ -3,12 +3,11 @@ Mainframe Upload Dialog - Select connection and dataset for upload
 """
 
 from pathlib import Path
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                              QComboBox, QLineEdit, QPushButton, QRadioButton,
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, 
+                              QComboBox, QLineEdit, QRadioButton,
                               QButtonGroup, QDialogButtonBox, QMessageBox,
-                              QProgressDialog, QFrame, QTextEdit)
+                              QProgressDialog, QFrame)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont
 
 import logging
 logger = logging.getLogger(__name__)

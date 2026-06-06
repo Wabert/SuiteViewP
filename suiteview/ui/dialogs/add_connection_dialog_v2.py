@@ -14,11 +14,10 @@ except ImportError:
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
     QComboBox, QPushButton, QFileDialog, QCheckBox, QMessageBox,
-    QListWidget, QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView,
+    QListWidget, QGroupBox, QTableWidget, QHeaderView,
     QWidget
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
 
 
 class AddConnectionDialog(QDialog):

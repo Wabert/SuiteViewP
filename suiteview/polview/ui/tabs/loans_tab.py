@@ -13,8 +13,6 @@ Layout (mirrors VBA):
     - Loan Detail table      (Eff Date, Pref, Fund, Phs, Principal, Accru Int, Chrg Rt, Credit Rt, Int Status)
 """
 
-from decimal import Decimal
-from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QFrame,
@@ -22,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-from ..formatting import format_currency, format_date, format_rate, US_DATE_FMT
+from ..formatting import format_currency, format_date, US_DATE_FMT
 from ..widgets import StyledInfoTableGroup, StyledTableGroup
 
 

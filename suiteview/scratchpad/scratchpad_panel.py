@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QPushButton, QDialog,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QTextOption
+from PyQt6.QtGui import QTextOption
 
 from suiteview.scratchpad.scratchpad_data_manager import get_scratchpad_manager
 

@@ -20,8 +20,8 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QAbstractItemView, QPushButton, QMessageBox,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QSplitter,
-    QGroupBox, QMenu, QWidget, QCheckBox, QStackedWidget,
-    QTextEdit, QApplication,
+    QGroupBox, QMenu, QWidget, QStackedWidget,
+    QTextEdit,
 )
 
 from suiteview.audit.qdefinition import QDefinition

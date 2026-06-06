@@ -13,13 +13,13 @@ from pathlib import Path
 from datetime import datetime
 from PyQt6.QtWidgets import (QTreeView, QVBoxLayout, QHBoxLayout, QWidget, 
                               QHeaderView, QToolBar, QMessageBox, QInputDialog, 
-                              QTextEdit, QPushButton, QSplitter, QLabel, QMenu,
+                              QPushButton, QSplitter, QLabel, QMenu,
                               QDialog, QDialogButtonBox, QCheckBox, QLineEdit,
-                              QProgressDialog, QFileDialog, QFrame, QSizePolicy,
+                              QProgressDialog, QFrame, QSizePolicy,
                               QFileIconProvider, QToolButton, QStyle, QStyledItemDelegate,
                               QApplication, QComboBox)
 from PyQt6.QtGui import QIcon, QAction, QStandardItemModel, QStandardItem, QDragEnterEvent, QDropEvent, QDragMoveEvent, QDrag
-from PyQt6.QtCore import Qt, QModelIndex, QThread, pyqtSignal, QSortFilterProxyModel, QEvent, QFileInfo, QSize, QUrl, QMimeData, QRegularExpression, QTimer
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSortFilterProxyModel, QFileInfo, QSize, QUrl, QMimeData, QRegularExpression, QTimer
 
 import logging
 
@@ -1171,7 +1171,7 @@ class FileExplorerCore(QWidget):
         """Export the current details view to a new Excel file"""
         try:
             import openpyxl
-            from openpyxl.styles import Font, PatternFill, Alignment
+            from openpyxl.styles import Font, PatternFill
             import tempfile
             
             # Get the proxy model
@@ -1884,7 +1884,7 @@ class FileExplorerCore(QWidget):
                     # Skip items we can't access
                     continue
                     
-        except (PermissionError, OSError) as e:
+        except (PermissionError, OSError):
             # Show error message
             error_item = QStandardItem(f"❌ Access denied")
             error_item.setEnabled(False)
@@ -3695,7 +3695,7 @@ class FileExplorerCore(QWidget):
             self.preview_text.setText(preview)
             self.current_file_content = preview
             
-        except ImportError as e:
+        except ImportError:
             self.preview_text.setText(
                 f"📊 Excel File: {path.name}\n\n"
                 f"⚠️ Could not preview Excel file:\n"
@@ -3740,7 +3740,7 @@ class FileExplorerCore(QWidget):
             self.preview_text.setText(preview)
             self.current_file_content = preview
             
-        except Exception as e:
+        except Exception:
             # Fallback to text preview
             self.preview_text_file(path)
     
@@ -5002,7 +5002,6 @@ class FileExplorerCore(QWidget):
             
             # Collect data in current thread (faster for small directories)
             try:
-                from openpyxl.styles import Font, PatternFill, Alignment
                 
                 root = Path(path)
                 data = []

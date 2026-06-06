@@ -8,8 +8,7 @@ behaviour shared with the TaskTracker detail panel.
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QComboBox,
-    QListWidget, QListWidgetItem, QAbstractItemView,
-    QMenu,
+    QListWidget, QListWidgetItem, QMenu,
 )
 from PyQt6.QtCore import QSize
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer

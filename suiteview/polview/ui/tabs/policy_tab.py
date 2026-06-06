@@ -16,7 +16,6 @@ from ...models.cl_polrec.policy_translations import (
     translate_div_option_code,
     translate_mec_indicator,
     translate_reinsurance_code,
-    translate_nfo_code,
     translate_bill_form_code,
     translate_loan_type_code,
     translate_market_org,
@@ -168,7 +167,7 @@ class PolicyTab(QWidget):
             self._populate_column1_from_policy(policy, policy_info)
             self._populate_column2_from_policy(policy)
             self._populate_column3_from_policy(policy, policy_info)
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
 

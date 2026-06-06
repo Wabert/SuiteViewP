@@ -1,14 +1,13 @@
 """Dialog for creating and editing data mappings"""
 
 import logging
-from typing import List, Dict, Optional
+from typing import List
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit,
     QTableWidget, QTableWidgetItem, QPushButton, QComboBox, QMessageBox,
     QHeaderView, QAbstractItemView, QApplication
 )
-from PyQt6.QtCore import Qt, QDateTime
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import Qt
 
 from suiteview.data.repositories import get_data_map_repository
 

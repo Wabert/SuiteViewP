@@ -1,7 +1,6 @@
 """Preview Dialog - Shows table data in a filterable grid"""
 
 import logging
-import time
 import pandas as pd
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                               QLabel, QLineEdit, QMessageBox, QProgressBar)

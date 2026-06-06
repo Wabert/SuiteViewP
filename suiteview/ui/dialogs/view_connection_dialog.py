@@ -3,8 +3,7 @@
 import logging
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                               QPushButton, QWidget, QComboBox, QCheckBox, QSpinBox,
-                              QMessageBox, QFileDialog)
-from PyQt6.QtCore import Qt
+                              QMessageBox)
 from PyQt6.QtGui import QFont
 
 logger = logging.getLogger(__name__)

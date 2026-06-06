@@ -13,7 +13,7 @@ Architecture:
 
 import logging
 import time
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 import pandas as pd

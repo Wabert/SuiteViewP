@@ -5,7 +5,7 @@ Raw Table tab – transposed/normal data view with Excel export.
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidgetItem, QMessageBox,
 )
 from PyQt6.QtCore import Qt

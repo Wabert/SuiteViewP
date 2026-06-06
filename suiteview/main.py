@@ -2,7 +2,6 @@
 """SuiteView Data Manager - Main entry point"""
 
 import sys
-import os
 import logging
 import traceback
 from datetime import datetime

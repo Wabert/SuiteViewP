@@ -15,7 +15,7 @@ from PyQt6.QtCore import Qt, QMimeData, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag, QColor, QBrush
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QAbstractItemView, QSplitter, QFrame, QPushButton, QMenu,
+    QListWidget, QAbstractItemView, QSplitter, QPushButton, QMenu,
     QComboBox,
     QListWidgetItem,
     QDialog,

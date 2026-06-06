@@ -4,20 +4,18 @@ import logging
 import re
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitter,
                               QTreeWidget, QTreeWidgetItem, QTabWidget, QPushButton,
-                              QScrollArea, QFrame, QLineEdit, QComboBox, QCheckBox,
-                              QMessageBox, QInputDialog, QToolBar, QSizePolicy,
+                              QScrollArea, QFrame, QLineEdit, QComboBox, QMessageBox, QInputDialog, QSizePolicy,
                               QMenu, QToolButton, QTableWidget, QTableWidgetItem,
                               QHeaderView, QAbstractItemView, QStyledItemDelegate,
                               QApplication, QTextEdit)
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QPoint
-from PyQt6.QtGui import QDrag, QAction, QColor, QBrush, QPainter, QPen
+from PyQt6.QtGui import QDrag, QColor, QBrush, QPainter, QPen
 
 from suiteview.data.repositories import (SavedTableRepository, ConnectionRepository,
                                          get_metadata_cache_repository, get_query_repository)
 from suiteview.core.schema_discovery import SchemaDiscovery
 from suiteview.core.query_builder import QueryBuilder
 from suiteview.database_manager.query_executor import QueryExecutor
-from suiteview.ui import theme
 
 logger = logging.getLogger(__name__)
 

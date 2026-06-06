@@ -7,15 +7,13 @@ Right panel: detail view (name, date, SQL, schema, snapshot indicator, Run/View/
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 import pandas as pd
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel,
-    QTreeWidget, QTreeWidgetItem, QHeaderView,
-    QPushButton, QTextEdit, QMessageBox, QApplication,
+    QTreeWidget, QTreeWidgetItem, QPushButton, QTextEdit, QMessageBox, QApplication,
     QTableWidget, QTableWidgetItem, QAbstractItemView,
 )
 

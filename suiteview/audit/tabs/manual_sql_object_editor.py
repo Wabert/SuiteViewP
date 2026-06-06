@@ -15,7 +15,6 @@ from PyQt6.QtCore import QMimeData, Qt, pyqtSignal
 from PyQt6.QtGui import QDrag, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -40,7 +39,6 @@ from PyQt6.QtWidgets import (
 )
 
 from .build_sql_tab import _SqlHighlighter
-from ._styles import TightItemDelegate
 from suiteview.audit.query_object import QueryObject
 from suiteview.audit.ui.bottom_bar import AuditBottomBar, FOOTER_BG
 from suiteview.ui.widgets.filter_table_view import FilterTableView

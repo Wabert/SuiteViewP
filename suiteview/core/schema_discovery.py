@@ -2,8 +2,7 @@
 
 import logging
 from typing import List, Dict, Any, Optional
-from sqlalchemy import MetaData, Table, inspect, text
-from sqlalchemy.engine import Engine
+from sqlalchemy import inspect, text
 
 from suiteview.core.connection_manager import get_connection_manager
 
@@ -535,7 +534,6 @@ class SchemaDiscovery:
         """
         try:
             import pyodbc
-            import pandas as pd
             import time
             
             if not schema_name:

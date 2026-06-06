@@ -216,7 +216,6 @@ def has_snapshot(name: str, forge_name: str = "") -> bool:
 
 def save_snapshot(name: str, df, forge_name: str = "") -> None:
     """Save a DataFrame as a parquet snapshot."""
-    import pandas as pd
     if forge_name:
         d = _ensure_dir(forge_name)
         path = d / f"{_safe_filename(name)}.parquet"

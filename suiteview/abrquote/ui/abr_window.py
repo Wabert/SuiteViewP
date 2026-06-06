@@ -12,7 +12,6 @@ Theme: "Crimson Slate" (Crimson & Slate-Blue)
 from __future__ import annotations
 
 import logging
-from datetime import date
 from typing import Optional
 
 from PyQt6.QtCore import Qt
@@ -20,7 +19,7 @@ from PyQt6.QtCore import QMimeData
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget,
-    QLabel, QPushButton, QFrame, QMenu, QMessageBox,
+    QLabel, QPushButton, QMenu, QMessageBox,
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase

@@ -13,7 +13,6 @@ from datetime import datetime
 from typing import List, Optional
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPoint, QRect, QSize
-from PyQt6.QtGui import QFont, QColor, QCursor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QPlainTextEdit, QFrame, QScrollArea, QLayout,
@@ -24,7 +23,7 @@ from suiteview.ui.widgets import DockableToolPanel
 from suiteview.tasktracker.constants import (
     C, FONT_FAMILY, MONO_FAMILY,
     STATUS_OPEN, STATUS_CLOSED,
-    DETAIL_DEFAULT_WIDTH, DETAIL_MIN_WIDTH, DETAIL_MAX_WIDTH,
+    DETAIL_MIN_WIDTH,
 )
 from suiteview.tasktracker.models import Task, Email, Contact
 from suiteview.tasktracker.storage import Storage

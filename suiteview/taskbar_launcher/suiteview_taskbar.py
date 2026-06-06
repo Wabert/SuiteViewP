@@ -7,13 +7,11 @@ File Navigator with Multi-Tab support, system tray integration, and access to al
 import os
 import sys
 import subprocess
-import json
 import time
 from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, 
-                              QPushButton, QLabel, QFrame, QMenu, QLineEdit, QTreeView, QStyle, QTabBar, QToolButton,
-                              QListWidget, QListWidgetItem, QSplitter, QAbstractItemView, QScrollArea,
-                              QSystemTrayIcon, QApplication, QSizePolicy, QComboBox, QMessageBox)
+                              QPushButton, QLabel, QFrame, QMenu, QLineEdit, QStyle, QTabBar, QToolButton,
+                              QListWidgetItem, QSplitter, QSystemTrayIcon, QApplication, QSizePolicy, QComboBox, QMessageBox)
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint, QRect, QTimer
 from PyQt6.QtGui import QAction, QCursor, QMouseEvent, QIcon, QPainter, QColor, QPen, QPixmap, QFont, QBrush
 
@@ -22,8 +20,8 @@ from suiteview.file_nav.file_explorer_core import FileExplorerCore, DropTreeView
 
 # Import unified bookmark widgets for sidebar categories
 from suiteview.ui.widgets.bookmark_widgets import (
-    CategoryButton, CategoryPopup, CategoryBookmarkButton, BookmarkContainer,
-    CATEGORY_BUTTON_STYLE_SIDEBAR, CONTEXT_MENU_STYLE, CATEGORY_CONTEXT_MENU_STYLE,
+    BookmarkContainer,
+    CATEGORY_CONTEXT_MENU_STYLE,
     set_footer_status_callback
 )
 
@@ -316,8 +314,8 @@ class FileExplorerTab(FileExplorerCore):
     
     def _setup_dual_pane(self):
         """Set up the Quick Links panel (on the right) - using unified BookmarkContainer"""
-        from PyQt6.QtWidgets import QSplitter, QHeaderView, QVBoxLayout, QWidget, QLabel, QScrollArea
-        from PyQt6.QtGui import QStandardItemModel, QStandardItem
+        from PyQt6.QtWidgets import QSplitter, QVBoxLayout, QWidget, QLabel
+        from PyQt6.QtGui import QStandardItemModel
         from PyQt6.QtCore import Qt
         
         # Find the main splitter that contains tree and details
@@ -620,7 +618,7 @@ class FileExplorerTab(FileExplorerCore):
     
     def _show_category_context_menu(self, position, cat_widget):
         """Show context menu for a category in Quick Links"""
-        from PyQt6.QtWidgets import QMenu, QMessageBox, QInputDialog
+        from PyQt6.QtWidgets import QMenu
         from PyQt6.QtGui import QAction
         
         category_name = cat_widget.category_name
@@ -1556,7 +1554,7 @@ class FileExplorerTab(FileExplorerCore):
     
     def _create_history_panel(self):
         """Create the history panel widget"""
-        from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QButtonGroup, QToolButton
+        from PyQt6.QtWidgets import QListWidget, QToolButton
         
         # Create panel frame
         self.history_panel = QFrame(self)
@@ -2909,8 +2907,6 @@ class SuiteViewTaskbar(QWidget):
                 tb = traceback.format_exc()
                 logger.error(f"Failed to open ScratchPad window: {e}\n{tb}")
                 self.scratchpad_window = None
-                return
-
                 return
 
         if self.scratchpad_window.isVisible():
@@ -5114,7 +5110,6 @@ class BookmarkBarsPopup(QWidget):
             from suiteview.ui.widgets.bookmark_widgets import CategoryPopup
             active_win = QApplication.activeWindow()
             if not isinstance(active_win, CategoryPopup):
-                import time as _time
                 QApplication.instance().removeEventFilter(self)
                 if self._parent_bar is not None:
                     try:

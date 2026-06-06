@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from suiteview.illustration.models.calc_state import MonthlyState

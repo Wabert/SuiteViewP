@@ -13,14 +13,14 @@ import os
 from typing import TYPE_CHECKING
 
 import pyodbc
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QPoint, QMimeData, QRect
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QPoint, QMimeData
 from PyQt6.QtGui import (
-    QFont, QColor, QPainter, QPen, QDrag, QMouseEvent, QPolygon, QCursor,
+    QFont, QColor, QPainter, QPen, QDrag, QMouseEvent, QPolygon,
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QComboBox,
     QLabel, QLineEdit, QPushButton, QCheckBox, QFrame, QSizePolicy,
-    QToolButton, QMenu, QApplication, QMessageBox,
+    QToolButton, QMenu, QMessageBox,
 )
 
 if TYPE_CHECKING:

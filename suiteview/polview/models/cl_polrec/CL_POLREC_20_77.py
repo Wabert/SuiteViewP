@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from datetime import date
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from .cyberlife_base import PolicyDataAccessor, parse_date
 from .policy_data_classes import LoanInfo, TradLoanInfo, LoanRepayInfo

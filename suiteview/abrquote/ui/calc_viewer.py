@@ -22,18 +22,16 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QTableWidget, QTableWidgetItem, QHeaderView,
-    QPushButton, QLabel, QApplication,
+    QTableWidget, QTableWidgetItem, QPushButton, QLabel, QApplication,
     QMessageBox, QScrollArea, QGridLayout,
 )
 
 from .abr_styles import (
-    CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH, CRIMSON_BG, CRIMSON_SUBTLE,
-    SLATE_PRIMARY, SLATE_TEXT, SLATE_DARK, SLATE_LIGHT,
-    WHITE, GRAY_DARK, GRAY_TEXT,
-    ABR_HEADER_COLORS, ABR_BORDER_COLOR,
+    CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_BG, CRIMSON_SUBTLE,
+    SLATE_PRIMARY, SLATE_TEXT, SLATE_LIGHT,
+    WHITE, GRAY_DARK, ABR_HEADER_COLORS, ABR_BORDER_COLOR,
     RESULTS_TABLE_STYLE, SCROLL_AREA_STYLE,
-    BUTTON_PRIMARY_STYLE, BUTTON_SLATE_STYLE,
+    BUTTON_SLATE_STYLE,
 )
 from ...ui.widgets.frameless_window import FramelessWindowBase
 

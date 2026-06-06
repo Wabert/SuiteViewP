@@ -10,7 +10,6 @@ Each DataForgeGroup manages:
 from __future__ import annotations
 
 import logging
-import textwrap
 import time
 
 import pandas as pd
@@ -18,8 +17,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QLabel, QLineEdit, QPushButton, QMessageBox, QMenu,
-    QApplication, QInputDialog, QTextEdit, QScrollArea,
+    QLabel, QPushButton, QMessageBox, QApplication, QInputDialog, QTextEdit, QScrollArea,
 )
 
 from suiteview.audit.qdefinition import QDefinition
@@ -31,8 +29,6 @@ from suiteview.audit.dataforge.dataforge_model import DataForge, DataForgeSource
 from suiteview.audit.dataforge import dataforge_store as df_store
 from suiteview.audit.tabs.field_row import FieldRow, FieldGrid
 from suiteview.audit.tabs.results_tab import ResultsTab
-from suiteview.audit.tabs.select_tab import SelectTab
-from suiteview.audit.tabs.joins_tab import JoinsTab
 from suiteview.audit.tabs._styles import _FONT
 from suiteview.audit.sql_helpers import fmt_time
 from suiteview.audit.ui.bottom_bar import AuditBottomBar

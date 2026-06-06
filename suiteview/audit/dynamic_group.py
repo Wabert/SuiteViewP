@@ -13,12 +13,11 @@ import logging
 import time
 
 import pandas as pd
-from PyQt6.QtCore import Qt, QMimeData, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QDrag
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QTabBar,
-    QLabel, QPushButton, QMessageBox, QMenu,
-    QInputDialog, QComboBox, QScrollArea,
+    QWidget, QVBoxLayout, QTabWidget, QLabel, QPushButton, QMessageBox, QMenu,
+    QInputDialog, QScrollArea,
 )
 
 from .tabs.field_row import FieldRow, FieldGrid
@@ -29,9 +28,9 @@ from .tabs.joins_tab import JoinsTab
 from .tabs.common_tables_tab import CommonTablesTab
 from .tabs.build_sql_tab import BuildSqlTab
 from .tabs.build_sql_results_tab import BuildSqlResultsTab
-from .tabs._styles import _FONT, style_combo as _style_combo
+from .tabs._styles import _FONT
 from .sql_helpers import fmt_time
-from .dynamic_query import build_dynamic_sql, build_join_sql, collect_field_filters, build_common_table_cte
+from .dynamic_query import build_dynamic_sql, build_join_sql, build_common_table_cte
 from .dialogs.tables_dialog import TablesDialog, FIELD_DRAG_MIME
 from .ui.bottom_bar import AuditBottomBar, FOOTER_BG
 from .query_runner import run_button_context, execute_odbc_query, execute_odbc_query_with_types

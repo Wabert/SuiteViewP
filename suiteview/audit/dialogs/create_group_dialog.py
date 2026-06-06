@@ -17,7 +17,7 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QAbstractItemView, QPushButton, QMessageBox,
-    QApplication, QSplitter, QGroupBox, QWidget,
+    QSplitter, QGroupBox,
 )
 
 from .tables_dialog import _clean_odbc_identifier

@@ -102,7 +102,7 @@ class DividendsTab(QWidget):
             has_data = (unapplied_count > 0 or oyt_count > 0
                         or deposit_count > 0 or pua_count > 0)
             return has_data
-        except Exception as e:
+        except Exception:
             pass
             return False
 
@@ -204,7 +204,7 @@ class DividendsTab(QWidget):
                     table.setItem(row_idx, 14, QTableWidgetItem(""))
 
             table.autoFitAllColumns()
-        except Exception as e:
+        except Exception:
             pass
 
     def _load_pua(self, policy, issue_day: int):
@@ -309,7 +309,7 @@ class DividendsTab(QWidget):
                     table.setItem(row_idx, 8, QTableWidgetItem(""))
 
             table.autoFitAllColumns()
-        except Exception as e:
+        except Exception:
             pass
 
     def _load_oyt(self, policy, issue_day: int):
@@ -340,7 +340,7 @@ class DividendsTab(QWidget):
                 table.setItem(row_idx, 4, QTableWidgetItem(f"{float(int_rate):.2f}" if int_rate else ""))
 
             table.autoFitAllColumns()
-        except Exception as e:
+        except Exception:
             pass
 
     def _load_deposit(self, policy, issue_day: int):
@@ -380,5 +380,5 @@ class DividendsTab(QWidget):
                     f"{float(int_on_wd):,.2f}" if int_on_wd else ""))
 
             table.autoFitAllColumns()
-        except Exception as e:
+        except Exception:
             pass

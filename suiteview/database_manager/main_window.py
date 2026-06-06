@@ -1,11 +1,7 @@
 """Main Window - SuiteView Data Manager"""
 
 import logging
-from PyQt6.QtWidgets import (QMainWindow, QTabWidget, QWidget, QVBoxLayout, 
-                              QMessageBox, QLabel, QStatusBar, QSplitter, QTextEdit,
-                              QHBoxLayout, QPushButton, QToolBar)
-from PyQt6.QtCore import Qt, QEvent, QTimer
-from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtWidgets import (QMainWindow, QTabWidget, QWidget, QVBoxLayout)
 
 from suiteview.database_manager.connections_screen import ConnectionsScreen
 from suiteview.database_manager.mydata_screen import MyDataScreen

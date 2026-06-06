@@ -3,14 +3,13 @@ Mainframe Navigation Screen - File explorer interface for browsing mainframe dat
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTextEdit, QLineEdit, QPushButton,
-    QLabel, QMessageBox, QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem,
-    QHeaderView, QDialog, QDialogButtonBox, QStyle, QComboBox, QFileDialog, QInputDialog,
+    QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLineEdit, QPushButton,
+    QLabel, QMessageBox, QTableWidget, QTableWidgetItem,
+    QHeaderView, QDialog, QDialogButtonBox, QStyle, QFileDialog, QInputDialog,
     QListWidget, QListWidgetItem, QToolButton, QApplication, QCheckBox
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
-from PyQt6.QtGui import QFont, QIcon
-from datetime import datetime
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QFont
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1568,7 +1567,6 @@ class MainframeNavScreen(QWidget):
     def show_context_menu(self, position):
         """Show context menu for right-click on table items"""
         from PyQt6.QtWidgets import QMenu
-        from PyQt6.QtGui import QGuiApplication
         
         # Get the item at the clicked position
         item = self.members_table.itemAt(position)
@@ -2182,7 +2180,7 @@ class MainframeNavScreen(QWidget):
             logger.info(f"Loaded {line_count} lines from {member_name}")
             
             # Show content in a dialog
-            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QDialogButtonBox, QLabel, QPushButton, QFileDialog
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QLabel, QPushButton, QFileDialog
             from PyQt6.QtGui import QGuiApplication
             
             dialog = QDialog(self)

@@ -18,7 +18,7 @@ Structure:
 from __future__ import annotations
 
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 
 # Import from cl_polrec package (single source of truth)
@@ -30,7 +30,6 @@ from .cl_polrec.policy_translations import (
     LOAN_TYPE_CODES,
     translate_state_code, translate_table_rating,
     translate_fund_id, translate_transaction_code, translate_market_org,
-    translate_loan_interest_type_code, translate_loan_interest_status_code,
     translate_div_type_code, translate_renewal_rate_type_code,
     translate_elimination_period_code, translate_benefit_period_code,
     translate_substandard_type_code, translate_coverage_target_type,
@@ -3331,7 +3330,6 @@ class PolicyInformation:
         Returns:
             2D list suitable for table display, or None if rates unavailable
         """
-        from datetime import date as date_type
         from dateutil.relativedelta import relativedelta
         
         issue_date = self.cov_issue_date(cov_index)
@@ -3466,7 +3464,6 @@ class PolicyInformation:
         Returns:
             2D list suitable for table display, or None if rates unavailable
         """
-        from datetime import date as date_type
         from dateutil.relativedelta import relativedelta
         
         # Benefits use Cov 1 for many params
@@ -3565,7 +3562,6 @@ class PolicyInformation:
         Returns:
             2D list suitable for table display, or None if rates unavailable
         """
-        from datetime import date as date_type
         from dateutil.relativedelta import relativedelta
         
         issue_date = self.cov_issue_date(1)

@@ -1,7 +1,6 @@
 """FTP Manager for connecting to mainframe datasets via FTP"""
 
 import ftplib
-import io
 import logging
 from typing import List, Dict, Optional, Tuple
 

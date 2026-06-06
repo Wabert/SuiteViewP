@@ -7,7 +7,7 @@ and provides a "Run this SQL" button to execute the query.
 from __future__ import annotations
 
 import re
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QPushButton,
 )

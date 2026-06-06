@@ -8,14 +8,14 @@ relevant tools, similar to PolView's Policy Support tab but simplified.
 import logging
 import os
 import shutil
-from typing import Optional, List, Tuple
+from typing import Optional, List
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QGridLayout, QMessageBox, QListWidget, QListWidgetItem,
-    QAbstractItemView, QSizePolicy
+    QAbstractItemView
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QMimeData
+from PyQt6.QtCore import Qt, QPoint, QMimeData
 from PyQt6.QtGui import QColor, QDrag, QPixmap, QPainter, QFont
 
 from suiteview.ui.widgets.mini_explorer import (
@@ -23,10 +23,8 @@ from suiteview.ui.widgets.mini_explorer import (
     DoubleClickablePathLabel, TightItemDelegate, _icon_for_ext
 )
 from .abr_styles import (
-    CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH, CRIMSON_LIGHT, CRIMSON_SUBTLE, CRIMSON_BG,
-    SLATE_PRIMARY, SLATE_TEXT, SLATE_DARK, SLATE_LIGHT,
+    CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_SUBTLE, SLATE_PRIMARY, SLATE_TEXT, SLATE_DARK, SLATE_LIGHT,
     WHITE, GRAY_DARK, GRAY_MID,
-    GROUP_BOX_STYLE, BUTTON_PRIMARY_STYLE,
 )
 from ..models.abr_data import ABRPolicyData, ABRQuoteResult, MedicalAssessment
 from ..models.abr_constants import PLAN_CODE_INFO, MODAL_LABELS

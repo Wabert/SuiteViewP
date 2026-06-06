@@ -27,10 +27,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 from datetime import date
-from typing import List, Optional
+from typing import Optional
 
 from .cyberlife_base import PolicyDataAccessor, parse_date
-from .policy_data_classes import MVValueInfo
 
 
 class TotalRecords:

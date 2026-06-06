@@ -6,11 +6,10 @@ queries using the XDBEngine for hybrid execution (filter pushdown + DuckDB joins
 
 import logging
 import re
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Optional
 import pandas as pd
-from pathlib import Path
 
-from suiteview.database_manager.xdb_engine import XDBEngine, SourceConfig, JoinConfig, get_xdb_engine
+from suiteview.database_manager.xdb_engine import SourceConfig, JoinConfig, get_xdb_engine
 
 logger = logging.getLogger(__name__)
 

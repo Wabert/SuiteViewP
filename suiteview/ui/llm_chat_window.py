@@ -22,16 +22,14 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTextEdit, QScrollArea, QFrame, QSplitter, QListWidget,
     QListWidgetItem, QComboBox, QFileDialog, QMessageBox,
-    QSizePolicy, QApplication, QMenu, QToolButton, QLineEdit,
-    QTextBrowser, QCheckBox
+    QSizePolicy, QApplication, QMenu
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QSize
-from PyQt6.QtGui import QFont, QTextCursor, QIcon, QAction, QColor, QPalette
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
 
 from suiteview.llm.llm_client import (
-    LLMClient, MockLLMClient, Conversation, ChatMessage, 
+    LLMClient, Conversation, ChatMessage, 
     MessageRole, get_llm_client, VSCodeBridgeClient,
-    AgentResponseWatcher, GitHubDirectClient, ClientType
+    GitHubDirectClient
 )
 
 logger = logging.getLogger(__name__)
@@ -205,7 +203,7 @@ class GitHubDirectWorker(QThread):
                 duration = time.time() - self.start_time if self.start_time else 0
                 self.response_complete.emit(full_response, model_to_use, duration)
                 
-        except requests.exceptions.ConnectionError as e:
+        except requests.exceptions.ConnectionError:
             if not self._is_cancelled:
                 self.error_occurred.emit(
                     f"Cannot connect to GitHub Models API. Check your internet connection."
@@ -323,7 +321,7 @@ class AsyncWorker(QThread):
                 duration = time.time() - self.start_time if self.start_time else 0
                 self.response_complete.emit(full_response, model_to_use, duration)
                 
-        except requests.exceptions.ConnectionError as e:
+        except requests.exceptions.ConnectionError:
             if not self._is_cancelled:
                 self.error_occurred.emit(
                     f"Cannot connect to VS Code AI Bridge at {self.client.base_url}. "
@@ -412,7 +410,7 @@ class AgentChatWorker(QThread):
             if not self._is_cancelled:
                 self.response_complete.emit(data)
                 
-        except requests.exceptions.ConnectionError as e:
+        except requests.exceptions.ConnectionError:
             if not self._is_cancelled:
                 self.error_occurred.emit(
                     f"Cannot connect to VS Code AI Bridge at {self.client.base_url}. "
@@ -1100,7 +1098,6 @@ class LLMChatWindow(QWidget):
     def _launch_vscode_bridge(self):
         """Launch dedicated VS Code session and start polling for connection"""
         import subprocess
-        import os
         
         self.connection_status_label.setText("☕ Brewing... Starting dedicated VS Code session...")
         self.connection_status_label.setStyleSheet("color: #FFD700; font-size: 12px;")
@@ -1358,7 +1355,6 @@ class LLMChatWindow(QWidget):
         
         try:
             import ctypes
-            from ctypes import wintypes
             
             if not hasattr(self, '_hidden_vscode_hwnd') or not self._hidden_vscode_hwnd:
                 logger.warning("No hidden VS Code window handle stored")
@@ -2298,7 +2294,6 @@ Reply with ONLY the title, nothing else."""
                 def run(self):
                     try:
                         # Use the simplest/fastest model for naming
-                        import asyncio
                         import requests
                         
                         # Try synchronous request for simplicity

@@ -7,12 +7,11 @@ Ports the VBA CPDReady() logic from ProgressBar.frm.
 
 import os
 from collections import OrderedDict
-from typing import List, Optional, Callable
+from typing import Optional, Callable
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font
 
-from suiteview.ratemanager.parser import ParseResult, ProductInfo, AdvProductInfo, RateRecord
+from suiteview.ratemanager.parser import ParseResult, ProductInfo
 
 
 # ---------------------------------------------------------------------------

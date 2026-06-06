@@ -20,12 +20,10 @@ import json
 import asyncio
 import aiohttp
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any, Callable, AsyncGenerator
+from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime
 from enum import Enum
 import os
-import subprocess
-import sys
 import threading
 import time
 

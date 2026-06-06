@@ -9,14 +9,12 @@ Convert / Open buttons.
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFileDialog, QLineEdit, QTextEdit, QProgressBar,
-    QMessageBox, QFrame, QSizePolicy, QRadioButton, QGroupBox,
+    QMessageBox, QRadioButton,
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase

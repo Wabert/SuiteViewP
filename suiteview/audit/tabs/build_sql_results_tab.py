@@ -7,7 +7,6 @@ main Results tab.
 from __future__ import annotations
 
 import pandas as pd
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QMessageBox, QInputDialog,
 )

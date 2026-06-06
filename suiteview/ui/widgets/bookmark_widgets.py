@@ -26,15 +26,15 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable, List
+from typing import Optional, Dict, List
 
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QFrame, QVBoxLayout, QHBoxLayout,
-    QScrollArea, QMenu, QInputDialog, QMessageBox, QLineEdit,
-    QFileIconProvider, QLabel, QToolTip, QDialog
+    QScrollArea, QMenu, QMessageBox, QLineEdit,
+    QFileIconProvider, QLabel, QDialog
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QFileInfo, QTimer, QEventLoop, QByteArray, QBuffer, QIODevice, QRect
-from PyQt6.QtGui import QAction, QDrag, QCursor, QIcon, QPixmap
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QFileInfo, QTimer, QByteArray, QBuffer, QIODevice, QRect
+from PyQt6.QtGui import QDrag, QCursor, QIcon, QPixmap
 
 logger = logging.getLogger(__name__)
 

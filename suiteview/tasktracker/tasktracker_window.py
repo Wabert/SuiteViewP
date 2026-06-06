@@ -7,17 +7,15 @@ Inherits frameless-window chrome from FramelessWindowBase.
 
 import logging
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import Optional, Dict
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPoint, QRectF
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
-    QFont, QColor, QCursor, QPainter, QPen, QBrush, QPainterPath,
-    QFontMetrics, QTextOption, QKeyEvent,
+    QFontMetrics,
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QPlainTextEdit, QFrame, QScrollArea, QSizePolicy,
-    QMessageBox, QApplication, QGraphicsDropShadowEffect,
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
@@ -26,9 +24,8 @@ from suiteview.tasktracker.constants import (
     STATUS_OPEN, STATUS_CLOSED,
     EMAIL_SCAN_INTERVAL_MS, VERSION,
 )
-from suiteview.tasktracker.models import Task, Email, Contact
+from suiteview.tasktracker.models import Task
 from suiteview.tasktracker.storage import Storage
-from suiteview.tasktracker import outlook_bridge
 from suiteview.tasktracker.outlook_bridge import (
     OutlookScanWorker, ContactSearchWorker,
 )

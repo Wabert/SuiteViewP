@@ -20,9 +20,7 @@ from PyQt6.QtWidgets import (
 from ..models.abr_data import ABRPolicyData, MedicalAssessment, ABRQuoteResult
 from ..models.abr_constants import PLAN_CODE_INFO
 from .abr_styles import (
-    CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH, CRIMSON_SUBTLE,
-    SLATE_PRIMARY, SLATE_DARK,
-    WHITE, GRAY_DARK, GRAY_MID, GRAY_TEXT,
+    CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH, WHITE, GRAY_DARK, GRAY_MID, GRAY_TEXT,
     GROUP_BOX_STYLE, BUTTON_PRIMARY_STYLE, BUTTON_SLATE_STYLE, BUTTON_NAV_STYLE,
     LABEL_MONEY_STYLE, LABEL_MONEY_LARGE_STYLE, DIVIDER_STYLE,
     INPUT_STYLE,
@@ -815,7 +813,7 @@ class ResultsPanel(QWidget):
     def _write_excel(self, filepath: str):
         """Write results to Excel workbook matching the ABR output format."""
         import openpyxl
-        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+        from openpyxl.styles import Font
 
         wb = openpyxl.Workbook()
         r = self._result

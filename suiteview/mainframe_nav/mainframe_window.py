@@ -3,9 +3,7 @@ Mainframe Window - Dedicated window for Mainframe Navigation and Terminal
 """
 
 import logging
-from PyQt6.QtWidgets import (QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QStatusBar, QLabel, QPushButton, QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QMessageBox)
-from PyQt6.QtGui import QIcon
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtWidgets import (QMainWindow, QTabWidget, QWidget, QVBoxLayout, QStatusBar, QLabel, QPushButton, QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QMessageBox)
 
 from suiteview.mainframe_nav.mainframe_nav_screen import MainframeNavScreen
 from suiteview.mainframe_nav.mainframe_terminal_screen import DualTerminalScreen

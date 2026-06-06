@@ -4,11 +4,11 @@ import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitter,
     QTreeWidget, QTreeWidgetItem, QPushButton, QFrame, QMenu,
-    QScrollArea, QComboBox, QMessageBox, QFileDialog, QTabWidget,
-    QLineEdit, QCheckBox, QDateEdit, QToolButton, QSizePolicy, QInputDialog,
+    QScrollArea, QComboBox, QMessageBox, QTabWidget,
+    QLineEdit, QSizePolicy, QInputDialog,
     QTextEdit, QLayout, QWidgetItem
 )
-from PyQt6.QtCore import Qt, QDate, pyqtSignal, QMimeData, QRect, QPoint, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QRect, QPoint, QSize
 from PyQt6.QtGui import QAction, QDrag
 
 
@@ -109,7 +109,7 @@ class FlowLayout(QLayout):
 from typing import Optional
 
 from suiteview.data.repositories import (ConnectionRepository, get_query_repository, 
-                                         get_saved_table_repository, SavedTableRepository)
+                                         get_saved_table_repository)
 from suiteview.core.schema_discovery import SchemaDiscovery
 from suiteview.database_manager.query_executor_xdb import XDBQueryExecutor
 from suiteview.ui.dialogs.query_results_dialog import QueryResultsDialog
@@ -204,10 +204,6 @@ class XDBQueryScreen(QWidget):
         self.tables_tree.itemClicked.connect(self._on_table_clicked)
         self.tables_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tables_tree.customContextMenuRequested.connect(self._show_table_context_menu)
-        panel_layout.addWidget(self.tables_tree)
-
-        return panel
-        self.tables_tree.itemClicked.connect(self._on_table_clicked)
         panel_layout.addWidget(self.tables_tree)
 
         return panel

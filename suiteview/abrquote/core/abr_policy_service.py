@@ -8,7 +8,6 @@ import logging
 from datetime import date
 from typing import List, Optional, Tuple
 
-from suiteview.polview.models.cl_polrec.policy_translations import BENEFIT_TYPE_CODES
 from ...core.policy_service import get_policy_info
 from ..models.abr_data import ABRPolicyData, RiderInfo
 from ..models.abr_constants import NON_STANDARD_MODE_MAP

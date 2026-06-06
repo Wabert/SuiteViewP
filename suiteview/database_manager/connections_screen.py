@@ -2,11 +2,10 @@
 
 import logging
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitter,
-                              QTreeWidget, QTreeWidgetItem, QLineEdit, QToolBar,
-                              QPushButton, QTableWidget, QTableWidgetItem, QMessageBox,
-                              QHeaderView, QCheckBox, QMenu, QDialog, QTextEdit, QFileDialog)
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QPoint
-from PyQt6.QtGui import QIcon, QAction, QCursor, QFont
+                              QTreeWidget, QTreeWidgetItem, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox,
+                              QHeaderView, QMenu, QDialog, QTextEdit, QFileDialog)
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint
+from PyQt6.QtGui import QFont
 
 from suiteview.core.connection_manager import get_connection_manager
 from suiteview.core.schema_discovery import get_schema_discovery
@@ -807,7 +806,7 @@ class ConnectionsScreen(QWidget):
                     self.unsetCursor()
                     QMessageBox.information(self, "No Data", "No data found in table.")
                     
-            except Exception as e:
+            except Exception:
                 self.unsetCursor()
                 raise
                 
@@ -820,7 +819,7 @@ class ConnectionsScreen(QWidget):
         if not hasattr(self, 'current_ftp_dataset'):
             return
         
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QFileDialog
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton
         from suiteview.core.ftp_manager import MainframeFTPManager
         from suiteview.core.credential_manager import CredentialManager
         

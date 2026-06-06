@@ -24,7 +24,7 @@ from PyQt6.QtCore import Qt
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.core.db2_connection import DB2Connection
-from suiteview.core.db2_constants import REGION_DSN_MAP, DEFAULT_REGION
+from suiteview.core.db2_constants import REGION_DSN_MAP
 from suiteview.core.odbc_utils import is_password_error
 from ..models.policy_information import PolicyInformation
 

@@ -8,9 +8,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
-from dataclasses import fields
-from pathlib import Path
 
 
 def main() -> None:
@@ -53,7 +50,6 @@ def main() -> None:
     from suiteview.illustration.core.illustration_policy_service import (
         build_illustration_data,
     )
-    from suiteview.illustration.models.calc_state import MonthlyState
 
     # ── Load policy ───────────────────────────────────────────
     print(f"Loading {args.policy} from {args.region}...")

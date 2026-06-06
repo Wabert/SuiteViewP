@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from ..formatting import format_date, format_amount, is_numeric
+from ..formatting import format_date, format_amount
 from ..styles import WHITE
 from ..widgets import StyledInfoTableGroup
 

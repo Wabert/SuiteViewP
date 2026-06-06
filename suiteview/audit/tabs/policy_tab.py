@@ -15,8 +15,7 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QComboBox, QCheckBox, QPushButton,
-    QListWidget, QAbstractItemView, QFrame, QSizePolicy,
-    QStyledItemDelegate,
+    QListWidget, QAbstractItemView, QFrame, QStyledItemDelegate,
 )
 from PyQt6.QtGui import QFont
 

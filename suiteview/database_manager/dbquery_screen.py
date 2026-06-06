@@ -4,10 +4,10 @@ import logging
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSplitter,
                               QTreeWidget, QTreeWidgetItem, QTabWidget, QPushButton,
                               QScrollArea, QFrame, QLineEdit, QComboBox, QCheckBox,
-                              QMessageBox, QInputDialog, QToolBar, QDateEdit, QSizePolicy,
+                              QMessageBox, QInputDialog, QSizePolicy,
                               QMenu, QToolButton, QLayout, QProgressDialog, QApplication,
                               QTextEdit)
-from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QDate, QRect, QSize, QPoint
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QRect, QSize, QPoint
 from PyQt6.QtGui import QDrag, QAction
 
 from suiteview.data.repositories import (SavedTableRepository, ConnectionRepository,
@@ -950,7 +950,6 @@ class DBQueryScreen(QWidget):
 
     def _generate_ui_from_sql(self):
         """Parse SQL and generate UI elements (Display fields, Criteria, JOINs)"""
-        import re
         
         sql_text = self.sql_edit.toPlainText().strip()
         if not sql_text:
@@ -3534,7 +3533,7 @@ class DBQueryScreen(QWidget):
             sql = self.query_executor._build_sql(query)
 
             # Create dialog
-            from PyQt6.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QHBoxLayout, QPushButton, QApplication
+            from PyQt6.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QHBoxLayout, QPushButton
             from PyQt6.QtGui import QFont
 
             dialog = QDialog(self)

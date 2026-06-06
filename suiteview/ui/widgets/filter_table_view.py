@@ -9,7 +9,7 @@ import operator
 from pandas.api.types import is_numeric_dtype
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView, QListView, QAbstractItemView,
                               QHeaderView, QLineEdit, QPushButton, QMenu, QStyledItemDelegate,
-                              QCheckBox, QScrollArea, QLabel, QFrame, QWidgetAction, QStyleOptionHeader, QStyle, QMessageBox)
+                              QLabel, QWidgetAction)
 from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QRect, QPoint, QTimer, QThread, QStringListModel, QSize
 from PyQt6.QtGui import QFont, QAction, QPainter, QColor
 
@@ -206,7 +206,6 @@ class ClickableHeaderView(QHeaderView):
     
     def mouseDoubleClickEvent(self, event):
         """Handle double-click for auto-resize on edge"""
-        from PyQt6.QtCore import Qt as QtCore
         
         logical_index = self.logicalIndexAt(event.pos())
         if logical_index >= 0:
@@ -1321,7 +1320,6 @@ class FilterTableView(QWidget):
         if self.model is None:
             return
         
-        from PyQt6.QtWidgets import QApplication
         
         menu = QMenu(self)
         

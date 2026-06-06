@@ -14,14 +14,13 @@ from pathlib import Path
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QWidget,
                               QPushButton, QLabel, QScrollArea, QFrame,
                               QInputDialog, QMessageBox, QLineEdit, QComboBox,
-                              QMenu, QGridLayout, QSizePolicy, QFileIconProvider)
-from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QPoint, QTimer, QFileInfo
-from PyQt6.QtGui import QIcon, QAction, QCursor, QDrag
+                              QMenu, QSizePolicy, QFileIconProvider)
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QPoint, QFileInfo
+from PyQt6.QtGui import QAction, QCursor, QDrag
 
 # Import unified bookmark widgets
 from suiteview.ui.widgets.bookmark_widgets import (
-    CategoryButton, CategoryPopup as UnifiedCategoryPopup, CategoryBookmarkButton,
-    BookmarkContainer, StandaloneBookmarkButton, CATEGORY_BUTTON_STYLE, CONTEXT_MENU_STYLE, CATEGORY_CONTEXT_MENU_STYLE
+    CategoryButton, CategoryPopup as UnifiedCategoryPopup, BookmarkContainer, StandaloneBookmarkButton, CATEGORY_CONTEXT_MENU_STYLE
 )
 
 import logging
@@ -328,7 +327,6 @@ class AddBookmarkDialog(QDialog):
     def _populate_locations(self):
         """Populate location combo with all bars and categories dynamically"""
         from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
-        from suiteview.ui.widgets.bookmark_widgets import BookmarkContainerRegistry
         
         self.location_combo.clear()
         self._bar_ids = []  # Track which items are bookmark bars

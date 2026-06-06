@@ -1,6 +1,5 @@
 """Database initialization and connection management for SQLite"""
 
-import os
 import sqlite3
 from pathlib import Path
 from typing import Optional

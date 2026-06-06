@@ -17,16 +17,15 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                               QSplitter, QListWidget, QMessageBox, QDialog,
                               QDialogButtonBox, QFormLayout, QTableWidget,
                               QTableWidgetItem, QHeaderView, QAbstractItemView,
-                              QComboBox, QCheckBox, QFrame, QGroupBox, QListWidgetItem,
-                              QSpinBox, QScrollArea, QApplication, QMenu)
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QTime
+                              QComboBox, QCheckBox, QGroupBox, QListWidgetItem,
+                              QSpinBox, QApplication, QMenu)
+from PyQt6.QtCore import Qt, pyqtSignal, QTime
 from PyQt6.QtGui import QFont, QColor, QSyntaxHighlighter, QTextCharFormat
 
-from suiteview.models.data_set import DataSet, DataSetParameter, DataSetField
+from suiteview.models.data_set import DataSet, DataSetField
 from suiteview.data.repositories import SavedTableRepository, ConnectionRepository, get_metadata_cache_repository
 from suiteview.core.schema_discovery import SchemaDiscovery
 from suiteview.database_manager.query_executor import QueryExecutor
-from suiteview.ui.dialogs.query_results_dialog import QueryResultsDialog
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 logger = logging.getLogger(__name__)
@@ -864,7 +863,7 @@ class DataSetScreen(QWidget):
         header_layout.addLayout(button_grid)
         
         # Initialize timer
-        from PyQt6.QtCore import QTimer, QTime
+        from PyQt6.QtCore import QTimer
         self.query_timer = QTimer()
         self.query_timer.timeout.connect(self.update_timer)
         self.query_start_time = None

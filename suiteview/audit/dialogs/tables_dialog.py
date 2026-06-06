@@ -14,17 +14,16 @@ import time
 
 import pandas as pd
 import pyodbc
-from PyQt6.QtCore import Qt, QMimeData, QPoint, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QDrag, QCursor
+from PyQt6.QtCore import Qt, QMimeData, QThread, pyqtSignal
+from PyQt6.QtGui import QFont, QDrag
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QAbstractItemView, QPushButton, QMessageBox,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QSplitter,
-    QGroupBox, QApplication, QMenu, QInputDialog,
+    QGroupBox, QMenu, QInputDialog,
     QStyledItemDelegate, QWidget,
 )
 
-from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from ..tabs._styles import TightItemDelegate
 
 if TYPE_CHECKING:
@@ -514,7 +513,6 @@ class TablesDialog(QDialog):
 
     def _on_add_table(self):
         """Add a new table from the same DSN."""
-        from .create_group_dialog import _TableLoaderThread
 
         # We'll show a quick picker dialog
         dlg = _AddTableDialog(self._dsn, self._tables, self)

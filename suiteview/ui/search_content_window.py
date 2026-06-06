@@ -5,12 +5,11 @@ Search Content Window - Advanced dataset content search with dataset management
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QTextEdit, QSplitter, QHeaderView,
-    QCheckBox, QMessageBox, QDialog, QApplication, QStyle, QSizePolicy
+    QCheckBox, QMessageBox, QDialog, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 import logging
-import re
 
 logger = logging.getLogger(__name__)
 

@@ -12,8 +12,8 @@ from PyQt6.QtWidgets import (
 )
 
 from .abr_styles import (
-    CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH, CRIMSON_BG,
-    SLATE_PRIMARY, SLATE_LIGHT, WHITE, GRAY_DARK, GRAY_TEXT,
+    CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_BG,
+    SLATE_PRIMARY, SLATE_LIGHT, WHITE, GRAY_DARK,
 )
 
 # ── Resource content ────────────────────────────────────────────────

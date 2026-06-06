@@ -5,9 +5,8 @@ Implements the TN3270 protocol for mainframe connectivity
 
 import socket
 import ssl
-import struct
 import logging
-from typing import Optional, Tuple, List, Dict, Callable
+from typing import Optional, Tuple, List, Callable
 from enum import IntEnum
 from dataclasses import dataclass, field
 

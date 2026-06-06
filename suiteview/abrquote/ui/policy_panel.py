@@ -18,8 +18,8 @@ from PyQt6.QtGui import QCursor
 from PyQt6.QtGui import QWheelEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QLineEdit, QComboBox, QPushButton,
-    QGroupBox, QFrame, QMessageBox, QDialog,
+    QLabel, QLineEdit, QPushButton,
+    QGroupBox, QFrame, QDialog,
     QTableWidgetItem, QDateEdit, QSizePolicy,
     QApplication,
 )
@@ -28,23 +28,17 @@ from ..models.abr_data import ABRPolicyData, RiderInfo
 from ..models.abr_database import get_abr_database
 from ..models.abr_constants import (
     MODAL_LABELS, PLAN_CODE_INFO,
-    NON_STANDARD_MODE_MAP,
 )
 from ..core.premium_calc import PremiumCalculator
 
 # Benefit name mapping for TERM_POINT_BENEFIT.Benefit column
 from suiteview.polview.models.cl_polrec.policy_translations import BENEFIT_TYPE_CODES, COMPANY_CODES
-from ...core.policy_service import get_policy_info
 from ...core.reinsurance import fetch_reinsurer_list
 from ..core.abr_policy_service import build_abr_policy, find_policy_companies
 from ...polview.ui.widgets import StyledInfoTableGroup
 from .abr_styles import (
-    CRIMSON_BG, CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_SUBTLE, CRIMSON_RICH, CRIMSON_SCROLL,
-    SLATE_PRIMARY, SLATE_TEXT, SLATE_DARK,
-    WHITE, GRAY_DARK, GRAY_LIGHT, GRAY_MID,
-    GROUP_BOX_STYLE, INPUT_STYLE, COMBOBOX_STYLE, DATEEDIT_STYLE,
-    BUTTON_PRIMARY_STYLE, LABEL_HEADER_STYLE, LABEL_VALUE_STYLE,
-    PREMIUM_TABLE_STYLE, PREMIUM_INNER_TABLE_STYLE, PREMIUM_INNER_FRAME_STYLE,
+    CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_SUBTLE, CRIMSON_RICH, WHITE, GRAY_DARK, GROUP_BOX_STYLE, INPUT_STYLE, DATEEDIT_STYLE,
+    BUTTON_PRIMARY_STYLE, LABEL_HEADER_STYLE, PREMIUM_TABLE_STYLE, PREMIUM_INNER_TABLE_STYLE, PREMIUM_INNER_FRAME_STYLE,
 )
 
 logger = logging.getLogger(__name__)

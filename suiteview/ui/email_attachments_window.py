@@ -21,8 +21,8 @@ from PyQt6.QtWidgets import (
     QMessageBox, QApplication, QSizeGrip, QComboBox, QFileIconProvider,
     QStyledItemDelegate, QStyle
 )
-from PyQt6.QtCore import Qt, QPoint, QTimer, QThread, pyqtSignal, QFileInfo
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QFileInfo
+from PyQt6.QtGui import QIcon
 
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.core.outlook_manager import get_outlook_manager, close_thread_outlook_manager
@@ -214,7 +214,6 @@ class AttachmentLoaderThread(QThread):
     def run(self):
         """Load attachments in background thread"""
         try:
-            import win32com.client
             import pywintypes
             
             # Use thread-local singleton (handles COM init internally)

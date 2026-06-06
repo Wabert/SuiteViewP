@@ -10,7 +10,7 @@ import logging
 import time
 import pandas as pd
 import pyodbc
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
@@ -1582,7 +1582,6 @@ class AuditWindow(FramelessWindowBase):
             self._last_forge_mode = None
     def _on_load_saved_query(self, sq):
         """Create a DynamicQuery from a saved query and switch to it."""
-        from suiteview.audit.saved_query import SavedQuery
         config: dict = sq.config
         name = f"▸ {sq.name}"
         # If already loaded, switch first then clean up old
@@ -1645,7 +1644,6 @@ class AuditWindow(FramelessWindowBase):
         self._refresh_picker_forge_list()
     def _on_load_dataforge(self, forge):
         """Open a DataForge designer from the shelf click."""
-        from suiteview.audit.dataforge.dataforge_model import DataForge
         from suiteview.audit import saved_query_store as sq_store
         display = f"⚙ {forge.name}"
         # If already loaded, switch to it

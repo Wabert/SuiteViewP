@@ -13,8 +13,8 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
-    QLabel, QLineEdit, QCheckBox, QComboBox, QListWidget,
-    QAbstractItemView, QStyledItemDelegate, QFrame,
+    QLabel, QLineEdit, QComboBox, QListWidget,
+    QAbstractItemView, QStyledItemDelegate,
 )
 from PyQt6.QtGui import QFont
 

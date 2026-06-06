@@ -15,13 +15,11 @@ import logging
 
 from PyQt6.QtCore import Qt, QPoint, QSize, QRect, QEvent, QElapsedTimer, QMimeData, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QLineEdit, QPushButton, QComboBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox,
     QListWidget, QListWidgetItem, QAbstractItemView, QFrame, QMenu,
-    QMessageBox, QApplication, QSizePolicy, QToolBar,
-    QDialog, QTextBrowser,
+    QMessageBox, QApplication, QSizePolicy, QDialog, QTextBrowser,
 )
-from PyQt6.QtGui import QFont, QDrag, QMouseEvent, QPainter, QColor, QPen, QCursor, QPolygon
+from PyQt6.QtGui import QFont, QDrag, QMouseEvent, QPainter, QColor, QPen, QPolygon
 
 from ._styles import TightItemDelegate, style_combo
 

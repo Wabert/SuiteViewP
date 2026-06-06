@@ -6,7 +6,6 @@ Organized in 5 columns matching the VBA layout.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QFrame,
 )

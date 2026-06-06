@@ -3,9 +3,9 @@
 import logging
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                               QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem,
-                              QLabel, QPushButton, QGroupBox, QFormLayout, QMessageBox,
-                              QHeaderView, QMenu, QCheckBox, QLineEdit, QComboBox, QDialog, QTextEdit, QSizePolicy, QAbstractItemView)
-from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
+                              QLabel, QPushButton, QMessageBox,
+                              QHeaderView, QMenu, QCheckBox, QLineEdit, QComboBox, QDialog, QTextEdit, QSizePolicy)
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 
 from suiteview.data.repositories import (SavedTableRepository, ConnectionRepository, 
@@ -13,7 +13,6 @@ from suiteview.data.repositories import (SavedTableRepository, ConnectionReposit
                                          get_data_map_repository)
 from suiteview.core.schema_discovery import SchemaDiscovery
 from suiteview.ui.dialogs.data_map_editor_dialog import DataMapEditorDialog
-from suiteview.ui import theme
 
 logger = logging.getLogger(__name__)
 
@@ -1472,7 +1471,6 @@ class MyDataScreen(QWidget):
 
         # Execute queries to find unique values
         try:
-            import datetime
             from datetime import datetime as dt
 
             for col_name in checked_columns:

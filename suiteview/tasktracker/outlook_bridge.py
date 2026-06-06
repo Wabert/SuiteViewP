@@ -8,13 +8,11 @@ All Outlook COM work runs in a background QThread.  The bridge provides:
 
 import logging
 import re
-from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from suiteview.tasktracker.models import Email, Contact, Task
-from suiteview.tasktracker.storage import Storage
 
 logger = logging.getLogger(__name__)
 

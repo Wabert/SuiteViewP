@@ -11,8 +11,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox,
-    QLabel, QLineEdit, QCheckBox, QFrame, QListWidget, QSizePolicy,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QCheckBox, QFrame, QSizePolicy,
 )
 from PyQt6.QtGui import QFont
 

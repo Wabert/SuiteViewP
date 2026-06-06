@@ -6,7 +6,7 @@ TAMRA Values, Commission Target Premium, and Minimum Premium widgets.
 from typing import TYPE_CHECKING, Dict, List, Any
 
 from PyQt6.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QVBoxLayout, QSizePolicy, QStackedWidget
+    QWidget, QGridLayout, QLabel
 )
 from PyQt6.QtCore import Qt
 
@@ -14,8 +14,7 @@ from ..formatting import format_currency, format_date
 from ..widgets import StyledInfoTableGroup
 from ..styles import (
     BLUE_BG, GRAY_TEXT, GRAY_MID, WHITE,
-    BLUE_PRIMARY, BLUE_DARK, BLUE_GRADIENT_TOP, BLUE_GRADIENT_BOT,
-    GOLD_TEXT, GOLD_PRIMARY
+    BLUE_PRIMARY, BLUE_DARK, GOLD_TEXT
 )
 
 if TYPE_CHECKING:

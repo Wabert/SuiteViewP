@@ -4,8 +4,7 @@ import logging
 import os
 import time
 import pandas as pd
-from sqlalchemy import text
-from typing import Tuple, Dict, Any
+from typing import Dict, Any
 
 from suiteview.core.connection_manager import get_connection_manager
 from suiteview.core.query_builder import Query
@@ -221,9 +220,7 @@ class QueryExecutor:
             logger.info("DB2 connection closed")
             
             return data
-            
-            return df
-            
+
         except pyodbc.Error as e:
             logger.error(f"DB2 pyodbc error: {e}")
             raise Exception(f"Database error: {str(e)}")
@@ -869,7 +866,6 @@ class QueryExecutor:
             Exception: If query execution fails
         """
         import os
-        import warnings
         
         start_time = time.time()
         

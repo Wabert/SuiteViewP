@@ -11,7 +11,7 @@ Accessible from the ABR Quote header menu button. Lets users:
 from __future__ import annotations
 
 import logging
-from typing import Optional, List
+from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
@@ -24,9 +24,8 @@ from PyQt6.QtWidgets import (
 from .abr_styles import (
     CRIMSON_DARK, CRIMSON_PRIMARY, CRIMSON_RICH, CRIMSON_LIGHT, CRIMSON_BG, CRIMSON_SUBTLE,
     CRIMSON_SCROLL,
-    SLATE_PRIMARY, SLATE_TEXT, SLATE_DARK, SLATE_LIGHT,
-    WHITE, GRAY_DARK, GRAY_LIGHT, GRAY_MID, GRAY_TEXT,
-    ABR_HEADER_COLORS, ABR_BORDER_COLOR,
+    SLATE_PRIMARY, SLATE_TEXT, SLATE_LIGHT,
+    WHITE, GRAY_DARK, ABR_HEADER_COLORS, ABR_BORDER_COLOR,
 )
 from ...ui.widgets.frameless_window import FramelessWindowBase
 from ...polview.ui.widgets import FixedHeaderTableWidget

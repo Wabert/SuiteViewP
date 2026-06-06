@@ -10,9 +10,9 @@ from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                               QLabel, QListWidget, QListWidgetItem, QMenu, 
                               QInputDialog, QMessageBox, QComboBox, QFrame,
-                              QSizePolicy, QAbstractItemView, QSplitter, QApplication)
-from PyQt6.QtCore import Qt, QSize, QByteArray, QBuffer, QIODevice, QMimeData, pyqtSignal
-from PyQt6.QtGui import QPixmap, QIcon, QScreen, QPainter, QColor, QPen, QDrag, QBrush, QLinearGradient, QFont
+                              QSizePolicy, QAbstractItemView, QSplitter)
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor, QBrush
 
 logger = logging.getLogger(__name__)
 
@@ -1204,7 +1204,6 @@ class ScreenShotManagerWindow(QWidget):
         """Export screenshots to a new Word document"""
         try:
             import win32com.client
-            from win32com.client import constants
             
             # Create new Word instance
             word = win32com.client.Dispatch("Word.Application")

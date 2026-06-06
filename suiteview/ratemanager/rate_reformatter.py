@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Callable
 
-from suiteview.ratemanager.parser import ParseResult, RateRecord
+from suiteview.ratemanager.parser import ParseResult
 
 
 # ---------------------------------------------------------------------------

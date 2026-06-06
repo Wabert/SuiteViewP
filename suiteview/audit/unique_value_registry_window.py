@@ -19,8 +19,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel,
     QTreeWidget, QTreeWidgetItem, QHeaderView,
     QTableView, QPushButton, QAbstractItemView, QMessageBox,
-    QApplication, QStyledItemDelegate, QStyle, QMenu,
-    QLineEdit, QDialog, QFormLayout, QDialogButtonBox, QCheckBox,
+    QApplication, QMenu,
+    QLineEdit, QDialog, QFormLayout, QDialogButtonBox,
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase

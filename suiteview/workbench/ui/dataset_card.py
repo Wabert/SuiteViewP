@@ -6,12 +6,11 @@ Supports drag for future Workbench canvas drop.
 """
 from __future__ import annotations
 
-from datetime import datetime
 
 from PyQt6.QtCore import Qt, QMimeData, pyqtSignal, QPoint
-from PyQt6.QtGui import QDrag, QFont, QColor, QPainter
+from PyQt6.QtGui import QDrag, QFont
 from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QToolTip,
+    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
 )
 
 from suiteview.workbench.models import PinnedDataset

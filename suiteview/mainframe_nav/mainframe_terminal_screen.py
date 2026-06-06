@@ -5,20 +5,19 @@ Provides a 3270 terminal interface for TSO/ISPF access
 
 import logging
 import time
-import json
 import socket
 import ssl
 from typing import List
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, 
                               QPushButton, QLabel, QLineEdit, QComboBox,
                               QGroupBox, QGridLayout, QMessageBox, QFrame,
-                              QSplitter, QStatusBar, QToolBar, QSpinBox, QCheckBox,
-                              QApplication, QDialog, QDialogButtonBox, QFormLayout,
-                              QTabWidget, QTabBar, QProgressBar, QTableWidget,
+                              QSplitter, QSpinBox, QCheckBox,
+                              QApplication, QDialog, QFormLayout,
+                              QProgressBar, QTableWidget,
                               QTableWidgetItem, QHeaderView, QAbstractItemView, QMenu,
                               QSizePolicy)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QEventLoop, QUrl
-from PyQt6.QtGui import QFont, QTextCursor, QColor, QTextCharFormat, QKeyEvent, QKeySequence, QDesktopServices
+from PyQt6.QtGui import QFont, QTextCursor, QColor, QTextCharFormat, QKeyEvent, QDesktopServices
 
 from suiteview.mainframe_nav.tn3270 import TN3270Client, Screen, AID
 
@@ -973,7 +972,7 @@ class TerminalSettingsDialog(QDialog):
                     result['ssl_works'] = True
                     result['details'] = "SSL/TLS connection OK"
                     ssl_sock.close()
-                except ssl.SSLError as e:
+                except ssl.SSLError:
                     if result['open']:
                         result['details'] = "Open but SSL failed"
                 except:

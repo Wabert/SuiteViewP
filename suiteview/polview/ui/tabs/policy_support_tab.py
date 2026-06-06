@@ -25,12 +25,12 @@ from PyQt6.QtWidgets import (
     QStyledItemDelegate, QSizePolicy, QLineEdit, QTableWidgetItem,
     QStackedWidget, QDialog, QTextEdit, QComboBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QSize, QMimeData, QUrl
+from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QSize, QMimeData
 from PyQt6.QtGui import QColor, QDrag, QPixmap, QPainter, QFont
 
 from ..styles import (
     WHITE, GRAY_DARK, GRAY_MID, GRAY_LIGHT,
-    GREEN_DARK, GREEN_PRIMARY, GREEN_LIGHT, GREEN_SUBTLE,
+    GREEN_DARK, GREEN_PRIMARY, GREEN_SUBTLE,
     GOLD_PRIMARY, GOLD_TEXT, GOLD_DARK, GOLD_LIGHT,
     POLICY_INFO_FRAME_STYLE,
 )

@@ -11,7 +11,6 @@ It supports:
 
 import os
 import shutil
-from typing import Optional, List, Tuple
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,

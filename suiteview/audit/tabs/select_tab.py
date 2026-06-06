@@ -10,10 +10,10 @@ from __future__ import annotations
 import logging
 
 from PyQt6.QtCore import Qt, QMimeData, pyqtSignal, QPoint
-from PyQt6.QtGui import QFont, QPainter, QColor, QPen, QDrag
+from PyQt6.QtGui import QFont, QDrag
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QCheckBox, QSizePolicy, QMenu, QFrame, QApplication,
+    QScrollArea, QMenu, QFrame, QApplication,
 )
 
 from ._styles import make_checkbox

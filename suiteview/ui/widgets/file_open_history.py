@@ -14,11 +14,11 @@ from collections import defaultdict
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea,
-    QFrame, QToolButton, QPushButton, QSizePolicy, QToolTip, QMenu,
+    QFrame, QToolButton, QPushButton, QSizePolicy, QMenu,
     QLineEdit, QFileIconProvider, QApplication,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QEvent, QTimer, QPoint, QFileInfo
-from PyQt6.QtGui import QFont, QColor, QCursor, QPalette, QFontMetrics, QAction, QIcon, QPixmap
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QEvent, QTimer, QFileInfo
+from PyQt6.QtGui import QIcon
 
 logger = logging.getLogger(__name__)
 
