@@ -278,8 +278,15 @@ class ForgeCodeTab(QWidget):
         QApplication.clipboard().setText(self.txt_code.toPlainText())
 
 
-# ── Joins Tab for DataForge (card-based canvas) ─────────────────────
-from suiteview.audit.dataforge.forge_joins_tab import ForgeJoinsTab  # noqa: F401
+# ── Joins Tab for DataForge ─────────────────────────────────────────
+# Phase 2: the MS-Access-style join canvas (field-linked Source boxes with
+# drawn join lines) replaces the old card-based ForgeJoinsTab. ForgeJoinCanvas
+# is API-compatible (update_queries / get_merge_ops / get_state / set_state /
+# state_changed) and its set_state migrates the old {"cards": [...]} format, so
+# previously-saved Forges still load. forge_joins_tab.py is kept for rollback.
+from suiteview.audit.dataforge.forge_canvas_view import (  # noqa: F401
+    ForgeJoinCanvas as ForgeJoinsTab,
+)
 
 
 # ── Display Tab for DataForge ────────────────────────────────────────

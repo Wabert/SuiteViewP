@@ -162,8 +162,24 @@ canonical `core/db2_connection.py`, SQL Server via `core/connection_manager.py`.
   - **Remaining (needs work laptop):** point the designer's `_run_forge`
     (`dataforge_group.py`, pandas) at `forge_runtime.run_saved_forge`, and wire
     the real `default_fetch` against live DB2/SQL. See `WORK_LAPTOP_SPEC.md`.
-- **Phase 2 — MS-Access join canvas:** rebuild the join UI as field-linked Source
-  boxes with drawn join lines.
+- **Phase 2 — MS-Access join canvas:** ✅ *built + unit-tested on the minipc
+  (2026-06-06).* New modules:
+  - `forge_canvas_model.py` — pure, no-Qt `JoinCanvasModel`: Source boxes +
+    relationships (multi-key, per-relationship join type), reconcile-on-update,
+    `to_join_specs()` / `to_config_joins()` / `get_merge_ops()` conversions,
+    state round-trip, and `from_legacy_cards` / `from_legacy_merges` importers.
+  - `forge_canvas_view.py` — PyQt6 QGraphics layer: `ForgeJoinCanvas` (drop-in
+    for `ForgeJoinsTab`) with movable Source boxes, drag-a-field-onto-a-field to
+    draw join lines, click/right-click a line to set inner/left/right/outer or
+    delete, collapse boxes. Logic lives in the model; this only renders/edits it.
+  - `dataforge_group.py` — designer now imports `ForgeJoinCanvas as ForgeJoinsTab`
+    (API-compatible; `set_state` migrates the old `{"cards": …}` format, so saved
+    Forges still load). Old `forge_joins_tab.py` kept for rollback.
+  - Tests: `test_forge_canvas.py` — 11 headless model tests + 1 offscreen-Qt view
+    smoke test (boxes/lines/specs/state round-trip/remove).
+  - **Remaining (needs work laptop):** interactive verification of the canvas
+    (drag-to-join, line editing, save/reload, legacy-Forge migration). See
+    `WORK_LAPTOP_SPEC.md`.
 - **Phase 3 — Manual mode:** raw DuckDB SQL editor against Source tables; Visual→
   Manual SQL generation.
 - **Phase 4 — Aggregation / GROUP BY** (deferred; link+filter first).
@@ -186,3 +202,9 @@ canonical `core/db2_connection.py`, SQL Server via `core/connection_manager.py`.
   `requirements.txt`. Created a project `venv` (Python 3.11) — the minipc had
   none. Remaining Phase 1 work (UI `_run_forge` swap + live `default_fetch`)
   deferred to the work laptop.
+- **2026-06-06** — Phase 2 MS-Access join canvas built + unit-tested on the
+  minipc: `forge_canvas_model.py` (pure) + `forge_canvas_view.py` (QGraphics) +
+  `test_forge_canvas.py` (12 tests, incl. offscreen-Qt smoke). Designer swapped
+  to `ForgeJoinCanvas` via API-compatible alias with backward-compatible
+  `set_state` migration of old card state. Interactive UI verification deferred
+  to the work laptop (see `WORK_LAPTOP_SPEC.md` §1.4).

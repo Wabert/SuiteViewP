@@ -52,6 +52,25 @@ can't run on the minipc. Click each and confirm the workbook opens correctly
 - PolView dumps ×2 — `suiteview/polview/ui/widgets.py`
 - DataForge preview export — `suiteview/audit/dataforge/_query_preview_window.py`
 
+### 1.4 DataForge Phase 2 — MS-Access join canvas (interactive UI)
+The join UI was rebuilt as a field-linked canvas and **swapped into the
+designer** (`dataforge_group.py` now imports
+`forge_canvas_view.ForgeJoinCanvas as ForgeJoinsTab`). Pure model + offscreen-Qt
+smoke tested on the minipc (`tests/test_forge_canvas.py`, 12 green), but the
+interactive gestures could not be exercised headless. **Test in the running app:**
+- Add 2+ Sources, **drag a field from one Source box onto a field in another** →
+  a join line is drawn; drag more pairs between the same two boxes → multi-key.
+- **Click / right-click a line** → set inner/left/right/outer, or delete it
+  (Delete/Backspace also deletes the selected line). Right-click a box → collapse.
+- Move boxes; confirm lines re-route and positions persist on save/reload.
+- **Open a Forge saved with the OLD card UI** and confirm it migrates: the
+  `set_state` path detects the old `{"cards": …}` format and rebuilds the
+  relationships (verify the joins + join types match what the cards had).
+- Confirm `_run_forge` still produces the same result — it consumes
+  `get_merge_ops()`, which the canvas reproduces (single-key collapses to scalar).
+- **Rollback if needed:** the old `forge_joins_tab.py` is untouched; revert the
+  import in `dataforge_group.py` to restore the card UI.
+
 ---
 
 ## §2 — DEFERRED: DB2 connection consolidation (Tier 2c) — NEEDS LIVE DB2
@@ -159,3 +178,6 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
 - **2026-06-06** — Added §3b: DataForge Phase 1 backbone built/tested on the
   minipc; live `default_fetch` pull + designer `_run_forge` DuckDB swap deferred
   here.
+- **2026-06-06** — Added §1.4: DataForge Phase 2 MS-Access join canvas built +
+  swapped into the designer on the minipc (12 headless tests green); interactive
+  gesture + legacy-Forge-migration verification deferred to the laptop.
