@@ -185,71 +185,42 @@ class ResultsTab(QWidget):
         from PyQt6.QtWidgets import QApplication
         QApplication.processEvents()
 
+        from suiteview.core.excel_export import dump_to_new_workbook, ExcelExportError
+
+        df = self._df
+        headers = list(df.columns)
+        text_columns = {"POLICYNUMBER", "PLANCODE"}
+        text_column_indexes = [
+            idx + 1
+            for idx, header in enumerate(headers)
+            if str(header).strip().upper() in text_columns
+        ]
+        text_index_set = set(text_column_indexes)
+
+        # Build data rows, converting numerics
+        data_rows = []
+        for _, row in df.iterrows():
+            row_data = []
+            for col_idx, val in enumerate(row, start=1):
+                if pd.isna(val):
+                    row_data.append("")
+                elif col_idx in text_index_set:
+                    row_data.append(str(val))
+                else:
+                    s = str(val)
+                    clean = s.replace(",", "").replace("$", "").strip()
+                    try:
+                        row_data.append(float(clean))
+                    except (ValueError, TypeError):
+                        row_data.append(s)
+            data_rows.append(tuple(row_data))
+
         try:
-            from win32com.client import dynamic
-            excel = dynamic.Dispatch("Excel.Application")
-            excel.Visible = True
-            excel.ScreenUpdating = False
-
-            wb = excel.Workbooks.Add()
-
-            # ── Sheet 1: Results ─────────────────────────────────────
-            ws_results = wb.Sheets(1)
-            ws_results.Name = "Results"
-
-            df = self._df
-            headers = list(df.columns)
-            col_count = len(headers)
-            row_count = len(df)
-            text_columns = {"POLICYNUMBER", "PLANCODE"}
-            text_column_indexes = {
-                idx + 1
-                for idx, header in enumerate(headers)
-                if str(header).strip().upper() in text_columns
-            }
-
-            # Build data rows, converting numerics
-            data_rows = []
-            for _, row in df.iterrows():
-                row_data = []
-                for col_idx, val in enumerate(row, start=1):
-                    if pd.isna(val):
-                        row_data.append("")
-                    elif col_idx in text_column_indexes:
-                        row_data.append(str(val))
-                    else:
-                        s = str(val)
-                        clean = s.replace(",", "").replace("$", "").strip()
-                        try:
-                            row_data.append(float(clean))
-                        except (ValueError, TypeError):
-                            row_data.append(s)
-                data_rows.append(tuple(row_data))
-
-            # Bulk-write header + data
-            all_rows = [tuple(headers)] + data_rows
-            total_rows = len(all_rows)
-            rng = ws_results.Range(
-                ws_results.Cells(1, 1),
-                ws_results.Cells(total_rows, col_count))
-            for col_idx in text_column_indexes:
-                ws_results.Columns(col_idx).NumberFormat = "@"
-            rng.Value = all_rows
-
-            # Bold header
-            hdr_rng = ws_results.Range(
-                ws_results.Cells(1, 1),
-                ws_results.Cells(1, col_count))
-            hdr_rng.Font.Bold = True
-
-            # Freeze top row + auto-filter + auto-fit
-            ws_results.Range("A2").Select()
-            excel.ActiveWindow.FreezePanes = True
-            if total_rows > 1:
-                ws_results.Range(
-                    ws_results.Cells(1, 1),
-                    ws_results.Cells(total_rows, col_count)).AutoFilter()
-            ws_results.Columns.AutoFit()
+            excel, wb, ws_results = dump_to_new_workbook(
+                headers, data_rows,
+                sheet_name="Results",
+                text_col_indexes=text_column_indexes,
+            )
 
             # ── Sheet 2: SQL ─────────────────────────────────────────
             ws_sql = wb.Sheets.Add(After=wb.Sheets(wb.Sheets.Count))
@@ -260,13 +231,8 @@ class ResultsTab(QWidget):
             # Select Results sheet, cell A1
             ws_results.Activate()
             ws_results.Range("A1").Select()
-            excel.ScreenUpdating = True
 
-        except ImportError:
-            QMessageBox.warning(
-                self, "Error",
-                "win32com is not available. Cannot export to Excel.")
-        except Exception as e:
+        except ExcelExportError as e:
             logger.exception("Excel export failed")
             QMessageBox.warning(
                 self, "Excel Error",

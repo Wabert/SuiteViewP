@@ -20,13 +20,12 @@ from typing import Dict, List, Any
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QHeaderView,
     QTableWidget, QTableWidgetItem, QLabel, QGroupBox,
-    QLineEdit, QPushButton, QComboBox, QGridLayout,
-    QListWidget, QListWidgetItem, QSizePolicy,
+    QLineEdit, QPushButton, QGridLayout,
+    QListWidget, QListWidgetItem,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint
 from PyQt6.QtGui import QColor, QFontMetrics
 
-from suiteview.core.db2_constants import REGIONS
 from .formatting import is_numeric
 from .styles import (
     BLUE_PRIMARY, BLUE_LIGHT,
@@ -66,7 +65,7 @@ class TooltipManager:
             if config_path.exists():
                 with open(config_path, 'r', encoding='utf-8') as f:
                     self._tooltips = json.load(f)
-        except Exception as e:
+        except Exception:
             pass
     
     def get_tooltip(self, section: str, field: str) -> str:
@@ -780,76 +779,43 @@ class FixedHeaderTableWidget(QWidget):
 
     def _dump_to_excel(self):
         """Open a fresh Excel workbook and dump table data with frozen header and filters."""
-        try:
-            from win32com.client import dynamic
-            excel = dynamic.Dispatch("Excel.Application")
-            excel.Visible = True
-            excel.ScreenUpdating = False  # Suppress redraw until done
-            wb = excel.Workbooks.Add()
-            ws = wb.ActiveSheet
+        from suiteview.core.excel_export import dump_to_new_workbook, ExcelExportError
 
-            col_count = self._data_table.columnCount()
-            if col_count == 0:
-                excel.ScreenUpdating = True
-                return
+        col_count = self._data_table.columnCount()
+        if col_count == 0:
+            return
 
-            # Build header row
-            headers = []
-            for c in range(col_count):
-                h_item = self._data_table.horizontalHeaderItem(c)
-                header_text = h_item.text() if h_item else ""
-                # Strip filter indicator
-                if header_text.endswith(" ▼"):
-                    header_text = header_text[:-2]
-                headers.append(header_text)
+        # Build header row (strip filter indicator)
+        headers = []
+        for c in range(col_count):
+            h_item = self._data_table.horizontalHeaderItem(c)
+            header_text = h_item.text() if h_item else ""
+            if header_text.endswith(" ▼"):
+                header_text = header_text[:-2]
+            headers.append(header_text)
 
-            # Build data rows (visible only), converting numerics
-            data_rows = []
-            for row in range(self._data_table.rowCount()):
-                if self._data_table.isRowHidden(row):
-                    continue
-                row_data = []
-                for col in range(col_count):
-                    item = self._data_table.item(row, col)
-                    cell_text = item.text() if item else ""
-                    if cell_text:
-                        clean = cell_text.replace(",", "").replace("$", "").replace("%", "").strip()
-                        try:
-                            row_data.append(float(clean))
-                        except (ValueError, TypeError):
-                            row_data.append(cell_text)
-                    else:
+        # Build data rows (visible only), converting numerics
+        data_rows = []
+        for row in range(self._data_table.rowCount()):
+            if self._data_table.isRowHidden(row):
+                continue
+            row_data = []
+            for col in range(col_count):
+                item = self._data_table.item(row, col)
+                cell_text = item.text() if item else ""
+                if cell_text:
+                    clean = cell_text.replace(",", "").replace("$", "").replace("%", "").strip()
+                    try:
+                        row_data.append(float(clean))
+                    except (ValueError, TypeError):
                         row_data.append(cell_text)
-                data_rows.append(tuple(row_data))
+                else:
+                    row_data.append(cell_text)
+            data_rows.append(tuple(row_data))
 
-            # Bulk-write header + data in a single COM call
-            all_rows = [tuple(headers)] + data_rows
-            total_rows = len(all_rows)
-            rng = ws.Range(ws.Cells(1, 1), ws.Cells(total_rows, col_count))
-            rng.Value = all_rows
-
-            # Bold the header row
-            ws.Range(ws.Cells(1, 1), ws.Cells(1, col_count)).Font.Bold = True
-
-            # Freeze top row
-            ws.Range("A2").Select()
-            excel.ActiveWindow.FreezePanes = True
-
-            # Add auto-filters
-            if total_rows > 1:
-                ws.Range(ws.Cells(1, 1), ws.Cells(total_rows, col_count)).AutoFilter()
-
-            # Auto-fit columns
-            ws.Columns.AutoFit()
-
-            # Select cell A1 and re-enable screen updating
-            ws.Range("A1").Select()
-            excel.ScreenUpdating = True
-
-        except ImportError:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "Error", "win32com is not available. Cannot export to Excel.")
-        except Exception as e:
+        try:
+            dump_to_new_workbook(headers, data_rows)
+        except ExcelExportError as e:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Excel Error", f"Failed to dump to Excel:\n{e}")
 
@@ -1122,7 +1088,7 @@ class StyledInfoTableGroup(QGroupBox):
     
     def _show_container_context_menu(self, pos):
         """Show context menu when right-clicking on container."""
-        from PyQt6.QtWidgets import QMenu, QApplication
+        from PyQt6.QtWidgets import QMenu
         menu = QMenu(self)
         menu.setStyleSheet(CONTEXT_MENU_STYLE)
 
@@ -1526,24 +1492,29 @@ class TableDataWidget(QTableWidget):
 
     def _dump_to_excel(self):
         """Open a fresh Excel workbook and dump table data."""
+        from suiteview.core.excel_export import dump_to_new_workbook, ExcelExportError
+
+        headers = [
+            (self.horizontalHeaderItem(col).text()
+             if self.horizontalHeaderItem(col) else "")
+            for col in range(self.columnCount())
+        ]
+        data_rows = []
+        for row in range(self.rowCount()):
+            if self.isRowHidden(row):
+                continue
+            data_rows.append([
+                (self.item(row, col).text() if self.item(row, col) else "")
+                for col in range(self.columnCount())
+            ])
+
         try:
-            from win32com.client import dynamic
-            excel = dynamic.Dispatch("Excel.Application")
-            excel.Visible = True
-            excel.ScreenUpdating = False
-            wb = excel.Workbooks.Add()
-            ws = wb.ActiveSheet
-            for col in range(self.columnCount()):
-                h_item = self.horizontalHeaderItem(col)
-                ws.Cells(1, col + 1).Value = h_item.text() if h_item else ""
-            for row in range(self.rowCount()):
-                if self.isRowHidden(row):
-                    continue
-                for col in range(self.columnCount()):
-                    it = self.item(row, col)
-                    ws.Cells(row + 2, col + 1).Value = it.text() if it else ""
-            excel.ScreenUpdating = True
-        except Exception as exc:
+            dump_to_new_workbook(
+                headers, data_rows,
+                bold_header=False, freeze_header=False,
+                autofilter=False, autofit=False,
+            )
+        except ExcelExportError as exc:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Excel Export", f"Could not export: {exc}")
     

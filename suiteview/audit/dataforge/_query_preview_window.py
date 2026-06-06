@@ -110,37 +110,20 @@ class QueryPreviewWindow(QWidget):
     def _export_excel(self):
         """Dump the data into a new unsaved Excel workbook via COM."""
         from PyQt6.QtWidgets import QMessageBox
+        from suiteview.core.excel_export import dump_to_new_workbook, ExcelExportError
+
+        df = self._full_df if self._showing_all else self._full_df.head(_PREVIEW_LIMIT)
+        headers = list(df.columns)
+        rows = [
+            [v if isinstance(v, (int, float, str, type(None))) else str(v) for v in row]
+            for row in df.itertuples(index=False, name=None)
+        ]
         try:
-            import win32com.client
-            xl = win32com.client.Dispatch("Excel.Application")
-            xl.Visible = True
-            wb = xl.Workbooks.Add()
-            ws = wb.ActiveSheet
-            ws.Name = self._query_name[:31]  # Excel sheet name limit
-
-            df = self._full_df if self._showing_all else self._full_df.head(_PREVIEW_LIMIT)
-
-            # Write headers
-            for c, col in enumerate(df.columns, 1):
-                ws.Cells(1, c).Value = col
-
-            # Write data in bulk
-            if len(df) > 0:
-                data = []
-                for row in df.itertuples(index=False, name=None):
-                    data.append([
-                        str(v) if not isinstance(v, (int, float, str, type(None))) else v
-                        for v in row
-                    ])
-                ws.Range(
-                    ws.Cells(2, 1),
-                    ws.Cells(len(data) + 1, len(df.columns))
-                ).Value = data
-
-            # Autofit columns
-            ws.Columns.AutoFit()
-            # Bold headers
-            ws.Range(ws.Cells(1, 1), ws.Cells(1, len(df.columns))).Font.Bold = True
-
-        except Exception as exc:
+            dump_to_new_workbook(
+                headers, rows,
+                sheet_name=self._query_name,
+                freeze_header=False,
+                autofilter=False,
+            )
+        except ExcelExportError as exc:
             QMessageBox.warning(self, "Excel Error", str(exc))
