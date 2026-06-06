@@ -1,0 +1,136 @@
+# Work-Laptop Spec & Deferred-Work Log
+
+**Living document.** Maintained across cleanup sessions. Work done on the home
+**minipc** cannot reach the live DB2 mainframe, SQL Server (UL_Rates), or run
+the full PyQt UI, so anything requiring live data or interactive testing is
+recorded here for the next session **on the work laptop**.
+
+How to use this doc (for the laptop LLM):
+1. Start with **§1 Must-Verify** — behavior changes already committed that need
+   live testing before they're trusted.
+2. **§2 Deferred work** — changes intentionally NOT made on the minipc because
+   they need live DB2; pick these up here.
+3. **§3 Backlog** — safe but unverified consolidations to do incrementally.
+4. Update the **Changelog** at the bottom whenever you complete or add an item.
+
+Branch layout:
+- `main` — untouched baseline. Restore tag: `pre-cleanup-2026-06-06`.
+- `cleanup/tier0-tier1` — Tier 0 (dead code) + Tier 1 (Excel helper, rates.py fix). Pushed to origin.
+- `cleanup/tier2` — Tier 2a (DB2Connection hardening) + Tier 2b (JsonStore).
+
+---
+
+## §1 — MUST VERIFY on the work laptop (changes already made)
+
+These are committed behavior changes that compiled clean but were never run
+against live data. Test each before relying on them.
+
+### 1.1 `suiteview/core/rates.py` — parameterized SQL + error surfacing (Tier 1a)
+- Rate-lookup SQL now uses `?` placeholders for all values; `_fetch_rates` now
+  **raises `RatesError`** on a pyodbc failure instead of returning `None`.
+- **Test:** run normal rate lookups (every plancode/sex/rateclass/band/scale
+  path) and confirm numbers match the pre-change app. Then force a bad query
+  (e.g. wrong DSN) and confirm a visible `RatesError`, NOT a silent `0.0`.
+- **Risk:** any caller that previously relied on the silent-None→`0.0` behavior
+  will now see an exception. Grep callers of `get_rates` and confirm they handle
+  `RatesError` (they were expected to `or []` / surface it).
+
+### 1.2 `suiteview/core/db2_connection.py` — internal refactor (Tier 2a)
+- `execute_query` / `execute_query_with_headers` now delegate to private
+  `_run` (cursor always closed in `finally`) and `_run_with_retry` (single
+  08S01 retry path). Public signatures and return types unchanged.
+- **Test:** exercise the real query paths — PolView policy loads, Inforce
+  Illustration, Audit/DataForge query execution, schema discovery preview — and
+  confirm results are identical. Specifically verify the **08S01 retry** still
+  recovers (let a connection go stale / sleep the VPN, then re-query).
+
+### 1.3 Excel "Dump to Excel" exports (Tier 1b)
+Four export buttons were migrated to `suiteview/core/excel_export.py`. COM/Excel
+can't run on the minipc. Click each and confirm the workbook opens correctly
+(headers bold/frozen as before, autofilter, column widths, data types):
+- Audit results export — `suiteview/audit/tabs/results_tab.py` (also adds the SQL sheet)
+- PolView dumps ×2 — `suiteview/polview/ui/widgets.py`
+- DataForge preview export — `suiteview/audit/dataforge/_query_preview_window.py`
+
+---
+
+## §2 — DEFERRED: DB2 connection consolidation (Tier 2c) — NEEDS LIVE DB2
+
+**Goal:** route every DB2 caller through the canonical `DB2Connection`
+(`suiteview/core/db2_connection.py`) so they all get pooling, the Office-365
+WITH clause, region schema rewriting, and the 08S01 auto-retry — instead of
+hand-rolled `pyodbc.connect`.
+
+**BLOCKING CONSTRAINT — do not ignore:** several callers use a *tuned*
+connection string that `DB2Connection` does NOT currently replicate:
+```
+DSN={dsn};BLOCKSIZE=65535;MAXLOBSIZE=0;DEFERREDPREPARE=1;CURRENTPACKAGESET=NULLID
+```
+A naive swap to `DB2Connection` (which builds only `DSN={dsn}`) would silently
+drop bulk-transfer tuning and regress performance on large fetches.
+
+**Recommended approach:**
+1. First extend `DB2Connection` to accept optional extra connection-string
+   parameters (e.g. `DB2Connection(region, extra_params="BLOCKSIZE=65535;...")`
+   or a dict), threaded into `connect()`'s connection string and the pool key.
+2. Then migrate the callers below, preserving each one's existing params.
+3. Verify large-fetch performance is unchanged (time a bulk pull before/after).
+
+**DB2 caller sites that bypass `DB2Connection`** (verify line numbers — they
+shift as the file changes):
+- `suiteview/core/schema_discovery.py:351` — table discovery (`DSN={dsn}`)
+- `suiteview/core/schema_discovery.py:416` — column discovery (`DSN={dsn}`)
+- `suiteview/core/schema_discovery.py:503` — data preview (`DSN={dsn}`)
+- `suiteview/core/schema_discovery.py:564` — perf test (**BLOCKSIZE tuned**)
+- `suiteview/core/schema_discovery.py:649` — bulk fetch (**BLOCKSIZE tuned**)
+- `suiteview/core/odbc_utils.py:123` — DSN test query
+- `suiteview/core/connection_manager.py:129` — DB2 test path (duplicates DB2Connection logic)
+- `suiteview/ui/dialogs/preview_dialog.py:41` — preview (**BLOCKSIZE tuned**)
+- `suiteview/database_manager/xdb_engine.py:361` — `DSN={dsn}` (in try/finally)
+- `suiteview/database_manager/xdb_engine.py:420` — mixed DB2/SQL-Server conn string
+- `suiteview/database_manager/xdb_engine.py:870` — `DSN={dsn}` (in try/finally)
+
+**NOT DB2 — leave alone / separate concern (SQL Server UL_Rates or Access MDB):**
+- `suiteview/core/rates.py:106,110`, `suiteview/core/reinsurance.py:58`,
+  `suiteview/abrquote/models/abr_odbc_database.py:92` — UL_Rates SQL Server.
+- `schema_discovery.py:754,990,1165,1319`, `add_connection_dialog_v2.py:869` — MS Access driver.
+- `scripts/*`, `tests/*` — out of app scope.
+
+---
+
+## §3 — BACKLOG: JsonStore migration (safe, but verify in-app)
+
+`suiteview/core/json_store.py` now provides `read_json` / `write_json` /
+`JsonStore` (atomic temp+rename writes, missing-file & corruption handling,
+parent-dir creation). Already migrated: `audit/saved_query_store.py`,
+`mainframe_nav/mainframe_terminal_screen.py` (`_save_settings`),
+`database_manager/dataset_screen.py` (save path).
+
+Remaining sites to migrate to atomic writes (each is low-risk but should be
+clicked through in-app once, since they touch user-visible state). Migrate the
+**write** paths first — those are the corruption risk:
+- `suiteview/file_nav/file_explorer_core.py` — bookmarks (~4489), hidden OneDrive
+  paths (~4609/4622), pinned folders (~4641/4652), column widths (~4688/4699),
+  panel widths (~4721/4732). Largest cluster; no atomic writes today.
+- `suiteview/mainframe_nav/mainframe_nav_screen.py` — splitter sizes (~1975/1993),
+  column widths (~2021/2039).
+- `suiteview/messaging/message_service.py` — message/profile/inbox files
+  (~172, 189, 284, 344) read via `read_text()+json.loads`; reads already guard
+  JSONDecodeError, so migrate writes for atomicity.
+
+Note when migrating: keep `indent=2` (JsonStore default) so on-disk format is
+unchanged; don't convert a load path that shows an intentional error dialog to
+`read_json` (which silently returns the default) — only convert silent loads.
+
+---
+
+## §4 — FUTURE: Tier 3 (larger refactors, not yet started)
+- Decompose `suiteview/taskbar_launcher/suiteview_taskbar.py` (very large).
+- Decompose `suiteview/database_manager/dbquery_screen.py`.
+
+---
+
+## Changelog
+- **2026-06-06** — Created. Tier 2a (DB2Connection retry/cursor hardening) and
+  Tier 2b (JsonStore + 3 migrations) done on `cleanup/tier2`. Tier 2c deferred
+  (needs live DB2). §1 items from Tiers 1a/1b/2a still need live verification.
