@@ -559,6 +559,7 @@ class AuditWindow(FramelessWindowBase):
         )
     def _connect_signals(self):
         self.btn_run.clicked.connect(self._run_audit)
+        self.sql_tab.build_sql_requested.connect(self._build_cyberlife_sql_only)
         self.sql_tab.move_to_build.connect(self._on_move_to_build)
         self.build_sql_tab.run_sql_requested.connect(self._run_build_sql)
         self.manual_sql_object_tab.preview_requested.connect(self._run_manual_sql_preview)
@@ -1344,6 +1345,17 @@ class AuditWindow(FramelessWindowBase):
                 sql = cte_prefix + "\n" + sql
 
         return sql
+
+    def _build_cyberlife_sql_only(self):
+        """Build and show Cyberlife SQL without executing the query."""
+        try:
+            sql = self._build_sql()
+        except Exception as exc:
+            logger.exception("Failed to build audit SQL")
+            QMessageBox.warning(self, "SQL Build Error", str(exc))
+            return
+        self.sql_tab.set_sql(sql)
+        self.tabs.setCurrentWidget(self.sql_tab)
     # ── Profile management ───────────────────────────────────────────
     def _cyberlife_criteria_tabs(self):
         """Return (key, tab) pairs for Cyberlife tabs that support get_state/set_state."""
@@ -1919,15 +1931,15 @@ class AuditWindow(FramelessWindowBase):
             self._polview_window = GetPolicyWindow()
             self._polview_owner = True
         pw = self._polview_window
-        pw.show()
-        pw.raise_()
-        pw.activateWindow()
-        # Keep policy list panel at same Z-level as PolView
-        if hasattr(pw, 'policy_list_window') and pw.policy_list_window.isVisible():
-            pw.policy_list_window.raise_()
         if hasattr(pw, 'lookup_bar'):
             lb = pw.lookup_bar
             lb.region_input.setText(region)
             lb.company_input.setText(company_code)
             lb.policy_input.setText(policy_number)
             lb._on_get_policy()
+        pw.show()
+        pw.raise_()
+        pw.activateWindow()
+        # Keep policy list panel at same Z-level as PolView
+        if hasattr(pw, 'policy_list_window') and pw.policy_list_window.isVisible():
+            pw.policy_list_window.raise_()

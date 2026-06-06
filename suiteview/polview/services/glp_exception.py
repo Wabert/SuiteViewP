@@ -42,6 +42,32 @@ class GlpForecastRow:
 
 
 @dataclass
+class PolicySupportForecastRow:
+    forecast_date: date | None
+    policy_year: int
+    policy_month: int
+    interest_credited: float
+    glp: float
+    accumulated_glp: float
+    premiums_paid_to_date: float
+    accumulated_withdrawals: float
+    force_out: float
+    premium: float
+    account_value_before_monthly_deduction: float
+    monthly_deduction: float
+    account_value: float
+
+
+@dataclass
+class PolicySupportForecastResult:
+    current_valuation_date: date | None
+    premium_amount: float
+    premium_mode: str
+    target_date: date
+    rows: list[PolicySupportForecastRow]
+
+
+@dataclass
 class GlpExceptionResult:
     current_valuation_date: date | None
     account_value: float
@@ -181,6 +207,48 @@ def calculate_glp_exception(policy, target_date: date) -> GlpExceptionResult:
         ill_policy, target_date, months_to_target, total_md,
         before_load, premium_load_percent, flat_fee, after_load, forecast_rows, premium_adjustment,
         original_account_value, original_premiums_paid_to_date,
+    )
+
+
+def calculate_policy_support_forecast(
+    policy,
+    target_date: date,
+    premium_amount: float,
+    premium_mode: str,
+) -> PolicySupportForecastResult:
+    availability = check_forecast_availability(policy)
+    if not availability.available or availability.policy is None:
+        raise ValueError(availability.message)
+
+    ill_policy = availability.policy
+    valuation_date = ill_policy.valuation_date
+    if valuation_date is None:
+        raise ValueError("Current valuation date was not found")
+    if target_date <= valuation_date:
+        raise ValueError("Target date must be after the current valuation date")
+    if premium_amount < 0.0:
+        raise ValueError("Premium amount cannot be negative")
+
+    premium_adjustment = _premium_adjustment_since_valuation(policy, valuation_date)
+    ill_policy = _policy_with_post_valuation_premiums(ill_policy, premium_adjustment)
+    months_to_target = _months_between_exclusive(valuation_date, target_date)
+    if months_to_target <= 0:
+        raise ValueError("Target date must leave at least one monthly deduction before the target")
+
+    engine = IllustrationEngine()
+    projection = _project_full_horizon(
+        engine,
+        _policy_with_modal_premium(ill_policy, 0.0),
+        months_to_target,
+        future_inputs=_premium_schedule_inputs(ill_policy, months_to_target, premium_amount, premium_mode),
+    )
+    rows = _policy_support_forecast_rows_from_projection(ill_policy, projection)
+    return PolicySupportForecastResult(
+        current_valuation_date=valuation_date,
+        premium_amount=premium_amount,
+        premium_mode=premium_mode,
+        target_date=target_date,
+        rows=rows,
     )
 
 
@@ -355,6 +423,75 @@ def _level_premium_inputs(policy: IllustrationPolicyData, months: int, amount: f
                 )
             )
     return IllustrationInputSet(dated_transactions=dated_transactions)
+
+
+def _premium_schedule_inputs(
+    policy: IllustrationPolicyData,
+    months: int,
+    amount: float,
+    mode: str,
+) -> IllustrationInputSet:
+    if amount <= 0.0 or policy.issue_date is None or months <= 0:
+        return IllustrationInputSet()
+
+    frequency = _premium_mode_frequency(mode)
+    dated_transactions = []
+    for offset in range(1, months + 1):
+        if (offset - 1) % frequency != 0:
+            continue
+        premium_date = policy.issue_date + relativedelta(months=policy.duration + offset - 1)
+        dated_transactions.append(
+            DatedTransaction(
+                kind=TransactionKind.PREMIUM,
+                effective_date=premium_date,
+                amount=amount,
+                subtype="forecast",
+            )
+        )
+    return IllustrationInputSet(dated_transactions=dated_transactions)
+
+
+def _premium_mode_frequency(mode: str) -> int:
+    normalized = str(mode or "").strip().lower().replace("-", "_").replace(" ", "_")
+    frequencies = {
+        "monthly": 1,
+        "quarterly": 3,
+        "semi_annual": 6,
+        "semiannual": 6,
+        "annual": 12,
+        "annually": 12,
+    }
+    if normalized not in frequencies:
+        raise ValueError("Premium mode must be Monthly, Quarterly, Semi-Annual, or Annual")
+    return frequencies[normalized]
+
+
+def _policy_support_forecast_rows_from_projection(
+    policy: IllustrationPolicyData,
+    projection,
+) -> list[PolicySupportForecastRow]:
+    if not projection:
+        return []
+    rows = []
+    for state in projection:
+        rows.append(
+            PolicySupportForecastRow(
+                forecast_date=state.date,
+                policy_year=state.policy_year,
+                policy_month=state.policy_month,
+                interest_credited=state.interest_credited,
+                glp=state.glp,
+                accumulated_glp=state.accumulated_glp,
+                premiums_paid_to_date=state.premiums_to_date,
+                accumulated_withdrawals=state.withdrawals_to_date,
+                force_out=state.guideline_forceout,
+                premium=state.gross_premium,
+                account_value_before_monthly_deduction=state.guideline_av_before_monthly_deduction,
+                monthly_deduction=state.total_deduction,
+                account_value=state.av_end_of_month,
+            )
+        )
+    return rows
 
 
 def _policy_with_modal_premium(policy: IllustrationPolicyData, modal_premium: float) -> IllustrationPolicyData:

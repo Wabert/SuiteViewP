@@ -343,6 +343,7 @@ class DynamicQuery(QWidget):
         self._build_sql_results_tab_index = -1
 
         # Wire Move to Build signal
+        self.sql_tab.build_sql_requested.connect(self._build_sql_only)
         self.sql_tab.move_to_build.connect(self._on_move_to_build)
         self.build_sql_tab.run_sql_requested.connect(self._run_build_sql)
 
@@ -667,7 +668,7 @@ class DynamicQuery(QWidget):
         if widget is not None:
             self.tab_widget.setCurrentWidget(widget)
 
-    def _run_audit(self):
+    def _build_sql(self) -> str | None:
         # Collect filters from ALL criteria tabs
         all_filters = []
         for tab in self._criteria_tabs:
@@ -736,6 +737,21 @@ class DynamicQuery(QWidget):
         except Exception as exc:
             logger.exception("Failed to build dynamic SQL")
             QMessageBox.warning(self, "SQL Build Error", str(exc))
+            return None
+
+        return sql
+
+    def _build_sql_only(self):
+        sql = self._build_sql()
+        if not sql:
+            return
+        self.sql_tab.set_sql(sql)
+        self.tab_widget.setCurrentWidget(self.sql_tab)
+        logger.info("Generated SQL:\n%s", sql)
+
+    def _run_audit(self):
+        sql = self._build_sql()
+        if not sql:
             return
 
         self.sql_tab.set_sql(sql)

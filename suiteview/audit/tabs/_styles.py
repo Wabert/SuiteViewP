@@ -11,8 +11,9 @@ import os
 
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QListWidget, QAbstractItemView, QStyledItemDelegate,
-    QStyleOptionViewItem,
+    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLineEdit, QListWidget,
+    QListWidgetItem, QAbstractItemView, QStyledItemDelegate, QStyleOptionViewItem,
+    QToolButton, QVBoxLayout, QWidget,
 )
 from PyQt6.QtGui import QFont
 
@@ -97,6 +98,113 @@ def make_listbox(items: list[str], *, height_rows: int = 10,
     lb.setFixedHeight(height_rows * _ROW_H + 4)
     lb.setEnabled(enabled)
     return lb
+
+
+class MultiSelectPopup(QWidget):
+    """Input-style multi-select picker with a popup list."""
+
+    def __init__(self, items: list[str | tuple[str, str]], *, width: int = 80,
+                 height_rows: int | None = None, parent=None):
+        super().__init__(parent)
+        self._popup = QFrame(None, Qt.WindowType.Popup)
+        self._popup.setFrameShape(QFrame.Shape.NoFrame)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.display = QLineEdit(self)
+        self.display.setReadOnly(True)
+        self.display.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.display.setFont(_FONT)
+        self.display.setFixedSize(width, _CTRL_H)
+        self.display.setStyleSheet(
+            "QLineEdit { background: white; border: 1px solid #1E5BA8; border-right: none;"
+            " padding: 0px 4px; }"
+            "QLineEdit:hover { background: #F8FBFF; }"
+        )
+        self.display.mousePressEvent = self._display_mouse_press_event
+        layout.addWidget(self.display)
+
+        self.button = QToolButton(self)
+        self.button.setText("v")
+        self.button.setFixedSize(18, _CTRL_H)
+        self.button.clicked.connect(self.toggle_popup)
+        self.button.setStyleSheet(
+            "QToolButton { background: white; border: 1px solid #1E5BA8; border-left: none;"
+            " color: #1E5BA8; padding: 0px; }"
+            "QToolButton:hover { background: #F8FBFF; }"
+        )
+        layout.addWidget(self.button)
+
+        popup_layout = QVBoxLayout(self._popup)
+        popup_layout.setContentsMargins(0, 0, 0, 0)
+        popup_layout.setSpacing(0)
+
+        self.list_widget = make_listbox([], height_rows=height_rows or len(items), enabled=True)
+        for item in items:
+            if isinstance(item, tuple):
+                label, value = item
+            else:
+                label = value = item
+            list_item = QListWidgetItem(label)
+            list_item.setData(Qt.ItemDataRole.UserRole, value)
+            self.list_widget.addItem(list_item)
+        self.list_widget.itemSelectionChanged.connect(self._update_display_text)
+        popup_layout.addWidget(self.list_widget)
+
+        self._popup.setFixedWidth(self.width())
+        self._update_display_text()
+
+    def _display_mouse_press_event(self, event):
+        self.toggle_popup()
+        event.accept()
+
+    def selected_values(self) -> list[str]:
+        return [str(item.data(Qt.ItemDataRole.UserRole) or item.text()) for item in self.list_widget.selectedItems()]
+
+    def text(self) -> str:
+        return ", ".join(self.selected_values())
+
+    def setText(self, value: str):
+        values = {part.strip() for part in (value or "").split(",") if part.strip()}
+        self.list_widget.blockSignals(True)
+        self.list_widget.clearSelection()
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            item_value = str(item.data(Qt.ItemDataRole.UserRole) or item.text())
+            item.setSelected(item_value in values or item.text() in values)
+        self.list_widget.blockSignals(False)
+        self._update_display_text()
+
+    def toggle_popup(self):
+        if self._popup.isVisible():
+            self._popup.hide()
+            return
+        self._popup.setFixedWidth(self._popup_width())
+        self._popup.move(self.mapToGlobal(self.rect().bottomLeft()))
+        self._popup.show()
+        self._popup.raise_()
+        self.list_widget.setFocus(Qt.FocusReason.PopupFocusReason)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._popup.setFixedWidth(self._popup_width())
+
+    def _popup_width(self) -> int:
+        fm = self.list_widget.fontMetrics()
+        widest = self.width()
+        for i in range(self.list_widget.count()):
+            widest = max(widest, fm.horizontalAdvance(self.list_widget.item(i).text()) + 30)
+        return widest
+
+    def _update_display_text(self):
+        self.display.setText(self.text())
+
+
+def make_multiselect_popup(items: list[str | tuple[str, str]], *, width: int = 80,
+                           height_rows: int | None = None) -> MultiSelectPopup:
+    return MultiSelectPopup(items, width=width, height_rows=height_rows)
 
 
 # ── Styled combobox ────────────────────────────────────────────────────

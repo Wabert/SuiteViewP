@@ -176,7 +176,7 @@ class ResultsTab(QWidget):
     # ── Excel export ─────────────────────────────────────────────────
 
     def _export_to_excel(self):
-        """Open a new unsaved Excel workbook with results + DataDef sheet."""
+        """Open a new unsaved Excel workbook with results + SQL sheet."""
         if self._df is None or self._df.empty:
             return
 
@@ -201,14 +201,22 @@ class ResultsTab(QWidget):
             headers = list(df.columns)
             col_count = len(headers)
             row_count = len(df)
+            text_columns = {"POLICYNUMBER", "PLANCODE"}
+            text_column_indexes = {
+                idx + 1
+                for idx, header in enumerate(headers)
+                if str(header).strip().upper() in text_columns
+            }
 
             # Build data rows, converting numerics
             data_rows = []
             for _, row in df.iterrows():
                 row_data = []
-                for val in row:
+                for col_idx, val in enumerate(row, start=1):
                     if pd.isna(val):
                         row_data.append("")
+                    elif col_idx in text_column_indexes:
+                        row_data.append(str(val))
                     else:
                         s = str(val)
                         clean = s.replace(",", "").replace("$", "").strip()
@@ -224,6 +232,8 @@ class ResultsTab(QWidget):
             rng = ws_results.Range(
                 ws_results.Cells(1, 1),
                 ws_results.Cells(total_rows, col_count))
+            for col_idx in text_column_indexes:
+                ws_results.Columns(col_idx).NumberFormat = "@"
             rng.Value = all_rows
 
             # Bold header
@@ -241,10 +251,11 @@ class ResultsTab(QWidget):
                     ws_results.Cells(total_rows, col_count)).AutoFilter()
             ws_results.Columns.AutoFit()
 
-            # ── Sheet 2: DataDef ─────────────────────────────────────
-            ws_def = wb.Sheets.Add(After=wb.Sheets(wb.Sheets.Count))
-            ws_def.Name = "DataDef"
-            self._write_datadef_sheet(ws_def, headers)
+            # ── Sheet 2: SQL ─────────────────────────────────────────
+            ws_sql = wb.Sheets.Add(After=wb.Sheets(wb.Sheets.Count))
+            ws_sql.Name = "SQL"
+            sql = (self._query_context or {}).get("sql", "")
+            self._write_sql_sheet(ws_sql, sql)
 
             # Select Results sheet, cell A1
             ws_results.Activate()
@@ -263,6 +274,21 @@ class ResultsTab(QWidget):
         finally:
             self.btn_export.setEnabled(True)
             self.btn_export.setText("Export to Excel")
+
+    @staticmethod
+    def _write_sql_sheet(ws, sql: str):
+        """Write the SQL used to produce the exported results."""
+        ws.Cells(1, 1).Value = "SQL"
+        ws.Cells(1, 1).Font.Bold = True
+        ws.Cells(1, 1).Font.Size = 12
+        sql_lines = (sql or "No SQL was captured for these results.").splitlines()
+        if not sql_lines:
+            sql_lines = [""]
+        rng = ws.Range(ws.Cells(3, 1), ws.Cells(2 + len(sql_lines), 1))
+        rng.Value = [(line,) for line in sql_lines]
+        ws.Columns(1).ColumnWidth = 140
+        ws.Columns(1).Font.Name = "Consolas"
+        ws.Rows.AutoFit()
 
     @staticmethod
     def _write_datadef_sheet(ws, result_columns: list[str]):

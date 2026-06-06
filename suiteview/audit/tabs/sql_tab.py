@@ -56,6 +56,9 @@ class _SqlHighlighter(QSyntaxHighlighter):
 
 def _format_sql(raw: str) -> str:
     """Apply basic formatting to a raw SQL string for readability."""
+    if "\n" in raw:
+        return "\n".join(line.rstrip() for line in raw.splitlines()).strip()
+
     # Split on real newlines first to preserve intentional blank lines
     raw_lines = raw.split("\n")
     # Track which raw lines are blank (intentional separators)
@@ -111,6 +114,8 @@ def _format_sql(raw: str) -> str:
 class SqlTab(QWidget):
     """SQL tab — shows the formatted SQL statement."""
 
+    # Emitted when user clicks "Build SQL" to refresh the generated SQL text
+    build_sql_requested = pyqtSignal()
     # Emitted when user clicks "Move to Build" with current SQL text
     move_to_build = pyqtSignal(str)
 
@@ -149,6 +154,17 @@ class SqlTab(QWidget):
         foot.setOpenExternalLinks(True)
         foot.setStyleSheet("color: #333; padding: 4px;")
         footer_row.addWidget(foot, 1)
+
+        self.btn_build_sql = QPushButton("Build SQL")
+        self.btn_build_sql.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        self.btn_build_sql.setFixedSize(100, 30)
+        self.btn_build_sql.setStyleSheet(
+            "QPushButton { background-color: #6B7280; color: white;"
+            " border: 1px solid #4B5563; border-radius: 3px; }"
+            "QPushButton:hover { background-color: #7B8491; }"
+        )
+        self.btn_build_sql.clicked.connect(self.build_sql_requested.emit)
+        footer_row.addWidget(self.btn_build_sql)
 
         self.btn_move_to_build = QPushButton("Move to Build")
         self.btn_move_to_build.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))

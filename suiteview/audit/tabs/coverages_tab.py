@@ -33,6 +33,7 @@ from ._styles import (
     make_listbox as _make_listbox,
     connect_checkbox_listbox as _connect_checkbox_listbox,
     make_combo as _make_combo,
+    make_multiselect_popup as _make_multiselect_popup,
 )
 
 # ── Compact sizing helpers ──────────────────────────────────────────────
@@ -43,6 +44,18 @@ _CTRL_H = 22
 _V_SPACING = 2
 _H_SPACING = 4
 _RANGE_W = 70
+_CLASS_CODE_ITEMS = [
+    ("1 - Life", "1"),
+    ("2 - Endowment", "2"),
+    ("3 - Income Endowment", "3"),
+    ("4 - Family Plan", "4"),
+    ("5 - Level Term", "5"),
+    ("6 - Decreasing Term", "6"),
+    ("7 - Decreasing Term", "7"),
+    ("8 - Other Term", "8"),
+    ("9 - Deferred Annuity", "9"),
+    ("C - Disability Income", "C"),
+]
 
 _GRP_STYLE = (
     "QGroupBox { font-weight: bold; color: #1E5BA8; border: 1px solid #6A9BD1; "
@@ -219,7 +232,12 @@ class CoveragesTab(QWidget):
             grid_val.addWidget(le, row, 1)
             return le
 
-        self.val_class = _val_row(0, "Class:")
+        lbl_class = QLabel("Class:")
+        lbl_class.setFont(_FONT)
+        lbl_class.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        grid_val.addWidget(lbl_class, 0, 0)
+        self.val_class = _make_multiselect_popup(_CLASS_CODE_ITEMS, width=80, height_rows=len(_CLASS_CODE_ITEMS))
+        grid_val.addWidget(self.val_class, 0, 1)
         self.val_base = _val_row(1, "Base:")
         self.val_sub = _val_row(2, "Sub:")
         self.val_mort_table = _val_row(3, "Val Mort Table:")

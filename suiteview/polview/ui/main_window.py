@@ -185,19 +185,19 @@ class GetPolicyWindow(FramelessWindowBase):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(TAB_WIDGET_STYLE)
 
-        self.coverages_tab = CoveragesTab()
-        self.policy_tab = PolicyTab()
-        self.targets_tab = TargetsAccumulatorsTab()
-        self.persons_tab = PersonsTab()
-        self.dividends_tab = DividendsTab()
-        self.advprod_tab = AdvProdValuesTab()
-        self.activity_tab = ActivityTab()
-        self.loans_tab = LoansTab()
-        self.reinsurance_tab = ReinsuranceTab()
-        self.raw_table_tab = RawTableTab()
+        self.coverages_tab = CoveragesTab(self.tabs)
+        self.policy_tab = PolicyTab(self.tabs)
+        self.targets_tab = TargetsAccumulatorsTab(self.tabs)
+        self.persons_tab = PersonsTab(self.tabs)
+        self.dividends_tab = DividendsTab(self.tabs)
+        self.advprod_tab = AdvProdValuesTab(self.tabs)
+        self.activity_tab = ActivityTab(self.tabs)
+        self.loans_tab = LoansTab(self.tabs)
+        self.reinsurance_tab = ReinsuranceTab(self.tabs)
+        self.raw_table_tab = RawTableTab(self.tabs)
 
-        self.policy_support_tab = PolicySupportTab()
-        self.policy_library_tab = PolicyLibraryTab()
+        self.policy_support_tab = PolicySupportTab(self.tabs)
+        self.policy_library_tab = PolicyLibraryTab(self.tabs)
 
         self.tabs.addTab(self.coverages_tab, "Coverages")
         self.tabs.addTab(self.policy_tab, "Policy")
@@ -207,6 +207,15 @@ class GetPolicyWindow(FramelessWindowBase):
         self.tabs.addTab(self.activity_tab, "Activity")
         self.tabs.addTab(self.policy_support_tab, "Policy Support")
         self.tabs.addTab(self.raw_table_tab, "Raw Table")
+
+        for optional_tab in (
+            self.dividends_tab,
+            self.advprod_tab,
+            self.loans_tab,
+            self.reinsurance_tab,
+            self.policy_library_tab,
+        ):
+            optional_tab.hide()
 
         self.policy_support_tab.policy_library_requested.connect(self._show_policy_library_tab)
         self.coverages_tab.annuity_rider_requested.connect(self._show_annuity_rider_tab)
@@ -354,22 +363,30 @@ class GetPolicyWindow(FramelessWindowBase):
             self.list_toggle_btn.setChecked(self._history_panel_visible)
 
     def _on_policy_selected_from_list(self, region: str, company: str, policy: str):
-        if not self.isVisible():
-            self.show()
-            self._history_panel_visible = True
-            if hasattr(self, "policy_list_window"):
-                self.policy_list_window.show_docked()
-            if hasattr(self, "list_toggle_btn"):
-                self.list_toggle_btn.setChecked(True)
+        was_hidden = not self.isVisible()
 
         if self._is_current_policy(region, company, policy):
             self._show_status(f"Policy {policy} ({company}) is already loaded")
+            if was_hidden:
+                self.show()
+                self._history_panel_visible = True
+                if hasattr(self, "policy_list_window"):
+                    self.policy_list_window.show_docked()
+                if hasattr(self, "list_toggle_btn"):
+                    self.list_toggle_btn.setChecked(True)
             return
 
         self.lookup_bar.region_input.setText(region)
         self.lookup_bar.company_input.setText(company)
         self.lookup_bar.policy_input.setText(policy)
         self.lookup_bar._on_get_policy()
+        if was_hidden:
+            self.show()
+            self._history_panel_visible = True
+            if hasattr(self, "policy_list_window"):
+                self.policy_list_window.show_docked()
+            if hasattr(self, "list_toggle_btn"):
+                self.list_toggle_btn.setChecked(True)
 
     def _is_current_policy(self, region: str, company: str, policy: str) -> bool:
         if not self._policy or not self._policy.exists:
@@ -387,11 +404,11 @@ class GetPolicyWindow(FramelessWindowBase):
         window.destroyed.connect(
             lambda _=None, w=window: self._forget_child_polview_window(w)
         )
-        window.show()
         window.lookup_bar.region_input.setText(region)
         window.lookup_bar.company_input.setText(company)
         window.lookup_bar.policy_input.setText(policy)
         window.lookup_bar._on_get_policy()
+        window.show()
         window.raise_()
         window.activateWindow()
 
@@ -735,11 +752,13 @@ class GetPolicyWindow(FramelessWindowBase):
         else:
             if advprod_index >= 0:
                 self.tabs.removeTab(advprod_index)
+            self.advprod_tab.hide()
 
         # Dividends tab -- add/remove dynamically
         dividends_index = self.tabs.indexOf(self.dividends_tab)
         if dividends_index >= 0:
             self.tabs.removeTab(dividends_index)
+        self.dividends_tab.hide()
 
         if self.dividends_tab.has_dividend_data(self._policy):
             self.tabs.insertTab(4, self.dividends_tab, "Dividends")
@@ -749,6 +768,7 @@ class GetPolicyWindow(FramelessWindowBase):
         loans_idx = self.tabs.indexOf(self.loans_tab)
         if loans_idx >= 0:
             self.tabs.removeTab(loans_idx)
+        self.loans_tab.hide()
 
         if self.loans_tab.has_loan_data(self._policy):
             # Insert before Activity tab
@@ -763,6 +783,7 @@ class GetPolicyWindow(FramelessWindowBase):
         reins_idx = self.tabs.indexOf(self.reinsurance_tab)
         if reins_idx >= 0:
             self.tabs.removeTab(reins_idx)
+        self.reinsurance_tab.hide()
 
         # Always show the tab — it will display either data or "not found" message
         activity_idx = self.tabs.indexOf(self.activity_tab)

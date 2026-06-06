@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QGroupBox, QGridLayout,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu,
     QStyledItemDelegate, QSizePolicy, QLineEdit, QTableWidgetItem,
-    QStackedWidget, QDialog, QTextEdit,
+    QStackedWidget, QDialog, QTextEdit, QComboBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QSize, QMimeData, QUrl
 from PyQt6.QtGui import QColor, QDrag, QPixmap, QPainter, QFont
@@ -39,6 +39,7 @@ from .annuity_rider_tab import AnnuityRiderTab, RIDER_PLANCODE
 from ...services.glp_exception import (
     GlpExceptionResult,
     calculate_glp_exception,
+    calculate_policy_support_forecast,
     check_forecast_availability,
     is_glp_exception_eligible,
 )
@@ -1073,6 +1074,7 @@ class PolicySupportTab(QWidget):
     MODE_ABR = "abr"
     SECTION_ANNUITY_RIDER = "annuity_rider"
     SECTION_GLP_EXCEPTION = "glp_exception"
+    SECTION_FORECAST = "forecast"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1083,6 +1085,7 @@ class PolicySupportTab(QWidget):
         self._current_mode = self.MODE_POLICY_SUPPORT
         self._current_section = self.MODE_POLICY_SUPPORT
         self._glp_quote_cache = {}
+        self._forecast_cache = {}
         self._setup_ui()
 
     # -- UI ----------------------------------------------------------------
@@ -1122,6 +1125,14 @@ class PolicySupportTab(QWidget):
             lambda: self._select_section(self.SECTION_GLP_EXCEPTION)
         )
         nav_col.addWidget(self._btn_mode_glp_exception)
+
+        self._btn_mode_forecast = QPushButton("Forecast")
+        self._btn_mode_forecast.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_mode_forecast.setMinimumWidth(108)
+        self._btn_mode_forecast.clicked.connect(
+            lambda: self._select_section(self.SECTION_FORECAST)
+        )
+        nav_col.addWidget(self._btn_mode_forecast)
 
         self._btn_mode_annuity = QPushButton("Annuity Rider")
         self._btn_mode_annuity.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1269,10 +1280,12 @@ class PolicySupportTab(QWidget):
 
         self._annuity_rider_tab = AnnuityRiderTab()
         self._glp_exception_page = self._build_glp_exception_page()
+        self._forecast_page = self._build_forecast_page()
 
         self._content_stack.addWidget(self._workspace_page)
         self._content_stack.addWidget(self._annuity_rider_tab)
         self._content_stack.addWidget(self._glp_exception_page)
+        self._content_stack.addWidget(self._forecast_page)
         layout.addWidget(self._content_stack, 1)
 
         self._refresh_section_buttons()
@@ -1326,11 +1339,17 @@ class PolicySupportTab(QWidget):
         self._glp_export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._glp_export_btn.setEnabled(False)
         self._glp_export_btn.clicked.connect(self._export_glp_quote)
+        self._glp_print_details_btn = QPushButton("Print Details to Folder")
+        self._glp_print_details_btn.setStyleSheet(_ACTION_BTN_STYLE)
+        self._glp_print_details_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._glp_print_details_btn.setEnabled(False)
+        self._glp_print_details_btn.clicked.connect(self._print_glp_quote_to_folder)
         self._glp_helper_btn = QPushButton("Helper")
         self._glp_helper_btn.setStyleSheet(_MODE_BTN_INACTIVE_STYLE)
         self._glp_helper_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._glp_helper_btn.clicked.connect(self._show_glp_helper)
         button_bar.addWidget(self._glp_export_btn)
+        button_bar.addWidget(self._glp_print_details_btn)
         button_bar.addWidget(self._glp_helper_btn)
         button_bar.addStretch(1)
         sg.addLayout(button_bar, 1, 3)
@@ -1392,7 +1411,7 @@ class PolicySupportTab(QWidget):
                     f"border-top: {'2px dashed' if kind == 'separator' else '1px solid'} {GREEN_PRIMARY}; "
                     f"margin-top: {'6px' if kind == 'separator' else '2px'};"
                 )
-                value = QLabel("")
+                value = QLabel("", results_frame)
                 rg.addWidget(name, row, 0, 1, 2)
                 self._glp_result_name_labels[key] = name
                 self._glp_result_labels[key] = (value, kind)
@@ -1443,6 +1462,69 @@ class PolicySupportTab(QWidget):
         layout.addWidget(body, 1)
         return page
 
+    def _build_forecast_page(self) -> QWidget:
+        page = QWidget()
+        page.setStyleSheet(f"background-color: {WHITE};")
+        page.setAutoFillBackground(True)
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        status_frame = QGroupBox("Forecast")
+        status_frame.setStyleSheet(POLICY_INFO_FRAME_STYLE)
+        sg = QGridLayout(status_frame)
+        sg.setContentsMargins(8, 18, 8, 6)
+        sg.setHorizontalSpacing(6)
+        sg.setVerticalSpacing(4)
+
+        lbl_s = (f"font-size: 11px; font-weight: bold; color: {GREEN_DARK}; "
+                 f"background: transparent; border: none;")
+        sg.addWidget(self._mk_lbl("Forecast Status:", lbl_s), 0, 0)
+        self._forecast_status_label = QLabel("Load an eligible policy to check forecast data")
+        self._forecast_status_label.setStyleSheet(_STATUS_STYLE)
+        self._forecast_status_label.setWordWrap(True)
+        sg.addWidget(self._forecast_status_label, 0, 1, 1, 5)
+
+        sg.addWidget(self._mk_lbl("Target Date:", lbl_s), 1, 0)
+        self._forecast_target_date = QLineEdit()
+        self._forecast_target_date.setPlaceholderText("MM/DD/YYYY")
+        self._forecast_target_date.setStyleSheet(_FILTER_INPUT_STYLE)
+        sg.addWidget(self._forecast_target_date, 1, 1)
+
+        sg.addWidget(self._mk_lbl("Premium Amount:", lbl_s), 1, 2)
+        self._forecast_premium_amount = QLineEdit()
+        self._forecast_premium_amount.setPlaceholderText("0.00")
+        self._forecast_premium_amount.setStyleSheet(_FILTER_INPUT_STYLE)
+        sg.addWidget(self._forecast_premium_amount, 1, 3)
+
+        sg.addWidget(self._mk_lbl("Mode:", lbl_s), 1, 4)
+        self._forecast_premium_mode = QComboBox()
+        self._forecast_premium_mode.addItems(["Monthly", "Quarterly", "Semi-Annual", "Annual"])
+        self._forecast_premium_mode.setStyleSheet(_FILTER_INPUT_STYLE)
+        sg.addWidget(self._forecast_premium_mode, 1, 5)
+
+        self._forecast_calculate_btn = QPushButton("Calculate")
+        self._forecast_calculate_btn.setStyleSheet(_ACTION_BTN_STYLE)
+        self._forecast_calculate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._forecast_calculate_btn.clicked.connect(self._on_calculate_forecast)
+        sg.addWidget(self._forecast_calculate_btn, 1, 6)
+        sg.setColumnStretch(6, 1)
+        layout.addWidget(status_frame)
+
+        self._forecast_table = FixedHeaderTableWidget()
+        self._forecast_table.setAutoFillBackground(True)
+        self._forecast_table._data_table.viewport().setAutoFillBackground(True)
+        self._forecast_table.setColumnCount(13)
+        self._forecast_table.setHorizontalHeaderLabels([
+            "Date", "Year", "Month", "Interest", "GLP", "Accum GLP", "PremTD",
+            "AccumWD", "ForceOut", "Premium", "AV bf MD", "Monthly Deduction", "Account Value"
+        ])
+        self._forecast_table._data_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._forecast_table._data_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._forecast_table._data_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        layout.addWidget(self._forecast_table, 1)
+        return page
+
     # -- OneDrive check ----------------------------------------------------
 
     def _check_onedrive(self) -> bool:
@@ -1479,8 +1561,11 @@ class PolicySupportTab(QWidget):
         self._btn_mode_annuity.setEnabled(has_annuity_rider)
         glp_eligible = is_glp_exception_eligible(policy)
         self._btn_mode_glp_exception.setEnabled(glp_eligible)
+        self._btn_mode_forecast.setEnabled(glp_eligible)
         if self._current_section == self.SECTION_GLP_EXCEPTION:
             self._refresh_glp_exception_status()
+        elif self._current_section == self.SECTION_FORECAST:
+            self._refresh_forecast_status()
         elif hasattr(self, "_glp_forecast_status_label"):
             self._clear_glp_exception_results()
             self._glp_forecast_status_label.setText(
@@ -1489,6 +1574,13 @@ class PolicySupportTab(QWidget):
                 "GLP Exception is available only for UL policies using Guideline Premium."
             )
             self._glp_calculate_btn.setEnabled(False)
+            self._clear_forecast_results()
+            self._forecast_status_label.setText(
+                "Select Forecast to check forecast data"
+                if glp_eligible else
+                "Forecast is available only for UL policies using Guideline Premium."
+            )
+            self._forecast_calculate_btn.setEnabled(False)
 
         if has_annuity_rider:
             self._annuity_rider_tab.load_data_from_policy(policy)
@@ -1504,6 +1596,7 @@ class PolicySupportTab(QWidget):
             self._subfolder_explorer.set_root("")
             self._btn_mode_abr.setEnabled(False)
             self._btn_mode_glp_exception.setEnabled(False)
+            self._btn_mode_forecast.setEnabled(False)
             self._refresh_section_buttons()
             return
 
@@ -1611,6 +1704,8 @@ class PolicySupportTab(QWidget):
             return
         if section == self.SECTION_GLP_EXCEPTION and not self._btn_mode_glp_exception.isEnabled():
             return
+        if section == self.SECTION_FORECAST and not self._btn_mode_forecast.isEnabled():
+            return
 
         self._current_section = section
         if section == self.SECTION_ANNUITY_RIDER:
@@ -1620,6 +1715,9 @@ class PolicySupportTab(QWidget):
         elif section == self.SECTION_GLP_EXCEPTION:
             self._content_stack.setCurrentWidget(self._glp_exception_page)
             self._refresh_glp_exception_status()
+        elif section == self.SECTION_FORECAST:
+            self._content_stack.setCurrentWidget(self._forecast_page)
+            self._refresh_forecast_status()
         else:
             self._content_stack.setCurrentWidget(self._workspace_page)
             self._set_mode(section, reload_policy=reload_policy)
@@ -1643,6 +1741,11 @@ class PolicySupportTab(QWidget):
         self._btn_mode_glp_exception.setStyleSheet(
             _MODE_BTN_ACTIVE_STYLE
             if self._current_section == self.SECTION_GLP_EXCEPTION
+            else _MODE_BTN_INACTIVE_STYLE
+        )
+        self._btn_mode_forecast.setStyleSheet(
+            _MODE_BTN_ACTIVE_STYLE
+            if self._current_section == self.SECTION_FORECAST
             else _MODE_BTN_INACTIVE_STYLE
         )
         self._btn_mode_annuity.setStyleSheet(
@@ -1674,7 +1777,36 @@ class PolicySupportTab(QWidget):
             self._set_glp_status(cached_quote["status_text"])
             self._display_glp_exception_result(cached_quote["result"])
         else:
-            self._glp_target_date.setText(self._next_anniversary_text(self._policy))
+            self._glp_target_date.setText(self._default_glp_target_date_text(self._policy))
+
+    def _refresh_forecast_status(self):
+        if not hasattr(self, "_forecast_status_label"):
+            return
+        self._clear_forecast_results()
+        if not self._policy or not self._policy.exists:
+            self._set_forecast_status("Load an eligible policy to check forecast data")
+            self._forecast_calculate_btn.setEnabled(False)
+            return
+        if not is_glp_exception_eligible(self._policy):
+            self._set_forecast_status(
+                "Forecast is available only for UL policies using Guideline Premium."
+            )
+            self._forecast_calculate_btn.setEnabled(False)
+            return
+        availability = check_forecast_availability(self._policy)
+        self._set_forecast_status(availability.message, is_error=not availability.available)
+        self._forecast_calculate_btn.setEnabled(availability.available)
+        cached_forecast = self._forecast_cache.get(self._glp_policy_cache_key(self._policy))
+        if cached_forecast:
+            self._forecast_target_date.setText(cached_forecast["target_text"])
+            self._forecast_premium_amount.setText(cached_forecast["premium_text"])
+            self._forecast_premium_mode.setCurrentText(cached_forecast["premium_mode"])
+            self._set_forecast_status(cached_forecast["status_text"])
+            self._display_forecast_rows(cached_forecast["result"])
+        else:
+            self._forecast_target_date.setText(self._default_glp_target_date_text(self._policy))
+            self._forecast_premium_amount.setText("0.00")
+            self._forecast_premium_mode.setCurrentText("Monthly")
 
     def _on_calculate_glp_exception(self):
         if not self._policy:
@@ -1705,6 +1837,53 @@ class PolicySupportTab(QWidget):
             "result": result,
         }
 
+    def _on_calculate_forecast(self):
+        if not self._policy:
+            return
+        target_text = self._forecast_target_date.text().strip()
+        if not target_text:
+            self._set_forecast_status("Enter a Target Date before calculating", is_error=True)
+            self._clear_forecast_results()
+            return
+        try:
+            target_date = datetime.strptime(target_text, "%m/%d/%Y").date()
+        except ValueError:
+            self._set_forecast_status("Target Date must be entered as MM/DD/YYYY", is_error=True)
+            self._clear_forecast_results()
+            return
+
+        premium_text = self._forecast_premium_amount.text().strip().replace(",", "").replace("$", "")
+        try:
+            premium_amount = float(premium_text or 0.0)
+        except ValueError:
+            self._set_forecast_status("Premium Amount must be numeric", is_error=True)
+            self._clear_forecast_results()
+            return
+
+        premium_mode = self._forecast_premium_mode.currentText()
+        try:
+            result = calculate_policy_support_forecast(
+                self._policy,
+                target_date,
+                premium_amount,
+                premium_mode,
+            )
+        except Exception as exc:
+            self._set_forecast_status(str(exc), is_error=True)
+            self._clear_forecast_results()
+            return
+
+        status_text = "Data for forecasting is available"
+        self._set_forecast_status(status_text)
+        self._display_forecast_rows(result)
+        self._forecast_cache[self._glp_policy_cache_key(self._policy)] = {
+            "target_text": target_text,
+            "premium_text": f"{premium_amount:.2f}",
+            "premium_mode": premium_mode,
+            "status_text": status_text,
+            "result": result,
+        }
+
     def _set_glp_status(self, text: str, *, is_error: bool = False):
         if is_error:
             self._glp_forecast_status_label.setStyleSheet(
@@ -1715,18 +1894,36 @@ class PolicySupportTab(QWidget):
             self._glp_forecast_status_label.setStyleSheet(_STATUS_STYLE)
         self._glp_forecast_status_label.setText(text)
 
+    def _set_forecast_status(self, text: str, *, is_error: bool = False):
+        if is_error:
+            self._forecast_status_label.setStyleSheet(
+                "font-size: 10px; color: #C00000; font-weight: bold; "
+                "background: transparent; border: none; padding: 2px 4px;"
+            )
+        else:
+            self._forecast_status_label.setStyleSheet(_STATUS_STYLE)
+        self._forecast_status_label.setText(text)
+
     @staticmethod
-    def _next_anniversary_text(policy: Optional['PolicyInformation']) -> str:
+    def _default_glp_target_date_text(policy: Optional['PolicyInformation']) -> str:
+        allowed_dates = PolicySupportTab._glp_allowed_target_dates(policy)
+        return allowed_dates[0].strftime("%m/%d/%Y") if allowed_dates else ""
+
+    @staticmethod
+    def _glp_allowed_target_dates(policy: Optional['PolicyInformation']) -> List[date]:
         if not policy:
-            return ""
+            return []
         issue_date = getattr(policy, "issue_date", None)
-        val_date = getattr(policy, "valuation_date", None) or date.today()
+        today = date.today()
         if not issue_date:
-            return ""
-        anniversary = _safe_anniversary(issue_date, val_date.year)
-        if anniversary <= val_date:
-            anniversary = _safe_anniversary(issue_date, val_date.year + 1)
-        return anniversary.strftime("%m/%d/%Y")
+            return []
+        anniversary = _safe_anniversary(issue_date, today.year)
+        if anniversary <= today:
+            anniversary = _safe_anniversary(issue_date, today.year + 1)
+        return [
+            anniversary,
+            _safe_anniversary(issue_date, anniversary.year + 1),
+        ]
 
     @staticmethod
     def _glp_policy_cache_key(policy: Optional['PolicyInformation']) -> tuple[str, str, str, str]:
@@ -1749,6 +1946,11 @@ class PolicySupportTab(QWidget):
         self._glp_forecast_table.setRowCount(0)
         self._glp_forecast_frame.setVisible(False)
         self._glp_export_btn.setEnabled(False)
+        self._glp_print_details_btn.setEnabled(False)
+
+    def _clear_forecast_results(self):
+        if hasattr(self, "_forecast_table"):
+            self._forecast_table.setRowCount(0)
 
     def _display_glp_exception_result(self, result: GlpExceptionResult):
         for key, (value_label, kind) in self._glp_result_labels.items():
@@ -1774,6 +1976,7 @@ class PolicySupportTab(QWidget):
                 value_label.setText(f"{value:,}")
         self._display_glp_forecast_rows(result)
         self._glp_export_btn.setEnabled(True)
+        self._glp_print_details_btn.setEnabled(True)
 
     def _glp_result_row_visible(self, result: GlpExceptionResult, key: str) -> bool:
         no_adjustment_needed = result.accumulated_glp_prior_to_target >= result.premium_td_on_target_date - 0.005
@@ -1787,86 +1990,93 @@ class PolicySupportTab(QWidget):
             return key != "new_glp" or result.new_glp is not None
         return True
 
+    def _has_glp_quote_to_export(self) -> bool:
+        return any(value_label.text() != "-" for value_label, _kind in self._glp_result_labels.values())
+
+    def _build_glp_quote_workbook(self):
+        import openpyxl
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "GLP Quote"
+
+        title_fill = PatternFill(start_color="006100", end_color="006100", fill_type="solid")
+        header_fill = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+        title_font = Font(bold=True, color="FFFFFF", size=14)
+        header_font = Font(bold=True, color="006100")
+        bold_font = Font(bold=True)
+
+        policy_text = ""
+        if self._policy:
+            policy_text = " - ".join(
+                part for part in (
+                    str(getattr(self._policy, "region", "") or "").strip(),
+                    str(getattr(self._policy, "company_code", "") or "").strip(),
+                    str(getattr(self._policy, "policy_number", "") or "").strip(),
+                ) if part
+            )
+
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=7)
+        title_cell = ws.cell(row=1, column=1, value=f"GLP Exception Quote{f' - {policy_text}' if policy_text else ''}")
+        title_cell.fill = title_fill
+        title_cell.font = title_font
+        title_cell.alignment = Alignment(horizontal="center")
+
+        ws.cell(row=3, column=1, value="Target Inforce Date").font = bold_font
+        ws.cell(row=3, column=2, value=self._glp_target_date.text().strip())
+        ws.cell(row=4, column=1, value="Forecast Status").font = bold_font
+        ws.cell(row=4, column=2, value=self._glp_forecast_status_label.text())
+
+        row_num = 6
+        ws.cell(row=row_num, column=1, value="Calculation").fill = header_fill
+        ws.cell(row=row_num, column=1).font = header_font
+        ws.cell(row=row_num, column=2).fill = header_fill
+        row_num += 1
+        for label, key, _kind in self._glp_result_rows:
+            if not self._glp_result_name_labels[key].isVisible():
+                continue
+            value_label, _ = self._glp_result_labels[key]
+            ws.cell(row=row_num, column=1, value=label)
+            ws.cell(row=row_num, column=2, value=value_label.text())
+            if key == "new_accum_glp":
+                ws.cell(row=row_num, column=1).font = bold_font
+                ws.cell(row=row_num, column=2).font = bold_font
+            row_num += 1
+
+        row_num += 2
+        ws.cell(row=row_num, column=1, value="Monthly Forecast").fill = header_fill
+        ws.cell(row=row_num, column=1).font = header_font
+        row_num += 1
+        for col_index in range(self._glp_forecast_table.columnCount()):
+            header_item = self._glp_forecast_table._data_table.horizontalHeaderItem(col_index)
+            cell = ws.cell(row=row_num, column=col_index + 1, value=header_item.text() if header_item else "")
+            cell.fill = header_fill
+            cell.font = header_font
+        row_num += 1
+        for table_row in range(self._glp_forecast_table.rowCount()):
+            for col_index in range(self._glp_forecast_table.columnCount()):
+                item = self._glp_forecast_table.item(table_row, col_index)
+                ws.cell(row=row_num, column=col_index + 1, value=item.text() if item else "")
+            row_num += 1
+
+        for col_index in range(1, ws.max_column + 1):
+            max_length = max(
+                len(str(ws.cell(row=row_index, column=col_index).value or ""))
+                for row_index in range(1, ws.max_row + 1)
+            )
+            ws.column_dimensions[get_column_letter(col_index)].width = min(max_length + 2, 55)
+
+        return wb
+
     def _export_glp_quote(self):
         if not any(value_label.text() != "-" for value_label, _kind in self._glp_result_labels.values()):
             QMessageBox.information(self, "Export GLP Quote", "Calculate a GLP quote before exporting.")
             return
         try:
             import tempfile
-            import openpyxl
-            from openpyxl.styles import Alignment, Font, PatternFill
-            from openpyxl.utils import get_column_letter
-
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "GLP Quote"
-
-            title_fill = PatternFill(start_color="006100", end_color="006100", fill_type="solid")
-            header_fill = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
-            title_font = Font(bold=True, color="FFFFFF", size=14)
-            header_font = Font(bold=True, color="006100")
-            bold_font = Font(bold=True)
-
-            policy_text = ""
-            if self._policy:
-                policy_text = " - ".join(
-                    part for part in (
-                        str(getattr(self._policy, "region", "") or "").strip(),
-                        str(getattr(self._policy, "company_code", "") or "").strip(),
-                        str(getattr(self._policy, "policy_number", "") or "").strip(),
-                    ) if part
-                )
-
-            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=7)
-            title_cell = ws.cell(row=1, column=1, value=f"GLP Exception Quote{f' - {policy_text}' if policy_text else ''}")
-            title_cell.fill = title_fill
-            title_cell.font = title_font
-            title_cell.alignment = Alignment(horizontal="center")
-
-            ws.cell(row=3, column=1, value="Target Inforce Date").font = bold_font
-            ws.cell(row=3, column=2, value=self._glp_target_date.text().strip())
-            ws.cell(row=4, column=1, value="Forecast Status").font = bold_font
-            ws.cell(row=4, column=2, value=self._glp_forecast_status_label.text())
-
-            row_num = 6
-            ws.cell(row=row_num, column=1, value="Calculation").fill = header_fill
-            ws.cell(row=row_num, column=1).font = header_font
-            ws.cell(row=row_num, column=2).fill = header_fill
-            row_num += 1
-            for label, key, _kind in self._glp_result_rows:
-                if not self._glp_result_name_labels[key].isVisible():
-                    continue
-                value_label, _ = self._glp_result_labels[key]
-                ws.cell(row=row_num, column=1, value=label)
-                ws.cell(row=row_num, column=2, value=value_label.text())
-                if key == "new_accum_glp":
-                    ws.cell(row=row_num, column=1).font = bold_font
-                    ws.cell(row=row_num, column=2).font = bold_font
-                row_num += 1
-
-            row_num += 2
-            ws.cell(row=row_num, column=1, value="Monthly Forecast").fill = header_fill
-            ws.cell(row=row_num, column=1).font = header_font
-            row_num += 1
-            for col_index in range(self._glp_forecast_table.columnCount()):
-                header_item = self._glp_forecast_table._data_table.horizontalHeaderItem(col_index)
-                cell = ws.cell(row=row_num, column=col_index + 1, value=header_item.text() if header_item else "")
-                cell.fill = header_fill
-                cell.font = header_font
-            row_num += 1
-            for table_row in range(self._glp_forecast_table.rowCount()):
-                for col_index in range(self._glp_forecast_table.columnCount()):
-                    item = self._glp_forecast_table.item(table_row, col_index)
-                    ws.cell(row=row_num, column=col_index + 1, value=item.text() if item else "")
-                row_num += 1
-
-            for col_index in range(1, ws.max_column + 1):
-                max_length = max(
-                    len(str(ws.cell(row=row_index, column=col_index).value or ""))
-                    for row_index in range(1, ws.max_row + 1)
-                )
-                ws.column_dimensions[get_column_letter(col_index)].width = min(max_length + 2, 55)
-
+            wb = self._build_glp_quote_workbook()
             temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".xlsx", prefix="SuiteView_GLP_Quote_", delete=False)
             temp_path = temp_file.name
             temp_file.close()
@@ -1874,6 +2084,71 @@ class PolicySupportTab(QWidget):
             os.startfile(temp_path)
         except Exception as exc:
             QMessageBox.critical(self, "Export Error", f"Failed to export GLP quote:\n{exc}")
+
+    def _print_glp_quote_to_folder(self):
+        if not self._has_glp_quote_to_export():
+            QMessageBox.information(self, "Print Details to Folder", "Calculate a GLP quote before printing details.")
+            return
+
+        folder_path = self._glp_exception_folder_path()
+        if not folder_path or not os.path.isdir(folder_path) or not os.access(folder_path, os.W_OK):
+            self._show_glp_folder_inaccessible(folder_path)
+            return
+
+        file_path = os.path.join(folder_path, self._glp_exception_file_name())
+        confirm = QMessageBox.question(
+            self,
+            "Print Details to Folder",
+            f"The GLP detail file will be saved to:\n\n{file_path}\n\nContinue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            wb = self._build_glp_quote_workbook()
+            wb.save(file_path)
+        except Exception as exc:
+            self._show_glp_folder_inaccessible(folder_path, str(exc))
+            return
+
+        QMessageBox.information(
+            self,
+            "Print Details to Folder",
+            f"GLP detail file saved to:\n\n{file_path}",
+        )
+
+    def _glp_exception_folder_path(self) -> str:
+        if not self._policy:
+            return ""
+        product_type = str(getattr(self._policy, "product_type", "") or "").strip()
+        company_code = str(getattr(self._policy, "company_code", "") or "").strip()
+        policy_number = str(getattr(self._policy, "policy_number", "") or "").strip()
+        if not product_type or not company_code or not policy_number:
+            return ""
+        return os.path.join(
+            _get_policy_library_dir(),
+            product_type,
+            f"{company_code}_{policy_number}",
+            "GLP_Exception",
+        )
+
+    def _glp_exception_file_name(self) -> str:
+        company_code = str(getattr(self._policy, "company_code", "") or "").strip()
+        policy_number = str(getattr(self._policy, "policy_number", "") or "").strip()
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H%M%S")
+        return f"GLP_Exception_{company_code}_{policy_number}_{timestamp}.xlsx"
+
+    def _show_glp_folder_inaccessible(self, folder_path: str, detail: Optional[str] = None):
+        message = (
+            "The GLP Exception folder is not accessible:\n\n"
+            f"{folder_path or '(policy folder could not be determined)'}\n\n"
+            "You can click the Export button to get the file."
+        )
+        if detail:
+            message += f"\n\nDetails: {detail}"
+        QMessageBox.warning(self, "Print Details to Folder", message)
 
     def _show_glp_helper(self):
         dialog = QDialog(self)
@@ -1919,6 +2194,37 @@ class PolicySupportTab(QWidget):
                     alignment,
                 )
         self._glp_forecast_table.autoFitAllColumns()
+
+    def _display_forecast_rows(self, result):
+        rows = result.rows
+        self._forecast_table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            values = [
+                row.forecast_date.strftime("%m/%d/%Y") if row.forecast_date else "-",
+                f"{row.policy_year:,}",
+                f"{row.policy_month:,}",
+                f"${row.interest_credited:,.2f}",
+                f"${row.glp:,.2f}",
+                f"${row.accumulated_glp:,.2f}",
+                f"${row.premiums_paid_to_date:,.2f}",
+                f"${row.accumulated_withdrawals:,.2f}",
+                f"${row.force_out:,.2f}",
+                f"${row.premium:,.2f}",
+                f"${row.account_value_before_monthly_deduction:,.2f}",
+                f"${row.monthly_deduction:,.2f}",
+                f"${row.account_value:,.2f}",
+            ]
+            for col_index, text in enumerate(values):
+                alignment = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                if col_index == 0:
+                    alignment = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                self._forecast_table.setItem(
+                    row_index,
+                    col_index,
+                    QTableWidgetItem(text),
+                    alignment,
+                )
+        self._forecast_table.autoFitAllColumns()
 
     @staticmethod
     def _has_annuity_rider(policy: Optional['PolicyInformation']) -> bool:

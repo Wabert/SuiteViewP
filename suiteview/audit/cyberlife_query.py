@@ -274,6 +274,7 @@ def build_cyberlife_sql(
     in_conversion = pt.chk_in_conversion.isChecked()
 
     # ── Coverages tab flags ──────────────────────────────────
+    cov_val_classes = covt.val_class.selected_values() if hasattr(covt.val_class, "selected_values") else []
     cov_val_class = covt.val_class.text().strip()
     cov_val_base = covt.val_base.text().strip()
     cov_val_sub = covt.val_sub.text().strip()
@@ -917,14 +918,30 @@ def build_cyberlife_sql(
 
     # Circle 12: Trad Cash Value Cov1 / Account Value
     if disp_trad_cv_cov1:
-        sql_parts.append("  , (CASE WHEN COVERAGE1.LOW_DUR_1_CSV_AMT IS NULL THEN '0' ELSE COVERAGE1.LOW_DUR_1_CSV_AMT END) BCVR_COV1")
-        sql_parts.append("  , (CASE WHEN COVERAGE1.LOW_DUR_2_CSV_AMT IS NULL THEN '0' ELSE COVERAGE1.LOW_DUR_2_CSV_AMT END) ECVR_COV1")
+        sql_parts.append("  , (CASE")
+        sql_parts.append("      WHEN COALESCE(COVERAGE1.LOW_DUR_1_CSV_AMT, 0) <> 0 OR COALESCE(COVERAGE1.LOW_DUR_2_CSV_AMT, 0) <> 0")
+        sql_parts.append("      THEN COALESCE(COVERAGE1.LOW_DUR_1_CSV_AMT, 0)")
+        sql_parts.append("      ELSE COALESCE(COVERAGE1.LOW_DUR_1_NSP_AMT, 0)")
+        sql_parts.append("    END) BCVR_COV1")
+        sql_parts.append("  , (CASE")
+        sql_parts.append("      WHEN COALESCE(COVERAGE1.LOW_DUR_1_CSV_AMT, 0) <> 0 OR COALESCE(COVERAGE1.LOW_DUR_2_CSV_AMT, 0) <> 0")
+        sql_parts.append("      THEN COALESCE(COVERAGE1.LOW_DUR_2_CSV_AMT, 0)")
+        sql_parts.append("      ELSE COALESCE(COVERAGE1.LOW_DUR_2_NSP_AMT, 0)")
+        sql_parts.append("    END) ECVR_COV1")
         sql_parts.append("  , INTERPOLATION_MONTHS.MONTHS_TO_NEXT_ANN")
         sql_parts.append("  , INTERPOLATION_MONTHS.MONTHS_YTD")
-        sql_parts.append("  , (CASE WHEN COVERAGE1.LOW_DUR_1_CSV_AMT IS NULL THEN 0 ELSE COVERAGE1.LOW_DUR_1_CSV_AMT END)")
+        sql_parts.append("  , ((CASE")
+        sql_parts.append("      WHEN COALESCE(COVERAGE1.LOW_DUR_1_CSV_AMT, 0) <> 0 OR COALESCE(COVERAGE1.LOW_DUR_2_CSV_AMT, 0) <> 0")
+        sql_parts.append("      THEN COALESCE(COVERAGE1.LOW_DUR_1_CSV_AMT, 0)")
+        sql_parts.append("      ELSE COALESCE(COVERAGE1.LOW_DUR_1_NSP_AMT, 0)")
+        sql_parts.append("    END)")
         sql_parts.append("    * COVERAGE1.COV_UNT_QTY * INTERPOLATION_MONTHS.MONTHS_TO_NEXT_ANN")
-        sql_parts.append("    + (CASE WHEN COVERAGE1.LOW_DUR_2_CSV_AMT IS NULL THEN 0 ELSE COVERAGE1.LOW_DUR_2_CSV_AMT END)")
-        sql_parts.append("    * COVERAGE1.COV_UNT_QTY * INTERPOLATION_MONTHS.MONTHS_YTD CV_COV1")
+        sql_parts.append("    + (CASE")
+        sql_parts.append("        WHEN COALESCE(COVERAGE1.LOW_DUR_1_CSV_AMT, 0) <> 0 OR COALESCE(COVERAGE1.LOW_DUR_2_CSV_AMT, 0) <> 0")
+        sql_parts.append("        THEN COALESCE(COVERAGE1.LOW_DUR_2_CSV_AMT, 0)")
+        sql_parts.append("        ELSE COALESCE(COVERAGE1.LOW_DUR_2_NSP_AMT, 0)")
+        sql_parts.append("      END)")
+        sql_parts.append("    * COVERAGE1.COV_UNT_QTY * INTERPOLATION_MONTHS.MONTHS_YTD) / 12 CV_COV1")
     if disp_account_value:
         sql_parts.append("  , MVVAL.CSV_AMT")
         sql_parts.append("  , TRAD_CV.INTERP_NSP")
@@ -1920,7 +1937,9 @@ def build_cyberlife_sql(
 
     # ── Coverages tab WHERE conditions ───────────────────────────
     # Col 1 — Valuation fields (COVERAGE1 == table 02)
-    if cov_val_class:
+    if cov_val_classes:
+        wheres.append(f"COVERAGE1.INS_CLS_CD IN ({in_list(cov_val_classes)})")
+    elif cov_val_class:
         wheres.append(f"COVERAGE1.INS_CLS_CD = '{esc(cov_val_class)}'")
     if cov_val_base:
         wheres.append(f"COVERAGE1.PLN_BSE_SRE_CD = '{esc(cov_val_base)}'")

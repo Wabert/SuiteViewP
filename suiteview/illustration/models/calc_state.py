@@ -40,6 +40,12 @@ class MonthlyState:
     net_premium: float = 0.0
     av_after_premium: float = 0.0
 
+    # ── 1b. Guideline Premium Force-Out ──────
+    glp: float = 0.0
+    accumulated_glp: float = 0.0
+    guideline_forceout: float = 0.0
+    guideline_av_before_monthly_deduction: float = 0.0
+
     # ── 2. Monthly Deduction (cols 405-516) ───
     nar_av: float = 0.0             # max(0, av_after_premium)
     standard_db: float = 0.0

@@ -178,6 +178,10 @@ class IllustrationEngine:
             duration=policy.duration,
             attained_age=policy.attained_age,
             av_after_premium=md_check_av_before_deduction,
+            glp=policy.glp,
+            accumulated_glp=policy.accumulated_glp,
+            guideline_forceout=0.0,
+            guideline_av_before_monthly_deduction=md_check_av_before_deduction,
             # Deduction check
             nar_av=ded0.nar_av,
             standard_db=ded0.standard_db,
@@ -349,7 +353,7 @@ class IllustrationEngine:
 
         Pure function — takes the previous month's state, produces the next.
         """
-        # ── Step 0: Advance Counters ──────────────────────────
+        # ── 1. Update date/year/month/attained age ────────────
         next_year, next_month = _advance_month(
             state.policy_year, state.policy_month
         )
@@ -358,19 +362,51 @@ class IllustrationEngine:
         month_date = policy.issue_date + relativedelta(months=duration - 1)
         is_anniversary = next_month == 1
 
-        # Reset YTD on anniversary
+        # ── 2. Gather beginning values ────────────────────────
         premiums_ytd = 0.0 if is_anniversary else state.premiums_ytd
         premiums_to_date = state.premiums_to_date
         cost_basis = state.cost_basis
-
-        # Start with end-of-month AV from previous month
         av = state.av_end_of_month
-
-        # Rate arrays are 1-indexed by policy year (not monthly duration)
         rate_year = next_year
 
-        # ── Step 0b: Loan Capitalization (at anniversary) ─────
-        # Set 1 reads from previous month's Set 2 (ending balances)
+        # ── 3. Withdrawal processing ──────────────────────────
+        # WithdrawalTD is injected in this section. Only projected withdrawal
+        # inputs are wired today through apply_cash_flow_inputs().
+
+        # ── 4. DB option change processing ────────────────────
+        # Death benefit option is injected at the end of this section.
+
+        # ── 5. Face increase processing ───────────────────────
+        # Not yet implemented.
+
+        # ── 6. Face decrease processing ───────────────────────
+        # Not yet implemented.
+
+        # ── 7. Coverage after change ──────────────────────────
+        # Valuation-date coverage amounts are injected here. This section owns
+        # active coverage rows, original/current amounts, coverage-anniversary
+        # durations, policy-anniversary durations, rate class changes, and
+        # substandard changes. The current engine reads those values from the
+        # already-built IllustrationPolicyData coverage/benefit/rider models.
+
+        # ── 8. Minimum Target Premium calculation/accumulation ─
+        # AccumMTP is injected in this section.
+        monthly_mtp = math.trunc(policy.mtp * 100) / 100
+        accumulated_mtp = state.accumulated_mtp + monthly_mtp
+
+        # ── 9. Commission Target Premium calculation ──────────
+        # CTP is injected in this section.
+        # CTP split and accumulation are handled inside apply_premium().
+
+        # ── 10. 7702 / 7702A currently implemented slice ──────
+        # GLP, GSP, AccumGLP, TAMRA premium, TAMRA start date, and
+        # Lowest7YearFace are injected in this section. Only GLP accumulation
+        # and force-out are currently implemented in the monthly path.
+        accumulated_glp = _accumulate_guideline_premium(state, policy, is_anniversary)
+
+        # ── 11. Loan capitalization and repayment processing ──
+        # Preferred, regular, and variable loan principal/accrued balances are
+        # injected in this section.
         cap_loan = capitalize_loans(
             state.end_rg_loan_princ, state.end_rg_loan_accrued,
             state.end_pf_loan_princ, state.end_pf_loan_accrued,
@@ -378,17 +414,25 @@ class IllustrationEngine:
             is_anniversary,
         )
 
-        # ── Step 0c: Apply external cash-flow inputs ──────────
+        guideline_forceout, withdrawals_to_date, av = _apply_guideline_forceout(
+            accumulated_glp,
+            premiums_to_date,
+            state.withdrawals_to_date,
+            av,
+        )
+
         cash_flows = apply_cash_flow_inputs(
             av,
             cap_loan,
-            state.withdrawals_to_date,
+            withdrawals_to_date,
             month_inputs,
         )
         av = cash_flows.av
         cap_loan = cash_flows.loan_state
+        withdrawals_to_date = cash_flows.withdrawals_to_date
 
-        # ── Step 1: Apply Premium ─────────────────────────────
+        # ── 12. Apply premium and premium loads ───────────────
+        # PremTD, PremYTD, and cost basis are injected in this section.
         prem = apply_premium(
             av, policy, config, rates, rate_year,
             premiums_ytd, premiums_to_date, cost_basis,
@@ -396,7 +440,8 @@ class IllustrationEngine:
         )
         av = prem.av_after_premium
 
-        # ── Step 2: Monthly Deduction ─────────────────────────
+        # ── 13. Monthly deduction ─────────────────────────────
+        # Account value is injected at the AV-after-monthly-deduction field.
         ded = calculate_deduction(
             av, policy, config, rates, rate_year,
             attained_age, prem.premiums_to_date,
@@ -405,17 +450,17 @@ class IllustrationEngine:
         )
         av = ded.av_after_deduction
 
-        # ── Step 2b: Policy Values / New Fixed Loan ─────────
+        # ── 15. Policy values / new fixed loans ───────────────
         fixed_loan_state = apply_new_fixed_loan(
             cap_loan,
             month_inputs.regular_loan if month_inputs is not None else 0.0,
             ded.av_after_deduction,
             prem.premiums_to_date,
-            cash_flows.withdrawals_to_date,
+            withdrawals_to_date,
             policy.preferred_loans_available,
         )
 
-        # ── Step 3: Interest Credit ──────────────────────────
+        # ── 16. Accumulation: interest crediting ──────────────
         intr = credit_interest(
             av, policy, config, rates, bonus, rate_year,
             attained_age, month_date,
@@ -424,10 +469,11 @@ class IllustrationEngine:
         )
         av = intr.av_end_of_month
 
-        # ── Step 3b: Loan Interest Accrual ────────────────────
+        # ── 16b. Accumulation: loan interest charges ──────────
         accrual_loan = accrue_loan_interest(fixed_loan_state, config, intr.days_in_month)
 
-        # ── Step 3c: Shadow Account (CCV) ─────────────────────
+        # ── 17. Shadow account processing ─────────────────────
+        # Shadow account value is injected after shadow monthly deduction.
         shd = calculate_shadow(
             prev_shadow_eav=state.shadow_eav,
             gross_premium=prem.gross_premium,
@@ -441,11 +487,9 @@ class IllustrationEngine:
             policy_debt=accrual_loan.policy_debt,
         )
 
-        # ── Step 3d: Safety Net Accumulation ──────────────────
-        monthly_mtp = math.trunc(policy.mtp * 100) / 100
-        accumulated_mtp = state.accumulated_mtp + monthly_mtp
+        # ── 18. Testing: SNET, shadow, and lapse support ──────
         accum_mtp_less_prem = (
-            prem.premiums_to_date - cash_flows.withdrawals_to_date
+            prem.premiums_to_date - withdrawals_to_date
             - accrual_loan.policy_debt
         ) - accumulated_mtp
 
@@ -463,7 +507,7 @@ class IllustrationEngine:
             and shd.shadow_eav_less_debt > 0
         )
 
-        # ── Step 4: End-of-Month Values ──────────────────────
+        # ── 14/15 display values: surrender and ending values ─
         scr_rate, surrender_charge, scr_rates_by_coverage, surrender_charges_by_coverage = _calculate_surrender_charge(
             policy, rates, rate_year, month_date
         )
@@ -471,12 +515,14 @@ class IllustrationEngine:
 
         ending_db = ded.gross_db
 
-        # Multi-factor lapse check (RERUN YL-YS)
         positive_sv = config.lapse_value == "SV" and surrender_value > 0
         av_less_loans = av - accrual_loan.policy_debt
         av_loans_test = config.lapse_value == "AV" and av_less_loans > 0
         any_protection = snet_active or shadow_protection or positive_sv or av_loans_test
         lapsed = state.lapsed or not any_protection
+
+        # ── 19. Deemed cash value ─────────────────────────────
+        # Not yet implemented.
 
         # Cumulative tracking
         cumulative_interest = state.cumulative_interest + intr.interest_credited
@@ -507,6 +553,10 @@ class IllustrationEngine:
             total_premium_load=prem.total_premium_load,
             net_premium=prem.net_premium,
             av_after_premium=prem.av_after_premium,
+            glp=policy.glp,
+            accumulated_glp=accumulated_glp,
+            guideline_forceout=guideline_forceout,
+            guideline_av_before_monthly_deduction=av,
             # Deduction
             nar_av=ded.nar_av,
             standard_db=ded.standard_db,
@@ -579,7 +629,7 @@ class IllustrationEngine:
             # Tracking
             premiums_ytd=prem.premiums_ytd,
             premiums_to_date=prem.premiums_to_date,
-            withdrawals_to_date=cash_flows.withdrawals_to_date,
+            withdrawals_to_date=withdrawals_to_date,
             cost_basis=prem.cost_basis,
             cumulative_interest=cumulative_interest,
             cumulative_charges=cumulative_charges,
@@ -664,13 +714,22 @@ class IllustrationEngine:
             pref_loan_balance=cap_loan.pf_loan_princ,
         )
 
-        cash_flows = apply_cash_flow_inputs(
-            intr.av_end_of_month,
-            cap_loan,
+        accumulated_glp = _accumulate_guideline_premium(state, policy, is_anniversary)
+        guideline_forceout, withdrawals_to_date, av_after_guideline = _apply_guideline_forceout(
+            accumulated_glp,
+            premiums_to_date,
             state.withdrawals_to_date,
+            intr.av_end_of_month,
+        )
+
+        cash_flows = apply_cash_flow_inputs(
+            av_after_guideline,
+            cap_loan,
+            withdrawals_to_date,
             month_inputs,
         )
         cap_loan = cash_flows.loan_state
+        withdrawals_to_date = cash_flows.withdrawals_to_date
 
         prem = apply_premium(
             cash_flows.av,
@@ -683,9 +742,10 @@ class IllustrationEngine:
             cost_basis,
             gross_premium_override=month_inputs.total_premium if month_inputs is not None else None,
         )
+        av_before_deduction = prem.av_after_premium
 
         ded = calculate_deduction(
-            prem.av_after_premium,
+            av_before_deduction,
             policy,
             config,
             rates,
@@ -701,14 +761,14 @@ class IllustrationEngine:
             month_inputs.regular_loan if month_inputs is not None else 0.0,
             ded.av_after_deduction,
             prem.premiums_to_date,
-            cash_flows.withdrawals_to_date,
+            withdrawals_to_date,
             policy.preferred_loans_available,
         )
         accrual_loan = accrue_loan_interest(fixed_loan_state, config, intr.days_in_month)
         monthly_mtp = math.trunc(policy.mtp * 100) / 100
         accumulated_mtp = state.accumulated_mtp + monthly_mtp
         accum_mtp_less_prem = (
-            prem.premiums_to_date - cash_flows.withdrawals_to_date
+            prem.premiums_to_date - withdrawals_to_date
             - accrual_loan.policy_debt
         ) - accumulated_mtp
         av_less_loans = ded.av_after_deduction - accrual_loan.policy_debt
@@ -735,6 +795,10 @@ class IllustrationEngine:
             total_premium_load=prem.total_premium_load,
             net_premium=prem.net_premium,
             av_after_premium=prem.av_after_premium,
+            glp=policy.glp,
+            accumulated_glp=accumulated_glp,
+            guideline_forceout=guideline_forceout,
+            guideline_av_before_monthly_deduction=av_before_deduction,
             nar_av=ded.nar_av,
             standard_db=ded.standard_db,
             corridor_rate=ded.corridor_rate,
@@ -796,7 +860,7 @@ class IllustrationEngine:
             policy_debt=accrual_loan.policy_debt,
             premiums_ytd=prem.premiums_ytd,
             premiums_to_date=prem.premiums_to_date,
-            withdrawals_to_date=cash_flows.withdrawals_to_date,
+            withdrawals_to_date=withdrawals_to_date,
             cost_basis=prem.cost_basis,
             cumulative_interest=state.cumulative_interest + intr.interest_credited,
             cumulative_charges=state.cumulative_charges + ded.total_deduction,
@@ -847,6 +911,26 @@ def _completed_months(start, end) -> int:
     if end.day < start.day:
         months -= 1
     return max(months, 0)
+
+
+def _accumulate_guideline_premium(
+    state: MonthlyState,
+    policy: IllustrationPolicyData,
+    is_anniversary: bool,
+) -> float:
+    return state.accumulated_glp + (policy.glp if is_anniversary else 0.0)
+
+
+def _apply_guideline_forceout(
+    accumulated_glp: float,
+    premiums_to_date: float,
+    withdrawals_to_date: float,
+    account_value_before_deduction: float,
+) -> tuple[float, float, float]:
+    forceout = max(0.0, (premiums_to_date - withdrawals_to_date) - accumulated_glp)
+    withdrawals_after_forceout = withdrawals_to_date + forceout
+    account_value_after_forceout = account_value_before_deduction - forceout
+    return forceout, withdrawals_after_forceout, account_value_after_forceout
 
 
 def _calculate_surrender_charge(
