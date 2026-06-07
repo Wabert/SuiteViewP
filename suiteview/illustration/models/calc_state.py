@@ -121,6 +121,7 @@ class MonthlyState:
     # ── 3b. Loan Interest Accrual (cols 587-592) ──
     reg_loan_charge: float = 0.0        # Regular loan interest accrued this month
     pref_loan_charge: float = 0.0       # Preferred loan interest accrued this month
+    vbl_loan_charge: float = 0.0        # Variable loan interest accrued this month
     end_rg_loan_princ: float = 0.0      # End-of-month reg loan principal
     end_rg_loan_accrued: float = 0.0    # End-of-month reg loan accrued interest
     end_pf_loan_princ: float = 0.0      # End-of-month pref loan principal

@@ -49,10 +49,13 @@ from suiteview.audit.adhoc_source_intake import (
 from suiteview.audit.query_object import (
     OBJECT_KIND_ADHOC_SOURCE,
     OBJECT_KIND_CYBERLIFE,
+    OBJECT_KIND_EXECUTABLE,
     OBJECT_KIND_MANUAL_SQL,
     OBJECT_KIND_VISUAL,
     QueryObject,
+    object_from_qdefinition,
 )
+from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit.query_runner import execute_odbc_query
 from suiteview.audit import query_object_store
 from suiteview.core.odbc_utils import ACCESS, DB2, SQL_SERVER, UNKNOWN, detect_dialect
@@ -83,6 +86,18 @@ _BTN_DANGER_STYLE = (
     "QPushButton:hover { background-color: #E00000; }"
 )
 
+_DATAFORGE_NODE_PREFIX = "__dataforge_forge__:"
+
+
+def _dataforge_node_value(forge_name: str) -> str:
+    return f"{_DATAFORGE_NODE_PREFIX}{forge_name}"
+
+
+def _dataforge_node_name(value) -> str:
+    if isinstance(value, str) and value.startswith(_DATAFORGE_NODE_PREFIX):
+        return value[len(_DATAFORGE_NODE_PREFIX):]
+    return ""
+
 
 def _kind_label(kind: str) -> str:
     labels = {
@@ -99,6 +114,81 @@ def _object_group_label(obj: QueryObject) -> str:
     if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
         return "File Sources"
     return _kind_label(obj.kind)
+
+
+def _dataforge_info(obj: QueryObject) -> tuple[str, str] | None:
+    dataforge = (obj.config or {}).get("dataforge", {})
+    forge_name = str(dataforge.get("forge_name", "")).strip()
+    source_name = str(dataforge.get("source_name", "")).strip()
+    if forge_name:
+        return forge_name, source_name or obj.name
+
+    match = re.match(r"^(?P<source>.+) \[(?P<forge>[^\]]+)\]$", obj.name)
+    if match:
+        return match.group("forge"), match.group("source")
+
+    return None
+
+
+def _dataforge_display_name(forge_name: str) -> str:
+    name = forge_name.strip()
+    return "(new)" if name.lower() == "dataforge" else name or "(new)"
+
+
+def _file_source_type_label(source_type: str, metadata: dict | None = None) -> str:
+    metadata = metadata or {}
+    path = str(metadata.get("path", "")).strip()
+    if path:
+        filename = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        if "." in filename:
+            suffix = filename.rsplit(".", 1)[-1].strip().lower()
+            if suffix:
+                return f".{suffix}"
+    source_type = source_type.strip().lower()
+    fallback = {
+        "csv": ".csv",
+        "excel": "Excel",
+        "fixed_width": "Fixed Width",
+    }
+    return fallback.get(source_type, "Flat File")
+
+
+def _display_dsn_for_object(obj: QueryObject) -> str:
+    if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
+        source = obj.sources[0] if obj.sources else None
+        return _file_source_type_label(
+            source.source_type if source is not None else obj.source_design,
+            source.metadata if source is not None else (obj.config or {}).get("source_metadata", {}),
+        )
+    return obj.dsn.strip()
+
+
+def _display_dsn_for_definition(definition: dict) -> str:
+    kind = str(definition.get("kind", "")).strip()
+    query_object_kind = str(definition.get("query_object_kind", "")).strip()
+    source_design = str(definition.get("source_design", "")).strip().lower()
+    metadata = (
+        definition.get("query_object_source_metadata")
+        or definition.get("source_metadata")
+        or (definition.get("config", {}) or {}).get("source_metadata")
+        or {}
+    )
+    if kind == OBJECT_KIND_ADHOC_SOURCE or query_object_kind == OBJECT_KIND_ADHOC_SOURCE:
+        return _file_source_type_label(source_design, metadata)
+    if source_design in {"csv", "excel", "fixed_width"} and metadata:
+        return _file_source_type_label(source_design, metadata)
+    return str(definition.get("dsn", "")).strip()
+
+
+def _object_group_order(label: str) -> tuple[int, str]:
+    order = {
+        "Cyberlife Objects": 10,
+        "File Sources": 20,
+        "Manual SQL Objects": 30,
+        "Visual Queries": 40,
+        "Executable Queries": 50,
+    }
+    return order.get(label, 90), label.lower()
 
 
 def _preview_dialect_for_object(obj: QueryObject) -> str:
@@ -131,8 +221,11 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
     def __init__(self, parent=None):
         self._current: QueryObject | None = None
+        self._current_forge_name = ""
         self._loading_detail = False
         self._audit_parent = parent
+        self._dataforge_builder_windows: list[QDialog] = []
+        self._audit_builder_windows: list[QWidget] = []
         super().__init__(
             title="Query Object Browser",
             default_size=(1120, 620),
@@ -191,6 +284,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             "QTreeWidget::item:selected { background-color: #A0C4E8; color: black; }"
         )
         self.tree.currentItemChanged.connect(self._on_tree_selection)
+        self.tree.itemDoubleClicked.connect(self._on_tree_double_clicked)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_tree_context_menu)
         left_lay.addWidget(self.tree, 1)
@@ -390,6 +484,35 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         )
         return table
 
+    @staticmethod
+    def _set_table_headers(table: QTableWidget, headers: list[str]) -> None:
+        table.clear()
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setRowCount(0)
+
+    @staticmethod
+    def _set_table_rows(table: QTableWidget, rows: list[list[object]]) -> None:
+        table.setRowCount(len(rows))
+        for row_index, values in enumerate(rows):
+            for col_index, value in enumerate(values):
+                table.setItem(row_index, col_index, QTableWidgetItem(str(value)))
+        table.resizeColumnsToContents()
+
+    def _configure_object_tables(self) -> None:
+        self._set_table_headers(self.tbl_sources, ["Name", "Type", "DSN", "Status"])
+        self._set_table_headers(self.tbl_outputs, ["Field", "Type", "Display Name", "Source"])
+        self._set_table_headers(self.tbl_inputs, ["Field", "Type", "Display Name", "Source"])
+        self._set_table_headers(self.tbl_joins, ["Field", "Type", "Display Name", "Source"])
+        self._set_table_headers(self.tbl_fields, ["Field", "Type", "Role", "Display Name", "Source"])
+
+    def _configure_forge_tables(self) -> None:
+        self._set_table_headers(self.tbl_sources, ["Source", "Query Copy", "Kind", "DSN", "Columns", "Snapshot", "Rows"])
+        self._set_table_headers(self.tbl_outputs, ["Field", "Display Name", "Source", "Type"])
+        self._set_table_headers(self.tbl_inputs, ["Filter Tab", "Field", "Mode", "Value"])
+        self._set_table_headers(self.tbl_joins, ["Left Source", "Left Field(s)", "Right Source", "Right Field(s)", "Type"])
+        self._set_table_headers(self.tbl_fields, ["Field", "Type", "Role", "Source"])
+
     def refresh(self):
         """Reload the object tree from disk."""
         current_name = None
@@ -397,30 +520,60 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         if current is not None:
             current_name = current.data(0, Qt.ItemDataRole.UserRole)
         self.tree.clear()
+        self._ensure_dataforge_query_objects()
         objects = query_object_store.list_objects()
         groups: dict[str, list[QueryObject]] = {}
+        dataforge_groups: dict[str, list[QueryObject]] = {}
         for obj in objects:
+            dataforge_info = _dataforge_info(obj)
+            if dataforge_info is not None:
+                forge_name, _ = dataforge_info
+                dataforge_groups.setdefault(forge_name, []).append(obj)
+                continue
             groups.setdefault(_object_group_label(obj), []).append(obj)
 
         fallback_item = None
         selected_item = None
 
-        for group_label in sorted(groups):
+        def _add_object_child(parent_item: QTreeWidgetItem, obj: QueryObject,
+                              label: str | None = None):
+            nonlocal fallback_item, selected_item
+            child = QTreeWidgetItem([label or obj.name])
+            child.setFont(0, _FONT)
+            child.setData(0, Qt.ItemDataRole.UserRole, obj.name)
+            parent_item.addChild(child)
+            if fallback_item is None:
+                fallback_item = child
+            if current_name == obj.name:
+                selected_item = child
+
+        for group_label in sorted(groups, key=_object_group_order):
             parent = QTreeWidgetItem([group_label])
             parent.setFont(0, _FONT_BOLD)
             parent.setForeground(0, QColor("#1E5BA8"))
             parent.setData(0, Qt.ItemDataRole.UserRole, None)
             self.tree.addTopLevelItem(parent)
             for obj in groups[group_label]:
-                child = QTreeWidgetItem([obj.name])
-                child.setFont(0, _FONT)
-                child.setData(0, Qt.ItemDataRole.UserRole, obj.name)
-                parent.addChild(child)
-                if fallback_item is None:
-                    fallback_item = child
-                if current_name == obj.name:
-                    selected_item = child
+                _add_object_child(parent, obj)
             parent.setExpanded(True)
+
+        if dataforge_groups:
+            dataforge_parent = QTreeWidgetItem(["DataForge"])
+            dataforge_parent.setFont(0, _FONT_BOLD)
+            dataforge_parent.setForeground(0, QColor("#C2410C"))
+            dataforge_parent.setData(0, Qt.ItemDataRole.UserRole, None)
+            self.tree.addTopLevelItem(dataforge_parent)
+            for forge_name in sorted(dataforge_groups, key=str.lower):
+                forge_node = QTreeWidgetItem([_dataforge_display_name(forge_name)])
+                forge_node.setFont(0, _FONT_BOLD)
+                forge_node.setForeground(0, QColor("#C2410C"))
+                forge_node.setData(0, Qt.ItemDataRole.UserRole, _dataforge_node_value(forge_name))
+                dataforge_parent.addChild(forge_node)
+                for obj in sorted(dataforge_groups[forge_name], key=lambda item: item.name.lower()):
+                    _, source_label = _dataforge_info(obj) or (forge_name, obj.name)
+                    _add_object_child(forge_node, obj, source_label)
+                forge_node.setExpanded(True)
+            dataforge_parent.setExpanded(True)
 
         item_to_select = selected_item or fallback_item
         if item_to_select is not None:
@@ -428,11 +581,67 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         else:
             self._clear_detail()
 
+    def _ensure_dataforge_query_objects(self) -> None:
+        """Publish missing browser QueryObjects from saved DataForge definitions."""
+        from suiteview.audit.dataforge import dataforge_store
+
+        for forge in dataforge_store.list_forges():
+            for source in forge.sources:
+                definition = source.definition or {}
+                copy_name = str(definition.get("name", "")).strip() or source.query_name
+                if not copy_name:
+                    continue
+                source_label = self._definition_source_label(definition, source.query_name)
+                existing = query_object_store.load_object(copy_name)
+                if existing is not None and _dataforge_info(existing) is not None:
+                    continue
+                try:
+                    if "kind" in definition:
+                        obj = QueryObject.from_dict(definition)
+                    else:
+                        qd = QDefinition.from_dict(definition)
+                        qd.forge_name = forge.name
+                        obj = object_from_qdefinition(qd)
+                except Exception:
+                    logger.exception("Failed to repair DataForge QueryObject: %s", copy_name)
+                    continue
+                obj.name = copy_name
+                obj.config = dict(obj.config or {})
+                obj.config["dataforge"] = {
+                    "forge_name": forge.name,
+                    "source_name": source_label,
+                }
+                obj.source_design = obj.source_design or source_label
+                query_object_store.save_object(obj)
+
+    def select_object(self, name: str):
+        """Refresh and select a Query Object by name if it exists."""
+        self.refresh()
+        def _select_under(item: QTreeWidgetItem) -> bool:
+            if item.data(0, Qt.ItemDataRole.UserRole) == name:
+                self.tree.setCurrentItem(item)
+                return True
+            for index in range(item.childCount()):
+                if _select_under(item.child(index)):
+                    return True
+            return False
+
+        for i in range(self.tree.topLevelItemCount()):
+            if _select_under(self.tree.topLevelItem(i)):
+                return
+
+    def _select_object(self, name: str):
+        self.select_object(name)
+
     def _on_tree_selection(self, current, previous):
         if current is None:
             self._clear_detail()
             return
         name = current.data(0, Qt.ItemDataRole.UserRole)
+        forge_name = _dataforge_node_name(name)
+        if forge_name:
+            self._show_forge_detail(forge_name)
+            return
         if not name:
             self._clear_detail()
             return
@@ -442,11 +651,32 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return
         self._show_detail(obj)
 
+    def _on_tree_double_clicked(self, item, column):
+        name = item.data(0, Qt.ItemDataRole.UserRole)
+        forge_name = _dataforge_node_name(name)
+        if forge_name:
+            self._open_dataforge_builder(forge_name)
+            return
+        if self._current is not None and self._can_open_in_builder(self._current):
+            self._on_open_builder()
+
     def _show_tree_context_menu(self, pos):
         item = self.tree.itemAt(pos)
         if item is None:
             return
         name = item.data(0, Qt.ItemDataRole.UserRole)
+        forge_name = _dataforge_node_name(name)
+        if forge_name:
+            self.tree.setCurrentItem(item)
+            menu = QMenu(self)
+            open_forge = menu.addAction("Open DataForge in Builder")
+            delete_forge = menu.addAction("Delete DataForge")
+            chosen = menu.exec(self.tree.viewport().mapToGlobal(pos))
+            if chosen == open_forge:
+                self._open_dataforge_builder(forge_name)
+            elif chosen == delete_forge:
+                self._delete_dataforge(forge_name)
+            return
         if not name:
             return
         obj = query_object_store.load_object(name)
@@ -482,6 +712,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
     def _clear_detail(self):
         self._current = None
+        self._current_forge_name = ""
+        self._configure_object_tables()
         self.lbl_name.setText("Select a QueryObject")
         self.lbl_kind.setText("")
         self.lbl_status.setText("")
@@ -506,9 +738,11 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def _show_detail(self, obj: QueryObject):
         self._loading_detail = True
         self._current = obj
+        self._current_forge_name = ""
+        self._configure_object_tables()
         self.lbl_name.setText(obj.name)
         self.lbl_kind.setText(_kind_label(obj.kind))
-        self.lbl_status.setText(f"Status: {obj.metadata_status}    DSN: {obj.dsn or '-'}")
+        self.lbl_status.setText(f"Status: {obj.metadata_status}    DSN: {_display_dsn_for_object(obj) or '-'}")
         self.btn_delete.setEnabled(True)
         self.btn_save.setEnabled(True)
         self.btn_open_builder.setEnabled(self._can_open_in_builder(obj))
@@ -522,7 +756,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
         self.tbl_sources.setRowCount(len(obj.sources))
         for row, source in enumerate(obj.sources):
-            values = [source.name, source.source_type, source.dsn, source.status]
+            dsn = _file_source_type_label(source.source_type, source.metadata) if obj.kind == OBJECT_KIND_ADHOC_SOURCE else source.dsn
+            values = [source.name, source.source_type, dsn, source.status]
             for col, value in enumerate(values):
                 self.tbl_sources.setItem(row, col, QTableWidgetItem(str(value)))
         self.tbl_sources.resizeColumnsToContents()
@@ -554,6 +789,204 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             "updated_at": obj.updated_at.isoformat(),
         }, indent=2))
         self._loading_detail = False
+
+    def _show_forge_detail(self, forge_name: str):
+        from suiteview.audit.dataforge import dataforge_store
+
+        self._loading_detail = True
+        self._current = None
+        self._current_forge_name = forge_name
+        self._configure_forge_tables()
+
+        forge = dataforge_store.load_forge(forge_name)
+        forge_objects = self._query_objects_for_forge(forge_name)
+        display_name = _dataforge_display_name(forge_name)
+
+        self.lbl_name.setText(f"Forge: {display_name}")
+        self.lbl_kind.setText("DataForge")
+        saved_text = "Saved" if forge is not None else "Query copies only"
+        source_count = len(forge.sources) if forge is not None else len(forge_objects)
+        self.lbl_status.setText(f"Status: {saved_text}    Sources: {source_count}")
+        self.btn_delete.setEnabled(True)
+        self.btn_save.setEnabled(False)
+        self.btn_open_builder.setEnabled(forge is not None)
+        self.btn_preview_file.setEnabled(False)
+        self.btn_promote.setEnabled(False)
+        self.btn_promote.setVisible(False)
+        self.edit_name.setText(display_name)
+        self.edit_origin.setText("DataForge")
+        self.edit_tags.clear()
+        self.edit_description.setText(
+            "Saved DataForge definition and its forge-local query copies." if forge is not None
+            else "Forge-local query copies without a saved DataForge definition.")
+
+        source_rows = self._forge_source_rows(forge, forge_objects)
+        self._set_table_rows(self.tbl_sources, source_rows)
+        self.tbl_sources.setColumnWidth(0, max(self.tbl_sources.columnWidth(0), 180))
+        self.tbl_sources.setColumnWidth(1, max(self.tbl_sources.columnWidth(1), 220))
+
+        output_rows, all_field_rows = self._forge_field_rows(forge, forge_objects)
+        self._set_table_rows(self.tbl_outputs, output_rows)
+        self._set_table_rows(self.tbl_fields, all_field_rows)
+        self._set_table_rows(self.tbl_inputs, self._forge_filter_rows(forge))
+        self._set_table_rows(self.tbl_joins, self._forge_join_rows(forge))
+        self.txt_sql.setPlainText(self._forge_sql_text(forge, forge_objects))
+        self.txt_config.setPlainText(json.dumps(
+            forge.to_dict() if forge is not None else {
+                "name": forge_name,
+                "query_objects": [obj.to_dict() for obj in forge_objects],
+            },
+            indent=2,
+        ))
+        self._loading_detail = False
+
+    @staticmethod
+    def _definition_source_label(definition: dict, fallback: str) -> str:
+        config = definition.get("config", {}) if isinstance(definition, dict) else {}
+        dataforge = config.get("dataforge", {}) if isinstance(config, dict) else {}
+        return str(dataforge.get("source_name", "")).strip() or fallback
+
+    def _query_objects_for_forge(self, forge_name: str) -> list[QueryObject]:
+        objects = []
+        for obj in query_object_store.list_objects():
+            info = _dataforge_info(obj)
+            if info is not None and info[0] == forge_name:
+                objects.append(obj)
+        return sorted(objects, key=lambda item: item.name.lower())
+
+    def _forge_source_rows(self, forge, forge_objects: list[QueryObject]) -> list[list[object]]:
+        rows: list[list[object]] = []
+        seen = set()
+        objects_by_name = {obj.name: obj for obj in forge_objects}
+        if forge is not None:
+            for source in forge.sources:
+                definition = source.definition or {}
+                copy_name = str(definition.get("name", "")).strip() or source.query_name
+                source_label = self._definition_source_label(definition, source.query_name)
+                fields = definition.get("fields") or []
+                result_columns = definition.get("result_columns") or []
+                column_count = len(fields) or len(result_columns)
+                snapshot = "Stale" if source.snapshot.stale else source.snapshot.created_at or "Not refreshed"
+                dsn_label = _display_dsn_for_definition(definition)
+                source_object = objects_by_name.get(copy_name) or objects_by_name.get(source.query_name)
+                if source_object is not None and not dsn_label:
+                    dsn_label = _display_dsn_for_object(source_object)
+                rows.append([
+                    source_label,
+                    copy_name,
+                    _kind_label(str(definition.get("kind", "executable_query"))),
+                    dsn_label,
+                    column_count,
+                    snapshot,
+                    source.snapshot.row_count or "",
+                ])
+                seen.add(copy_name)
+        for obj in forge_objects:
+            if obj.name in seen:
+                continue
+            info = _dataforge_info(obj)
+            rows.append([
+                info[1] if info else obj.name,
+                obj.name,
+                _kind_label(obj.kind),
+                _display_dsn_for_object(obj),
+                len(obj.fields),
+                "",
+                "",
+            ])
+        return rows
+
+    def _forge_field_rows(self, forge, forge_objects: list[QueryObject]) -> tuple[list[list[object]], list[list[object]]]:
+        display_state = (forge.config or {}).get("display_tab", {}) if forge is not None else {}
+        selected = set(display_state.get("selected", []))
+        display_all = display_state.get("display_all", True)
+        output_rows: list[list[object]] = []
+        all_rows: list[list[object]] = []
+
+        def add_field(field_name: str, data_type: str, role: str, source: str, display_name: str = ""):
+            all_rows.append([field_name, data_type, role, source])
+            if display_all or not selected or field_name in selected or f"{source}.{field_name}" in selected:
+                if role in {"", "output"}:
+                    output_rows.append([field_name, display_name or field_name, source, data_type])
+
+        for obj in forge_objects:
+            info = _dataforge_info(obj)
+            source_label = info[1] if info else obj.name
+            for field in obj.fields:
+                add_field(field.name, field.data_type, field.role, source_label, field.display_name)
+
+        if forge is not None and not all_rows:
+            for source in forge.sources:
+                definition = source.definition or {}
+                source_label = self._definition_source_label(definition, source.query_name)
+                column_types = definition.get("column_types", {}) or {}
+                for field_name in definition.get("result_columns", []) or []:
+                    add_field(field_name, column_types.get(field_name, ""), "output", source_label)
+        return output_rows, all_rows
+
+    @staticmethod
+    def _forge_filter_rows(forge) -> list[list[object]]:
+        if forge is None:
+            return []
+        rows: list[list[object]] = []
+        modes = ["contains", "regex", "combo", "list", "range"]
+        for tab in (forge.config or {}).get("filter_tabs", []) or []:
+            tab_name = tab.get("tab_name", "Filter")
+            fields = (tab.get("grid", {}) or {}).get("fields", {}) or {}
+            for field_key, state in fields.items():
+                mode_idx = int(state.get("mode", 0) or 0)
+                mode = modes[mode_idx] if 0 <= mode_idx < len(modes) else str(mode_idx)
+                if mode == "range":
+                    value = f"{state.get('val', '')} to {state.get('hi', '')}".strip()
+                elif mode == "list":
+                    value = ", ".join(str(v) for v in state.get("list_selected", []))
+                else:
+                    value = state.get("val", "")
+                rows.append([tab_name, field_key, mode, value])
+        return rows
+
+    @staticmethod
+    def _forge_join_rows(forge) -> list[list[object]]:
+        if forge is None:
+            return []
+        joins_state = (forge.config or {}).get("joins_tab", {}) or {}
+        joins = joins_state.get("joins", []) or []
+        rows: list[list[object]] = []
+        for join in joins:
+            keys = join.get("keys", []) or []
+            left_fields = [key.get("left_field", "") for key in keys]
+            right_fields = [key.get("right_field", "") for key in keys]
+            rows.append([
+                join.get("left_source", ""),
+                ", ".join(left_fields),
+                join.get("right_source", ""),
+                ", ".join(right_fields),
+                join.get("how", "inner"),
+            ])
+        for join in (forge.config or {}).get("joins", []) or []:
+            rows.append([
+                join.get("left_source", ""),
+                ", ".join(join.get("left_keys", [])),
+                join.get("right_source", ""),
+                ", ".join(join.get("right_keys", [])),
+                join.get("how", "inner"),
+            ])
+        return rows
+
+    @staticmethod
+    def _forge_sql_text(forge, forge_objects: list[QueryObject]) -> str:
+        chunks: list[str] = []
+        if forge is not None:
+            for source in forge.sources:
+                definition = source.definition or {}
+                sql = str(definition.get("sql", "")).strip()
+                if sql:
+                    label = definition.get("name", source.query_name)
+                    chunks.append(f"-- Source: {label}\n{sql}")
+        for obj in forge_objects:
+            if obj.sql.strip() and all(f"-- Source: {obj.name}\n" not in chunk for chunk in chunks):
+                chunks.append(f"-- Source: {obj.name}\n{obj.sql.strip()}")
+        return "\n\n".join(chunks)
 
     def _populate_role_table(self, table: QTableWidget, obj: QueryObject, roles: set[str]):
         fields = [field for field in obj.fields if field.role in roles]
@@ -613,18 +1046,82 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         QMessageBox.information(self, "Query Object Saved", f"Saved \"{new_name}\".")
 
     def _on_open_builder(self):
+        if self._current_forge_name:
+            self._open_dataforge_builder(self._current_forge_name)
+            return
         if self._current is None:
             return
-        parent = self._audit_parent or self.parent() or self._find_audit_window()
+        parent = self._audit_window_for_builder()
         opener = getattr(parent, "open_query_object_in_builder", None)
         if opener is None:
             QMessageBox.information(
                 self,
                 "Builder Unavailable",
-                "Open the Query Object Browser from the Audit window to edit Query Objects.",
+                "Could not open the Audit builder for this Query Object.",
             )
             return
         opener(self._current.name)
+
+    def _open_dataforge_builder(self, forge_name: str):
+        parent = self._audit_window_for_builder()
+        opener = getattr(parent, "open_dataforge_in_builder", None)
+        if opener is None:
+            QMessageBox.information(
+                self,
+                "Builder Unavailable",
+                "Could not open the Audit DataForge builder.",
+            )
+            return
+        opener(forge_name)
+
+    def _audit_window_for_builder(self):
+        for candidate in (self._audit_parent, self.parent(), self._find_audit_window()):
+            if not self._is_audit_window(candidate):
+                continue
+            if self._show_audit_window(candidate):
+                return candidate
+        try:
+            from suiteview.audit.main import create_audit_window
+            window = create_audit_window()
+        except Exception:
+            logger.exception("Failed to create AuditWindow for QueryObject builder")
+            return None
+        self._audit_parent = window
+        self._audit_builder_windows.append(window)
+        window.destroyed.connect(lambda _=None, win=window: self._forget_audit_window(win))
+        return window
+
+    @staticmethod
+    def _is_audit_window(candidate) -> bool:
+        if candidate is None:
+            return False
+        try:
+            return (
+                hasattr(candidate, "open_query_object_in_builder")
+                or hasattr(candidate, "open_dataforge_in_builder")
+            )
+        except RuntimeError:
+            return False
+
+    def _show_audit_window(self, window) -> bool:
+        try:
+            if not window.isVisible():
+                window.show()
+            if window.isMinimized():
+                window.showNormal()
+            window.raise_()
+            window.activateWindow()
+            return True
+        except RuntimeError:
+            if self._audit_parent is window:
+                self._audit_parent = None
+            return False
+
+    def _forget_audit_window(self, window):
+        if window in self._audit_builder_windows:
+            self._audit_builder_windows.remove(window)
+        if self._audit_parent is window:
+            self._audit_parent = None
 
     @staticmethod
     def _find_audit_window():
@@ -696,6 +1193,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         return f"{base} {suffix}"
 
     def _on_delete(self):
+        if self._current_forge_name:
+            self._delete_dataforge(self._current_forge_name)
+            return
         if self._current is None:
             return
         name = self._current.name
@@ -711,6 +1211,47 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         query_object_store.delete_object(name)
         self.refresh()
         self._clear_detail()
+
+    def _delete_dataforge(self, forge_name: str):
+        from suiteview.audit import qdef_store
+        from suiteview.audit.dataforge import dataforge_store
+
+        display_name = _dataforge_display_name(forge_name)
+        forge_objects = self._query_objects_for_forge(forge_name)
+        reply = QMessageBox.question(
+            self,
+            "Delete DataForge",
+            f"Delete DataForge \"{display_name}\"?\n\n"
+            "This deletes the saved forge, snapshots, and its DataForge query copies. "
+            "Original query objects remain.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._delete_dataforge_records(forge_name, forge_objects)
+        parent = self._audit_parent or self.parent() or self._find_audit_window()
+        handler = getattr(parent, "_on_forge_deleted_from_group", None)
+        if callable(handler):
+            handler(forge_name)
+        refresher = getattr(parent, "_refresh_picker_forge_list", None)
+        if callable(refresher):
+            refresher()
+        self.refresh()
+        self._clear_detail()
+
+    @staticmethod
+    def _delete_dataforge_records(forge_name: str, forge_objects: list[QueryObject]) -> None:
+        from suiteview.audit import qdef_store
+        from suiteview.audit.dataforge import dataforge_store
+
+        dataforge_store.delete_forge(forge_name)
+        for obj in forge_objects:
+            try:
+                qdef_store.delete_qdef(obj.name, forge_name=forge_name)
+            except Exception:
+                logger.exception("Failed to delete DataForge QDefinition: %s", obj.name)
+            query_object_store.delete_object(obj.name)
 
     def _on_promote(self):
         if self._current is None:
@@ -742,6 +1283,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
     @staticmethod
     def _can_open_in_builder(obj: QueryObject) -> bool:
+        if (obj.config or {}).get("dataforge") and obj.kind == OBJECT_KIND_EXECUTABLE:
+            return True
         return obj.kind in {
             OBJECT_KIND_VISUAL,
             OBJECT_KIND_CYBERLIFE,

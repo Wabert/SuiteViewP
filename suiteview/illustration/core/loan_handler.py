@@ -30,6 +30,7 @@ class LoanState:
     vbl_loan_accrued: float = 0.0
     reg_loan_charge: float = 0.0     # Regular loan interest accrued this month
     pref_loan_charge: float = 0.0    # Preferred loan interest accrued this month
+    vbl_loan_charge: float = 0.0     # Variable loan interest accrued this month
 
     @property
     def policy_debt(self) -> float:
@@ -90,6 +91,7 @@ def accrue_loan_interest(
     loan: LoanState,
     config: PlancodeConfig,
     days_in_month: int,
+    variable_loan_charge_rate: float | None = None,
 ) -> LoanState:
     """Accrue monthly loan interest charge (in-arrears).
 
@@ -110,7 +112,8 @@ def accrue_loan_interest(
 
     rg_interest = loan.rg_loan_princ * config.loan_charge_rate_guar * days_in_month / 365.0
     pf_interest = loan.pf_loan_princ * config.pref_loan_charge_rate_guar * days_in_month / 365.0
-    vbl_interest = 0.0  # Variable loan rate handled separately if enabled
+    vbl_rate = variable_loan_charge_rate if variable_loan_charge_rate is not None else 0.0
+    vbl_interest = loan.vbl_loan_princ * vbl_rate * days_in_month / 365.0
 
     return LoanState(
         rg_loan_princ=loan.rg_loan_princ,
@@ -121,6 +124,7 @@ def accrue_loan_interest(
         vbl_loan_accrued=loan.vbl_loan_accrued + vbl_interest,
         reg_loan_charge=rg_interest,
         pref_loan_charge=pf_interest,
+        vbl_loan_charge=vbl_interest,
     )
 
 

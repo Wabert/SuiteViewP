@@ -1570,6 +1570,11 @@ class PolicyInformation:
     def total_variable_loan_accrued(self) -> Decimal:
         """Total variable loan accrued interest (UL only, fund LZ)."""
         return self.loan_records.total_variable_loan_accrued
+
+    @property
+    def variable_loan_charge_rate(self) -> Optional[Decimal]:
+        """Most recent variable loan charge rate, or None when not applicable."""
+        return self.loan_records.variable_loan_charge_rate
     
     @property
     def policy_debt(self) -> Decimal:

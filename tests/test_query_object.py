@@ -4,7 +4,8 @@ import unittest
 from datetime import datetime
 from unittest.mock import patch
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QListWidgetItem, QWidget
 
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit.adhoc_source_intake import (
@@ -27,6 +28,7 @@ from suiteview.audit.query_object import (
     SOURCE_STATUS_REGISTERED,
     adhoc_source_object,
     cyberlife_query_object,
+    fields_from_columns,
     manual_sql_query_object,
     object_from_qdefinition,
     object_from_saved_query,
@@ -41,10 +43,13 @@ from suiteview.audit.query_object_store import (
     restore_saved_visual_design,
     save_object,
 )
-from suiteview.audit.query_object_viewer_window import _limited_preview_sql, _object_group_label, _preview_dialect_for_object
+from suiteview.audit.query_object_viewer_window import _display_dsn_for_definition, _display_dsn_for_object, _limited_preview_sql, _object_group_label, _preview_dialect_for_object
 from suiteview.audit.query_object_viewer_window import QueryObjectViewerWindow
 from suiteview.audit.saved_query import SavedQuery
 from suiteview.audit import qdef_store, saved_query_store
+from suiteview.audit.dataforge.query_field_picker import QueryFieldPicker, _group_query_objects_for_selector, _load_query_source
+from suiteview.audit.dataforge import dataforge_store
+from suiteview.audit.dataforge.dataforge_model import DataForge, DataForgeSource
 
 
 class QueryObjectTests(unittest.TestCase):
@@ -358,6 +363,27 @@ class QueryObjectTests(unittest.TestCase):
         self.assertEqual(qdef.query_object_kind, OBJECT_KIND_ADHOC_SOURCE)
         self.assertEqual(qdef.query_object_source_metadata["path"], "C:/temp/loose_premiums.csv")
         self.assertEqual(qdef.source_design, "csv")
+
+    def test_adhoc_qdefinition_round_trip_preserves_file_source_kind(self):
+        obj = adhoc_source_object(
+            "Loose Premiums [Forge]",
+            source_type="csv",
+            metadata={"path": "C:/temp/loose_premiums.csv"},
+            columns=["Policy", "Amount"],
+            column_types={"Policy": "TEXT", "Amount": "DECIMAL"},
+        )
+        obj.config["dataforge"] = {
+            "forge_name": "Forge",
+            "source_name": "Loose Premiums",
+        }
+
+        qdef = QDefinition.from_dict(qdefinition_from_query_object(obj).to_dict())
+        restored = object_from_qdefinition(qdef)
+
+        self.assertEqual(restored.kind, OBJECT_KIND_ADHOC_SOURCE)
+        self.assertEqual(restored.sources[0].source_type, "csv")
+        self.assertEqual(restored.sources[0].metadata["path"], "C:/temp/loose_premiums.csv")
+        self.assertEqual(restored.config["dataforge"]["source_name"], "Loose Premiums")
 
     def test_adhoc_csv_metadata_loads_dataframe(self):
         with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as handle:
@@ -733,6 +759,25 @@ class QueryObjectTests(unittest.TestCase):
         else:
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_dir
 
+    def test_query_object_viewer_shows_hidden_audit_parent_for_builder(self):
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+
+        browser = QueryObjectViewerWindow()
+        audit_window = QWidget()
+        audit_window.open_dataforge_in_builder = lambda forge_name: None
+        browser._audit_parent = audit_window
+
+        try:
+            self.assertFalse(audit_window.isVisible())
+            selected = browser._audit_window_for_builder()
+
+            self.assertIs(selected, audit_window)
+            self.assertTrue(audit_window.isVisible())
+        finally:
+            browser.close()
+            audit_window.close()
+
     def test_saved_query_store_publishes_query_object(self):
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
         old_queries_dir = saved_query_store._QUERIES_DIR
@@ -792,6 +837,453 @@ class QueryObjectTests(unittest.TestCase):
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
+    def test_audit_builder_opens_dataforge_source_design_before_manual_editor(self):
+        from suiteview.audit.audit_window import AuditWindow
+
+        obj = manual_sql_query_object(
+            "Claims [Forge]",
+            sql="SELECT * FROM CLAIMS",
+            dsn="FAKE_DSN",
+            result_columns=["claim_id"],
+        )
+        obj.config["dataforge"] = {"forge_name": "Forge", "source_name": "Claims"}
+        calls = []
+        manual_calls = []
+
+        class DummyAudit:
+            def _open_dataforge_source_design(self, opened_obj):
+                calls.append(opened_obj.name)
+                return True
+
+            def open_manual_sql_object(self, opened_obj):
+                manual_calls.append(opened_obj.name)
+
+        with patch("suiteview.audit.query_object_store.load_object", return_value=obj):
+            AuditWindow.open_query_object_in_builder(DummyAudit(), obj.name)
+
+        self.assertEqual(calls, ["Claims [Forge]"])
+        self.assertEqual(manual_calls, [])
+
+    def test_forge_assist_open_builder_uses_audit_window_not_popup_editor(self):
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        picker = QueryFieldPicker()
+        calls = []
+
+        class FakeAudit:
+            def open_query_object_in_builder(self, object_name):
+                calls.append(object_name)
+
+            def raise_(self):
+                return None
+
+            def activateWindow(self):
+                return None
+
+        picker._new_audit_window_for_builder = lambda query_name: FakeAudit()
+        picker._open_manual_sql_builder = lambda *args, **kwargs: self.fail("used popup manual SQL builder")
+        picker._open_file_source_builder = lambda *args, **kwargs: self.fail("used popup file source builder")
+
+        picker._open_query_builder("Claims [Forge]")
+
+        self.assertEqual(calls, ["Claims [Forge]"])
+
+    def test_forge_assist_query_double_click_requests_join_table(self):
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        picker = QueryFieldPicker()
+        emitted = []
+        picker.query_table_requested.connect(emitted.append)
+
+        item = QListWidgetItem("Claims [Forge]")
+        item.setData(Qt.ItemDataRole.UserRole, "Claims [Forge]")
+        picker._on_query_double_clicked(item)
+
+        self.assertEqual(emitted, ["Claims [Forge]"])
+
+    def test_audit_forge_query_double_click_copies_then_adds_join_table(self):
+        from suiteview.audit.audit_window import AuditWindow
+
+        calls = []
+
+        class FakeJoins:
+            def add_query_table(self, name):
+                calls.append(name)
+                return True
+
+        class FakeTabs:
+            def setCurrentWidget(self, widget):
+                calls.append("tab")
+
+        class FakeGroup:
+            def __init__(self):
+                self._sources = {}
+                self._saved_forge_name = "Forge"
+                self.joins_tab = FakeJoins()
+                self.tab_widget = FakeTabs()
+
+            def add_source_copy(self, name):
+                qd = QDefinition(name=f"{name} [Forge]", result_columns=["claim_id"])
+                self._sources[qd.name] = qd
+                return qd
+
+            def _schedule_save(self):
+                calls.append("save")
+
+        class FakePicker:
+            def set_sources(self, names, forge_name="", source_definitions=None):
+                calls.append(tuple(names))
+
+        class FakeAudit:
+            pass
+
+        fake = FakeAudit()
+        fake._current_mode = "forge"
+        fake._dataforge_groups = {"forge": FakeGroup()}
+        fake._forge_field_picker = FakePicker()
+
+        AuditWindow._on_forge_picker_query_table_requested(fake, "Claims")
+
+        self.assertIn(("Claims [Forge]",), calls)
+        self.assertIn("Claims [Forge]", calls)
+        self.assertIn("tab", calls)
+        self.assertIn("save", calls)
+
+    def test_forge_assist_republishes_stale_copy_before_opening_builder(self):
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        with tempfile.TemporaryDirectory() as tmp_objects:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+            stale = manual_sql_query_object(
+                "Claims [Forge]",
+                sql="SELECT * FROM CLAIMS",
+                dsn="FAKE_DSN",
+                result_columns=["claim_id"],
+            )
+            save_object(stale)
+
+            qd = QDefinition(
+                name="Claims [Forge]",
+                forge_name="Forge",
+                sql="SELECT * FROM CLAIMS",
+                dsn="FAKE_DSN",
+                source_design="Claims",
+                result_columns=["claim_id"],
+            )
+            picker = QueryFieldPicker()
+            picker._sources[qd.name] = qd
+
+            class FakeSignal:
+                def connect(self, callback):
+                    return None
+
+            class FakeAudit:
+                destroyed = FakeSignal()
+
+                def open_query_object_in_builder(self, object_name):
+                    return None
+
+                def raise_(self):
+                    return None
+
+                def activateWindow(self):
+                    return None
+
+            with patch("suiteview.audit.main.create_audit_window", return_value=FakeAudit()):
+                picker._new_audit_window_for_builder(qd.name)
+            republished = load_object(qd.name)
+
+            self.assertIsNotNone(republished)
+            self.assertEqual(republished.config["dataforge"]["forge_name"], "Forge")
+
+        if old_obj_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
+    def test_forge_assist_selector_groups_dataforge_like_browser(self):
+        normal = manual_sql_query_object(
+            "Claims", sql="SELECT * FROM CLAIMS", dsn="FAKE_DSN",
+            result_columns=["claim_id"])
+        forge_copy = manual_sql_query_object(
+            "Claims [RGA - EXECUL and Claims]",
+            sql="SELECT * FROM CLAIMS", dsn="FAKE_DSN",
+            result_columns=["claim_id"])
+        forge_copy.config["dataforge"] = {
+            "forge_name": "RGA - EXECUL and Claims",
+            "source_name": "Claims",
+        }
+
+        groups, dataforge_groups = _group_query_objects_for_selector(
+            [normal, forge_copy])
+
+        self.assertIn("Manual SQL Objects", groups)
+        self.assertEqual(groups["Manual SQL Objects"][0].name, "Claims")
+        self.assertIn("RGA - EXECUL and Claims", dataforge_groups)
+        self.assertEqual(
+            dataforge_groups["RGA - EXECUL and Claims"][0].name,
+            "Claims [RGA - EXECUL and Claims]",
+        )
+
+    def test_query_object_browser_delete_dataforge_records_keeps_original(self):
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_qdefs_dir = qdef_store._QDEFS_DIR
+        old_forges_dir = dataforge_store._FORGES_DIR
+        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs, tempfile.TemporaryDirectory() as tmp_forges:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
+            dataforge_store._FORGES_DIR = dataforge_store.Path(tmp_forges)
+
+            original = manual_sql_query_object(
+                "Claims", sql="SELECT * FROM CLAIMS", dsn="FAKE_DSN",
+                result_columns=["claim_id"])
+            forge_copy = manual_sql_query_object(
+                "Claims [RGA - EXECUL and Claims]",
+                sql="SELECT * FROM CLAIMS", dsn="FAKE_DSN",
+                result_columns=["claim_id"])
+            forge_copy.config["dataforge"] = {
+                "forge_name": "RGA - EXECUL and Claims",
+                "source_name": "Claims",
+            }
+            save_object(original)
+            save_object(forge_copy)
+            qdef_store.save_qdef(QDefinition(
+                name=forge_copy.name,
+                forge_name="RGA - EXECUL and Claims",
+                sql=forge_copy.sql,
+                dsn=forge_copy.dsn,
+                result_columns=forge_copy.result_columns,
+            ))
+            dataforge_store.save_forge(DataForge(
+                name="RGA - EXECUL and Claims",
+                sources=[DataForgeSource(
+                    query_name=forge_copy.name,
+                    definition=forge_copy.to_dict(),
+                )],
+            ))
+
+            QueryObjectViewerWindow._delete_dataforge_records(
+                "RGA - EXECUL and Claims", [forge_copy])
+
+            self.assertIsNone(dataforge_store.load_forge("RGA - EXECUL and Claims"))
+            self.assertFalse(object_exists("Claims [RGA - EXECUL and Claims]"))
+            self.assertTrue(object_exists("Claims"))
+
+        qdef_store._QDEFS_DIR = old_qdefs_dir
+        dataforge_store._FORGES_DIR = old_forges_dir
+        if old_obj_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
+    def test_forge_assist_previews_flat_file_source_without_dsn(self):
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = os.path.join(tmp_dir, "claims.csv")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("claim_id,amount\nC1,100\nC2,250\n")
+            qd = QDefinition(
+                name="CLAIMDATA [Forge]",
+                source_design="csv",
+                result_columns=["claim_id", "amount"],
+            )
+            qd.query_object_kind = OBJECT_KIND_ADHOC_SOURCE
+            qd.query_object_source_metadata = {
+                "path": path,
+                "delimiter": ",",
+                "encoding": "utf-8",
+                "header": True,
+            }
+
+            picker = QueryFieldPicker()
+            df = picker._load_preview_dataframe(qd)
+
+            self.assertEqual(list(df.columns), ["claim_id", "amount"])
+            self.assertEqual(len(df), 2)
+            self.assertEqual(df.iloc[0]["claim_id"], "C1")
+
+    def test_forge_assist_repairs_stale_flat_file_qdef_for_preview(self):
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_qdefs_dir = qdef_store._QDEFS_DIR
+        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs, tempfile.TemporaryDirectory() as tmp_data:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
+            path = os.path.join(tmp_data, "claims.csv")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("claim_id,amount\nC1,100\nC2,250\n")
+            original = adhoc_source_object(
+                "CLAIMDATA",
+                source_type="csv",
+                metadata={"path": path},
+                columns=["claim_id", "amount"],
+            )
+            save_object(original)
+            qdef_store.save_qdef(QDefinition(
+                name="CLAIMDATA [Forge]",
+                forge_name="Forge",
+                source_design="csv",
+                result_columns=["claim_id", "amount"],
+            ))
+
+            loaded = _load_query_source("CLAIMDATA [Forge]", forge_name="Forge")
+            df = QueryFieldPicker()._load_preview_dataframe(loaded)
+
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded.name, "CLAIMDATA [Forge]")
+            self.assertEqual(loaded.query_object_kind, OBJECT_KIND_ADHOC_SOURCE)
+            self.assertEqual(loaded.query_object_source_metadata["path"], path)
+            self.assertEqual(list(df.columns), ["claim_id", "amount"])
+            self.assertEqual(len(df), 2)
+
+        qdef_store._QDEFS_DIR = old_qdefs_dir
+        if old_obj_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
+    def test_forge_assist_uses_active_flat_file_definition_for_preview(self):
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = os.path.join(tmp_dir, "claims.csv")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("claim_id,amount\nC1,100\nC2,250\n")
+            qd = QDefinition(
+                name="CLAIMDATA [Forge]",
+                forge_name="Forge",
+                source_design="csv",
+                result_columns=["claim_id", "amount"],
+            )
+            qd.query_object_kind = OBJECT_KIND_ADHOC_SOURCE
+            qd.query_object_source_metadata = {"path": path}
+
+            picker = QueryFieldPicker()
+            picker.set_sources([qd.name], forge_name="Forge", source_definitions={qd.name: qd})
+            df = picker._load_preview_dataframe(picker._sources[qd.name])
+
+            self.assertEqual(list(df.columns), ["claim_id", "amount"])
+            self.assertEqual(len(df), 2)
+
+    def test_forge_assist_refresh_updates_flat_file_fields_without_changing_kind(self):
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_qdefs_dir = qdef_store._QDEFS_DIR
+        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
+            obj = adhoc_source_object(
+                "CLAIMDATA [Forge]",
+                source_type="csv",
+                metadata={"path": "claims.csv"},
+                columns=["claim_id"],
+            )
+            obj.config["dataforge"] = {"forge_name": "Forge", "source_name": "CLAIMDATA"}
+            save_object(obj)
+
+            picker = QueryFieldPicker()
+            picker.set_sources([obj.name], forge_name="Forge")
+            obj.fields = fields_from_columns(["claim_id", "amount"], source=obj.name)
+            save_object(obj)
+
+            picker._refresh_query_source(obj.name)
+            refreshed = load_object(obj.name)
+
+            self.assertEqual(picker._sources[obj.name].result_columns, ["claim_id", "amount"])
+            self.assertIsNotNone(refreshed)
+            self.assertEqual(refreshed.kind, OBJECT_KIND_ADHOC_SOURCE)
+            self.assertEqual(refreshed.result_columns, ["claim_id", "amount"])
+
+        qdef_store._QDEFS_DIR = old_qdefs_dir
+        if old_obj_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
+    def test_flat_file_query_object_displays_file_extension_in_dsn_column(self):
+        obj = adhoc_source_object(
+            "CLAIMDATA",
+            source_type="csv",
+            metadata={"path": "C:/temp/claims.csv"},
+            columns=["claim_id"],
+        )
+
+        self.assertEqual(_display_dsn_for_object(obj), ".csv")
+
+    def test_flat_file_definition_displays_file_extension_in_dsn_column(self):
+        definition = {
+            "name": "Claims [Forge]",
+            "query_object_kind": OBJECT_KIND_ADHOC_SOURCE,
+            "source_design": "csv",
+            "query_object_source_metadata": {"path": r"C:\temp\claims.txt"},
+        }
+
+        self.assertEqual(_display_dsn_for_definition(definition), ".txt")
+
+    def test_database_definition_still_displays_dsn(self):
+        definition = {
+            "name": "Rates",
+            "kind": OBJECT_KIND_EXECUTABLE,
+            "dsn": "UL_Rates",
+        }
+
+        self.assertEqual(_display_dsn_for_definition(definition), "UL_Rates")
+
+    def test_dataforge_sources_tab_uses_file_extension_from_query_object(self):
+        forge_copy = adhoc_source_object(
+            "Claims [Forge]",
+            source_type="csv",
+            metadata={"path": "C:/temp/claims.csv"},
+            columns=["claim_id"],
+        )
+        forge_copy.config["dataforge"] = {
+            "forge_name": "Forge",
+            "source_name": "Claims",
+        }
+        forge = DataForge(
+            name="Forge",
+            sources=[DataForgeSource(
+                query_name=forge_copy.name,
+                definition={
+                    "name": forge_copy.name,
+                    "kind": OBJECT_KIND_EXECUTABLE,
+                    "source_design": "csv",
+                    "result_columns": ["claim_id"],
+                },
+            )],
+        )
+        browser = QueryObjectViewerWindow.__new__(QueryObjectViewerWindow)
+
+        rows = browser._forge_source_rows(forge, [forge_copy])
+
+        self.assertEqual(rows[0][3], ".csv")
+
+    def test_dataforge_source_definition_loads_in_audit_builder(self):
+        obj = adhoc_source_object(
+            "CLAIMDATA [Forge]",
+            source_type="csv",
+            metadata={"path": "claims.csv"},
+            columns=["claim_id", "amount"],
+        )
+        source = DataForgeSource(
+            query_name=obj.name,
+            definition=obj.to_dict(),
+        )
+
+        from suiteview.audit.audit_window import AuditWindow
+
+        qd = AuditWindow._qdefinition_from_dataforge_source(source, "Forge")
+
+        self.assertIsNotNone(qd)
+        self.assertEqual(qd.name, obj.name)
+        self.assertEqual(qd.forge_name, "Forge")
+        self.assertEqual(qd.query_object_kind, OBJECT_KIND_ADHOC_SOURCE)
+        self.assertEqual(qd.result_columns, ["claim_id", "amount"])
 
 
 if __name__ == "__main__":

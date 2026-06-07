@@ -168,6 +168,7 @@ def test_state_round_trip():
     m = _two_source_model()
     m.get_source("pol").x = 120.0
     m.get_source("pol").y = 80.0
+    m.get_source("pol").width = 260.0
     m.get_source("re").collapsed = True
     m.add_link("pol", "company_code", "re", "company_code")
     m.add_link("pol", "policy_number", "re", "policy_number")
@@ -178,6 +179,7 @@ def test_state_round_trip():
     m2.from_state(state)
     assert [s.alias for s in m2.sources] == ["pol", "re"]
     assert m2.get_source("pol").x == 120.0
+    assert m2.get_source("pol").width == 260.0
     assert m2.get_source("re").collapsed is True
     j = m2.find_join("pol", "re")
     assert j.how == "outer" and len(j.keys) == 2
@@ -251,13 +253,24 @@ def test_view_smoke():
     canvas.update_queries(
         ["pol", "re"],
         {
-            "pol": ["company_code", "policy_number", "face_amount"],
+            "pol": ["company_code", "policy_number", "face_amount"] + [f"extra_{i}" for i in range(20)],
             "re": ["company_code", "policy_number", "reinsurer"],
         },
     )
-    # Two boxes were added to the scene.
+    # Query availability no longer auto-adds boxes to the join canvas.
+    boxes = [it for it in canvas.scene.items() if isinstance(it, SourceBoxItem)]
+    assert len(boxes) == 0
+
+    assert canvas.add_query_table("pol")
+    assert canvas.add_query_table("re")
+    assert not canvas.add_query_table("pol")
     boxes = [it for it in canvas.scene.items() if isinstance(it, SourceBoxItem)]
     assert len(boxes) == 2
+    pol_box = next(box for box in boxes if box.alias == "pol")
+    assert pol_box._body_rows() == pol_box.visible_rows
+    pol_box.width = 260.0
+    pol_box.resize_rows(5)
+    assert pol_box.visible_rows == 17
 
     # Programmatic link (same path the drag gesture uses) -> model + a line item.
     assert canvas.scene.add_link("pol", "company_code", "re", "company_code")
@@ -275,8 +288,12 @@ def test_view_smoke():
 
     # State round-trips through a fresh canvas and rebuilds the same lines.
     state = canvas.get_state()
+    assert next(s for s in state["sources"] if s["alias"] == "pol")["width"] == 260.0
     canvas2 = ForgeJoinCanvas()
     canvas2.set_state(state)
+    pol_box2 = next(it for it in canvas2.scene.items()
+                    if isinstance(it, SourceBoxItem) and it.alias == "pol")
+    assert pol_box2.width == 260.0
     lines2 = [it for it in canvas2.scene.items()
               if isinstance(it, JoinLineItem)]
     assert len(lines2) == 2
@@ -288,6 +305,10 @@ def test_view_smoke():
                  if isinstance(it, JoinLineItem)]
     assert len(remaining) == 1
     assert len(canvas.to_join_specs()[0].left_keys) == 1
+
+    canvas.scene.remove_source("re")
+    assert canvas.model.get_source("re") is None
+    assert not canvas.model.joins
     print("  view smoke (boxes/lines/specs/state/remove)  OK")
 
 

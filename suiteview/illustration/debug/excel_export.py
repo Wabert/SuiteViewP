@@ -54,7 +54,7 @@ _PIPELINE_ORDER = [
     "interest_credited",
     "av_end_of_month",
     # LOAN ACCRUAL (after interest — per RERUN cols 587-592)
-    "reg_loan_charge", "pref_loan_charge",
+    "reg_loan_charge", "pref_loan_charge", "vbl_loan_charge",
     "end_rg_loan_princ", "end_rg_loan_accrued",
     "end_pf_loan_princ", "end_pf_loan_accrued",
     "end_vbl_loan_princ", "end_vbl_loan_accrued",
@@ -140,7 +140,7 @@ _CURRENCY_FIELDS = {
     "cumulative_interest", "cumulative_charges",
     "rg_loan_princ", "rg_loan_accrued",
     "pf_loan_princ", "pf_loan_accrued",
-    "reg_loan_charge", "pref_loan_charge",
+    "reg_loan_charge", "pref_loan_charge", "vbl_loan_charge",
     "vbl_loan_princ", "vbl_loan_accrued",
     "end_rg_loan_princ", "end_rg_loan_accrued",
     "end_pf_loan_princ", "end_pf_loan_accrued",

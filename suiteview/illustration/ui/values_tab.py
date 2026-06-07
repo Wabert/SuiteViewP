@@ -271,7 +271,7 @@ class IllustrationValuesTab(QWidget):
             "Interest": state.interest_credited,
             "RegLn Int": state.reg_loan_charge,
             "PrefLn Int": state.pref_loan_charge,
-            "VarLn Int": 0.0,
+            "VarLn Int": state.vbl_loan_charge,
             "Account Value": state.av_end_of_month,
             "PolicyDebt": state.policy_debt,
         }

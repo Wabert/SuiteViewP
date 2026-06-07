@@ -235,10 +235,10 @@ class AuditWindow(FramelessWindowBase):
         self.btn_workbench.clicked.connect(self._toggle_saved_queries_shelf)
         self.btn_workbench.setVisible(False)
         _DF_BTN_STYLE = (
-            "QPushButton { background-color: rgba(13,148,136,0.7);"
+            "QPushButton { background-color: rgba(194,65,12,0.78);"
             + _GOLD_BTN_BASE + " }"
-            "QPushButton:hover { background-color: rgba(20,184,166,0.8); }"
-            "QPushButton:checked { background-color: #0D9488;"
+            "QPushButton:hover { background-color: rgba(234,88,12,0.86); }"
+            "QPushButton:checked { background-color: #C2410C;"
             " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
         )
         self.btn_dataforge = QPushButton("DataForge")
@@ -248,7 +248,6 @@ class AuditWindow(FramelessWindowBase):
         self.btn_dataforge.setStyleSheet(_DF_BTN_STYLE)
         self.btn_dataforge.setToolTip("Switch to the DataForge view")
         self.btn_dataforge.clicked.connect(self._toggle_dataforge_shelf)
-        self.btn_dataforge.setVisible(False)
         # Advanced executable-definition viewer button
         _QDEF_BTN_STYLE = (
             "QPushButton { background-color: rgba(124,58,237,0.4);"
@@ -309,6 +308,7 @@ class AuditWindow(FramelessWindowBase):
             QSpacerItem(20, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum))
         header_layout.insertWidget(insert_pos + 4, self.lbl_build_mode)
         header_layout.insertWidget(insert_pos + 5, self.btn_build_mode)
+        header_layout.insertWidget(insert_pos + 6, self.btn_dataforge)
         # Dynamic query storage
         self._dynamic_queries: dict[str, DynamicQuery] = {}
         # Track which unpinned query is currently active
@@ -316,6 +316,7 @@ class AuditWindow(FramelessWindowBase):
         # Track last active query/forge mode for restoring on space switch
         self._last_query_mode: str | None = None
         self._last_forge_mode: str | None = None
+        self._active_unpinned_forge: str | None = None
         # ── Main content area (tabs + bottom bars + dynamic queries) ──
         self._content_left = QWidget()
         self._content_left.setMinimumWidth(400)
@@ -448,7 +449,7 @@ class AuditWindow(FramelessWindowBase):
         _left_lay.addLayout(self._dynamic_query_container)
         # ── Forge blank placeholder (shown when DataForge space has no active forge) ──
         self._forge_blank = QWidget()
-        self._forge_blank.setStyleSheet("QWidget { background-color: #E6F5F3; }")
+        self._forge_blank.setStyleSheet("QWidget { background-color: #FFF3E8; }")
         self._forge_blank.setVisible(False)
         self._dynamic_query_container.addWidget(self._forge_blank)
         # ── Query blank placeholder (shown when Queries space has no active query) ──
@@ -508,6 +509,10 @@ class AuditWindow(FramelessWindowBase):
             self._on_new_dataforge)
         self._forge_field_picker.sources_changed.connect(
             self._on_forge_picker_sources_changed)
+        self._forge_field_picker.source_refreshed.connect(
+            self._on_forge_picker_source_refreshed)
+        self._forge_field_picker.query_table_requested.connect(
+            self._on_forge_picker_query_table_requested)
         self._forge_field_picker.splitter_changed.connect(self._schedule_save_ui)
         self._picker_stack = QStackedWidget()
         self._picker_stack.addWidget(self._field_picker)
@@ -524,8 +529,8 @@ class AuditWindow(FramelessWindowBase):
         self._content_splitter.setChildrenCollapsible(False)
         self._content_splitter.setHandleWidth(6)
         self._content_splitter.setStyleSheet(
-            "QSplitter::handle { background: #B2DFDB; }"
-            "QSplitter::handle:hover { background: #0D9488; }")
+            "QSplitter::handle { background: #FED7AA; }"
+            "QSplitter::handle:hover { background: #EA580C; }")
         self._content_splitter.addWidget(self._picker_container)
         self._content_splitter.addWidget(self._content_left)
         self._content_splitter.setStretchFactor(0, 0)
@@ -635,6 +640,9 @@ class AuditWindow(FramelessWindowBase):
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(True)
         self.btn_cyberlife.blockSignals(False)
+        self.btn_dataforge.blockSignals(True)
+        self.btn_dataforge.setChecked(False)
+        self.btn_dataforge.blockSignals(False)
         self.tabs.setStyleSheet(self._CYB_TAB_STYLE)
         self._save_picker_width()
         self._hide_picker_panel()
@@ -644,6 +652,9 @@ class AuditWindow(FramelessWindowBase):
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(False)
         self.btn_cyberlife.blockSignals(False)
+        self.btn_dataforge.blockSignals(True)
+        self.btn_dataforge.setChecked(False)
+        self.btn_dataforge.blockSignals(False)
         self._save_picker_width()
         self._refresh_picker_query_list()
         self._content_splitter.setStyleSheet(
@@ -678,18 +689,22 @@ class AuditWindow(FramelessWindowBase):
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(False)
         self.btn_cyberlife.blockSignals(False)
+        self.btn_dataforge.blockSignals(True)
+        self.btn_dataforge.setChecked(True)
+        self.btn_dataforge.blockSignals(False)
         self._save_picker_width()
         self._refresh_picker_forge_list()
         fg = self._dataforge_groups.get(mode)
         if fg:
             self._forge_field_picker.set_sources(
                 list(fg._sources.keys()),
-                forge_name=fg._saved_forge_name)
+                forge_name=fg._saved_forge_name,
+                source_definitions=fg._sources)
             raw_name = mode.removeprefix("⚙ ")
             self._forge_field_picker.highlight_forge(raw_name)
         self._content_splitter.setStyleSheet(
-            "QSplitter::handle { background: #B2DFDB; }"
-            "QSplitter::handle:hover { background: #0D9488; }")
+            "QSplitter::handle { background: #FED7AA; }"
+            "QSplitter::handle:hover { background: #EA580C; }")
         self._picker_stack.setCurrentWidget(self._forge_field_picker)
         if not prev_had_picker:
             self._show_picker_panel()
@@ -862,6 +877,27 @@ class AuditWindow(FramelessWindowBase):
         group = self._dataforge_groups.get(self._current_mode)
         if group is not None:
             group.on_field_requested(query_name, col_name)
+
+    def _on_forge_picker_query_table_requested(self, query_name: str):
+        """Double-click in Forge Assist queries — add query to join canvas."""
+        group = self._dataforge_groups.get(self._current_mode)
+        if group is None:
+            return
+        if query_name not in group._sources:
+            qd = group.add_source_copy(query_name)
+            if qd is None:
+                return
+            query_name = qd.name
+            self._forge_field_picker.set_sources(
+                list(group._sources.keys()),
+                forge_name=group._saved_forge_name,
+                source_definitions=group._sources,
+            )
+        add_query_table = getattr(group.joins_tab, "add_query_table", None)
+        if callable(add_query_table) and add_query_table(query_name):
+            group.tab_widget.setCurrentWidget(group.joins_tab)
+            group._schedule_save()
+
     def _on_picker_forge_clicked(self, forge_name: str):
         """User clicked a forge name in the picker's forge list."""
         from suiteview.audit.dataforge import dataforge_store as df_store
@@ -869,14 +905,22 @@ class AuditWindow(FramelessWindowBase):
         if forge is None:
             return
         self._on_load_dataforge(forge)
-        # Always update picker queries/fields for the active forge
         display = f"⚙ {forge.name}"
         group = self._dataforge_groups.get(display)
-        if group is not None:
-            self._forge_field_picker.set_sources(
-                list(group._sources.keys()),
-                forge_name=group._saved_forge_name)
-            self._forge_field_picker.highlight_forge(forge.name)
+        self._sync_forge_picker_to_group(group, forge.name)
+
+    def _sync_forge_picker_to_group(self, group, forge_name: str = ""):
+        """Show the active DataForge group's source queries in Forge Assist."""
+        if group is None:
+            return
+        self._forge_field_picker.set_sources(
+            list(group._sources.keys()),
+            forge_name=group._saved_forge_name,
+            source_definitions=group._sources,
+        )
+        self._forge_field_picker.highlight_forge(
+            forge_name or group._saved_forge_name)
+
     def _refresh_picker_forge_list(self):
         """Refresh the forge list in the forge field picker from saved forges."""
         from suiteview.audit.dataforge import dataforge_store as df_store
@@ -887,22 +931,40 @@ class AuditWindow(FramelessWindowBase):
         """Queries list was changed in the forge picker — sync back to the group."""
         group = self._dataforge_groups.get(self._current_mode)
         if group is not None:
-            from suiteview.audit import qdef_store
-            from suiteview.audit import query_object_store
-            from suiteview.audit.query_object import qdefinition_from_query_object
-            forge_name = group._saved_forge_name or ""
-            for name in source_names:
-                if name not in group._sources:
-                    qd = qdef_store.load_qdef(name, forge_name=forge_name)
-                    if not qd:
-                        qd = qdef_store.load_qdef(name)  # fallback: search all
-                    if not qd:
-                        obj = query_object_store.load_object(name)
-                        if obj:
-                            qd = qdefinition_from_query_object(obj)
-                    if qd:
-                        group.add_source_query(qd)
-            group._schedule_save()
+            group.sync_source_copies(source_names)
+            self._forge_field_picker.set_sources(
+                list(group._sources.keys()),
+                forge_name=group._saved_forge_name,
+                source_definitions=group._sources,
+            )
+
+    def _on_forge_picker_source_refreshed(self, old_name: str, qd):
+        """A forge source query was edited/refreshed from Forge Assist."""
+        group = self._dataforge_groups.get(self._current_mode)
+        if group is None or qd is None:
+            return
+        if old_name != qd.name:
+            group._sources.pop(old_name, None)
+        group._sources[qd.name] = qd
+        group._datasets.pop(old_name, None)
+        group._datasets.pop(qd.name, None)
+        group.joins_tab.update_queries(
+            list(group._sources.keys()),
+            group._query_columns_map(),
+        )
+        group._schedule_save()
+        self._forge_field_picker.set_sources(
+            list(group._sources.keys()),
+            forge_name=group._saved_forge_name,
+            source_definitions=group._sources,
+        )
+        self._forge_field_picker.add_source(qd.name)
+
+    @staticmethod
+    def _dataforge_source_copy_name(source_name: str, forge_name: str) -> str:
+        """Return a stable Query Object copy name for a DataForge source."""
+        label = forge_name.strip() or "DataForge"
+        return f"{source_name} [{label}]"
     # ── Dynamic query management ─────────────────────────────────────
     def _on_add_group(self):
         """Open the Create Query dialog and add a new dynamic query."""
@@ -1099,6 +1161,7 @@ class AuditWindow(FramelessWindowBase):
         from suiteview.audit.query_object import (
             OBJECT_KIND_ADHOC_SOURCE,
             OBJECT_KIND_CYBERLIFE,
+            OBJECT_KIND_EXECUTABLE,
             OBJECT_KIND_MANUAL_SQL,
             OBJECT_KIND_VISUAL,
         )
@@ -1111,6 +1174,9 @@ class AuditWindow(FramelessWindowBase):
                 f"Could not find query object \"{object_name}\".",
             )
             return
+        if (obj.config or {}).get("dataforge"):
+            if self._open_dataforge_source_design(obj):
+                return
         if obj.kind == OBJECT_KIND_MANUAL_SQL:
             self.open_manual_sql_object(obj)
             return
@@ -1120,11 +1186,14 @@ class AuditWindow(FramelessWindowBase):
         if obj.kind == OBJECT_KIND_CYBERLIFE:
             self.open_cyberlife_query_object(obj)
             return
+        if obj.kind == OBJECT_KIND_EXECUTABLE:
+            self.open_manual_sql_object(obj)
+            return
         if obj.kind != OBJECT_KIND_VISUAL:
             QMessageBox.information(
                 self,
                 "Builder Not Available",
-                "Only Cyberlife, visual Query Studio, Manual SQL, and File Source objects can be reopened in a designer right now.",
+                "Only Cyberlife, visual Query Studio, Manual SQL, File Source, and DataForge query objects can be reopened in a designer right now.",
             )
             return
 
@@ -1141,6 +1210,67 @@ class AuditWindow(FramelessWindowBase):
         self.btn_workbench.setChecked(True)
         self._toggle_saved_queries_shelf(True)
         self._on_load_saved_query(saved)
+
+    def _open_dataforge_source_design(self, obj) -> bool:
+        """Open the original builder for a DataForge source copy when possible."""
+        from suiteview.audit import query_object_store, saved_query_store as sq_store
+
+        dataforge = (obj.config or {}).get("dataforge", {})
+        candidates = [
+            str(dataforge.get("source_name", "")).strip(),
+            self._dataforge_copy_source_name(obj.name),
+            str(obj.source_design or "").strip(),
+        ]
+        for candidate in candidates:
+            if not candidate or candidate == obj.name:
+                continue
+            original = query_object_store.load_object(candidate)
+            if original is not None:
+                self.open_query_object_in_builder(original.name)
+                return True
+            saved = sq_store.load_query(candidate)
+            if saved is not None:
+                self.btn_workbench.setChecked(True)
+                self._toggle_saved_queries_shelf(True)
+                self._on_load_saved_query(saved)
+                return True
+        return False
+
+    @staticmethod
+    def _dataforge_copy_source_name(name: str) -> str:
+        clean = str(name or "").strip()
+        if not clean.endswith("]"):
+            return ""
+        source, sep, _suffix = clean.rpartition(" [")
+        if not sep:
+            return ""
+        return source.strip()
+
+    def open_dataforge_in_builder(self, forge_name: str):
+        """Open a saved DataForge, or a new DataForge for unnamed source copies."""
+        from suiteview.audit.dataforge import dataforge_store as df_store
+
+        name = forge_name.strip()
+        self.btn_dataforge.setChecked(True)
+        if not name or name.lower() in {"(new)", "dataforge"}:
+            forge = df_store.load_forge(name) if name else None
+            if forge is None:
+                self._create_blank_dataforge()
+                self._refresh_picker_forge_list()
+                return
+        else:
+            forge = df_store.load_forge(name)
+        if forge is None:
+            QMessageBox.warning(
+                self,
+                "DataForge Missing",
+                f"Could not find DataForge \"{name}\".",
+            )
+            return
+        self._on_load_dataforge(forge)
+        self._refresh_picker_forge_list()
+        self._sync_forge_picker_to_group(
+            self._dataforge_groups.get(f"⚙ {forge.name}"), forge.name)
 
     def _show_new_object_menu(self):
         """Show the Query Object creation chooser."""
@@ -1183,6 +1313,11 @@ class AuditWindow(FramelessWindowBase):
             self._refresh_picker_query_list()
             return
         self._start_visual_query_object()
+
+    def _open_dataforge_builder(self):
+        """Open the DataForge builder, restoring an active forge when possible."""
+        self.btn_dataforge.setChecked(True)
+        self._toggle_dataforge_shelf(True)
 
     def _start_cyberlife_object(self):
         """Switch to Cyberlife; the header Save button publishes the object."""
@@ -1561,7 +1696,7 @@ class AuditWindow(FramelessWindowBase):
                 if restore and restore in self._dataforge_groups:
                     self._switch_mode(restore)
                 else:
-                    self._switch_mode("__forge_blank__")
+                    self._create_blank_dataforge()
             self._refresh_picker_forge_list()
         else:
             pass  # Clicking again does nothing — use Cyberlife to leave
@@ -1580,6 +1715,19 @@ class AuditWindow(FramelessWindowBase):
             self._last_query_mode = None
         if self._last_forge_mode == name:
             self._last_forge_mode = None
+    def _create_blank_dataforge(self):
+        """Create an unsaved DataForge builder without prompting."""
+        display = "⚙ (new)"
+        for open_name, open_group in list(self._dataforge_groups.items()):
+            if not getattr(open_group, "_saved_forge_name", ""):
+                discard = getattr(open_group, "discard_temporary_source_copies", None)
+                if callable(discard):
+                    discard()
+                self._remove_dataforge_group(open_name)
+        group = self._create_dataforge_group(
+            display, forge_name="", saved_forge_name="")
+        self._active_unpinned_forge = display
+        return group
     def _on_load_saved_query(self, sq):
         """Create a DynamicQuery from a saved query and switch to it."""
         config: dict = sq.config
@@ -1620,46 +1768,81 @@ class AuditWindow(FramelessWindowBase):
     # ── DataForge ─────────────────────────────────────────────────
     def _on_new_dataforge(self):
         """Create a brand-new empty DataForge designer."""
-        from suiteview.audit.dataforge.dataforge_model import DataForge
-        from suiteview.audit.dataforge import dataforge_store as df_store
-        name, ok = QInputDialog.getText(
-            self, "New DataForge", "DataForge name:")
-        if not ok or not name.strip():
-            return
-        name = name.strip()
-        # Block duplicate names
-        if df_store.forge_exists(name):
-            QMessageBox.warning(
-                self, "Name Taken",
-                f"A DataForge named \"{name}\" already exists.\n"
-                "Please choose a different name.")
-            return
-        display = f"⚙ {name}"
-        # Save an empty forge to disk immediately so it appears in the shelf
-        forge = DataForge(name=name, sources=[], config={})
-        df_store.save_forge(forge)
-        self._create_dataforge_group(
-            display, forge_name=name, saved_forge_name=name)
-        # Refresh the forge list in the picker
+        self.btn_dataforge.setChecked(True)
+        self._create_blank_dataforge()
         self._refresh_picker_forge_list()
     def _on_load_dataforge(self, forge):
         """Open a DataForge designer from the shelf click."""
-        from suiteview.audit import saved_query_store as sq_store
         display = f"⚙ {forge.name}"
         # If already loaded, switch to it
         if display in self._dataforge_groups:
             self._switch_mode(display)
+            self._sync_forge_picker_to_group(
+                self._dataforge_groups.get(display), forge.name)
             return
         group = self._create_dataforge_group(
             display, forge_name=forge.name, saved_forge_name=forge.name)
         # Restore sources
         for src in forge.sources:
-            sq = sq_store.load_query(src.query_name)
-            if sq:
-                group.add_source_query(sq)
+            qd = self._qdefinition_from_dataforge_source(src, forge.name)
+            if qd is not None:
+                group.add_source_query(qd)
         # Restore config
         if forge.config:
             group.set_config(forge.config)
+        self._sync_forge_picker_to_group(group, forge.name)
+
+    @staticmethod
+    def _qdefinition_from_dataforge_source(src, forge_name: str):
+        """Restore the QDefinition-shaped source used by a saved DataForge."""
+        from suiteview.audit import (
+            qdef_store,
+            query_object_store,
+            saved_query_store as sq_store,
+        )
+        from suiteview.audit.query_object import (
+            QueryObject,
+            qdefinition_from_query_object,
+        )
+        from suiteview.audit.qdefinition import QDefinition
+
+        qd = None
+        if src.definition:
+            try:
+                if "kind" in src.definition:
+                    obj = QueryObject.from_dict(src.definition)
+                    qd = qdefinition_from_query_object(obj)
+                else:
+                    qd = QDefinition.from_dict(src.definition)
+                qd.forge_name = forge_name
+                return qd
+            except Exception:
+                logger.exception(
+                    "Failed to restore DataForge source definition: %s",
+                    src.query_name,
+                )
+
+        source_names = [
+            name for name in (src.effective_alias(), src.query_name)
+            if name
+        ]
+        for name in source_names:
+            qd = qdef_store.load_qdef(name, forge_name=forge_name)
+            if qd is None:
+                qd = qdef_store.load_qdef(name)
+            if qd is not None:
+                return qd
+        for name in source_names:
+            obj = query_object_store.load_object(name)
+            if obj is not None:
+                qd = qdefinition_from_query_object(obj)
+                qd.forge_name = forge_name
+                return qd
+        for name in source_names:
+            qd = sq_store.load_query(name)
+            if qd is not None:
+                return qd
+        return None
     def _on_close_dataforge_from_shelf(self, forge_name: str):
         """Close an open DataForge designer."""
         display = f"⚙ {forge_name}"
@@ -1675,6 +1858,7 @@ class AuditWindow(FramelessWindowBase):
         self._dynamic_query_container.addWidget(group)
         group.forge_saved.connect(self._on_forge_saved_refresh)
         group.forge_deleted.connect(self._on_forge_deleted_from_group)
+        group.new_forge_requested.connect(self._on_new_dataforge)
         self._switch_mode(display)
         return group
     def _remove_dataforge_group(self, name: str):
@@ -1685,8 +1869,26 @@ class AuditWindow(FramelessWindowBase):
         if group:
             self._dynamic_query_container.removeWidget(group)
             group.deleteLater()
-    def _on_forge_saved_refresh(self):
+    def _on_forge_saved_refresh(self, forge=None):
         """A forge was saved — refresh the picker forge list."""
+        if forge is not None:
+            new_display = f"⚙ {forge.name}"
+            sender = self.sender()
+            old_display = next(
+                (name for name, group in self._dataforge_groups.items()
+                 if group is sender),
+                None,
+            )
+            if old_display and old_display != new_display:
+                self._dataforge_groups[new_display] = self._dataforge_groups.pop(old_display)
+                if self._current_mode == old_display:
+                    self._current_mode = new_display
+                if self._last_forge_mode == old_display:
+                    self._last_forge_mode = new_display
+                if self._active_unpinned_forge == old_display:
+                    self._active_unpinned_forge = None
+            if self._current_mode == new_display:
+                self._sync_forge_picker_to_group(sender, forge.name)
         self._refresh_picker_forge_list()
     def _on_forge_deleted_from_group(self, forge_name: str):
         """Handle a DataForge being deleted from within its group."""

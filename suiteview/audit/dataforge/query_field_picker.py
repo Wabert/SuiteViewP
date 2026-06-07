@@ -1,32 +1,110 @@
 """
-QueryFieldPicker — sidebar for DataForge with 3 columns:
-  DataForge list | Queries (sources) | Fields (columns)
+QueryFieldPicker — sidebar for DataForge:
+  Forge Assist header | Query Objects multi-select dropdown | Queries + Fields
 
-Purple-themed to match the DataForge identity.
+Forge heat-themed to match the DataForge identity.
 """
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QMimeData, pyqtSignal
-from PyQt6.QtGui import QFont, QDrag
+from PyQt6.QtGui import QColor, QFont, QDrag
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QAbstractItemView, QSplitter, QPushButton,
-    QMenu,
+    QDialog, QMenu, QTreeWidget, QTreeWidgetItem, QApplication, QMessageBox,
 )
 
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit import qdef_store
-from suiteview.audit.query_object import qdefinition_from_query_object
+from suiteview.audit.query_object import (
+    OBJECT_KIND_ADHOC_SOURCE,
+    OBJECT_KIND_EXECUTABLE,
+    OBJECT_KIND_MANUAL_SQL,
+    QueryObject,
+    manual_sql_query_object,
+    object_from_qdefinition,
+    qdefinition_from_query_object,
+)
 from suiteview.audit import query_object_store
+from suiteview.audit.adhoc_source_intake import dataframe_from_adhoc_metadata
+from suiteview.audit.query_runner import execute_odbc_query
 from suiteview.audit.tabs._styles import TightItemDelegate
-
-if TYPE_CHECKING:
-    pass
+from suiteview.audit.query_object_viewer_window import (
+    _dataforge_display_name,
+    _dataforge_info,
+    _display_dsn_for_object,
+    _file_source_type_label,
+    _object_group_label,
+    _object_group_order,
+)
 
 logger = logging.getLogger(__name__)
+
+_FILE_SOURCE_DESIGNS = {"csv", "excel", "fixed_width"}
+
+
+def _forge_copy_source_name(name: str, forge_name: str = "") -> str:
+    """Return the original source name for a DataForge-local copy name."""
+    clean = name.strip()
+    forge = forge_name.strip()
+    if forge and clean.endswith(f" [{forge}]"):
+        return clean[:-(len(forge) + 3)].strip()
+    if clean.endswith("]"):
+        source, sep, _suffix = clean.rpartition(" [")
+        if sep and source.strip():
+            return source.strip()
+    return ""
+
+
+def _is_file_source_qdefinition(source: QDefinition) -> bool:
+    if getattr(source, "query_object_kind", "") == OBJECT_KIND_ADHOC_SOURCE:
+        return True
+    source_design = str(getattr(source, "source_design", "")).strip().lower()
+    metadata = getattr(source, "query_object_source_metadata", {}) or {}
+    return source_design in _FILE_SOURCE_DESIGNS and bool(metadata)
+
+
+def _repair_flat_file_qdefinition(
+    source: QDefinition,
+    requested_name: str,
+    forge_name: str = "",
+) -> QDefinition:
+    """Patch stale forge-local QDefinitions with metadata from the file source object."""
+    if _is_file_source_qdefinition(source):
+        return source
+
+    candidates: list[str] = []
+    config = getattr(source, "query_object_config", {}) or {}
+    dataforge = config.get("dataforge", {}) if isinstance(config, dict) else {}
+    source_name = str(dataforge.get("source_name", "")).strip()
+    for candidate in (
+        requested_name,
+        getattr(source, "name", ""),
+        source_name,
+        _forge_copy_source_name(requested_name, forge_name),
+        _forge_copy_source_name(getattr(source, "name", ""), forge_name),
+    ):
+        candidate = str(candidate).strip()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    for candidate in candidates:
+        obj = query_object_store.load_object(candidate)
+        if obj is None or obj.kind != OBJECT_KIND_ADHOC_SOURCE:
+            continue
+        repaired = qdefinition_from_query_object(obj)
+        repaired.name = getattr(source, "name", "") or requested_name
+        repaired.forge_name = getattr(source, "forge_name", "") or forge_name
+        repaired.query_object_config = dict(repaired.query_object_config or {})
+        if repaired.forge_name:
+            repaired.query_object_config.setdefault("dataforge", {
+                "forge_name": repaired.forge_name,
+                "source_name": obj.name,
+            })
+        return repaired
+    return source
 
 
 def _load_query_source(name: str, forge_name: str = "") -> QDefinition | None:
@@ -35,7 +113,7 @@ def _load_query_source(name: str, forge_name: str = "") -> QDefinition | None:
     if not sq:
         sq = qdef_store.load_qdef(name)
     if sq:
-        return sq
+        return _repair_flat_file_qdefinition(sq, name, forge_name=forge_name)
     obj = query_object_store.load_object(name)
     if obj:
         return qdefinition_from_query_object(obj)
@@ -66,69 +144,113 @@ def _source_kind_label(source: QDefinition) -> str:
         return "Executable"
     return "Query"
 
+
+def _source_dsn_label(source: QDefinition | QueryObject) -> str:
+    kind = getattr(source, "query_object_kind", getattr(source, "kind", ""))
+    if kind == OBJECT_KIND_ADHOC_SOURCE:
+        if isinstance(source, QueryObject):
+            return _display_dsn_for_object(source)
+        return _file_source_type_label(
+            str(getattr(source, "source_design", "")),
+            getattr(source, "query_object_source_metadata", {}) or {},
+        )
+    return str(getattr(source, "dsn", "")).strip()
+
+
+def _source_group_label(source: QDefinition) -> str:
+    kind = getattr(source, "query_object_kind", "")
+    labels = {
+        "visual_query": "Visual Queries",
+        "executable_query": "Executable Queries",
+        "cyberlife_query": "Cyberlife Objects",
+        "manual_sql": "Manual SQL Objects",
+        "adhoc_source": "File Sources",
+    }
+    if kind in labels:
+        return labels[kind]
+    if source.source_design:
+        return "Executable Queries"
+    return "Queries"
+
+
+def _copy_source_name(query_object_name: str, forge_name: str) -> str:
+    label = forge_name.strip() or "DataForge"
+    return f"{query_object_name} [{label}]"
+
+
+def _group_query_objects_for_selector(query_objects: list[QueryObject]) -> tuple[
+        dict[str, list[QueryObject]], dict[str, list[QueryObject]]]:
+    groups: dict[str, list[QueryObject]] = {}
+    dataforge_groups: dict[str, list[QueryObject]] = {}
+    for obj in query_objects:
+        dataforge_info = _dataforge_info(obj)
+        if dataforge_info is not None:
+            forge_name, _ = dataforge_info
+            dataforge_groups.setdefault(forge_name, []).append(obj)
+            continue
+        groups.setdefault(_object_group_label(obj), []).append(obj)
+    return groups, dataforge_groups
+
+
 _FONT = QFont("Segoe UI", 9)
 _FONT_BOLD = QFont("Segoe UI", 9, QFont.Weight.Bold)
 _FONT_SMALL = QFont("Segoe UI", 8)
 
 FORGE_FIELD_DRAG_MIME = "application/x-dataforge-field-drag"
 
-# ── Teal-themed styles ────────────────────────────────────────────
-_TEAL = "#0D9488"
-_TEAL_DARK = "#0F766E"
-_TEAL_LIGHT = "#B2DFDB"
-_TEAL_BG = "#E6F5F3"
-_TEAL_HOVER = "#14B8A6"
-_TEAL_DEEP = "#004D40"
+_FORGE = "#EA580C"
+_FORGE_DARK = "#C2410C"
+_FORGE_LIGHT = "#FED7AA"
+_FORGE_BG = "#FFF3E8"
+_FORGE_DEEP = "#7C2D12"
 
 
 def _make_list_style(border: str, sel_bg: str, sel_fg: str) -> str:
     return (
         f"QListWidget {{ border: 1px solid {border}; background-color: white;"
-        f" font-size: 9pt; outline: none; }}"
-        f"QListWidget::item {{ padding: 0px 2px; border: none; }}"
+        " font-size: 9pt; outline: none; }"
+        "QListWidget::item { padding: 0px 2px; border: none; }"
         f"QListWidget::item:selected {{ background-color: {sel_bg}; color: {sel_fg}; border: none; }}"
-        f"QListWidget::item:focus {{ outline: none; border: none; }}"
+        "QListWidget::item:focus { outline: none; border: none; }"
     )
 
 
-_FORGE_LIST_STYLE = _make_list_style(_TEAL, _TEAL_LIGHT, _TEAL_DEEP)
-_QUERY_LIST_STYLE = _make_list_style(_TEAL, _TEAL_LIGHT, _TEAL_DEEP)
-_FIELD_LIST_STYLE = _make_list_style(_TEAL, _TEAL_LIGHT, _TEAL_DEEP)
+_FIELD_LIST_STYLE = _make_list_style(_FORGE_DARK, _FORGE_LIGHT, _FORGE_DEEP)
+_QUERY_LIST_STYLE = _make_list_style(_FORGE_DARK, _FORGE_LIGHT, _FORGE_DEEP)
+_QUERY_TREE_STYLE = (
+    f"QTreeWidget {{ border: 1px solid {_FORGE_DARK}; background: white;"
+    " font-size: 9pt; outline: none; }"
+    "QTreeWidget::item { padding: 1px 4px; border: none; }"
+    f"QTreeWidget::item:selected {{ background-color: {_FORGE_LIGHT}; color: {_FORGE_DEEP}; border: none; }}"
+    "QTreeWidget::item:focus { outline: none; border: none; }"
+)
 
 _HEADER_STYLE = (
     f"QLabel, QPushButton {{ color: white; font-size: 8pt; font-weight: bold;"
-    f" padding: 2px 4px; background-color: {_TEAL};"
-    f" border: 1px solid {_TEAL_DARK}; border-radius: 2px; }}"
-    f"QPushButton:hover {{ background-color: {_TEAL_HOVER}; }}"
+    f" padding: 2px 4px; background-color: {_FORGE_DARK};"
+    f" border: 1px solid {_FORGE_DEEP}; border-radius: 2px; }}"
+    f"QPushButton:hover {{ background-color: {_FORGE}; }}"
 )
 
 _SEARCH_STYLE = (
-    f"QLineEdit {{ border: 1px solid {_TEAL}; border-radius: 2px;"
-    f" padding: 1px 4px; font-size: 8pt; }}"
-    f"QLineEdit:focus {{ border: 1px solid {_TEAL_DARK}; }}"
+    f"QLineEdit {{ border: 1px solid {_FORGE_DARK}; border-radius: 2px;"
+    " padding: 1px 4px; font-size: 8pt; }"
+    f"QLineEdit:focus {{ border: 1px solid {_FORGE_DEEP}; }}"
 )
 
 _BTN_STYLE = (
-    f"QPushButton {{ background-color: {_TEAL_BG}; color: {_TEAL_DARK};"
-    f" border: 1px solid {_TEAL}; border-radius: 2px;"
-    f" padding: 1px 6px; font-size: 8pt; }}"
-    f"QPushButton:hover {{ background-color: {_TEAL_LIGHT}; }}"
+    f"QPushButton {{ background-color: {_FORGE_BG}; color: {_FORGE_DARK};"
+    f" border: 1px solid {_FORGE_DARK}; border-radius: 2px;"
+    " padding: 1px 6px; font-size: 8pt; }"
+    f"QPushButton:hover {{ background-color: {_FORGE_LIGHT}; }}"
 )
 
 _NEW_BTN_STYLE = (
-    f"QPushButton {{ background-color: {_TEAL}; color: white;"
-    f" border: 1px solid {_TEAL_DARK}; border-radius: 2px;"
-    f" padding: 1px 6px; font-size: 8pt; font-weight: bold; }}"
-    f"QPushButton:hover {{ background-color: {_TEAL_HOVER}; }}"
+    f"QPushButton {{ background-color: {_FORGE_DARK}; color: white;"
+    f" border: 1px solid {_FORGE_DEEP}; border-radius: 2px;"
+    " padding: 1px 6px; font-size: 8pt; font-weight: bold; }"
+    f"QPushButton:hover {{ background-color: {_FORGE}; }}"
 )
-
-_VIEW_BTN_STYLE = (
-    f"QPushButton {{ background-color: {_TEAL_DARK}; color: white;"
-    f" border: 1px solid {_TEAL_DEEP}; border-radius: 2px;"
-    f" padding: 1px 6px; font-size: 8pt; }}"
-    f"QPushButton:hover {{ background-color: {_TEAL}; }}"
-)
-
 
 class DraggableQueryFieldList(QListWidget):
     """QListWidget that supports dragging query field items out."""
@@ -137,21 +259,16 @@ class DraggableQueryFieldList(QListWidget):
         super().__init__(parent)
         self.setDragEnabled(True)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
-        self.setSelectionMode(
-            QAbstractItemView.SelectionMode.ExtendedSelection)
-        self._field_data: dict[str, tuple] = {}  # display_text → (query_name, col_name)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._field_data: dict[str, tuple[str, str]] = {}
 
-    def set_field_data(self, data: dict[str, tuple]):
+    def set_field_data(self, data: dict[str, tuple[str, str]]):
         self._field_data = data
 
     def startDrag(self, supportedActions):
-        items = self.selectedItems()
-        if not items:
-            return
         lines = []
-        for item in items:
-            text = item.text()
-            info = self._field_data.get(text)
+        for item in self.selectedItems():
+            info = self._field_data.get(item.text())
             if info:
                 query_name, col_name = info
                 lines.append(f"{query_name}|{col_name}")
@@ -159,146 +276,96 @@ class DraggableQueryFieldList(QListWidget):
             return
         drag = QDrag(self)
         mime = QMimeData()
-        payload = "\n".join(lines)
-        mime.setData(FORGE_FIELD_DRAG_MIME, payload.encode("utf-8"))
+        mime.setData(FORGE_FIELD_DRAG_MIME, "\n".join(lines).encode("utf-8"))
         drag.setMimeData(mime)
         drag.exec(Qt.DropAction.CopyAction)
 
 
 class QueryFieldPicker(QWidget):
-    """Side panel: DataForge list | Queries list | Fields list with purple theme."""
-    field_requested = pyqtSignal(str, str)       # query_name, column_name
-    sources_changed = pyqtSignal(list)           # emitted when queries added via + Query
-    forge_clicked = pyqtSignal(str)              # forge name clicked → load it
-    new_forge_requested = pyqtSignal()           # user clicked "+ New"
-    splitter_changed = pyqtSignal()              # internal column widths changed
+    """Side panel: Forge Assist query source picker and field list."""
+    field_requested = pyqtSignal(str, str)
+    sources_changed = pyqtSignal(list)
+    source_refreshed = pyqtSignal(str, object)
+    query_table_requested = pyqtSignal(str)
+    forge_clicked = pyqtSignal(str)
+    new_forge_requested = pyqtSignal()
+    splitter_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumWidth(300)
         self.setMaximumWidth(600)
-
-        self._sources: dict[str, QDefinition] = {}  # query_name → QDefinition
-        self._current_query: str = ""
-        self._current_forge_name: str = ""
+        self._sources: dict[str, QDefinition] = {}
+        self._current_query = ""
+        self._current_forge_name = ""
         self._fields_sort_ascending = True
         self._pending_sizes: list[int] | None = None
         self._last_good_sizes: list[int] | None = None
-
+        self._available_query_sources: list[QDefinition] = []
+        self._forge_names: list[str] = []
+        self._builder_windows: list[QDialog] = []
         self._build_ui()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        root.setContentsMargins(4, 4, 4, 4)
+        root.setSpacing(4)
+        self.setStyleSheet(f"QWidget {{ background-color: {_FORGE_BG}; }}")
+
+        lbl_header = QLabel("Forge Assist")
+        lbl_header.setFixedHeight(22)
+        lbl_header.setStyleSheet(_HEADER_STYLE)
+        root.addWidget(lbl_header, 0)
+
+        object_row = QHBoxLayout()
+        object_row.setContentsMargins(0, 0, 0, 0)
+        object_row.setSpacing(4)
+        lbl_query_objects = QLabel("Query Objects")
+        lbl_query_objects.setFont(_FONT_BOLD)
+        lbl_query_objects.setStyleSheet(f"color: {_FORGE_DARK};")
+        self.btn_query_objects = QPushButton("Select queries...")
+        self.btn_query_objects.setFont(_FONT_SMALL)
+        self.btn_query_objects.setFixedHeight(24)
+        self.btn_query_objects.setStyleSheet(_BTN_STYLE)
+        self.btn_query_objects.clicked.connect(self._show_query_object_dropdown)
+        object_row.addWidget(lbl_query_objects)
+        object_row.addWidget(self.btn_query_objects, 1)
+        root.addLayout(object_row, 0)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(4)
         splitter.setStyleSheet(
-            f"QSplitter::handle {{ background: {_TEAL_LIGHT}; }}"
-            f"QSplitter::handle:hover {{ background: {_TEAL}; }}")
+            f"QSplitter::handle {{ background: {_FORGE_LIGHT}; }}"
+            f"QSplitter::handle:hover {{ background: {_FORGE}; }}")
 
-        # ── Left: DataForge list ─────────────────────────────────
-        forge_frame = QWidget()
-        forge_frame.setStyleSheet(f"QWidget {{ background-color: {_TEAL_BG}; }}")
-        fl_lay = QVBoxLayout(forge_frame)
-        fl_lay.setContentsMargins(4, 4, 2, 4)
-        fl_lay.setSpacing(3)
-
-        lbl_forge = QLabel("DataForge")
-        lbl_forge.setStyleSheet(_HEADER_STYLE)
-        fl_lay.addWidget(lbl_forge)
-
-        self.txt_forge_search = QLineEdit()
-        self.txt_forge_search.setFont(_FONT_SMALL)
-        self.txt_forge_search.setPlaceholderText("Search forges...")
-        self.txt_forge_search.setClearButtonEnabled(True)
-        self.txt_forge_search.setFixedHeight(22)
-        self.txt_forge_search.setStyleSheet(_SEARCH_STYLE)
-        self.txt_forge_search.textChanged.connect(self._filter_forges)
-        fl_lay.addWidget(self.txt_forge_search)
-
-        self.list_forges = QListWidget()
-        self.list_forges.setFont(_FONT)
-        self.list_forges.setStyleSheet(_FORGE_LIST_STYLE)
-        self.list_forges.setItemDelegate(TightItemDelegate(self.list_forges))
-        self.list_forges.setUniformItemSizes(True)
-        self.list_forges.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection)
-        self.list_forges.itemClicked.connect(self._on_forge_clicked)
-        fl_lay.addWidget(self.list_forges)
-
-        btn_new = QPushButton("+ New")
-        btn_new.setFont(_FONT_SMALL)
-        btn_new.setFixedHeight(20)
-        btn_new.setStyleSheet(_NEW_BTN_STYLE)
-        btn_new.clicked.connect(self.new_forge_requested)
-        fl_lay.addWidget(btn_new)
-
-        splitter.addWidget(forge_frame)
-
-        # ── Middle: Queries (sources) ────────────────────────────
         queries_frame = QWidget()
-        queries_frame.setStyleSheet(f"QWidget {{ background-color: {_TEAL_BG}; }}")
+        queries_frame.setStyleSheet(f"QWidget {{ background-color: {_FORGE_BG}; }}")
         ql = QVBoxLayout(queries_frame)
         ql.setContentsMargins(2, 4, 2, 4)
         ql.setSpacing(3)
 
-        lbl_queries = QLabel("Query Objects")
+        lbl_queries = QLabel("Queries")
+        lbl_queries.setFixedHeight(22)
         lbl_queries.setStyleSheet(_HEADER_STYLE)
         ql.addWidget(lbl_queries)
-
-        self.txt_query_search = QLineEdit()
-        self.txt_query_search.setFont(_FONT_SMALL)
-        self.txt_query_search.setPlaceholderText("Search objects...")
-        self.txt_query_search.setClearButtonEnabled(True)
-        self.txt_query_search.setFixedHeight(22)
-        self.txt_query_search.setStyleSheet(_SEARCH_STYLE)
-        self.txt_query_search.textChanged.connect(self._filter_queries)
-        ql.addWidget(self.txt_query_search)
 
         self.list_queries = QListWidget()
         self.list_queries.setFont(_FONT)
         self.list_queries.setStyleSheet(_QUERY_LIST_STYLE)
         self.list_queries.setItemDelegate(TightItemDelegate(self.list_queries))
         self.list_queries.setUniformItemSizes(True)
-        self.list_queries.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection)
+        self.list_queries.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list_queries.currentItemChanged.connect(self._on_query_selected)
-        self.list_queries.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu)
-        self.list_queries.customContextMenuRequested.connect(
-            self._on_query_context_menu)
-        ql.addWidget(self.list_queries)
-
-        # ── + Query / View buttons ─────────────────────────────
-        q_btns = QHBoxLayout()
-        q_btns.setContentsMargins(0, 0, 0, 0)
-        q_btns.setSpacing(3)
-
-        self.btn_add_query = QPushButton("+ Object")
-        self.btn_add_query.setFont(_FONT_SMALL)
-        self.btn_add_query.setFixedHeight(20)
-        self.btn_add_query.setStyleSheet(_BTN_STYLE)
-        self.btn_add_query.clicked.connect(self._on_add_query)
-        q_btns.addWidget(self.btn_add_query)
-
-        self.btn_view_query = QPushButton("View")
-        self.btn_view_query.setFont(_FONT_SMALL)
-        self.btn_view_query.setFixedHeight(20)
-        self.btn_view_query.setStyleSheet(_VIEW_BTN_STYLE)
-        self.btn_view_query.setToolTip("Preview query results")
-        self.btn_view_query.clicked.connect(self._on_view_query)
-        q_btns.addWidget(self.btn_view_query)
-
-        q_btns.addStretch()
-        ql.addLayout(q_btns)
+        self.list_queries.itemDoubleClicked.connect(self._on_query_double_clicked)
+        self.list_queries.itemSelectionChanged.connect(self._on_query_list_selection_changed)
+        self.list_queries.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_queries.customContextMenuRequested.connect(self._on_query_context_menu)
+        ql.addWidget(self.list_queries, 1)
 
         splitter.addWidget(queries_frame)
 
-        # ── Right: Fields ────────────────────────────────────────
         fields_frame = QWidget()
-        fields_frame.setStyleSheet(f"QWidget {{ background-color: {_TEAL_BG}; }}")
+        fields_frame.setStyleSheet(f"QWidget {{ background-color: {_FORGE_BG}; }}")
         fl = QVBoxLayout(fields_frame)
         fl.setContentsMargins(2, 4, 4, 4)
         fl.setSpacing(3)
@@ -325,59 +392,60 @@ class QueryFieldPicker(QWidget):
         self.list_fields.setItemDelegate(TightItemDelegate(self.list_fields))
         self.list_fields.setUniformItemSizes(True)
         self.list_fields.itemDoubleClicked.connect(self._on_field_double_clicked)
-        fl.addWidget(self.list_fields)
+        fl.addWidget(self.list_fields, 1)
 
         self.lbl_status = QLabel("")
         self.lbl_status.setFont(_FONT_SMALL)
-        self.lbl_status.setStyleSheet(f"color: {_TEAL_DARK};")
+        self.lbl_status.setStyleSheet(f"color: {_FORGE_DARK};")
         fl.addWidget(self.lbl_status)
-
         splitter.addWidget(fields_frame)
 
-        splitter.setStretchFactor(0, 1)  # forges
-        splitter.setStretchFactor(1, 1)  # queries
-        splitter.setStretchFactor(2, 3)  # fields
-
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
         self._splitter = splitter
         splitter.splitterMoved.connect(self._on_splitter_moved)
-        root.addWidget(splitter)
+        root.addWidget(splitter, 1)
 
-    # ── Public API ────────────────────────────────────────────────
-
-    def set_sources(self, source_query_names: list[str], forge_name: str = ""):
-        """Load query names and their field metadata."""
+    def set_sources(
+        self,
+        source_query_names: list[str],
+        forge_name: str = "",
+        source_definitions: dict[str, QDefinition] | None = None,
+    ):
         self._sources.clear()
         self._current_query = ""
         self._current_forge_name = forge_name
         self.list_queries.clear()
         self.list_fields.clear()
         self.lbl_status.setText("")
-
+        source_definitions = source_definitions or {}
         for name in source_query_names:
-            sq = _load_query_source(name, forge_name=forge_name)
+            sq = source_definitions.get(name)
+            if sq is not None:
+                sq = _repair_flat_file_qdefinition(sq, name, forge_name=forge_name)
+            if sq is None:
+                sq = _load_query_source(name, forge_name=forge_name)
             if sq:
                 self._sources[name] = sq
-                self.list_queries.addItem(name)
-
-        if source_query_names:
-            self.list_queries.setCurrentRow(0)
+        self._rebuild_query_list()
+        self._update_query_object_button()
+        first = self._first_query_item()
+        if first:
+            self.list_queries.setCurrentItem(first)
 
     def add_source(self, query_name: str):
-        """Add a single query source."""
         if query_name in self._sources:
             return
         sq = _load_query_source(query_name, forge_name=self._current_forge_name)
         if sq:
             self._sources[query_name] = sq
-            self.list_queries.addItem(query_name)
+            self._rebuild_query_list(select_name=query_name)
+            self._update_query_object_button()
 
     def remove_source(self, query_name: str):
-        """Remove a query source."""
         self._sources.pop(query_name, None)
-        for i in range(self.list_queries.count()):
-            if self.list_queries.item(i).text() == query_name:
-                self.list_queries.takeItem(i)
-                break
+        self._rebuild_query_list()
+        self._update_query_object_button()
         if self._current_query == query_name:
             self._current_query = ""
             self.list_fields.clear()
@@ -389,8 +457,7 @@ class QueryFieldPicker(QWidget):
         self.list_queries.clear()
         self.list_fields.clear()
         self.lbl_status.setText("")
-
-    # ── State persistence ─────────────────────────────────────────
+        self._update_query_object_button()
 
     def _on_splitter_moved(self, pos, index):
         self._last_good_sizes = self._splitter.sizes()
@@ -404,9 +471,10 @@ class QueryFieldPicker(QWidget):
 
     def set_state(self, state: dict):
         sizes = state.get("splitter_sizes")
-        if sizes and len(sizes) == 3 and any(s > 0 for s in sizes):
-            self._pending_sizes = list(sizes)
-            self._last_good_sizes = list(sizes)
+        if sizes and len(sizes) in (2, 3) and any(s > 0 for s in sizes):
+            sizes = list(sizes[-2:])
+            self._pending_sizes = sizes
+            self._last_good_sizes = sizes
             self._splitter.setSizes(sizes)
 
     def showEvent(self, event):
@@ -417,27 +485,14 @@ class QueryFieldPicker(QWidget):
             self._pending_sizes = None
             QTimer.singleShot(0, lambda: self._splitter.setSizes(sizes))
 
-    # ── Forge list API ────────────────────────────────────────────
-
     def set_forges(self, names: list[str]):
-        """Populate the forge list with saved forge names."""
-        self.list_forges.clear()
-        for name in sorted(names, key=str.lower):
-            self.list_forges.addItem(name)
+        self._forge_names = sorted(names, key=str.lower)
 
     def highlight_forge(self, name: str):
-        """Select the given forge name in the list (no signal)."""
-        self.list_forges.blockSignals(True)
-        for i in range(self.list_forges.count()):
-            item = self.list_forges.item(i)
-            item.setSelected(item.text() == name)
-        self.list_forges.blockSignals(False)
+        return
 
     def _filter_forges(self, text: str):
-        filt = text.strip().lower()
-        for i in range(self.list_forges.count()):
-            item = self.list_forges.item(i)
-            item.setHidden(filt not in item.text().lower() if filt else False)
+        return
 
     def _on_forge_clicked(self, item):
         self.forge_clicked.emit(item.text())
@@ -451,26 +506,196 @@ class QueryFieldPicker(QWidget):
     def _on_query_selected(self, current, previous):
         if current is None:
             return
-        query_name = current.text()
-        if query_name == self._current_query:
+        query_name = current.data(Qt.ItemDataRole.UserRole) or current.text()
+        if not query_name or query_name == self._current_query:
             return
         self._current_query = query_name
         self._populate_fields(query_name)
 
+    def _on_query_double_clicked(self, item):
+        query_name = item.data(Qt.ItemDataRole.UserRole) or item.text()
+        if query_name:
+            self.query_table_requested.emit(query_name)
+
+    def _on_query_list_selection_changed(self):
+        selected_names = [
+            item.data(Qt.ItemDataRole.UserRole) or item.text()
+            for item in self.list_queries.selectedItems()
+            if item.data(Qt.ItemDataRole.UserRole) or item.text()
+        ]
+        if len(selected_names) > 1:
+            self.lbl_status.setText(f"{len(selected_names)} queries selected")
+
+    def _rebuild_query_list(self, select_name: str = ""):
+        current_name = select_name or self._current_query
+        self.list_queries.blockSignals(True)
+        self.list_queries.clear()
+        selected_item = None
+        for source in sorted(self._sources.values(), key=lambda qd: self._source_display_name(qd).lower()):
+            item = QListWidgetItem(self._source_display_name(source))
+            item.setData(Qt.ItemDataRole.UserRole, source.name)
+            tooltip = _source_kind_label(source)
+            if item.text() != source.name:
+                tooltip = f"{tooltip} - stored as {source.name}"
+            item.setToolTip(tooltip)
+            self.list_queries.addItem(item)
+            if source.name == current_name:
+                selected_item = item
+        self.list_queries.blockSignals(False)
+        if selected_item:
+            self.list_queries.setCurrentItem(selected_item)
+
+    @staticmethod
+    def _source_display_name(source: QDefinition) -> str:
+        config = getattr(source, "query_object_config", {}) or {}
+        dataforge = config.get("dataforge", {}) if isinstance(config, dict) else {}
+        source_name = str(dataforge.get("source_name", "")).strip()
+        return source_name or source.name
+
+    def _first_query_item(self):
+        return self.list_queries.item(0) if self.list_queries.count() else None
+
+    def _update_query_object_button(self):
+        count = len(self._sources)
+        self.btn_query_objects.setText(
+            "Select queries..." if count == 0 else f"{count} selected")
+
+    def _show_query_object_dropdown(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Select Query Objects")
+        dlg.setMinimumSize(420, 360)
+        dlg.resize(560, 520)
+        dlg.setStyleSheet(f"QDialog {{ background-color: {_FORGE_BG}; }}")
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(6, 6, 6, 6)
+        lay.setSpacing(4)
+
+        txt_search = QLineEdit()
+        txt_search.setFont(_FONT_SMALL)
+        txt_search.setPlaceholderText("Search query objects...")
+        txt_search.setClearButtonEnabled(True)
+        txt_search.setFixedHeight(24)
+        txt_search.setStyleSheet(_SEARCH_STYLE)
+        lay.addWidget(txt_search)
+
+        tree = QTreeWidget()
+        tree.setHeaderHidden(True)
+        tree.setFont(_FONT)
+        tree.setStyleSheet(_QUERY_TREE_STYLE)
+        tree.setItemDelegate(TightItemDelegate(tree))
+        tree.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+
+        query_objects = query_object_store.list_objects()
+        groups, dataforge_groups = _group_query_objects_for_selector(query_objects)
+
+        def _add_object_child(parent: QTreeWidgetItem, obj: QueryObject,
+                              label: str | None = None):
+            dsn = _source_dsn_label(obj)
+            suffix = f"  ({dsn})" if dsn else ""
+            child = QTreeWidgetItem([f"{label or obj.name}{suffix}"])
+            child.setFont(0, _FONT)
+            child.setData(0, Qt.ItemDataRole.UserRole, obj.name)
+            child.setToolTip(0, _source_kind_label(qdefinition_from_query_object(obj)))
+            parent.addChild(child)
+
+        for group_label in sorted(groups, key=_object_group_order):
+            parent = QTreeWidgetItem([group_label])
+            parent.setFont(0, _FONT_BOLD)
+            parent.setForeground(0, QColor(_FORGE_DARK))
+            parent.setData(0, Qt.ItemDataRole.UserRole, None)
+            parent.setFlags(parent.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            tree.addTopLevelItem(parent)
+            for obj in sorted(groups[group_label], key=lambda item: item.name.lower()):
+                _add_object_child(parent, obj)
+            parent.setExpanded(True)
+
+        if dataforge_groups:
+            dataforge_parent = QTreeWidgetItem(["DataForge"])
+            dataforge_parent.setFont(0, _FONT_BOLD)
+            dataforge_parent.setForeground(0, QColor(_FORGE_DARK))
+            dataforge_parent.setData(0, Qt.ItemDataRole.UserRole, None)
+            dataforge_parent.setFlags(dataforge_parent.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            tree.addTopLevelItem(dataforge_parent)
+            for forge_name in sorted(dataforge_groups, key=str.lower):
+                forge_node = QTreeWidgetItem([_dataforge_display_name(forge_name)])
+                forge_node.setFont(0, _FONT_BOLD)
+                forge_node.setForeground(0, QColor(_FORGE_DARK))
+                forge_node.setData(0, Qt.ItemDataRole.UserRole, None)
+                forge_node.setFlags(forge_node.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                dataforge_parent.addChild(forge_node)
+                for obj in sorted(dataforge_groups[forge_name], key=lambda item: item.name.lower()):
+                    _, source_label = _dataforge_info(obj) or (forge_name, obj.name)
+                    _add_object_child(forge_node, obj, source_label)
+                forge_node.setExpanded(True)
+            dataforge_parent.setExpanded(True)
+        lay.addWidget(tree, 1)
+
+        lbl_status = QLabel(f"{len(query_objects)} query objects")
+        lbl_status.setFont(_FONT_SMALL)
+        lbl_status.setStyleSheet(f"color: {_FORGE_DARK};")
+        lay.addWidget(lbl_status)
+
+        def _filter(text: str):
+            filt = text.strip().lower()
+            visible = 0
+
+            def _filter_item(item: QTreeWidgetItem) -> int:
+                if item.childCount() == 0:
+                    hidden = filt not in item.text(0).lower() if filt else False
+                    item.setHidden(hidden)
+                    return 0 if hidden else 1
+                visible_children = 0
+                for idx in range(item.childCount()):
+                    visible_children += _filter_item(item.child(idx))
+                item.setHidden(visible_children == 0 and bool(filt))
+                return visible_children
+
+            for i in range(tree.topLevelItemCount()):
+                visible += _filter_item(tree.topLevelItem(i))
+            lbl_status.setText(f"{visible} query objects")
+        txt_search.textChanged.connect(_filter)
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.addStretch()
+        btn_add = QPushButton("Add Selected")
+        btn_add.setFont(_FONT_SMALL)
+        btn_add.setStyleSheet(_NEW_BTN_STYLE)
+        btn_row.addWidget(btn_add)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setFont(_FONT_SMALL)
+        btn_cancel.setStyleSheet(_BTN_STYLE)
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_row.addWidget(btn_cancel)
+        lay.addLayout(btn_row)
+
+        def _add_selected():
+            added = []
+            for item in tree.selectedItems():
+                name = item.data(0, Qt.ItemDataRole.UserRole)
+                if name and name not in self._sources:
+                    self.add_source(name)
+                    added.append(name)
+            if added:
+                self.sources_changed.emit(list(self._sources.keys()))
+            dlg.accept()
+        btn_add.clicked.connect(_add_selected)
+
+        dlg.exec()
+
     def _populate_fields(self, query_name: str):
-        """Populate the fields list from a saved query's result_columns."""
         self.list_fields.clear()
         sq = self._sources.get(query_name)
         if not sq:
             self.lbl_status.setText("Query not found")
             return
-
         columns = sq.result_columns
         if not columns:
             self.lbl_status.setText("No columns (run query first)")
             return
 
-        field_data: dict[str, tuple] = {}
+        field_data: dict[str, tuple[str, str]] = {}
         sorted_columns = sorted(
             columns,
             key=lambda column: str(column).lower(),
@@ -500,104 +725,204 @@ class QueryFieldPicker(QWidget):
             query_name, col_name = info
             self.field_requested.emit(query_name, col_name)
 
-    # ── Query buttons ─────────────────────────────────────────
-
     def _on_add_query(self):
-        """Open a dialog to pick query objects to add as DataForge sources."""
-        from PyQt6.QtWidgets import QDialog
-        all_queries = _list_query_sources()
-        existing = set(self._sources.keys())
-        available = [sq for sq in all_queries if sq.name not in existing]
-        if not available:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.information(
-                self, "No Query Objects",
-                "No query objects are available to add.")
-            return
-
-        _add_list_style = (
-            "QListWidget { border: 1px solid " + _TEAL + "; background-color: white;"
-            " font-size: 9pt; outline: none; }"
-            "QListWidget::item { padding: 0px 2px; border: none; }"
-            "QListWidget::item:selected { background-color: " + _TEAL_LIGHT + ";"
-            " color: " + _TEAL_DEEP + "; border: none; }"
-            "QListWidget::item:focus { outline: none; border: none; }"
-        )
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Add Query Objects")
-        dlg.setMinimumSize(400, 400)
-        lay = QVBoxLayout(dlg)
-
-        txt_search = QLineEdit()
-        txt_search.setPlaceholderText("Search query objects...")
-        txt_search.setClearButtonEnabled(True)
-        txt_search.setFixedHeight(24)
-        lay.addWidget(txt_search)
-
-        lst = QListWidget()
-        lst.setStyleSheet(_add_list_style)
-        lst.setItemDelegate(TightItemDelegate(lst))
-        lst.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        for sq in available:
-            suffix = f"  ({sq.dsn})" if sq.dsn else ""
-            item = QListWidgetItem(f"{sq.name}  [{_source_kind_label(sq)}]{suffix}")
-            item.setData(Qt.ItemDataRole.UserRole, sq.name)
-            lst.addItem(item)
-        lay.addWidget(lst, 1)
-
-        lbl_status = QLabel(f"{len(available)} available")
-        lbl_status.setFont(QFont("Segoe UI", 8))
-        lbl_status.setStyleSheet("color: #666;")
-        lay.addWidget(lbl_status)
-
-        def _filter(text):
-            t = text.lower()
-            for i in range(lst.count()):
-                item = lst.item(i)
-                item.setHidden(t not in item.text().lower())
-        txt_search.textChanged.connect(_filter)
-
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        btn_add = QPushButton("Add Selected")
-        btn_add.setStyleSheet(_NEW_BTN_STYLE)
-        btn_add.clicked.connect(dlg.accept)
-        btn_row.addWidget(btn_add)
-        btn_cancel = QPushButton("Cancel")
-        btn_cancel.setStyleSheet(_BTN_STYLE)
-        btn_cancel.clicked.connect(dlg.reject)
-        btn_row.addWidget(btn_cancel)
-        lay.addLayout(btn_row)
-
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        added = []
-        for item in lst.selectedItems():
-            name = item.data(Qt.ItemDataRole.UserRole) or item.text()
-            if name and name not in self._sources:
-                self.add_source(name)
-                added.append(name)
-
-        if added:
-            self.sources_changed.emit(list(self._sources.keys()))
+        self._show_query_object_dropdown()
 
     def _on_query_context_menu(self, pos):
-        """Right-click context menu on the Query Objects list."""
         item = self.list_queries.itemAt(pos)
         if item is None:
             return
-        query_name = item.text()
+        query_name = item.data(Qt.ItemDataRole.UserRole) or item.text()
+        if not query_name:
+            return
 
         menu = QMenu(self)
+        act_preview = menu.addAction("Preview Data")
+        act_open_builder = menu.addAction("Open in Builder")
+        act_refresh = menu.addAction("Refresh / Requery")
+        menu.addSeparator()
+        act_modify = menu.addAction("Modify in Browser")
         act_rename = menu.addAction("Rename")
         chosen = menu.exec(self.list_queries.viewport().mapToGlobal(pos))
-        if chosen == act_rename:
+        if chosen == act_preview:
+            self._preview_query_data(query_name)
+        elif chosen == act_open_builder:
+            self._open_query_builder(query_name)
+        elif chosen == act_refresh:
+            self._refresh_query_source(query_name)
+        elif chosen == act_modify:
+            self._modify_query_object(query_name)
+        elif chosen == act_rename:
             self._rename_qdef(query_name)
 
+    def _open_query_builder(self, query_name: str):
+        audit_window = self._new_audit_window_for_builder(query_name)
+        if audit_window is not None:
+            audit_window.open_query_object_in_builder(query_name)
+            audit_window.raise_()
+            audit_window.activateWindow()
+            return
+        QMessageBox.information(
+            self,
+            "Builder Unavailable",
+            "This query type needs the full Audit builder, but a builder window could not be opened.",
+        )
+
+    def _new_audit_window_for_builder(self, query_name: str):
+        source = self._sources.get(query_name)
+        existing = query_object_store.load_object(query_name)
+        if source is not None and (existing is None or self._should_republish_builder_source(query_name, source, existing)):
+            try:
+                query_object_store.save_object(object_from_qdefinition(source))
+            except Exception:
+                logger.exception("Failed to publish source for Audit builder: %s", query_name)
+        try:
+            from suiteview.audit.main import create_audit_window
+            window = create_audit_window()
+        except Exception:
+            logger.exception("Failed to create AuditWindow for source builder: %s", query_name)
+            return None
+        self._builder_windows.append(window)
+        window.destroyed.connect(lambda _=None, win=window: self._forget_builder_window(win))
+        return window
+
+    @staticmethod
+    def _should_republish_builder_source(query_name: str, source: QDefinition, existing: QueryObject) -> bool:
+        if (existing.config or {}).get("dataforge"):
+            return False
+        if getattr(source, "forge_name", ""):
+            return True
+        return bool(_forge_copy_source_name(query_name))
+
+    def _forget_builder_window(self, window):
+        if window in self._builder_windows:
+            self._builder_windows.remove(window)
+
+    def _open_file_source_builder(self, query_name: str, obj: QueryObject):
+        from suiteview.audit.tabs.csv_excel_object_editor import CsvExcelObjectEditor
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"File Source Builder - {query_name}")
+        dlg.resize(1120, 680)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(4, 4, 4, 4)
+        editor = CsvExcelObjectEditor(dlg)
+        editor.load_object(obj)
+        editor.saved.connect(lambda saved_name, old=query_name: self._refresh_query_source(old, saved_name))
+        layout.addWidget(editor)
+        self._show_builder_dialog(dlg)
+
+    def _open_manual_sql_builder(self, query_name: str, obj: QueryObject):
+        from suiteview.audit.tabs.manual_sql_object_editor import ManualSqlObjectEditor
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Query Builder - {query_name}")
+        dlg.resize(1180, 720)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(4, 4, 4, 4)
+        editor = ManualSqlObjectEditor(dlg)
+        editor.load_object(obj)
+        connections = self._manual_sql_connections()
+        editor.set_connection_options(connections, obj.dsn)
+        editor.preview_requested.connect(lambda sql, ed=editor: self._preview_manual_sql_builder(ed, sql))
+        editor.save_requested.connect(lambda payload, ed=editor, old=query_name: self._save_manual_sql_builder(ed, payload, old))
+        layout.addWidget(editor)
+        self._show_builder_dialog(dlg)
+
+    def _show_builder_dialog(self, dlg: QDialog):
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dlg.finished.connect(lambda _=0, d=dlg: self._builder_windows.remove(d) if d in self._builder_windows else None)
+        self._builder_windows.append(dlg)
+        dlg.show()
+
+    def _manual_sql_connections(self) -> list[tuple[str, str]]:
+        parent = self.window()
+        provider = getattr(parent, "_manual_sql_odbc_connections", None)
+        if callable(provider):
+            return provider()
+        source_dsns = sorted({source.dsn for source in self._sources.values() if source.dsn}, key=str.lower)
+        return [(dsn, dsn) for dsn in source_dsns]
+
+    def _preview_manual_sql_builder(self, editor, sql: str):
+        dsn = editor.current_connection()
+        if not dsn:
+            QMessageBox.information(editor, "Connection Required", "Select an ODBC connection before running SQL.")
+            return
+        editor.set_running(True)
+        try:
+            columns, rows = execute_odbc_query(dsn, sql)
+            import pandas as pd
+            editor.set_preview_results(pd.DataFrame([list(row) for row in rows], columns=columns), dsn=dsn)
+        except Exception as exc:
+            logger.exception("Manual SQL builder preview failed")
+            QMessageBox.warning(editor, "Query Error", str(exc))
+        finally:
+            editor.set_running(False)
+
+    def _save_manual_sql_builder(self, editor, payload: dict, old_query_name: str):
+        old_obj = query_object_store.load_object(payload.get("original_name", "") or old_query_name)
+        old_name = payload.get("original_name", "")
+        new_name = payload["name"]
+        if new_name != old_name and query_object_store.object_exists(new_name):
+            QMessageBox.warning(editor, "Name Already Exists", f"A Query Object named \"{new_name}\" already exists.")
+            return
+        obj = manual_sql_query_object(
+            new_name,
+            sql=payload["sql"],
+            dsn=payload["dsn"],
+            result_columns=payload["result_columns"],
+            column_types=payload["column_types"],
+        )
+        obj.description = payload.get("description", "")
+        obj.tags = payload.get("tags", [])
+        obj.config = dict(getattr(old_obj, "config", {}) or {})
+        obj.config["sql_assist"] = payload.get("sql_assist", {})
+        obj.source_design = getattr(old_obj, "source_design", "") or obj.source_design
+        existing_fields = payload.get("existing_fields") or []
+        if existing_fields:
+            for field in existing_fields:
+                if field.source == old_name:
+                    field.source = new_name
+            obj.fields = existing_fields
+        query_object_store.save_object(obj)
+        if old_name and old_name != new_name:
+            query_object_store.delete_object(old_name)
+        editor.load_object(obj)
+        self._refresh_query_source(old_query_name, obj.name)
+        QMessageBox.information(editor, "Query Object Saved", f"Saved \"{obj.name}\".")
+
+    def _refresh_query_source(self, query_name: str, saved_name: str = ""):
+        source_name = saved_name or query_name
+        obj = query_object_store.load_object(source_name)
+        if obj is None:
+            qd = qdef_store.load_qdef(source_name, forge_name=self._current_forge_name) or qdef_store.load_qdef(source_name)
+        else:
+            qd = qdefinition_from_query_object(obj)
+        if qd is None:
+            QMessageBox.warning(self, "Refresh Failed", f"Could not find query object \"{source_name}\".")
+            return
+        qd.forge_name = self._current_forge_name
+        if query_name != qd.name:
+            self._sources.pop(query_name, None)
+        self._sources[qd.name] = qd
+        qdef_store.save_qdef(qd)
+        if obj is not None:
+            query_object_store.save_object(obj)
+        self._rebuild_query_list(select_name=qd.name)
+        self._update_query_object_button()
+        if self._current_query == query_name or self._current_query == qd.name:
+            self._current_query = qd.name
+            self._populate_fields(qd.name)
+        self.source_refreshed.emit(query_name, qd)
+
+    def _modify_query_object(self, query_name: str):
+        from suiteview.audit.query_object_viewer_window import QueryObjectViewerWindow
+        win = QueryObjectViewerWindow.show_instance(parent=self.window())
+        selector = getattr(win, "select_object", None)
+        if selector is not None:
+            selector(query_name)
+
     def _rename_qdef(self, old_name: str):
-        """Rename a QDefinition from the DataForge picker."""
         from PyQt6.QtWidgets import QInputDialog, QMessageBox
         new_name, ok = QInputDialog.getText(
             self, "Rename QDefinition", "New name:", text=old_name)
@@ -616,7 +941,6 @@ class QueryFieldPicker(QWidget):
         if not qd:
             return
 
-        # Save under new name, move snapshot, delete old
         qd.name = new_name
         qdef_store.save_qdef(qd)
         old_snap = qdef_store.snapshot_path(old_name, forge_name=forge)
@@ -624,36 +948,52 @@ class QueryFieldPicker(QWidget):
             old_snap.rename(qdef_store.snapshot_path(new_name, forge_name=forge))
         qdef_store.delete_qdef(old_name, forge_name=forge)
 
-        # Update the source reference
         if old_name in self._sources:
             self._sources[new_name] = self._sources.pop(old_name)
             self._sources[new_name].name = new_name
 
-        # Refresh the list
-        self.list_queries.clear()
-        for name in self._sources:
-            self.list_queries.addItem(name)
+        self._rebuild_query_list(select_name=new_name)
+        self._update_query_object_button()
         self.sources_changed.emit(list(self._sources.keys()))
 
-    def _on_view_query(self):
-        """Preview the selected query's results."""
-        current = self.list_queries.currentItem()
-        if current is None:
-            return
-        query_name = current.text()
+    def _preview_query_data(self, query_name: str):
         sq = self._sources.get(query_name)
-        if not sq or not sq.dsn:
+        if not sq:
             return
-        from suiteview.audit.dialogs.tables_dialog import _TablePreviewDialog
-        # Build a simple SQL from the saved query to preview
-        # Use the query's built SQL if available, otherwise show table preview
-        if hasattr(sq, 'sql') and sq.sql:
-            dlg = _TablePreviewDialog(sq.dsn, sq.sql, self)
-        else:
-            # Fallback: show first source table
-            tables = sq.tables if hasattr(sq, 'tables') and sq.tables else []
-            if tables:
-                dlg = _TablePreviewDialog(sq.dsn, tables[0], self)
-            else:
-                return
-        dlg.show()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            df = self._load_preview_dataframe(sq)
+        except Exception as exc:
+            QApplication.restoreOverrideCursor()
+            logger.exception("Forge Assist preview failed: %s", query_name)
+            QMessageBox.warning(
+                self,
+                "Preview Failed",
+                f"Could not preview \"{query_name}\":\n\n{exc}",
+            )
+            return
+        QApplication.restoreOverrideCursor()
+        from suiteview.audit.dataforge._query_preview_window import QueryPreviewWindow
+        win = QueryPreviewWindow(query_name, df, parent=None)
+        win.show()
+        if not hasattr(self, "_preview_windows"):
+            self._preview_windows = []
+        self._preview_windows.append(win)
+
+    @staticmethod
+    def _is_adhoc_source(source: QDefinition) -> bool:
+        return _is_file_source_qdefinition(source)
+
+    def _load_preview_dataframe(self, source: QDefinition):
+        if self._is_adhoc_source(source):
+            metadata = getattr(source, "query_object_source_metadata", {}) or {}
+            return dataframe_from_adhoc_metadata(
+                source.source_design,
+                metadata,
+                columns=source.result_columns,
+            )
+        if not source.sql or not source.dsn:
+            raise ValueError("This query does not have saved SQL and DSN information to preview.")
+        columns, rows = execute_odbc_query(source.dsn, source.sql)
+        import pandas as pd
+        return pd.DataFrame([list(row) for row in rows], columns=columns)

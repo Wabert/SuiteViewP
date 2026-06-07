@@ -43,7 +43,10 @@ class CanvasSource:
     fields: list[CanvasField] = field(default_factory=list)
     x: float = 0.0
     y: float = 0.0
+    width: float = 184.0
     collapsed: bool = False
+    visible_rows: int = 12
+    scroll_offset: int = 0
 
     def field_names(self) -> list[str]:
         return [f.name for f in self.fields]
@@ -57,7 +60,10 @@ class CanvasSource:
             "fields": [f.to_dict() for f in self.fields],
             "x": self.x,
             "y": self.y,
+            "width": self.width,
             "collapsed": self.collapsed,
+            "visible_rows": self.visible_rows,
+            "scroll_offset": self.scroll_offset,
         }
 
     @staticmethod
@@ -67,7 +73,10 @@ class CanvasSource:
             fields=[CanvasField.from_dict(f) for f in d.get("fields", [])],
             x=float(d.get("x", 0.0)),
             y=float(d.get("y", 0.0)),
+            width=max(140.0, float(d.get("width", 184.0))),
             collapsed=bool(d.get("collapsed", False)),
+            visible_rows=max(3, int(d.get("visible_rows", 12))),
+            scroll_offset=max(0, int(d.get("scroll_offset", 0))),
         )
 
 
@@ -137,7 +146,8 @@ class JoinCanvasModel:
 
     def set_sources(self, names: list[str],
                     columns: dict[str, list[str]] | None = None,
-                    types: dict[str, dict[str, str]] | None = None) -> None:
+                    types: dict[str, dict[str, str]] | None = None,
+                    add_missing: bool = True) -> None:
         """Reconcile the box set to ``names``, preserving surviving boxes.
 
         New Sources are appended with a default cascading position; removed
@@ -162,6 +172,8 @@ class JoinCanvasModel:
             fields = [CanvasField(c, ctypes.get(c, "")) for c in cols]
             src = self.get_source(name)
             if src is None:
+                if not add_missing:
+                    continue
                 # Cascade new boxes so they don't stack exactly.
                 self.sources.append(CanvasSource(
                     alias=name, fields=fields,
@@ -169,6 +181,15 @@ class JoinCanvasModel:
                 existing.add(name)
             else:
                 src.fields = fields
+                src.scroll_offset = min(src.scroll_offset,
+                                        max(0, len(src.fields) - src.visible_rows))
+
+    def remove_source(self, alias: str) -> None:
+        self.sources = [s for s in self.sources if s.alias != alias]
+        self.joins = [
+            j for j in self.joins
+            if j.left_source != alias and j.right_source != alias
+        ]
 
     # ── Relationships / keys ─────────────────────────────────────────────
 

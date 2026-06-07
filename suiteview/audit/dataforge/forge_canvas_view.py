@@ -35,16 +35,21 @@ logger = logging.getLogger(__name__)
 _HEADER_H = 22
 _ROW_H = 18
 _BOX_W = 184
+_MIN_BOX_W = 140
+_MAX_BOX_W = 520
 _PAD = 8
+_RESIZE_HANDLE = 12
+_MIN_VISIBLE_ROWS = 3
+_DEFAULT_VISIBLE_ROWS = 12
 
-# Theme (teal, matching the rest of DataForge)
-_TEAL = QColor("#0D9488")
-_TEAL_BG = QColor("#F0FDFA")
-_HEADER_BG = QColor("#0D9488")
+# Theme (forge heat, matching the rest of DataForge)
+_FORGE = QColor("#C2410C")
+_FORGE_BG = QColor("#FFF7ED")
+_HEADER_BG = QColor("#C2410C")
 _HEADER_FG = QColor("#FFFFFF")
 _ROW_FG = QColor("#0F172A")
-_ROW_HOVER = QColor("#CCFBF1")
-_LINE_COLOR = QColor("#0D9488")
+_ROW_HOVER = QColor("#FED7AA")
+_LINE_COLOR = QColor("#EA580C")
 _LINE_SEL = QColor("#F59E0B")
 
 _FONT = QFont("Segoe UI", 8)
@@ -60,12 +65,22 @@ class SourceBoxItem(QGraphicsObject):
 
     moved = pyqtSignal()
 
-    def __init__(self, alias: str, fields: list[str], collapsed: bool = False):
+    def __init__(self, alias: str, fields: list[str], collapsed: bool = False,
+                 width: float = _BOX_W,
+                 visible_rows: int = _DEFAULT_VISIBLE_ROWS,
+                 scroll_offset: int = 0):
         super().__init__()
         self.alias = alias
         self.fields = list(fields)
+        self.width = max(_MIN_BOX_W, min(_MAX_BOX_W, float(width or _BOX_W)))
         self.collapsed = collapsed
+        self.visible_rows = max(_MIN_VISIBLE_ROWS, int(visible_rows))
+        self.scroll_offset = max(0, int(scroll_offset))
         self._hover_field: str | None = None
+        self._resizing = False
+        self._resize_start_pos = QPointF()
+        self._resize_start_width = self.width
+        self._resize_start_rows = self.visible_rows
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges,
                      True)
@@ -74,18 +89,36 @@ class SourceBoxItem(QGraphicsObject):
 
     # -- geometry --
     def _body_rows(self) -> int:
-        return 0 if self.collapsed else len(self.fields)
+        if self.collapsed:
+            return 0
+        return min(len(self.fields), self.visible_rows)
+
+    def _max_scroll_offset(self) -> int:
+        return max(0, len(self.fields) - self.visible_rows)
+
+    def _clamp_scroll(self):
+        self.scroll_offset = max(0, min(self.scroll_offset, self._max_scroll_offset()))
 
     def boundingRect(self) -> QRectF:
         h = _HEADER_H + self._body_rows() * _ROW_H
-        return QRectF(0, 0, _BOX_W, max(h, _HEADER_H))
+        return QRectF(0, 0, self.width, max(h, _HEADER_H))
+
+    def resize_handle_rect(self) -> QRectF:
+        rect = self.boundingRect()
+        return QRectF(rect.right() - _RESIZE_HANDLE, rect.bottom() - _RESIZE_HANDLE,
+                      _RESIZE_HANDLE, _RESIZE_HANDLE)
+
+    def is_resize_handle(self, pos: QPointF) -> bool:
+        return self.resize_handle_rect().contains(pos)
 
     def field_index_at(self, local_y: float) -> int | None:
         if self.collapsed or local_y < _HEADER_H:
             return None
         idx = int((local_y - _HEADER_H) // _ROW_H)
-        if 0 <= idx < len(self.fields):
-            return idx
+        if 0 <= idx < self._body_rows():
+            field_index = self.scroll_offset + idx
+            if 0 <= field_index < len(self.fields):
+                return field_index
         return None
 
     def field_at(self, local_y: float) -> str | None:
@@ -99,31 +132,36 @@ class SourceBoxItem(QGraphicsObject):
         if self.collapsed or field not in self.fields:
             return _HEADER_H / 2
         idx = self.fields.index(field)
-        return _HEADER_H + idx * _ROW_H + _ROW_H / 2
+        visible_idx = idx - self.scroll_offset
+        if visible_idx < 0:
+            visible_idx = 0
+        elif visible_idx >= self._body_rows():
+            visible_idx = max(0, self._body_rows() - 1)
+        return _HEADER_H + visible_idx * _ROW_H + _ROW_H / 2
 
     def anchor_scene_pos(self, field: str, right_side: bool) -> QPointF:
-        x = _BOX_W if right_side else 0.0
+        x = self.width if right_side else 0.0
         return self.mapToScene(QPointF(x, self._row_mid_y(field)))
 
     def center_x_scene(self) -> float:
-        return self.mapToScene(QPointF(_BOX_W / 2, 0)).x()
+        return self.mapToScene(QPointF(self.width / 2, 0)).x()
 
     # -- paint --
     def paint(self, painter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.boundingRect()
         # Body
-        painter.setBrush(QBrush(_TEAL_BG))
-        painter.setPen(QPen(_TEAL, 1))
+        painter.setBrush(QBrush(_FORGE_BG))
+        painter.setPen(QPen(_FORGE, 1))
         painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
         # Header
-        header = QRectF(0, 0, _BOX_W, _HEADER_H)
+        header = QRectF(0, 0, self.width, _HEADER_H)
         painter.setBrush(QBrush(_HEADER_BG))
         painter.setPen(Qt.PenStyle.NoPen)
         path = QPainterPath()
         path.addRoundedRect(header, 4, 4)
         painter.drawPath(path)
-        painter.fillRect(QRectF(0, _HEADER_H - 6, _BOX_W, 6), _HEADER_BG)
+        painter.fillRect(QRectF(0, _HEADER_H - 6, self.width, 6), _HEADER_BG)
         painter.setPen(QPen(_HEADER_FG))
         painter.setFont(_FONT_BOLD)
         painter.drawText(header.adjusted(_PAD, 0, -_PAD, 0),
@@ -132,14 +170,34 @@ class SourceBoxItem(QGraphicsObject):
         # Fields
         if not self.collapsed:
             painter.setFont(_FONT)
-            for i, name in enumerate(self.fields):
-                row = QRectF(1, _HEADER_H + i * _ROW_H, _BOX_W - 2, _ROW_H)
+            self._clamp_scroll()
+            visible_fields = self.fields[self.scroll_offset:self.scroll_offset + self._body_rows()]
+            for i, name in enumerate(visible_fields):
+                row = QRectF(1, _HEADER_H + i * _ROW_H, self.width - 2, _ROW_H)
                 if name == self._hover_field:
                     painter.fillRect(row, _ROW_HOVER)
                 painter.setPen(QPen(_ROW_FG))
                 painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
                                  Qt.AlignmentFlag.AlignVCenter
                                  | Qt.AlignmentFlag.AlignLeft, name)
+            if len(self.fields) > self.visible_rows:
+                track = QRectF(self.width - 8, _HEADER_H + 2, 4,
+                               self._body_rows() * _ROW_H - 4)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(QColor("#FDBA74")))
+                painter.drawRoundedRect(track, 2, 2)
+                ratio = self.visible_rows / max(1, len(self.fields))
+                handle_h = max(18, track.height() * ratio)
+                travel = max(1, track.height() - handle_h)
+                handle_y = track.y() + travel * (self.scroll_offset / max(1, self._max_scroll_offset()))
+                painter.setBrush(QBrush(_FORGE))
+                painter.drawRoundedRect(QRectF(track.x(), handle_y, track.width(), handle_h), 2, 2)
+            handle = self.resize_handle_rect()
+            painter.setPen(QPen(_FORGE, 1))
+            painter.drawLine(handle.bottomLeft() + QPointF(3, -2),
+                     handle.topRight() + QPointF(-2, 3))
+            painter.drawLine(handle.bottomLeft() + QPointF(7, -2),
+                     handle.topRight() + QPointF(-2, 7))
 
     # -- events --
     def itemChange(self, change, value):
@@ -148,20 +206,84 @@ class SourceBoxItem(QGraphicsObject):
         return super().itemChange(change, value)
 
     def hoverMoveEvent(self, event):
+        if self.is_resize_handle(event.pos()):
+            self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        else:
+            self.unsetCursor()
         self._hover_field = self.field_at(event.pos().y())
         self.update()
         super().hoverMoveEvent(event)
 
     def hoverLeaveEvent(self, event):
         self._hover_field = None
+        self.unsetCursor()
         self.update()
         super().hoverLeaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.is_resize_handle(event.pos()):
+            self._resizing = True
+            self._resize_start_pos = event.pos()
+            self._resize_start_width = self.width
+            self._resize_start_rows = self.visible_rows
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._resizing:
+            delta = event.pos() - self._resize_start_pos
+            new_width = max(_MIN_BOX_W, min(_MAX_BOX_W, self._resize_start_width + delta.x()))
+            max_rows = max(_MIN_VISIBLE_ROWS, len(self.fields) or _MIN_VISIBLE_ROWS)
+            row_delta = int(round(delta.y() / _ROW_H))
+            new_rows = max(_MIN_VISIBLE_ROWS, min(max_rows, self._resize_start_rows + row_delta))
+            if new_width != self.width or new_rows != self.visible_rows:
+                self.prepareGeometryChange()
+                self.width = new_width
+                self.visible_rows = new_rows
+                self._clamp_scroll()
+                self.update()
+                self.moved.emit()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._resizing:
+            self._resizing = False
+            self.moved.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def toggle_collapsed(self):
         self.prepareGeometryChange()
         self.collapsed = not self.collapsed
         self.update()
         self.moved.emit()
+
+    def resize_rows(self, delta: int):
+        self.prepareGeometryChange()
+        self.visible_rows = max(_MIN_VISIBLE_ROWS, min(len(self.fields) or _MIN_VISIBLE_ROWS,
+                                                       self.visible_rows + delta))
+        self._clamp_scroll()
+        self.update()
+        self.moved.emit()
+
+    def wheelEvent(self, event):
+        if self.collapsed or len(self.fields) <= self.visible_rows:
+            super().wheelEvent(event)
+            return
+        delta = -1 if event.delta() > 0 else 1
+        old_offset = self.scroll_offset
+        self.scroll_offset = max(0, min(self.scroll_offset + delta, self._max_scroll_offset()))
+        if self.scroll_offset != old_offset:
+            self._hover_field = None
+            self.update()
+            self.moved.emit()
+            event.accept()
+            return
+        super().wheelEvent(event)
 
 
 # ── Join line ─────────────────────────────────────────────────────────────
@@ -238,7 +360,8 @@ class JoinCanvasScene(QGraphicsScene):
         self.line_items.clear()
         for src in self.model.sources:
             self._add_box_item(src.alias, src.field_names(), src.collapsed,
-                               src.x, src.y)
+                               src.x, src.y, src.width, src.visible_rows,
+                               src.scroll_offset)
         for join in self.model.joins:
             lbox = self.box_items.get(join.left_source)
             rbox = self.box_items.get(join.right_source)
@@ -248,8 +371,10 @@ class JoinCanvasScene(QGraphicsScene):
                 self._add_line_item(lbox, key.left_field,
                                     rbox, key.right_field, join.how)
 
-    def _add_box_item(self, alias, fields, collapsed, x, y) -> SourceBoxItem:
-        box = SourceBoxItem(alias, fields, collapsed)
+    def _add_box_item(self, alias, fields, collapsed, x, y, width=_BOX_W,
+                      visible_rows=_DEFAULT_VISIBLE_ROWS,
+                      scroll_offset=0) -> SourceBoxItem:
+        box = SourceBoxItem(alias, fields, collapsed, width, visible_rows, scroll_offset)
         box.setPos(x, y)
         box.moved.connect(self._on_box_moved)
         self.addItem(box)
@@ -269,9 +394,17 @@ class JoinCanvasScene(QGraphicsScene):
             if src is not None:
                 src.x = box.pos().x()
                 src.y = box.pos().y()
+                src.width = box.width
                 src.collapsed = box.collapsed
+                src.visible_rows = box.visible_rows
+                src.scroll_offset = box.scroll_offset
         for line in self.line_items:
             line.update_path()
+        self.changed_model.emit()
+
+    def remove_source(self, alias: str):
+        self.model.remove_source(alias)
+        self.rebuild()
         self.changed_model.emit()
 
     # -- programmatic linking (used by the drag gesture and by tests) --
@@ -323,9 +456,12 @@ class JoinCanvasScene(QGraphicsScene):
         item = self.itemAt(event.scenePos(), self.views()[0].transform()
                            if self.views() else None)  # type: ignore[arg-type]
         if isinstance(item, SourceBoxItem):
-            local_y = item.mapFromScene(event.scenePos()).y()
-            if not item.is_header(local_y):
-                field = item.field_at(local_y)
+            local = item.mapFromScene(event.scenePos())
+            if item.is_resize_handle(local):
+                super().mousePressEvent(event)
+                return
+            if not item.is_header(local.y()):
+                field = item.field_at(local.y())
                 if field is not None and event.button() == \
                         Qt.MouseButton.LeftButton:
                     self._begin_link(item, field, event.scenePos())
@@ -383,6 +519,8 @@ class ForgeJoinCanvas(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.model = JoinCanvasModel()
+        self._available_query_names: list[str] = []
+        self._available_query_columns: dict[str, list[str]] = {}
         self.scene = JoinCanvasScene(self.model, self)
         self.scene.changed_model.connect(self.state_changed.emit)
 
@@ -412,7 +550,11 @@ class ForgeJoinCanvas(QWidget):
 
     def update_queries(self, query_names: list[str],
                        query_columns: dict[str, list[str]] | None = None):
-        self.model.set_sources(list(query_names), query_columns or {})
+        self._available_query_names = list(query_names)
+        self._available_query_columns = query_columns or {}
+        self.model.set_sources(self._available_query_names,
+                       self._available_query_columns,
+                       add_missing=False)
         self.scene.rebuild()
         self.state_changed.emit()
 
@@ -452,7 +594,30 @@ class ForgeJoinCanvas(QWidget):
             if src is not None:
                 src.x = box.pos().x()
                 src.y = box.pos().y()
+                src.width = box.width
                 src.collapsed = box.collapsed
+                src.visible_rows = box.visible_rows
+                src.scroll_offset = box.scroll_offset
+
+    def _available_to_add(self) -> list[str]:
+        visible = {src.alias for src in self.model.sources}
+        return [name for name in self._available_query_names if name not in visible]
+
+    def _add_query_table(self, name: str):
+        if name not in self._available_query_names:
+            return False
+        visible = [src.alias for src in self.model.sources]
+        if name in visible:
+            return False
+        self.model.set_sources(visible + [name], self._available_query_columns,
+                               add_missing=True)
+        self.scene.rebuild()
+        self.state_changed.emit()
+        return True
+
+    def add_query_table(self, name: str) -> bool:
+        """Add an available query Source box to the join canvas."""
+        return self._add_query_table(name)
 
     def _selected_line(self) -> JoinLineItem | None:
         for item in self.scene.selectedItems():
@@ -478,6 +643,28 @@ class ForgeJoinCanvas(QWidget):
             menu = QMenu(self.view)
             act = menu.addAction("Expand" if item.collapsed else "Collapse")
             act.triggered.connect(item.toggle_collapsed)
+            if not item.collapsed and item.fields:
+                act_more = menu.addAction("Show More Rows")
+                act_more.setEnabled(item.visible_rows < len(item.fields))
+                act_more.triggered.connect(lambda: item.resize_rows(5))
+                act_fewer = menu.addAction("Show Fewer Rows")
+                act_fewer.setEnabled(item.visible_rows > _MIN_VISIBLE_ROWS)
+                act_fewer.triggered.connect(lambda: item.resize_rows(-5))
+            menu.addSeparator()
+            act_delete = menu.addAction("Delete Table")
+            act_delete.triggered.connect(lambda: self.scene.remove_source(item.alias))
+            menu.exec(event.globalPos())
+        else:
+            menu = QMenu(self.view)
+            add_menu = menu.addMenu("Add Query Table")
+            names = self._available_to_add()
+            if names:
+                for name in names:
+                    act = add_menu.addAction(name)
+                    act.triggered.connect(lambda _=False, n=name: self._add_query_table(n))
+            else:
+                act = add_menu.addAction("No available queries")
+                act.setEnabled(False)
             menu.exec(event.globalPos())
 
     def _view_key_press(self, event):

@@ -11,18 +11,20 @@ from __future__ import annotations
 
 import logging
 import time
+from copy import deepcopy
 
 import pandas as pd
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QMimeData, QPoint, Qt, pyqtSignal
+from PyQt6.QtGui import QDrag, QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QPushButton, QMessageBox, QApplication, QInputDialog, QTextEdit, QScrollArea,
+    QFrame, QMenu,
 )
 
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit import qdef_store
-from suiteview.audit.query_object import qdefinition_from_query_object
+from suiteview.audit.query_object import object_from_qdefinition, qdefinition_from_query_object
 from suiteview.audit import query_object_store
 from suiteview.audit.adhoc_source_intake import dataframe_from_adhoc_metadata
 from suiteview.audit.dataforge.dataforge_model import DataForge, DataForgeSource
@@ -33,6 +35,7 @@ from suiteview.audit.tabs._styles import _FONT
 from suiteview.audit.sql_helpers import fmt_time
 from suiteview.audit.ui.bottom_bar import AuditBottomBar
 from suiteview.audit.query_runner import run_button_context, execute_odbc_query
+from suiteview.audit.dataforge.query_field_picker import FORGE_FIELD_DRAG_MIME
 
 logger = logging.getLogger(__name__)
 
@@ -40,17 +43,24 @@ _FONT_LABEL = QFont("Segoe UI", 9)
 _FONT_BOLD = QFont("Segoe UI", 9, QFont.Weight.Bold)
 _FONT_MONO = QFont("Consolas", 10)
 
+_FORGE = "#EA580C"
+_FORGE_DARK = "#C2410C"
+_FORGE_DEEP = "#7C2D12"
+_FORGE_LIGHT = "#FED7AA"
+_FORGE_BG = "#FFF3E8"
+_FORGE_HOVER = "#FB923C"
+
 _RUN_BTN_STYLE = (
-    "QPushButton { background-color: #0D9488; color: white; border: 1px solid #0F766E;"
+    f"QPushButton {{ background-color: {_FORGE_DARK}; color: white; border: 1px solid {_FORGE_DEEP};"
     " border-radius: 3px; }"
-    "QPushButton:hover { background-color: #14B8A6; }"
+    f"QPushButton:hover {{ background-color: {_FORGE}; }}"
 )
 
 _CLEAR_BTN_STYLE = (
-    "QPushButton { background-color: #0D9488; color: white;"
-    " border: 1px solid #0F766E; border-radius: 2px;"
+    f"QPushButton {{ background-color: {_FORGE_DARK}; color: white;"
+    f" border: 1px solid {_FORGE_DEEP}; border-radius: 2px;"
     " padding: 1px 8px; font-size: 9pt; }"
-    "QPushButton:hover { background-color: #14B8A6; }"
+    f"QPushButton:hover {{ background-color: {_FORGE}; }}"
 )
 
 _SAVE_BTN_STYLE = (
@@ -61,24 +71,35 @@ _SAVE_BTN_STYLE = (
 )
 
 _QUERIES_BTN_STYLE = (
-    "QPushButton { background-color: #E6F5F3; color: #0D9488;"
-    " border: 1px solid #0D9488; border-radius: 3px;"
+    f"QPushButton {{ background-color: {_FORGE_BG}; color: {_FORGE_DARK};"
+    f" border: 1px solid {_FORGE_DARK}; border-radius: 3px;"
     " padding: 2px 10px; font-size: 9pt; font-weight: bold; }"
-    "QPushButton:hover { background-color: #B2DFDB; }"
+    f"QPushButton:hover {{ background-color: {_FORGE_LIGHT}; }}"
 )
 
 _DATASET_BTN_STYLE = (
-    "QPushButton { background-color: #E6F5F3; color: #0D9488;"
-    " border: 1px solid #B2DFDB; border-radius: 3px;"
+    f"QPushButton {{ background-color: {_FORGE_BG}; color: {_FORGE_DARK};"
+    f" border: 1px solid {_FORGE_LIGHT}; border-radius: 3px;"
     " padding: 4px 12px; font-size: 9pt; }"
-    "QPushButton:hover { background-color: #B2DFDB; }"
+    f"QPushButton:hover {{ background-color: {_FORGE_LIGHT}; }}"
 )
 
 _DATASET_BTN_ACTIVE_STYLE = (
-    "QPushButton { background-color: #0D9488; color: white;"
-    " border: 1px solid #0F766E; border-radius: 3px;"
+    f"QPushButton {{ background-color: {_FORGE_DARK}; color: white;"
+    f" border: 1px solid {_FORGE_DEEP}; border-radius: 3px;"
     " padding: 4px 12px; font-size: 9pt; font-weight: bold; }"
-    "QPushButton:hover { background-color: #14B8A6; }"
+    f"QPushButton:hover {{ background-color: {_FORGE}; }}"
+)
+
+_DISPLAY_REORDER_MIME = "application/x-dataforge-display-row-reorder"
+_DISPLAY_AGGREGATES = ["display", "COUNT", "SUM", "MIN", "MAX"]
+
+_DISPLAY_TOGGLE_STYLE = (
+    f"QPushButton {{ font-size: 7pt; padding: 0px 4px;"
+    f" border: 1px solid {_FORGE_DARK}; border-radius: 2px;"
+    f" background-color: {_FORGE_LIGHT}; color: {_FORGE_DEEP};"
+    " min-width: 48px; max-width: 60px; }}"
+    f"QPushButton:hover {{ background-color: {_FORGE_HOVER}; }}"
 )
 
 
@@ -248,7 +269,7 @@ class ForgeCodeTab(QWidget):
 
         lbl = QLabel("Python Code — Dataset Merge & Filter")
         lbl.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        lbl.setStyleSheet("color: #0D9488;")
+        lbl.setStyleSheet(f"color: {_FORGE_DARK};")
         root.addWidget(lbl)
 
         self.txt_code = QTextEdit()
@@ -264,10 +285,10 @@ class ForgeCodeTab(QWidget):
         btn_copy.setFont(QFont("Segoe UI", 9))
         btn_copy.setFixedHeight(28)
         btn_copy.setStyleSheet(
-            "QPushButton { background-color: #0D9488; color: white;"
-            " border: 1px solid #0F766E; border-radius: 3px;"
+            f"QPushButton {{ background-color: {_FORGE_DARK}; color: white;"
+            f" border: 1px solid {_FORGE_DEEP}; border-radius: 3px;"
             " padding: 2px 12px; }"
-            "QPushButton:hover { background-color: #14B8A6; }")
+            f"QPushButton:hover {{ background-color: {_FORGE}; }}")
         btn_copy.clicked.connect(self._copy_code)
         root.addWidget(btn_copy)
 
@@ -291,85 +312,357 @@ from suiteview.audit.dataforge.forge_canvas_view import (  # noqa: F401
 
 # ── Display Tab for DataForge ────────────────────────────────────────
 
-class ForgeDisplayTab(QWidget):
-    """Select which columns to include in final DataForge output."""
+class ForgeDisplayFieldRow(QFrame):
+    """One DataForge display field row with aggregate toggle + reorder drag."""
+    state_changed = pyqtSignal()
+
+    def __init__(self, field_key: str, display_name: str,
+                 parent: QWidget | None = None):
+        super().__init__(parent)
+        self.field_key = field_key
+        self._display_name = display_name
+        self._agg_idx = 0
+        self._drag_start_pos: QPoint | None = None
+
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setFixedHeight(26)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setStyleSheet(
+            "ForgeDisplayFieldRow { border: 1px solid #FDBA74;"
+            " border-radius: 2px; background-color: #FFF7ED; }"
+            "ForgeDisplayFieldRow:hover { background-color: #FED7AA; }"
+        )
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(4, 2, 4, 2)
+        lay.setSpacing(6)
+
+        self.btn_agg = QPushButton("display")
+        self.btn_agg.setFont(QFont("Segoe UI", 7))
+        self.btn_agg.setFixedSize(52, 18)
+        self.btn_agg.setStyleSheet(_DISPLAY_TOGGLE_STYLE)
+        self.btn_agg.setToolTip("Click to cycle: display -> COUNT -> SUM -> MIN -> MAX")
+        self.btn_agg.clicked.connect(self._cycle_agg)
+        self.btn_agg.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.btn_agg.customContextMenuRequested.connect(self._show_agg_menu)
+        lay.addWidget(self.btn_agg)
+
+        self.lbl_name = QLabel(display_name)
+        self.lbl_name.setFont(_FONT_BOLD)
+        self.lbl_name.setStyleSheet("color: #0F172A; background: transparent;")
+        lay.addWidget(self.lbl_name)
+
+        self.lbl_key = QLabel(f"({field_key})")
+        self.lbl_key.setFont(QFont("Segoe UI", 7))
+        self.lbl_key.setStyleSheet("color: #7C2D12; background: transparent;")
+        lay.addWidget(self.lbl_key)
+        lay.addStretch()
+
+        self.btn_remove = QPushButton("x")
+        self.btn_remove.setFont(QFont("Segoe UI", 7))
+        self.btn_remove.setFixedSize(16, 16)
+        self.btn_remove.setStyleSheet(
+            "QPushButton { border: none; color: #9A3412; background: transparent; }"
+            "QPushButton:hover { color: #C00000; }")
+        self.btn_remove.setToolTip("Remove from Display")
+        lay.addWidget(self.btn_remove)
+
+    @property
+    def aggregate(self) -> str:
+        return _DISPLAY_AGGREGATES[self._agg_idx]
+
+    @property
+    def display_name(self) -> str:
+        return self._display_name
+
+    def _cycle_agg(self):
+        self._agg_idx = (self._agg_idx + 1) % len(_DISPLAY_AGGREGATES)
+        self.btn_agg.setText(_DISPLAY_AGGREGATES[self._agg_idx])
+        self.state_changed.emit()
+
+    def _show_agg_menu(self, pos):
+        menu = QMenu(self)
+        actions = []
+        for idx, name in enumerate(_DISPLAY_AGGREGATES):
+            act = menu.addAction(name)
+            act.setCheckable(True)
+            act.setChecked(idx == self._agg_idx)
+            actions.append((act, idx))
+        chosen = menu.exec(self.btn_agg.mapToGlobal(pos))
+        if chosen is None:
+            return
+        for act, idx in actions:
+            if chosen is act:
+                self._agg_idx = idx
+                self.btn_agg.setText(_DISPLAY_AGGREGATES[idx])
+                self.state_changed.emit()
+                return
+
+    def get_state(self) -> dict:
+        return {
+            "field_key": self.field_key,
+            "display_name": self._display_name,
+            "aggregate": self._agg_idx,
+        }
+
+    def set_state(self, state: dict):
+        self._agg_idx = max(0, min(len(_DISPLAY_AGGREGATES) - 1,
+                                  int(state.get("aggregate", 0))))
+        self.btn_agg.setText(_DISPLAY_AGGREGATES[self._agg_idx])
+        display_name = state.get("display_name", self._display_name)
+        if display_name:
+            self._display_name = display_name
+            self.lbl_name.setText(display_name)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_pos = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (self._drag_start_pos is not None
+                and event.buttons() & Qt.MouseButton.LeftButton):
+            dist = (event.pos() - self._drag_start_pos).manhattanLength()
+            if dist >= QApplication.startDragDistance():
+                self._start_drag()
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_start_pos = None
+        super().mouseReleaseEvent(event)
+
+    def _start_drag(self):
+        self._drag_start_pos = None
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(_DISPLAY_REORDER_MIME, self.field_key.encode("utf-8"))
+        drag.setMimeData(mime)
+        self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        drag.exec(Qt.DropAction.MoveAction)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+
+
+class ForgeDisplayTab(QScrollArea):
+    """Select and order final DataForge output fields."""
     state_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setAcceptDrops(True)
         self._all_columns: list[str] = []
-        self._selected: set[str] = set()
-        self.display_all = True
-        self._build_ui()
 
-    def _build_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(4, 4, 4, 4)
-        root.setSpacing(4)
+        self._container = QWidget()
+        self.setWidget(self._container)
+        self._layout = QVBoxLayout(self._container)
+        self._layout.setContentsMargins(6, 6, 6, 6)
+        self._layout.setSpacing(4)
+        self._layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        top_row = QHBoxLayout()
         from PyQt6.QtWidgets import QCheckBox
-        self.chk_all = QCheckBox("Display All Columns")
+        self.chk_all = QCheckBox("Display all columns")
         self.chk_all.setFont(_FONT_BOLD)
         self.chk_all.setChecked(True)
-        self.chk_all.toggled.connect(self._on_toggle_all)
-        top_row.addWidget(self.chk_all)
-        top_row.addStretch()
-        root.addLayout(top_row)
+        self.chk_all.toggled.connect(self.state_changed.emit)
+        self._layout.addWidget(self.chk_all)
 
-        from PyQt6.QtWidgets import QListWidget, QAbstractItemView
-        self.list_cols = QListWidget()
-        self.list_cols.setFont(_FONT)
-        self.list_cols.setSelectionMode(
-            QAbstractItemView.SelectionMode.MultiSelection)
-        self.list_cols.setEnabled(False)
-        self.list_cols.itemSelectionChanged.connect(self._on_selection_changed)
-        root.addWidget(self.list_cols, 1)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #FDBA74;")
+        self._layout.addWidget(sep)
+
+        self._hint = QLabel("Drag fields here from Forge Assist, or double-click to add.")
+        self._hint.setFont(QFont("Segoe UI", 8))
+        self._hint.setStyleSheet("color: #9A3412;")
+        self._hint.setWordWrap(True)
+        self._layout.addWidget(self._hint)
 
         self.lbl_count = QLabel("")
         self.lbl_count.setFont(QFont("Segoe UI", 8))
-        self.lbl_count.setStyleSheet("color: #666;")
-        root.addWidget(self.lbl_count)
+        self.lbl_count.setStyleSheet("color: #9A3412;")
+        self._layout.addWidget(self.lbl_count)
+
+        self._layout.addStretch()
+        self._rows: list[ForgeDisplayFieldRow] = []
+        self._field_set: set[str] = set()
+
+        self._drop_indicator = QFrame(self._container)
+        self._drop_indicator.setFixedHeight(3)
+        self._drop_indicator.setStyleSheet(
+            f"background-color: {_FORGE_DARK}; border-radius: 1px;")
+        self._drop_indicator.hide()
+
+    @property
+    def display_all(self) -> bool:
+        return self.chk_all.isChecked()
 
     def set_columns(self, columns: list[str]):
         """Set available columns from merged datasets."""
         self._all_columns = list(columns)
-        self.list_cols.clear()
-        for col in columns:
-            self.list_cols.addItem(col)
         self.lbl_count.setText(f"{len(columns)} columns available")
 
-    def _on_toggle_all(self, checked: bool):
-        self.display_all = checked
-        self.list_cols.setEnabled(not checked)
+    def add_field(self, field_key: str, display_name: str = ""):
+        """Add a display field row, preserving order and avoiding duplicates."""
+        field_key = field_key.strip()
+        if not field_key or field_key in self._field_set:
+            return
+        display_name = display_name or field_key.split(".")[-1]
+        row = ForgeDisplayFieldRow(field_key, display_name, self._container)
+        row.btn_remove.clicked.connect(lambda: self._remove_row(row))
+        row.state_changed.connect(self.state_changed)
+        self._rows.append(row)
+        self._field_set.add(field_key)
+        self._layout.insertWidget(self._layout.count() - 1, row)
+        self._update_hint_visibility()
         self.state_changed.emit()
 
-    def _on_selection_changed(self):
-        self._selected = {
-            self.list_cols.item(i).text()
-            for i in range(self.list_cols.count())
-            if self.list_cols.item(i).isSelected()
-        }
+    def add_query_field(self, query_name: str, col_name: str):
+        self.chk_all.setChecked(False)
+        self.add_field(f"{query_name}.{col_name}", col_name)
+
+    def _remove_row(self, row: ForgeDisplayFieldRow):
+        if row not in self._rows:
+            return
+        self._rows.remove(row)
+        self._field_set.discard(row.field_key)
+        self._layout.removeWidget(row)
+        row.setParent(None)
+        row.deleteLater()
+        self._update_hint_visibility()
         self.state_changed.emit()
+
+    def _update_hint_visibility(self):
+        self._hint.setVisible(len(self._rows) == 0)
 
     def get_selected_columns(self) -> list[str]:
         if self.display_all:
             return list(self._all_columns)
-        return [c for c in self._all_columns if c in self._selected]
+        return [item["column"] for item in self.get_display_columns()]
+
+    def get_display_columns(self) -> list[dict]:
+        result = []
+        for row in self._rows:
+            parts = row.field_key.split(".")
+            result.append({
+                "column": parts[-1] if parts else row.field_key,
+                "field_key": row.field_key,
+                "display_name": row.display_name,
+                "aggregate": row.aggregate,
+            })
+        return result
+
+    def dragEnterEvent(self, event):
+        md = event.mimeData()
+        if md.hasFormat(FORGE_FIELD_DRAG_MIME) or md.hasFormat(_DISPLAY_REORDER_MIME):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        md = event.mimeData()
+        if md.hasFormat(FORGE_FIELD_DRAG_MIME) or md.hasFormat(_DISPLAY_REORDER_MIME):
+            event.acceptProposedAction()
+            self._show_drop_indicator(event.position().toPoint())
+        else:
+            super().dragMoveEvent(event)
+
+    def dragLeaveEvent(self, event):
+        self._drop_indicator.hide()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        self._drop_indicator.hide()
+        md = event.mimeData()
+        if md.hasFormat(_DISPLAY_REORDER_MIME):
+            key = bytes(md.data(_DISPLAY_REORDER_MIME)).decode("utf-8")
+            self._reorder_row(key, self._drop_index(event.position().toPoint()))
+            event.acceptProposedAction()
+            return
+        if md.hasFormat(FORGE_FIELD_DRAG_MIME):
+            data = bytes(md.data(FORGE_FIELD_DRAG_MIME)).decode("utf-8")
+            self.chk_all.setChecked(False)
+            insert_idx = self._drop_index(event.position().toPoint())
+            added = []
+            for line in data.split("\n"):
+                parts = line.strip().split("|")
+                if len(parts) >= 2:
+                    query_name, col_name = parts[0], parts[1]
+                    key = f"{query_name}.{col_name}"
+                    if key not in self._field_set:
+                        self.add_field(key, col_name)
+                        added.append(key)
+            for offset, key in enumerate(added):
+                self._reorder_row(key, insert_idx + offset)
+            event.acceptProposedAction()
+            return
+        super().dropEvent(event)
+
+    def _drop_index(self, pos: QPoint) -> int:
+        container_pos = self._container.mapFrom(self, pos)
+        for idx, row in enumerate(self._rows):
+            if container_pos.y() < row.y() + row.height() // 2:
+                return idx
+        return len(self._rows)
+
+    def _show_drop_indicator(self, pos: QPoint):
+        idx = self._drop_index(pos)
+        if not self._rows:
+            self._drop_indicator.hide()
+            return
+        if idx < len(self._rows):
+            y = self._rows[idx].y() - 2
+        else:
+            last = self._rows[-1]
+            y = last.y() + last.height() + 1
+        self._drop_indicator.setGeometry(self._rows[0].x(), y,
+                                         self._rows[0].width(), 3)
+        self._drop_indicator.raise_()
+        self._drop_indicator.show()
+
+    def _reorder_row(self, field_key: str, new_idx: int):
+        row = None
+        old_idx = -1
+        for idx, candidate in enumerate(self._rows):
+            if candidate.field_key == field_key:
+                row = candidate
+                old_idx = idx
+                break
+        if row is None:
+            return
+        if new_idx > old_idx:
+            new_idx -= 1
+        new_idx = max(0, min(new_idx, len(self._rows) - 1))
+        if new_idx == old_idx:
+            return
+        self._layout.removeWidget(row)
+        self._rows.pop(old_idx)
+        self._rows.insert(new_idx, row)
+        row_start = self._layout.count() - 1 - len(self._rows)
+        self._layout.insertWidget(row_start + new_idx, row)
+        self.state_changed.emit()
 
     def get_state(self) -> dict:
         return {
             "display_all": self.display_all,
-            "selected": list(self._selected),
+            "fields": [row.get_state() for row in self._rows],
         }
 
     def set_state(self, state: dict):
-        self.display_all = state.get("display_all", True)
-        self.chk_all.setChecked(self.display_all)
-        selected = set(state.get("selected", []))
-        for i in range(self.list_cols.count()):
-            item = self.list_cols.item(i)
-            item.setSelected(item.text() in selected)
+        self.chk_all.setChecked(state.get("display_all", True))
+        for row in list(self._rows):
+            self._remove_row(row)
+        fields = state.get("fields", [])
+        if not fields and state.get("selected"):
+            fields = [
+                {"field_key": col, "display_name": col, "aggregate": 0}
+                for col in state.get("selected", [])
+            ]
+        for field_state in fields:
+            key = field_state.get("field_key", "")
+            self.add_field(key, field_state.get("display_name", key))
+            if self._rows:
+                self._rows[-1].set_state(field_state)
+        self._update_hint_visibility()
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -385,6 +678,7 @@ class DataForgeGroup(QWidget):
     config_changed = pyqtSignal()
     forge_saved = pyqtSignal(object)      # DataForge
     forge_deleted = pyqtSignal(str)       # forge name
+    new_forge_requested = pyqtSignal()
 
     def __init__(self, name: str, parent=None, saved_forge_name: str = ""):
         super().__init__(parent)
@@ -405,23 +699,53 @@ class DataForgeGroup(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(2)
 
+        header = QWidget()
+        header.setStyleSheet(f"QWidget {{ background-color: {_FORGE_BG}; }}")
+        header_lay = QHBoxLayout(header)
+        header_lay.setContentsMargins(6, 4, 6, 2)
+        header_lay.setSpacing(6)
+        self._lbl_name = QLabel()
+        self._lbl_name.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+        self._lbl_name.setStyleSheet(f"QLabel {{ color: {_FORGE_DEEP}; }}")
+        header_lay.addWidget(self._lbl_name)
+        header_lay.addStretch()
+
+        self.btn_new_forge = QPushButton("New Forge")
+        self.btn_new_forge.setFont(_FONT_BOLD)
+        self.btn_new_forge.setFixedSize(82, 36)
+        self.btn_new_forge.setStyleSheet(_SAVE_BTN_STYLE)
+        self.btn_new_forge.clicked.connect(self.new_forge_requested)
+
+        self.btn_save_as = QPushButton("Save As")
+        self.btn_save_as.setFont(_FONT_BOLD)
+        self.btn_save_as.setFixedSize(60, 36)
+        self.btn_save_as.setStyleSheet(_SAVE_BTN_STYLE)
+        self.btn_save_as.clicked.connect(self._save_forge)
+
+        self.btn_save = QPushButton("Save")
+        self.btn_save.setFont(_FONT_BOLD)
+        self.btn_save.setFixedSize(60, 36)
+        self.btn_save.setStyleSheet(_SAVE_BTN_STYLE)
+        self.btn_save.clicked.connect(self._save_or_update)
+        root.addWidget(header)
+
         # ── Tab widget ───────────────────────────────────────────────
         self.tab_widget = QTabWidget()
         self.tab_widget.setFont(_FONT)
         self.tab_widget.setStyleSheet(
-            "QTabWidget::pane { border-top: 3px solid #0D9488;"
-            " border-bottom: 3px solid #0D9488;"
+            f"QTabWidget::pane {{ border-top: 3px solid {_FORGE_DARK};"
+            f" border-bottom: 3px solid {_FORGE_DARK};"
             " border-left: 1px solid #999; border-right: 1px solid #999;"
-            " background-color: #E6F5F3; }"
-            "QTabBar { background-color: #E6F5F3; }"
+            f" background-color: {_FORGE_BG}; }}"
+            f"QTabBar {{ background-color: {_FORGE_BG}; }}"
             "QTabBar::tab { padding: 2px 8px; min-height: 20px; font-size: 9pt;"
-            " background-color: #B2DFDB; border: 1px solid #0D9488;"
+            f" background-color: {_FORGE_LIGHT}; border: 1px solid {_FORGE_DARK};"
             " border-bottom: none; border-top-left-radius: 3px;"
             " border-top-right-radius: 3px; margin-right: 1px; }"
             "QTabBar::tab:selected { font-weight: bold;"
-            " background-color: #E6F5F3; color: #004D40; }"
-            "QTabBar::tab:!selected { background-color: #B2DFDB; color: #444; }"
-            "QTabBar::tab:hover:!selected { background-color: #80CBC4; }"
+            f" background-color: {_FORGE_BG}; color: {_FORGE_DEEP}; }}"
+            f"QTabBar::tab:!selected {{ background-color: {_FORGE_LIGHT}; color: #444; }}"
+            f"QTabBar::tab:hover:!selected {{ background-color: {_FORGE_HOVER}; }}"
         )
 
         # Filter tab
@@ -430,10 +754,12 @@ class DataForgeGroup(QWidget):
 
         # Joins tab
         self.joins_tab = ForgeJoinsTab()
+        self.joins_tab.state_changed.connect(self._schedule_save)
         self.tab_widget.addTab(self.joins_tab, "Joins")
 
         # Display tab
         self.display_tab = ForgeDisplayTab()
+        self.display_tab.state_changed.connect(self._schedule_save)
         self.tab_widget.addTab(self.display_tab, "Display")
 
         # Results tab
@@ -452,7 +778,7 @@ class DataForgeGroup(QWidget):
 
         # ── Bottom bar ───────────────────────────────────────────────
         self.bottom_bar = AuditBottomBar(
-            bg_color="#E6F5F3", run_label="Run\nForge",
+            bg_color=_FORGE_BG, run_label="Run\nForge",
             run_style=_RUN_BTN_STYLE)
 
         # Convenience aliases
@@ -464,26 +790,9 @@ class DataForgeGroup(QWidget):
         self.lbl_total_time = self.bottom_bar.lbl_total_time
         self.btn_run = self.bottom_bar.btn_run
 
-        # Left side: forge name label
-        self._lbl_name = QLabel(self.forge_name)
-        self._lbl_name.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
-        self._lbl_name.setStyleSheet("QLabel { color: #0D9488; }")
-        self.bottom_bar.left_layout.addWidget(self._lbl_name)
-
-        # Action buttons: Save / Save As / Delete
-        self.btn_save = QPushButton("Save")
-        self.btn_save.setFont(_FONT_BOLD)
-        self.btn_save.setFixedSize(60, 36)
-        self.btn_save.setStyleSheet(_SAVE_BTN_STYLE)
-        self.btn_save.clicked.connect(self._save_or_update)
-        self.bottom_bar.center_action_layout.addWidget(self.btn_save)
-
-        self.btn_save_as = QPushButton("Save As")
-        self.btn_save_as.setFont(_FONT_BOLD)
-        self.btn_save_as.setFixedSize(60, 36)
-        self.btn_save_as.setStyleSheet(_SAVE_BTN_STYLE)
-        self.btn_save_as.clicked.connect(self._save_forge)
+        self.bottom_bar.center_action_layout.addWidget(self.btn_new_forge)
         self.bottom_bar.center_action_layout.addWidget(self.btn_save_as)
+        self.bottom_bar.center_action_layout.addWidget(self.btn_save)
 
         _DELETE_BTN_STYLE = (
             "QPushButton { background-color: #C00000; color: white;"
@@ -501,6 +810,7 @@ class DataForgeGroup(QWidget):
         self.btn_run.clicked.connect(self._run_forge)
 
         root.addWidget(self.bottom_bar)
+        self._update_forge_heading()
 
     # ── Tab management ───────────────────────────────────────────────
 
@@ -536,26 +846,249 @@ class DataForgeGroup(QWidget):
 
     def _on_queries_dialog_closed(self, dlg):
         """Sync sources when the dialog is closed."""
-        new_sources = dlg.get_sources()
-        self._sources = new_sources
-        self.joins_tab.update_queries(list(self._sources.keys()),
-                                     self._query_columns_map())
-        self._schedule_save()
+        self.sync_source_copies(list(dlg.get_sources().keys()))
         self._queries_dialog = None
 
     def _on_sources_changed(self, names: list[str]):
         """Handle live source changes from the dialog."""
         # Reload sources from the dialog
         if self._queries_dialog:
-            self._sources = self._queries_dialog.get_sources()
-            self.joins_tab.update_queries(list(self._sources.keys()),
-                                         self._query_columns_map())
-            self._schedule_save()
+            self.sync_source_copies(list(self._queries_dialog.get_sources().keys()))
 
     def _query_columns_map(self) -> dict[str, list[str]]:
         """Build {query_name: [col, ...]} from current sources."""
         return {name: sq.result_columns
                 for name, sq in self._sources.items()}
+
+    def _dataforge_source_copy_name(self, source_name: str) -> str:
+        """Return the private Query Object name used inside this DataForge."""
+        label = self._saved_forge_name.strip() or "DataForge"
+        return f"{source_name} [{label}]"
+
+    @staticmethod
+    def _source_original_name(qd: QDefinition, fallback: str) -> str:
+        config = getattr(qd, "query_object_config", {}) or {}
+        dataforge = config.get("dataforge", {}) if isinstance(config, dict) else {}
+        source_name = str(dataforge.get("source_name", "")).strip()
+        if source_name:
+            return source_name
+        if fallback.endswith("]"):
+            source, sep, _suffix = fallback.rpartition(" [")
+            if sep and source.strip():
+                return source.strip()
+        return fallback
+
+    @staticmethod
+    def _delete_query_copy_records(name: str, forge_name: str = "") -> None:
+        """Delete a DataForge-local query copy and its visual design, if present."""
+        if not name:
+            return
+        try:
+            from suiteview.audit import saved_query_store
+            if saved_query_store.query_exists(name):
+                saved_query_store.delete_query(name)
+            else:
+                query_object_store.delete_object(name)
+        except Exception:
+            logger.exception("Failed to delete DataForge query object copy: %s", name)
+        for scope in {forge_name, "DataForge", qdef_store.COMMONS_NAME}:
+            if not scope:
+                continue
+            try:
+                qdef_store.delete_qdef(name, forge_name=scope)
+            except Exception:
+                logger.exception("Failed to delete DataForge QDefinition copy: %s", name)
+
+    @staticmethod
+    def _copy_query_object_overwrite(source_name: str, new_name: str):
+        try:
+            from suiteview.audit import saved_query_store
+            if saved_query_store.query_exists(new_name):
+                saved_query_store.delete_query(new_name)
+            else:
+                query_object_store.delete_object(new_name)
+            return query_object_store.copy_object(source_name, new_name)
+        except Exception:
+            logger.exception(
+                "Failed to copy DataForge QueryObject %s to %s",
+                source_name,
+                new_name,
+            )
+            return None
+
+    @staticmethod
+    def _replace_source_prefix(value: str, mapping: dict[str, str]) -> str:
+        for old, new in mapping.items():
+            if value == old:
+                return new
+            prefix = f"{old}."
+            if value.startswith(prefix):
+                return f"{new}.{value[len(prefix):]}"
+        return value
+
+    def add_source_copy(self, source_name: str, *, refresh: bool = True) -> QDefinition | None:
+        """Add a query as an independent DataForge source copy."""
+        if source_name in self._sources:
+            return self._sources[source_name]
+
+        forge_name = self._saved_forge_name.strip() or "DataForge"
+        obj = query_object_store.load_object(source_name)
+        original_name = source_name
+        if obj is not None:
+            dataforge = (obj.config or {}).get("dataforge", {})
+            original_name = str(dataforge.get("source_name", "")).strip() or source_name
+        copy_name = self._dataforge_source_copy_name(original_name)
+
+        if copy_name in self._sources:
+            return self._sources[copy_name]
+
+        if obj is not None:
+            if query_object_store.object_exists(copy_name):
+                copied = query_object_store.load_object(copy_name)
+            else:
+                copied = query_object_store.copy_object(source_name, copy_name)
+            if copied is None:
+                return None
+            copied.config = dict(copied.config or {})
+            copied.config["dataforge"] = {
+                "forge_name": forge_name,
+                "source_name": original_name,
+            }
+            copied.source_design = copied.source_design or original_name
+            query_object_store.save_object(copied)
+            qd = qdefinition_from_query_object(copied)
+        else:
+            qd = qdef_store.load_qdef(source_name, forge_name=self._saved_forge_name)
+            if qd is None:
+                qd = qdef_store.load_qdef(source_name)
+            if qd is None:
+                return None
+            original_name = self._source_original_name(qd, source_name)
+            copy_name = self._dataforge_source_copy_name(original_name)
+            if copy_name in self._sources:
+                return self._sources[copy_name]
+            qd = QDefinition.from_dict(deepcopy(qd.to_dict()))
+            qd.name = copy_name
+
+        qd.forge_name = self._saved_forge_name
+        self._sources[qd.name] = qd
+        if refresh:
+            self.joins_tab.update_queries(list(self._sources.keys()),
+                                         self._query_columns_map())
+            self._schedule_save()
+        return qd
+
+    def sync_source_copies(self, source_names: list[str]) -> None:
+        """Sync selected source names, converting each to a private copy."""
+        desired: set[str] = set()
+        for name in source_names:
+            if name in self._sources:
+                desired.add(name)
+                continue
+            qd = self.add_source_copy(name, refresh=False)
+            if qd is not None:
+                desired.add(qd.name)
+
+        for name in list(self._sources.keys()):
+            if name not in desired:
+                self._sources.pop(name, None)
+                self._datasets.pop(name, None)
+
+        self.joins_tab.update_queries(list(self._sources.keys()),
+                                     self._query_columns_map())
+        self._schedule_save()
+
+    def _promote_unsaved_source_names(self, forge_name: str) -> None:
+        """Rename temporary [DataForge] copies to this forge's real name."""
+        mapping: dict[str, str] = {}
+        promoted: dict[str, QDefinition] = {}
+        temporary_records: list[tuple[str, str]] = []
+        for old_name, qd in list(self._sources.items()):
+            source_label = self._source_label_for_browser(qd, old_name)
+            new_name = f"{source_label} [{forge_name}]"
+            dataforge = (getattr(qd, "query_object_config", {}) or {}).get("dataforge", {})
+            is_temporary = old_name.endswith(" [DataForge]") or dataforge.get("forge_name") == "DataForge"
+            if not is_temporary or old_name == new_name:
+                promoted[old_name] = qd
+                continue
+
+            obj = query_object_store.load_object(old_name)
+            if obj is not None:
+                copied = self._copy_query_object_overwrite(old_name, new_name)
+                if copied is None:
+                    promoted[old_name] = qd
+                    continue
+                copied.config = dict(copied.config or {})
+                copied.config["dataforge"] = {
+                    "forge_name": forge_name,
+                    "source_name": source_label,
+                }
+                copied.source_design = copied.source_design or source_label
+                query_object_store.save_object(copied)
+                new_qd = qdefinition_from_query_object(copied)
+            else:
+                new_qd = QDefinition.from_dict(deepcopy(qd.to_dict()))
+                new_qd.name = new_name
+            new_qd.forge_name = forge_name
+            promoted[new_name] = new_qd
+            mapping[old_name] = new_name
+            temporary_records.append((old_name, getattr(qd, "forge_name", "")))
+
+        if not mapping:
+            return
+        self._sources = promoted
+        for old, new in mapping.items():
+            if old in self._datasets:
+                self._datasets[new] = self._datasets.pop(old)
+        self._rename_join_sources(mapping)
+        self._rename_filter_sources(mapping)
+        self._rename_display_sources(mapping)
+        self.joins_tab.update_queries(list(self._sources.keys()),
+                                     self._query_columns_map())
+        for old_name, old_forge in temporary_records:
+            self._delete_query_copy_records(old_name, old_forge)
+
+    def discard_temporary_source_copies(self) -> None:
+        """Remove unsaved DataForge-local source copies for a discarded `(new)` forge."""
+        for name, qd in list(self._sources.items()):
+            dataforge = (getattr(qd, "query_object_config", {}) or {}).get("dataforge", {})
+            if name.endswith(" [DataForge]") or dataforge.get("forge_name") == "DataForge":
+                self._delete_query_copy_records(name, getattr(qd, "forge_name", ""))
+
+    def _rename_join_sources(self, mapping: dict[str, str]) -> None:
+        state = self.joins_tab.get_state()
+        for source in state.get("sources", []):
+            source["alias"] = mapping.get(source.get("alias", ""), source.get("alias", ""))
+        for join in state.get("joins", []):
+            join["left_source"] = mapping.get(join.get("left_source", ""), join.get("left_source", ""))
+            join["right_source"] = mapping.get(join.get("right_source", ""), join.get("right_source", ""))
+        self.joins_tab.set_state(state)
+
+    def _rename_filter_sources(self, mapping: dict[str, str]) -> None:
+        for tab in self._filter_tabs:
+            grid = tab.grid
+            for row in list(grid._rows):
+                old_key = row.field_key
+                new_key = self._replace_source_prefix(old_key, mapping)
+                if new_key == old_key:
+                    continue
+                grid._field_map.pop(old_key, None)
+                row.field_key = new_key
+                row._placeholder = self._replace_source_prefix(getattr(row, "_placeholder", ""), mapping)
+                grid._field_map[new_key] = row
+                if old_key in grid._positions:
+                    grid._positions[new_key] = grid._positions.pop(old_key)
+                if old_key in grid._sizes:
+                    grid._sizes[new_key] = grid._sizes.pop(old_key)
+            grid._apply_positions()
+
+    def _rename_display_sources(self, mapping: dict[str, str]) -> None:
+        self.display_tab._field_set.clear()
+        for row in self.display_tab._rows:
+            new_key = self._replace_source_prefix(row.field_key, mapping)
+            row.field_key = new_key
+            row.lbl_key.setText(f"({new_key})")
+            self.display_tab._field_set.add(new_key)
 
     def add_source_query(self, sq: QDefinition):
         """Programmatically add a source query."""
@@ -573,7 +1106,8 @@ class DataForgeGroup(QWidget):
         """Handle field placement from QueryFieldPicker."""
         current = self.tab_widget.currentWidget()
         if isinstance(current, ForgeDisplayTab):
-            # If Display tab is active, the field is already in the list
+            current.add_query_field(query_name, col_name)
+            self._schedule_save()
             return
         if not isinstance(current, ForgeFilterTab):
             if self._filter_tabs:
@@ -690,6 +1224,69 @@ class DataForgeGroup(QWidget):
         columns, rows = execute_odbc_query(sq.dsn, sq.sql)
         return pd.DataFrame([list(r) for r in rows], columns=columns)
 
+    def _resolve_display_column(self, result: pd.DataFrame, spec: dict) -> str:
+        column = spec.get("column", "")
+        if column in result.columns:
+            return column
+        field_key = spec.get("field_key", "")
+        if field_key in result.columns:
+            return field_key
+        source_name = field_key.rsplit(".", 1)[0] if "." in field_key else ""
+        suffixed = f"{column}_{source_name}" if source_name else ""
+        if suffixed in result.columns:
+            return suffixed
+        return ""
+
+    def _unique_output_name(self, base: str, used: set[str]) -> str:
+        name = base
+        idx = 2
+        while name in used:
+            name = f"{base}_{idx}"
+            idx += 1
+        used.add(name)
+        return name
+
+    def _apply_display_columns(self, result: pd.DataFrame) -> pd.DataFrame:
+        specs = self.display_tab.get_display_columns()
+        if not specs:
+            return result
+
+        resolved = []
+        for spec in specs:
+            column = self._resolve_display_column(result, spec)
+            if column:
+                resolved.append((spec, column))
+        if not resolved:
+            return result
+
+        display_cols = [
+            column for spec, column in resolved
+            if spec.get("aggregate", "display") == "display"
+        ]
+        aggregate_specs = [
+            (spec, column) for spec, column in resolved
+            if spec.get("aggregate", "display") != "display"
+        ]
+        if not aggregate_specs:
+            return result[[c for c in display_cols if c in result.columns]]
+
+        used_names = set(display_cols)
+        named_aggs = {}
+        for spec, column in aggregate_specs:
+            aggregate = spec.get("aggregate", "display")
+            output_name = self._unique_output_name(
+                f"{aggregate}_{spec.get('column', column)}", used_names)
+            named_aggs[output_name] = (column, aggregate.lower())
+
+        if display_cols:
+            grouped = result.groupby(display_cols, dropna=False).agg(**named_aggs).reset_index()
+            return grouped[[*display_cols, *named_aggs.keys()]]
+
+        values = {}
+        for output_name, (column, aggregate) in named_aggs.items():
+            values[output_name] = [getattr(result[column], aggregate)()]
+        return pd.DataFrame(values)
+
     # ── Dirty tracking ────────────────────────────────────────────────
 
     @property
@@ -781,11 +1378,8 @@ class DataForgeGroup(QWidget):
                     result = self._apply_pandas_filters(result, tab)
 
                 # Step 4: Apply display column selection
-                selected_cols = self.display_tab.get_selected_columns()
-                if selected_cols and not self.display_tab.display_all:
-                    available = [c for c in selected_cols if c in result.columns]
-                    if available:
-                        result = result[available]
+                if not self.display_tab.display_all:
+                    result = self._apply_display_columns(result)
 
                 # Step 5: Apply max count
                 max_count = self.txt_max_count.text().strip()
@@ -997,12 +1591,13 @@ class DataForgeGroup(QWidget):
             return
         forge = DataForge(
             name=name,
-            sources=[DataForgeSource(query_name=n) for n in self._sources],
+            sources=self._dataforge_sources_for_save(name),
             config=self.get_config(),
         )
         df_store.save_forge(forge)
         self._dirty = False
         self.forge_saved.emit(forge)
+        self._update_forge_heading()
         QMessageBox.information(self, "DataForge Saved",
                                 f"DataForge \"{name}\" updated.")
 
@@ -1013,6 +1608,7 @@ class DataForgeGroup(QWidget):
         if not ok or not name.strip():
             return
         name = name.strip()
+        previous_saved_name = self._saved_forge_name
 
         if df_store.forge_exists(name):
             reply = QMessageBox.question(
@@ -1022,18 +1618,68 @@ class DataForgeGroup(QWidget):
                 QMessageBox.StandardButton.No)
             if reply != QMessageBox.StandardButton.Yes:
                 return
+            if name != previous_saved_name:
+                self._delete_existing_forge_records(name)
 
+        self._promote_unsaved_source_names(name)
+        self._saved_forge_name = name
+        self.forge_name = f"⚙ {name}"
         forge = DataForge(
             name=name,
-            sources=[DataForgeSource(query_name=n) for n in self._sources],
+            sources=self._dataforge_sources_for_save(name),
             config=self.get_config(),
         )
         df_store.save_forge(forge)
         self._dirty = False
-        self._saved_forge_name = name
+        self._update_forge_heading()
         self.forge_saved.emit(forge)
         QMessageBox.information(self, "DataForge Saved",
                                 f"DataForge \"{name}\" saved.")
+
+    def _delete_existing_forge_records(self, forge_name: str) -> None:
+        df_store.delete_forge(forge_name)
+        for qd in qdef_store.list_qdefs(forge_name=forge_name):
+            self._delete_query_copy_records(qd.name, forge_name)
+        for obj in query_object_store.list_objects():
+            dataforge = (obj.config or {}).get("dataforge", {})
+            if dataforge.get("forge_name") == forge_name:
+                self._delete_query_copy_records(obj.name, forge_name)
+
+    def _dataforge_sources_for_save(self, forge_name: str) -> list[DataForgeSource]:
+        """Persist source definitions and return DataForge source records."""
+        sources: list[DataForgeSource] = []
+        for source_name, qd in self._sources.items():
+            qd.forge_name = forge_name
+            source_label = self._source_label_for_browser(qd, source_name)
+            qd_config = dict(getattr(qd, "query_object_config", {}) or {})
+            qd_config["dataforge"] = {
+                "forge_name": forge_name,
+                "source_name": source_label,
+            }
+            qd.query_object_config = qd_config
+            qdef_store.save_qdef(qd)
+            obj = query_object_store.load_object(qd.name)
+            if obj is None:
+                obj = object_from_qdefinition(qd)
+            obj.config = dict(qd_config)
+            obj.source_design = obj.source_design or source_label
+            query_object_store.save_object(obj)
+            definition = obj.to_dict()
+            sources.append(DataForgeSource(
+                query_name=qd.name or source_name,
+                alias="",
+                definition=definition,
+            ))
+        return sources
+
+    @staticmethod
+    def _source_label_for_browser(qd: QDefinition, fallback: str) -> str:
+        config = getattr(qd, "query_object_config", {}) or {}
+        dataforge = config.get("dataforge", {}) if isinstance(config, dict) else {}
+        source_name = str(dataforge.get("source_name", "")).strip()
+        if source_name:
+            return source_name
+        return DataForgeGroup._source_original_name(qd, fallback)
 
     def _delete_forge(self):
         name = self._saved_forge_name
@@ -1051,7 +1697,15 @@ class DataForgeGroup(QWidget):
         df_store.delete_forge(name)
         self._saved_forge_name = ""
         self._dirty = False
+        self._update_forge_heading()
         self.forge_deleted.emit(name)
+
+    def _update_forge_heading(self):
+        name = self._saved_forge_name.strip() or "(new)"
+        self._lbl_name.setText(f"Forge: {name}")
+        self.btn_save.setVisible(bool(self._saved_forge_name.strip()))
+        self.btn_save_as.setVisible(True)
+        self.btn_new_forge.setVisible(True)
 
     # ── State persistence ────────────────────────────────────────────
 

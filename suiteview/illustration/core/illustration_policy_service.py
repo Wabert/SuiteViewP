@@ -118,6 +118,8 @@ def build_illustration_data(
     pref_loan_acc = float(pi.total_preferred_loan_accrued or 0)
     var_loan_prin = float(pi.total_variable_loan_principal or 0)
     var_loan_acc = float(pi.total_variable_loan_accrued or 0)
+    var_loan_rate_raw = getattr(pi, "variable_loan_charge_rate", None)
+    var_loan_charge_rate = float(var_loan_rate_raw) if var_loan_rate_raw is not None else None
 
     # ── Withdrawals ───────────────────────────────────────────
     withdrawals = float(pi.total_withdrawals or 0)
@@ -327,6 +329,7 @@ def build_illustration_data(
         preferred_loans_available=bool(pi.preferred_loans_available),
         variable_loan_principal=var_loan_prin,
         variable_loan_accrued=var_loan_acc,
+        variable_loan_charge_rate=var_loan_charge_rate,
         withdrawals_to_date=withdrawals,
         shadow_account_value=shadow_av,
         ccv_active=ccv_active,

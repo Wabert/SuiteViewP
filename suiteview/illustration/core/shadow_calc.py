@@ -66,6 +66,7 @@ def calculate_shadow(
     days_in_month: int,
     policy_debt: float,
     is_inforce: bool = False,
+    shadow_rider_charges: float = 0.0,
 ) -> ShadowResult:
     """Calculate one month of the shadow account.
 
@@ -81,6 +82,7 @@ def calculate_shadow(
         days_in_month: Days in this month (from interest calc).
         policy_debt: Total loan debt (for EAV-less-debt).
         is_inforce: True for the inforce snapshot month.
+        shadow_rider_charges: Regular-side rider and benefit charges, excluding CCV.
 
     Returns:
         ShadowResult with all shadow fields populated.
@@ -199,9 +201,7 @@ def calculate_shadow(
     shadow_mfee = config.shadow_mfee
 
     # ── Rider charges (col XP) ───────────────────────────────
-    # vRiderBenefitCharge - CCV_charge (all rider charges except CCV)
-    # Not yet implemented — 0 for now
-    shadow_rider_charges = 0.0
+    # vRiderBenefitCharge - CCV_charge (regular-side rider/benefit charges except CCV)
 
     # ── Shadow MD (col XQ) ───────────────────────────────────
     shadow_md = shadow_coi + shadow_epu + shadow_mfee + shadow_rider_charges

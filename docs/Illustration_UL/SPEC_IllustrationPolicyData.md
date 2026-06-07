@@ -344,6 +344,7 @@ class IllustrationPolicyData:
 | `regular_loan_principal` | LH_POL_LOAN | LN_PRI_AMT | Non-preferred loans |
 | `preferred_loan_principal` | LH_POL_LOAN | LN_PRI_AMT | Where PRF_LN_IND=1 |
 | `variable_loan_principal` | LH_UL_FND_BAL | Fund LZ | |
+| `variable_loan_charge_rate` | LH_FND_VAL_LOAN | LN_CRG_ITS_RT | Most recent MVRY_DT when LH_BAS_POL.LN_TYP_CD is 6 or 7; otherwise none |
 | `withdrawals_to_date` | LH_POL_TOTALS | TOT_WTD_AMT | |
 | `shadow_account_value` | LH_POL_TARGET | TAR_TYP_CD='IX' | Via `pi.gav` |
 | `band` | Derived | — | Rates.get_band(plancode, total_face) |

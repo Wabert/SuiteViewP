@@ -356,17 +356,14 @@ class FilterPopup(QMenu):
         
         init_start = time.perf_counter()
         
-        # Write timing to file to avoid terminal Unicode issues
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"\n[FILTER] FilterPopup.__init__ started for {column_name} with {len(unique_values)} values\n")
+        logger.debug(f"[FILTER] FilterPopup.__init__ started for {column_name} with {len(unique_values)} values")
         
         # Convert and sort unique values
         sort_start = time.perf_counter()
         self.all_unique_values = sorted([str(v) if not pd.isna(v) else "(Blanks)" 
                                          for v in unique_values])
         sort_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - Sort {len(unique_values)} values: {(sort_time - sort_start)*1000:.2f}ms\n")
+        logger.debug(f"[FILTER]   - Sort {len(unique_values)} values: {(sort_time - sort_start)*1000:.2f}ms")
         
         self.current_selection = current_selection if current_selection else set(self.all_unique_values)
         
@@ -382,12 +379,10 @@ class FilterPopup(QMenu):
         ui_start = time.perf_counter()
         self.init_ui()
         ui_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - init_ui completed: {(ui_time - ui_start)*1000:.2f}ms\n")
+        logger.debug(f"[FILTER]   - init_ui completed: {(ui_time - ui_start)*1000:.2f}ms")
         
         init_total = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER] TOTAL FilterPopup creation time: {(init_total - init_start)*1000:.2f}ms\n")
+        logger.debug(f"[FILTER] TOTAL FilterPopup creation time: {(init_total - init_start)*1000:.2f}ms")
 
     def init_ui(self):
         """Initialize the filter popup UI"""
@@ -508,8 +503,7 @@ class FilterPopup(QMenu):
         create_model_start = time.perf_counter()
         self.string_model = QStringListModel(self.all_unique_values)
         create_model_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - QStringListModel created with {len(self.all_unique_values)} items in {(create_model_time - create_model_start)*1000:.2f}ms\n")
+        logger.debug(f"[FILTER]   - QStringListModel created with {len(self.all_unique_values)} items in {(create_model_time - create_model_start)*1000:.2f}ms")
         
         # Create proxy model for search filtering
         proxy_start = time.perf_counter()
@@ -517,15 +511,13 @@ class FilterPopup(QMenu):
         self.proxy_model.setSourceModel(self.string_model)
         self.proxy_model.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         proxy_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - Proxy model created: {(proxy_time - proxy_start)*1000:.2f}ms\n")
+        logger.debug(f"[FILTER]   - Proxy model created: {(proxy_time - proxy_start)*1000:.2f}ms")
         
         # Create multi-select list view with virtual rendering
         view_start = time.perf_counter()
         self.list_view = QListView()
         view_created = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - QListView created: {(view_created - view_start)*1000:.2f}ms\n")
+        logger.debug(f"[FILTER]   - QListView created: {(view_created - view_start)*1000:.2f}ms")
         
         # Configure list view BEFORE setting model (faster)
         self.list_view.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
@@ -564,15 +556,13 @@ class FilterPopup(QMenu):
         add_widget_start = time.perf_counter()
         layout.addWidget(self.list_view)
         add_widget_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - addWidget(empty list_view) to layout: {(add_widget_time - add_widget_start)*1000:.2f}ms\n")
+        logger.debug(f"[FILTER]   - addWidget(empty list_view) to layout: {(add_widget_time - add_widget_start)*1000:.2f}ms")
         
         # Now set the model after the widget is in the layout
         set_model_start = time.perf_counter()
         self.list_view.setModel(self.proxy_model)
         set_model_time = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER]   - setModel() called AFTER addWidget: {(set_model_time - set_model_start)*1000:.2f}ms\n")
+        logger.debug(f"[FILTER]   - setModel() called AFTER addWidget: {(set_model_time - set_model_start)*1000:.2f}ms")
 
         # Info label
         self.info_label = QLabel(f"Showing all {len(self.all_unique_values):,} values")
@@ -1078,8 +1068,7 @@ class FilterTableView(QWidget):
         popup_position = QPoint(popup_x, popup_y)
         
         before_exec = time.perf_counter()
-        with open("filter_timing.txt", "a") as f:
-            f.write(f"[FILTER] TOTAL time to open filter box: {(before_exec - start_time)*1000:.2f}ms\n")
+        logger.debug(f"[FILTER] TOTAL time to open filter box: {(before_exec - start_time)*1000:.2f}ms")
         
         popup.exec(popup_position)
 

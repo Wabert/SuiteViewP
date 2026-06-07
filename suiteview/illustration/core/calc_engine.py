@@ -125,7 +125,12 @@ class IllustrationEngine:
             vbl_loan_princ=policy.variable_loan_principal,
             vbl_loan_accrued=policy.variable_loan_accrued,
         )
-        loan0 = accrue_loan_interest(loan0, config, intr0.days_in_month)
+        loan0 = accrue_loan_interest(
+            loan0,
+            config,
+            intr0.days_in_month,
+            policy.variable_loan_charge_rate,
+        )
 
         # Shadow account for inforce month
         shd0 = calculate_shadow(
@@ -140,6 +145,7 @@ class IllustrationEngine:
             days_in_month=intr0.days_in_month,
             policy_debt=loan0.policy_debt,
             is_inforce=True,
+            shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, ded0),
         )
 
         # Safety Net / Lapse Protection for inforce month
@@ -253,6 +259,7 @@ class IllustrationEngine:
             # Set 2: Loan accrual (end of month — after accrual)
             reg_loan_charge=loan0.reg_loan_charge,
             pref_loan_charge=loan0.pref_loan_charge,
+            vbl_loan_charge=loan0.vbl_loan_charge,
             end_rg_loan_princ=loan0.rg_loan_princ,
             end_rg_loan_accrued=loan0.rg_loan_accrued,
             end_pf_loan_princ=loan0.pf_loan_princ,
@@ -470,7 +477,12 @@ class IllustrationEngine:
         av = intr.av_end_of_month
 
         # ── 16b. Accumulation: loan interest charges ──────────
-        accrual_loan = accrue_loan_interest(fixed_loan_state, config, intr.days_in_month)
+        accrual_loan = accrue_loan_interest(
+            fixed_loan_state,
+            config,
+            intr.days_in_month,
+            policy.variable_loan_charge_rate,
+        )
 
         # ── 17. Shadow account processing ─────────────────────
         # Shadow account value is injected after shadow monthly deduction.
@@ -485,6 +497,7 @@ class IllustrationEngine:
             attained_age=attained_age,
             days_in_month=intr.days_in_month,
             policy_debt=accrual_loan.policy_debt,
+            shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, ded),
         )
 
         # ── 18. Testing: SNET, shadow, and lapse support ──────
@@ -612,6 +625,7 @@ class IllustrationEngine:
             # Set 2: Loan accrual (end of month)
             reg_loan_charge=accrual_loan.reg_loan_charge,
             pref_loan_charge=accrual_loan.pref_loan_charge,
+            vbl_loan_charge=accrual_loan.vbl_loan_charge,
             end_rg_loan_princ=accrual_loan.rg_loan_princ,
             end_rg_loan_accrued=accrual_loan.rg_loan_accrued,
             end_pf_loan_princ=accrual_loan.pf_loan_princ,
@@ -764,7 +778,12 @@ class IllustrationEngine:
             withdrawals_to_date,
             policy.preferred_loans_available,
         )
-        accrual_loan = accrue_loan_interest(fixed_loan_state, config, intr.days_in_month)
+        accrual_loan = accrue_loan_interest(
+            fixed_loan_state,
+            config,
+            intr.days_in_month,
+            policy.variable_loan_charge_rate,
+        )
         monthly_mtp = math.trunc(policy.mtp * 100) / 100
         accumulated_mtp = state.accumulated_mtp + monthly_mtp
         accum_mtp_less_prem = (
@@ -851,6 +870,7 @@ class IllustrationEngine:
             av_end_of_month=ded.av_after_deduction,
             reg_loan_charge=accrual_loan.reg_loan_charge,
             pref_loan_charge=accrual_loan.pref_loan_charge,
+            vbl_loan_charge=accrual_loan.vbl_loan_charge,
             end_rg_loan_princ=accrual_loan.rg_loan_princ,
             end_rg_loan_accrued=accrual_loan.rg_loan_accrued,
             end_pf_loan_princ=accrual_loan.pf_loan_princ,
@@ -904,6 +924,16 @@ def _policy_counters_for_date(policy: IllustrationPolicyData, month_date) -> tup
     policy_year = (completed_months // 12) + 1
     policy_month = (completed_months % 12) + 1
     return policy_year, policy_month, duration
+
+
+def _shadow_rider_charges_from_deduction(policy: IllustrationPolicyData, deduction) -> float:
+    ccv_charge = 0.0
+    for benefit in policy.benefits:
+        if benefit.benefit_type != "A":
+            continue
+        benefit_key = (benefit.benefit_type or "") + (benefit.benefit_subtype or "")
+        ccv_charge += deduction.benefit_charge_detail.get(benefit_key, 0.0)
+    return max(0.0, deduction.rider_charges + deduction.benefit_charges - ccv_charge)
 
 
 def _completed_months(start, end) -> int:

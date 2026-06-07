@@ -648,9 +648,12 @@ Only in-arrears loan types accrue monthly charges here. Advance loans pass throu
 ```text
 regular_accrual = regular_principal * loan_charge_rate_guar * days_in_month / 365
 preferred_accrual = preferred_principal * pref_loan_charge_rate_guar * days_in_month / 365
+variable_accrual = variable_principal * variable_loan_charge_rate * days_in_month / 365
 ```
 
-Variable loan accrual is currently hard-coded to zero in this function.
+The variable loan charge rate is loaded from the most recent `LH_FND_VAL_LOAN.LN_CRG_ITS_RT` row when the base policy loan type is variable (`LN_TYP_CD` 6 or 7). If the policy has no applicable variable loan rate, variable loan accrual remains zero.
+
+Variable loans do not participate in the collateral/impaired interest-crediting split; variable-loan-backed value is treated as unimpaired AV for interest crediting. Advance-loan calculations remain out of scope for this path and pass through unchanged.
 
 The accrued charges are added to the accrued buckets, not principal.
 
@@ -704,7 +707,7 @@ shadow_eav = round_half_up(shadow_av + shadow_interest, 2)
 shadow_eav_less_debt = shadow_eav - policy_debt
 ```
 
-`shadow_rider_charges` is explicitly marked as not yet implemented and currently stays at zero.
+`shadow_rider_charges` uses the regular-side rider and benefit charges calculated in monthly deduction, less any CCV benefit charge. Premium waiver and all other regular-side rider/benefit charges therefore come straight out of the shadow account using the same regular-side charge basis.
 
 ### 4.19 Step 18 - Testing: Safety Net / Lapse Protection Tracking
 
@@ -860,8 +863,8 @@ The forecast rows expose the fields the Policy Support tab needs to audit the fo
 - DBO A, B, and C handling
 - multi-segment base coverage support in deduction and surrender charge logic
 - COI, EPU, MFEE, AV charge
-- rider and benefit charges during deduction
-- loan capitalization and in-arrears accrual
+- rider and benefit charges during deduction and shadow account processing, excluding the CCV benefit charge from shadow rider charges
+- loan capitalization and in-arrears accrual, including variable loan charges when a policy variable rate is available
 - projected loans, repayments, withdrawals, and premium overrides
 - guideline premium force-out and accumulated GLP tracking in monthly projection rows
 - CyberLife monthliversary timing mode for PolView GLP forecasts
@@ -873,8 +876,7 @@ The forecast rows expose the fields the Policy Support tab needs to audit the fo
 
 ### 7.2 Explicitly Incomplete or Partial in Current Code
 
-- shadow rider charges are marked not implemented and remain zero
-- variable loan accrual is not implemented in `accrue_loan_interest()`
+- advance-loan calculations are still out of scope; advance loans currently pass through without monthly accrual
 - base interest `ExactDays` mode records actual month days but uses a fixed 365/12 exponent for the credited-interest rate calculation
 - `IllustrationInputSet.policy_changes` and `InforceOverrideSet` exist as models, but this engine path currently consumes projected transaction inputs rather than applying broader future policy-change events
 - some spec-era items such as full 7702, TAMRA, deemed cash value, GCO logic, and broader policy change processing are not part of this monthly path

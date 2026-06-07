@@ -26,6 +26,9 @@ class QDefinition:
     tables: list[str] = field(default_factory=list)
     display_names: dict[str, str] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.now)
+    query_object_kind: str = ""
+    query_object_config: dict = field(default_factory=dict)
+    query_object_source_metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -39,6 +42,9 @@ class QDefinition:
             "tables": self.tables,
             "display_names": self.display_names,
             "created_at": self.created_at.isoformat(),
+            "query_object_kind": self.query_object_kind,
+            "query_object_config": self.query_object_config,
+            "query_object_source_metadata": self.query_object_source_metadata,
         }
 
     @staticmethod
@@ -56,4 +62,7 @@ class QDefinition:
             created_at=datetime.fromisoformat(
                 data.get("created_at", datetime.now().isoformat())
             ),
+            query_object_kind=data.get("query_object_kind", ""),
+            query_object_config=data.get("query_object_config", {}),
+            query_object_source_metadata=data.get("query_object_source_metadata", {}),
         )

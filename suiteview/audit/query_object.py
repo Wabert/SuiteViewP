@@ -294,6 +294,23 @@ def object_from_saved_query(saved_query) -> QueryObject:
 
 def object_from_qdefinition(qdefinition) -> QueryObject:
     """Convert an existing QDefinition into a QueryObject."""
+    query_object_kind = getattr(qdefinition, "query_object_kind", "")
+    query_object_config = dict(getattr(qdefinition, "query_object_config", {}) or {})
+    if query_object_kind == OBJECT_KIND_ADHOC_SOURCE:
+        metadata = dict(getattr(qdefinition, "query_object_source_metadata", {}) or {})
+        obj = adhoc_source_object(
+            qdefinition.name,
+            source_type=qdefinition.source_design or "csv",
+            metadata=metadata,
+            columns=qdefinition.result_columns,
+            column_types=qdefinition.column_types,
+        )
+        obj.config.update(query_object_config)
+        obj.config.setdefault("source_metadata", metadata)
+        obj.created_at = qdefinition.created_at
+        obj.updated_at = datetime.now()
+        return obj
+
     sources = [
         QueryObjectSource(
             name=table,
@@ -309,13 +326,21 @@ def object_from_qdefinition(qdefinition) -> QueryObject:
         source=qdefinition.name,
     )
     now = datetime.now()
+    config = {}
+    if getattr(qdefinition, "forge_name", ""):
+        config["dataforge"] = {
+            "forge_name": qdefinition.forge_name,
+            "source_name": qdefinition.name,
+        }
+    config.update(query_object_config)
     return QueryObject(
         name=qdefinition.name,
-        kind=OBJECT_KIND_EXECUTABLE,
+        kind=query_object_kind or OBJECT_KIND_EXECUTABLE,
         dsn=qdefinition.dsn,
         sql=qdefinition.sql,
         sources=sources,
         fields=fields,
+        config=config,
         source_design=qdefinition.source_design,
         created_at=qdefinition.created_at,
         updated_at=now,

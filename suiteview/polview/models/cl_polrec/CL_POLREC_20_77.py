@@ -349,6 +349,35 @@ class LoanRecords:
         return self.calc_fund_loan_total("variable", "accrued")
 
     @property
+    def variable_loan_charge_rate(self) -> Optional[Decimal]:
+        """Most recent variable loan charge rate from LH_FND_VAL_LOAN."""
+        loan_type = str(self._policy.data_item("LH_BAS_POL", "LN_TYP_CD") or "").strip()
+        if loan_type not in {"6", "7"}:
+            return None
+
+        latest_date: Optional[date] = None
+        latest_rate: Optional[Decimal] = None
+        latest_is_variable_fund = False
+        for row in self._policy.fetch_table("LH_FND_VAL_LOAN"):
+            raw_rate = row.get("LN_CRG_ITS_RT")
+            if raw_rate in (None, ""):
+                continue
+            mv_date = parse_date(row.get("MVRY_DT"))
+            if mv_date is None:
+                continue
+            fund_id = str(row.get("FND_ID_CD") or row.get("FUND_ID") or "").strip()
+            is_variable_fund = fund_id == "LZ"
+            if (
+                latest_date is None
+                or mv_date > latest_date
+                or (mv_date == latest_date and is_variable_fund and not latest_is_variable_fund)
+            ):
+                latest_date = mv_date
+                latest_rate = Decimal(str(raw_rate))
+                latest_is_variable_fund = is_variable_fund
+        return latest_rate
+
+    @property
     def policy_debt(self) -> Decimal:
         """Total policy debt (all loans principal + interest)."""
         if self._policy.is_advanced_product:

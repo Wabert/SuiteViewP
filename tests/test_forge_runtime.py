@@ -14,9 +14,10 @@ import pandas as pd
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from suiteview.audit import query_object_store  # noqa: E402
+from suiteview.audit import qdef_store, query_object_store, saved_query_store  # noqa: E402
+from suiteview.audit.qdefinition import QDefinition  # noqa: E402
 from suiteview.audit.query_object import (  # noqa: E402
-    QueryObject, manual_sql_query_object,
+    QueryObject, manual_sql_query_object, qdefinition_from_query_object,
 )
 from suiteview.audit.dataforge import dataforge_store, forge_runtime  # noqa: E402
 from suiteview.audit.dataforge.dataforge_model import (  # noqa: E402
@@ -161,6 +162,320 @@ def test_missing_snapshot_raises(tmp_home):
     print("  missing snapshot raises (no live pull on run)  OK")
 
 
+def test_dataforge_group_save_publishes_query_object_metadata(tmp_home):
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  group save publish SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    group = DataForgeGroup("⚙ (new)", saved_forge_name="")
+    qd = QDefinition(
+        name="Policies [DataForge]",
+        sql="SELECT * FROM POLICIES",
+        dsn="FAKE_DSN",
+        source_design="Policies",
+        result_columns=["policy_number"],
+        column_types={"policy_number": "str"},
+        tables=["POLICIES"],
+    )
+    qd.query_object_config = {"dataforge": {"source_name": "Policies"}}
+    group._sources[qd.name] = qd
+
+    sources = group._dataforge_sources_for_save("RGA - EXECUL and Claims")
+    assert len(sources) == 1
+    obj = query_object_store.load_object("Policies [DataForge]")
+    assert obj is not None
+    assert obj.config["dataforge"] == {
+        "forge_name": "RGA - EXECUL and Claims",
+        "source_name": "Policies",
+    }
+    assert sources[0].definition["config"]["dataforge"]["forge_name"] == "RGA - EXECUL and Claims"
+    print("  group save publishes DataForge QueryObject metadata  OK")
+
+
+def test_dataforge_display_fields_add_reorder_and_aggregate():
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  display fields SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.dataforge_group import DataForgeGroup, ForgeDisplayTab
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    group = DataForgeGroup("⚙ (new)", saved_forge_name="")
+    tab = group.display_tab
+    tab.add_query_field("pol", "company_code")
+    tab.add_query_field("pol", "policy_number")
+    tab.add_query_field("pol", "face_amount")
+    assert tab.display_all is False
+    assert tab.get_selected_columns() == ["company_code", "policy_number", "face_amount"]
+
+    tab._reorder_row("pol.face_amount", 1)
+    assert tab.get_selected_columns() == ["company_code", "face_amount", "policy_number"]
+    tab._rows[1].set_state({"aggregate": 2})  # SUM
+    state = tab.get_state()
+
+    restored = ForgeDisplayTab()
+    restored.set_state(state)
+    assert restored.get_selected_columns() == ["company_code", "face_amount", "policy_number"]
+    assert restored._rows[1].aggregate == "SUM"
+
+    aggregate_tab = group.display_tab
+    aggregate_tab.set_state({
+        "display_all": False,
+        "fields": [
+            {"field_key": "pol.company_code", "display_name": "company_code", "aggregate": 0},
+            {"field_key": "pol.face_amount", "display_name": "face_amount", "aggregate": 2},
+        ],
+    })
+    df = pd.DataFrame({
+        "company_code": ["A", "A", "B"],
+        "policy_number": ["100", "101", "200"],
+        "face_amount": [10, 15, 7],
+    })
+    result = group._apply_display_columns(df)
+    assert result.to_dict("records") == [
+        {"company_code": "A", "SUM_face_amount": 25},
+        {"company_code": "B", "SUM_face_amount": 7},
+    ]
+    print("  display fields add/reorder/aggregate  OK")
+
+
+def test_dataforge_add_source_deep_copies_query_object_for_join_canvas(tmp_home):
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  source copy SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    original = _make_shared_query(
+        "Policies",
+        sql="SELECT policy_number, face_amount FROM POLICIES",
+        cols=["policy_number", "face_amount"],
+    )
+    group = DataForgeGroup("⚙ (new)", saved_forge_name="MyForge")
+
+    copied_qd = group.add_source_copy("Policies")
+
+    assert copied_qd is not None
+    assert copied_qd.name == "Policies [MyForge]"
+    assert list(group._sources.keys()) == ["Policies [MyForge]"]
+    assert group.joins_tab.add_query_table("Policies [MyForge]") is True
+
+    copied = query_object_store.load_object("Policies [MyForge]")
+    reloaded_original = query_object_store.load_object("Policies")
+    assert copied is not None
+    assert reloaded_original is not None
+    assert copied.name != reloaded_original.name
+    assert copied.config["dataforge"] == {
+        "forge_name": "MyForge",
+        "source_name": "Policies",
+    }
+
+    copied.sql = "SELECT policy_number FROM PRIVATE_POLICIES"
+    query_object_store.save_object(copied)
+    reloaded_original = query_object_store.load_object("Policies")
+    assert reloaded_original.sql == original.sql
+    print("  DataForge source add deep-copies QueryObject + joins canvas add  OK")
+
+
+def test_new_dataforge_saves_visual_query_source_from_ul_rates(tmp_home):
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  visual source save SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+    from suiteview.audit.saved_query import SavedQuery
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    saved_query_store.save_query(SavedQuery(
+        name="UL Rates Visual",
+        source_group="UL_Rates",
+        dsn="UL_Rates",
+        tables=["dbo.Rates"],
+        sql="SELECT rate_id, duration FROM dbo.Rates",
+        result_columns=["rate_id", "duration"],
+        column_types={"rate_id": "int", "duration": "int"},
+        config={"select_tab": {"display_all": False, "fields": [
+            {"field_key": "dbo.Rates.rate_id", "display_name": "rate_id"},
+            {"field_key": "dbo.Rates.duration", "display_name": "duration"},
+        ]}},
+    ))
+
+    group = DataForgeGroup("⚙ (new)", saved_forge_name="")
+    copied_qd = group.add_source_copy("UL Rates Visual")
+    assert copied_qd is not None
+    assert list(group._sources) == ["UL Rates Visual [DataForge]"]
+    assert group.joins_tab.add_query_table("UL Rates Visual [DataForge]") is True
+    group.display_tab.add_query_field("UL Rates Visual [DataForge]", "rate_id")
+    assert query_object_store.object_exists("UL Rates Visual [DataForge]")
+    assert saved_query_store.query_exists("UL Rates Visual [DataForge]")
+
+    forge_name = "UL Rates Forge"
+    group._promote_unsaved_source_names(forge_name)
+    forge = DataForge(
+        name=forge_name,
+        sources=group._dataforge_sources_for_save(forge_name),
+        config=group.get_config(),
+    )
+    dataforge_store.save_forge(forge)
+
+    reloaded = dataforge_store.load_forge(forge_name)
+    assert reloaded is not None
+    assert not query_object_store.object_exists("UL Rates Visual [DataForge]")
+    assert not saved_query_store.query_exists("UL Rates Visual [DataForge]")
+    assert query_object_store.object_exists("UL Rates Visual [UL Rates Forge]")
+    assert saved_query_store.query_exists("UL Rates Visual [UL Rates Forge]")
+    assert reloaded.config["sources"] == ["UL Rates Visual [UL Rates Forge]"]
+    assert reloaded.config["joins_tab"]["sources"][0]["alias"] == "UL Rates Visual [UL Rates Forge]"
+    assert reloaded.config["display_tab"]["fields"][0]["field_key"] == "UL Rates Visual [UL Rates Forge].rate_id"
+    restored_group = DataForgeGroup("⚙ UL Rates Forge", saved_forge_name=forge_name)
+    restored_group.set_config(reloaded.config)
+
+    assert list(restored_group._sources) == ["UL Rates Visual [UL Rates Forge]"]
+    restored_qd = restored_group._sources["UL Rates Visual [UL Rates Forge]"]
+    assert restored_qd.query_object_kind == "visual_query"
+    assert restored_qd.dsn == "UL_Rates"
+    assert restored_qd.result_columns == ["rate_id", "duration"]
+    saved_qd = qdef_store.load_qdef("UL Rates Visual [UL Rates Forge]", forge_name=forge_name)
+    assert saved_qd is not None
+    assert saved_qd.query_object_config["dataforge"] == {
+        "forge_name": forge_name,
+        "source_name": "UL Rates Visual",
+    }
+    print("  new DataForge saves/reloads UL_Rates visual source  OK")
+
+
+def test_dataforge_save_as_overwrite_replaces_stale_visual_copy(tmp_home):
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  overwrite visual source SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+    from suiteview.audit.saved_query import SavedQuery
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    saved_query_store.save_query(SavedQuery(
+        name="Overwrite Visual",
+        source_group="UL_Rates",
+        dsn="UL_Rates",
+        tables=["dbo.Rates"],
+        sql="SELECT stale_rate_id FROM dbo.Rates",
+        result_columns=["stale_rate_id"],
+        column_types={"stale_rate_id": "int"},
+    ))
+    query_object_store.copy_object("Overwrite Visual", "Overwrite Visual [Overwrite Forge]")
+    stale_obj = query_object_store.load_object("Overwrite Visual [Overwrite Forge]")
+    assert stale_obj is not None
+    stale_obj.config = {"dataforge": {
+        "forge_name": "Overwrite Forge",
+        "source_name": "Overwrite Visual",
+    }}
+    query_object_store.save_object(stale_obj)
+    stale_qd = qdefinition_from_query_object(stale_obj)
+    stale_qd.forge_name = "Overwrite Forge"
+    qdef_store.save_qdef(stale_qd)
+    dataforge_store.save_forge(DataForge(name="Overwrite Forge", sources=[], config={}))
+
+    saved_query_store.save_query(SavedQuery(
+        name="Overwrite Visual",
+        source_group="UL_Rates",
+        dsn="UL_Rates",
+        tables=["dbo.Rates"],
+        sql="SELECT current_rate_id FROM dbo.Rates",
+        result_columns=["current_rate_id"],
+        column_types={"current_rate_id": "int"},
+    ))
+    group = DataForgeGroup("⚙ (new)", saved_forge_name="")
+    copied_qd = group.add_source_copy("Overwrite Visual")
+    assert copied_qd is not None
+
+    temp_saved = saved_query_store.load_query("Overwrite Visual [DataForge]")
+    assert temp_saved is not None
+    assert temp_saved.sql == "SELECT current_rate_id FROM dbo.Rates"
+
+    group._delete_existing_forge_records("Overwrite Forge")
+    group._promote_unsaved_source_names("Overwrite Forge")
+    forge = DataForge(
+        name="Overwrite Forge",
+        sources=group._dataforge_sources_for_save("Overwrite Forge"),
+        config=group.get_config(),
+    )
+    dataforge_store.save_forge(forge)
+
+    promoted_saved = saved_query_store.load_query("Overwrite Visual [Overwrite Forge]")
+    assert promoted_saved is not None
+    assert promoted_saved.sql == "SELECT current_rate_id FROM dbo.Rates"
+    assert not saved_query_store.query_exists("Overwrite Visual [DataForge]")
+    assert not qdef_store.qdef_exists("Overwrite Visual [DataForge]", forge_name="Overwrite Forge")
+    print("  DataForge Save As overwrite replaces stale visual copy  OK")
+
+
+def test_query_object_browser_repairs_missing_dataforge_visual_copy(tmp_home):
+    from suiteview.audit.query_object_viewer_window import (
+        QueryObjectViewerWindow,
+        _dataforge_info,
+    )
+    from suiteview.audit.saved_query import SavedQuery
+
+    saved_query_store.save_query(SavedQuery(
+        name="Browser Visual",
+        source_group="UL_Rates",
+        dsn="UL_Rates",
+        tables=["dbo.Rates"],
+        sql="SELECT rate_id FROM dbo.Rates",
+        result_columns=["rate_id"],
+        column_types={"rate_id": "int"},
+    ))
+    copied = query_object_store.copy_object(
+        "Browser Visual", "Browser Visual [Browser Forge]")
+    copied.config = {"dataforge": {
+        "forge_name": "Browser Forge",
+        "source_name": "Browser Visual",
+    }}
+    query_object_store.save_object(copied)
+    dataforge_store.save_forge(DataForge(
+        name="Browser Forge",
+        sources=[DataForgeSource(
+            query_name=copied.name,
+            definition=copied.to_dict(),
+        )],
+        config={"sources": [copied.name]},
+    ))
+    saved_query_store.delete_query(copied.name)
+    assert query_object_store.load_object(copied.name) is None
+
+    viewer = QueryObjectViewerWindow.__new__(QueryObjectViewerWindow)
+    viewer._ensure_dataforge_query_objects()
+
+    repaired = query_object_store.load_object(copied.name)
+    assert repaired is not None
+    assert _dataforge_info(repaired) == ("Browser Forge", "Browser Visual")
+    print("  Query Object Browser repairs missing DataForge visual copy  OK")
+
+
 # ── Minimal temp-HOME fixture (works under pytest or the __main__ runner) ──
 
 class _TmpHome:
@@ -169,6 +484,8 @@ class _TmpHome:
         self._old_home = None
         self._old_userprofile = None
         self._old_qo = None
+        self._old_qdefs = None
+        self._old_queries = None
 
     def __enter__(self):
         import pathlib
@@ -183,13 +500,21 @@ class _TmpHome:
         # dataforge_store caches its dir at import time via Path.home();
         # repoint it for the test.
         self._old_forges = dataforge_store._FORGES_DIR
+        self._old_qdefs = qdef_store._QDEFS_DIR
+        self._old_queries = saved_query_store._QUERIES_DIR
         dataforge_store._FORGES_DIR = (
             pathlib.Path(self._dir) / ".suiteview" / "saved_dataforges")
+        qdef_store._QDEFS_DIR = (
+            pathlib.Path(self._dir) / ".suiteview" / "qdefinitions")
+        saved_query_store._QUERIES_DIR = (
+            pathlib.Path(self._dir) / ".suiteview" / "saved_queries")
         return self
 
     def __exit__(self, *exc):
         import shutil
         dataforge_store._FORGES_DIR = self._old_forges
+        qdef_store._QDEFS_DIR = self._old_qdefs
+        saved_query_store._QUERIES_DIR = self._old_queries
         for key, val in (("HOME", self._old_home),
                          ("USERPROFILE", self._old_userprofile),
                          ("SUITEVIEW_QUERY_OBJECTS_DIR", self._old_qo)):
@@ -217,7 +542,16 @@ def main():
     print("DataForge model/store/runtime tests")
     print("=" * 60)
     no_fixture = [test_model_round_trip, test_legacy_source_round_trip]
-    needs_home = [test_add_resync_refresh_and_run, test_missing_snapshot_raises]
+    needs_home = [
+        test_add_resync_refresh_and_run,
+        test_missing_snapshot_raises,
+        test_dataforge_group_save_publishes_query_object_metadata,
+        test_dataforge_add_source_deep_copies_query_object_for_join_canvas,
+        test_new_dataforge_saves_visual_query_source_from_ul_rates,
+        test_dataforge_save_as_overwrite_replaces_stale_visual_copy,
+        test_query_object_browser_repairs_missing_dataforge_visual_copy,
+    ]
+    no_fixture.append(test_dataforge_display_fields_add_reorder_and_aggregate)
     for t in no_fixture:
         print(f"- {t.__name__}")
         t()

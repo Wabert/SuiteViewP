@@ -396,6 +396,7 @@ def test_illustration_policy_data_uses_regular_plus_additional_premium(monkeypat
         total_preferred_loan_accrued = 0.0
         total_variable_loan_principal = 0.0
         total_variable_loan_accrued = 0.0
+        variable_loan_charge_rate = 0.0775
         total_withdrawals = 0.0
         gav = 0.0
         is_mec = False
@@ -439,3 +440,4 @@ def test_illustration_policy_data_uses_regular_plus_additional_premium(monkeypat
     policy = illustration_policy_service.build_illustration_data("UL001892")
 
     assert policy.premiums_paid_to_date == 19_435.85
+    assert policy.variable_loan_charge_rate == 0.0775
