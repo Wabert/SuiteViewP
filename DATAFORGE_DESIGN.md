@@ -208,3 +208,15 @@ canonical `core/db2_connection.py`, SQL Server via `core/connection_manager.py`.
   to `ForgeJoinCanvas` via API-compatible alias with backward-compatible
   `set_state` migration of old card state. Interactive UI verification deferred
   to the work laptop (see `WORK_LAPTOP_SPEC.md` §1.4).
+- **2026-06-07** — Code-review pass over the laptop's finished DataForge work
+  (`fix/dataforge-review`). Fixed the reported "Save As drops added visual
+  queries" bug — Sources now auto-appear on the join canvas (a query added to a
+  Forge is visible + saved immediately), while "Delete Table" removals are
+  tracked and persisted so they survive reload. Also fixed: a duplicate "View"
+  button + duplicate signal in the Queries & Fields dialog, a field-loader
+  `QThread` GC/crash risk on fast Source switching, and an engine join-ordering
+  bug (RIGHT/LEFT joins attached the wrong side; multi-path outer joins now
+  raise instead of silently downgrading). Tests: canvas 13 / engine 14 /
+  runtime 10 / query_object 51, all green. The live pandas `_run_forge`
+  execution path + its outer-join filter semantics remain deferred to the
+  laptop (`WORK_LAPTOP_SPEC.md` §1.5).

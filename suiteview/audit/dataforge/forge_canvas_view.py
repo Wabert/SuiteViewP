@@ -521,6 +521,11 @@ class ForgeJoinCanvas(QWidget):
         self.model = JoinCanvasModel()
         self._available_query_names: list[str] = []
         self._available_query_columns: dict[str, list[str]] = {}
+        # Sources the user explicitly removed from the canvas ("Delete Table").
+        # Everything else available is shown automatically; this set is what
+        # keeps a removed box from re-appearing on the next source sync, and it
+        # is persisted in get_state/set_state so removals survive save/reload.
+        self._removed_aliases: set[str] = set()
         self.scene = JoinCanvasScene(self.model, self)
         self.scene.changed_model.connect(self.state_changed.emit)
 
@@ -550,11 +555,21 @@ class ForgeJoinCanvas(QWidget):
 
     def update_queries(self, query_names: list[str],
                        query_columns: dict[str, list[str]] | None = None):
+        """Refresh the set of available Source queries.
+
+        Every available Source is shown on the canvas automatically (so a query
+        added to the Forge appears immediately and is saved), except ones the
+        user explicitly removed via "Delete Table". Sources no longer available
+        are dropped, and their stale removal flag is forgotten.
+        """
         self._available_query_names = list(query_names)
         self._available_query_columns = query_columns or {}
-        self.model.set_sources(self._available_query_names,
-                       self._available_query_columns,
-                       add_missing=False)
+        # Forget removals for Sources that no longer exist.
+        self._removed_aliases &= set(self._available_query_names)
+        visible = [n for n in self._available_query_names
+                   if n not in self._removed_aliases]
+        self.model.set_sources(visible, self._available_query_columns,
+                               add_missing=True)
         self.scene.rebuild()
         self.state_changed.emit()
 
@@ -572,9 +587,13 @@ class ForgeJoinCanvas(QWidget):
 
     def get_state(self) -> dict:
         self._sync_positions()
-        return self.model.to_state()
+        state = self.model.to_state()
+        if self._removed_aliases:
+            state["removed"] = sorted(self._removed_aliases)
+        return state
 
     def set_state(self, state: dict):
+        self._removed_aliases = set(state.get("removed", []))
         if "sources" in state or "joins" in state:
             self.model.from_state(state)
         elif "cards" in state:
@@ -606,6 +625,7 @@ class ForgeJoinCanvas(QWidget):
     def _add_query_table(self, name: str):
         if name not in self._available_query_names:
             return False
+        self._removed_aliases.discard(name)
         visible = [src.alias for src in self.model.sources]
         if name in visible:
             return False
@@ -614,6 +634,11 @@ class ForgeJoinCanvas(QWidget):
         self.scene.rebuild()
         self.state_changed.emit()
         return True
+
+    def _remove_query_table(self, alias: str):
+        """Remove a Source box from the canvas and remember the removal."""
+        self._removed_aliases.add(alias)
+        self.scene.remove_source(alias)
 
     def add_query_table(self, name: str) -> bool:
         """Add an available query Source box to the join canvas."""
@@ -652,7 +677,8 @@ class ForgeJoinCanvas(QWidget):
                 act_fewer.triggered.connect(lambda: item.resize_rows(-5))
             menu.addSeparator()
             act_delete = menu.addAction("Delete Table")
-            act_delete.triggered.connect(lambda: self.scene.remove_source(item.alias))
+            act_delete.triggered.connect(
+                lambda _=False, a=item.alias: self._remove_query_table(a))
             menu.exec(event.globalPos())
         else:
             menu = QMenu(self.view)

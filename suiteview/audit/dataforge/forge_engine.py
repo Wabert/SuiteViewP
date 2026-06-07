@@ -230,6 +230,17 @@ def _ordered_joins(joins: list[JoinSpec], sources: list[str]
     return placed, steps
 
 
+def _swap_how(how: str) -> str:
+    """Mirror a join type for a flipped attach order.
+
+    ``A LEFT JOIN B`` is equivalent to ``B RIGHT JOIN A``. When the join chain
+    attaches a join's *left* Source onto a chain that already holds its *right*
+    Source, the LEFT/RIGHT keyword must be swapped or the null-padded side
+    inverts. inner / full-outer / cross are symmetric and unchanged.
+    """
+    return {"left": "right", "right": "left"}.get(how, how)
+
+
 def _join_on_clause(join: JoinSpec) -> str:
     """Build the ON predicate (multi-key AND-ed) for a JoinSpec."""
     left_t = _qi(join.left_source)
@@ -357,10 +368,22 @@ def compile_forge_sql(
             if new in already_joined:
                 # Multi-path join: both tables already joined, so there is no
                 # new table to attach. Apply the extra key equality as a
-                # residual WHERE predicate (correct for inner joins).
+                # residual WHERE predicate — only valid for inner joins, since
+                # a top-level WHERE on the keys would filter out the null rows
+                # an outer join is meant to keep.
+                if join.how not in ("inner",):
+                    raise ForgeEngineError(
+                        f"Join {join.left_source}->{join.right_source} closes a "
+                        f"join cycle (both Sources already joined) with "
+                        f"how={join.how!r}; only inner joins are supported on "
+                        f"such extra edges. Remove the redundant relationship "
+                        f"or make it inner.")
                 residual_preds.append(_join_on_clause(join))
                 continue
-            kw = _JOIN_SQL[join.how]
+            # If we are attaching the join's LEFT Source onto a chain that holds
+            # its RIGHT Source, mirror LEFT/RIGHT so the correct side is kept.
+            how = _swap_how(join.how) if new == join.left_source else join.how
+            kw = _JOIN_SQL[how]
             lines.append(f"{kw} {_qi(new)} ON {_join_on_clause(join)}")
             already_joined.add(new)
         from_clause = "\n".join(lines)

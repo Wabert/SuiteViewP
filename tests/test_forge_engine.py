@@ -234,6 +234,54 @@ def test_errors():
     print("  error handling (key len / unknown src / disconnected)  OK")
 
 
+def test_flipped_left_join_keeps_correct_side():
+    # Join order forces the chain to attach the join's LEFT Source (R) onto a
+    # chain that already holds its RIGHT Source (M). R LEFT JOIN M must keep ALL
+    # rows of R (incl. unmatched k=99), null-padding M/L — not the other way.
+    left = pd.DataFrame({"k": [1, 2, 3], "v_l": ["l1", "l2", "l3"]})
+    mid = pd.DataFrame({"k": [1, 2], "v_m": ["m1", "m2"]})
+    right = pd.DataFrame({"k": [1, 99], "v_r": ["r1", "r99"]})
+    res = run_forge(
+        {"L": left, "M": mid, "R": right},
+        [
+            JoinSpec("M", "L", ("k",), ("k",), "inner"),   # base = M, INNER L
+            JoinSpec("R", "M", ("k",), ("k",), "left"),    # R LEFT M (flipped)
+        ],
+        outputs=[
+            OutputColumn("R", "k", "rk"), OutputColumn("R", "v_r", "v_r"),
+            OutputColumn("L", "v_l", "v_l"), OutputColumn("M", "v_m", "v_m"),
+        ],
+    )
+    df = res.dataframe
+    rkeys = sorted(df["rk"].tolist())              # R.k always present
+    assert rkeys == [1, 99], rkeys                 # R rows preserved (1 and 99)
+    row99 = df[df["rk"] == 99].iloc[0]
+    assert row99["v_r"] == "r99"                   # R side present
+    assert pd.isna(row99["v_l"]) and pd.isna(row99["v_m"])  # M/L null-padded
+    print("  flipped LEFT join keeps the join's left Source  OK")
+
+
+def test_multipath_outer_join_rejected():
+    # a->b, b->c, a->c form a cycle; the closing a->c edge as an outer join
+    # would be silently downgraded by a top-level WHERE, so it must raise.
+    schemas = {"a": ["k"], "b": ["k"], "c": ["k"]}
+    joins = [
+        JoinSpec("a", "b", ("k",), ("k",), "inner"),
+        JoinSpec("b", "c", ("k",), ("k",), "inner"),
+        JoinSpec("a", "c", ("k",), ("k",), "left"),   # closes the cycle, outer
+    ]
+    try:
+        compile_forge_sql(schemas, joins)
+        assert False, "expected ForgeEngineError for multi-path outer join"
+    except ForgeEngineError as e:
+        assert "cycle" in str(e) or "inner" in str(e)
+    # The same cycle with an inner closing edge is fine (residual predicate).
+    joins[2] = JoinSpec("a", "c", ("k",), ("k",), "inner")
+    sql, _ = compile_forge_sql(schemas, joins)
+    assert "WHERE" in sql
+    print("  multi-path outer join rejected; inner cycle allowed  OK")
+
+
 def main():
     tests = [
         test_two_way_inner_multikey,
@@ -247,6 +295,8 @@ def main():
         test_output_column_selection_and_aliases,
         test_contains_escapes_wildcards,
         test_limit,
+        test_flipped_left_join_keeps_correct_side,
+        test_multipath_outer_join_rejected,
         test_errors,
     ]
     print("=" * 60)

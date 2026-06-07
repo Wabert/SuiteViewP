@@ -20,8 +20,6 @@ from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit import qdef_store
 from suiteview.audit.query_object import (
     OBJECT_KIND_ADHOC_SOURCE,
-    OBJECT_KIND_EXECUTABLE,
-    OBJECT_KIND_MANUAL_SQL,
     QueryObject,
     manual_sql_query_object,
     object_from_qdefinition,

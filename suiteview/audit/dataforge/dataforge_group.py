@@ -36,6 +36,14 @@ from suiteview.audit.sql_helpers import fmt_time
 from suiteview.audit.ui.bottom_bar import AuditBottomBar
 from suiteview.audit.query_runner import run_button_context, execute_odbc_query
 from suiteview.audit.dataforge.query_field_picker import FORGE_FIELD_DRAG_MIME
+# Phase 2 join UI: the MS-Access-style canvas (field-linked Source boxes with
+# drawn join lines) replaces the old card-based ForgeJoinsTab. ForgeJoinCanvas
+# is API-compatible (update_queries / get_merge_ops / get_state / set_state /
+# state_changed) and its set_state migrates the old {"cards": [...]} format, so
+# previously-saved Forges still load. forge_joins_tab.py is kept for rollback.
+from suiteview.audit.dataforge.forge_canvas_view import (
+    ForgeJoinCanvas as ForgeJoinsTab,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -297,17 +305,6 @@ class ForgeCodeTab(QWidget):
 
     def _copy_code(self):
         QApplication.clipboard().setText(self.txt_code.toPlainText())
-
-
-# ── Joins Tab for DataForge ─────────────────────────────────────────
-# Phase 2: the MS-Access-style join canvas (field-linked Source boxes with
-# drawn join lines) replaces the old card-based ForgeJoinsTab. ForgeJoinCanvas
-# is API-compatible (update_queries / get_merge_ops / get_state / set_state /
-# state_changed) and its set_state migrates the old {"cards": [...]} format, so
-# previously-saved Forges still load. forge_joins_tab.py is kept for rollback.
-from suiteview.audit.dataforge.forge_canvas_view import (  # noqa: F401
-    ForgeJoinCanvas as ForgeJoinsTab,
-)
 
 
 # ── Display Tab for DataForge ────────────────────────────────────────
@@ -1062,6 +1059,8 @@ class DataForgeGroup(QWidget):
         for join in state.get("joins", []):
             join["left_source"] = mapping.get(join.get("left_source", ""), join.get("left_source", ""))
             join["right_source"] = mapping.get(join.get("right_source", ""), join.get("right_source", ""))
+        if state.get("removed"):
+            state["removed"] = [mapping.get(a, a) for a in state["removed"]]
         self.joins_tab.set_state(state)
 
     def _rename_filter_sources(self, mapping: dict[str, str]) -> None:
@@ -1478,7 +1477,7 @@ class DataForgeGroup(QWidget):
             dsn = sq.dsn.replace('"', '\\"')
             sql = sqls.get(name, sq.sql).replace('"""', '\\"""')
             lines.extend([
-                f"",
+                "",
                 f'# Dataset: {safe}',
                 f'conn_{_var(name)} = pyodbc.connect("DSN={dsn}", autocommit=True)',
                 f'df_{_var(name)} = pd.read_sql("""',

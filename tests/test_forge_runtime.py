@@ -274,7 +274,10 @@ def test_dataforge_add_source_deep_copies_query_object_for_join_canvas(tmp_home)
     assert copied_qd is not None
     assert copied_qd.name == "Policies [MyForge]"
     assert list(group._sources.keys()) == ["Policies [MyForge]"]
-    assert group.joins_tab.add_query_table("Policies [MyForge]") is True
+    # The added Source auto-appears on the join canvas (no manual add needed);
+    # re-adding an already-shown Source is a no-op.
+    assert "Policies [MyForge]" in [s.alias for s in group.joins_tab.model.sources]
+    assert group.joins_tab.add_query_table("Policies [MyForge]") is False
 
     copied = query_object_store.load_object("Policies [MyForge]")
     reloaded_original = query_object_store.load_object("Policies")
@@ -324,7 +327,10 @@ def test_new_dataforge_saves_visual_query_source_from_ul_rates(tmp_home):
     copied_qd = group.add_source_copy("UL Rates Visual")
     assert copied_qd is not None
     assert list(group._sources) == ["UL Rates Visual [DataForge]"]
-    assert group.joins_tab.add_query_table("UL Rates Visual [DataForge]") is True
+    # Added Source auto-appears on the canvas; re-adding is a no-op.
+    assert "UL Rates Visual [DataForge]" in [
+        s.alias for s in group.joins_tab.model.sources]
+    assert group.joins_tab.add_query_table("UL Rates Visual [DataForge]") is False
     group.display_tab.add_query_field("UL Rates Visual [DataForge]", "rate_id")
     assert query_object_store.object_exists("UL Rates Visual [DataForge]")
     assert saved_query_store.query_exists("UL Rates Visual [DataForge]")

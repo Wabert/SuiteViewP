@@ -71,6 +71,44 @@ interactive gestures could not be exercised headless. **Test in the running app:
 - **Rollback if needed:** the old `forge_joins_tab.py` is untouched; revert the
   import in `dataforge_group.py` to restore the card UI.
 
+### 1.5 DataForge code-review fixes (2026-06-07, branch `fix/dataforge-review`)
+Reviewed the whole `audit/dataforge` module and fixed the issues below. All are
+headless-tested, but the ones touching the live UI/data need a click-through:
+- **FIXED — added queries vanished on Save As (the reported bug).** Root cause:
+  `forge_canvas_view.update_queries` used `add_missing=False`, so a Source added
+  to a Forge never appeared on the join canvas unless you right-clicked → "Add
+  Query Table". An empty canvas saved nothing, so the Sources looked lost on
+  reload. Now available Sources **auto-appear** on the canvas; "Delete Table"
+  still removes one and that removal is tracked + persisted (`removed` in the
+  joins state) so it survives save/reload. **Verify in-app:** add visual queries
+  → they show on the canvas immediately → Save As → reopen → Sources + joins are
+  all there. Also verify Delete Table still sticks across reopen.
+- **FIXED — duplicate "View" button** in the Queries & Fields dialog (two were
+  built; one is removed) and a duplicate `view_query_requested` signal.
+- **FIXED — field-loader thread crash risk:** fast query switching could GC a
+  running `_QueryFieldLoaderThread` ("QThread destroyed while running"); loaders
+  are now retained until they finish. **Verify:** rapidly click between several
+  Sources in the dialog and confirm no crash and fields still load.
+- **FIXED — engine join-ordering bug:** in `forge_engine`, a RIGHT/LEFT join
+  whose right Source was already in the chain attached the wrong side (inverted
+  null-padding); now the keyword is mirrored. Multi-path/cyclic join graphs with
+  an outer closing edge now raise instead of silently downgrading to inner.
+  (Engine still not wired into `_run_forge` — see below — so verify once swapped.)
+- Lint: removed unused imports / empty f-string; the unused `forge_joins_tab.py`
+  (old card UI) is kept only as a rollback and is no longer imported.
+
+**STILL DEFERRED — live `_run_forge` execution path (pandas, needs live DB2/SQL):**
+`dataforge_group._run_forge` still uses pandas `pd.merge`, not the DuckDB engine.
+Two known correctness gaps in that pandas path (confirmed in review):
+1. Filters are applied to the **merged** result only — there is no source-scope
+   pushdown, so a filter on a left-joined Source drops the null rows and quietly
+   collapses the outer join (the exact thing the DuckDB CTE engine fixes).
+2. 3-way `pd.merge(..., suffixes=...)` can produce unpredictable column names on
+   chained merges, which `_resolve_display_column` then has to guess at.
+When wiring the engine swap (still the right fix), also add `config["joins"] =
+joins_tab.to_config_joins()` + `limit` to `get_config()` so `run_saved_forge`
+has explicit joins to read (today only the canvas `joins_tab` state is saved).
+
 ---
 
 ## §2 — DEFERRED: DB2 connection consolidation (Tier 2c) — NEEDS LIVE DB2
@@ -181,3 +219,10 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
 - **2026-06-06** — Added §1.4: DataForge Phase 2 MS-Access join canvas built +
   swapped into the designer on the minipc (12 headless tests green); interactive
   gesture + legacy-Forge-migration verification deferred to the laptop.
+- **2026-06-07** — Added §1.5: pulled the laptop's finished DataForge work from
+  `main`, reviewed the whole module, and fixed the Save As "added queries not
+  saved" bug (canvas auto-add + persisted removals) plus the duplicate View
+  button, the loader-thread crash risk, and the engine join-orientation bug.
+  Tests: canvas 13, engine 14, runtime 10, query_object 51 — all green. The
+  pandas `_run_forge` execution path and its outer-join filter semantics remain
+  deferred (need live DB2/SQL). Work on branch `fix/dataforge-review`.

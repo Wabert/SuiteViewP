@@ -210,9 +210,6 @@ class QueriesFieldsDialog(QDialog):
     # Emitted when user clicks View to preview query results
     view_query_requested = pyqtSignal(str)  # query_name
 
-    # Emitted when user clicks View to preview query results
-    view_query_requested = pyqtSignal(str)  # query_name
-
     def __init__(self, source_queries: dict[str, QDefinition], parent=None,
                  forge_name: str = ""):
         super().__init__(parent)
@@ -226,7 +223,10 @@ class QueriesFieldsDialog(QDialog):
         self._sources: dict[str, QDefinition] = dict(source_queries)
         self._forge_name = forge_name
         self._current_query: str = ""
-        self._loader: _QueryFieldLoaderThread | None = None
+        # Live field-loader threads. Kept referenced until they finish so a
+        # superseded loader (fast query switching) isn't garbage-collected
+        # mid-run — that would crash with "QThread destroyed while running".
+        self._loaders: list[_QueryFieldLoaderThread] = []
         self._field_cache: dict[str, list[tuple]] = {}  # query_name → [(col, type, size, null)]
         self._loaded_queries: set[str] = set()  # queries with data in memory
 
@@ -318,17 +318,6 @@ class QueriesFieldsDialog(QDialog):
         self.btn_remove_query = QPushButton("- Remove")
         self.btn_remove_query.setStyleSheet(_BTN_SMALL_STYLE)
         self.btn_remove_query.setFixedHeight(22)
-        self.btn_view_query = QPushButton("View")
-        self.btn_view_query.setStyleSheet(
-            "QPushButton { background-color: #059669; color: white;"
-            " border: 1px solid #047857; border-radius: 2px;"
-            " padding: 3px 10px; font-size: 8pt; }"
-            "QPushButton:hover { background-color: #10B981; }")
-        self.btn_view_query.setFixedHeight(22)
-        self.btn_view_query.setToolTip("Preview the first 1000 rows of this query")
-        self.btn_view_query.clicked.connect(self._on_view_query)
-        q_btns.addWidget(self.btn_view_query)
-
         self.btn_remove_query.clicked.connect(self._on_remove_query)
         q_btns.addWidget(self.btn_remove_query)
 
@@ -623,12 +612,14 @@ class QueriesFieldsDialog(QDialog):
             self.tree_fields.clear()
             self.lbl_field_status.setText("Loading fields...")
 
-            self._loader = _QueryFieldLoaderThread(sq.dsn, sq.tables, self)
-            self._loader.columns_loaded.connect(
-                lambda cols: self._on_fields_loaded(query_name, cols))
-            self._loader.error_occurred.connect(
-                lambda msg: self._on_fields_error(query_name, msg))
-            self._loader.start()
+            loader = _QueryFieldLoaderThread(sq.dsn, sq.tables, self)
+            loader.columns_loaded.connect(
+                lambda cols, qn=query_name: self._on_fields_loaded(qn, cols))
+            loader.error_occurred.connect(
+                lambda msg, qn=query_name: self._on_fields_error(qn, msg))
+            loader.finished.connect(lambda ldr=loader: self._cleanup_loader(ldr))
+            self._loaders.append(loader)
+            loader.start()
         else:
             cols = []
             self._field_cache[query_name] = cols
@@ -646,7 +637,6 @@ class QueriesFieldsDialog(QDialog):
         self._field_cache[query_name] = columns
         if self._current_query == query_name:
             self._populate_fields(query_name, columns)
-        self._loader = None
 
     def _on_fields_error(self, query_name: str, msg: str):
         """ODBC failed — fall back to result_columns."""
@@ -661,7 +651,11 @@ class QueriesFieldsDialog(QDialog):
                 f"{len(cols)} fields (from result columns)")
         else:
             self.lbl_field_status.setText("No field information available")
-        self._loader = None
+
+    def _cleanup_loader(self, loader: "_QueryFieldLoaderThread") -> None:
+        """Drop a finished loader thread reference (connected to finished)."""
+        if loader in self._loaders:
+            self._loaders.remove(loader)
 
     def _populate_fields(self, query_name: str, columns: list[tuple]):
         self.tree_fields.clear()
