@@ -91,6 +91,47 @@ class IllustrationInputSet:
 
 
 @dataclass
+class IllustrationOptions:
+    """Per-run illustration toggles (mirror the RERUN sINPUT_* booleans).
+
+    These are set once before a forecast runs and control the 7702 guideline
+    machinery. Defaults match a normal "as-is" inforce illustration: guideline
+    and TAMRA limits enforced, exception premium off.
+    """
+
+    # sINPUT_TEFRA_Force — enforce the 7702 guideline premium limit. Drives both
+    # guideline force-out and premium capping at acceptance.
+    conform_to_tefra: bool = True
+
+    # sINPUT_TAMRA_Force — enforce the 7-pay (TAMRA/MEC) premium limit.
+    conform_to_tamra: bool = True
+
+    # sINPUT_AllowExceptionPrems — allow GP exception premium past the safety-net
+    # period to keep the policy alive once it is sitting at the guideline limit.
+    allow_exception_prems: bool = False
+
+    # Internal escape hatch: a consumer can keep force-out on while still letting
+    # injected premiums intentionally exceed the guideline (no acceptance cap).
+    # None -> derive from conform_to_tefra. Used by the PolView GLP solver, which
+    # solves a premium that is allowed to breach the guideline.
+    cap_premiums_at_acceptance: Optional[bool] = None
+
+    @property
+    def force_out_enabled(self) -> bool:
+        return self.conform_to_tefra
+
+    @property
+    def guideline_cap_enabled(self) -> bool:
+        if self.cap_premiums_at_acceptance is None:
+            return self.conform_to_tefra
+        return self.conform_to_tefra and self.cap_premiums_at_acceptance
+
+    @property
+    def tamra_cap_enabled(self) -> bool:
+        return self.conform_to_tamra
+
+
+@dataclass
 class IllustrationScenario:
     """Projection scenario = baseline policy + optional overrides + future inputs."""
 

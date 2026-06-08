@@ -16,6 +16,9 @@ class PremiumResult:
     """Intermediate output of apply_premium()."""
 
     gross_premium: float = 0.0
+    requested_premium: float = 0.0   # premium before guideline/TAMRA cap
+    premium_cap: float = 0.0         # cap that was applied (inf if none)
+    premium_capped: bool = False     # True when the cap reduced the premium
     prem_under_target: float = 0.0
     prem_over_target: float = 0.0
     target_load: float = 0.0
@@ -39,6 +42,7 @@ def apply_premium(
     premiums_to_date: float,
     cost_basis: float,
     gross_premium_override: float | None = None,
+    premium_cap: float | None = None,
 ) -> PremiumResult:
     """Apply one month's premium to account value.
 
@@ -51,14 +55,27 @@ def apply_premium(
         premiums_ytd: Premiums paid year-to-date BEFORE this month.
         premiums_to_date: Cumulative lifetime premiums BEFORE this month.
         cost_basis: Tax cost basis BEFORE this month.
+        gross_premium_override: Replaces modal premium when supplied.
+        premium_cap: Guideline/TAMRA acceptance cap. The applied gross premium is
+            limited to this amount (CalcEngine vAppliedScheduledPremium). None =
+            no cap.
 
     Returns:
         PremiumResult with all premium-stage outputs.
     """
-    gross_premium = policy.modal_premium if gross_premium_override is None else gross_premium_override
+    requested_premium = policy.modal_premium if gross_premium_override is None else gross_premium_override
+    cap_display = premium_cap if premium_cap is not None else float("inf")
+
+    gross_premium = requested_premium
+    if premium_cap is not None:
+        gross_premium = max(0.0, min(requested_premium, premium_cap))
+    premium_capped = gross_premium < requested_premium - 1e-9
 
     if gross_premium <= 0:
         return PremiumResult(
+            requested_premium=requested_premium,
+            premium_cap=cap_display,
+            premium_capped=premium_capped,
             av_after_premium=av_beginning,
             premiums_ytd=premiums_ytd,
             premiums_to_date=premiums_to_date,
@@ -110,6 +127,9 @@ def apply_premium(
 
     return PremiumResult(
         gross_premium=gross_premium,
+        requested_premium=requested_premium,
+        premium_cap=cap_display,
+        premium_capped=premium_capped,
         prem_under_target=prem_under_target,
         prem_over_target=prem_over_target,
         target_load=target_load,

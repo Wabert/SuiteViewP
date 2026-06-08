@@ -42,9 +42,25 @@ class MonthlyState:
 
     # ── 1b. Guideline Premium Force-Out ──────
     glp: float = 0.0
+    gsp: float = 0.0
     accumulated_glp: float = 0.0
+    guideline_limit: float = 0.0           # MAX(gsp, accumulated_glp) — KV
     guideline_forceout: float = 0.0
     guideline_av_before_monthly_deduction: float = 0.0
+
+    # ── 1c. Premium capping (TEFRA / TAMRA) ──
+    requested_premium: float = 0.0         # premium before guideline/TAMRA cap
+    premium_cap: float = 0.0               # applied cap (min of guideline/TAMRA room)
+    premium_capped: bool = False           # True when the cap reduced the premium
+    accumulated_7pay: float = 0.0          # cumulative 7-pay contributions (LE)
+    tamra_year: int = 0                    # year within the 7-pay window (LD)
+    guideline_limit_reached: bool = False  # SX — at guideline ceiling this year
+
+    # ── 1d. GP Exception Premium (cols 519-524) ──
+    exception_prem_mode: bool = False      # SY — latched exception mode
+    gp_exception_prem_gross: float = 0.0   # SZ — gross shortfall covered
+    gp_exception_prem: float = 0.0         # TB — grossed-up exception premium
+    exception_protection: bool = False     # YQ — exception keeps policy in force
 
     # ── 2. Monthly Deduction (cols 405-516) ───
     nar_av: float = 0.0             # max(0, av_after_premium)
