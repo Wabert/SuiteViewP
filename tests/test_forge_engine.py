@@ -282,6 +282,107 @@ def test_multipath_outer_join_rejected():
     print("  multi-path outer join rejected; inner cycle allowed  OK")
 
 
+# ── Aggregation (GROUP BY) ───────────────────────────────────────────────
+
+def test_aggregate_sum_by_group():
+    res = run_forge({"pol": _policies()}, [], outputs=[
+        OutputColumn("pol", "status", agg="group"),
+        OutputColumn("pol", "face_amount", alias="total_face", agg="sum"),
+    ])
+    df = res.dataframe
+    assert len(df) == 2, df
+    totals = dict(zip(df["status"], df["total_face"]))
+    assert totals["INFORCE"] == 275000, totals
+    assert totals["LAPSED"] == 120000, totals
+    print("  aggregate sum by group:", totals, "OK")
+
+
+def test_aggregate_count_by_group():
+    res = run_forge({"pol": _policies()}, [], outputs=[
+        OutputColumn("pol", "company_code", agg="group"),
+        OutputColumn("pol", "policy_number", alias="n", agg="count"),
+    ])
+    df = res.dataframe
+    counts = {k: int(v) for k, v in zip(df["company_code"], df["n"])}
+    assert counts == {"A": 2, "B": 2, "C": 1}, counts
+    print("  aggregate count by group:", counts, "OK")
+
+
+def test_all_aggregate_single_row():
+    res = run_forge({"pol": _policies()}, [], outputs=[
+        OutputColumn("pol", "policy_number", alias="n", agg="count"),
+        OutputColumn("pol", "face_amount", alias="total", agg="sum"),
+    ])
+    df = res.dataframe
+    assert len(df) == 1, df
+    assert int(df["n"][0]) == 5, df
+    assert int(df["total"][0]) == 395000, df
+    print("  all-aggregate single row:", int(df["total"][0]), "OK")
+
+
+def test_aggregate_after_join():
+    res = run_forge(
+        {"pol": _policies(), "re": _reinsurance()},
+        [JoinSpec("pol", "re", ("company_code", "policy_number"),
+                  ("company_code", "policy_number"), "inner")],
+        outputs=[
+            OutputColumn("re", "reinsurer", agg="group"),
+            OutputColumn("re", "ceded_amount", alias="total_ceded", agg="sum"),
+        ],
+    )
+    df = res.dataframe
+    totals = {k: int(v) for k, v in zip(df["reinsurer"], df["total_ceded"])}
+    # Inner-matched re rows: A100->XYZ 25000, A101->ACME 30000, B200->XYZ 80000.
+    assert totals == {"XYZ": 105000, "ACME": 30000}, totals
+    print("  aggregate after join:", totals, "OK")
+
+
+def test_compile_emits_group_by():
+    schemas = {"pol": list(_policies().columns)}
+    sql, _ = compile_forge_sql(schemas, [], outputs=[
+        OutputColumn("pol", "status", agg="group"),
+        OutputColumn("pol", "face_amount", agg="sum"),
+    ])
+    assert "GROUP BY" in sql, sql
+    assert "SUM(" in sql, sql
+    print("  compile emits GROUP BY  OK")
+
+
+def test_no_aggregate_has_no_group_by():
+    schemas = {"pol": list(_policies().columns)}
+    sql, _ = compile_forge_sql(schemas, [], outputs=[
+        OutputColumn("pol", "status"),
+        OutputColumn("pol", "face_amount"),
+    ])
+    assert "GROUP BY" not in sql, sql
+    print("  no aggregate => no GROUP BY  OK")
+
+
+def test_bad_aggregate_raises():
+    try:
+        OutputColumn("pol", "face_amount", agg="median")
+    except ForgeEngineError:
+        print("  bad aggregate rejected  OK")
+    else:
+        raise AssertionError("expected ForgeEngineError for agg='median'")
+
+
+def test_display_vocabulary_treated_as_group():
+    # The Display tab serializes the non-aggregated state as "display" and the
+    # aggregate label uppercase ("COUNT"); the engine must accept both.
+    res = run_forge({"pol": _policies()}, [], outputs=[
+        OutputColumn("pol", "company_code", agg="display"),
+        OutputColumn("pol", "policy_number", alias="n", agg="COUNT"),
+    ])
+    df = res.dataframe
+    counts = {k: int(v) for k, v in zip(df["company_code"], df["n"])}
+    assert counts == {"A": 2, "B": 2, "C": 1}, counts
+    # "none" and "" are also non-aggregate synonyms.
+    OutputColumn("pol", "x", agg="none")
+    OutputColumn("pol", "x", agg="")
+    print("  'display'/'COUNT'/'none' vocabulary accepted  OK")
+
+
 def main():
     tests = [
         test_two_way_inner_multikey,
@@ -298,6 +399,14 @@ def main():
         test_flipped_left_join_keeps_correct_side,
         test_multipath_outer_join_rejected,
         test_errors,
+        test_aggregate_sum_by_group,
+        test_aggregate_count_by_group,
+        test_all_aggregate_single_row,
+        test_aggregate_after_join,
+        test_compile_emits_group_by,
+        test_no_aggregate_has_no_group_by,
+        test_bad_aggregate_raises,
+        test_display_vocabulary_treated_as_group,
     ]
     print("=" * 60)
     print("DataForge engine tests")

@@ -182,7 +182,16 @@ canonical `core/db2_connection.py`, SQL Server via `core/connection_manager.py`.
     `WORK_LAPTOP_SPEC.md`.
 - **Phase 3 — Manual mode:** raw DuckDB SQL editor against Source tables; Visual→
   Manual SQL generation.
-- **Phase 4 — Aggregation / GROUP BY** (deferred; link+filter first).
+- **Phase 4 — Aggregation / GROUP BY:** ⏳ *engine landed (2026-06-07); live
+  run-path swap pending on the laptop.* `forge_engine.OutputColumn` now carries
+  an `agg` (count/sum/min/max/avg, or group/display = plain key);
+  `compile_forge_sql` emits a GROUP BY over the non-aggregated outputs and the
+  engine accepts the Display tab's vocabulary (`"display"`, uppercase `"COUNT"`).
+  `forge_runtime.outputs_from_config` reads the `agg` key. The designer's live
+  pandas `_run_forge` *already* aggregates (`groupby().agg()`), as does Visual
+  mode's `build_dynamic_sql` (GROUP BY) — so the toggles are functional today;
+  this brings the DuckDB engine to parity so the deferred pandas→DuckDB swap
+  won't regress aggregation. Tests: `test_forge_engine.py` (+8 aggregation).
 
 ---
 
@@ -220,3 +229,13 @@ canonical `core/db2_connection.py`, SQL Server via `core/connection_manager.py`.
   runtime 10 / query_object 51, all green. The live pandas `_run_forge`
   execution path + its outer-join filter semantics remain deferred to the
   laptop (`WORK_LAPTOP_SPEC.md` §1.5).
+- **2026-06-07** — Phase 4 aggregation landed in the DuckDB engine (minipc):
+  `OutputColumn.agg` + GROUP BY compilation in `forge_engine.py`, `agg` parsing
+  in `forge_runtime.outputs_from_config`, and acceptance of the Display tab's
+  `"display"`/uppercase vocabulary. The live pandas `_run_forge` and Visual
+  `build_dynamic_sql` already aggregated, so this is parity for the deferred
+  run-path swap, not new user-facing behavior. Also added the cross-cutting
+  `suiteview/core/field_dictionary.py` (friendly DB2 column labels) consumed by
+  the upcoming field-picker/filter-chip work. Tests: `test_forge_engine.py` 22,
+  `test_field_dictionary.py` 22, runtime/canvas/query_object green (one
+  pre-existing `query_object` created_at timing assertion flagged separately).
