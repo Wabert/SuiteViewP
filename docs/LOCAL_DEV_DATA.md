@@ -66,6 +66,25 @@ rest of the mapped policy-record tables, and redacts:
 - DOB/birth-date fields from `LH_CTT_CLIENT`.
 - Name, phone, and taxpayer identifier fields from `VH_POL_HAS_LOC_CLT`.
 
+To add more policies to an existing local clone without replacing the policies
+already in the file, pass multiple policy numbers with `--append`:
+
+```powershell
+venv\Scripts\python.exe tools\export_local_policy_data.py `
+  U0688012 U0492070 U0656998 `
+  --region CKPR `
+  --append
+```
+
+Validate those local policies through the same policy-loading path the app uses:
+
+```powershell
+venv\Scripts\python.exe tools\check_local_dev_data.py `
+  U0688012 U0492070 U0656998 `
+  --region CKPR `
+  --policy-only
+```
+
 Then move or keep that SQLite file on the offline computer and launch with:
 
 ```powershell
