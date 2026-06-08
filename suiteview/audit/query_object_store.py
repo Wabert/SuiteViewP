@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from suiteview.audit.query_object import OBJECT_KIND_VISUAL, QueryObject
@@ -88,7 +88,12 @@ def copy_object(source_name: str, new_name: str) -> QueryObject:
 
     copied = QueryObject.from_dict(source.to_dict())
     copied.name = clean_name
-    copied.created_at = datetime.now()
+    # A copy gets its OWN creation time. Guard the back-to-back case where
+    # datetime.now() lands in the same microsecond as the source's timestamp
+    # (fast machine / immediate copy), so a copy is always strictly newer than
+    # — and therefore distinguishable from — its original.
+    copied.created_at = max(datetime.now(),
+                            source.created_at + timedelta(microseconds=1))
     copied.updated_at = copied.created_at
     for source_ref in copied.sources:
         if source_ref.name == source_name:
