@@ -3,7 +3,7 @@
 **Last Updated:** February 20, 2026
 
 > **Shared architecture** (PolicyInformation, DB2 connectivity, translation
-> dictionaries, bookmarks) is documented in [`CLAUDE.md`](CLAUDE.md).
+> dictionaries, bookmarks) is documented in [`Agent.md`](../Agent.md).
 > This file covers PolView-specific details only.
 
 ---
@@ -97,7 +97,7 @@ suiteview/polview/
 
 ## ⚠️ Traditional vs Advanced Products — Deep Dive
 
-> **Summary** table and detection code are in [`CLAUDE.md`](CLAUDE.md)
+> **Summary** table and detection code are in [`Agent.md`](../Agent.md)
 > § "Key Domain Concepts". This section documents the implementation details.
 
 ### CoverageInfo Rate Fields
@@ -193,7 +193,7 @@ The full mapping is in `data/policy_record_db2_tables.json` and `config/policy_r
 ## Data Access Patterns (PolView-specific)
 
 > **Core API** (`data_item`, `fetch_table`, etc.) is documented in
-> [`CLAUDE.md`](CLAUDE.md) § "PolicyInformation". These are PolView-specific
+> [`Agent.md`](../Agent.md) § "PolicyInformation". These are PolView-specific
 > usage patterns.
 
 ### Pattern 1: Filtered Data Access (Type Codes)
@@ -511,4 +511,4 @@ WHERE POLICY1.CK_SYS_CD = 'I'
 8. **Blue & Gold theme** — PolView uses a classic navy/gold color scheme defined in `ui/styles.py` (distinct from ABR Quote's Crimson Slate).
 
 ---
-*This file covers PolView-specific details. For shared architecture, see [`CLAUDE.md`](CLAUDE.md).*
+*This file covers PolView-specific details. For shared architecture, see [`Agent.md`](../Agent.md).*
