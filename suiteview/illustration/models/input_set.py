@@ -110,6 +110,10 @@ class IllustrationOptions:
     # period to keep the policy alive once it is sitting at the guideline limit.
     allow_exception_prems: bool = False
 
+    # None keeps the plancode interest method. True/False force exact-days or
+    # monthly compounding for what-if illustration runs.
+    exact_days_interest: Optional[bool] = None
+
     # Internal escape hatch: a consumer can keep force-out on while still letting
     # injected premiums intentionally exceed the guideline (no acceptance cap).
     # None -> derive from conform_to_tefra. Used by the PolView GLP solver, which

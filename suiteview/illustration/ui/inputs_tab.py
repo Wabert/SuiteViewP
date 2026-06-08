@@ -2,22 +2,27 @@
 
 from datetime import date, datetime
 
-from PyQt6.QtCore import QEvent, QTimer, Qt
+from dateutil.relativedelta import relativedelta
+from PyQt6.QtCore import QDate, QEvent, QTimer, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QAbstractItemDelegate,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
+    QDateEdit,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -25,12 +30,14 @@ from PyQt6.QtWidgets import (
 from suiteview.illustration.models.input_set import (
     DatedTransaction,
     IllustrationInputSet,
+    IllustrationOptions,
     InforceOverrideSet,
     PolicyChangeEvent,
     PolicyChangeKind,
     ScheduledTransaction,
     TransactionKind,
 )
+from suiteview.audit.tabs._styles import _CHECKMARK_PATH, _ensure_checkmark
 from suiteview.polview.ui.formatting import format_date
 
 from .styles import GROUP_STYLE, INPUT_TABLE_STYLE, PURPLE_BG, PURPLE_DARK
@@ -183,12 +190,31 @@ class IllustrationInputsTab(QWidget):
         super().__init__(parent)
         self._warning_labels: dict[str, QLabel] = {}
         self._issue_date: date | None = None
+        self._maturity_date: date | None = None
         self._setup_ui()
 
     def _setup_ui(self):
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(12, 10, 12, 12)
+        outer.setSpacing(8)
+
+        self.input_tabs = QTabWidget(self)
+        self.input_tabs.setStyleSheet(
+            "QTabWidget::pane { border: 1px solid #B79CDE; background: #F8F3FE; }"
+            "QTabBar::tab { background: #E8DDF8; color: #2A1458; padding: 4px 12px;"
+            " border: 1px solid #B79CDE; border-bottom: none; font-size: 11px; font-weight: bold; }"
+            "QTabBar::tab:selected { background: white; color: #4B2383; }"
+        )
+        self.input_tabs.addTab(self._build_control_tab(), "Illustration Control")
+        self.input_tabs.addTab(self._build_transaction_tab(), "Transaction Inputs")
+        outer.addWidget(self.input_tabs, 1)
+
+    def _build_transaction_tab(self):
+        tab = QWidget(self)
+        tab.setStyleSheet(f"background-color: {PURPLE_BG};")
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(8)
 
         content_row = QHBoxLayout()
@@ -219,6 +245,146 @@ class IllustrationInputsTab(QWidget):
         content_row.addLayout(right_column, 1)
         outer.addLayout(content_row)
         outer.addStretch(1)
+        return tab
+
+    def _build_control_tab(self):
+        tab = QWidget(self)
+        tab.setStyleSheet(f"background-color: {PURPLE_BG};")
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(10, 10, 10, 10)
+        outer.setSpacing(8)
+
+        outer.addWidget(self._build_illustration_duration_group(), 0, Qt.AlignmentFlag.AlignTop)
+
+        group = QGroupBox("Run Controls")
+        group.setStyleSheet(GROUP_STYLE)
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 18, 10, 10)
+        layout.setSpacing(6)
+
+        self.exact_days_check = self._make_control_checkbox("Exact Days Interest")
+        self.exact_days_check.setToolTip("Checked forces exact-days interest; unchecked uses the plancode interest method.")
+        layout.addWidget(self.exact_days_check)
+
+        self.tefra_check = self._make_control_checkbox("Conform to TEFRA/DEFRA")
+        self.tefra_check.setChecked(True)
+        self.tefra_check.setToolTip("Enforce 7702 guideline premium room for force-outs and accepted premiums.")
+        layout.addWidget(self.tefra_check)
+
+        self.tamra_check = self._make_control_checkbox("Conform to TAMRA")
+        self.tamra_check.setChecked(True)
+        self.tamra_check.setToolTip("Enforce the 7-pay premium room while the policy is inside the TAMRA window.")
+        layout.addWidget(self.tamra_check)
+
+        self.exception_prem_check = self._make_control_checkbox("Allow GP Exception Premium")
+        self.exception_prem_check.setToolTip("Allow the guideline-premium exception premium when the policy is guideline-limited and would otherwise lapse.")
+        layout.addWidget(self.exception_prem_check)
+
+        self.cap_acceptance_check = self._make_control_checkbox("Cap Premiums at Acceptance")
+        self.cap_acceptance_check.setChecked(True)
+        self.cap_acceptance_check.setToolTip("Apply TEFRA/TAMRA room to scheduled and unscheduled premiums when they are accepted.")
+        layout.addWidget(self.cap_acceptance_check)
+
+        self.stop_on_lapse_check = self._make_control_checkbox("Stop Projection on Lapse")
+        self.stop_on_lapse_check.setChecked(True)
+        self.stop_on_lapse_check.setToolTip("Stop projection rows once the lapse test fails.")
+        layout.addWidget(self.stop_on_lapse_check)
+
+        note = QLabel("Unchecked Exact Days uses the plan default.")
+        note.setStyleSheet(f"color: {PURPLE_DARK}; background: transparent; font-size: 10px; font-style: italic;")
+        layout.addWidget(note)
+
+        outer.addWidget(group, 0, Qt.AlignmentFlag.AlignTop)
+        outer.addStretch(1)
+        return tab
+
+    def _build_illustration_duration_group(self):
+        group = QGroupBox("Illustration Duration")
+        group.setStyleSheet(GROUP_STYLE)
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 18, 10, 10)
+        layout.setSpacing(6)
+
+        self.duration_mode_group = QButtonGroup(self)
+        self.duration_mode_group.setExclusive(True)
+
+        date_row = QHBoxLayout()
+        date_row.setContentsMargins(0, 0, 0, 0)
+        date_row.setSpacing(8)
+        self.illustration_to_date_radio = self._make_control_radio("Illustration to Date")
+        self.illustration_to_date_edit = QDateEdit(self)
+        self.illustration_to_date_edit.setCalendarPopup(True)
+        self.illustration_to_date_edit.setDisplayFormat("MM/dd/yyyy")
+        self.illustration_to_date_edit.setDate(QDate.currentDate())
+        self.illustration_to_date_edit.setStyleSheet(self._control_input_style())
+        self.illustration_to_date_edit.setMinimumWidth(120)
+        self.duration_mode_group.addButton(self.illustration_to_date_radio)
+        date_row.addWidget(self.illustration_to_date_radio)
+        date_row.addWidget(self.illustration_to_date_edit)
+        date_row.addStretch(1)
+        layout.addLayout(date_row)
+
+        years_row = QHBoxLayout()
+        years_row.setContentsMargins(0, 0, 0, 0)
+        years_row.setSpacing(8)
+        self.illustration_years_radio = self._make_control_radio("Illustration Years")
+        self.illustration_years_combo = QComboBox(self)
+        self.illustration_years_combo.setEditable(True)
+        self.illustration_years_combo.addItems(["1", "2", "10", "20", "Age 65", "To Maturity"])
+        self.illustration_years_combo.setCurrentText("To Maturity")
+        self.illustration_years_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.illustration_years_combo.setStyleSheet(self._control_input_style())
+        self.illustration_years_combo.setMinimumWidth(120)
+        self.duration_mode_group.addButton(self.illustration_years_radio)
+        years_row.addWidget(self.illustration_years_radio)
+        years_row.addWidget(self.illustration_years_combo)
+        years_row.addStretch(1)
+        layout.addLayout(years_row)
+
+        self.illustration_years_radio.setChecked(True)
+        self.illustration_to_date_radio.toggled.connect(self._sync_duration_controls)
+        self.illustration_years_radio.toggled.connect(self._sync_duration_controls)
+        self._sync_duration_controls()
+        return group
+
+    def _make_control_checkbox(self, text: str):
+        _ensure_checkmark()
+        icon_path = _CHECKMARK_PATH.replace("\\", "/")
+        checkbox = QCheckBox(text, self)
+        checkbox.setStyleSheet(
+            f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold; spacing: 6px; }}"
+            "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px; background-color: white; }"
+            "QCheckBox::indicator:hover { border: 1px solid #4B2383; background-color: #FBF9FE; }"
+            "QCheckBox::indicator:checked {"
+            "  background-color: #5E35A5; border: 1px solid #4B2383;"
+            f"  image: url({icon_path});"
+            "}"
+        )
+        return checkbox
+
+    def _make_control_radio(self, text: str):
+        radio = QRadioButton(text, self)
+        radio.setStyleSheet(
+            f"QRadioButton {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold; spacing: 6px; }}"
+            "QRadioButton::indicator { border: 1px solid #5E35A5; border-radius: 6px; width: 12px; height: 12px; background-color: white; }"
+            "QRadioButton::indicator:hover { border: 1px solid #4B2383; background-color: #FBF9FE; }"
+            "QRadioButton::indicator:checked { background-color: #5E35A5; border: 1px solid #4B2383; }"
+        )
+        return radio
+
+    @staticmethod
+    def _control_input_style() -> str:
+        return (
+            "QComboBox, QDateEdit { background: white; color: #2A1458; border: 1px solid #B79CDE; "
+            "border-radius: 4px; padding: 2px 6px; min-height: 20px; font-size: 11px; }"
+            "QComboBox:disabled, QDateEdit:disabled { background: #E8DDF8; color: #7A6B91; }"
+            "QComboBox::drop-down, QDateEdit::drop-down { border-left: 1px solid #B79CDE; width: 18px; }"
+        )
+
+    def _sync_duration_controls(self):
+        use_date = self.illustration_to_date_radio.isChecked()
+        self.illustration_to_date_edit.setEnabled(use_date)
+        self.illustration_years_combo.setEnabled(not use_date)
 
     def _build_scheduled_premium_group(self):
         group = QGroupBox("Scheduled Premiums")
@@ -451,6 +617,13 @@ class IllustrationInputsTab(QWidget):
 
     def load_data_from_policy(self, policy):
         self._issue_date = getattr(policy, "issue_date", None)
+        self._maturity_date = self._maturity_date_from_policy(policy)
+        if self._maturity_date is not None:
+            self.illustration_to_date_edit.setDate(QDate(
+                self._maturity_date.year,
+                self._maturity_date.month,
+                self._maturity_date.day,
+            ))
         for label in self._warning_labels.values():
             base_text = label.property("base_text") or label.text()
             label.setText(self._warning_text(base_text))
@@ -527,9 +700,112 @@ class IllustrationInputsTab(QWidget):
 
         return input_set
 
+    def export_options(self) -> IllustrationOptions:
+        return IllustrationOptions(
+            conform_to_tefra=self.tefra_check.isChecked(),
+            conform_to_tamra=self.tamra_check.isChecked(),
+            allow_exception_prems=self.exception_prem_check.isChecked(),
+            exact_days_interest=True if self.exact_days_check.isChecked() else None,
+            cap_premiums_at_acceptance=self.cap_acceptance_check.isChecked(),
+        )
+
+    def stop_on_lapse_enabled(self) -> bool:
+        return self.stop_on_lapse_check.isChecked()
+
+    def projection_months(self, policy) -> int | None:
+        if self.illustration_to_date_radio.isChecked():
+            return self._months_to_date(policy, self.illustration_to_date_edit.date().toPyDate())
+
+        value = self.illustration_years_combo.currentText().strip()
+        normalized = value.lower().replace(" ", "")
+        if normalized in {"tomaturity", "maturity"}:
+            return self._months_to_maturity(policy)
+        if normalized in {"age65", "65"}:
+            return self._months_to_age(policy, 65)
+
+        try:
+            years = int(value)
+        except ValueError as exc:
+            raise ValueError("Illustration Years must be a number, Age 65, or To Maturity.") from exc
+        return max(0, years * 12)
+
+    def projection_duration_label(self, policy) -> str:
+        if self.illustration_to_date_radio.isChecked():
+            return f"to {format_date(self.illustration_to_date_edit.date().toPyDate())}"
+
+        value = self.illustration_years_combo.currentText().strip()
+        normalized = value.lower().replace(" ", "")
+        if normalized in {"tomaturity", "maturity"}:
+            return "to maturity"
+        if normalized in {"age65", "65"}:
+            return "to age 65"
+        return f"for {int(value)} years"
+
     @staticmethod
     def export_inforce_overrides() -> InforceOverrideSet:
         return InforceOverrideSet()
+
+    @staticmethod
+    def _maturity_date_from_policy(policy) -> date | None:
+        maturity_date = getattr(policy, "maturity_date", None)
+        if maturity_date is not None:
+            return maturity_date
+
+        segments = getattr(policy, "segments", None)
+        if segments:
+            for segment in segments:
+                maturity_date = getattr(segment, "maturity_date", None)
+                if maturity_date is not None:
+                    return maturity_date
+
+        get_base_coverages = getattr(policy, "get_base_coverages", None)
+        if callable(get_base_coverages):
+            try:
+                for coverage in get_base_coverages():
+                    maturity_date = getattr(coverage, "maturity_date", None)
+                    if maturity_date is not None:
+                        return maturity_date
+            except Exception:
+                pass
+
+        issue_date = getattr(policy, "issue_date", None)
+        issue_age = getattr(policy, "base_issue_age", None) or getattr(policy, "issue_age", None)
+        maturity_age = getattr(policy, "maturity_age", None) or getattr(policy, "age_at_maturity", None)
+        if issue_date is not None and issue_age is not None and maturity_age is not None:
+            try:
+                years_to_maturity = int(maturity_age) - int(issue_age)
+            except (TypeError, ValueError):
+                return None
+            if years_to_maturity >= 0:
+                return issue_date + relativedelta(years=years_to_maturity)
+        return None
+
+    @staticmethod
+    def _months_to_date(policy, target_date: date) -> int:
+        start_date = getattr(policy, "valuation_date", None) or getattr(policy, "issue_date", None)
+        if start_date is None:
+            raise ValueError("Illustration to Date requires a policy valuation date or issue date.")
+        if target_date <= start_date:
+            return 0
+        months = (target_date.year - start_date.year) * 12 + (target_date.month - start_date.month)
+        if target_date.day < start_date.day:
+            months -= 1
+        return max(0, months)
+
+    @staticmethod
+    def _months_to_age(policy, target_age: int) -> int:
+        attained_age = getattr(policy, "attained_age", None)
+        policy_month = getattr(policy, "policy_month", 1) or 1
+        if attained_age is None:
+            raise ValueError("Age-based illustration duration requires attained age.")
+        return max(0, (target_age - int(attained_age)) * 12 - int(policy_month) + 1)
+
+    @classmethod
+    def _months_to_maturity(cls, policy) -> int:
+        maturity_age = getattr(policy, "maturity_age", None)
+        if maturity_age is None:
+            raise ValueError("To Maturity requires a policy maturity age.")
+        return cls._months_to_age(policy, int(maturity_age))
 
     def _collect_dated_transactions(
         self,

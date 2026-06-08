@@ -24,7 +24,11 @@ from PyQt6.QtWidgets import (
 
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit import qdef_store
-from suiteview.audit.query_object import object_from_qdefinition, qdefinition_from_query_object
+from suiteview.audit.query_object import (
+    object_from_qdefinition,
+    object_from_saved_query,
+    qdefinition_from_query_object,
+)
 from suiteview.audit import query_object_store
 from suiteview.audit.adhoc_source_intake import dataframe_from_adhoc_metadata
 from suiteview.audit.dataforge.dataforge_model import DataForge, DataForgeSource
@@ -673,6 +677,7 @@ class DataForgeGroup(QWidget):
     but operates on saved queries instead of direct tables.
     """
     config_changed = pyqtSignal()
+    source_records_changed = pyqtSignal()
     forge_saved = pyqtSignal(object)      # DataForge
     forge_deleted = pyqtSignal(str)       # forge name
     new_forge_requested = pyqtSignal()
@@ -930,6 +935,18 @@ class DataForgeGroup(QWidget):
 
         forge_name = self._saved_forge_name.strip() or "DataForge"
         obj = query_object_store.load_object(source_name)
+        if obj is None:
+            try:
+                from suiteview.audit import saved_query_store
+                saved_query = saved_query_store.load_query(source_name)
+                if saved_query is not None:
+                    obj = object_from_saved_query(saved_query)
+                    query_object_store.save_object(obj)
+            except Exception:
+                logger.exception(
+                    "Failed to publish visual query before DataForge copy: %s",
+                    source_name,
+                )
         original_name = source_name
         if obj is not None:
             dataforge = (obj.config or {}).get("dataforge", {})
@@ -973,6 +990,8 @@ class DataForgeGroup(QWidget):
             self.joins_tab.update_queries(list(self._sources.keys()),
                                          self._query_columns_map())
             self._schedule_save()
+            self._persist_source_roster_if_saved()
+            self.source_records_changed.emit()
         return qd
 
     def sync_source_copies(self, source_names: list[str]) -> None:
@@ -986,14 +1005,38 @@ class DataForgeGroup(QWidget):
             if qd is not None:
                 desired.add(qd.name)
 
+        removed: list[tuple[str, str]] = []
         for name in list(self._sources.keys()):
             if name not in desired:
-                self._sources.pop(name, None)
+                qd = self._sources.pop(name, None)
                 self._datasets.pop(name, None)
+                removed.append((name, getattr(qd, "forge_name", "") if qd else ""))
+
+        for name, forge_name in removed:
+            self._delete_query_copy_records(name, forge_name or self._saved_forge_name)
 
         self.joins_tab.update_queries(list(self._sources.keys()),
                                      self._query_columns_map())
         self._schedule_save()
+        self._persist_source_roster_if_saved()
+        self.source_records_changed.emit()
+
+    def _persist_source_roster_if_saved(self) -> None:
+        """Keep saved DataForge source records aligned with live add/remove."""
+        name = self._saved_forge_name.strip()
+        if not name or not df_store.forge_exists(name):
+            return
+        existing = df_store.load_forge(name)
+        kwargs = {}
+        if existing is not None:
+            kwargs["created_at"] = existing.created_at
+        forge = DataForge(
+            name=name,
+            sources=self._dataforge_sources_for_save(name),
+            config=self.get_config(),
+            **kwargs,
+        )
+        df_store.save_forge(forge)
 
     def _promote_unsaved_source_names(self, forge_name: str) -> None:
         """Rename temporary [DataForge] copies to this forge's real name."""
@@ -1647,7 +1690,11 @@ class DataForgeGroup(QWidget):
     def _dataforge_sources_for_save(self, forge_name: str) -> list[DataForgeSource]:
         """Persist source definitions and return DataForge source records."""
         sources: list[DataForgeSource] = []
-        for source_name, qd in self._sources.items():
+        for source_name, qd in list(self._sources.items()):
+            obj = query_object_store.load_object(qd.name)
+            if obj is not None:
+                qd = qdefinition_from_query_object(obj)
+                self._sources[source_name] = qd
             qd.forge_name = forge_name
             source_label = self._source_label_for_browser(qd, source_name)
             qd_config = dict(getattr(qd, "query_object_config", {}) or {})
@@ -1657,7 +1704,6 @@ class DataForgeGroup(QWidget):
             }
             qd.query_object_config = qd_config
             qdef_store.save_qdef(qd)
-            obj = query_object_store.load_object(qd.name)
             if obj is None:
                 obj = object_from_qdefinition(qd)
             obj.config = dict(qd_config)

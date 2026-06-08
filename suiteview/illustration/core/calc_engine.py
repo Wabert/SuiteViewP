@@ -130,6 +130,7 @@ class IllustrationEngine:
             rate_year_inforce, policy.attained_age, month_date_inforce,
             reg_loan_balance=policy.regular_loan_principal,
             pref_loan_balance=policy.preferred_loan_principal,
+            exact_days_interest=options.exact_days_interest,
         )
 
         # Loan interest accrual for inforce month
@@ -513,6 +514,7 @@ class IllustrationEngine:
             attained_age, month_date,
             reg_loan_balance=fixed_loan_state.rg_loan_princ,
             pref_loan_balance=fixed_loan_state.pf_loan_princ,
+            exact_days_interest=options.exact_days_interest,
         )
         av = intr.av_end_of_month
 
@@ -791,6 +793,7 @@ class IllustrationEngine:
             month_date,
             reg_loan_balance=cap_loan.rg_loan_princ,
             pref_loan_balance=cap_loan.pf_loan_princ,
+            exact_days_interest=options.exact_days_interest,
         )
 
         accumulated_glp = _accumulate_guideline_premium(

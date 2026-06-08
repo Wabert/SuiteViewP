@@ -83,6 +83,47 @@ class DynamicQueryUiTests(unittest.TestCase):
         finally:
             group.close()
 
+    def test_visual_join_canvas_feeds_existing_join_sql_shape(self):
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+
+        group = DynamicQuery(
+            "▸ Visual Query",
+            "CKPR_DSN",
+            ["dbo.policy", "dbo.coverage"],
+        )
+        try:
+            group.joins_tab.set_table_columns("dbo.policy", ["pol_id", "co"])
+            group.joins_tab.set_table_columns("dbo.coverage", ["pol_id", "cov_no"])
+
+            self.assertTrue(
+                group.joins_tab.scene.add_link(
+                    "dbo.policy", "pol_id", "dbo.coverage", "pol_id"))
+
+            infos = group.joins_tab.get_join_infos()
+            self.assertEqual(infos, [{
+                "left_table": "dbo.policy",
+                "right_table": "dbo.coverage",
+                "join_type": "INNER JOIN",
+                "alias_left": "",
+                "alias_right": "",
+                "on_pairs": [("pol_id", "pol_id")],
+                "extra_conditions": [],
+            }])
+
+            sql = build_join_sql(
+                "dbo.policy",
+                "25",
+                [],
+                join_infos=infos,
+                dialect=SQL_SERVER,
+            )
+            self.assertIn("INNER JOIN dbo.coverage", sql)
+            self.assertIn("dbo.policy.[pol_id] = dbo.coverage.[pol_id]", sql)
+        finally:
+            group.close()
+
 
 if __name__ == "__main__":
     unittest.main()

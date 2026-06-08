@@ -516,15 +516,17 @@ class ForgeJoinCanvas(QWidget):
 
     state_changed = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, source_label: str = "Source",
+                 add_menu_label: str = "Add Query Table"):
         super().__init__(parent)
+        self._source_label = source_label
+        self._add_menu_label = add_menu_label
         self.model = JoinCanvasModel()
         self._available_query_names: list[str] = []
         self._available_query_columns: dict[str, list[str]] = {}
         # Sources the user explicitly removed from the canvas ("Delete Table").
-        # Everything else available is shown automatically; this set is what
-        # keeps a removed box from re-appearing on the next source sync, and it
-        # is persisted in get_state/set_state so removals survive save/reload.
+        # Available queries are not shown until the user adds them from the join
+        # canvas menu or by double-clicking the query list.
         self._removed_aliases: set[str] = set()
         self.scene = JoinCanvasScene(self.model, self)
         self.scene.changed_model.connect(self.state_changed.emit)
@@ -534,7 +536,7 @@ class ForgeJoinCanvas(QWidget):
         self.view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
 
         hint = QLabel(
-            "Drag a field from one Source onto a field in another to join. "
+            f"Drag a field from one {self._source_label} onto a field in another to join. "
             "Click a line to set its type or delete it.")
         hint.setFont(QFont("Segoe UI", 8))
         hint.setStyleSheet("color: #64748B; padding: 2px;")
@@ -557,19 +559,20 @@ class ForgeJoinCanvas(QWidget):
                        query_columns: dict[str, list[str]] | None = None):
         """Refresh the set of available Source queries.
 
-        Every available Source is shown on the canvas automatically (so a query
-        added to the Forge appears immediately and is saved), except ones the
-        user explicitly removed via "Delete Table". Sources no longer available
-        are dropped, and their stale removal flag is forgotten.
+        Adding a query to the Forge only makes it available to the join canvas;
+        it should not create a Source box until the user explicitly adds one.
+        Sources no longer available are dropped, and their stale removal flag is
+        forgotten.
         """
         self._available_query_names = list(query_names)
         self._available_query_columns = query_columns or {}
         # Forget removals for Sources that no longer exist.
         self._removed_aliases &= set(self._available_query_names)
-        visible = [n for n in self._available_query_names
-                   if n not in self._removed_aliases]
+        visible = [src.alias for src in self.model.sources
+               if src.alias in self._available_query_names
+               and src.alias not in self._removed_aliases]
         self.model.set_sources(visible, self._available_query_columns,
-                               add_missing=True)
+                       add_missing=False)
         self.scene.rebuild()
         self.state_changed.emit()
 
@@ -682,7 +685,7 @@ class ForgeJoinCanvas(QWidget):
             menu.exec(event.globalPos())
         else:
             menu = QMenu(self.view)
-            add_menu = menu.addMenu("Add Query Table")
+            add_menu = menu.addMenu(self._add_menu_label)
             names = self._available_to_add()
             if names:
                 for name in names:

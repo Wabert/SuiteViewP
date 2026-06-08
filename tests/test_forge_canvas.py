@@ -257,10 +257,11 @@ def test_view_smoke():
             "re": ["company_code", "policy_number", "reinsurer"],
         },
     )
-    # Available Sources auto-appear on the canvas (so an added query is
-    # visible and saved); re-adding an already-shown one is a no-op.
+    # Available Sources stay out of the join canvas until explicitly added.
     boxes = [it for it in canvas.scene.items() if isinstance(it, SourceBoxItem)]
-    assert len(boxes) == 2
+    assert len(boxes) == 0
+    assert canvas.add_query_table("pol")
+    assert canvas.add_query_table("re")
     assert not canvas.add_query_table("pol")
     boxes = [it for it in canvas.scene.items() if isinstance(it, SourceBoxItem)]
     assert len(boxes) == 2
@@ -310,8 +311,8 @@ def test_view_smoke():
     print("  view smoke (boxes/lines/specs/state/remove)  OK")
 
 
-def test_view_autoadd_and_removed_persist():
-    """Regression: added queries auto-appear and removals survive sync + save."""
+def test_view_explicit_add_and_removed_persist():
+    """Regression: queries require explicit join-canvas add; removals persist."""
     try:
         from PyQt6.QtWidgets import QApplication
     except Exception as exc:  # pragma: no cover
@@ -325,13 +326,16 @@ def test_view_autoadd_and_removed_persist():
 
     canvas = ForgeJoinCanvas()
     canvas.update_queries(["a", "b"], {"a": ["x"], "b": ["y"]})
-    assert {s.alias for s in canvas.model.sources} == {"a", "b"}  # auto-added
+    assert canvas.model.sources == []
+    assert canvas.add_query_table("a")
+    assert canvas.add_query_table("b")
+    assert {s.alias for s in canvas.model.sources} == {"a", "b"}
 
     # Explicitly remove one; it must stay gone across a later source sync.
     canvas._remove_query_table("b")
     assert {s.alias for s in canvas.model.sources} == {"a"}
     canvas.update_queries(["a", "b", "c"], {"a": ["x"], "b": ["y"], "c": ["z"]})
-    assert {s.alias for s in canvas.model.sources} == {"a", "c"}  # b stays removed
+    assert {s.alias for s in canvas.model.sources} == {"a"}
 
     # Removal persists through a save/restore round-trip.
     state = canvas.get_state()
@@ -339,14 +343,15 @@ def test_view_autoadd_and_removed_persist():
     canvas2 = ForgeJoinCanvas()
     canvas2.set_state(state)
     canvas2.update_queries(["a", "b", "c"], {"a": ["x"], "b": ["y"], "c": ["z"]})
-    assert {s.alias for s in canvas2.model.sources} == {"a", "c"}
+    assert {s.alias for s in canvas2.model.sources} == {"a"}
 
     # Re-adding via the context-menu path clears the removal flag.
     assert canvas2.add_query_table("b")
+    assert canvas2.add_query_table("c")
     assert {s.alias for s in canvas2.model.sources} == {"a", "b", "c"}
     boxes = [it for it in canvas2.scene.items() if isinstance(it, SourceBoxItem)]
     assert len(boxes) == 3
-    print("  auto-add + removed-table persistence  OK")
+    print("  explicit add + removed-table persistence  OK")
 
 
 def main():
@@ -366,7 +371,7 @@ def main():
         test_legacy_cards_import,
         test_validate,
         test_view_smoke,
-        test_view_autoadd_and_removed_persist,
+        test_view_explicit_add_and_removed_persist,
     ]
     for t in tests:
         print(f"- {t.__name__}")

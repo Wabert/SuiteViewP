@@ -41,6 +41,8 @@ import logging
 import pyodbc
 from typing import Optional, List, Dict, Any, Union, Tuple
 
+from .local_dev import connect_local_rates_database, local_data_enabled
+
 try:
     from .db2_connection import DB2Connection
 except ImportError:
@@ -89,7 +91,7 @@ class Rates:
                              If not provided, uses DSN=UL_Rates.
         """
         self._connection_string = connection_string
-        self._connection: Optional[pyodbc.Connection] = None
+        self._connection: Optional[Any] = None
     
     def _get_connection(self) -> pyodbc.Connection:
         """Get or create database connection."""
@@ -100,6 +102,13 @@ class Rates:
                 return self._connection
             except Exception:
                 self._connection = None
+
+        if local_data_enabled():
+            try:
+                self._connection = connect_local_rates_database()
+            except Exception as e:
+                raise RatesError(f"Could not connect to local SuiteView rates database: {e}") from e
+            return self._connection
         
         # Create new connection
         if self._connection_string:
@@ -243,7 +252,7 @@ class Rates:
                 rows = cursor.fetchall()
             finally:
                 cursor.close()
-        except pyodbc.Error as e:
+        except Exception as e:
             logger.error("Rate query failed: %s | SQL: %s | params: %r", e, sql, params)
             raise RatesError(f"Rate lookup failed: {e}") from e
 

@@ -158,6 +158,7 @@ class IllustrationPolicyTab(QWidget):
             ("Policy Year", "policy_year_label"),
             ("Billing Mode", "billing_mode_label"),
             ("Plancode", "plancode_label"),
+            ("Maturity Age", "maturity_age"),
             ("Issue Age", "issue_age"),
             ("Attained Age", "att_age_label"),
             ("Single/Joint", "joint_label"),
@@ -246,6 +247,7 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info.set_value("eff_date_label", format_date(policy.valuation_date))
         self.policy_info.set_value("policy_year_label", policy.policy_year)
         self.policy_info.set_value("att_age_label", policy.attained_age)
+        self.policy_info.set_value("maturity_age", policy.age_at_maturity or "")
         self.policy_info.set_value("policy_debt_label", format_currency(policy.policy_debt, "$"))
         self.policy_info.set_value("total_face_label", format_amount(policy.base_total_face_amount))
         self.policy_info.set_value("total_death_benefit_label", format_amount(policy.total_death_benefit))

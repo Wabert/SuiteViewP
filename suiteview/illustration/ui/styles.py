@@ -149,8 +149,8 @@ VALUE_BUTTON_STYLE = f"""
         border-radius: 5px;
         font-size: 10px;
         font-weight: bold;
-        padding: 5px 11px;
-        min-height: 20px;
+        padding: 3px 12px;
+        min-height: 22px;
     }}
     QPushButton:hover {{
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -177,7 +177,7 @@ LIST_BUTTON_STYLE = f"""
         border: 1px solid {GOLD_PRIMARY};
         border-radius: 3px;
         min-width: 56px; max-width: 56px;
-        min-height: 24px; max-height: 24px;
+        min-height: 28px; max-height: 28px;
         font-size: 11px; font-weight: bold;
         color: {GOLD_TEXT};
         padding: 0 6px;

@@ -26,8 +26,9 @@ from PyQt6.QtWidgets import (
 
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit import qdef_store
-from suiteview.audit.query_object import qdefinition_from_query_object
+from suiteview.audit.query_object import object_from_saved_query, qdefinition_from_query_object
 from suiteview.audit import query_object_store
+from suiteview.audit import saved_query_store
 from suiteview.audit.tabs._styles import TightItemDelegate
 
 if TYPE_CHECKING:
@@ -44,6 +45,10 @@ def _list_query_sources(forge_name: str = "") -> list[QDefinition]:
     for obj in query_object_store.list_objects():
         if obj.name not in sources:
             sources[obj.name] = qdefinition_from_query_object(obj)
+    for saved_query in saved_query_store.list_queries():
+        if saved_query.name not in sources:
+            sources[saved_query.name] = qdefinition_from_query_object(
+                object_from_saved_query(saved_query))
     return sorted(sources.values(), key=lambda qd: qd.name.lower())
 
 

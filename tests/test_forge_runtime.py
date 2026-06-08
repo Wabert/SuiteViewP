@@ -17,7 +17,8 @@ sys.path.insert(0, project_root)
 from suiteview.audit import qdef_store, query_object_store, saved_query_store  # noqa: E402
 from suiteview.audit.qdefinition import QDefinition  # noqa: E402
 from suiteview.audit.query_object import (  # noqa: E402
-    QueryObject, manual_sql_query_object, qdefinition_from_query_object,
+    QueryObject, cyberlife_query_object, manual_sql_query_object,
+    qdefinition_from_query_object,
 )
 from suiteview.audit.dataforge import dataforge_store, forge_runtime  # noqa: E402
 from suiteview.audit.dataforge.dataforge_model import (  # noqa: E402
@@ -274,9 +275,10 @@ def test_dataforge_add_source_deep_copies_query_object_for_join_canvas(tmp_home)
     assert copied_qd is not None
     assert copied_qd.name == "Policies [MyForge]"
     assert list(group._sources.keys()) == ["Policies [MyForge]"]
-    # The added Source auto-appears on the join canvas (no manual add needed);
-    # re-adding an already-shown Source is a no-op.
-    assert "Policies [MyForge]" in [s.alias for s in group.joins_tab.model.sources]
+    # Adding a Source makes it available to the join canvas; the join box is
+    # only created when explicitly requested.
+    assert group.joins_tab.model.sources == []
+    assert group.joins_tab.add_query_table("Policies [MyForge]") is True
     assert group.joins_tab.add_query_table("Policies [MyForge]") is False
 
     copied = query_object_store.load_object("Policies [MyForge]")
@@ -294,6 +296,62 @@ def test_dataforge_add_source_deep_copies_query_object_for_join_canvas(tmp_home)
     reloaded_original = query_object_store.load_object("Policies")
     assert reloaded_original.sql == original.sql
     print("  DataForge source add deep-copies QueryObject + joins canvas add  OK")
+
+
+def test_dataforge_save_embeds_modified_source_copy_not_original(tmp_home):
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  source copy save refresh SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    original = cyberlife_query_object(
+        "Cyberlife Trad CV",
+        sql="SELECT OLD_COL FROM DB2TAB.LH_BAS_POL",
+        dsn="CKPR_DSN",
+        region="CKPR",
+        system_code="I",
+        criteria={"max_count": "25"},
+        result_columns=["OLD_COL"],
+    )
+    query_object_store.save_object(original)
+
+    forge_name = "Copy Isolation Forge"
+    group = DataForgeGroup(f"⚙ {forge_name}", saved_forge_name=forge_name)
+    copied_qd = group.add_source_copy("Cyberlife Trad CV")
+    assert copied_qd is not None
+
+    copied = query_object_store.load_object("Cyberlife Trad CV [Copy Isolation Forge]")
+    assert copied is not None
+    copied.sql = "SELECT NEW_COL FROM DB2TAB.LH_BAS_POL"
+    copied.fields = copied.fields[:1]
+    copied.fields[0].name = "NEW_COL"
+    copied.fields[0].source_column = "NEW_COL"
+    copied.config["criteria"] = {"max_count": "100"}
+    query_object_store.save_object(copied)
+
+    sources = group._dataforge_sources_for_save(forge_name)
+
+    reloaded_original = query_object_store.load_object("Cyberlife Trad CV")
+    reloaded_copy = query_object_store.load_object("Cyberlife Trad CV [Copy Isolation Forge]")
+    assert reloaded_original is not None
+    assert reloaded_copy is not None
+    assert reloaded_original.sql == "SELECT OLD_COL FROM DB2TAB.LH_BAS_POL"
+    assert reloaded_original.config["criteria"] == {"max_count": "25"}
+    assert reloaded_copy.sql == "SELECT NEW_COL FROM DB2TAB.LH_BAS_POL"
+    assert reloaded_copy.config["criteria"] == {"max_count": "100"}
+    assert sources[0].definition["sql"] == "SELECT NEW_COL FROM DB2TAB.LH_BAS_POL"
+    assert sources[0].definition["config"]["criteria"] == {"max_count": "100"}
+    assert sources[0].definition["config"]["dataforge"] == {
+        "forge_name": forge_name,
+        "source_name": "Cyberlife Trad CV",
+    }
+    print("  DataForge save embeds modified private source copy  OK")
 
 
 def test_new_dataforge_saves_visual_query_source_from_ul_rates(tmp_home):
@@ -327,10 +385,9 @@ def test_new_dataforge_saves_visual_query_source_from_ul_rates(tmp_home):
     copied_qd = group.add_source_copy("UL Rates Visual")
     assert copied_qd is not None
     assert list(group._sources) == ["UL Rates Visual [DataForge]"]
-    # Added Source auto-appears on the canvas; re-adding is a no-op.
-    assert "UL Rates Visual [DataForge]" in [
-        s.alias for s in group.joins_tab.model.sources]
-    assert group.joins_tab.add_query_table("UL Rates Visual [DataForge]") is False
+    # Added Source stays available without creating a join-canvas box.
+    assert group.joins_tab.model.sources == []
+    assert group.joins_tab.add_query_table("UL Rates Visual [DataForge]") is True
     group.display_tab.add_query_field("UL Rates Visual [DataForge]", "rate_id")
     assert query_object_store.object_exists("UL Rates Visual [DataForge]")
     assert saved_query_store.query_exists("UL Rates Visual [DataForge]")
@@ -368,6 +425,96 @@ def test_new_dataforge_saves_visual_query_source_from_ul_rates(tmp_home):
         "source_name": "UL Rates Visual",
     }
     print("  new DataForge saves/reloads UL_Rates visual source  OK")
+
+
+def test_save_as_preserves_saved_query_only_visual_source(tmp_home):
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  saved-query-only visual save SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+    from suiteview.audit.saved_query import SavedQuery
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    saved_query_store.save_query(SavedQuery(
+        name="Legacy Visual",
+        source_group="UL_Rates",
+        dsn="UL_Rates",
+        tables=["dbo.Rates"],
+        sql="SELECT rate_id FROM dbo.Rates",
+        result_columns=["rate_id"],
+        column_types={"rate_id": "int"},
+        config={"select_tab": {"display_all": False, "fields": [
+            {"field_key": "dbo.Rates.rate_id", "display_name": "rate_id"},
+        ]}},
+    ))
+    query_object_store.delete_object("Legacy Visual")
+    assert saved_query_store.query_exists("Legacy Visual")
+    assert not query_object_store.object_exists("Legacy Visual")
+
+    group = DataForgeGroup("⚙ (new)", saved_forge_name="")
+    copied_qd = group.add_source_copy("Legacy Visual")
+    assert copied_qd is not None
+    assert copied_qd.name == "Legacy Visual [DataForge]"
+
+    forge_name = "Legacy Visual Forge"
+    group._promote_unsaved_source_names(forge_name)
+    forge = DataForge(
+        name=forge_name,
+        sources=group._dataforge_sources_for_save(forge_name),
+        config=group.get_config(),
+    )
+    dataforge_store.save_forge(forge)
+
+    reloaded = dataforge_store.load_forge(forge_name)
+    assert reloaded is not None
+    assert reloaded.config["sources"] == ["Legacy Visual [Legacy Visual Forge]"]
+    assert saved_query_store.query_exists("Legacy Visual [Legacy Visual Forge]")
+    assert query_object_store.object_exists("Legacy Visual [Legacy Visual Forge]")
+    restored_group = DataForgeGroup("⚙ Legacy Visual Forge", saved_forge_name=forge_name)
+    restored_group.set_config(reloaded.config)
+    assert list(restored_group._sources) == ["Legacy Visual [Legacy Visual Forge]"]
+    assert restored_group._sources["Legacy Visual [Legacy Visual Forge]"].query_object_kind == "visual_query"
+    print("  Save As preserves saved-query-only visual source  OK")
+
+
+def test_removing_dataforge_source_deletes_browser_copy_and_saved_roster(tmp_home):
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  source remove browser copy SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    _make_shared_query("Remove Me", cols=["policy_number"])
+    forge_name = "Remove Source Forge"
+    group = DataForgeGroup(f"⚙ {forge_name}", saved_forge_name=forge_name)
+    copied_qd = group.add_source_copy("Remove Me")
+    assert copied_qd is not None
+    dataforge_store.save_forge(DataForge(
+        name=forge_name,
+        sources=group._dataforge_sources_for_save(forge_name),
+        config=group.get_config(),
+    ))
+    assert query_object_store.object_exists("Remove Me [Remove Source Forge]")
+
+    group.sync_source_copies([])
+
+    assert not query_object_store.object_exists("Remove Me [Remove Source Forge]")
+    assert not qdef_store.qdef_exists("Remove Me [Remove Source Forge]", forge_name=forge_name)
+    reloaded = dataforge_store.load_forge(forge_name)
+    assert reloaded is not None
+    assert reloaded.sources == []
+    assert reloaded.config["sources"] == []
+    print("  removing DataForge source deletes browser copy + saved roster  OK")
 
 
 def test_dataforge_save_as_overwrite_replaces_stale_visual_copy(tmp_home):

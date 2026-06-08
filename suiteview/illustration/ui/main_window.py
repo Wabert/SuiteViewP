@@ -4,7 +4,7 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCursor
-from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QSizePolicy, QTabWidget, QVBoxLayout, QWidget
 
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.odbc_utils import is_password_error
@@ -62,21 +62,26 @@ class IllustrationWindow(FramelessWindowBase):
         main_layout.setSpacing(0)
 
         self.lookup_bar = PolicyLookupBar()
+        self.lookup_bar.setMinimumHeight(58)
+        self.lookup_bar.policy_label.setMinimumHeight(42)
+        self.lookup_bar.policy_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.lookup_bar.policy_requested.connect(self._on_get_policy)
         self.lookup_bar.company_chosen.connect(self._on_get_policy)
 
         self.run_values_btn = QPushButton("Run Values")
         self.run_values_btn.setStyleSheet(VALUE_BUTTON_STYLE)
         self.run_values_btn.setEnabled(False)
-        self.run_values_btn.setFixedHeight(24)
+        self.run_values_btn.setFixedHeight(28)
         self.run_values_btn.clicked.connect(self._on_run_values)
-        self.lookup_bar.secondary_layout().addWidget(self.run_values_btn)
+        self.lookup_bar.layout().addSpacing(8)
+        self.lookup_bar.layout().addWidget(self.run_values_btn)
 
         self.list_toggle_btn = QPushButton("List")
         self.list_toggle_btn.setCheckable(True)
         self.list_toggle_btn.setToolTip("Toggle Policy List panel")
         self.list_toggle_btn.setStyleSheet(LIST_BUTTON_STYLE)
         self.list_toggle_btn.clicked.connect(self._toggle_policy_list)
+        self.lookup_bar.layout().addSpacing(6)
         self.lookup_bar.layout().addWidget(self.list_toggle_btn)
         main_layout.addWidget(self.lookup_bar)
 
@@ -232,7 +237,7 @@ class IllustrationWindow(FramelessWindowBase):
         )
         self.policy_tab.load_data_from_policy(self._policy, self._policy_info)
         self.inputs_tab.load_data_from_policy(self._policy)
-        self.values_tab.clear_results("Click Run Values to project 24 months from the valuation date.")
+        self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")
         self.run_values_btn.setEnabled(True)
         cache_note = " (cached)" if cached else ""
         self._show_status(f"Loaded policy {self._policy.policy_number} ({company_code}) - {self._policy.status_description}{cache_note}")
@@ -248,7 +253,7 @@ class IllustrationWindow(FramelessWindowBase):
 
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
         self.run_values_btn.setEnabled(False)
-        self._show_status(f"Running 24-month illustration values for {policy_number}...")
+        self._show_status(f"Running illustration values for {policy_number}...")
         QApplication.processEvents()
 
         try:
@@ -258,13 +263,24 @@ class IllustrationWindow(FramelessWindowBase):
                 inforce_overrides=self.inputs_tab.export_inforce_overrides(),
                 future_inputs=self.inputs_tab.export_input_set(),
             )
+            projection_months = self.inputs_tab.projection_months(scenario.projectable_policy)
+            duration_label = self.inputs_tab.projection_duration_label(scenario.projectable_policy)
+            self._show_status(f"Running illustration values for {policy_number} {duration_label}...")
+            QApplication.processEvents()
+
             self._last_scenario = scenario
             engine = IllustrationEngine()
-            results = engine.project(scenario.projectable_policy, months=24, future_inputs=scenario.future_inputs)
+            results = engine.project(
+                scenario.projectable_policy,
+                months=projection_months,
+                future_inputs=scenario.future_inputs,
+                options=self.inputs_tab.export_options(),
+                stop_on_lapse=self.inputs_tab.stop_on_lapse_enabled(),
+            )
             self.values_tab.display_projection(
                 scenario.projectable_policy,
                 results,
-                months=24,
+                months=max(len(results) - 1, 0),
                 injected_first_row_columns=self._first_row_injected_columns(scenario),
             )
             self.tabs.setCurrentWidget(self.values_tab)

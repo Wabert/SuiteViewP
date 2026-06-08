@@ -12,8 +12,10 @@ Originally from PolView, promoted to shared core.
 import pyodbc
 from typing import Optional, List, Tuple, Any
 from contextlib import contextmanager
+import re
 
 from .db2_constants import REGION_DSN_MAP, DEFAULT_REGION, REGION_SCHEMA_MAP, DEFAULT_SCHEMA
+from .local_dev import connect_local_policy_database, local_data_enabled
 
 
 class DB2ConnectionError(Exception):
@@ -71,7 +73,7 @@ class DB2Connection:
             region: Region code (CKPR, CKMO, CKAS, CKSR, CKCS)
         """
         self.region = region.upper()
-        self._connection: Optional[pyodbc.Connection] = None
+        self._connection: Optional[Any] = None
         
     @property
     def dsn(self) -> str:
@@ -90,6 +92,25 @@ class DB2Connection:
         Raises:
             DB2ConnectionError: If connection fails
         """
+        if local_data_enabled():
+            if self.region in DB2Connection._connections:
+                conn = DB2Connection._connections[self.region]
+                try:
+                    conn.execute("SELECT 1 FROM SYSIBM.SYSDUMMY1")
+                    self._connection = conn
+                    return conn
+                except Exception:
+                    del DB2Connection._connections[self.region]
+
+            try:
+                self._connection = connect_local_policy_database(self.region)
+                DB2Connection._connections[self.region] = self._connection
+                return self._connection
+            except Exception as e:
+                raise DB2ConnectionError(
+                    f"Failed to connect to local SuiteView policy database: {e}"
+                ) from e
+
         # Check if we have a cached connection for this region
         if self.region in DB2Connection._connections:
             conn = DB2Connection._connections[self.region]
@@ -223,6 +244,13 @@ class DB2Connection:
         """Run a statement, refreshing the connection and retrying once on a
         communication-link failure (08S01)."""
         sql = self._add_with_clause(sql)
+        if local_data_enabled():
+            sql = re.sub(
+                r"\s+FETCH\s+FIRST\s+(\d+)\s+ROWS\s+ONLY\s*$",
+                r" LIMIT \1",
+                sql,
+                flags=re.IGNORECASE,
+            )
         try:
             return self._run(sql, params)
         except pyodbc.Error as e:
@@ -357,6 +385,9 @@ def sql_for_region(sql: str, region: str) -> str:
     Returns:
         SQL with schema qualifiers replaced as needed.
     """
+    if local_data_enabled():
+        return sql
+
     schema = REGION_SCHEMA_MAP.get(region.upper(), DEFAULT_SCHEMA)
     if schema != DEFAULT_SCHEMA:
         import re

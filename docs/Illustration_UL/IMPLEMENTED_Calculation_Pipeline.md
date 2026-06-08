@@ -23,6 +23,8 @@ This document is intended to show the pipeline that exists now so the next round
 The pipeline is distributed across these modules:
 
 - `suiteview/illustration/core/calc_engine.py` - month orchestration, inforce row, surrender charge, lapse logic
+- `suiteview/illustration/core/guideline_calc.py` - standalone GLP/GSP calculators and attained-age policy-change delta logic
+- `suiteview/illustration/core/commutation.py` - commutation functions, mortality table helpers, substandard adjustments, and Fackler reserve utilities
 - `suiteview/illustration/core/premium_handler.py` - premium split, premium loads, net premium
 - `suiteview/illustration/core/monthly_deduction.py` - death benefit, NAR, COI, EPU, fees, rider and benefit charges
 - `suiteview/illustration/core/interest_calc.py` - credited interest, bonus interest, impaired interest on loaned AV
@@ -270,7 +272,7 @@ Valuation-date injection points:
 - TAMRA start date
 - Lowest7YearFace
 
-The full 7702 and 7702A package is not implemented yet. The active implementation covers GLP accumulation and force-out only.
+The full integrated 7702 and 7702A package is not implemented yet in the monthly projection path. That path consumes loaded policy GLP/GSP values and currently covers GLP accumulation, guideline-limit premium capping, and force-out tracking.
 
 Guideline premium accumulation is separated from force-out application:
 
@@ -299,9 +301,17 @@ Currently implemented:
 - premium capping by guideline / 7-pay room, with TEFRA / TAMRA toggles
 - accumulated GLP, guideline limit, force-out, and premium-cap fields on monthly rows
 
+Separately, `guideline_calc.py` implements the standalone GLP/GSP calculation surface:
+
+- `calculate_glp()` and `calculate_gsp()` use commutation / present-value formulas for level death benefit policies, including premium loads, per-policy fees, per-unit charges, additional benefit charges, substandard mortality adjustments, and the statutory interest floors supplied by the caller.
+- `glp_on_change()` applies the attained-age policy-change delta method: current GLP plus GLP-after-change minus GLP-before-change.
+- `calculate_glp_iterative()` binary-searches the level annual premium that endows the policy at the 7702 maturity age using the real `IllustrationEngine`, guaranteed COI rates supplied by the caller, zero bonus interest, and guideline/exception machinery turned off. It is import-tested offline, but validating real guaranteed-rate results still requires the work-laptop rate database.
+
+That standalone calculator is implemented, but it is not yet wired as an automatic replacement for loaded policy GLP/GSP values during normal monthly projection.
+
 Deferred:
 
-- full 7702 testing and 7702A / TAMRA / MEC determination (the cap enforces limits but does not yet flag MEC)
+- full integrated 7702 testing and 7702A / TAMRA / MEC determination in the monthly projection path (the cap enforces limits but does not yet flag MEC)
 - Necessary Premium Test (CVAT)
 - force-out reduction of cost basis (CalcEngine `OD`)
 
@@ -881,6 +891,7 @@ The forecast rows expose the fields the Policy Support tab needs to audit the fo
 - guideline premium force-out and accumulated GLP tracking in monthly projection rows
 - CyberLife monthliversary timing mode for PolView GLP forecasts
 - GLP Exception level-premium solver and Policy Support premium forecast consumer
+- standalone commutation GLP/GSP calculators, attained-age GLP change delta, and iterative GLP solver utility
 - bonus interest logic
 - shadow account / CCV calculation
 - safety net and shadow-based lapse protection
@@ -891,7 +902,7 @@ The forecast rows expose the fields the Policy Support tab needs to audit the fo
 - advance-loan calculations are still out of scope; advance loans currently pass through without monthly accrual
 - base interest `ExactDays` mode records actual month days but uses a fixed 365/12 exponent for the credited-interest rate calculation
 - `IllustrationInputSet.policy_changes` and `InforceOverrideSet` exist as models, but this engine path currently consumes projected transaction inputs rather than applying broader future policy-change events
-- some spec-era items such as full 7702, TAMRA, deemed cash value, GCO logic, and broader policy change processing are not part of this monthly path
+- some spec-era items such as full integrated 7702 recalculation, TAMRA/MEC flagging, deemed cash value, GCO logic, and broader policy change processing are not part of this monthly path
 
 ## 8. Recommended Next Review Questions
 
@@ -899,8 +910,8 @@ Based on the current implementation, the next useful review questions are:
 
 1. Is the current `ExactDays` interest implementation intentional, or should credited interest use actual `days_in_month` like the shadow side does?
 2. Do we want projected withdrawals and loans to trigger any additional business rules beyond simple AV and debt movement?
-3. Should shadow rider charges now be implemented, or is zero still acceptable for the products currently in scope?
-4. Is variable-loan accrual needed for any active plancodes in the first rollout set?
+3. Should `guideline_calc.py` remain a standalone/offline calculator for GLP review, or should policy-build and policy-change flows start deriving GLP/GSP from it instead of relying only on loaded values?
+4. Which guaranteed COI / mortality source should feed the standalone GLP/GSP path for real policies, especially for DBO B/C where the iterative method is required?
 5. Should GLP force-out continue to be modeled as a withdrawal accumulator movement in all forecast contexts, or should the GLP Exception result distinguish actual withdrawals from force-outs more explicitly?
 6. Should future policy changes in `IllustrationInputSet.policy_changes` be wired into the projection before the GLP Exception premium forecast depends on them?
 7. Should the older `SPEC_Calculation.md` be revised to match the current engine, or kept as milestone history?

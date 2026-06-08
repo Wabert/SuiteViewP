@@ -838,7 +838,7 @@ class QueryObjectTests(unittest.TestCase):
         else:
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
 
-    def test_audit_builder_opens_dataforge_source_design_before_manual_editor(self):
+    def test_audit_builder_opens_editable_dataforge_copy_not_original_design(self):
         from suiteview.audit.audit_window import AuditWindow
 
         obj = manual_sql_query_object(
@@ -862,8 +862,105 @@ class QueryObjectTests(unittest.TestCase):
         with patch("suiteview.audit.query_object_store.load_object", return_value=obj):
             AuditWindow.open_query_object_in_builder(DummyAudit(), obj.name)
 
-        self.assertEqual(calls, ["Claims [Forge]"])
-        self.assertEqual(manual_calls, [])
+        self.assertEqual(calls, [])
+        self.assertEqual(manual_calls, ["Claims [Forge]"])
+
+    def test_audit_builder_opens_cyberlife_dataforge_copy_itself(self):
+        from suiteview.audit.audit_window import AuditWindow
+
+        obj = cyberlife_query_object(
+            "Cyberlife Trad CV [Forge]",
+            sql="SELECT * FROM DB2TAB.LH_BAS_POL",
+            dsn="CKPR_DSN",
+            region="CKPR",
+            system_code="I",
+            criteria={},
+            result_columns=["TCH_POL_ID"],
+        )
+        obj.config["dataforge"] = {
+            "forge_name": "Forge",
+            "source_name": "Cyberlife Trad CV",
+        }
+        design_calls = []
+        cyberlife_calls = []
+
+        class DummyAudit:
+            def _open_dataforge_source_design(self, opened_obj):
+                design_calls.append(opened_obj.name)
+                return True
+
+            def open_cyberlife_query_object(self, opened_obj):
+                cyberlife_calls.append(opened_obj.name)
+
+        with patch("suiteview.audit.query_object_store.load_object", return_value=obj):
+            AuditWindow.open_query_object_in_builder(DummyAudit(), obj.name)
+
+        self.assertEqual(design_calls, [])
+        self.assertEqual(cyberlife_calls, ["Cyberlife Trad CV [Forge]"])
+
+    def test_cyberlife_dataforge_copy_save_preserves_dataforge_metadata(self):
+        from suiteview.audit.audit_window import AuditWindow
+
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        with tempfile.TemporaryDirectory() as tmp_objects:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+            existing = cyberlife_query_object(
+                "Cyberlife Trad CV [Forge]",
+                sql="SELECT OLD_COL FROM DB2TAB.LH_BAS_POL",
+                dsn="CKPR_DSN",
+                region="CKPR",
+                system_code="I",
+                criteria={"old": True},
+                result_columns=["OLD_COL"],
+            )
+            existing.config["dataforge"] = {
+                "forge_name": "Forge",
+                "source_name": "Cyberlife Trad CV",
+            }
+            save_object(existing)
+
+            class Combo:
+                def __init__(self, value):
+                    self.value = value
+
+                def currentText(self):
+                    return self.value
+
+            class Button:
+                def setVisible(self, visible):
+                    return None
+
+            class DummyAudit:
+                _current_mode = "cyberlife"
+                _cyberlife_saved_object_name = "Cyberlife Trad CV [Forge]"
+                cmb_region = Combo("CKPR")
+                cmb_system = Combo("I")
+                results_tab = object()
+                btn_save_cyberlife = Button()
+
+                def _build_sql(self):
+                    return "SELECT NEW_COL FROM DB2TAB.LH_BAS_POL"
+
+                def _cyberlife_query_object_state(self):
+                    return {"new": True}
+
+            with patch("suiteview.audit.audit_window.QMessageBox.information"):
+                AuditWindow._save_cyberlife_query_object(
+                    DummyAudit(), "Cyberlife Trad CV [Forge]")
+
+            saved = load_object("Cyberlife Trad CV [Forge]")
+            self.assertIsNotNone(saved)
+            self.assertEqual(saved.sql, "SELECT NEW_COL FROM DB2TAB.LH_BAS_POL")
+            self.assertEqual(saved.config["criteria"], {"new": True})
+            self.assertEqual(saved.config["dataforge"], {
+                "forge_name": "Forge",
+                "source_name": "Cyberlife Trad CV",
+            })
+
+        if old_obj_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
 
     def test_forge_assist_open_builder_uses_audit_window_not_popup_editor(self):
         app = QApplication.instance() or QApplication([])

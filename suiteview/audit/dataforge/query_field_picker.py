@@ -22,10 +22,12 @@ from suiteview.audit.query_object import (
     OBJECT_KIND_ADHOC_SOURCE,
     QueryObject,
     manual_sql_query_object,
+    object_from_saved_query,
     object_from_qdefinition,
     qdefinition_from_query_object,
 )
 from suiteview.audit import query_object_store
+from suiteview.audit import saved_query_store
 from suiteview.audit.adhoc_source_intake import dataframe_from_adhoc_metadata
 from suiteview.audit.query_runner import execute_odbc_query
 from suiteview.audit.tabs._styles import TightItemDelegate
@@ -115,6 +117,11 @@ def _load_query_source(name: str, forge_name: str = "") -> QDefinition | None:
     obj = query_object_store.load_object(name)
     if obj:
         return qdefinition_from_query_object(obj)
+    saved_query = saved_query_store.load_query(name)
+    if saved_query:
+        obj = object_from_saved_query(saved_query)
+        query_object_store.save_object(obj)
+        return qdefinition_from_query_object(obj)
     return None
 
 
@@ -124,6 +131,10 @@ def _list_query_sources() -> list[QDefinition]:
     for obj in query_object_store.list_objects():
         if obj.name not in sources:
             sources[obj.name] = qdefinition_from_query_object(obj)
+    for saved_query in saved_query_store.list_queries():
+        if saved_query.name not in sources:
+            sources[saved_query.name] = qdefinition_from_query_object(
+                object_from_saved_query(saved_query))
     return sorted(sources.values(), key=lambda qd: qd.name.lower())
 
 
@@ -739,6 +750,8 @@ class QueryFieldPicker(QWidget):
         act_open_builder = menu.addAction("Open in Builder")
         act_refresh = menu.addAction("Refresh / Requery")
         menu.addSeparator()
+        act_remove = menu.addAction("Remove from DataForge")
+        menu.addSeparator()
         act_modify = menu.addAction("Modify in Browser")
         act_rename = menu.addAction("Rename")
         chosen = menu.exec(self.list_queries.viewport().mapToGlobal(pos))
@@ -748,10 +761,35 @@ class QueryFieldPicker(QWidget):
             self._open_query_builder(query_name)
         elif chosen == act_refresh:
             self._refresh_query_source(query_name)
+        elif chosen == act_remove:
+            self._remove_query_source(query_name)
         elif chosen == act_modify:
             self._modify_query_object(query_name)
         elif chosen == act_rename:
             self._rename_qdef(query_name)
+
+    def _remove_query_source(self, query_name: str):
+        names = [query_name]
+        selected = [
+            item.data(Qt.ItemDataRole.UserRole) or item.text()
+            for item in self.list_queries.selectedItems()
+            if item.data(Qt.ItemDataRole.UserRole) or item.text()
+        ]
+        if query_name in selected:
+            names = selected
+        removed_current = self._current_query in names
+        for name in names:
+            self._sources.pop(name, None)
+        self._rebuild_query_list()
+        self._update_query_object_button()
+        if removed_current:
+            self._current_query = ""
+            self.list_fields.clear()
+            self.lbl_status.setText("")
+            first = self._first_query_item()
+            if first:
+                self.list_queries.setCurrentItem(first)
+        self.sources_changed.emit(list(self._sources.keys()))
 
     def _open_query_builder(self, query_name: str):
         audit_window = self._new_audit_window_for_builder(query_name)

@@ -24,7 +24,7 @@ from .tabs.field_row import FieldRow, FieldGrid
 from .tabs.results_tab import ResultsTab
 from .tabs.sql_tab import SqlTab
 from .tabs.select_tab import SelectTab
-from .tabs.joins_tab import JoinsTab
+from .tabs.visual_joins_tab import VisualJoinsTab as JoinsTab
 from .tabs.common_tables_tab import CommonTablesTab
 from .tabs.build_sql_tab import BuildSqlTab
 from .tabs.build_sql_results_tab import BuildSqlResultsTab

@@ -40,6 +40,7 @@ def credit_interest(
     month_date: date,
     reg_loan_balance: float = 0.0,
     pref_loan_balance: float = 0.0,
+    exact_days_interest: bool | None = None,
 ) -> InterestResult:
     """Credit interest to account value.
 
@@ -82,8 +83,9 @@ def credit_interest(
 
     # ── 3.3.3 Monthly rate calculation ────────────────────────
     days = _days_in_month(month_date)
+    use_exact_days = config.interest_method == "ExactDays" if exact_days_interest is None else exact_days_interest
 
-    if config.interest_method == "ExactDays":
+    if use_exact_days:
         # 365/12 day convention: each month is exactly 365/12 days
         monthly_rate = (1.0 + effective_annual_rate) ** (365.0 / 12.0 / 365.0) - 1.0
     else:
@@ -113,7 +115,7 @@ def credit_interest(
         raw_pref = get_rate(rates, "plncrg", rate_year)
         pref_credit_annual = raw_pref / 100.0 if raw_pref else policy.guaranteed_interest_rate
 
-        if config.interest_method == "ExactDays":
+        if use_exact_days:
             reg_credit_monthly = (1.0 + reg_credit_annual) ** (365.0 / 12.0 / 365.0) - 1.0
             pref_credit_monthly = (1.0 + pref_credit_annual) ** (365.0 / 12.0 / 365.0) - 1.0
         else:

@@ -75,6 +75,7 @@ def build_illustration_data(
     duration = (policy_year - 1) * 12 + policy_month
     att_age_raw = pi.attained_age
     attained_age = att_age_raw if att_age_raw is not None else (issue_age + policy_year - 1)
+    maturity_age = pi.age_at_maturity or 121
 
     # ── Interest ──────────────────────────────────────────────
     guar_raw = pi.guaranteed_interest_rate
@@ -311,7 +312,7 @@ def build_illustration_data(
         policy_month=policy_month,
         duration=duration,
         valuation_date=valuation_date,
-        maturity_age=121,
+        maturity_age=maturity_age,
         def_of_life_ins=def_of_life_ins,
         glp=glp,
         gsp=gsp,

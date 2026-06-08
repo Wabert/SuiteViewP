@@ -938,6 +938,16 @@ class AuditWindow(FramelessWindowBase):
                 source_definitions=group._sources,
             )
 
+    def _refresh_query_object_browser_if_open(self):
+        try:
+            from .query_object_viewer_window import QueryObjectViewerWindow
+        except Exception:
+            logger.exception("Failed to import Query Object browser for refresh")
+            return
+        viewer = getattr(QueryObjectViewerWindow, "_instance", None)
+        if viewer is not None and viewer.isVisible():
+            viewer.refresh()
+
     def _on_forge_picker_source_refreshed(self, old_name: str, qd):
         """A forge source query was edited/refreshed from Forge Assist."""
         group = self._dataforge_groups.get(self._current_mode)
@@ -959,6 +969,7 @@ class AuditWindow(FramelessWindowBase):
             source_definitions=group._sources,
         )
         self._forge_field_picker.add_source(qd.name)
+        self._refresh_query_object_browser_if_open()
 
     @staticmethod
     def _dataforge_source_copy_name(source_name: str, forge_name: str) -> str:
@@ -1174,7 +1185,7 @@ class AuditWindow(FramelessWindowBase):
                 f"Could not find query object \"{object_name}\".",
             )
             return
-        if (obj.config or {}).get("dataforge"):
+        if (obj.config or {}).get("dataforge") and obj.kind == OBJECT_KIND_EXECUTABLE:
             if self._open_dataforge_source_design(obj):
                 return
         if obj.kind == OBJECT_KIND_MANUAL_SQL:
@@ -1212,7 +1223,7 @@ class AuditWindow(FramelessWindowBase):
         self._on_load_saved_query(saved)
 
     def _open_dataforge_source_design(self, obj) -> bool:
-        """Open the original builder for a DataForge source copy when possible."""
+        """Open an upstream design only for DataForge copies without a native builder."""
         from suiteview.audit import query_object_store, saved_query_store as sq_store
 
         dataforge = (obj.config or {}).get("dataforge", {})
@@ -1591,6 +1602,7 @@ class AuditWindow(FramelessWindowBase):
         from suiteview.audit.query_object import cyberlife_query_object
         from suiteview.audit import query_object_store
 
+        existing = query_object_store.load_object(name)
         qo = cyberlife_query_object(
             name,
             sql=sql,
@@ -1601,6 +1613,13 @@ class AuditWindow(FramelessWindowBase):
             result_columns=result_columns,
             column_types=column_types,
         )
+        if existing is not None:
+            qo.created_at = existing.created_at
+            qo.description = existing.description
+            qo.tags = list(existing.tags)
+            existing_config = dict(existing.config or {})
+            if "dataforge" in existing_config:
+                qo.config["dataforge"] = existing_config["dataforge"]
         query_object_store.save_object(qo)
         self._cyberlife_saved_object_name = name
         self.btn_save_cyberlife.setVisible(True)
@@ -1856,6 +1875,7 @@ class AuditWindow(FramelessWindowBase):
         group.setVisible(False)
         self._dataforge_groups[display] = group
         self._dynamic_query_container.addWidget(group)
+        group.source_records_changed.connect(self._refresh_query_object_browser_if_open)
         group.forge_saved.connect(self._on_forge_saved_refresh)
         group.forge_deleted.connect(self._on_forge_deleted_from_group)
         group.new_forge_requested.connect(self._on_new_dataforge)
