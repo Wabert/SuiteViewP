@@ -11,6 +11,7 @@ from suiteview.illustration.core.rate_loader import load_rates
 from suiteview.illustration.models.input_set import (
     DatedTransaction,
     IllustrationInputSet,
+    IllustrationOptions,
     TransactionKind,
 )
 from suiteview.illustration.models.plancode_config import load_plancode
@@ -388,12 +389,23 @@ def _project_full_horizon(
     months: int,
     future_inputs: IllustrationInputSet | None = None,
 ):
+    # GLP-exception / policy-support forecasts deliberately inject premiums that
+    # may exceed the guideline, so keep the guideline force-out (with its new GSP
+    # floor) but do NOT cap premiums at acceptance and do not run the in-engine
+    # exception-premium mechanic here — this solver computes that itself.
+    options = IllustrationOptions(
+        conform_to_tefra=True,
+        conform_to_tamra=False,
+        allow_exception_prems=False,
+        cap_premiums_at_acceptance=False,
+    )
     return engine.project(
         policy,
         months=months,
         future_inputs=future_inputs,
         timing=ProjectionTiming.CYBERLIFE_MONTHLIVERSARY,
         stop_on_lapse=False,
+        options=options,
     )
 
 

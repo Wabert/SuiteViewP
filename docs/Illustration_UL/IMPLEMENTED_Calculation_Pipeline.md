@@ -278,29 +278,32 @@ Guideline premium accumulation is separated from force-out application:
 accumulated_glp = prior_accumulated_glp + (policy.glp if is_anniversary else 0)
 ```
 
-Before cash-flow inputs and premium are applied, the engine compares the existing premium basis to accumulated GLP:
+Before cash-flow inputs and premium are applied, the engine compares the existing premium basis to the guideline limit, which is the **greater of GSP and accumulated GLP** (CalcEngine `KV = MAX(KS, KU)`):
 
 ```text
-forceout = max(0, (premiums_to_date - withdrawals_to_date) - accumulated_glp)
+guideline_limit = max(gsp, accumulated_glp)
+forceout = min(max(0, account_value_before_premium),
+               max(0, (premiums_to_date - withdrawals_to_date) - guideline_limit))
 withdrawals_after_forceout = withdrawals_to_date + forceout
 account_value_after_forceout = account_value_before_premium - forceout
 ```
 
-This happens before projected cash-flow inputs and before the premium stage in both normal illustration timing and CyberLife monthliversary timing. Premium limiting by guidelines is still deferred; the active behavior is pre-premium GLP accumulation and force-out.
+The force-out is capped by available account value (`KX`), disabled when TEFRA conformance is off, for CVAT policies, or once exception mode is on (so an exception premium is not immediately clawed back). Accumulated GLP stops growing at attained age ≥ 100 (`KU`). This happens before projected cash-flow inputs and before the premium stage in both normal illustration timing and CyberLife monthliversary timing.
+
+**Premium capping at acceptance** is now also implemented (`vAppliedScheduledPremium`): the applied premium is capped to the remaining guideline room and/or 7-pay room, gated by `IllustrationOptions.conform_to_tefra` and `conform_to_tamra`. The TAMRA cap is a simplified single-cumulative version (no MEC-status side effects, no material-change reset, no CVAT/NPT).
 
 Currently implemented:
 
-- GLP accumulation
-- accumulated GLP field on monthly rows
-- guideline force-out field on monthly rows
-- account value before premium after force-out
+- GLP accumulation with the attained-age-100 stop
+- GSP-floored guideline limit and AV-capped force-out
+- premium capping by guideline / 7-pay room, with TEFRA / TAMRA toggles
+- accumulated GLP, guideline limit, force-out, and premium-cap fields on monthly rows
 
 Deferred:
 
-- full 7702 testing
-- 7702A / TAMRA / MEC testing
-- Necessary Premium Test
-- premium limiting before acceptance beyond the current force-out treatment
+- full 7702 testing and 7702A / TAMRA / MEC determination (the cap enforces limits but does not yet flag MEC)
+- Necessary Premium Test (CVAT)
+- force-out reduction of cost basis (CalcEngine `OD`)
 
 ### 4.10 Step 11 - Loan Capitalization and Repayment Processing
 
@@ -567,7 +570,16 @@ av_after_deduction = av_after_premium - total_deduction
 
 ### 4.14 Step 14 - Exception Premium Calculations
 
-Exception premium calculations are not implemented in the illustration engine yet. The PolView GLP Exception workflow currently consumes the engine as a forecast provider and solves level premium in `suiteview/polview/services/glp_exception.py`.
+The GP exception premium is now implemented in-engine (CalcEngine `SY/SZ/TA/TB/TD`), gated by `IllustrationOptions.allow_exception_prems`. Once the policy is past the safety-net period, has no CCV protection, has reached the guideline limit (`SX`), and account value after charges has gone negative, the engine injects the exception premium that brings after-charge AV back to zero:
+
+```text
+gross   = max(0, -av_after_charge)
+discount = gross / 1000 * coi_rate
+exception_prem = (gross - discount + flat_prem_load) / (1 - target_load_rate)
+av = av_after_charge + (exception_prem * (1 - target_load_rate) - flat_prem_load + discount)   # -> ~0
+```
+
+Exception mode latches on for the remainder of the projection, disables guideline force-out, and adds an exception-premium lapse protection (`YQ`) to the lapse test. The separate PolView GLP Exception workflow still solves a level premium in `suiteview/polview/services/glp_exception.py` and projects with the in-engine exception mechanic disabled (it computes its own).
 
 ### 4.15 Step 15 - Policy Values / New Fixed Loan Allocation
 

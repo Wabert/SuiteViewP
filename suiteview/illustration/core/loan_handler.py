@@ -134,26 +134,28 @@ def apply_new_fixed_loan(
     account_value: float,
     premiums_to_date: float,
     withdrawals_to_date: float,
-    preferred_loans_available: bool,
 ) -> LoanState:
     """Allocate a new fixed-loan request between preferred and regular loans.
 
-    Preferred loan capacity is determined after monthly deduction using:
+    Mirrors CalcEngine TR/TW/TX: the "gain" portion of the policy is taken as
+    preferred loan, the remainder as regular loan. Gain (preferred capacity) is
+    determined after monthly deduction as:
 
-        AV - current policy debt - (PremTD - AccumWDs)
+        max(0, AV - current policy debt - (PremTD - AccumWDs))
 
-    Any remaining requested loan amount is added as regular loan principal.
+    The split always applies to a fixed loan; when there is no gain the whole
+    request becomes regular loan (preferred_amount = 0). Capitalized loan
+    interest is not re-split here — it stays in its own bucket, matching the
+    workbook (capitalization happens within-bucket before this step).
     """
     loan_amount = max(requested_amount, 0.0)
     if loan_amount == 0.0:
         return loan
 
-    preferred_capacity = 0.0
-    if preferred_loans_available:
-        preferred_capacity = max(
-            account_value - loan.policy_debt - (premiums_to_date - withdrawals_to_date),
-            0.0,
-        )
+    preferred_capacity = max(
+        account_value - loan.policy_debt - (premiums_to_date - withdrawals_to_date),
+        0.0,
+    )
 
     preferred_amount = min(loan_amount, preferred_capacity)
     regular_amount = loan_amount - preferred_amount

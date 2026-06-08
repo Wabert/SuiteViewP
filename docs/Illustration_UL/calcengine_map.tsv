@@ -1,0 +1,730 @@
+idx	letter	header	formula	val_r6	val_r12
+1	A	=HYPERLINK("#$HP$165")	MTP	Beginning Values	MTP
+2	B	vID	7	1	7
+3	C	vDate	=EDATE($C$6,B12-1)	2017-06-09 00:00:00	2017-12-09 00:00:00
+4	D	vYear	=DATEDIF(sINPUT_Issue_Date,C12,"y")+1	1	1
+5	E	vMonth	=IF(E11=12,1,E11+1)	1	7
+6	F	vPolicyMonth	=IF(E12<>E11,F11+1,F11)	1	7
+7	G	vAttainedAge	=D12+sINPUT_Issue_Age-1	25	25
+8	H	Monthliversary	True	True	True
+9	I	vAnniversary	=D12<>D11	True	False
+10	J	vBeginningOfYearCalc	=OR(I12,N12)	True	False
+11	K	vInforceValuationDate	=AND(sINPUT_InforceIndicator="Y", sEffectiveValuationDate=C12)	False	False
+12	L	vLiveCalc	=IF(sINPUT_InforceIndicator="N",TRUE,vDate >= sINPUT_ForecastDate)	False	False
+13	M	v1035Date	=IF(INPUT!$B$32="",vID=1,vDate=sINPUT_1035_Exchange_EffectiveDate)	False	False
+14	N	vForecastDate	=AND(sINPUT_InforceIndicator="Y", sINPUT_ForecastDate=C12)	False	False
+15	O	vForecasting	=OR(O11,N12)	False	False
+16	P	Next Anniversary	=DATE(YEAR(vDate)+IF(MONTH(vDate)<sPolicyIssueMonth,0,1),sPolicyIssueMonth, sPolicyIssueDay)	2018-06-09 00:00:00	2018-06-09 00:00:00
+17	Q	vDaysToNextAnnivesary	=P12-C12	365	182
+18	R	blnLeapPolicyYear	=IF(D12<>D11,MONTH(DATE(YEAR(C12)+1,2,29))=2,R11)	False	False
+19	S	blnLeapCalendarYear	=IF(R12,MONTH(DATE(YEAR(C12),2,29))=2,FALSE)	False	False
+20	T	Leap Day To Remove	=IF(AND(S12,R12),DATE(YEAR(C12),2,29),"")		
+21	U	LeapDayRemoval	=IF(T12<>"",AND(T12>C12,T12<=C13))	False	False
+22	V				
+23	W	vBAV	=VV11	0	-159.6337540224544
+24	X	vAdvRegIntFactor	=sRates_LNCRG*(vDaysToNextAnnivesary/365)	0.06	0.029917808219178083
+25	Y	vAdvPrefIntFactor	=sRates_PrefLNCRG*(vDaysToNextAnnivesary/365)	0.06	0.029917808219178083
+26	Z	LoanAdvanced / B_RegLN_Princ	=VO11	0	0
+27	AA	=sLoanType="Advance" / B_RegLN_Int	=IF(blnAdvanceLoan,IF(vAnniversary, Z12*vAdvRegIntFactor/(1-vAdvRegIntFactor),0),VP11)	0	0
+28	AB	B_PrefLN_Princ	=VQ11	0	0
+29	AC	B_PrefLN_Int	=IF(blnAdvanceLoan,IF(vAnniversary, AB12*vAdvPrefIntFactor/(1-vAdvPrefIntFactor),0),VR11)	0	0
+30	AD	Vbl Ln P	=VS11	0	0
+31	AE	Vbl Ln Int	=VT11	0	0
+32	AF	vBegTotalDebt	=SUM(Z12,AA12,AB12,AC12,AD12,AE12)	0	0
+33	AG	bPrem TD	=OB11	0	0
+34	AH	Beginning Specified Amount / Cov / 1	=EU11	150000	150000
+35	AI	Cov / 2	=EV11	0	0
+36	AJ	Cov / 3	=EW11	0	0
+37	AK	APB / 4	=EX11	0	0
+38	AL	Total SA	=SUM(AH12:AJ12)	150000	150000
+39	AM	DB Option	=INDEX(vDBO,vID-1)	0	A
+40	AN	Surrender charge rates (SCR) don’t vary by band but do vary by S/N rateclass / So SCR should be looked up once before all pol change and once after / SCR 1	=PolicyRates!F10	0	18.2
+41	AO	SCR 2	=PolicyRates!G10	0	0
+42	AP	SCR 3	=PolicyRates!H10	0	0
+43	AQ	SC 1	=IF(DQ11,AH12*AN12/1000,0)	0	2730
+44	AR	SC 2	=IF(DR11,AI12*AO12/1000,0)	0	0
+45	AS	SC 3	=IF(DS11,AJ12*AP12/1000,0)	0	0
+46	AT	vBSC	=SUM(AQ12:AS12)	0	2730
+47	AU	CSV	=W12-AT12-SUM(Z12:AE12)	0	-2889.6337540224545
+48	AV	BAV Display	=W12	0	-159.6337540224544
+49	AW				
+50	AX	Input Withdrawal	=IF(NOT(vLiveCalc),0,IF(vBeginningOfYearCalc,INDEX(vINPUT_Withdrawal,vYear),0))	0	0
+51	AY	Max Net Allowed	=MAX(0,IF(sINPUT_AllowLoanPayoffByWD, AV12,MIN(AU12-sMD_HoldBack*SU11-25,IF(CT11="A",FC11-25025,AX12))))	0	0
+52	AZ	CostBasis before WD	=OD11	0	0
+53	BA	Current NetWD will be used for Alternative and Guaranteed values when printing the illustration / vAppliedNetWithdrawal	=IF(AND(sblnPrintMode, sAssumption<>"Current"), INDEX(vCurrentAppliedNetWD,$B12), IF(sInput_Sw2LnAtCostBasis,MIN(AX12,AY12,AZ12),MIN(AX12,AY12)))	0	0
+54	BB	Remaining Distribution	=IF(sInput_Sw2LnAtCostBasis,AX12-BA12,0)	0	0
+55	BC	CostBasis after WD	=AZ12-BA12	0	0
+56	BD	vWithdrawalTD	=IF(vInforceValuationDate,sINPUT_WithdrawalTD,BD11+BA12)	0	0
+57	BE	WDYTD	=IF(I12,BA12,BE11+BA12)	0	0
+58	BF	Corridor Rate	=PolicyRates!EF10	2.5	2.5
+59	BG	Corridor Amount	=IF(BF12*AV12>AL12,BF12*AV12-AL12,0)	0	0
+60	BH	Does WD reduce SA	=IF(AND(BA12>BG12,AM12="A"),TRUE,FALSE)	False	False
+61	BI	Change in SA from Withdrawal / Cov / 1	=IF(BH12,IF($BA12=0, 0, MIN(AH12,MAX(0,($BA12-SUMIF($AH$5:$AK$5,">"&BI$5,$AH12:$AK12)))) ),0)	0	0
+62	BJ	Cov / 2	=IF(BI12,IF($BA12=0, 0, MIN(AI12,MAX(0,($BA12-SUMIF($AH$5:$AK$5,">"&BJ$5,$AH12:$AK12)))) ),0)	0	0
+63	BK	Cov / 3	=IF(BJ12,IF($BA12=0, 0, MIN(AJ12,MAX(0,($BA12-SUMIF($AH$5:$AK$5,">"&BK$5,$AH12:$AK12)))) ),0)	0	0
+64	BL	APB / 4	=IF(BK12,IF($BA12=0, 0, MIN(AK12,MAX(0,($BA12-SUMIF($AH$5:$AK$5,">"&BL$5,$AH12:$AK12)))) ),0)	0	0
+65	BM	Partial SC	=IF(NOT(sbln_PSC), 0,SUMPRODUCT(BI12:BK12,AN12:AP12)/1000)	0	0
+66	BN	vGrossWD	=IF(BA12>0,BA12+IF(BH12,BM12,0)+sWithdrawalFee,0)	0	0
+67	BO	AV post WD	=W12-BN12	0	-159.6337540224544
+68	BP	vWD_FaceDecrease	=IF(BH12,IF(BA12=0,0,BN12)-IF(sTarget_SA_Basis=1,sWithdrawalFee,0),0)	0	0
+69	BQ	SA After Withdrawal / Cov / 1	=IF($BP12=0, AH12, AH12-MIN(AH12,MAX(0,($BP12-SUMIF($AH$5:$AJ$5,">"&BQ$5,$AH12:$AJ12)))) )	0	150000
+70	BR	Cov / 2	=IF($BP12=0, AI12, AI12-MIN(AI12,MAX(0,($BP12-SUMIF($AH$5:$AJ$5,">"&BR$5,$AH12:$AJ12)))) )	0	0
+71	BS	Cov / 3	=IF($BP12=0, AJ12, AJ12-MIN(AJ12,MAX(0,($BP12-SUMIF($AH$5:$AJ$5,">"&BS$5,$AH12:$AJ12)))) )	0	0
+72	BT	APB / 4	=IF($BP12=0, AK12, AK12-MIN(AK12,MAX(0,($BP12-SUMIF($AH$5:$AJ$5,">"&BT$5,$AH12:$AJ12)))) )	0	0
+73	BU	Total SA	=SUM(BQ12:BS12)	0	150000
+74	BV				
+75	BW	Prev DBO	=IF(vLiveCalc*1,CT11,BW11)	A	A
+76	BX	DB	=MAX(IF(BW12="A",BU12,IF(BW12="B",BU12+BO12,IF(BW12="C",BU12+MAX(0,AG12-BD12)))),BO12*IF(sINPUT_Guideline="GPT",OR12,IF(sINPUT_Guideline="CVAT",BO12,1)))	0	150000
+77	BY	Input DBO	=TRIM(INDEX(vINPUT_DBO,vYear))	A	A
+78	BZ	blnChange	=AND(vLiveCalc*1,BW12<>BY12)	False	False
+79	CA	Change Type	=IF(BZ12,BW12&"2"&BY12,"")		
+80	CB	Change To Face	=TRUNC(IF(CA12="A2B",-MAX(0,BO12),0)+ IF(CA12="B2A",MAX(0,BO12),0)+ IF(CA12="C2A",AG12,0)+ IF(CA12="C2B",AG12-BO12,0),0)	0	0
+81	CC	DBO Change Allowed	=IF(BU12+CB12>=25000,TRUE,FALSE)	False	True
+82	CD	Decrease - Specified Amount / vDBO_FaceDecrease	=IF(CC12,IF(CB12<0,-CB12,0),0)	0	0
+83	CE	Cov / 1	=IF($CD12=0, BQ12, BQ12-MIN(BQ12,MAX(0,$CD12-SUMIF($BQ$5:$BS$5,">"&CE$5,$BQ12:$BS12))) )	0	150000
+84	CF	Cov / 2	=IF($CD12=0, BR12, BR12-MIN(BR12,MAX(0,$CD12-SUMIF($BQ$5:$BS$5,">"&CF$5,$BQ12:$BS12))) )	0	0
+85	CG	Cov / 3	=IF($CD12=0, BS12, BS12-MIN(BS12,MAX(0,$CD12-SUMIF($BQ$5:$BS$5,">"&CG$5,$BQ12:$BS12))) )	0	0
+86	CH	APB / 4	=IF($CD12=0, BT12, BT12-MIN(BT12,MAX(0,$CD12-SUMIF($BQ$5:$BS$5,">"&CH$5,$BQ12:$BS12))) )	0	0
+87	CI	Partial Surrender Charge / Cov / 1	=MAX((BQ12-CE12)/1000*AN12,0)	0	0
+88	CJ	Cov / 2	=MAX((BR12-CF12)/1000*AO12,0)	0	0
+89	CK	Cov / 3	=MAX((BS12-CG12)/1000*AP12,0)	0	0
+90	CL	APB / 4	0	0	0
+91	CM	Total PSC DBO	=IF(NOT(sbln_PSC),0,SUM(CI12:CL12))	0	0
+92	CN	PSC Flag	=CM12>AT12	False	False
+93	CO	Increase - Specified Amount / vDBO_FaceIncrease	=IF(CC12,IF(CB12>0,CB12,0),0)	0	0
+94	CP	Cov / 1	=CE12+ IF(AND($CC12,$ET11=CP$5),$CO12,0)	0	150000
+95	CQ	Cov / 2	=CF12+ IF(AND($CC12,$ET11=CQ$5),$CO12,0)	0	0
+96	CR	Cov / 3	=CG12+ IF(AND($CC12,$ET11=CR$5),$CO12,0)	0	0
+97	CS	APB / 4	=CH12+ IF(AND($CC12,$ET11=CS$5),$CO12,0)	0	0
+98	CT	DBO	=IF(vInforceValuationDate, sINPUT_DBOption, IF(BW12=BY12,BW12,IF(CC12,BY12,BW12)))	A	A
+99	CU	Total SA	=SUM(CP12:CS12)	0	150000
+100	CV				
+101	CW	Input Face	=IFERROR(IF(NOT(vLiveCalc),CW11,INDEX(vINPUT_Specified_Amount,vYear)),CW11)	150000	150000
+102	CX	Change in Input Face	=IF(CW12<>CW11,CW12-CU12,0)	0	0
+103	CY	Specified Decrease / vSpecified_FaceDecrease	=IF(CX12<0,-CX12,0)	0	0
+104	CZ	Cov / 1	=IF($CY12=0, CP12, CP12-MIN(CP12, MAX(0, $CY12-SUMIF($CP$5:$CS$5,">"&CZ$5,$CP12:$CR12))) )	0	150000
+105	DA	Cov / 2	=IF($CY12=0, CQ12, CQ12-MIN(CQ12, MAX(0, $CY12-SUMIF($CP$5:$CS$5,">"&DA$5,$CP12:$CR12))) )	0	0
+106	DB	Cov / 3	=IF($CY12=0, CR12, CR12-MIN(CR12, MAX(0, $CY12-SUMIF($CP$5:$CS$5,">"&DB$5,$CP12:$CR12))) )	0	0
+107	DC	APB / 4	=IF($CY12=0, CS12, CS12-MIN(CS12, MAX(0, $CY12-SUMIF($CP$5:$CS$5,">"&DC$5,$CP12:$CR12))) )	0	0
+108	DD	Partial Surrender Charge / Cov / 1	=MAX((CP12-CZ12)/1000*AN12,0)	0	0
+109	DE	Cov / 2	=MAX((CQ12-DA12)/1000*AO12,0)	0	0
+110	DF	Cov / 3	=MAX((CR12-DB12)/1000*AP12,0)	0	0
+111	DG	APB / 4	0	0	0
+112	DH	Total PSC Spec Dec	=IF(NOT(sbln_PSC),0,SUM(DD12:DG12))	0	0
+113	DI	PSC Flag	=IF(DH12=0,FALSE,DH12>BO12)	False	False
+114	DJ	Specified Increase / vSpecified_FaceIncrease	=IF(CX12>0,CX12,0)	150000	0
+115	DK	Cov / 1	=IF($DJ12>0,IF(DK$5=$ET11+1,$DJ12,CZ12),CZ12)	150000	150000
+116	DL	Cov / 2	=IF($DJ12>0,IF(DL$5=$ET11+1,$DJ12,DA12),DA12)	0	0
+117	DM	Cov / 3	=IF($DJ12>0,IF(DM$5=$ET11+1,$DJ12,DB12),DB12)	0	0
+118	DN	APB / 4	=DC12	0	0
+119	DO	Total SA	=SUM(DK12:DN12)	150000	150000
+120	DP				
+121	DQ	Active / Cov 1 Active	=IF(vYear>sMaturityYear,FALSE, TRUE)	True	True
+122	DR	vCov2Active	=IF(AND(INDEX(vInforceValuationDate,$B12),sINPUT_OriginalSA2>0),TRUE,IF(DR11,TRUE,IF(DL12>0,TRUE,FALSE)))	False	False
+123	DS	vCov3Active	=IF(AND(INDEX(vInforceValuationDate,B12),sINPUT_OriginalSA3>0),TRUE,IF(DS11,TRUE,IF(DM12>0,TRUE,FALSE)))	False	False
+124	DT	vAPB_Active	=sINPUT_APB_Boolean	False	False
+125	DU	vCov1IssueDate	=sINPUT_Issue_Date	2017-06-09 00:00:00	2017-06-09 00:00:00
+126	DV	vCov2IssueDate	=IF(DR12,IF(NOT(DR11), IF(sINPUT_IssueDateSA2>3,sINPUT_IssueDateSA2,vDate),DV11),"")		
+127	DW	vCov3IssueDate	=IF(DS12,IF(NOT(DS11), IF(sINPUT_IssueDateSA3>3,sINPUT_IssueDateSA3,vDate),DW11),"")		
+128	DX	Cov Duration / Months from Coverage Issue / vMonthsFromIssueCov1	=DX11+1	1	7
+129	DY	vMonthsFromIssueCov2	=IF(AND($K12,sINPUT_CurrentSA2>0),DATEDIF(sINPUT_IssueDateSA2,$C12,"M")+1,IF(AND(DR12,NOT(DR11)),1,IF(DY11>0,DY11+1,0)))	0	0
+130	DZ	vMonthsFromIssueCov3	=IF(AND($K12,sINPUT_CurrentSA3>0),DATEDIF(sINPUT_IssueDateSA3,$C12,"M")+1,IF(AND(DS12,NOT(DS11)),1,IF(DZ11>0,DZ11+1,0)))	0	0
+131	EA	Months from Coverage Issue with termination setback / 1	=MAX(0,DX12-IF(sINPUT_InforceIndicator="Y",sINPUT_MonthsTerminatedCov1,0))	1	7
+132	EB	2	=MAX(0,DY12-IF(sINPUT_InforceIndicator="Y",sINPUT_MonthsTerminatedCov2,0))	0	0
+133	EC	3	=MAX(0,DZ12-IF(sINPUT_InforceIndicator="Y",sINPUT_MonthsTerminatedCov3,0))	0	0
+134	ED	Duration by Policy Anniversary / Cov 1	=IF(DX12=0,0,IF(vInforceValuationDate*1,INT((DX12-1)/12)+1, IF(AND(DQ12,NOT(DQ11)),INT((DX12-1)/12)+1,IF($I12,ED11+1,ED11))))	1	1
+135	EE	Cov 2	=IF(DY12=0,0,IF(vInforceValuationDate*1,INT((DY12-1+sIssueDateSA2_MonthOffset)/12)+1, IF(AND(DR12,NOT(DR11)),INT((DY12-1)/12)+1,IF($I12,EE11+1,EE11))))	0	0
+136	EF	Cov 3	=IF(DZ12=0,0,IF(vInforceValuationDate*1,INT((DZ12-1+sIssueDateSA3_MonthOffset)/12)+1, IF(AND(DS12,NOT(DS11)),INT((DZ12-1)/12)+1,IF($I12,EF11+1,EF11))))	0	0
+137	EG	Duration by Policy Anniversary   w termination setback / Cov 1	=IF(NOT(DQ12),0,MAX(1,INT((EA12-1)/12)+1))	1	1
+138	EH	Cov 2		not needed	
+139	EI	Cov 3		not needed	
+140	EJ	Dur by Cov Anniversary / vDurByCovAnn1	=INT((DX12-1)/12)+1	1	1
+141	EK	vDurByCovAnn2	=INT((DY12-1)/12)+1	0	0
+142	EL	vDurByCovAnn3	=INT((DZ12-1)/12)+1	0	0
+143	EM	Dur by Cov Anniversary   with termination setback / Cov 1	=IF(NOT(DQ12),0, MAX(1, INT((EA12-1)/12)+1))	1	1
+144	EN	Cov 2	=IF(NOT(DR12),0, MAX(1, INT((EB12-1)/12)+1))	0	0
+145	EO	Cov Duration / Cov 3	=IF(NOT(DS12),0, MAX(1, INT((EC12-1)/12)+1))	0	0
+146	EP	Orignial Specified Amount / vOriginalSA1 / 1	=IF(vInforceValuationDate,INDIRECT("sINPUT_OriginalSA"&EP$5),IF(AND(DQ12,NOT(DQ11)),$CW12-$CW11,EP11))	150000	150000
+147	EQ	vOriginalSA2 / 2	=IF(vInforceValuationDate,INDIRECT("sINPUT_OriginalSA"&EQ$5),IF(AND(DR12,NOT(DR11)),DL12,EQ11))	0	0
+148	ER	vOriginalSA3 / 3	=IF(vInforceValuationDate,INDIRECT("sINPUT_OriginalSA"&ER$5),IF(AND(DS12,NOT(DS11)),DM12,ER11))	0	0
+149	ES	vOriginalAPB_SA / APB	=ES11	0	0
+150	ET	vLastActiveSegment	<openpyxl.worksheet.formula.ArrayFormula object at 0x00000242A40068D0>	1	1
+151	EU	vCurrentSA1 / 1	=IF(vInforceValuationDate,INDIRECT("sINPUT_CurrentSA" & EU$5),DK12)	150000	150000
+152	EV	vCurrentSA2 / 2	=IF(vInforceValuationDate,INDIRECT("sINPUT_CurrentSA" & EV$5),DL12)	0	0
+153	EW	vCurrentSA3 / 3	=IF(vInforceValuationDate,INDIRECT("sINPUT_CurrentSA" & EW$5),DM12)	0	0
+154	EX	vCurrentAPB_SA / 4	=_xlfn.SINGLE(IF(AND(sINPUT_APB_Change_Date<>"", sINPUT_APB_Change_Date=_xlfn.SINGLE(vDate)),sINPUT_APB_Change_Amount,IF(AND(sINPUT_APB_Boolean,_xlfn.SINGLE(vInforceValuationDate)*1),sINPUT_APB_Face,DN12)))	0	0
+155	EY	Band Lock / vBandLockCov1 / 1	=IF(vInforceValuationDate,IF( INDIRECT("sINPUT_OriginalSA"&EY$5)>0,INDIRECT("sINPUT_Original_Band_Cov_" & EY$5),0), IF(AND(DQ12,NOT(DQ11)), VLOOKUP($DO12,INDIRECT("mBandTable" & sBandTableCode),2), EY11) )	3	3
+156	EZ	vBandLockCov2 / 2	=IF(vInforceValuationDate,IF( INDIRECT("sINPUT_OriginalSA"&EZ$5)>0,INDIRECT("sINPUT_Original_Band_Cov_" & EZ$5),0), IF(AND(DR12,NOT(DR11)), VLOOKUP($DO12,INDIRECT("mBandTable" & sBandTableCode),2), EZ11) )	0	0
+157	FA	vBandLockCov3 / 3	=IF(vInforceValuationDate,IF( INDIRECT("sINPUT_OriginalSA"&FA$5)>0,INDIRECT("sINPUT_Original_Band_Cov_" & FA$5),0), IF(AND(DS12,NOT(DS11)), VLOOKUP($DO12,INDIRECT("mBandTable" & sBandTableCode),2), FA11) )	0	0
+158	FB	APB	=IF(vInforceValuationDate, IF(sINPUT_Original_APB_SA>0,sINPUT_Original_Band_APB,0), IF(AND(DT12,NOT(DT11)), VLOOKUP($DO12,INDIRECT("mBandTable" & sBandTableCode),2), FB11) )	3	3
+159	FC	vCurrentSA	=SUM(EU12:EW12)	150000	150000
+160	FD	Includes APB Amount / vCurrentBand	=VLOOKUP(FC12+EX12,INDIRECT("mBandTable" & sBandTableCode),2)	3	3
+161	FE	Issue Age / Cov / vIssAgeCov1	=FE11	25	25
+162	FF	Cov / vIssAgeCov2	=IF(AND(_xlfn.SINGLE(vInforceValuationDate)*1,DR12), sINPUT_IssueAgeSA2, IF(AND(DR12,NOT(DR11)), IF(sAgeCalc="ALB", TRUNC(YEARFRAC(sINPUT_DOB,_xlfn.SINGLE(vDate)*1),0), IF(sINPUT_ForecastDate-DATE(YEAR(sINPUT_DOB)+DATEDIF(sINPUT_DOB,_xlfn.SINGLE(vDate),"Y"),MONTH(sINPUT_DOB),DAY(sINPUT_DOB))>182,DATEDIF(sINPUT_DOB,DATE(YEAR(sINPUT_DOB)+DATEDIF(sINPUT_DOB, _xlfn.SINGLE(vDate),"Y"),MONTH(sINPUT_DOB),DAY(sINPUT_DOB)),"Y")+1,DATEDIF(sINPUT_DOB,DATE(YEAR(sINPUT_DOB)+DATEDIF(sINPUT_DOB,_xlfn.SINGLE(vDate),"Y"),MONTH(sINPUT_DOB),DAY(sINPUT_DOB)),"Y"))), FF11))	0	0
+163	FG	Cov / vIssAgeCov3	=IF(AND(_xlfn.SINGLE(vInforceValuationDate)*1,DS12), sINPUT_IssueAgeSA3, IF(AND(DS12,NOT(DS11)), IF(sAgeCalc="ALB", TRUNC(YEARFRAC(sINPUT_DOB,_xlfn.SINGLE(vDate)*1),0), IF(sINPUT_ForecastDate-DATE(YEAR(sINPUT_DOB)+DATEDIF(sINPUT_DOB,_xlfn.SINGLE(vDate),"Y"),MONTH(sINPUT_DOB),DAY(sINPUT_DOB))>182,DATEDIF(sINPUT_DOB,DATE(YEAR(sINPUT_DOB)+DATEDIF(sINPUT_DOB, _xlfn.SINGLE(vDate),"Y"),MONTH(sINPUT_DOB),DAY(sINPUT_DOB)),"Y")+1,DATEDIF(sINPUT_DOB,DATE(YEAR(sINPUT_DOB)+DATEDIF(sINPUT_DOB,_xlfn.SINGLE(vDate),"Y"),MONTH(sINPUT_DOB),DAY(sINPUT_DOB)),"Y"))), FG11))	0	0
+164	FH	Rateclass / vRateclassCov1	=IF(sINPUT_Rateclass_Change_Date<>"", IF(sINPUT_Rateclass_Change_Date=vDate, sINPUT_Rateclass_Change_NewRateclassCode,FH11),FH11)	N	N
+165	FI	vRateclassCov2	=IF(vInforceValuationDate,sINPUT_Rateclass_Cov_2,IF(AND(NOT(DR11),DR12),FH12,FI11))		
+166	FJ	vRateclassCov3	=IF(vInforceValuationDate,sINPUT_Rateclass_Cov_3,IF(AND(NOT(DS11),DS12),FI12,FJ11))		
+167	FK	Substandard / Table Rating 1	=IF(sINPUT_Table_Rating_Change_Date<>"", IF(sINPUT_Table_Rating_Change_Date=vDate, sINPUT_Table_Rating_Change_NewTableRatingCode,FK11),FK11)	0	0
+168	FL	Table Rating 2	=IF(vInforceValuationDate,IF(DR12,sINPUT_TableRatingSA2,IF(AND(DR12,NOT(DR11)),FK12,FL11)),IF(AND(DL12>DL11,DR12,NOT(DR11)),sINPUT_Table_Rating,FL11))	0	0
+169	FM	Table Rating 3	=IF(vInforceValuationDate,IF(DS12,sINPUT_TableRatingSA2,IF(AND(DS12,NOT(DS11)),FL12,FM11)),IF(AND(DM12>DM11,DS12,NOT(DS11)),FL12,FM11))	0	0
+170	FN	vBaseFlat1	=IF(G12<sINPUT_Flat_1_CeaseAge,sINPUT_Flat_1_Amount*IF(sINPUT_Flat_1_CeaseAge-sINPUT_Issue_Age<6,1,IF(sINPUT_FlatDiscount,0.8,1)),0)	0	0
+171	FO	vBaseFlat2	=IF(G12<sINPUT_Flat_2_CeaseAge,sINPUT_Flat_2_Amount*IF(sINPUT_Flat_2_CeaseAge-sINPUT_Issue_Age<6,1,IF(sINPUT_FlatDiscount,0.8,1)),0)	0	0
+172	FP	vCoverage_Change	=IF(NOT(vLiveCalc),FALSE,OR(FC12<>FC11,FH12<>FH11,FI12<>FI11,FJ12<>FJ11,FK12<>FK11,FL12<>FL11,FM12<>FM11,FN12<>FN11,FO12<>FO11))	False	False
+173	FQ	vPolicyChangeAVReduction	=BN12+CM12+DH12	0	0
+174	FR				
+175	FS	Premium Waiver / vPW_Active	=IF(vAttainedAge>=sRates_PW_PayupAge,FALSE,IF(AND(sPW_Change_Date<>"",vDate>=sPW_Change_Date),sPW_Change_Active,sINPUT_PW_Boolean))	False	False
+176	FT	vPW_Change	=AND((FS12<>FS11),vAttainedAge<sRates_PW_PayupAge)	False	False
+177	FU	Stipulated Premium Waiver / vPWST_Active	=FV12>0	False	False
+178	FV	vPWST_Units	=IF(AND(sPWST_Change_Date<>"",vDate>=sPWST_Change_Date),sPWST_Change_Amount,IF(sINPUT_PWST_Boolean,IF(vAttainedAge>=sRates_PWSTP_PayupAge,0,sINPUT_PWST_Premium),0))	0	0
+179	FW	vPWST_Change	=IF(OR(FU12<>FU11,FV12<>FV11),vAttainedAge<sRates_PWSTP_PayupAge,FALSE)	False	False
+180	FX	Guaranteed Increase Option / vGIR_Active	=FY12>0	False	False
+181	FY	vGIR_Units	=IF(AND(sGIR_Change_Date<>"",vDate>=sGIR_Change_Date),sGIR_Change_Units,IF(sINPUT_GIR_Boolean,IF(vAttainedAge>=sRates_GIO_PayupAge,0,sINPUT_GIR_Units),0))	0	0
+182	FZ	vGIO_Change	=IF(OR(FX12<>FX11,FY12<>FY11),vAttainedAge<sRates_GIO_PayupAge,FALSE)	False	False
+183	GA	Accidential Death Benefit / vADB_Active	=GB12>0	False	False
+184	GB	vADB_Units	=_xlfn.SINGLE(IF(AND(sADB_Change_Date<>"",_xlfn.SINGLE(vDate)>=sADB_Change_Date),sADB_Change_Units,IF(sINPUT_ADB_Boolean,IF(_xlfn.SINGLE(vAttainedAge)>=sRates_ADB_PayupAge,0,sINPUT_ADB_Units),0)))	0	0
+185	GC	vADB_Change	=IF(OR(GA12<>GA11,GB12<>GB11),vAttainedAge<sRates_ADB_PayupAge,FALSE)	False	False
+186	GD	Childresn Term Rider / vCTR_Active	=GE12>0	False	False
+187	GE	vCTR_Units	=IF(vAttainedAge>=MIN(sINPUT_CTR_CeaseAge,sRates_CTR_BenefitCeaseAge),0,IF(AND(sCTR_Change_Date<>0,sCTR_Change_Date<>"",vDate>=sCTR_Change_Date),sCTR_Change_Units,IF(sINPUT_CTR_Boolean,sINPUT_CTR_Units,0)))	0	0
+188	GF	vCTR_Change	=AND(OR(GD12<>GD11,GE12<>GE11),vAttainedAge<sRates_CTR_BenefitCeaseAge)	False	False
+189	GG	Shadow Benefit (CCV) / vCCV_Active	=IF(vAttainedAge>=121,FALSE,IF(AND(sINPUT_CCV_Change_Date<>"",vDate>=sINPUT_CCV_Change_Date),FALSE,UPPER(TRIM(sShadowBenefit))="TRUE"))	False	False
+190	GH	vCCV_Change	=AND(GG12<>GG11,vAttainedAge<sRates_CCV_BenefitCeaseAge)	False	False
+191	GI	vCCV_Units	=IF(GG12,vCurrentSA/1000,0)	0	0
+192	GJ	vCOLA_Active	=IF(vAttainedAge<65,GJ11,FALSE)	False	False
+193	GK	Term Rider 1 / vR1_Active	=GP12>0	False	False
+194	GL	R1 Duration	=IF(sINPUT_R1_Boolean,IF(vInforceValuationDate,sRider1_InforceDuration,IF(vAnniversary,GL11+1,GL11)),0)	1	0
+195	GM	R1 Att Age	=sINPUT_R1_Issue_Age+GL12-1	28	27
+196	GN	vR1_Table	=IF(GK12,IF(GM12<=sINPUT_R1_Table_Rating_CeaseAge,sINPUT_R1_Table_Rating,0),0)	0	0
+197	GO	R1 Flat	=IF(GK12,IF(GM12<=sINPUT_R1_Flat_CeaseAge,sINPUT_R1_Flat_Extra*IF(MIN(sINPUT_R1_Cease_Year,sINPUT_R1_MaturityAge)<=6,1,0.8),0),0)	0	0
+198	GP	vR1_Face	=IF(sINPUT_R1_Boolean,IF($C12>=sINPUT_R1_CeaseDate,0,IF(AND(sINPUT_R1_Change_Date<>0,sINPUT_R1_Change_Date<>"",vDate>=sINPUT_R1_Change_Date),sINPUT_R1_Change_Amount,IF(sINPUT_R1_Boolean,sINPUT_R1_Face,0))),0)	0	0
+199	GQ	vR1_Band	=IF(GK12,VLOOKUP(GP12,INDIRECT(sRider1_BandTable),2),0)	0	0
+200	GR	vR1_Change	=AND(OR(GP12<>GP11,GN12<>GN11,GK12<>GK11),GM12<sINPUT_R1_MaturityAge)	False	False
+201	GS	Term Rider 2 / vR2_Active	=GX12>0	False	False
+202	GT	R2 Duration	=IF(sINPUT_R2_Boolean, IF(vInforceValuationDate,sRider2_InforceDuration,IF(vAnniversary,GT11+1,GT11)),0)	1	0
+203	GU	R2 Att Age	=sINPUT_R2_Issue_Age+GT12-1	25	24
+204	GV	vR2_Table	=IF(GS12,IF(GU12<=sINPUT_R2_Table_Rating_CeaseAge,sINPUT_R2_Table_Rating,0),0)	0	0
+205	GW	R2 Flat	=IF(GS12,IF(GU12<=sINPUT_R2_Flat_CeaseAge,sINPUT_R2_Flat_Extra*IF(MIN(sINPUT_R2_Cease_Year,sINPUT_R2_Period)<=6,1,0.8),0),0)	0	0
+206	GX	vR2_Face	=IF(sINPUT_R2_Boolean,IF($C12>=sINPUT_R2_CeaseDate,0,IF(AND(sINPUT_R2_Change_Date<>"",vDate>=sINPUT_R2_Change_Date),sINPUT_R2_Change_Amount,IF(sINPUT_R2_Boolean,sINPUT_R2_Face,0))),0)	0	0
+207	GY	vR2_Band	=IF(GS12,VLOOKUP(GX12,INDIRECT(sRider2_BandTable),2),0)	0	0
+208	GZ	vR2_Change	=AND(OR(GX12<>GX11,GV12<>GV11,GS12<>GS11),GU12<sINPUT_R2_MaturityAge)	False	False
+209	HA	Term Rider 3 / vR3_Active	=HF12>0	False	False
+210	HB	R3 Duration	=IF(sINPUT_R3_Boolean,IF(vInforceValuationDate,sRider3_InforceDuration,IF(vAnniversary,HB11+1,HB11)),0)	1	0
+211	HC	R3 Att Age	=sINPUT_R3_Issue_Age+HB12-1	30	29
+212	HD	vR3_Table	=IF(HA12,IF(HC12<=sINPUT_R3_Table_Rating_CeaseAge,sINPUT_R3_Table_Rating,0),0)	0	0
+213	HE	R3 Flat	=IF(HA12,IF(HC12<=sINPUT_R3_Flat_CeaseAge,sINPUT_R3_Flat_Extra*IF(MIN(sINPUT_R3_Cease_Year,sINPUT_R3_MaturityAge)<=6,1,0.8),0),0)	0	0
+214	HF	vR3_Face	=IF(sINPUT_R3_Boolean,IF($C12>=sINPUT_R3_CeaseDate,0,IF(AND(sINPUT_R3_Change_Date<>"",vDate>=sINPUT_R3_Change_Date),sINPUT_R3_Change_Amount,IF(sINPUT_R3_Boolean,sINPUT_R3_Face,0))),0)	0	0
+215	HG	vR3_Band	=IF(HA12,VLOOKUP(HF12,INDIRECT(sRider3_BandTable),2),0)	0	0
+216	HH	vR3_Change	=AND(OR(HF12<>HF11,HD12<>HD11,HA12<>HA11),HC12<sINPUT_R3_MaturityAge)	False	False
+217	HI	vMaterialChangeIndicator	=IF(NOT(vLiveCalc),FALSE,IF(vAttainedAge*1<100,OR((INDEX(vDBO,vID-1)&vDBO="BA"),vCurrentSA>INDEX(vCurrentSA,vID-1),LL12>0)))	False	False
+218	HJ	=IFERROR(MATCH(1,vPolicyChangeIndicator,0),0) / vPolicyChangeIndicator	=IF(vAttainedAge>100,FALSE,IF(NOT(vLiveCalc),FALSE,OR(1*vCTR_Change,1*vR1_Change,1*vR2_Change,1*vR3_Change,1*vPW_Change,1*vPWST_Change,1*vGIO_Change,1*vCoverage_Change)))	False	False
+219	HK	=MAX(HK7:HK1482) / vChangeCount	=IF(OR(HI12,HJ12),MIN(sMax7702RecalcsAllowed,HK11+1),HK11)	0	0
+220	HL	vChangeMonth	=IF(HK12>HK11,vPolicyMonth,HL11)	1	1
+221	HM	vAV_AfterChanges	=AV12-vPolicyChangeAVReduction	0	-159.6337540224544
+222	HN				
+223	HO	Coverage Segments MTP Rate / MTP Rate Cov 1	=PolicyRates!I10	3.75	3.75
+224	HP	MTP Rate Cov 2	=PolicyRates!J10	0	0
+225	HQ	MTP Rate Cov 3	=PolicyRates!K10	0	0
+226	HR	MTP Rate APB	=PolicyRates!L10	0	0
+227	HS	MTP Rate Cov 1 Tbl	=PolicyRates!M10	0.94	0.94
+228	HT	MTP Rate Cov 2 Tbl	=PolicyRates!N10	0	0
+229	HU	MTP Rate Cov 3 Tbl	=PolicyRates!O10	0	0
+230	HV	MTP Rate APB Tbl	=PolicyRates!P10	0	0
+231	HW	MTP Premium / MTP Cov 1	=ROUND(CHOOSE(sTarget_SA_Basis,EP12,EU12)*HO12/1000,2) + ROUND($FK12*HS12*CHOOSE(sTarget_SA_Basis,EP12,EU12)/1000,2) + ROUND((12*TRUNC($FN12/12,2)+12*TRUNC($FO12/12,2))*CHOOSE(sTarget_SA_Basis,EP12,EU12)/1000,2)	562.5	562.5
+232	HX	MTP Cov 2	=ROUND(CHOOSE(sTarget_SA_Basis,EQ12,EV12)*HP12/1000,2) + ROUND($FK12*HT12*CHOOSE(sTarget_SA_Basis,EQ12,EV12)/1000,2) + ROUND((12*TRUNC($FN12/12,2)+12*TRUNC($FO12/12,2))*CHOOSE(sTarget_SA_Basis,EQ12,EV12)/1000,2)	0	0
+233	HY	MTP Cov 3	=ROUND(CHOOSE(sTarget_SA_Basis,ER12,EW12)*HQ12/1000,2) + ROUND($FK12*HU12*CHOOSE(sTarget_SA_Basis,ER12,EW12)/1000,2) + ROUND((12*TRUNC($FN12/12,2)+12*TRUNC($FO12/12,2))*CHOOSE(sTarget_SA_Basis,ER12,EW12)/1000,2)	0	0
+234	HZ	MTP APB	=ROUND(CHOOSE(sTarget_SA_Basis,ES12,EX12)*HR12/1000,2) + ROUND($FK12*HV12*CHOOSE(sTarget_SA_Basis,ES12,EX12)/1000,2) + ROUND((12*TRUNC($FN12/12,2)+12*TRUNC($FO12/12,2))*CHOOSE(sTarget_SA_Basis,ES12,EX12)/1000,2)	0	0
+235	IA	Rider MTP / MTP Rate 1	=PolicyRates!Q10	0	0
+236	IB	MTP Rate 2	=PolicyRates!R10	0	0
+237	IC	MTP Rate 3	=PolicyRates!S10	0	0
+238	ID	MTP Rate 1 Tbl	=PolicyRates!T10	0	0
+239	IE	MTP Rate 2 Tbl	=PolicyRates!U10	0	0
+240	IF	MTP Rate 3 Tbl	=PolicyRates!V10	0	0
+241	IG	MTP 1	=IF(GK12,ROUND(GP12*IA12/1000,2) + ROUND(GN12*ID12*GP12/1000,2) + ROUND(12*TRUNC(GO12/12,2)*GP12/1000,2),0)	0	0
+242	IH	MTP 2	=IF(GS12,ROUND(GX12*IB12/1000,2) + ROUND(GV12*IE12*GX12/1000,2) + ROUND(12*TRUNC(GW12/12,2)*GX12/1000,2),0)	0	0
+243	II	MTP 3	=IF(HA12,ROUND(HF12*IC12/1000,2) + ROUND(HD12*IF12*HF12/1000,2) + ROUND(12*TRUNC(HE12/12,2)*HF12/1000,2),0)	0	0
+244	IJ	Benefits MTP / PWSTP / MTPR	=PolicyRates!W10	0	0
+245	IK	MTP	=IF(vPWST_Active,IF(sblnFFL,JD12,vPWST_Units*IJ12*(1+sTableRatingFactor*FK12)),0)	0	0
+246	IL	CCV / MTPR	=PolicyRates!Y10	0	0
+247	IM	MTP	=IL12*vCurrentSA/1000	0	0
+248	IN	CTR / MTPR	=PolicyRates!Z10	0	0
+249	IO	MTP	=IF(vCTR_Active,vCTR_Units*IN12,0)	0	0
+250	IP	GIR / MTPR	=PolicyRates!DG10	0	0
+251	IQ	MTP	=IF(vGIR_Active,vGIR_Units*IP12,0)	0	0
+252	IR	ADB / MTPR	=PolicyRates!X10	0	0
+253	IS	MTP	=IF(vADB_Active,vADB_Units*IR12,0)	0	0
+254	IT	PW39 / MTP w/o PW	=IS12+IQ12+IO12+IK12+IM12+IG12+IH12+II12+HW12+HX12+HY12+HZ12	562.5	562.5
+255	IU	MTPR	=PolicyRates!DH10	0	0
+256	IV	MTP	=IF(vPW_Active,IF(sblnFFL, JB12,IU12*IT12*(1+sTableRatingFactor*vTableCov1)),0)	0	0
+257	IW	FFL Premium Waivers / vMin_Base	=IF(HJ12,SUMPRODUCT(PolicyRates!EH10:EJ10,EU12:EW12)/1000,IW11)	7.875	7.875
+258	IX	vMin_Base_Table	=SUMPRODUCT(PolicyRates!EH10:EJ10,FK12:FM12,EU12:EW12)*sTableRatingFactor/1000	0	0
+259	IY	vMin_Base_Flat	=SUM(EU12:EW12)*(vFlat1)	0	0
+260	IZ	vPWoC_MinBasis	=(IG12+IH12+II12+IO12+IQ12+IS12)/12+IW12+IX12+IY12+PolicyRates!FE10	12.875	12.875
+261	JA	vPWoT_MinBasis	=SUM(HW12:HZ12,IG12:II12,IO12,IQ12,IS12,IV12)	562.5	562.5
+262	JB	PWoC_MTP	=TRUNC(IU12*IZ12*(1+sTableRatingFactor*vTableCov1),2)	0	0
+263	JC	PWoT_wTable	=TRUNC(IJ12/100*(1+FK12*sTableRatingFactor)/(1-IJ12/100*(1+FK12*sTableRatingFactor)),5)	0	0
+264	JD	PWoT_MTP	=TRUNC(JA12*JC12,2)	0	0
+265	JE	vMonthlyMTP	=TRUNC(JG12/12,2)	46.87	46.87
+266	JF	vAccumMTP	=IF(vInforceValuationDate,sINPUT_Accum_Min,JE12+JF11)	46.87	328.09
+267	JG	vMTP	=IF(sINPUT_InforceIndicator="Y", IF(vInforceValuationDate,sINPUT_MonthlyMTP*12, IF(vPolicyChangeIndicator,SUM(HW12:HZ12)+IK12+IM12+IO12+SUM(IG12:II12)+IQ12+IS12+IV12, JG11)), SUM(HW12:HZ12)+IK12+IM12+IO12+SUM(IG12:II12)+IQ12+IS12+ IV12)	562.5	562.5
+268	JH				
+269	JI	Coverage Segments CTP (Original SA) / CTP Rate Cov 1	=PolicyRates!AC10	4.5	4.5
+270	JJ	CTP Rate Cov 2	=PolicyRates!AD10	0	0
+271	JK	CTP Rate Cov 3	=PolicyRates!AE10	0	0
+272	JL	CTP Rate APB	=PolicyRates!AF10	0	0
+273	JM	CTP Rate Cov 1 Tbl	=PolicyRates!AG10	0.94	0.94
+274	JN	CTP Rate Cov 2 Tbl	=PolicyRates!AH10	0	0
+275	JO	CTP Rate Cov 3 Tbl	=PolicyRates!AI10	0	0
+276	JP	CTP Rate APB Tbl	=PolicyRates!AJ10	0	0
+277	JQ	CTP Premium / CTP Cov 1	=ROUND(CHOOSE(sTarget_SA_Basis,EP12,EU12)*JI12/1000,2) + ROUND($FK12*MIN(6,JM12)*CHOOSE(sTarget_SA_Basis,EP12,EU12)/1000,2) + ROUND((12*TRUNC($FN12/12,2)+12*TRUNC($FO12/12,2))*CHOOSE(sTarget_SA_Basis,EP12,EU12)/1000,2)	675	675
+278	JR	CTP Cov 2	=ROUND(CHOOSE(sTarget_SA_Basis,EQ12,EV12)*JJ12/1000,2) + ROUND($FK12*MIN(6,JN12)*CHOOSE(sTarget_SA_Basis,EQ12,EV12)/1000,2) + ROUND((12*TRUNC($FN12/12,2)+12*TRUNC($FO12/12,2))*CHOOSE(sTarget_SA_Basis,EQ12,EV12)/1000,2)	0	0
+279	JS	CTP Cov 3	=ROUND(CHOOSE(sTarget_SA_Basis,ER12,EW12)*JK12/1000,2) + ROUND($FK12*MIN(6,JO12)*CHOOSE(sTarget_SA_Basis,ER12,EW12)/1000,2) + ROUND((12*TRUNC($FN12/12,2)+12*TRUNC($FO12/12,2))*CHOOSE(sTarget_SA_Basis,ER12,EW12)/1000,2)	0	0
+280	JT	CTP APB	=ROUND(CHOOSE(sTarget_SA_Basis,ES12,EX12)*JL12/1000,2) + ROUND($FK12*MIN(6,JP12)*CHOOSE(sTarget_SA_Basis,ES12,EX12)/1000,2) + ROUND((12*TRUNC($FN12/12,2)+12*TRUNC($FO12/12,2))*CHOOSE(sTarget_SA_Basis,ES12,EX12)/1000,2)	0	0
+281	JU	Sig Term CTP / CTP Rate Sig 1	=PolicyRates!AK10	0	0
+282	JV	CTP Rate Sig 2	=PolicyRates!AL10	0	0
+283	JW	CTP Rate Sig 3	=PolicyRates!AM10	0	0
+284	JX	CTP Rate Sig 1 Tbl	=PolicyRates!AN10	0	0
+285	JY	CTP Rate Sig 2 Tbl	=PolicyRates!AO10	0	0
+286	JZ	CTP Rate Sig 3 Tbl	=PolicyRates!AP10	0	0
+287	KA	CTP Sig 1	=IF(GK12,ROUND(GP12*JU12/1000,2) + ROUND(sTableRatingFactor*MIN(6,$GN12)*JX12,2) + ROUND(12*TRUNC(GO12/12,2)*GP12/1000,2),0)	0	0
+288	KB	CTP Sig 2	=IF(GS12,ROUND(GX12*JV12/1000,2) + ROUND(sTableRatingFactor*MIN(6,$GN12)*JY12,2) + ROUND(12*TRUNC(GW12/12,2)*GX12/1000,2),0)	0	0
+289	KC	CTP Sig 3	=IF(HA12,ROUND(HF12*JW12/1000,2) + ROUND(sTableRatingFactor*MIN(6,$GN12)*JZ12,2) + ROUND(12*TRUNC(HE12/12,2)*HF12/1000,2),0)	0	0
+290	KD	Benefits CTP / PWSTP / CTPR	=PolicyRates!AQ10	0	0
+291	KE	vPWSTP_CTP	=IF(vPWST_Active,IF(sblnFFL, JC12*JG12,vPWST_Units*KD12*(1+sTableRatingFactor*FK12)),0)	0	0
+292	KF	CCV / CTPR	=PolicyRates!AS10	0	0
+293	KG	CTP	=KF12*vCurrentSA/1000	0	0
+294	KH	CTR / CTPR	=PolicyRates!AT10	0	0
+295	KI	vCTR_CTP	=IF(vCTR_Active,vCTR_Units*KH12,0)	0	0
+296	KJ	GIR / CTPR	=PolicyRates!EA10	0	0
+297	KK	vGIR_CTP	=IF(vGIR_Active,vGIR_Units*KJ12,0)	0	0
+298	KL	ADB / CTPR	=PolicyRates!AR10	0	0
+299	KM	CTP	=IF(vADB_Active,vADB_Units*KL12,0)	0	0
+300	KN	PW39 / CTP w/o PW	NA	NA	NA
+301	KO	CTP Rate PW	NA	NA	NA
+302	KP	CTP PW	=IV12	0	0
+303	KQ	vCTP	=IF(sINPUT_InforceIndicator="Y", IF(vInforceValuationDate,sINPUT_CTP, IF(vPolicyChangeIndicator,SUM(JQ12,JR12,JS12,JT12)+KE12+KG12+KI12+SUM(KA12,KB12,KC12)+KK12+ROUND(KP12,2), KQ11) ), SUM(JQ12,JR12,JS12,JT12)+KE12+KG12+KI12+SUM(KA12,KB12,KC12)+KK12+ROUND(KP12,2))	675	675
+304	KR				
+305	KS	vGSP	=IF(sINPUT_Guideline="CVAT",0,INT(IF(vInforceValuationDate*1,sINPUT_GSP,IF(vID=1,sGSP_Issue,IF(HJ12,VLOOKUP(HK12,Guideline_Premiums!$A$4:$F$10,4,0),KS11)))/12*100)*12/100)	12863.52	12863.52
+306	KT	vGLP	=IF(sINPUT_Guideline="CVAT",0,INT(IF(vInforceValuationDate*1,sINPUT_GLP,IF(vID=1,sGLP_Issue,IF(HJ12,VLOOKUP(HK12,Guideline_Premiums!$A$4:$F$10,5,0),KT11)))/12*100)*12/100)	1171.44	1171.44
+307	KU	vAccumGLP	=IF(vInforceValuationDate,sINPUT_AccumGLP,IF(vAttainedAge>=100,KU11,IF(I12,KT12+KU11,KU11)))	1171.44	1171.44
+308	KV	vTEFRA_Limit	=MAX(KS12,KU12)	12863.52	12863.52
+309	KW	=KU126-KW126 / Prem-WD	=AG12-BD12	0	0
+310	KX	vForceOut	=IF(INDEX(vExceptionPremMode,vID-1),0,IF(sINPUT_Guideline="CVAT",0,IF(NOT(sINPUT_TEFRA_Force),0,MIN(MAX(0,vAV_AfterChanges*1),MAX(KW12-KV12,0)))))	0	0
+311	KY	v7PayPrem	=IF(vInforceValuationDate*1, sINPUT_7PayPremium,IF(vID=1, s7Pay_Issue,IF(AND(HJ12,$HK12<=sMax7702RecalcsAllowed),VLOOKUP(HK12,Guideline_Premiums!$A$4:$F$10,6,0),CalcEngine!KY11)))	3553.1705496569057	3553.1705496569057
+312	KZ	New TAMRA Period	=IF(sCoveredByTAMRA,IF(vDate=sINPUT_Issue_Date,TRUE,vMaterialChangeIndicator),FALSE)	True	False
+313	LA	v7PayStartDate	=IF(vMaterialChangeIndicator*1=1,vDate,IF(vInforceValuationDate,sINPUT_7PayStartDate,LA11))	2017-06-09 00:00:00	2017-06-09 00:00:00
+314	LB	vTAMRAMonth	=IF(sCoveredByTAMRA, IF(vInforceValuationDate,DATEDIF(LA12,vDate,"m")+1,IF(KZ12,1,LB11+1)), 9999)	1	7
+315	LC	vTAMRA_MonthOfYear	=MOD(LB12-1,12)+1	1	7
+316	LD	vTAMRA_Year	=INT((LB12-1)/12)+1	1	1
+317	LE	Amount In 7-Pay	=IF(LB12=1,0,SUM(XZ11:YF11))	0	0
+318	LF	vLowest7YearFace	=IF(vInforceValuationDate, sINPUT_7YrLowestDB,IF(LB12=1,FC12,IF(LD12<=7,IF(FC11<LF11,FC11,LF11),LF11)))	150000	150000
+319	LG	vValue_for_NPT	=MIN(vDCV_AfterChanges*1,vAV_AfterChanges*1)	0	-187.29713364798215
+320	LH	vNPT_NSP	=INDEX(mNSPs,vPolicyMonth -vChangeMonth+2,HK12+1)	22114.51925365277	22488.083254567075
+321	LI	vNPT_Premium	=IF(sINPUT_Guideline="GPT",0,IF(MAX(0,LH12-LG12)/(1-PolicyRates!AW10)<KQ12,MAX(0,LH12-LG12)/(1-PolicyRates!AW10),MAX(0,LH12-LG12+(PolicyRates!AW10-PolicyRates!AX10)*KQ12)/(1-PolicyRates!AX10)))	0	0
+322	LJ	GP Display	=KV12	12863.52	12863.52
+323	LK				
+324	LL	1035, Lumpsum and Scheduled Premium Data / v1035_Amount	=IF(sINPUT_1035_Exchange_EffectiveDate="",IF(vID=1,sINPUT_1035_Exchange_Amount,0),IF(vDate=sINPUT_1035_Exchange_EffectiveDate,sINPUT_1035_Exchange_Amount,0))	0	0
+325	LM	vLumpsum	=IF(vDate=sLumpsum_Date,sINPUT_Inforce_Lumpsum,0)	0	0
+326	LN	vPlannedPremium	=IF(vAttainedAge>=sPremiumCeaseAge,0,IF(NOT(vLiveCalc),0,INDEX(vINPUT_Premium_Amount,MATCH(D12,vINPUT_Duration,0))))	0	0
+327	LO	vPlannedPremiumMode	=IF(ISNA(MATCH(D12,vINPUT_Duration,0)),"A",INDEX(vINPUT_Premium_Mode,MATCH(D12,vINPUT_Duration,0)))	M	M
+328	LP	Premium Frequency	=FIND(LO12,"AS0Q0000000M")	12	12
+329	LQ	Premium Period	=FIND(LO12,"M0Q00S00000A")	1	1
+330	LR	Scheduled Premium Due	=IF(MOD(E12-1,FIND(LO12,"M0Q00S00000A"))=0,1,0)	1	1
+331	LS	Scheduled Premium	=LR12*LN12	0	0
+332	LT	Payment Count For Policy Year	=IF(vBeginningOfYearCalc*1,INT((12-E12+1)/LQ12),LT11)	12	12
+333	LU	Payment Count for TAMRA Year	=IF(vBeginningOfYearCalc*1,INT((12-LC12+1)/LQ12),LU11)	12	12
+334	LV		=LR12*LN12+LM12	0	0
+335	LW				
+336	LX	For interest in advance there is no accrued interest.  The Loan Total is tracked under Rg Ln Princ and Pref LN Princ. / But the Loan Total is not equal to the Loan Payoff. / Rg Ln Princ/Total	=IF(vInforceValuationDate,sINPUT_FixedLn_Principle,Z12+IF(vAnniversary,AA12,0)) +IF(AND(v1035Date,sINPUT_Loan_Type="Fixed"), sINPUT_1035_Exchange_Loan,0)	0	0
+337	LY	Rg Ln Int Accrued	=IF(vInforceValuationDate,IF(sLoanType="Advance",0,sINPUT_FixedLn_Accrued),IF(vAnniversary,0,AA12))	0	0
+338	LZ	Pf Ln Princ/Total	=IF(vInforceValuationDate,sINPUT_PreflLn_Principle,AB12+IF(vAnniversary,AC12,0))	0	0
+339	MA	Pf Ln Int Accrued	=IF(vInforceValuationDate,IF(sLoanType="Advance",0,sINPUT_PreflLn_Accrued),IF(vAnniversary,0,AC12))	0	0
+340	MB	Var Ln Princ/Total	=IF(vInforceValuationDate,sINPUT_VblLn_Principle,AD12+IF(vAnniversary,AE12,0))+IF(AND(v1035Date,sINPUT_Loan_Type="Variable"), sINPUT_1035_Exchange_Loan,0)	0	0
+341	MC	Var Ln Int Accrued	=IF(vInforceValuationDate,IF(sLoanType="Advance",0,sINPUT_VblLn_Accrued),IF(vAnniversary,0,AE12))	0	0
+342	MD	Adv Reg LN Payoff	=ROUND(LX12*(1-X12),2)	0	0
+343	ME	Adv Pref LN Payoff	=ROUND(LZ12*(1-Y12),2)	0	0
+344	MF	vLoanPayoff	=IF(blnAdvanceLoan,MD12+ME12,SUM(LX12:MC12))	0	0
+345	MG	For interest in arrears loan int accrues at the end of the month (see Accumulation section)  but capitalizes here  prior to MD.  This is closer to how Cyberlife calculates, it will capitalize at the beginning of the year, not end of the year. / vPremToPayLoanInterest	=IF(sINPUT_AddInterestToLoan,0,IF(LR12=1,AA12+AC12+AE12,0))	0	0
+346	MH	Loan Repayment / From Lumpsum	=IF(sInput_ApplyPremToLoan, MIN(MF12-MG12,vLumpsum*1), 0)	0	0
+347	MI	Loan Repayment / From Scheduled Prem	=IF(sInput_ApplyPremToLoan,MIN(MF12-MG12-MH12,LS12),0)	0	0
+348	MJ	vLoanRepayFromForceout	=IF(sINPUT_RepayLoanWithForceOut,MIN(vLoanPayOff*1-MH12-MI12-MG12,MAX(0,vForceOut*1)),0)	0	0
+349	MK	vLoanRepayFromPremAndForceout	=MI12+MH12+MG12+MJ12	0	0
+350	ML	Requested / Loan Mode	=INDEX( vINPUT_Loan_Mode,MATCH(D12,vINPUT_Duration,0))	A	A
+351	MM	Loan Mode Effective	=IF(vForecastDate,TRUE,IF(vLiveCalc,MOD(vMonth-1,FIND(ML12,"M0Q00S00000A"))=0,FALSE))	False	False
+352	MN	Requested / Loan Repayment	=MM12*INDEX(vINPUT_Loan_Repayment,MATCH(D12,vINPUT_Duration,0))	0	0
+353	MO	Total Loan Repayment Attempted	=IF(sINPUT_CeaseLNRepayAtPayoff,MIN(MF12,MK12+MN12),MK12+MN12)	0	0
+354	MP	Advanced Loan / Adv Total Loan Repayment calculates future interest repaid (for Advanced Loans only) / Adv Reg LN Repay	=MIN(MD12,MO12-MQ12)	0	0
+355	MQ	Adv Pref LN Repay	=MIN(ME12,MO12)	0	0
+356	MR	Adv Total Loan Repayment	=ROUND(MP12/(1-sRates_LNCRG*vDaysToNextAnnivesary/365),2)+ROUND(MQ12/(1-sRates_PrefLNCRG*vDaysToNextAnnivesary/365),2)	0	0
+357	MS	Loan balance after loan repay / 4 / Rg Ln Princ	=IF(VO11=0, LX12, LX12-MIN(LX12,MAX(0,$MO12-SUMIF($MS$4:$MX$4,"<"&MS$4,$LX12:$MC12))) )	0	0
+358	MT	2 / Rg Ln Int	=IF(VP11=0, LY12, LY12-MIN(LY12,MAX(0,$MO12-SUMIF($MS$4:$MX$4,"<"&MT$4,$LX12:$MC12))) )	0	0
+359	MU	3 / Pf Ln Princ	=IF(VQ11=0, LZ12, LZ12-MIN(LZ12,MAX(0,$MO12-SUMIF($MS$4:$MX$4,"<"&MU$4,$LX12:$MC12))) )	0	0
+360	MV	1 / Pf Ln Int	=IF(VR11=0, MA12, MA12-MIN(MA12,MAX(0,$MO12-SUMIF($MS$4:$MX$4,"<"&MV$4,$LX12:$MC12))) )	0	0
+361	MW	6 / Var Ln Princ	=IF(VS11=0, MB12, MB12-MIN(MB12,MAX(0,$MO12-SUMIF($MS$4:$MX$4,"<"&MW$4,$LX12:$MC12))) )	0	0
+362	MX	5 / Var Ln Int	=IF(VT11=0, MC12, MC12-MIN(MC12,MAX(0,$MO12-SUMIF($MS$4:$MX$4,"<"&MX$4,$LX12:$MC12))) )	0	0
+363	MY	vLNRepayLeftOver	=MAX(0,MO12-MF12)	0	0
+364	MZ	vTotalLoanReduction	=IF(blnArrearsLoan,MO12,MR12)	0	0
+365	NA	vPolicyDebtDisplay	=SUM(MS12:MX12)	0	0
+366	NB				
+367	NC	Allowances before any premium applied / GP_Allowance0	=IF(sINPUT_Guideline="CVAT",999999999,MAX(0,KV12-KW12+(vForceOut-vLoanRepayFromForceout)))	12863.52	12863.52
+368	ND	NPT Allowance0	=IF(sINPUT_Guideline="CVAT",MAX(IF(LD12<=7,999999999,vNPT_Premium*1)),999999999)	999999999	999999999
+369	NE	TAMRA_Allowance0	=MAX(IF(LD12<=7, KY12*LD12-LE12+(vForceOut-vLoanRepayFromForceout),999999999),0)	3553.1705496569057	3553.1705496569057
+370	NF	Annual Cap0	=MIN(IF(AND(sINPUT_Guideline="GPT",sINPUT_TEFRA_Force),NC12,999999999))	999999999	999999999
+371	NG	Allowances after 1035 applied / 1035 amounts are not restricted by TAMRA limits / vApplied1035	=MIN(LL12,NF12)	0	0
+372	NH	GP_Allowance1	=NC12-NG12	12863.52	12863.52
+373	NI	NPT Allowance 1	=ND12-NG12	999999999	999999999
+374	NJ	1035 amounts do not impact TAMRA limits / TAMRA_Allowance1	=NE12	3553.1705496569057	3553.1705496569057
+375	NK	Annual Cap1	=MIN(IF(AND(sINPUT_Guideline="GPT",sINPUT_TEFRA_Force),NH12,999999999),IF(sINPUT_TAMRA_Force,IF(AND(sINPUT_InforceIndicator="Y",sINPUT_IsMEC),999999999,MIN(NI12,NJ12)),999999999))	3553.1705496569057	3553.1705496569057
+376	NL	Allowances after Lumpsum applied / Lumpsum Remaining	=(vLumpsum -MH12) +vLNRepayLeftOver	0	0
+377	NM	vAppliedLumpsum	=MIN(NL12,NK12)	0	0
+378	NN	GP_Allowance2	=NH12-$NM12	12863.52	12863.52
+379	NO	NPT Allowance 2	=NI12-NM12	999999999	999999999
+380	NP	TAMRA_Allowance2	=MAX(NJ12-$NM12,0)	3553.1705496569057	3553.1705496569057
+381	NQ	Annual Cap2	=MIN(IF(AND(sINPUT_Guideline="GPT",sINPUT_TEFRA_Force),NN12,999999999),IF(sINPUT_TAMRA_Force,IF(AND(sINPUT_InforceIndicator="Y",sINPUT_IsMEC),999999999,MIN(NO12,NP12)),999999999))	3553.1705496569057	3553.1705496569057
+382	NR	Allowances for Scheduled Premium / Consider a Level Premium for the rest of the year (assumes no loan on the policy) / TAMRA_Level_Allowance_BOY	=IF(LU12=0,NP12,NP12/LU12)	296.09754580474214	296.09754580474214
+383	NS	TAMRA_Level_Allowance_EOY	=IF(AND(vTAMRA_MonthOfYear<>vMonth,vTAMRA_Year<7),NP12+IF(KZ12,0,v7PayPrem),999999999)/IF(LT12=0,1,LT12)	83333333.25	83333333.25
+384	NT	NPT_Level_Allowance	=IF(LU12=0,NO12,(NO12/LU12))	83333333.25	83333333.25
+385	NU	GP_Level_Allowance	=NN12/IF(LT12=0,1,LT12)	1071.96	1071.96
+386	NV	Scheduled Prem Cap	=IF(vBeginningOfYearCalc,MIN(IF(sINPUT_TAMRA_Force,IF(AND(sINPUT_InforceIndicator="Y",sINPUT_IsMEC),999999999,MIN(NR12,NS12,NT12)),999999999),IF(AND(sINPUT_Guideline="GPT",sINPUT_TEFRA_Force),NU12,999999999)),NV11)	296.09754580474214	296.09754580474214
+387	NW	Levelized Max Premium	=MIN(NV12,LS12)	0	0
+388	NX	Apply Levelized Premium	=IF(OR(I12, vForecasting*1),IF(AND(SUM(LX12:LY12,MB12:MC12)<=0,sINPUT_LevelizingPremium),TRUE,FALSE),NX11)	False	False
+389	NY	Scheduled Premium less Loan Repay	=LS12-MI12	0	0
+390	NZ	vAppliedScheduledPremium	=MIN(NQ12,IF(NX12,NW12,NY12),IF(sINPUT_TAMRA_Force,IF(AND(sINPUT_InforceIndicator="Y",sINPUT_IsMEC),999999999,ND12),999999999))	0	0
+391	OA	vAppliedTotalPremium	=IF(AND(sblnPrintMode, sAssumption<> "Current"), INDEX(vCurrentAppliedTotalPremium,$B12), IF(vAttainedAge>=sPremiumCeaseAge,0,NZ12+NM12+NG12))	0	0
+392	OB	vPremTD	=IF(vInforceValuationDate,INPUT!$B$130,AG12+OA12-KX12)	0	0
+393	OC	vPremYTD	=IF(vInforceValuationDate,INPUT!B$129,OA12+IF(I12,0,OC11))	0	0
+394	OD	vCostBasis	=IF(vInforceValuationDate,sINPUT_CostBasis,BC12-(vForceOut-vLoanRepayFromForceout)+vAppliedTotalPremium)	0	0
+395	OE	Prem Under Target	=MAX(MIN(vCTP-(OC12-OA12),OA12),0)	0	0
+396	OF	Prem Over Target	=IF(OC12>vCTP,MIN(OA12,OC12-vCTP),0)	0	0
+397	OG	TPP Rate	=PolicyRates!AW10	0.08	0.08
+398	OH	EPP Rate	=PolicyRates!AX10	0.04	0.04
+399	OI	Under Load	=OE12*OG12	0	0
+400	OJ	Over Load	=OF12*OH12	0	0
+401	OK	Flat Load	=IF(OA12>0,PolicyRates!AY10,0)	0	0
+402	OL	vTotalPremLoad	=OI12+OJ12+OK12	0	0
+403	OM	vNetPremium	=OA12-OL12	0	0
+404	ON				
+405	OO	mAV	=IF(vInforceValuationDate, sPrevAV,vAV_AfterChanges+ vNetPremium-vForceOut)	0	-159.6337540224544
+406	OP	NAAR AV	=MAX(OO12,0)	0	0
+407	OQ	Standard DB	=vCurrentSA+IF(CT12="A",0,0)+IF(CT12="B",OO12,0)+IF(CT12="C",MAX(0,OB12-BD12),0)	150000	150000
+408	OR	CorridorRate	=PolicyRates!AZ10	2.5	2.5
+409	OS	vMDBR	=PolicyRates!EG10	1	1
+410	OT	=SUM(OT1:OT3) / Grossed DB	=MAX(OQ12,OP12*(IF(sINPUT_Guideline="GPT",OR12,IF(sINPUT_Guideline="CVAT",OS12))))	150000	150000
+411	OU	Corr Amount	=OT12-OQ12	0	0
+412	OV	Base COI Charge / COI Rate Lookup / 1	=PolicyRates!BA10	0.0525	0.0525
+413	OW	2	=PolicyRates!BB10	0	0
+414	OX	3	=PolicyRates!BC10	0	0
+415	OY	COI Rate with Substandard / 1	=ROUND(IF(OV12=0,0,OV12*(1+sTableRatingFactor*FK12)+ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2)), 5)	0.0525	0.0525
+416	OZ	2	=IF(OW12=0,0,OW12*(1+sTableRatingFactor*FL12)+ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2))	0	0
+417	PA	3	=IF(OX12=0,0,OX12*(1+sTableRatingFactor*FM12)+ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2))	0	0
+418	PB	Death Benefit Discount (DBD) / DBD Rate	=PolicyRates!BK10	0.03	0.03
+419	PC	1	=(EU12+IF(CT12="B",$OP12,0)+IF(CT12="C",$OB12,0))/(ROUND((1+$PB12)^(1/12),7))	149630.96515064896	149630.96515064896
+420	PD	2	=(EV12)/(ROUND((1+$PB12)^(1/12),7))	0	0
+421	PE	3	=(EW12)/(ROUND((1+$PB12)^(1/12),7))	0	0
+422	PF	Corridor / 4	=(OU12)/(ROUND((1+$PB12)^(1/12),7))	0	0
+423	PG	=PC6-OP6 / Net Amount At Risk (FIFO) / 1	=MAX(0,PC12-MIN(PC12,MAX(0,$OP12-SUMIF($PG$5:$PJ$5,"<"&PG$5,$PC12:$PF12))))	149630.96515064896	149630.96515064896
+424	PH	2	=MAX(0,PD12-MIN(PD12,MAX(0,$OP12-SUMIF($PG$5:$PJ$5,"<"&PH$5,$PC12:$PF12))))	0	0
+425	PI	3	=MAX(0,PE12-MIN(PE12,MAX(0,$OP12-SUMIF($PG$5:$PJ$5,"<"&PI$5,$PC12:$PF12))))	0	0
+426	PJ	Corridor / 4	=MAX(0,PF12-MIN(PF12,MAX(0,$OP12-SUMIF($PG$5:$PJ$5,"<"&PJ$5,$PC12:$PF12))))	0	0
+427	PK	COI Charge for segments / 1	=OY12*PG12/1000	7.85562567040907	7.85562567040907
+428	PL	2	=OZ12*PH12/1000	0	0
+429	PM	3	=PA12*PI12/1000	0	0
+430	PN	Corridor	=INDEX($OY12:$PA12,vLastActiveSegment)*PJ12/1000	0	0
+431	PO	Dynamic COI	=PK12+PL12+PM12+PN12	7.85562567040907	7.85562567040907
+432	PP	Base COI Charge (Ratchet Banding - Assuming only 2 bands) / COI Rate Lookup (band 1) / 1	=PolicyRates!BE10	0	0
+433	PQ	2	=PolicyRates!BF10	0	0
+434	PR	3	=PolicyRates!BG10	0	0
+435	PS	COI Rate Lookup (band 2) / 1	=PolicyRates!BH10	0	0
+436	PT	2	=PolicyRates!BI10	0	0
+437	PU	3	=PolicyRates!BJ10	0	0
+438	PV	COI Rate with Substandard (band1) / 1	=PP12*(1+sTableRatingFactor*$FK12)+ ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2)	0	0
+439	PW	2	=PQ12*(1+sTableRatingFactor*$FK12)+ ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2)	0	0
+440	PX	3	=PR12*(1+sTableRatingFactor*$FK12)+ ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2)	0	0
+441	PY	COI Rate with Substandard (band 2) / 1	=PS12*(1+sTableRatingFactor*$FK12)+ ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2)	0	0
+442	PZ	2	=PT12*(1+sTableRatingFactor*$FK12)+ ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2)	0	0
+443	QA	3	=PU12*(1+sTableRatingFactor*$FK12)+ ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2)	0	0
+444	QB	Death Benefit Discount (DBD) / DBD Rate	=PB12	0.03	0.03
+445	QC	1	=(EU12+IF(CT12="B",$OP12,0)+IF(CT12="C",$OB12,0))/(ROUND((1+$QB12)^(1/12),7))	149630.96515064896	149630.96515064896
+446	QD	2	=(EV12)/((1+$QB12)^(1/12))	0	0
+447	QE	3	=(EW12)/((1+$QB12)^(1/12))	0	0
+448	QF	Corridor	=(OU12)/((1+$QB12)^(1/12))	0	0
+449	QG	Band 2 Amount	=QG11	50000	50000
+450	QH	"<" equals FIFO, ">" equals LIFO.  ANICO ULs are FIFO / Total Net Amount At Risk (FIFO) / 1	=MAX(0,QC12-MIN(QC12,MAX(0,$OP12-SUMIF($QH$5:$QJ$5,"<"&QH$5,$QC12:$QE12))))	149630.96515064896	149630.96515064896
+451	QI	2	=MAX(0,QD12-MIN(QD12,MAX(0,$OP12-SUMIF($QH$5:$QJ$5,"<"&QI$5,$QC12:$QE12))))	0	0
+452	QJ	3	=MAX(0,QE12-MIN(QE12,MAX(0,$OP12-SUMIF($QH$5:$QJ$5,"<"&QJ$5,$QC12:$QE12))))	0	0
+453	QK	Corridor	=MAX(QF12-MAX($OP12-(SUM($QC12:$QE12)-SUM($QH12:$QJ12)),0),0)	0	0
+454	QL	Net Amount At Risk Band 1 / 1	=MIN(QH12,MAX(0,$QG12-SUMIF($QL$5:$QO$5,"<"&QL$5,$QH12:$QK12)))	50000	50000
+455	QM	2	=MIN(QI12,MAX(0,$QG12-SUMIF($QL$5:$QO$5,"<"&QM$5,$QH12:$QK12)))	0	0
+456	QN	3	=MIN(QJ12,MAX(0,$QG12-SUMIF($QL$5:$QO$5,"<"&QN$5,$QH12:$QK12)))	0	0
+457	QO	Corridor / 4	=MIN(QK12,MAX(0,$QG12-SUMIF($QL$5:$QO$5,"<"&QO$5,$QH12:$QK12)))	0	0
+458	QP	Net Amount At Risk Band 2 / 1	=QH12-QL12	99630.96515064896	99630.96515064896
+459	QQ	2	=QI12-QM12	0	0
+460	QR	3	=QJ12-QN12	0	0
+461	QS	Corridor / 4	=QK12-QO12	0	0
+462	QT	COI Charge for segments / 1	=PV12*QL12/1000+QP12*PY12/1000	0	0
+463	QU	2	=PW12*QM12/1000+QQ12*PZ12/1000	0	0
+464	QV	3	=PX12*QN12/1000+QR12*QA12/1000	0	0
+465	QW	Corridor	=INDEX(PP12:PR12,vLastActiveSegment)*QO12/1000+INDEX(PS12:PU12,vLastActiveSegment)*OS12/1000	0	0
+466	QX	RatchetCOI	=SUM(QT12:QW12)	0	0
+467	QY	vTotalNAAR	=IF(_xlfn.XLOOKUP(sPlancode,Rates_Control!C:C,Rates_Control!BE:BE,,0),SUM(QH12,QI12,QJ12),SUM(PG12,PH12,PI12))	149630.96515064896	149630.96515064896
+468	QZ	vTotalBaseCOI	=IF(UPPER(TRIM(sRatchetBanding))="TRUE", QX12, PO12)	7.85562567040907	7.85562567040907
+469	RA	Rider and Benefit COI Charge (not including PW39) / COI Rate PWST	=PolicyRates!BL10	0	0
+470	RB	COI Charge PWST	=IF(vPWST_Active,ROUND( CHOOSE(sPWoT_COI_Basis,vPWST_Units*RA12, vMTP*RA12/100, vCTP*RA12/100)*(1+sTableRatingFactor*$FK12),2),0)	0	0
+471	RC	COI Rate ADB	=PolicyRates!BM10	0	0
+472	RD	COI Charge ADB	=IF(vADB_Active,ROUND(vADB_Units*RC12,2),0)	0	0
+473	RE	CCV Rate	=PolicyRates!EU10	0	0
+474	RF	CCV Charge	=ROUND(RE12,3)*vCCV_Units	0	0
+475	RG	COI Rate CTR	=PolicyRates!BO10	0	0
+476	RH	COI Charge CTR	=IF(vCTR_Active,ROUND(vCTR_Units*RG12,2),0)	0	0
+477	RI	COI Rate GIR	=PolicyRates!EW10	0	0
+478	RJ	COI Charge GIR	=IF(vGIR_Active,ROUND(vGIR_Units*RI12,2),0)	0	0
+479	RK	APB Rate	=PolicyRates!BD10	0	0
+480	RL	APB	=RK12*(1+sTableRatingFactor*$FK12)+ ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2)	0	0
+481	RM	vAPB_DB	=MAX(0,EX12-OU12)	0	0
+482	RN	APB Chrg	=ROUND(RM12*RL12/1000,2)	0	0
+483	RO	Rider COI Rate / Term 1	=PolicyRates!EX10	0	0
+484	RP	Term 2	=PolicyRates!EY10	0	0
+485	RQ	Term 3	=PolicyRates!EZ10	0	0
+486	RR	Rider COI Rate w Sub / Term 1	=RO12*(1+sTableRatingFactor*vR1_Table)+GO12	0	0
+487	RS	Term 2	=RP12*(1+sTableRatingFactor*vR2_Table)+GW12	0	0
+488	RT	Term 3	=RQ12*(1+sTableRatingFactor*vR3_Table)+HE12	0	0
+489	RU	Rider COI Charge / Term 1	=RR12*vR1_Face/1000	0	0
+490	RV	Term 2	=RS12*vR2_Face/1000	0	0
+491	RW	Term 3	=RT12*vR3_Face/1000	0	0
+492	RX	Expense Per Unit Charge / EPU Rate for Segments / 1	=PolicyRates!BT10	0.09167	0.09167
+493	RY	2	=PolicyRates!BU10	0	0
+494	RZ	3	=PolicyRates!BV10	0	0
+495	SA	APB	=PolicyRates!BW10	0	0
+496	SB	EPU Charge (original SA) / 1	=ROUND(CHOOSE(sEPU_SA_Basis,EP12,EU12)*RX12/1000,2)	13.75	13.75
+497	SC	2	=ROUND(CHOOSE(sEPU_SA_Basis,EQ12,EV12)*RY12/1000,2)	0	0
+498	SD	3	=ROUND(CHOOSE(sEPU_SA_Basis,ER12,EW12)*RZ12/1000,2)	0	0
+499	SE	APB	=ROUND(CHOOSE(sEPU_SA_Basis,ES12,EX12)*SA12/1000,2)	0	0
+500	SF	vTotalEPU	=SUM(SB12:SE12)	13.75	13.75
+501	SG	Other Fees / vMFee	=PolicyRates!BX10	5	5
+502	SH	PoAV	=PolicyRates!BY10	0	0
+503	SI	vAVCharge	=MAX(0,OO12*SH12)	0	0
+504	SJ	vTotalFees	=SI12+SG12+SF12	18.75	18.75
+505	SK	PWoC COI Charge / MD w/o PW	=SJ12+RU12+RV12+RW12+RN12+RJ12+RH12+RD12+QZ12+RF12	26.60562567040907	26.60562567040907
+506	SL	Premium to Waive	=IF(vPW_Active,IF(sPW_WaiveMTP,MAX(ROUND(vMTP/12,2),SK12),SK12),0)	0	0
+507	SM	COI Rate PW	=PolicyRates!FG10	0	0
+508	SN	COI PW Charge	=IF(vPW_Active,SL12*SM12*(1+sTableRatingFactor*$FK12),0)	0	0
+509	SO	vRiderBenefitCharge	=RB12+RH12+RF12+SN12+RU12+RV12+RW12+RN12+RJ12+RD12	0	0
+510	SP	Total COI Charge Display	=IF(H12,vTotalBaseCOI+vRiderBenefitCharge,0)	7.85562567040907	7.85562567040907
+511	SQ	ASSET CHARGE / IP - Asset Fee	=sIP_AssetFee	0.0215	0.0215
+512	SR	IR - Asset Fee	=sIR_AssetFee	0.0415	0.0415
+513	SS	vBlendedAssetRate	=IF(sAG49Index <=2, SQ12*sINPUT_PremAllocationIP+SR12*sINPUT_PremAllocationIR,0)	0	0
+514	ST	vAssetCharge	=IF(sAG49Index <=2,MAX(0,SS12/12*(OO12-MS12-MT12)),0)	0	0
+515	SU	vMD	=IF(H12,vTotalBaseCOI+vRiderBenefitCharge+vTotalFees,0)	26.60562567040907	26.60562567040907
+516	SV	vAV_AfterCharge	=IF(vInforceValuationDate,sInput_CurrentAV,OO12-SU12-IF(H12, CHOOSE(sAG49Index,ST12,ST12,0,0)))	-26.60562567040907	-186.23937969286348
+517	SW				
+518	SX	Guideline Limit Reached	=IF(vYear>=sMaturityYear,FALSE,IF(vBeginningOfYearCalc,NW12=NU12,SX11))	False	False
+519	SY	vExceptionPremMode	=IF(vYear>=sMaturityYear,FALSE,IF(NOT(vLiveCalc),FALSE,IF(UPPER(TRIM(SY11))="TRUE",TRUE,AND(sINPUT_AllowExceptionPrems*1,vAV_AfterCharge<0,SX12*1))))	False	False
+520	SZ	GP_Exception_Prem_Gross	=IF(OR(vYear<=sRates_SNET,vCCV_Active),0,IF(YS11,IF(SY12*1,MAX(0,-vAV_AfterCharge),0),0))	0	0
+521	TA	Exception_Prem_Discount	=SZ12/1000*OV12	0	0
+522	TB	vGP_Exception_Prem	=IF(SZ12=0,0,IF(AND(sblnPrintMode,sAssumption<>"Current"),INDEX(vCurrentGP_Exception_Prem,$B12),(SZ12-TA12+sFlatPremLoad)/(1-OG12)))	0	0
+523	TC				
+524	TD	vAV	=IF(vInforceValuationDate,sInput_CurrentAV,vAV_AfterCharge+IF(TB12>0,vGP_Exception_Prem*(1-OG12)-sFlatPremLoad+TA12,0))	-26.60562567040907	-186.23937969286348
+525	TE	Surrender Value - Before New Loan / SCR / 1	=PolicyRates!CA10	18.2	18.2
+526	TF	2	=PolicyRates!CB10	0	0
+527	TG	3	=PolicyRates!CC10	0	0
+528	TH	Surrender Charge (Original SA) / 1	=IF(DQ12,CHOOSE(sTarget_SA_Basis,EP12,EU12)*TE12/1000,0)	2730	2730
+529	TI	2	=IF(DR12,CHOOSE(sTarget_SA_Basis,EQ12,EV12)*TF12/1000,0)	0	0
+530	TJ	3	=IF(DS12,CHOOSE(sTarget_SA_Basis,ER12,EW12)*TG12/1000,0)	0	0
+531	TK	vFullSC	=SUM(TH12:TJ12)	2730	2730
+532	TL	vLapseSV	=TD12-TK12-vPolicyDebtDisplay	-2756.605625670409	-2916.2393796928636
+533	TM	New Loan / Requested Loan	=IF(vAttainedAge>120,0,INDEX(vINPUT_Loans,D12))	0	0
+534	TN	Loan Mode Effective	=MM12	False	False
+535	TO	Scheduled Loan Amount	=TN12*TM12	0	0
+536	TP	Remaining Distribution	=BB12	0	0
+537	TQ	vAppliedLoan	=IF(AND(sblnPrintMode,sAssumption<>"Current"), MAX(0,MIN(INDEX(vCurrentAppliedLoan,$B12), INDEX(vLapseSV,$B12))), IF(sInput_RestrictLoansToSV,MIN(TO12+TP12,MAX(0,TL12-sMD_HoldBack*(vMD))),TO12+TP12))	0	0
+538	TR	(AV - Loan Balance - (PremTD - AccumWD)) / Gain	=MAX(vAV-SUM(MS12:MX12)-MAX(0,(vPremTD-vAccumNetWD)),0)	0	0
+539	TS	New Reg LN	=TQ12-MIN(TQ12,TR12)	0	0
+540	TT	New Pref LN	=MIN(TQ12,TR12)	0	0
+541	TU	In Advance / vAdvRegLNInt	=IF($TV$3,TS12*sRates_LNCRG*(vDaysToNextAnnivesary)/(1-sRates_LNCRG*(vDaysToNextAnnivesary)),0)	0	0
+542	TV	=sLoanType="Advance" / vPrefRegLNInt	=IF($TV$3,TT12*sRates_PrefLNCRG*(vDaysToNextAnnivesary)/(1-sRates_PrefLNCRG*(vDaysToNextAnnivesary)),0)	0	0
+543	TW	In Arrears / Total Rg Ln Princ	=IF(sINPUT_Loan_Type="Fixed", IF($TX$3, MS12+TQ12-MIN(TQ12,TR12), MS12+TS12+TU12),0)	0	0
+544	TX	=sLoanType="Arrears" / Total Pref Ln Princ	=IF(sINPUT_Loan_Type="Fixed",IF($TX$3, MU12+MIN(TQ12,TR12), MU12+TT12+TV12),0)	0	0
+545	TY	Total Vbl Ln Princ	=IF($TX$3,IF(sINPUT_Loan_Type="Variable",MW12+TQ12,0),0)	0	0
+546	TZ	AV Display	=TD12	-26.60562567040907	-186.23937969286348
+547	UA				
+548	UB	# of Days	=IF(sINPUT_Exact_Days_Boolean,C13-C12-IF(U12,1,0),365/12)	30	31
+549	UC	vPolicyBonus	=IF(sAssumption= "Guaranteed",IF(vYear>=sRates_Bonus_StartDuration,sRates_Guaranteed_Bonus,0),IF(($TZ12-TW12-TY12)>sRates_Bonus_AVAmt,sRates_Bonus_by_AV,0)+IF(vYear>=sRates_Bonus_StartDuration,sRates_Bonus_by_Duration,0))	0	0
+550	UD	Fixed Ln Prinicple	=TW12+TX12	0	0
+551	UE	Reg Impaired Int	=MAX(0,(TW12)*((1+sRates_LNCRD)^(UB12/365)-1))	0	0
+552	UF	Pref Impaired Int	=MAX(0,(TX12)*((1+sRates_PrefLNCRD)^(UB12/365)-1))	0	0
+553	UG				
+554	UH	Declared Rate	=PolicyRates!$CH$5	0.03	0.03
+555	UI	Declared Rate + Policy Bonus	=UH12+UC12	0.03	0.03
+556	UJ	Unimpaired Int	=MAX(0,(TD12-TW12-TX12)*((1+UI12)^(UB12/365)-1))	0	0
+557	UK	Declared Interest	=SUM(UJ12,UE12,UF12)	0	0
+558	UL				
+559	UM	Blended Index Rate	=IF(sINPUT_VaryingAssumeRate,PolicyRates!CD10,PolicyRates!$CH$4)	0.03	0.03
+560	UN	vBlendedCreditingRate	=UM12+UC12	0.03	0.03
+561	UO	vBlendInterest	=MAX(0,(TD12-UD12)*((1+UN12)^(UB12/365)-1))+UE12+UF12	0	0
+562	UP				
+563	UQ	TAV / The whole purpose of this subsection is to calcluate the Total Accumulation Value (TAV).  The TAV is ONLY used to calculate the Weighted Average Interest rate (WAIR). The TAV is a simplified projection of how much account value will be in the policy for the next year.  It considers premiums (limited by 7702), loan repayments, loan balance, and Monthly deductions (from the SWAM - Sweep Account Minimum) / bPremTD	=IF(vBeginningOfYearCalc,KW12-vForceOut,0)	0	0
+564	UR	Amount In 7-Pay	=IF(vBeginningOfYearCalc,LE12,0)	0	0
+565	US	Annualized Scheduled Prem	=vPlannedPremium*LT12	0	0
+566	UT	Forecasted Prem for year	=US12+vLumpsum	0	0
+567	UU	bRg Ln P	=IF(vBeginningOfYearCalc,LX12,0)	0	0
+568	UV	bRg Ln Int	=IF(vBeginningOfYearCalc,LY12,0)	0	0
+569	UW	bVbl Ln P	=IF(vBeginningOfYearCalc,MB12,0)	0	0
+570	UX	bVbl Ln Int	=IF(vBeginningOfYearCalc,MC12,0)	0	0
+571	UY	Rg Ln w Int	=UU12*(1+sRates_LNCRG*((13-$E12)/12))+UV12	0	0
+572	UZ	Vbl LN w Int	=UW12*(1+MAX(sINPUT_Variable_Loan_Rate,(UE12-0.01))*((13-$E12)/12))+UX12	0	0
+573	VA	Loan Repayment	=IF(sInput_ApplyPremToLoan,MIN(UT12,SUM(UY12:UZ12)),0)	0	0
+574	VB	Forecasted Prem less loan repay	=UT12-VA12	0	0
+575	VC	Forecasted Prem Capped	=MAX(0,IF(sINPUT_Guideline="CVAT",VB12,MIN(VB12,NK12)))	0	0
+576	VD	TAV	=IF(vBeginningOfYearCalc,BO12+VC12*(1-PolicyRates!AW10),0)	0	0
+577	VE	TAV Display	=MAX(0,VD12)	0	0
+578	VF	SWAM	=IF(vInforceValuationDate,sINPUT_SWAM,(SU12)*12)	319.2675080449088	319.2675080449088
+579	VG	WAIR_on_ValuationDate	=IF(vInforceValuationDate,IF(sInput_CurrentAV<=0,0, ( MIN(sINPUT_SWAM,sInput_CurrentAV)*UI12+ sINPUT_FixedLn_Principle*sRates_LNCRD+ (sInput_CurrentAV-(sINPUT_FixedLn_Principle+sINPUT_FixedLn_Accrued)-MIN(sINPUT_SWAM,sInput_CurrentAV))*UN12)/sInput_CurrentAV), 0)	0	0
+580	VH	WAIR_on_Anniversary	=IF(vBeginningOfYearCalc,IF(VE12<=0,0, (MIN(VF12,VD12)* UI12+TW12*sRates_LNCRD+ +(VD12-(TW12+MT12)-MIN(VF12,VD12))* UN12)/(VD12)), VH11)	0	0
+581	VI	vWAIR	=IF(sAssumptionCode=3,MIN(IF(vInforceValuationDate,VG12,VH12),UI12),IF(vInforceValuationDate,VG12,VH12))	0	0
+582	VJ	WAIR Interest	=MAX(0,TD12*((1+VI12)^(UB12/365)-1))	0	0
+583	VK				
+584	VL	vEffectiveInterestRate	=CHOOSE(sIntCalcMethod,UI12,UN12, VI12)	0.03	0.03
+585	VM	vTotalInterest	=CHOOSE(sIntCalcMethod,UK12,UO12,VJ12)	0	0
+586	VN				
+587	VO	In Arrears / Reg Ln Princ	=TW12	0	0
+588	VP	=sLoanType="Arrears" / Accrued / Reg Ln Int	=IF($VP$3,MT12+VO12*(sRates_LNCRG*UB12/365),0)	0	0
+589	VQ	Pref Ln Princ	=TX12	0	0
+590	VR	Accrued / Pref Ln Int	=IF($VP$3,MV12+VQ12*(sRates_PrefLNCRG*UB12/365),0)	0	0
+591	VS	Vbl Ln Princ	=TY12	0	0
+592	VT	Accrued / Vbl Ln Int	=IF($VP$3,MX12+VS12*IF(sAG49Index>1,MAX(sINPUT_Variable_Loan_Rate,(UM12-sAG49LoanCreditSpread)),sINPUT_Variable_Loan_Rate)*UB12/365,0)	0	0
+593	VU				
+594	VV	vEAV	=TD12+vTotalInterest	-26.60562567040907	-186.23937969286348
+595	VW	vELN	=SUM(VO12,VP12,VQ12,VR12,VS12,VT12)	0	0
+596	VX	vESV	=VV12-TK12-VW12	-2756.605625670409	-2916.2393796928636
+597	VY	EDBwoCORR	=(FC12+IF(CT12="A",0,0)+IF(CT12="B",MAX(0,VV12),0)+IF(CT12="C",MAX(0,OB12-BD12),0))	150000	150000
+598	VZ	EDB_CORR	=MAX(0,VV12*(IF(sINPUT_Guideline="GPT",OR12,IF(sINPUT_Guideline="CVAT",AAM12)))-VY12)	0	0
+599	WA	EDBwLNs	=VY12+VZ12+MAX(vCurrentAPB_SA-VZ12,0)	150000	150000
+600	WB	vEDB	=WA12-SUM($VO12:$VT12)	150000	150000
+601	WC				
+602	WD	Illustration Values / vIllustrationAV	=MAX(0,VV12)	0	0
+603	WE	vIllustrationInterestRate	=IF(blnDisplayNominalInterestRate, PolicyRates!$CH$6,VL12)	0.03	0.03
+604	WF	vIllustrationLN	=VW12	0	0
+605	WG	vIllustrationSV	=MAX(0,VX12)	0	0
+606	WH	vIllustrationDB	<openpyxl.worksheet.formula.ArrayFormula object at 0x00000242A3C93F10>	150000	150000
+607	WI	vPremiumOutlay	=vApplied1035+vAppliedLumpsum+vAppliedScheduledPremium+vPremToPayLoanInterest	0	0
+608	WJ	vForceOutDisplay	=vForceOut	0	0
+609	WK	vLoanRepayFromPremDisplay	=vLoanRepayFromPremAndForceout-vLoanRepayFromForceout	0	0
+610	WL	vLoanRepayDisplay	=MO12-MK12	0	0
+611	WM	vDistributionFromPolicy	=vForceOut+vAppliedLoan+vAppliedNetWithdrawal	0	0
+612	WN	vIllustrationGCO	=AAZ12	0	0
+613	WO				
+614	WP	vShadow_BAV	=XW11	0	0
+615	WQ	WD, Charges and ForceOuts	=vPolicyChangeAVReduction+vForceOut	0	0
+616	WR	Shadow SA	=vCurrentSA	150000	150000
+617	WS	Shadow_TPR	=PolicyRates!GP10	0	0
+618	WT	Shadow_TBL1TPR	=PolicyRates!GQ10	0	0
+619	WU	vShadow_TP	=ROUND(CHOOSE(sShadow_SA_Basis,EP12,WR12)/1000*(WS12+WT12*vTableCov1+vFlat1+vFlat2),2)+vCTR_CTP+vPWSTP_CTP	0	0
+620	WV	Applied Total Premium	=vAppliedTotalPremium	0	0
+621	WW	Premium YTD	=vPremYTD	0	0
+622	WX	Shadow Premium Load / Prem Under Target	=MAX(MIN(WU12-(WW12-WV12),WV12),0)	0	0
+623	WY	Prem Over Target	=IF(WW12>WU12,MIN(WV12,WW12-WU12),0)	0	0
+624	WZ	Target Percent Prem	=PolicyRates!GS10	0.06	0.06
+625	XA	Excess Precent Prem	=PolicyRates!GR10	0.06	0.06
+626	XB	Target Prem Load	=WX12*WZ12	0	0
+627	XC	Excess Prem Load	=WY12*XA12	0	0
+628	XD	Shadow Premium Load	=XB12+XC12	0	0
+629	XE	Shadow Net Prem	=WV12-XD12	0	0
+630	XF	This is not floored at 0 (will this be a problem with Loans?) / Shadow_NARAV	=WP12-WQ12+XE12	0	0
+631	XG	Shadow DB	=IF(vDBO="B",XF12,0)+WR12	150000	150000
+632	XH	Shadow COIR	=PolicyRates!GM10	0	0
+633	XI	Shadow COIR + Sub	=XH12*(1+sTableRatingFactor*vTableCov1)+TRUNC(vBaseFlat1/12,2)+TRUNC(vBaseFlat2/12,2)	0	0
+634	XJ	Shadow DBD Rate	=PolicyRates!GT10	0.05	0.05
+635	XK	Shadow NAR	=XG12/(1+XJ12)^(1/12)-XF12	149391.36110266004	149391.36110266004
+636	XL	Shadow COI	=ROUND(XK12/1000*XI12,2)	0	0
+637	XM	Shadow EPUR	=PolicyRates!GN10	0	0
+638	XN	Shadow EPU	=XM12*CHOOSE(sShadow_SA_Basis,EP12,WR12)/1000	0	0
+639	XO	Shadow MFEE	=PolicyRates!GO10	0	0
+640	XP	CTR & PWSTP / Rider Charges	=vRiderBenefitCharge-RF12	0	0
+641	XQ	Shadow MD	=XL12+XN12+XO12+XP12	0	0
+642	XR	Found on 6258 seg / Shadow AV	=IF(vInforceValuationDate, sInput_CurrentShadowAV, XF12-XQ12)	0	0
+643	XS	# of Days	=UB12	30	31
+644	XT	Shadow Int Rate	=PolicyRates!GU10	0.05	0.05
+645	XU	Eff Rate	=(1+XT12)^(XS12/365)-1	0.004018201891974993	0.004152419664797069
+646	XV	Shadow Interest	=MAX(0,XU12*XR12)	0	0
+647	XW	vShadowEAV	=IF(OR(vCCV_Active,sShadowInherent),IF(vAttainedAge>(sShadowCeaseAge-1),0,ROUND(XR12+XV12,2)),0)	0	0
+648	XX	vShadowEAV_less_Debt	=vShadowEAV-vIllustrationLN	0	0
+649	XY				
+650	XZ	MEC and Guideline Testing / 7-Pay Yr 1	=IF($KZ12,IF(VALUE(RIGHT(XZ$5,1))=1,vAppliedTotalPremium-vGrossWD-vApplied1035,0),IF(vInforceValuationDate,sINPUT_TAMRA_Contribution_Yr_1,0)+IF(vTAMRA_Year=VALUE(RIGHT(XZ$5,1)),vAppliedTotalPremium-vGrossWD-vApplied1035+IF($KZ12,0,XZ11),XZ11))	0	0
+651	YA	7-Pay Yr 2	=IF($KZ12,IF(VALUE(RIGHT(YA$5,1))=1,vAppliedTotalPremium-vGrossWD-vApplied1035,0),IF(vInforceValuationDate,sINPUT_TAMRA_Contribution_Yr_2,0)+IF(vTAMRA_Year=VALUE(RIGHT(YA$5,1)),vAppliedTotalPremium-vGrossWD-vApplied1035+IF($KZ12,0,YA11),YA11))	0	0
+652	YB	7-Pay Yr 3	=IF($KZ12,IF(VALUE(RIGHT(YB$5,1))=1,vAppliedTotalPremium-vGrossWD-vApplied1035,0),IF(vInforceValuationDate,sINPUT_TAMRA_Contribution_Yr_3,0)+IF(vTAMRA_Year=VALUE(RIGHT(YB$5,1)),vAppliedTotalPremium-vGrossWD-vApplied1035+IF($KZ12,0,YB11),YB11))	0	0
+653	YC	7-Pay Yr 4	=IF($KZ12,IF(VALUE(RIGHT(YC$5,1))=1,vAppliedTotalPremium-vGrossWD-vApplied1035,0),IF(vInforceValuationDate,sINPUT_TAMRA_Contribution_Yr_4,0)+IF(vTAMRA_Year=VALUE(RIGHT(YC$5,1)),vAppliedTotalPremium-vGrossWD-vApplied1035+IF($KZ12,0,YC11),YC11))	0	0
+654	YD	7-Pay Yr 5	=IF($KZ12,IF(VALUE(RIGHT(YD$5,1))=1,vAppliedTotalPremium-vGrossWD-vApplied1035,0),IF(vInforceValuationDate,sINPUT_TAMRA_Contribution_Yr_5,0)+IF(vTAMRA_Year=VALUE(RIGHT(YD$5,1)),vAppliedTotalPremium-vGrossWD-vApplied1035+IF($KZ12,0,YD11),YD11))	0	0
+655	YE	7-Pay Yr 6	=IF($KZ12,IF(VALUE(RIGHT(YE$5,1))=1,vAppliedTotalPremium-vGrossWD-vApplied1035,0),IF(vInforceValuationDate,sINPUT_TAMRA_Contribution_Yr_6,0)+IF(vTAMRA_Year=VALUE(RIGHT(YE$5,1)),vAppliedTotalPremium-vGrossWD-vApplied1035+IF($KZ12,0,YE11),YE11))	0	0
+656	YF	7-Pay Yr 7	=IF($KZ12,IF(VALUE(RIGHT(YF$5,1))=1,vAppliedTotalPremium-vGrossWD-vApplied1035,0),IF(vInforceValuationDate,sINPUT_TAMRA_Contribution_Yr_7,0)+IF(vTAMRA_Year=VALUE(RIGHT(YF$5,1)),vAppliedTotalPremium-vGrossWD-vApplied1035+IF($KZ12,0,YF11),YF11))	0	0
+657	YG	vMEC	=IF(vInforceValuationDate,sINPUT_IsMEC,OR(YG11,YH12,YI12))	False	False
+658	YH	CVAT MEC	=IF(OM12<=0,FALSE,IF(ND12<OM12,TRUE,FALSE))	False	False
+659	YI	7Pay MEC	=IF(vInforceValuationDate,sINPUT_IsMEC,IF(vTAMRA_Year>7,YI11,OR(YI11, SUM(XZ12:XZ12)>MAX(0,KY12), SUM(XZ12:YA12)>MAX(0,KY12)*2, SUM(XZ12:YB12)>MAX(0,KY12)*3, SUM(XZ12:YC12)>MAX(0,KY12)*4, SUM(XZ12:YD12)>MAX(0,KY12)*5, SUM(XZ12:YE12)>MAX(0,KY12)*6, SUM(XZ12:YF12)>MAX(0,KY12)*7)))	False	False
+660	YJ	TEFRA Violation	=IF(sINPUT_Guideline="CVAT", FALSE,(vPremTD - vWithdrawalTD)>vTEFRA_Limit)	False	False
+661	YK	vScheduledPremLimitedByGP	=IF(vLumpsum +vPlannedPremium = 0, FALSE,NV12<LS12)	False	False
+662	YL	vAccumMTP_less_PremTD	=(vPremTD - vWithdrawalTD-vIllustrationLN)- vAccumMTP	-46.87	-328.09
+663	YM	Termination Yr / Termination Age / SNET	=IF(sINPUT_InforceIndicator="Y",IF(vDate>=sINPUT_MAP_CeaseDate,FALSE,IF(vInforceValuationDate,TRUE,AND(YM11,YL12>=0))),IF(vYear>sRates_SNET,FALSE,AND(YM11,YL12>=0)))	False	False
+664	YN	=INDEX(vYear,YN2) / =INDEX(vAttainedAge,YN2) / Shadow Protection	=IF(vCCV_Active,IF(vYear<=sRates_SNET,FALSE, IF(AND(sShadowLoanImpact="Nullify",vPolicyDebtDisplay>0),FALSE, XR12-vPolicyDebtDisplay>0)),FALSE)	False	False
+665	YO	=sLapseValue="SV" / PositiveSV	=AND($YO$4,vLapseSV>0)	False	False
+666	YP	=sLapseValue="AV" / AV-Loans > 0	=AND($YP$4,vAV-vPolicyDebtDisplay>0)	False	False
+667	YQ	GP Exception Prem Protection	=AND(SY12,TL12+0.0001>0)	False	False
+668	YR	Termination ID	=IF(AND(YS11,NOT(YS12)),B12,0)	0	0
+669	YS	Inforce?	=IF(vAttainedAge>=sMaturityAge,FALSE,AND(YS11,IF(sINPUT_InforceIndicator="Y",OR(YP12,YQ12,YM12,YO12,YN12,NOT(vForecasting)),OR(YP12,YQ12,YM12,YO12,YN12))))	True	True
+670	YT				
+671	YU	BDCV	=AAI11	0	-187.29713364798215
+672	YV	Same charges and premium load / WD, Fees and Charges	=vGrossWD	0	0
+673	YW	vDCV_AfterChanges	=YU12-YV12	0	-187.29713364798215
+674	YX	Net Premium	=vNetPremium	0	0
+675	YY	vDCV_AfterPremium	=IF(vInforceValuationDate,sInput_DeemedCashValue,YW12+YX12)	0	-187.29713364798215
+676	YZ	DCV NAAR AV	=MAX(YY12,0)	0	0
+677	ZA	DCV DB	=vCurrentSA+IF(CT12="A",0,0)+IF(CT12="B",YZ12,0)+IF(CT12="C",MAX(0,OB12-BD12),0)	150000	150000
+678	ZB	DCV COI Rate Cov 1	=PolicyRates!FR10	0.08338	0.08338
+679	ZC	DCV COI Rate Cov 2	=PolicyRates!FS10	0	0
+680	ZD	DCV COI Rate Cov 3	=PolicyRates!FT10	0	0
+681	ZE	DCV COI rate SubsCov 1	=ZB12*(1+sTableRatingFactor*$FK12)+ ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2)	0.08338	0.08338
+682	ZF	DCV COI rate SubsCov 2	=ZC12*(1+sTableRatingFactor*$FK12)+ ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2)	0	0
+683	ZG	DCV COI rate SubsCov 3	=ZD12*(1+sTableRatingFactor*$FK12)+ ROUND((TRUNC($FN12/12,2)+TRUNC($FO12/12,2)),2)	0	0
+684	ZH	DCV DBD Rate	=s7702_GLP_Rate	0.04	0.04
+685	ZI	DCV DBD Cov 1	=(vCurrentSA1+IF(CT12="B",YZ12,0))/((1+$ZH12)^(1/12))	149510.54139278433	149510.54139278433
+686	ZJ	DCV DBD Cov 2	=vCurrentSA2/((1+$ZH12)^(1/12))	0	0
+687	ZK	DCV DBD Cov 3	=vCurrentSA3/((1+$ZH12)^(1/12))	0	0
+688	ZL	DCV NAAR Cov 1	=MAX(ZI12-YZ12,0)	149510.54139278433	149510.54139278433
+689	ZM	DCV NAAR Cov 2	=MAX(ZJ12-MAX($YZ12-(MAX(SUM($ZL12:ZL12)-SUM($ZI12:ZI12),0)),0),0)	0	0
+690	ZN	DCV NAAR Cov 3	=MAX(ZK12-MAX($YZ12-(MAX(SUM($ZL12:ZM12)-SUM($ZI12:ZJ12),0)),0),0)	0	0
+691	ZO	DCV COI Charge Cov 1	=ZE12*ZL12/1000	12.466188941330358	12.466188941330358
+692	ZP	DCV COI Charge Cov 2	=ZF12*ZM12/1000	0	0
+693	ZQ	DCV COI Charge Cov 3	=ZG12*ZN12/1000	0	0
+694	ZR	DCV COI Charge	=ZO12+ZP12+ZQ12	12.466188941330358	12.466188941330358
+695	ZS	Rider / Charges	=vRiderBenefitCharge-SN12	0	0
+696	ZT	Current Expense Per Unit Charge / Current EPU Rate for Segments / 1	=PolicyRates!FA10	0.09167	0.09167
+697	ZU	2	=PolicyRates!FB10	0	0
+698	ZV	3	=PolicyRates!FC10	0	0
+699	ZW	Current EPU Cov 1	=ROUND(EP12*ZT12/1000,2)	13.75	13.75
+700	ZX	Current EPU Cov 2	=ROUND(EQ12*ZU12/1000,2)	0	0
+701	ZY	Current EPU Cov 3	=ROUND(ER12*ZV12/1000,2)	0	0
+702	ZZ	Monthly Fee	=SG12	5	5
+703	AAA	3/16/2022: Derrick confirmed the VPMS model is deducting the PoAV from the DCV / PoAV	=PolicyRates!FF10	0	0
+704	AAB	Current PoAV Chg	=MAX(0,AAA12*YY12)	0	0
+705	AAC	MDwoPW	=AAB12+ZZ12+ZW12+ZX12+ZY12+ZS12+ZR12	31.21618894133036	31.21618894133036
+706	AAD	Prem2Waive	=MAX(vMTP/12,AAC12)	46.875	46.875
+707	AAE	PW39 Charge	=SM12*AAD12	0	0
+708	AAF	DCV MD	=AAC12+AAE12	31.21618894133036	31.21618894133036
+709	AAG	=14914*25 / vDCV	=YY12-AAF12	-31.21618894133036	-218.5133225893125
+710	AAH	DCV Interest	=MAX(0,AAG12*((1+ZH12)^(UB12/365)-1))	0	0
+711	AAI	vEDCV	=AAG12+AAH12	-31.21618894133036	-218.5133225893125
+712	AAJ				
+713	AAK	DB w/o Factor	=IF(CT12="A",FC12,IF(CT12="B",FC12+W12,IF(CT12="C",FC12+AG12)))	150000	150000
+714	AAL	DB Factor Amount	=MAX(0,IF(sINPUT_Guideline="GPT",OR12,IF(sINPUT_Guideline="CVAT",AAM12,1))*W12-AAK12)	0	0
+715	AAM	MDBR Cov 1	=PolicyRates!EG10	1	1
+716	AAN	CVAT NSP Test	=AAO12/AAM12	150000	150000
+717	AAO	Lowest SA in initial 7 years	=IF(D12>7,MIN(OFFSET($DO$7:$DO$1483,0,0,MATCH(8,$D$6:$D$1482,0),1)),MIN($DO$6:DO12))	150000	150000
+718	AAP				
+719	AAQ				
+720	AAR	vAccumGCO	=IF(sAnnQualGCO,vAccumMTP,0)	0	0
+721	AAS	PremTD less WD and Loans	=(vPremTD - vWithdrawalTD-vIllustrationLN)	0	0
+722	AAT	Qual Test A	=IF(blnGCO, IF(vInforceValuationDate,TRUE,IF(vYear>26,FALSE,IF(vMonth=1,AAS11>=AAR11,AAT11))),FALSE)	True	False
+723	AAU	Qual Test B	=IF(blnGCO, IF(vInforceValuationDate,TRUE,IF(vYear>26,FALSE,IF(AND(vLiveCalc*1,vMonth=1),VLOOKUP(vYear,'Annual Qualification'!$A$4:$D$29,4,0),AAU11))),FALSE)	False	False
+724	AAV	GCO Inforce	=IF(vLiveCalc,AND(IF(vInforceValuationDate,AAV11,TRUE),OR(AAT12,AAU12,AND(YS12,NOT(sAnnQualGCO)))),FALSE)	False	False
+725	AAW	Option Period	=IF(blnGCO,IF(AAV12,IF(vMonth=12, IF(AND(sGCO15_Active,vYear=15),15, IF(AND(sGCO20_Active,vYear=20),20, IF(AND(sGCO25_Active,vYear=25),25,0))),0),0),0)	0	0
+726	AAX	Enhancement CAP	=IF(AAW12>0,VLOOKUP(AAW12&vCurrentBand,tRates_Benefit_GCO,2,0),0)	0	0
+727	AAY	Eligible Prem	=IF(AAW12>0,VLOOKUP(AAW12&vCurrentBand,tRates_Benefit_GCO,3,0),0)	0	0
+728	AAZ	GCO Amount	=IF(blnGCO,MIN(AAX12*INDEX(vCurrentSA,vID),AAS12*AAY12),0)	0	0
+729	ABA				

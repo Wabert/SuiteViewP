@@ -109,6 +109,88 @@ When wiring the engine swap (still the right fix), also add `config["joins"] =
 joins_tab.to_config_joins()` + `limit` to `get_config()` so `run_saved_forge`
 has explicit joins to read (today only the canvas `joins_tab` state is saved).
 
+### 1.6 Illustration — guideline pipeline completion (2026-06-07, branch `fix/dataforge-review`)
+Reverse-engineered the RERUN **CalcEngine** formulas (full column map dumped to
+`docs/Illustration_UL/calcengine_map.tsv` via the new `tools/extract_calcengine.py`)
+and completed the 7702 guideline machinery in the Python engine. Pure logic is
+unit-tested headless (`tools/test_guideline_helpers.py`, 32 green), but nothing
+was run against **live UL_Rates / DB2** or in the **UI**. Verify on the laptop:
+
+- **Force-out now floored by GSP (the real bug).** `_apply_guideline_forceout`
+  limit is now `MAX(GSP, AccumGLP)` (CalcEngine `KV`), capped by available AV,
+  and AccumGLP stops at attained age ≥ 100 (`KU`). Previously it used AccumGLP
+  only, forcing money out far too early. **Penny-check** force-outs for an
+  over-funded GPT policy against the workbook `vForceOut` (KX) column.
+- **Premium capping at acceptance** (`vAppliedScheduledPremium`): applied premium
+  is now capped to the guideline room and/or 7-pay room, gated by new toggles
+  `IllustrationOptions.conform_to_tefra` / `conform_to_tamra`. The TAMRA cap is a
+  **simplified single-cumulative version** (no MEC-status side effects, no
+  material-change 7-pay reset, no NPT/CVAT) — adequate for as-is GPT inforce
+  (mostly past year 7) but **verify against workbook `NV`/`NZ` for a year-1-7
+  policy** if you have one.
+- **GP exception premium** (`SY/SZ/TA/TB/TD`) now runs in-engine, gated by
+  `IllustrationOptions.allow_exception_prems`. Past safety-net, no CCV, at the
+  guideline limit and AV<0 → it pays the premium that brings after-charge AV to
+  0, latches on, disables force-out, and protects against lapse (`YQ`).
+  **Verify** against the workbook for a guideline-maxed, post-SNET policy with
+  the option ON, and confirm it does NOT trigger for a normal underfunded policy.
+- **New fixed-loan split** now always routes the gain portion to preferred for
+  fixed loans (`TR/TW/TX`); the `preferred_loans_available` gate was removed.
+  Set up a loan scenario via INPUT rows 127/128 (Fixed Loan Principle/Accrued —
+  keep ≤ AV/SV at valuation) and compare loan buckets to the workbook.
+- **PolView ripple (intended):** `polview/services/glp_exception.py` projects
+  with `cap_premiums_at_acceptance=False` (no acceptance cap, preserves the
+  solver) but force-out is still on, so it now gets the **GSP-floored** force-out
+  — GLP-exception and Policy-Support force-out/AV numbers will shift slightly
+  (more correct). Re-verify those two PolView tabs against the workbook.
+
+**UI wiring still TODO (no UI testing on minipc):** add three checkboxes
+(Conform to TEFRA, Conform to TAMRA, Allow GP Exception Premium) to the
+Illustration run controls and build an `IllustrationOptions` to pass at
+`suiteview/illustration/ui/main_window.py:263` (`engine.project(..., options=...)`).
+The engine + service layer already accept `options`; only the UI control is left.
+
+**Possible follow-up:** force-out does not yet reduce cost basis (CalcEngine
+`OD` subtracts force-out); irrelevant until MEC/gain (out of scope) is built.
+
+### 1.7 Illustration — guideline premium (GLP) routines (2026-06-07, branch `fix/dataforge-review`)
+New actuarial GLP/GSP module, two independent methods. New files:
+`suiteview/illustration/core/commutation.py` (commutation-function engine) and
+`suiteview/illustration/core/guideline_calc.py` (GLP/GSP + Fackler reserves).
+
+- **Commutation / PV method** (`calculate_glp` / `calculate_gsp`):
+  GLP = (SA·A_{x:n} + PV expenses) / ((1−load)·ä_{x:n}); GSP single-premium form.
+  Fully self-contained (pass a `MortalityTable`), **already unit-tested headless**
+  — `tools/test_commutation_glp.py`, 21 green, validated against the standard
+  identities (A = 1 − d·ä, term+PE = endowment, P = A/ä) and exact no-mortality
+  hand values, plus the **Fackler reserve roll** (forward/backward, prospective
+  reserve match). Parameterized by age, sex/table, substandard (table mult + flat
+  extra), specified amount, DBO (A now; B/C → use the iterative method),
+  endowment age, GLP/GSP interest floors, expense loads/fees, and rider/QAB
+  charge streams. **Verify on the laptop** against a couple of admin GLP values
+  with a real CSO/guaranteed-COI mortality table; tune the expense inputs
+  (per-policy fee, per-unit, target/excess load split) to match admin.
+- **Iterative / account-value method** (`calculate_glp_iterative`): binary-search
+  the level annual premium that endows the contract (AV = face at the 7702
+  maturity age) running the real CalcEngine with **guaranteed COI + current
+  loads/fees + 4% interest, no bonus, guideline machinery off**. The engine now
+  accepts `bonus_override` and `rates_override` for this. **NEEDS LIVE RATES** —
+  the caller must build an `IllustrationRates` with the **guaranteed COI scale**
+  (UL_Rates `tRates_Ultimate_GCOI` / `get_rates('COI', ..., scale=guaranteed)`);
+  that scale id isn't known on the minipc. Verify: (1) build guaranteed-COI rates,
+  (2) call `calculate_glp_iterative(policy, guaranteed_rates, glp_rate=0.04,
+  endowment_age=100)`, (3) compare to admin GLP and to the commutation method
+  (they should be close; differences come from monthly vs annual mechanics and
+  corridor). Also confirm the premium-search start alignment (AV=0 at attained
+  age, annual premium at anniversary) matches how admin runs it.
+- **Policy-change recalc** (`glp_on_change`): new GLP = current + (GLPa − GLPb),
+  both at current attained age; works with either method (pass the method in).
+
+Open questions to confirm while testing: exact 7702 maturity age (95–100; default
+100), the GLP/GSP interest floors for the in-scope issue years (pre-2021 = 4%/6%;
+2021+ contracts use the lower AFR-based floors), and which mortality basis to feed
+the commutation method (prevailing CSO vs the contract's guaranteed-COI-implied qx).
+
 ---
 
 ## §2 — DEFERRED: DB2 connection consolidation (Tier 2c) — NEEDS LIVE DB2
@@ -226,3 +308,15 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
   Tests: canvas 13, engine 14, runtime 10, query_object 51 — all green. The
   pandas `_run_forge` execution path and its outer-join filter semantics remain
   deferred (need live DB2/SQL). Work on branch `fix/dataforge-review`.
+- **2026-06-07** — Added §1.6: completed the Illustration 7702 guideline pipeline
+  (GSP-floored force-out, premium capping with TEFRA/TAMRA toggles, in-engine GP
+  exception premium, gain→preferred new-loan split) from the RERUN CalcEngine
+  formulas. Pure logic unit-tested headless (32 green); live-rate penny
+  validation, year-1-7 TAMRA, the PolView force-out ripple, and the UI toggle
+  checkboxes are deferred here. Same branch `fix/dataforge-review`.
+- **2026-06-07** — Added §1.7: GLP/GSP routines — commutation/PV method +
+  Fackler reserves (`commutation.py`, headless-tested, 21 green) and an iterative
+  account-value endowment-search method (`guideline_calc.py`, reuses CalcEngine
+  via new `bonus_override`/`rates_override`). Iterative method needs live
+  guaranteed-COI rates; commutation method needs a real mortality table to
+  penny-validate against admin. Same branch `fix/dataforge-review`.
