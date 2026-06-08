@@ -31,6 +31,20 @@ _JOIN_SQL = {
     "cross": "CROSS JOIN",
 }
 
+# Aggregate keywords. An OutputColumn whose agg is one of these is rolled up;
+# every non-aggregated output column becomes a GROUP BY key.
+_AGG_FUNCS = {
+    "count": "COUNT",
+    "sum": "SUM",
+    "min": "MIN",
+    "max": "MAX",
+    "avg": "AVG",
+}
+
+# Non-aggregate synonyms — a plain grouping column, selected as-is. These mirror
+# the Display tab's "display" label and the design vocabulary's "group".
+_NON_AGG = {"", "group", "display", "none"}
+
 
 @dataclass(frozen=True)
 class JoinSpec:
@@ -80,10 +94,24 @@ class FilterSpec:
 
 @dataclass(frozen=True)
 class OutputColumn:
-    """One column in the Forge output, qualified by its Source alias."""
+    """One column in the Forge output, qualified by its Source alias.
+
+    ``agg`` controls roll-up: ``None``/``""``/``"group"`` selects the column
+    as-is (and makes it a GROUP BY key when any other output aggregates);
+    ``"count"``/``"sum"``/``"min"``/``"max"``/``"avg"`` wraps it in that
+    aggregate function.
+    """
     source: str
     column: str
     alias: str | None = None  # output name; defaults to collision-safe name
+    agg: str | None = None
+
+    def __post_init__(self):
+        a = (self.agg or "").lower()
+        if a not in _NON_AGG and a not in _AGG_FUNCS:
+            raise ForgeEngineError(
+                f"Unknown aggregate {self.agg!r} for {self.source}.{self.column}; "
+                f"expected one of {sorted(_AGG_FUNCS)} or {sorted(_NON_AGG)}.")
 
 
 @dataclass
@@ -258,18 +286,26 @@ def _resolve_outputs(
     sources: list[str],
     schemas: dict[str, list[str]],
     outputs: list[OutputColumn] | None,
-) -> tuple[list[str], dict[str, tuple[str, str]]]:
-    """Return (select_exprs, column_sources).
+) -> tuple[list[str], dict[str, tuple[str, str]], list[str]]:
+    """Return (select_exprs, column_sources, group_by_exprs).
 
     When ``outputs`` is None, select every column from every Source in join
     order, giving collision-safe output names (``col`` when unique so far,
     else ``col__alias``).
+
+    ``group_by_exprs`` is non-empty only when at least one output aggregates;
+    it lists the source-qualified expressions of the non-aggregated outputs
+    (the GROUP BY keys). An all-aggregate output yields an empty list (a
+    whole-set aggregate, no GROUP BY clause).
     """
     select_exprs: list[str] = []
     column_sources: dict[str, tuple[str, str]] = {}
+    group_by_exprs: list[str] = []
     seen: dict[str, str] = {}  # output name -> source that claimed it
+    any_agg = False
 
-    def add(src: str, col: str, want: str | None):
+    def add(src: str, col: str, want: str | None, agg: str | None = None):
+        nonlocal any_agg
         if want:
             out_name = want
         else:
@@ -286,7 +322,16 @@ def _resolve_outputs(
                 f"(from {src}.{col} and {seen[out_name]}).")
         seen[out_name] = f"{src}.{col}"
         column_sources[out_name] = (src, col)
-        select_exprs.append(f"{_qi(src)}.{_qi(col)} AS {_qi(out_name)}")
+
+        col_expr = f"{_qi(src)}.{_qi(col)}"
+        a = (agg or "").lower()
+        if a in _AGG_FUNCS:
+            any_agg = True
+            value_expr = f"{_AGG_FUNCS[a]}({col_expr})"
+        else:
+            value_expr = col_expr
+            group_by_exprs.append(col_expr)
+        select_exprs.append(f"{value_expr} AS {_qi(out_name)}")
 
     if outputs:
         for oc in outputs:
@@ -297,13 +342,14 @@ def _resolve_outputs(
                 raise ForgeEngineError(
                     f"Output column {oc.source}.{oc.column} not found in "
                     f"that Source's Snapshot.")
-            add(oc.source, oc.column, oc.alias)
+            add(oc.source, oc.column, oc.alias, oc.agg)
     else:
         for src in sources:
             for col in schemas[src]:
                 add(src, col, None)
 
-    return select_exprs, column_sources
+    # GROUP BY keys are only meaningful when something aggregates.
+    return select_exprs, column_sources, (group_by_exprs if any_agg else [])
 
 
 # ── Main entry point ───────────────────────────────────────────────────────
@@ -388,12 +434,15 @@ def compile_forge_sql(
             already_joined.add(new)
         from_clause = "\n".join(lines)
 
-    select_exprs, column_sources = _resolve_outputs(sources, schemas, outputs)
+    select_exprs, column_sources, group_by_exprs = _resolve_outputs(
+        sources, schemas, outputs)
     select_clause = "SELECT\n  " + ",\n  ".join(select_exprs)
 
     sql = f"{with_clause}\n{select_clause}\n{from_clause}"
     if residual_preds:
         sql += "\nWHERE " + " AND ".join(residual_preds)
+    if group_by_exprs:
+        sql += "\nGROUP BY " + ", ".join(group_by_exprs)
 
     # Result-scope filters apply to the joined, aliased output. WHERE cannot
     # reference SELECT aliases, so wrap the join in an outer SELECT whose

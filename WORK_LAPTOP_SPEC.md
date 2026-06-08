@@ -17,6 +17,75 @@ Branch layout:
 - `main` — untouched baseline. Restore tag: `pre-cleanup-2026-06-06`.
 - `cleanup/tier0-tier1` — Tier 0 (dead code) + Tier 1 (Excel helper, rates.py fix). Pushed to origin.
 - `cleanup/tier2` — Tier 2a (DB2Connection hardening) + Tier 2b (JsonStore).
+- `minipc-handoff-2026-06-07` — **START HERE (see §0).** DataForge "intuitive
+  tooling" logic + standards consolidation + a checkpoint of the in-flight
+  Illustration 7702/GLP work (§1.6–1.7). Pushed to origin.
+
+---
+
+## §0 — START HERE: 2026-06-07 minipc handoff (branch `minipc-handoff-2026-06-07`)
+
+This branch bundles two bodies of work pushed from the minipc: (a) a DataForge /
+Audit "intuitive tooling" pass + a standards-doc consolidation, and (b) a
+checkpoint of the in-progress Illustration 7702/GLP work (already detailed in
+§1.6–1.7). Everything below is headless-tested on the minipc; the UI and
+live-data pieces are for you.
+
+**Get started on the laptop:**
+1. `git fetch origin && git checkout minipc-handoff-2026-06-07`
+2. `venv\Scripts\python.exe -m pip install -r requirements.txt` (picks up duckdb/pyarrow if missing)
+3. `venv\Scripts\python.exe -m pytest tests/ -q` — the suite is now runnable headless. A new
+   root `conftest.py` excludes 3 standalone Qt/connection scripts (`test_checkbox_list`,
+   `test_ui_display`, `test_connection`) that ran `app.exec()`/live lookups at import and stalled
+   collection, and *conditionally* skips the 4 Office/COM tests when `win32com` is missing (on the
+   laptop win32com is present, so those run). **Known failures to expect / re-check here:** 4×
+   `test_db2_query_performance` (need live DB2) and 5× `test_illustration_*` (the (b) WIP — verify
+   per §1.6–1.7). Everything else was green on the minipc.
+
+**What landed this session (verify the UI/live items):**
+- **DataForge engine aggregation (#9)** — `forge_engine` compiles `GROUP BY` (`OutputColumn.agg`);
+  `forge_runtime.outputs_from_config` reads the `agg` key; the engine accepts the Display tab's
+  `"display"`/uppercase `"COUNT"` vocabulary. The live pandas `_run_forge` and Visual
+  `build_dynamic_sql` already aggregate — this is **parity** for the DuckDB swap (§3b / §1.5), no
+  new UI. (Aggregate toggles were already functional; the "gate them" idea was dropped as wrong.)
+- **DataForge pre-flight validation + preview (#4)** — `forge_runtime.validate_forge()` returns
+  actionable `ForgeIssue(severity, message, hint)` for: no Sources, duplicate handles, missing
+  Snapshot ("→ Refresh"), stale Snapshot (warning), malformed/unknown joins, disconnected Source
+  graph ("→ draw a join line"). `preview_saved_forge(limit=100)` runs the engine capped over
+  Snapshots. **UI WIRING TODO (laptop):** add a Preview button + surface validation as a banner
+  before Run in `dataforge_group.py`.
+- **Preview window chrome (#3)** — `_query_preview_window.py` is now a `FramelessWindowBase`
+  (purple header, gold border, live W×H footer). **Verify it renders correctly in-app.**
+- **Friendly-field dictionary (#6)** — new `suiteview/core/field_dictionary.py` maps cryptic DB2
+  columns to human labels (`XTR_PER_1000_AMT` → "Flat Extra per $1,000"; `RT_SEX_CD` → "Sex
+  (rate)") with a mechanical humanizer fallback + a `register_labels()` runtime hook. Pure/tested,
+  **not yet wired into any UI** — consume it in the field pickers / filter chips (#5/#8) so
+  analysts see the friendly name with the technical name in the tooltip.
+- **Standards consolidation** — `Agent.md` is now the single standards doc (it absorbed the old
+  `docs/CLAUDE.md`, which is deleted) and opens with a **Vision & Voice / Embodiment Brief**. A
+  tiny root `CLAUDE.md` `@`-imports `Agent.md` so Claude Code auto-loads it.
+- **`query_object` copy fix** — copying a Query now stamps a guaranteed-distinct `created_at`
+  (was a microsecond-collision flake in `test_query_object`).
+
+**Remaining "intuitive tooling" roadmap — mostly UI, do in the running app:**
+The minipc built/tested the logic cores; these need the app and/or live data:
+- **#1 Unify the join canvas** *(biggest; not started)* — generalize the DataForge MS-Access
+  canvas (`forge_canvas_model`/`forge_canvas_view`) so **Visual Query mode** uses it too (it still
+  uses the legacy card UI `tabs/joins_tab.py`). Needs: schema-qualified DB tables, per-table
+  aliases, multi-row ON pairs, arbitrary extra ON expressions, common-table CTEs, FULL joins; a
+  converter to the Visual SQL builder's `get_join_infos()` shape; and `{"cards": …}` → canvas
+  state migration. Then retire `tabs/joins_tab.py` + `forge_joins_tab.py`. Model work is
+  minipc-safe; the drag/ODBC behaviour must be click-tested here.
+- **#5 One field picker** — consolidate `FieldPickerPanel` / `QueryFieldPicker` / the
+  `queries_dialog` field tree into one, with global field search + inline cached unique-value
+  previews, showing `field_dictionary` friendly names.
+- **#7 Smart join suggestions** — ghost a suggested join line when two Sources share a column or a
+  known composite key (`CK_CMP_CD`/`TCH_POL_ID`, policy_number); click to accept.
+- **#8 Friendly filter chips** — lead with is / is not / contains / between / in-list backed by
+  cached unique values; demote regex + raw SQL behind "Advanced".
+- **#10 Results summary strip + result-scope filter zone + save-result-as-Source** (forge-of-forges).
+- **#11 Unify Query/Forge/Source/Snapshot vocabulary** — demote `QDefinition` to an internal
+  compiled form; one user-facing `Query` with kinds. Refactor is minipc-safe; left for a focused pass.
 
 ---
 
@@ -320,3 +389,13 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
   via new `bonus_override`/`rates_override`). Iterative method needs live
   guaranteed-COI rates; commutation method needs a real mortality table to
   penny-validate against admin. Same branch `fix/dataforge-review`.
+- **2026-06-07** — Added §0 (START HERE): minipc handoff on branch
+  `minipc-handoff-2026-06-07`. DataForge engine aggregation (#9), pre-flight
+  validation + Snapshot preview (#4), preview-window FramelessWindow chrome (#3),
+  the friendly-field dictionary (#6, `core/field_dictionary.py`), the standards
+  consolidation into `Agent.md` (+ deleted `docs/CLAUDE.md`, root `CLAUDE.md`
+  pointer), and a `query_object` copy-timestamp fix — all headless-tested. Made
+  the full pytest suite runnable (root `conftest.py` excludes standalone scripts
+  + conditional `win32com` skip). Remaining intuitive-tooling items (#1 canvas
+  unify, #5/#7/#8/#10 UI, #11 vocab) are UI-heavy → laptop. Also checkpointed the
+  prior in-flight Illustration 7702/GLP work (§1.6–1.7) onto this branch.

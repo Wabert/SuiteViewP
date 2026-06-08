@@ -41,7 +41,6 @@ def test_fixed_loan_prefers_preferred_capacity_first():
         account_value=500.0,
         premiums_to_date=300.0,
         withdrawals_to_date=50.0,
-        preferred_loans_available=True,
     )
 
     # Preferred capacity = 500 - 75 - (300 - 50) = 175
@@ -58,7 +57,6 @@ def test_fixed_loan_spills_excess_to_regular():
         account_value=500.0,
         premiums_to_date=300.0,
         withdrawals_to_date=50.0,
-        preferred_loans_available=True,
     )
 
     # Preferred capacity = 175, remaining 75 goes to regular.
@@ -66,7 +64,7 @@ def test_fixed_loan_spills_excess_to_regular():
     assert updated.rg_loan_princ == 125.0
 
 
-def test_fixed_loan_uses_regular_when_preferred_not_available():
+def test_fixed_loan_uses_preferred_capacity_without_availability_gate():
     loan = LoanState(rg_loan_princ=10.0, pf_loan_princ=5.0)
 
     updated = apply_new_fixed_loan(
@@ -75,11 +73,10 @@ def test_fixed_loan_uses_regular_when_preferred_not_available():
         account_value=500.0,
         premiums_to_date=0.0,
         withdrawals_to_date=0.0,
-        preferred_loans_available=False,
     )
 
-    assert updated.rg_loan_princ == 90.0
-    assert updated.pf_loan_princ == 5.0
+    assert updated.rg_loan_princ == 10.0
+    assert updated.pf_loan_princ == 85.0
 
 
 def test_variable_loan_accrues_with_policy_rate_without_collateral_split():

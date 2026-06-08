@@ -543,6 +543,87 @@ except ImportError:  # pragma: no cover
     pass
 
 
+def _src(alias: str, *, has_data=True, stale=False) -> DataForgeSource:
+    snap = SourceSnapshot(
+        created_at="2026-06-07T10:00:00" if has_data else "",
+        row_count=3, columns=["company_code", "policy_number"], stale=stale)
+    return DataForgeSource(query_name=alias, alias=alias, snapshot=snap)
+
+
+def _join(left: str, right: str, key="company_code") -> dict:
+    return {"left_source": left, "right_source": right,
+            "left_keys": [key], "right_keys": [key], "how": "inner"}
+
+
+# ── #4: pre-flight validation ────────────────────────────────────────────
+
+def test_validate_no_sources():
+    issues = forge_runtime.validate_forge(DataForge(name="Empty"))
+    assert len(issues) == 1 and issues[0].is_error
+    assert "no Sources" in issues[0].message
+    assert "Add" in issues[0].hint or "add" in issues[0].hint
+    print("  validate: no sources  OK")
+
+
+def test_validate_missing_snapshot():
+    forge = DataForge(name="F", sources=[_src("pol", has_data=False)])
+    issues = forge_runtime.validate_forge(forge)
+    assert any(i.is_error and "no data" in i.message and "Refresh" in i.hint
+               for i in issues), [i.text for i in issues]
+    print("  validate: missing snapshot  OK")
+
+
+def test_validate_stale_snapshot_is_warning_not_error():
+    forge = DataForge(name="F", sources=[_src("pol", stale=True)])
+    issues = forge_runtime.validate_forge(forge)
+    assert issues and all(not i.is_error for i in issues)
+    assert any("unapplied" in i.message for i in issues)
+    print("  validate: stale snapshot -> warning  OK")
+
+
+def test_validate_disconnected_sources():
+    forge = DataForge(name="F", sources=[_src("pol"), _src("re")],
+                      config={"joins": []})
+    issues = forge_runtime.validate_forge(forge)
+    assert any(i.is_error and "aren't joined" in i.message for i in issues), \
+        [i.text for i in issues]
+    print("  validate: disconnected sources  OK")
+
+
+def test_validate_connected_has_no_errors():
+    forge = DataForge(name="F", sources=[_src("pol"), _src("re")],
+                      config={"joins": [_join("pol", "re")]})
+    issues = forge_runtime.validate_forge(forge)
+    assert not any(i.is_error for i in issues), [i.text for i in issues]
+    print("  validate: connected -> no errors  OK")
+
+
+def test_validate_unknown_join_source():
+    forge = DataForge(name="F", sources=[_src("pol"), _src("re")],
+                      config={"joins": [_join("pol", "ghost")]})
+    issues = forge_runtime.validate_forge(forge)
+    assert any(i.is_error and "ghost" in i.message for i in issues), \
+        [i.text for i in issues]
+    print("  validate: unknown join source  OK")
+
+
+def test_preview_saved_forge_caps_rows():
+    pol = pd.DataFrame({"company_code": ["A", "A", "B", "B", "C"],
+                        "policy_number": ["1", "2", "3", "4", "5"]})
+    re_ = pd.DataFrame({"company_code": ["A", "A", "B", "B", "C"],
+                        "policy_number": ["1", "2", "3", "4", "5"],
+                        "reinsurer": ["X", "Y", "X", "Y", "Z"]})
+    forge = DataForge(name="F", sources=[_src("pol"), _src("re")],
+                      config={"joins": [{"left_source": "pol", "right_source": "re",
+                                         "left_keys": ["company_code", "policy_number"],
+                                         "right_keys": ["company_code", "policy_number"],
+                                         "how": "inner"}]})
+    res = forge_runtime.preview_saved_forge(
+        forge, {"pol": pol, "re": re_}, limit=2)
+    assert len(res.dataframe) == 2, res.dataframe
+    print("  preview caps rows  OK")
+
+
 def main():
     print("=" * 60)
     print("DataForge model/store/runtime tests")
@@ -558,6 +639,15 @@ def main():
         test_query_object_browser_repairs_missing_dataforge_visual_copy,
     ]
     no_fixture.append(test_dataforge_display_fields_add_reorder_and_aggregate)
+    no_fixture += [
+        test_validate_no_sources,
+        test_validate_missing_snapshot,
+        test_validate_stale_snapshot_is_warning_not_error,
+        test_validate_disconnected_sources,
+        test_validate_connected_has_no_errors,
+        test_validate_unknown_join_source,
+        test_preview_saved_forge_caps_rows,
+    ]
     for t in no_fixture:
         print(f"- {t.__name__}")
         t()
