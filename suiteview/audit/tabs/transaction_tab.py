@@ -13,13 +13,16 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
-    QLabel, QLineEdit, QComboBox, QListWidget,
+    QLabel, QLineEdit, QListWidget,
     QAbstractItemView, QStyledItemDelegate,
 )
 from PyQt6.QtGui import QFont
 
 from ..constants import TRANSACTION_TYPE_ITEMS
-from ._styles import make_checkbox as _make_checkbox, style_combo as _style_combo
+from ._styles import (
+    make_checkbox as _make_checkbox,
+    make_multiselect_popup as _make_multiselect_popup,
+)
 
 # ── Compact sizing helpers ──────────────────────────────────────────────
 _FONT = QFont("Segoe UI", 9)
@@ -29,6 +32,16 @@ _CTRL_H = 22
 _V_SPACING = 2
 _H_SPACING = 6
 _RANGE_W = 70
+_TRANSACTION_SELECT_W = 280
+
+
+def _transaction_code(label: str) -> str:
+    return label.split(" - ", 1)[0].strip()
+
+
+_TRANSACTION_SELECT_ITEMS = [
+    (label, _transaction_code(label)) for label in TRANSACTION_TYPE_ITEMS
+]
 
 _GRP_STYLE = (
     "QGroupBox { font-weight: bold; color: #1E5BA8; border: 1px solid #6A9BD1;"
@@ -122,15 +135,13 @@ class TransactionTab(QWidget):
         row_trans.setSpacing(_H_SPACING)
         lbl_t1 = QLabel("Transaction 1:")
         lbl_t1.setFont(_FONT)
-        self.cmb_transaction = QComboBox()
-        self.cmb_transaction.setFont(_FONT)
-        self.cmb_transaction.setFixedHeight(_CTRL_H)
-        self.cmb_transaction.setMinimumWidth(280)
-        self.cmb_transaction.addItem("")
-        self.cmb_transaction.addItems(TRANSACTION_TYPE_ITEMS)
-        _style_combo(self.cmb_transaction)
+        self.transaction_types = _make_multiselect_popup(
+            _TRANSACTION_SELECT_ITEMS,
+            width=_TRANSACTION_SELECT_W,
+            height_rows=20,
+        )
         row_trans.addWidget(lbl_t1)
-        row_trans.addWidget(self.cmb_transaction)
+        row_trans.addWidget(self.transaction_types)
         row_trans.addStretch()
         right.addLayout(row_trans)
         right.addSpacing(4)
@@ -267,12 +278,11 @@ class TransactionTab(QWidget):
     def get_state(self) -> dict:
         from ..profile_manager import (
             get_lineedit_text as _t, get_checkbox_checked as _c,
-            get_combo_text as _cmb,
         )
         return {
             "chk_eff_day": _c(self.chk_eff_day),
             "chk_eff_month": _c(self.chk_eff_month),
-            "cmb_transaction": _cmb(self.cmb_transaction),
+            "transaction_types": _t(self.transaction_types),
             "txt_entry_lo": _t(self.txt_entry_lo),
             "txt_entry_hi": _t(self.txt_entry_hi),
             "txt_eff_lo": _t(self.txt_eff_lo),
@@ -290,11 +300,10 @@ class TransactionTab(QWidget):
     def set_state(self, state: dict):
         from ..profile_manager import (
             set_lineedit_text as _t, set_checkbox_checked as _c,
-            set_combo_text as _cmb,
         )
         _c(self.chk_eff_day, state.get("chk_eff_day", False))
         _c(self.chk_eff_month, state.get("chk_eff_month", False))
-        _cmb(self.cmb_transaction, state.get("cmb_transaction", ""))
+        _t(self.transaction_types, state.get("transaction_types", ""))
         _t(self.txt_entry_lo, state.get("txt_entry_lo", ""))
         _t(self.txt_entry_hi, state.get("txt_entry_hi", ""))
         _t(self.txt_eff_lo, state.get("txt_eff_lo", ""))

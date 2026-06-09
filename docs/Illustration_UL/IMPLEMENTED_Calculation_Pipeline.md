@@ -9,12 +9,15 @@
 - inforce monthly-deduction reconciliation
 - loan capitalization and loan interest accrual
 - projected cash-flow inputs (premium overrides, loans, repayments, withdrawals)
+- future policy-change inputs for face amount changes and simple DB option flips
 - guideline premium accumulation and force-out tracking
+- standalone GLP/GSP/7-pay calculation utilities
 - rider and benefit charges inside monthly deduction
 - shadow account / CCV calculation
 - safety net and shadow-based lapse protection
 - end-of-month surrender charge and lapse testing
 - CyberLife monthliversary timing used by PolView GLP forecasts
+- RERUN comparison tooling for validating engine output against the workbook CalcEngine
 
 This document is intended to show the pipeline that exists now so the next round of work can focus on the remaining gaps instead of re-documenting already-implemented pieces.
 
@@ -25,6 +28,7 @@ The pipeline is distributed across these modules:
 - `suiteview/illustration/core/calc_engine.py` - month orchestration, inforce row, surrender charge, lapse logic
 - `suiteview/illustration/core/guideline_calc.py` - standalone GLP/GSP calculators and attained-age policy-change delta logic
 - `suiteview/illustration/core/commutation.py` - commutation functions, mortality table helpers, substandard adjustments, and Fackler reserve utilities
+- `suiteview/illustration/core/rate_loader.py` - current and guaranteed COI/rate loading into `IllustrationRates`
 - `suiteview/illustration/core/premium_handler.py` - premium split, premium loads, net premium
 - `suiteview/illustration/core/monthly_deduction.py` - death benefit, NAR, COI, EPU, fees, rider and benefit charges
 - `suiteview/illustration/core/interest_calc.py` - credited interest, bonus interest, impaired interest on loaned AV
@@ -34,6 +38,7 @@ The pipeline is distributed across these modules:
 - `suiteview/illustration/core/shadow_calc.py` - parallel CCV / shadow account calculation
 - `suiteview/polview/services/glp_exception.py` - PolView GLP exception and policy-support premium forecast consumer
 - `suiteview/illustration/debug/excel_export.py` - exposes the pipeline field order used for debug export
+- `tools/rerun_com.py`, `tools/run_engine_case.py`, `tools/compare_case.py`, and `tools/calc_compare_map.py` - RERUN workbook dump, engine dump, and grouped comparison harness
 
 ## 2. High-Level Flow
 
@@ -48,13 +53,13 @@ At a high level, the normal illustration path is being structured to follow the 
 1. Update date, policy year/month, and attained age
 2. Gather beginning values: AV, PremTD, coverage amounts, surrender charge context
 3. Withdrawal processing (partially wired for projected withdrawal inputs; broader workflow later)
-4. DB option change processing (later)
-5. Face increase processing (later)
-6. Face decrease processing (later)
+4. DB option change processing (simple future change wiring; advanced A/B mechanics still partial)
+5. Face increase processing (future policy-change input)
+6. Face decrease processing (future policy-change input)
 7. Coverage After Change: active coverages, original/current amount, coverage durations, rate/substandard changes
 8. Minimum Target Premium calculation/accumulation
 9. Commission Target Premium calculation/accumulation
-10. 7702 / 7702A calculations (currently GLP accumulation and force-out only)
+10. 7702 / 7702A calculations (GLP/GSP accumulation, force-out, premium caps, and standalone GLP/GSP/7-pay utilities)
 11. Loan capitalization and loan repayment processing (currently anniversary capitalization and projected repayments)
 12. Apply premium and premium load
 13. Monthly deduction
@@ -62,7 +67,7 @@ At a high level, the normal illustration path is being structured to follow the 
 15. Policy values: account value, surrender value, and new loan processing
 16. Accumulation: interest crediting, loan interest charges, and ending values
 17. Shadow account processing
-18. Testing: TAMRA/MEC later, lapse/SV/shadow/SNET now
+18. Testing: simplified TAMRA cap, lapse/SV/shadow/SNET now; full MEC determination later
 19. Deemed Cash Value (later)
 ```
 
@@ -194,17 +199,42 @@ Current projected withdrawal inputs are applied through `apply_cash_flow_inputs(
 
 ### 4.4 Step 4 - DB Option Change Processing
 
-DB option change processing is not fully wired yet.
+Future DB option change events are now consumed from `IllustrationInputSet.policy_changes`.
+When a `PolicyChangeEvent(kind=DB_OPTION, ...)` reaches its effective month, the
+engine mutates the private projection copy of `policy.db_option` before monthly
+deduction reads the death-benefit option.
 
 Valuation-date injection point:
 
 - death benefit option is injected at the end of this section
 
-The current engine reads `policy.db_option` from `IllustrationPolicyData` when monthly deduction calculates standard death benefit.
+The current engine reads `policy.db_option` from `IllustrationPolicyData` when monthly deduction calculates standard death benefit. The future-change implementation is intentionally minimal: it flips the option code. RERUN's more nuanced A-to-B/B-to-A mechanics, where specified amount may be adjusted so the death benefit stays level at the change, are not fully implemented yet.
 
 ### 4.5 Steps 5-6 - Face Increase and Decrease Processing
 
-Face increase and decrease processing are not fully wired yet. Future face amount events already have model placeholders in `IllustrationInputSet.policy_changes`, but the engine does not yet mutate policy state from them.
+Future face amount events are now consumed from `IllustrationInputSet.policy_changes`.
+When any future policy changes are present, `IllustrationEngine.project()` deep-copies
+the policy so the projection can mutate private segment state without changing the
+caller-owned `IllustrationPolicyData`. Changes are bucketed by projection duration
+and applied before coverage, deduction, surrender, and interest calculations for the
+effective month.
+
+Face decreases reduce existing coverage segments newest-first:
+
+- segment `face_amount` and `units` are reduced in place
+- the decreased coverage's surrender charge is deducted from AV in the change month
+- the segment is re-banded to the remaining current face amount and COI/EPU rates are reloaded
+- benefit COI rates are reloaded using the base segment's current band
+
+Face increases append a new base `CoverageSegment`:
+
+- the new segment's issue date is the change date
+- issue age is the attained age at the change
+- units are based on the increase amount and the base segment's value-per-unit
+- banding uses the new total specified amount, matching the CyberLife/RERUN behavior observed so far
+- COI, EPU, and SCR schedules for the new segment are loaded on the fly
+
+Still partial: monthly MTP/PW target-premium recomputation on face changes is not implemented, and guideline/GSP/7-pay recalculation on the change is not wired into the monthly projection path yet.
 
 ### 4.6 Step 7 - Coverage After Change
 
@@ -225,7 +255,7 @@ Valuation-date injection point:
 - coverage amounts are injected in this section
 - rate class and substandard values are injected and updated in this section
 
-The current engine reads already-built coverage state from `IllustrationPolicyData.segments`, riders, benefits, and substandard/rate attributes. The monthly deduction path then uses those coverage-level values for death benefit discounting, NAR allocation, COI, EPU, rider charges, benefit charges, and surrender charge by coverage.
+The current engine reads already-built or policy-change-mutated coverage state from `IllustrationPolicyData.segments`, riders, benefits, and substandard/rate attributes. The monthly deduction path then uses those coverage-level values for death benefit discounting, NAR allocation, COI, EPU, rider charges, benefit charges, and surrender charge by coverage.
 
 ### 4.7 Step 8 - Minimum Target Premium Calculation / Accumulation
 
@@ -305,15 +335,18 @@ Separately, `guideline_calc.py` implements the standalone GLP/GSP calculation su
 
 - `calculate_glp()` and `calculate_gsp()` use commutation / present-value formulas for level death benefit policies, including premium loads, per-policy fees, per-unit charges, additional benefit charges, substandard mortality adjustments, and the statutory interest floors supplied by the caller.
 - `glp_on_change()` applies the attained-age policy-change delta method: current GLP plus GLP-after-change minus GLP-before-change.
-- `calculate_glp_iterative()` binary-searches the level annual premium that endows the policy at the 7702 maturity age using the real `IllustrationEngine`, guaranteed COI rates supplied by the caller, zero bonus interest, and guideline/exception machinery turned off. It is import-tested offline, but validating real guaranteed-rate results still requires the work-laptop rate database.
+- `calculate_7pay_premium()` calculates a TAMRA 7-pay style annual premium using the same present-value/commutation basis as GLP over a configurable pay period (default 7 years).
+- `calculate_glp_iterative()` binary-searches the level annual premium that endows the policy at the 7702 maturity age using the real `IllustrationEngine`, guaranteed COI rates supplied by the caller, zero bonus interest, and guideline/exception machinery turned off.
+- `load_rates(policy, config, coi_scale=0)` supplies guaranteed COI rates for guideline/TAMRA calculations; `coi_scale=1` remains the illustrated/current scale used by the normal projection.
 
-That standalone calculator is implemented, but it is not yet wired as an automatic replacement for loaded policy GLP/GSP values during normal monthly projection.
+That standalone calculator is implemented, but it is not yet wired as an automatic replacement for loaded policy GLP/GSP/7-pay values during normal monthly projection or as an automatic recalculation on future policy changes.
 
 Deferred:
 
 - full integrated 7702 testing and 7702A / TAMRA / MEC determination in the monthly projection path (the cap enforces limits but does not yet flag MEC)
 - Necessary Premium Test (CVAT)
 - force-out reduction of cost basis (CalcEngine `OD`)
+- guideline/GSP/7-pay recalculation on face or DB option changes
 
 ### 4.10 Step 11 - Loan Capitalization and Repayment Processing
 
@@ -513,9 +546,10 @@ COI charges:
 
 - coverage segments, riders, and benefits can use anniversary logic tied to their own issue dates
 - raw COI is adjusted for table ratings and flat extras when active
+- the annual flat extra is converted to a monthly amount with `TRUNC(flat_extra / 12, 2)`, matching RERUN's cent truncation rather than ordinary rounding
 
 ```text
-adjusted_coi_rate = raw_rate * (1 + table_rating_factor * table_rating) + flat_extra / 12
+adjusted_coi_rate = raw_rate * (1 + table_rating_factor * table_rating) + TRUNC(flat_extra / 12, 2)
 segment_coi_charge = (segment_nar / 1000) * adjusted_segment_coi_rate
 coi_charge_corr = (nar_corr / 1000) * adjusted_base_coi_rate
 coi_charge = sum(segment_coi_charges) + coi_charge_corr
@@ -554,7 +588,8 @@ Riders and benefits are implemented, not just planned.
 Rider charges:
 
 ```text
-rider_charge = rider.units * rider_rate
+adjusted_rider_rate = raw_rider_rate * (1 + table_rating_factor * rider_table_rating) + TRUNC(rider_flat_extra / 12, 2)
+rider_charge = rider.units * adjusted_rider_rate
 ```
 
 Premium waiver benefits (`benefit_type == "3"`) use:
@@ -628,10 +663,11 @@ annual_rate = policy.current_interest_rate
 effective_annual_rate = annual_rate + bonus_rate
 ```
 
-If the plancode uses `ExactDays`, the current implementation uses a fixed 365/12 convention in the exponent:
+If the plancode uses `ExactDays`, the implementation now uses actual calendar days in the month:
 
 ```text
-monthly_rate = (1 + effective_annual_rate) ** (365 / 12 / 365) - 1
+days = days_in_month(month_date)
+monthly_rate = (1 + effective_annual_rate) ** (days / 365) - 1
 ```
 
 Otherwise:
@@ -640,7 +676,7 @@ Otherwise:
 monthly_rate = (1 + effective_annual_rate) ** (1 / 12) - 1
 ```
 
-The function still records actual calendar `days_in_month`, but those days are not used in the base credited-interest exponent under `ExactDays`.
+The same actual-day exponent is also used for regular and preferred loan-credit rates when ExactDays is active.
 
 Loan-impaired interest:
 
@@ -883,16 +919,20 @@ The forecast rows expose the fields the Policy Support tab needs to audit the fo
 - inforce reconciliation row
 - premium split and premium loads
 - DBO A, B, and C handling
+- future policy-change events for simple DB option flips and face amount increases/decreases
 - multi-segment base coverage support in deduction and surrender charge logic
 - COI, EPU, MFEE, AV charge
 - rider and benefit charges during deduction and shadow account processing, excluding the CCV benefit charge from shadow rider charges
+- rider substandard table ratings and flat extras in rider COI charges
 - loan capitalization and in-arrears accrual, including variable loan charges when a policy variable rate is available
 - projected loans, repayments, withdrawals, and premium overrides
 - guideline premium force-out and accumulated GLP tracking in monthly projection rows
 - CyberLife monthliversary timing mode for PolView GLP forecasts
 - GLP Exception level-premium solver and Policy Support premium forecast consumer
-- standalone commutation GLP/GSP calculators, attained-age GLP change delta, and iterative GLP solver utility
+- standalone commutation GLP/GSP calculators, TAMRA 7-pay calculator, attained-age GLP change delta, and iterative GLP solver utility
+- current-vs-guaranteed COI scale selection for normal projection vs guideline/TAMRA calculations
 - bonus interest logic
+- ExactDays credited interest using actual `days / 365`
 - shadow account / CCV calculation
 - safety net and shadow-based lapse protection
 - surrender value and lapse determination
@@ -900,22 +940,23 @@ The forecast rows expose the fields the Policy Support tab needs to audit the fo
 ### 7.2 Explicitly Incomplete or Partial in Current Code
 
 - advance-loan calculations are still out of scope; advance loans currently pass through without monthly accrual
-- base interest `ExactDays` mode records actual month days but uses a fixed 365/12 exponent for the credited-interest rate calculation
-- `IllustrationInputSet.policy_changes` and `InforceOverrideSet` exist as models, but this engine path currently consumes projected transaction inputs rather than applying broader future policy-change events
+- face-change support does not yet recompute monthly MTP / premium-waiver target-premium basis, so PW can diverge from RERUN after increases or decreases
+- DB option future changes are simple option-code flips; RERUN's A-to-B/B-to-A specified-amount adjustment behavior is not fully modeled
+- future face or DB option changes do not yet recalculate GLP/GSP/7-pay in the monthly projection path
 - some spec-era items such as full integrated 7702 recalculation, TAMRA/MEC flagging, deemed cash value, GCO logic, and broader policy change processing are not part of this monthly path
 
 ## 8. Recommended Next Review Questions
 
 Based on the current implementation, the next useful review questions are:
 
-1. Is the current `ExactDays` interest implementation intentional, or should credited interest use actual `days_in_month` like the shadow side does?
-2. Do we want projected withdrawals and loans to trigger any additional business rules beyond simple AV and debt movement?
-3. Should `guideline_calc.py` remain a standalone/offline calculator for GLP review, or should policy-build and policy-change flows start deriving GLP/GSP from it instead of relying only on loaded values?
-4. Which guaranteed COI / mortality source should feed the standalone GLP/GSP path for real policies, especially for DBO B/C where the iterative method is required?
-5. Should GLP force-out continue to be modeled as a withdrawal accumulator movement in all forecast contexts, or should the GLP Exception result distinguish actual withdrawals from force-outs more explicitly?
-6. Should future policy changes in `IllustrationInputSet.policy_changes` be wired into the projection before the GLP Exception premium forecast depends on them?
+1. What is the exact monthly MTP / premium-waiver target-premium recomputation basis after face increases and decreases?
+2. Should DB option changes adjust specified amount to preserve death benefit the way RERUN appears to do for A-to-B changes?
+3. Should `guideline_calc.py` remain a standalone/offline calculator for GLP review, or should policy-build and policy-change flows start deriving GLP/GSP/7-pay from it instead of relying only on loaded values?
+4. Should future face and DB option changes trigger automatic GLP/GSP/7-pay recalculation in the projection month, and if so should that timing follow RERUN's anniversary/new-segment lag exactly?
+5. Do we want projected withdrawals and loans to trigger any additional business rules beyond simple AV and debt movement?
+6. Should GLP force-out continue to be modeled as a withdrawal accumulator movement in all forecast contexts, or should the GLP Exception result distinguish actual withdrawals from force-outs more explicitly?
 7. Should the older `SPEC_Calculation.md` be revised to match the current engine, or kept as milestone history?
 
 ## 9. Bottom Line
 
-The current engine is no longer just a basic monthly AV projection. It already behaves like a broader inforce illustration pipeline with support for deduction detail, loans, cash-flow inputs, guideline force-outs, shadow values, multiple lapse-protection paths, and PolView GLP forecast consumers. The main next-step work looks less like building the basic pipeline and more like closing the remaining edge cases, validating formulas against RERUN/CyberLife, and deciding which partial areas need to be promoted to full production behavior.
+The current engine is no longer just a basic monthly AV projection. It already behaves like a broader inforce illustration pipeline with support for deduction detail, loans, cash-flow inputs, simple future policy changes, guideline force-outs, shadow values, multiple lapse-protection paths, and PolView GLP forecast consumers. The main next-step work looks less like building the basic pipeline and more like closing the remaining edge cases, validating formulas against RERUN/CyberLife, and deciding which partial areas need to be promoted to full production behavior.

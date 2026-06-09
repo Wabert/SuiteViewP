@@ -48,7 +48,12 @@ from .dynamic_group import DynamicQuery
 from .field_picker_panel import FieldPickerPanel, _indexed_column_names
 from .group_config import load_ui_settings, save_ui_settings
 from .ui.bottom_bar import AuditBottomBar, FOOTER_BG
-from .query_runner import execute_odbc_query, run_button_context
+from .query_runner import (
+    execute_odbc_query,
+    run_button_context,
+    run_query_async,
+    format_query_error,
+)
 from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
 from .dialogs.tables_dialog import _clean_odbc_identifier
 logger = logging.getLogger(__name__)
@@ -1644,34 +1649,47 @@ class AuditWindow(FramelessWindowBase):
         # Show SQL immediately
         self.sql_tab.set_sql(sql)
         region = self.cmb_region.currentText()
-        with run_button_context(self.btn_run, bar=self.cyberlife_bottom_bar):
+        db = DB2Connection(region)
+        dsn = db.dsn
+
+        def work():
             t0 = time.time()
-            try:
-                db = DB2Connection(region)
-                columns, rows = db.execute_query_with_headers(sql)
-                t_query = time.time() - t0
-                t1 = time.time()
-                df = pd.DataFrame([list(r) for r in rows], columns=columns)
-                self.results_tab.set_results(df)
-                self.results_tab.set_query_context(
-                    sql=sql, dsn=db.dsn,
-                    source_design="Cyberlife",
-                    result_columns=columns,
-                )
-                t_print = time.time() - t1
-                t_total = time.time() - t0
-                self.lbl_query_time.setText(f"Query time:  {fmt_time(t_query)}")
-                self.lbl_print_time.setText(f"Print time:  {fmt_time(t_print)}")
-                self.lbl_total_time.setText(f"Total time:  {fmt_time(t_total)}")
-                self.lbl_result_count.setText(f"Result count:   {len(df)}")
-                # Switch to Results tab
-                self.tabs.setCurrentWidget(self.results_tab)
-            except Exception as exc:
-                logger.exception("Audit query failed")
-                msg = str(exc)
-                if hasattr(exc, 'args') and len(exc.args) >= 2:
-                    msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-                QMessageBox.warning(self, "Query Error", msg)
+            columns, rows = db.execute_query_with_headers_isolated(sql)
+            t_query = time.time() - t0
+            df = pd.DataFrame([list(r) for r in rows], columns=columns)
+            return columns, df, t_query
+
+        def on_success(payload):
+            columns, df, t_query = payload
+            t1 = time.time()
+            self.results_tab.set_results(df)
+            self.results_tab.set_query_context(
+                sql=sql, dsn=dsn,
+                source_design="Cyberlife",
+                result_columns=columns,
+            )
+            t_print = time.time() - t1
+            self.lbl_query_time.setText(f"Query time:  {fmt_time(t_query)}")
+            self.lbl_print_time.setText(f"Print time:  {fmt_time(t_print)}")
+            self.lbl_total_time.setText(f"Total time:  {fmt_time(t_query + t_print)}")
+            self.lbl_result_count.setText(f"Result count:   {len(df)}")
+            # Switch to Results tab
+            self.tabs.setCurrentWidget(self.results_tab)
+
+        def on_error(exc):
+            logger.error("Audit query failed: %s", exc)
+            QMessageBox.warning(self, "Query Error", format_query_error(exc))
+
+        run_query_async(
+            owner=self,
+            work=work,
+            on_success=on_success,
+            on_error=on_error,
+            btn=self.btn_run,
+            restore_text="Run\nAudit",
+            bar=self.cyberlife_bottom_bar,
+        )
+
     # ── Header view buttons ──────────────────────────────────────────
     def _on_cyberlife_header_clicked(self, checked: bool):
         """Switch to Cyberlife view from header button."""
@@ -1927,61 +1945,70 @@ class AuditWindow(FramelessWindowBase):
     def _run_build_sql(self, sql: str):
         """Execute user-edited SQL and show results in Build SQL Results."""
         region = self.cmb_region.currentText()
-        db = None
-        with run_button_context(
-            self.build_sql_tab.btn_run_sql,
+        db = DB2Connection(region)
+        dsn = getattr(db, "dsn", region)
+
+        def work():
+            columns, rows = db.execute_query_with_headers_isolated(sql)
+            return pd.DataFrame([list(r) for r in rows], columns=columns)
+
+        def on_success(df):
+            # Add results tab if not already present
+            if self._build_sql_results_tab_index < 0:
+                self._build_sql_results_tab_index = self.tabs.addTab(
+                    self.build_sql_results_tab, "Build SQL Results")
+            self.build_sql_results_tab.set_results(df, sql=sql, dsn=dsn)
+            self.tabs.setCurrentWidget(self.build_sql_results_tab)
+
+        def on_error(exc):
+            logger.error("Build SQL query failed: %s", exc)
+            QMessageBox.warning(self, "Query Error", format_query_error(exc))
+
+        run_query_async(
+            owner=self,
+            work=work,
+            on_success=on_success,
+            on_error=on_error,
+            btn=self.build_sql_tab.btn_run_sql,
             restore_text="Run this SQL",
-        ):
-            try:
-                db = DB2Connection(region)
-                columns, rows = db.execute_query_with_headers(sql)
-                df = pd.DataFrame([list(r) for r in rows], columns=columns)
-                # Add results tab if not already present
-                if self._build_sql_results_tab_index < 0:
-                    self._build_sql_results_tab_index = self.tabs.addTab(
-                        self.build_sql_results_tab, "Build SQL Results")
-                self.build_sql_results_tab.set_results(
-                    df,
-                    sql=sql,
-                    dsn=getattr(db, "dsn", region),
-                )
-                self.tabs.setCurrentWidget(self.build_sql_results_tab)
-            except Exception as exc:
-                logger.exception("Build SQL query failed")
-                msg = str(exc)
-                if hasattr(exc, 'args') and len(exc.args) >= 2:
-                    msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-                QMessageBox.warning(self, "Query Error", msg)
+        )
+
     def _run_manual_sql_preview(self, sql: str):
         """Execute Manual SQL Object preview and capture output schema."""
         dsn = self.manual_sql_object_tab.current_connection()
         if not dsn:
             QMessageBox.warning(self, "ODBC Required", "Select an ODBC connection before previewing SQL.")
             return
-        self.manual_sql_object_tab.set_running(True)
-        try:
+
+        def work():
             t0 = time.time()
             columns, rows = execute_odbc_query(dsn, sql)
             t_query = time.time() - t0
-            t1 = time.time()
             df = pd.DataFrame([list(r) for r in rows], columns=columns)
-            self.manual_sql_object_tab.set_preview_results(
-                df,
-                dsn=dsn,
-            )
+            return df, t_query
+
+        def on_success(payload):
+            df, t_query = payload
+            t1 = time.time()
+            self.manual_sql_object_tab.set_preview_results(df, dsn=dsn)
             t_print = time.time() - t1
             footer = self.manual_sql_object_tab.bottom_bar
             footer.lbl_query_time.setText(f"Query time: {fmt_time(t_query)}")
             footer.lbl_print_time.setText(f"Print time: {fmt_time(t_print)}")
             footer.lbl_total_time.setText(f"Total time: {fmt_time(t_query + t_print)}")
-        except Exception as exc:
-            logger.exception("Manual SQL object preview failed")
-            msg = str(exc)
-            if hasattr(exc, 'args') and len(exc.args) >= 2:
-                msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-            QMessageBox.warning(self, "Query Error", msg)
-        finally:
-            self.manual_sql_object_tab.set_running(False)
+
+        def on_error(exc):
+            logger.error("Manual SQL object preview failed: %s", exc)
+            QMessageBox.warning(self, "Query Error", format_query_error(exc))
+
+        run_query_async(
+            owner=self,
+            work=work,
+            on_success=on_success,
+            on_error=on_error,
+            on_busy=self.manual_sql_object_tab.set_running,
+        )
+
     def _load_manual_sql_assist_tables(self, dsn: str = ""):
         """Load tables for the selected ODBC connection."""
         dsn = dsn or self.manual_sql_object_tab.current_connection()

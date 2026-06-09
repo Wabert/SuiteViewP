@@ -38,7 +38,12 @@ from suiteview.audit.tabs.results_tab import ResultsTab
 from suiteview.audit.tabs._styles import _FONT
 from suiteview.audit.sql_helpers import fmt_time
 from suiteview.audit.ui.bottom_bar import AuditBottomBar
-from suiteview.audit.query_runner import run_button_context, execute_odbc_query
+from suiteview.audit.query_runner import (
+    run_button_context,
+    execute_odbc_query,
+    run_query_async,
+    format_query_error,
+)
 from suiteview.audit.dataforge.query_field_picker import FORGE_FIELD_DRAG_MIME
 # Phase 2 join UI: the MS-Access-style canvas (field-linked Source boxes with
 # drawn join lines) replaces the old card-based ForgeJoinsTab. ForgeJoinCanvas
@@ -1353,109 +1358,119 @@ class DataForgeGroup(QWidget):
                                 "Add at least one query object via the Objects button.")
             return
 
-        with run_button_context(
-            self.btn_run, bar=self.bottom_bar,
-            restore_text="Run\nForge",
-        ):
+        # Validate + snapshot sources on the GUI thread before going async.
+        sources: list = []
+        sqls: dict[str, str] = {}
+        for name, sq in self._sources.items():
+            if not sq.sql and not self._is_adhoc_source(sq):
+                QMessageBox.warning(
+                    self, "Missing SQL",
+                    f"Query \"{name}\" has no SQL. Run and re-save it first.")
+                return
+            sqls[name] = sq.sql or f"Ad hoc source: {sq.source_design}"
+            sources.append((name, sq))
+
+        def work():
+            # Slow part: run each source query off the GUI thread.
             t0 = time.time()
             datasets: dict[str, pd.DataFrame] = {}
-            sqls: dict[str, str] = {}
+            for name, sq in sources:
+                datasets[name] = self._load_source_dataframe(sq)
+            return datasets, time.time() - t0
 
-            try:
-                # Step 1: Execute each source query's SQL
-                for name, sq in self._sources.items():
-                    if not sq.sql and not self._is_adhoc_source(sq):
-                        QMessageBox.warning(
-                            self, "Missing SQL",
-                            f"Query \"{name}\" has no SQL. Run and re-save it first.")
-                        return
-                    sqls[name] = sq.sql or f"Ad hoc source: {sq.source_design}"
-                    datasets[name] = self._load_source_dataframe(sq)
+        def on_success(payload):
+            datasets, t_query = payload
 
-                # Cache datasets so field picker can see them
-                self._datasets.update(datasets)
-                # Notify open dialog about data availability
-                if self._queries_dialog and self._queries_dialog.isVisible():
-                    self._queries_dialog.update_data_status(set(self._datasets.keys()))
+            # Cache datasets so field picker can see them
+            self._datasets.update(datasets)
+            # Notify open dialog about data availability
+            if self._queries_dialog and self._queries_dialog.isVisible():
+                self._queries_dialog.update_data_status(set(self._datasets.keys()))
 
-                t_query = time.time() - t0
+            # Step 2: Apply pandas merge operations
+            t1 = time.time()
+            merge_ops = self.joins_tab.get_merge_ops()
 
-                # Step 2: Apply pandas merge operations
-                t1 = time.time()
-                merge_ops = self.joins_tab.get_merge_ops()
+            if merge_ops:
+                # Execute merges in order
+                result = None
+                for op in merge_ops:
+                    left_name = op["left"]
+                    right_name = op["right"]
+                    left_on = op["left_on"]
+                    right_on = op["right_on"]
+                    how = op["how"]
 
-                if merge_ops:
-                    # Execute merges in order
-                    result = None
-                    for op in merge_ops:
-                        left_name = op["left"]
-                        right_name = op["right"]
-                        left_on = op["left_on"]
-                        right_on = op["right_on"]
-                        how = op["how"]
+                    if not left_on or not right_on:
+                        continue
 
-                        if not left_on or not right_on:
-                            continue
+                    left_df = result if result is not None else datasets.get(left_name)
+                    right_df = datasets.get(right_name)
 
-                        left_df = result if result is not None else datasets.get(left_name)
-                        right_df = datasets.get(right_name)
+                    if left_df is None or right_df is None:
+                        continue
 
-                        if left_df is None or right_df is None:
-                            continue
+                    result = pd.merge(
+                        left_df, right_df,
+                        left_on=left_on, right_on=right_on,
+                        how=how, suffixes=(f"_{left_name}", f"_{right_name}"))
 
-                        result = pd.merge(
-                            left_df, right_df,
-                            left_on=left_on, right_on=right_on,
-                            how=how, suffixes=(f"_{left_name}", f"_{right_name}"))
-
-                    if result is None:
-                        # No valid merges — use first dataset
-                        result = next(iter(datasets.values()))
-                else:
-                    # No merges — use first dataset
+                if result is None:
+                    # No valid merges — use first dataset
                     result = next(iter(datasets.values()))
+            else:
+                # No merges — use first dataset
+                result = next(iter(datasets.values()))
 
-                # Step 3: Apply pandas filters from filter tabs
-                for tab in self._filter_tabs:
-                    result = self._apply_pandas_filters(result, tab)
+            # Step 3: Apply pandas filters from filter tabs
+            for tab in self._filter_tabs:
+                result = self._apply_pandas_filters(result, tab)
 
-                # Step 4: Apply display column selection
-                if not self.display_tab.display_all:
-                    result = self._apply_display_columns(result)
+            # Step 4: Apply display column selection
+            if not self.display_tab.display_all:
+                result = self._apply_display_columns(result)
 
-                # Step 5: Apply max count
-                max_count = self.txt_max_count.text().strip()
-                if max_count.isdigit():
-                    result = result.head(int(max_count))
+            # Step 5: Apply max count
+            max_count = self.txt_max_count.text().strip()
+            if max_count.isdigit():
+                result = result.head(int(max_count))
 
-                t_print = time.time() - t1
-                t_total = time.time() - t0
+            t_print = time.time() - t1
+            t_total = t_query + t_print
 
-                # Update Display tab with available columns
-                self.display_tab.set_columns(list(result.columns))
+            # Update Display tab with available columns
+            self.display_tab.set_columns(list(result.columns))
 
-                # Show results
-                self.results_tab.set_results(result)
-                self.lbl_query_time.setText(f"Query time:  {fmt_time(t_query)}")
-                self.lbl_print_time.setText(f"Merge time:  {fmt_time(t_print)}")
-                self.lbl_total_time.setText(f"Total time:  {fmt_time(t_total)}")
-                self.lbl_result_count.setText(f"Result count:   {len(result)}")
+            # Show results
+            self.results_tab.set_results(result)
+            self.lbl_query_time.setText(f"Query time:  {fmt_time(t_query)}")
+            self.lbl_print_time.setText(f"Merge time:  {fmt_time(t_print)}")
+            self.lbl_total_time.setText(f"Total time:  {fmt_time(t_total)}")
+            self.lbl_result_count.setText(f"Result count:   {len(result)}")
 
-                # Update SQL tab with per-dataset SQL
-                self.sql_tab.set_datasets(sqls)
+            # Update SQL tab with per-dataset SQL
+            self.sql_tab.set_datasets(sqls)
 
-                # Generate Python code
-                code = self._generate_python_code(sqls, merge_ops, max_count)
-                self.code_tab.set_code(code)
+            # Generate Python code
+            code = self._generate_python_code(sqls, merge_ops, max_count)
+            self.code_tab.set_code(code)
 
-                self.tab_widget.setCurrentWidget(self.results_tab)
+            self.tab_widget.setCurrentWidget(self.results_tab)
 
-            except Exception as exc:
-                logger.exception("DataForge execution failed")
-                msg = str(exc)
-                if hasattr(exc, 'args') and len(exc.args) >= 2:
-                    msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-                QMessageBox.warning(self, "DataForge Error", msg)
+        def on_error(exc):
+            logger.error("DataForge execution failed: %s", exc)
+            QMessageBox.warning(self, "DataForge Error", format_query_error(exc))
+
+        run_query_async(
+            owner=self,
+            work=work,
+            on_success=on_success,
+            on_error=on_error,
+            btn=self.btn_run,
+            restore_text="Run\nForge",
+            bar=self.bottom_bar,
+        )
+
 
     def _apply_pandas_filters(self, df: pd.DataFrame,
                               tab: ForgeFilterTab) -> pd.DataFrame:

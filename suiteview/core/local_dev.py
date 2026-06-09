@@ -1,8 +1,8 @@
 """Local SQLite data sources for offline SuiteView development.
 
-Enable with ``SUITEVIEW_LOCAL_DATA=1``.  The local databases intentionally keep
-the production table and field names so PolView and Illustration can exercise
-the normal data-loading path without a work-network connection.
+Enable only with ``SUITEVIEW_LOCAL_DATA=1``.  The local databases intentionally
+keep the production table and field names so PolView and Illustration can
+exercise the normal data-loading path without a work-network connection.
 """
 
 from __future__ import annotations
@@ -18,9 +18,13 @@ LOCAL_RATES_DB_ENV = "SUITEVIEW_LOCAL_RATES_DB"
 
 
 def local_data_enabled() -> bool:
-    """Return whether local SQLite data mode is enabled."""
-    value = os.environ.get(LOCAL_DATA_ENV, "")
-    return value.strip().lower() in {"1", "true", "yes", "on", "dev", "local"}
+    """Return whether local SQLite data mode is explicitly enabled."""
+    return os.environ.get(LOCAL_DATA_ENV) == "1"
+
+
+def _require_local_data_enabled() -> None:
+    if not local_data_enabled():
+        raise RuntimeError(f"Local SuiteView data requires {LOCAL_DATA_ENV}=1")
 
 
 def dev_data_dir() -> Path:
@@ -56,6 +60,7 @@ def connect_local_policy_database(region: str = "CKPR") -> sqlite3.Connection:
     ``SYSIBM.SYSDUMMY1`` schema supports the harmless DB2 WITH clause used by
     this codebase.
     """
+    _require_local_data_enabled()
     path = local_policy_db_path()
     if not path.exists():
         raise FileNotFoundError(
@@ -74,6 +79,7 @@ def connect_local_policy_database(region: str = "CKPR") -> sqlite3.Connection:
 
 def connect_local_rates_database() -> sqlite3.Connection:
     """Return a SQLite connection for the local UL rates database."""
+    _require_local_data_enabled()
     path = local_rates_db_path()
     if not path.exists():
         raise FileNotFoundError(

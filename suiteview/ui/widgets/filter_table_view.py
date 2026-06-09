@@ -231,6 +231,7 @@ class PandasTableModel(QAbstractTableModel):
         self._default_numeric_decimals: Optional[int] = None
         self._column_decimals: Dict[str, Optional[int]] = {}
         self._highlighted_cells: Dict[tuple[int, str], QColor] = {}
+        self._header_labels: Dict[str, str] = {}
 
     def set_filtered_indices(self, indices: pd.Index):
         """Update the filtered indices (after column filters)"""
@@ -275,6 +276,17 @@ class PandasTableModel(QAbstractTableModel):
             top_left = self.index(0, 0)
             bottom_right = self.index(self.rowCount() - 1, self.columnCount() - 1)
             self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.BackgroundRole])
+
+    def set_header_labels(self, header_labels: Dict[str, str]):
+        """Override the displayed header text for specific column keys.
+
+        Lets two columns carry distinct DataFrame keys (needed for uniqueness)
+        while showing the same human-facing label in the header.
+        """
+        self._header_labels = dict(header_labels or {})
+        self.headerDataChanged.emit(
+            Qt.Orientation.Horizontal, 0, max(0, self.columnCount() - 1)
+        )
 
     def is_numeric_column(self, column_index: int) -> bool:
         if column_index < 0 or column_index >= self.columnCount():
@@ -328,7 +340,8 @@ class PandasTableModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if role == Qt.ItemDataRole.DisplayRole:
             if orientation == Qt.Orientation.Horizontal:
-                return str(self._original_df.columns[section])
+                column_key = str(self._original_df.columns[section])
+                return self._header_labels.get(column_key, column_key)
             else:
                 return str(section + 1)
         return None
@@ -934,6 +947,10 @@ class FilterTableView(QWidget):
     def set_highlighted_cells(self, highlighted_cells: Dict[tuple[int, str], QColor]):
         if self.model is not None:
             self.model.set_highlighted_cells(highlighted_cells)
+    
+    def set_header_labels(self, header_labels: Dict[str, str]):
+        if self.model is not None:
+            self.model.set_header_labels(header_labels)
     
     def on_sort_clicked(self, column_index: int):
         """Handle sort icon click - toggle sort order"""

@@ -125,7 +125,10 @@ One line: **Bloomberg-terminal density with a hand-crafted frame.**
 > No inline execution — only auditable scripts under `tools/`. The desktop app
 > can't be inspected by browser tools; verify UI via `tools/take_screenshot.py`.
 > Respect the minipc/work-laptop split: defer anything needing live
-> DB2/SQL-Server to `WORK_LAPTOP_SPEC.md`. Leave the next agent a clean handoff.
+> DB2/SQL-Server to `WORK_LAPTOP_SPEC.md`. Local SQLite policy/rates databases
+> are forbidden unless `SUITEVIEW_LOCAL_DATA` is set exactly to `1`; never treat
+> them as a fallback for failed live DB2/SQL-Server access. Leave the next agent
+> a clean handoff.
 >
 > **Decision heuristic — "what would the author do?"** When unsure, choose the
 > *denser, more reusable, more correct, lower-friction* option. If it duplicates
@@ -677,6 +680,22 @@ if pi:
 ## 🗄️ DB2 Database Configuration
 
 All sub-apps share the same DB2 connectivity layer.
+
+### Local SQLite Data Is Opt-In Only
+
+Generated local policy-record and rates SQLite files under `bundled_data/dev/`
+exist only for deliberate offline development. They must **never** be used as a
+fallback when live DB2/SQL-Server access fails or is unavailable.
+
+- The only enabling switch is `SUITEVIEW_LOCAL_DATA=1` exactly.
+- Values such as `true`, `yes`, `on`, `dev`, `local`, or a configured local DB
+  path do **not** enable local data.
+- `SUITEVIEW_LOCAL_POLICY_DB` and `SUITEVIEW_LOCAL_RATES_DB` may only choose the
+  file path after `SUITEVIEW_LOCAL_DATA=1` has already enabled local mode.
+- Policy data must still flow through `PolicyInformation` / `DB2Connection`;
+  rates must still flow through `suiteview.core.rates.Rates`.
+- If live data access fails while local mode is disabled, raise the live access
+  error. Do not silently fall back to local SQLite.
 
 ### DSN Mappings (Regions)
 

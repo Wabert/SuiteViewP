@@ -415,27 +415,68 @@ def build_cyberlife_sql(
 
     # Policy(2): Termination Entry Date (69) CTEs
     if has_term_entry or disp_term_date:
-        sql_parts.append(f", PRE_TERMINATION_DATES AS")
+        sql_parts.append(f", TERMINATION_TRANS AS")
         sql_parts.append(f"  (SELECT FH.CK_CMP_CD, FH.TCH_POL_ID,")
-        sql_parts.append(f"   MAX(FH.ENTRY_DT) AS TERM_ENTRY_DT")
+        sql_parts.append(f"    FH.ENTRY_DT, FH.ASOF_DT, FH.TRANS")
         sql_parts.append(f"   FROM {schema}.FH_FIXED AS FH")
         sql_parts.append(f"   WHERE FH.TRANS IN ('SI', 'SF', 'TD', 'TM', 'TN', 'TL', 'TO')")
         sql_parts.append(f"   AND FH.FCB0_REV_IND = '0'")
-        sql_parts.append(f"   AND FH.FCB2_REV_APPL_IND = '0'")
-        sql_parts.append(f"   GROUP BY FH.CK_CMP_CD, FH.TCH_POL_ID)")
+        sql_parts.append(f"   AND FH.FCB2_REV_APPL_IND = '0')")
+        sql_parts.append(f", PRE_TERMINATION_DATES AS")
+        sql_parts.append(f"  (SELECT TT.CK_CMP_CD, TT.TCH_POL_ID,")
+        sql_parts.append(f"   MAX(TT.ENTRY_DT) AS TERM_ENTRY_DT")
+        sql_parts.append(f"   FROM TERMINATION_TRANS AS TT")
+        sql_parts.append(f"   GROUP BY TT.CK_CMP_CD, TT.TCH_POL_ID)")
+        sql_parts.append(f", TERMINATION_ENTRY_EFFECTIVE_DATES AS")
+        sql_parts.append(f"  (SELECT CK_CMP_CD, TCH_POL_ID, ENTRY_DT,")
+        sql_parts.append(f"    MAX(ASOF_DT) AS TERM_EFFECTIVE_DT")
+        sql_parts.append(f"   FROM TERMINATION_TRANS")
+        sql_parts.append(f"   GROUP BY CK_CMP_CD, TCH_POL_ID, ENTRY_DT)")
+        sql_parts.append(f", TERMINATION_ENTRY_TRANS_TYPES AS")
+        sql_parts.append(f"  (SELECT CK_CMP_CD, TCH_POL_ID, ENTRY_DT,")
+        sql_parts.append(f"    MAX(CASE WHEN TRANS = 'SI' THEN 1 ELSE 0 END) AS HAS_SI,")
+        sql_parts.append(f"    MAX(CASE WHEN TRANS = 'SF' THEN 1 ELSE 0 END) AS HAS_SF,")
+        sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TD' THEN 1 ELSE 0 END) AS HAS_TD,")
+        sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TM' THEN 1 ELSE 0 END) AS HAS_TM,")
+        sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TN' THEN 1 ELSE 0 END) AS HAS_TN,")
+        sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TL' THEN 1 ELSE 0 END) AS HAS_TL,")
+        sql_parts.append(f"    MAX(CASE WHEN TRANS = 'TO' THEN 1 ELSE 0 END) AS HAS_TO")
+        sql_parts.append(f"   FROM TERMINATION_TRANS")
+        sql_parts.append(f"   GROUP BY CK_CMP_CD, TCH_POL_ID, ENTRY_DT)")
+        sql_parts.append(f", TERMINATION_ENTRY_DETAILS AS")
+        sql_parts.append(f"  (SELECT PTD.CK_CMP_CD, PTD.TCH_POL_ID, PTD.TERM_ENTRY_DT,")
+        sql_parts.append(f"    TED.TERM_EFFECTIVE_DT,")
+        sql_parts.append(f"    SUBSTR(")
+        sql_parts.append(f"      CASE WHEN TTT.HAS_SI = 1 THEN ', SI' ELSE '' END ||")
+        sql_parts.append(f"      CASE WHEN TTT.HAS_SF = 1 THEN ', SF' ELSE '' END ||")
+        sql_parts.append(f"      CASE WHEN TTT.HAS_TD = 1 THEN ', TD' ELSE '' END ||")
+        sql_parts.append(f"      CASE WHEN TTT.HAS_TM = 1 THEN ', TM' ELSE '' END ||")
+        sql_parts.append(f"      CASE WHEN TTT.HAS_TN = 1 THEN ', TN' ELSE '' END ||")
+        sql_parts.append(f"      CASE WHEN TTT.HAS_TL = 1 THEN ', TL' ELSE '' END ||")
+        sql_parts.append(f"      CASE WHEN TTT.HAS_TO = 1 THEN ', TO' ELSE '' END,")
+        sql_parts.append(f"      3) AS TERM_TRANS_TYPES")
+        sql_parts.append(f"   FROM PRE_TERMINATION_DATES AS PTD")
+        sql_parts.append(f"   INNER JOIN TERMINATION_ENTRY_EFFECTIVE_DATES AS TED")
+        sql_parts.append(f"     ON PTD.CK_CMP_CD = TED.CK_CMP_CD")
+        sql_parts.append(f"    AND PTD.TCH_POL_ID = TED.TCH_POL_ID")
+        sql_parts.append(f"    AND PTD.TERM_ENTRY_DT = TED.ENTRY_DT")
+        sql_parts.append(f"   INNER JOIN TERMINATION_ENTRY_TRANS_TYPES AS TTT")
+        sql_parts.append(f"     ON PTD.CK_CMP_CD = TTT.CK_CMP_CD")
+        sql_parts.append(f"    AND PTD.TCH_POL_ID = TTT.TCH_POL_ID")
+        sql_parts.append(f"    AND PTD.TERM_ENTRY_DT = TTT.ENTRY_DT)")
         _term_lo = normalize_date(p2t.txt_term_entry_date_lo.text()) or ""
         _term_hi = normalize_date(p2t.txt_term_entry_date_hi.text()) or ""
         if _term_lo or _term_hi:
             _tw = "WHERE 1=1"
             if _term_lo:
-                _tw += f" AND PRE_TERMINATION_DATES.TERM_ENTRY_DT >= '{_term_lo}'"
+                _tw += f" AND TERMINATION_ENTRY_DETAILS.TERM_ENTRY_DT >= '{_term_lo}'"
             if _term_hi:
-                _tw += f" AND PRE_TERMINATION_DATES.TERM_ENTRY_DT <= '{_term_hi}'"
+                _tw += f" AND TERMINATION_ENTRY_DETAILS.TERM_ENTRY_DT <= '{_term_hi}'"
             sql_parts.append(f", TERMINATION_DATES AS")
-            sql_parts.append(f"  (SELECT * FROM PRE_TERMINATION_DATES {_tw})")
+            sql_parts.append(f"  (SELECT * FROM TERMINATION_ENTRY_DETAILS {_tw})")
         else:
             sql_parts.append(f", TERMINATION_DATES AS")
-            sql_parts.append(f"  (SELECT * FROM PRE_TERMINATION_DATES)")
+            sql_parts.append(f"  (SELECT * FROM TERMINATION_ENTRY_DETAILS)")
 
     # Policy(2): Loan CTEs (77 segment)
     if has_77_segment or disp_policy_debt:
@@ -826,6 +867,8 @@ def build_cyberlife_sql(
         sql_parts.append("  , VARCHAR_FORMAT(GRACE_TABLE.GRA_PER_EXP_DT, 'MM/DD/YYYY') GPE_DT")
     if disp_term_date:
         sql_parts.append("  , VARCHAR_FORMAT(TD.TERM_ENTRY_DT, 'MM/DD/YYYY') TERM_ENTRY_DT")
+        sql_parts.append("  , VARCHAR_FORMAT(TD.TERM_EFFECTIVE_DT, 'MM/DD/YYYY') TERM_EFFECTIVE_DT")
+        sql_parts.append("  , TD.TERM_TRANS_TYPES")
     if disp_accum_wd:
         sql_parts.append("  , POLICY_TOTALS.TOT_WTD_AMT")
     if disp_cost_basis:
@@ -1503,7 +1546,7 @@ def build_cyberlife_sql(
     # ── Transaction tab JOIN (FH_FIXED — 69 segment) ────────────
     if transaction_tab is not None:
         tt = transaction_tab
-        trans_code = tt.cmb_transaction.currentText().strip()
+        trans_codes = tt.transaction_types.selected_values()
         tr_entry_lo = tt.txt_entry_lo.text().strip()
         tr_entry_hi = tt.txt_entry_hi.text().strip()
         tr_eff_lo = tt.txt_eff_lo.text().strip()
@@ -1520,7 +1563,7 @@ def build_cyberlife_sql(
         tr_eff_month_chk = tt.chk_eff_month.isChecked()
 
         has_transaction = bool(
-            trans_code or tr_entry_lo or tr_entry_hi
+            trans_codes or tr_entry_lo or tr_entry_hi
             or tr_eff_lo or tr_eff_hi or tr_origin
             or tr_eff_month_lo or tr_eff_month_hi
             or tr_eff_day_lo or tr_eff_day_hi
@@ -1531,10 +1574,8 @@ def build_cyberlife_sql(
             sql_parts.append(f"  INNER JOIN {schema}.FH_FIXED TR1")
             sql_parts.append("    ON POLICY1.CK_CMP_CD = TR1.CK_CMP_CD")
             sql_parts.append("    AND POLICY1.TCH_POL_ID = TR1.TCH_POL_ID")
-            # Transaction type — first 2 chars of combo text (e.g. "A_" from "A_ - ...")
-            if trans_code:
-                code = trans_code.split(" - ", 1)[0].strip()
-                sql_parts.append(f"    AND TR1.TRANS = '{esc(code)}'")
+            if trans_codes:
+                sql_parts.append(f"    AND TR1.TRANS IN ({in_list(trans_codes)})")
             # Entry date range
             if tr_entry_lo:
                 sql_parts.append(f"    AND TR1.ENTRY_DT >= '{esc(tr_entry_lo)}'")

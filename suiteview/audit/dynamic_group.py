@@ -33,7 +33,13 @@ from .sql_helpers import fmt_time
 from .dynamic_query import build_dynamic_sql, build_join_sql, build_common_table_cte
 from .dialogs.tables_dialog import TablesDialog, FIELD_DRAG_MIME
 from .ui.bottom_bar import AuditBottomBar, FOOTER_BG
-from .query_runner import run_button_context, execute_odbc_query, execute_odbc_query_with_types
+from .query_runner import (
+    run_button_context,
+    execute_odbc_query,
+    execute_odbc_query_with_types,
+    run_query_async,
+    format_query_error,
+)
 from suiteview.core.odbc_utils import detect_dialect
 
 logger = logging.getLogger(__name__)
@@ -756,39 +762,47 @@ class DynamicQuery(QWidget):
         self.sql_tab.set_sql(sql)
         logger.info("Generated SQL:\n%s", sql)
 
-        with run_button_context(self.btn_run, bar=self.bottom_bar):
+        dsn = self.dsn
+
+        def work():
             t0 = time.time()
-            try:
-                columns, rows, col_types = execute_odbc_query_with_types(self.dsn, sql)
-                t_query = time.time() - t0
+            columns, rows, col_types = execute_odbc_query_with_types(dsn, sql)
+            t_query = time.time() - t0
+            df = pd.DataFrame([list(r) for r in rows], columns=columns)
+            return columns, col_types, df, t_query
 
-                t1 = time.time()
-                df = pd.DataFrame([list(r) for r in rows], columns=columns)
-                self.results_tab.set_results(df)
-                self.results_tab.set_query_context(
-                    sql=sql, dsn=self.dsn,
-                    source_design=self.query_name,
-                    result_columns=columns,
-                    column_types=col_types,
-                    tables=self.tables,
-                    display_names=self.display_names,
-                )
-                t_print = time.time() - t1
-                t_total = time.time() - t0
+        def on_success(payload):
+            columns, col_types, df, t_query = payload
+            t1 = time.time()
+            self.results_tab.set_results(df)
+            self.results_tab.set_query_context(
+                sql=sql, dsn=dsn,
+                source_design=self.query_name,
+                result_columns=columns,
+                column_types=col_types,
+                tables=self.tables,
+                display_names=self.display_names,
+            )
+            t_print = time.time() - t1
+            self.lbl_query_time.setText(f"Query time:  {fmt_time(t_query)}")
+            self.lbl_print_time.setText(f"Print time:  {fmt_time(t_print)}")
+            self.lbl_total_time.setText(f"Total time:  {fmt_time(t_query + t_print)}")
+            self.lbl_result_count.setText(f"Result count:   {len(df)}")
+            self.tab_widget.setCurrentWidget(self.results_tab)
 
-                self.lbl_query_time.setText(f"Query time:  {fmt_time(t_query)}")
-                self.lbl_print_time.setText(f"Print time:  {fmt_time(t_print)}")
-                self.lbl_total_time.setText(f"Total time:  {fmt_time(t_total)}")
-                self.lbl_result_count.setText(f"Result count:   {len(df)}")
+        def on_error(exc):
+            logger.error("Dynamic audit query failed: %s\nSQL:\n%s", exc, sql)
+            QMessageBox.warning(self, "Query Error", format_query_error(exc))
 
-                self.tab_widget.setCurrentWidget(self.results_tab)
+        run_query_async(
+            owner=self,
+            work=work,
+            on_success=on_success,
+            on_error=on_error,
+            btn=self.btn_run,
+            bar=self.bottom_bar,
+        )
 
-            except Exception as exc:
-                logger.exception("Dynamic audit query failed\nSQL:\n%s", sql)
-                msg = str(exc)
-                if hasattr(exc, 'args') and len(exc.args) >= 2:
-                    msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-                QMessageBox.warning(self, "Query Error", msg)
 
     # ── Save Query Object ────────────────────────────────────────────
 
@@ -939,27 +953,32 @@ class DynamicQuery(QWidget):
 
     def _run_build_sql(self, sql: str):
         """Execute user-edited SQL and show results in Build SQL Results."""
-        with run_button_context(
-            self.build_sql_tab.btn_run_sql,
+        dsn = self.dsn
+
+        def work():
+            columns, rows = execute_odbc_query(dsn, sql)
+            return pd.DataFrame([list(r) for r in rows], columns=columns)
+
+        def on_success(df):
+            if self._build_sql_results_tab_index < 0:
+                self._build_sql_results_tab_index = self.tab_widget.addTab(
+                    self.build_sql_results_tab, "Build SQL Results")
+            self.build_sql_results_tab.set_results(df)
+            self.tab_widget.setCurrentWidget(self.build_sql_results_tab)
+
+        def on_error(exc):
+            logger.error("Build SQL query failed: %s", exc)
+            QMessageBox.warning(self, "Query Error", format_query_error(exc))
+
+        run_query_async(
+            owner=self,
+            work=work,
+            on_success=on_success,
+            on_error=on_error,
+            btn=self.build_sql_tab.btn_run_sql,
             restore_text="Run this SQL",
-        ):
-            try:
-                columns, rows = execute_odbc_query(self.dsn, sql)
-                df = pd.DataFrame([list(r) for r in rows], columns=columns)
+        )
 
-                if self._build_sql_results_tab_index < 0:
-                    self._build_sql_results_tab_index = self.tab_widget.addTab(
-                        self.build_sql_results_tab, "Build SQL Results")
-
-                self.build_sql_results_tab.set_results(df)
-                self.tab_widget.setCurrentWidget(self.build_sql_results_tab)
-
-            except Exception as exc:
-                logger.exception("Build SQL query failed")
-                msg = str(exc)
-                if hasattr(exc, 'args') and len(exc.args) >= 2:
-                    msg = f"{exc.args[0]}\n\n{exc.args[1]}"
-                QMessageBox.warning(self, "Query Error", msg)
 
     # ── State persistence ────────────────────────────────────────────
 

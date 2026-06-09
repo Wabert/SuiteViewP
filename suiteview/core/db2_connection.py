@@ -240,9 +240,8 @@ class DB2Connection:
         finally:
             cursor.close()
 
-    def _run_with_retry(self, sql: str, params: tuple = None) -> Tuple[List[str], List[Tuple]]:
-        """Run a statement, refreshing the connection and retrying once on a
-        communication-link failure (08S01)."""
+    def _prepare_sql(self, sql: str) -> str:
+        """Apply schema rewrite, WITH clause, and local-dev LIMIT rewrite."""
         sql = self._add_with_clause(sql)
         if local_data_enabled():
             sql = re.sub(
@@ -251,6 +250,12 @@ class DB2Connection:
                 sql,
                 flags=re.IGNORECASE,
             )
+        return sql
+
+    def _run_with_retry(self, sql: str, params: tuple = None) -> Tuple[List[str], List[Tuple]]:
+        """Run a statement, refreshing the connection and retrying once on a
+        communication-link failure (08S01)."""
+        sql = self._prepare_sql(sql)
         try:
             return self._run(sql, params)
         except pyodbc.Error as e:
@@ -258,6 +263,40 @@ class DB2Connection:
                 self.close()
                 return self._run(sql, params)
             raise
+
+    def execute_query_with_headers_isolated(
+        self, sql: str, params: tuple = None
+    ) -> Tuple[List[str], List[Tuple]]:
+        """Execute a query on a dedicated, one-shot connection.
+
+        Unlike :meth:`execute_query_with_headers`, this does NOT use the shared
+        class-level connection pool.  It opens its own connection, runs the
+        query, and closes it.  This makes it safe to call from a background
+        thread without corrupting a pooled connection that other parts of the
+        app (PolView, Illustration, …) may use concurrently on another thread.
+        """
+        sql = self._prepare_sql(sql)
+        if local_data_enabled():
+            conn = connect_local_policy_database(self.region)
+        else:
+            conn = pyodbc.connect(f"DSN={self.dsn}", autocommit=True)
+        try:
+            cursor = conn.cursor()
+            try:
+                if params:
+                    cursor.execute(sql, params)
+                else:
+                    cursor.execute(sql)
+                columns = [desc[0] for desc in cursor.description] if cursor.description else []
+                rows = cursor.fetchall()
+                return columns, rows
+            finally:
+                cursor.close()
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def execute_query(self, sql: str, params: tuple = None) -> List[Tuple]:
         """
