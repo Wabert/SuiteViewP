@@ -116,6 +116,26 @@ without you, and (3) a running progress log. I'll append as I go.
 
 ---
 
+## C.1 CORRECTION — guaranteed COI IS in the local DB (2026-06-08, later)
+
+My earlier claim that guideline/TAMRA validation "needs live rates" was **wrong**
+(Robert caught it). The local `rates.sqlite` `Select_RATE_COI` has a `Scale` column:
+**Scale 1 = current** (illustrated, what the engine charges, matches RERUN — confirmed
+by `Select_SCALE_COI`), **Scale 0 = guaranteed** COI. So the guideline/TAMRA calc is
+fully computable **offline**. Wired `coi_scale` into `rate_loader.load_rates`
+(`coi_scale=0` → guaranteed) and added `tools/validate_guideline.py`.
+
+Robert confirmed: GLP mortality = the guaranteed COI (scale 0), 7702 maturity = 100.
+
+**Local GLP/GSP vs admin (issue-age, endow 100):** the two methods **bracket** admin —
+commutation (closed-form, no corridor) ~17-37% LOW; iterative (full engine, includes
+corridor) ~19-38% HIGH. U0656998 worst on commutation (omits the LTR rider's QAB
+charge in the GLP). So: data unblocked, but matching admin *precisely* needs
+calibration (corridor treatment, rider QAB charges, exact expense allowances) — this
+is the "a little different, reasonably well" Robert flagged. **All 4 cases are
+TEFRA-off**, so GLP/GSP don't drive AV (force-out disabled) — they're reported values,
+and the policy-change AV/segment/MD machinery is validatable vs RERUN regardless.
+
 ## D. Policy changes — RERUN reference + implementation plan (HANDOFF)
 
 The engine has **no** policy-change handling yet (`PolicyChangeEvent` is modeled in

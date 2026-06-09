@@ -85,11 +85,18 @@ def _load_rider_coi_rates(rates_db: Rates, rider) -> List:
 def load_rates(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
+    coi_scale: int = 1,
 ) -> IllustrationRates:
     """Load all rate arrays for the policy's base segment.
 
     Uses the Rates class to fetch from UL_Rates SQL Server database.
     Rates are cached at the Rates class level.
+
+    ``coi_scale`` selects the COI scale: 1 = current (illustrated, the default and
+    what matches RERUN's projection), 0 = guaranteed maximum COI. Build guaranteed
+    rates with ``coi_scale=0`` to feed the 7702 guideline / TAMRA calculators
+    (loads/fees stay current). The active scale per plancode is in
+    ``Select_SCALE_COI`` (= 1 for these plancodes).
     """
     rates_db = Rates()
     seg = policy.base_segment
@@ -103,7 +110,7 @@ def load_rates(
     for base_seg in policy.segments:
         segment_coi[base_seg.coverage_phase] = rates_db.get_rates(
             "COI", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
-            base_seg.rate_class, scale=1, band=base_seg.band,
+            base_seg.rate_class, scale=coi_scale, band=base_seg.band,
         ) or []
         segment_epu[base_seg.coverage_phase] = rates_db.get_rates(
             "EPU", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
