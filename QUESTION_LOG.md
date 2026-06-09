@@ -153,6 +153,23 @@ year 9) — `rerun_U0688012_faceinc.csv`. RERUN behavior:
   appears (CalcEngine cols AH=Cov1, AI=Cov2, AJ=Cov3); Cov1 stays 100k; Total SA
   150k. The new segment carries its own COI (issue age = attained age at increase).
 
+**RERUN face-DECREASE reference (captured):** 100k→75k at year 9 — RERUN **reduces
+the existing Cov1 in place** (Cov1 100000→75000, no new/negative segment), and the
+**surrender charge stays on the ORIGINAL face** (it doesn't drop on a decrease — the
+year-9 SCR step is duration-based, independent of the change). Same 1-month lag,
+guideline recalcs at the anniversary. So: decrease → reduce `CoverageSegment.face_amount`
+but keep `original_face_amount` (surrender charge basis); increase → append a new
+segment. The `CoverageSegment` model already carries both `face_amount` and
+`original_face_amount`.
+
+**Engine hook (mapped):** `calc_engine.process_month()` **step 3–7 (line ~405–408)**
+is the designated, currently-no-op spot for "policy changes / coverage after change".
+Cleanest wiring: in `project()`, if `future_inputs.policy_changes` is non-empty,
+`deepcopy` the policy (so the projection mutates a private copy, never the caller's),
+compile changes by duration like `compile_month_inputs`, and at the change month
+mutate the copied policy's segments / `db_option`. Base cases (no changes) are
+unaffected and stay on the fast path (no copy).
+
 **Reproduce a scenario:** `rerun_com.py` run-mode now takes
 `"overrides":[{"target":"INPUT!J14:J126","value":150000}]` (J6:J126 =
 `vINPUT_Specified_Amount`, year 1..121; J14 = year 9). Face DECREASE = lower value;
