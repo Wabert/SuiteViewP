@@ -59,6 +59,19 @@ without you, and (3) a running progress log. I'll append as I go.
      **~$8 over 30 months** (was $740). Also unverified: whether benefit COI rates
      re-band with the base band (`_reband_benefits` is principled but a no-op here).
 
+6. **MTP recompute on a face change (drives the PW residual on BOTH inc/dec).** The
+   engine keeps a single `policy.mtp` (150.13/mo for U0688012, from DB) constant across
+   face changes, so the Premium-Waiver charge (benefit_amount = max(MTP, base_deduction),
+   MTP-dominated) doesn't respond. RERUN recomputes MTP per the new coverage: increase
+   100k→150k → MTP ratio **1.734** (the new segment's age-58 MTP rate 15.45/unit is
+   higher than Cov1's age-50 10.53), decrease → **0.983**. But the DB MTP (150.13)
+   ≠ `rate×units/12` (87.75) — the gap is the **PW's own target premium**, which scales
+   recursively with the MTP, so a clean recompute isn't obvious. **Question:** what's the
+   exact MTP formula on a face change (per-segment base MTP at issue-age+band, plus the
+   benefit/PW target-premium contribution)? I left MTP constant rather than guess
+   (no quietly-wrong numbers). Only residual on the COI-exact face increase (PW ~$29/mo)
+   and the last bit of the decrease (~$0.67/mo).
+
 ---
 
 ## B. Decisions / assumptions I made autonomously
@@ -165,9 +178,13 @@ takes a `"changes":[{"kind":"face_amount"|"db_option","date":...,"value":...}]` 
   applies the COI/DB/surrender effect at the **anniversary** (the specified-amount
   *display* lags one month).
 - **DBO change** — wired (`db_option` flip) but not yet validated vs a RERUN reference.
-- **Face INCREASE** — raises `NotImplementedError` (needs the new segment's COI rates
-  loaded at the increase issue age; guaranteed COI is local now via `coi_scale`, so
-  this is doable — pre-load at project() setup).
+- **Face INCREASE — implemented; COI exact.** On the increase, a new coverage segment
+  is appended at the current attained age, its COI/EPU/SCR loaded on the fly
+  (`_load_segment_rates`), and ALL segments are re-banded to the new TOTAL specified
+  amount (CyberLife bands by total SA, so the increase's COI uses the total-face band,
+  not the increment's band). COI/EPU/MFee now match RERUN to **sub-penny** (U0688012
+  100k→150k). **Residual: PW (~$29/mo)** — same root cause as the decrease PW (Q6):
+  the MTP isn't recomputed on a face change.
 - **Guideline recalc on change** — NOT wired; RERUN recalcs GLP/GSP at the change
   (engine keeps loaded values → Guideline group diverges, but TEFRA-off so no AV
   effect; reported only). Use `glp_on_change` + the guaranteed-COI rates.

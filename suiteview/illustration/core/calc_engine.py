@@ -1081,6 +1081,19 @@ def _reband_segment(rates, segment, plancode: str) -> None:
         getattr(rates, attr)[segment.coverage_phase] = schedule
 
 
+def _load_segment_rates(rates, segment, plancode: str) -> None:
+    """Load COI/EPU/SCR schedules for a NEW segment at its issue age + band."""
+    from suiteview.core.rates import Rates
+
+    rates_db = Rates()
+    for attr, kind in (("segment_coi", "COI"), ("segment_epu", "EPU"), ("segment_scr", "SCR")):
+        schedule = rates_db.get_rates(
+            kind, plancode, segment.issue_age, segment.rate_sex,
+            segment.rate_class, scale=1, band=segment.band,
+        ) or []
+        getattr(rates, attr)[segment.coverage_phase] = schedule
+
+
 def _reband_benefits(rates, policy) -> None:
     """Reload benefit COI rates at the base segment's (possibly re-banded) band."""
     from suiteview.core.rates import Rates
@@ -1141,10 +1154,35 @@ def _apply_policy_change(policy, change, attained_age, change_date, rates, rate_
             policy.face_amount = sum(s.face_amount for s in policy.segments)
             _reband_benefits(rates, policy)  # benefit COI rates follow the base band
         elif delta > 1e-6:
-            raise NotImplementedError(
-                "Face INCREASE requires loading the new segment's COI rates at the "
-                "increase issue age; wire it at project() setup (see QUESTION_LOG §D)."
+            # Increase: new coverage segment for the added face, issued at the
+            # current attained age (its own COI rate row + band), loaded on the fly.
+            from suiteview.core.rates import Rates
+
+            base = policy.base_segment
+            # CyberLife/RERUN band the COI by the new TOTAL specified amount.
+            new_band = Rates().get_band(policy.plancode, new_total)
+            new_band = int(new_band) if new_band is not None else base.band
+            new_phase = max((s.coverage_phase for s in policy.segments), default=1) + 1
+            new_seg = CoverageSegment(
+                coverage_phase=new_phase,
+                is_base=True,
+                issue_date=change_date,
+                issue_age=attained_age,
+                rate_sex=base.rate_sex,
+                rate_class=base.rate_class,
+                face_amount=delta,
+                original_face_amount=delta,
+                units=delta / (base.vpu or 1000.0),
+                vpu=base.vpu,
+                band=new_band,
+                original_band=new_band,
+                table_rating=base.table_rating,
+                flat_extra=base.flat_extra,
+                status="A",
             )
+            policy.segments.append(new_seg)
+            _load_segment_rates(rates, new_seg, policy.plancode)
+            policy.face_amount = sum(s.face_amount for s in policy.segments)
         return av_adjustment
     return 0.0
 
