@@ -45,13 +45,19 @@ without you, and (3) a running progress log. I'll append as I go.
    the ~1-month lag between the anniversary guideline recalc and the segment taking
    effect — intended, or a RERUN timing quirk?
 
-5. **Face-decrease COI basis** — after a decrease (100k→75k), RERUN's COI stays ~$5.6
-   higher than a pure 75k NAR would give (persistently, not a one-month transition).
-   It's as if RERUN doesn't fully drop the COI-bearing face to 75k immediately. What's
-   the right COI basis right after a face decrease — does CyberLife amortize/blend the
-   decreased coverage, or keep COI on the original face for the decreased portion for a
-   period? This is the only residual on the otherwise-validated face-decrease (AV chain
-   matches to ~$5–20).
+5. **Face-decrease COI basis — SOLVED.** The residual was a **re-banding** effect:
+   CyberLife/RERUN band the COI by the CURRENT specified amount, so 100k→75k moves the
+   base segment from Band 3 (SA≥100k) to Band 2 (50k≤SA<100k), a higher per-unit rate
+   (0.44943 vs 0.39447). The engine kept the issue band. Fixed via `_reband_segment`
+   (reloads COI/EPU at the new band; SCR is band-independent so it's left alone). COI
+   now matches RERUN **exactly** after a decrease.
+   - **Remaining small residual (~$0.67/mo):** the **Premium-Waiver charge** diverges
+     only after a decrease (the base case PW matches to ~1e-15 at the same year). It's
+     the PW *rate* (engine 0.7251 vs RERUN 0.7130), not the band (benefit re-band was a
+     no-op). Open Q: how does CyberLife adjust the PW after a face decrease — does the
+     PW rate/basis change with the decreased coverage? Decrease AV chain now matches to
+     **~$8 over 30 months** (was $740). Also unverified: whether benefit COI rates
+     re-band with the base band (`_reband_benefits` is principled but a no-op here).
 
 ---
 

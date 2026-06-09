@@ -1059,6 +1059,48 @@ def _compile_policy_changes(policy: IllustrationPolicyData, changes) -> Dict[int
     return by_duration
 
 
+def _reband_segment(rates, segment, plancode: str) -> None:
+    """Re-band a segment to its current face's band and reload its COI/EPU rates.
+
+    CyberLife/RERUN band the COI by the CURRENT specified amount, so a face change
+    that crosses a band breakpoint moves the per-unit rate. SCR is band-independent
+    (varies only by rateclass), so it is not reloaded here.
+    """
+    from suiteview.core.rates import Rates
+
+    rates_db = Rates()
+    new_band = rates_db.get_band(plancode, segment.face_amount)
+    if new_band is None or int(new_band) == segment.band:
+        return
+    segment.band = int(new_band)
+    for attr, kind in (("segment_coi", "COI"), ("segment_epu", "EPU")):
+        schedule = rates_db.get_rates(
+            kind, plancode, segment.issue_age, segment.rate_sex,
+            segment.rate_class, scale=1, band=segment.band,
+        ) or []
+        getattr(rates, attr)[segment.coverage_phase] = schedule
+
+
+def _reband_benefits(rates, policy) -> None:
+    """Reload benefit COI rates at the base segment's (possibly re-banded) band."""
+    from suiteview.core.rates import Rates
+
+    seg = policy.base_segment
+    if seg is None:
+        return
+    rates_db = Rates()
+    for ben in policy.benefits:
+        if not ben.is_active or (ben.benefit_type or "").startswith("#"):
+            continue
+        ben_key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+        if not ben_key:
+            continue
+        rates.benefit_coi[ben_key] = rates_db.get_rates(
+            "BENCOI", policy.plancode, issue_age=seg.issue_age, sex=seg.rate_sex,
+            rateclass=seg.rate_class, scale=1, band=seg.band, benefit_type=ben_key,
+        ) or []
+
+
 def _apply_policy_change(policy, change, attained_age, change_date, rates, rate_year) -> float:
     """Mutate the (private) policy state for one change at its effective month.
 
@@ -1095,7 +1137,9 @@ def _apply_policy_change(policy, change, attained_age, change_date, rates, rate_
                 seg.units -= cut_units
                 seg.face_amount -= cut
                 remaining -= cut
+                _reband_segment(rates, seg, policy.plancode)  # re-band to the new face
             policy.face_amount = sum(s.face_amount for s in policy.segments)
+            _reband_benefits(rates, policy)  # benefit COI rates follow the base band
         elif delta > 1e-6:
             raise NotImplementedError(
                 "Face INCREASE requires loading the new segment's COI rates at the "
