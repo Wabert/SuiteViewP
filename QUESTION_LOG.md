@@ -45,6 +45,14 @@ without you, and (3) a running progress log. I'll append as I go.
    the ~1-month lag between the anniversary guideline recalc and the segment taking
    effect — intended, or a RERUN timing quirk?
 
+5. **Face-decrease COI basis** — after a decrease (100k→75k), RERUN's COI stays ~$5.6
+   higher than a pure 75k NAR would give (persistently, not a one-month transition).
+   It's as if RERUN doesn't fully drop the COI-bearing face to 75k immediately. What's
+   the right COI basis right after a face decrease — does CyberLife amortize/blend the
+   decreased coverage, or keep COI on the original face for the decreased portion for a
+   period? This is the only residual on the otherwise-validated face-decrease (AV chain
+   matches to ~$5–20).
+
 ---
 
 ## B. Decisions / assumptions I made autonomously
@@ -138,11 +146,27 @@ and the policy-change AV/segment/MD machinery is validatable vs RERUN regardless
 
 ## D. Policy changes — RERUN reference + implementation plan (HANDOFF)
 
-The engine has **no** policy-change handling yet (`PolicyChangeEvent` is modeled in
-`input_set.py` but consumed nowhere). I built the RERUN reference and the tooling to
-construct/validate these, but did **not** implement the engine side — it's net-new,
-multi-hour, and the guideline recalc needs live mortality to validate, so I'm handing
-it off rather than committing something unverifiable.
+**STATUS — machinery IMPLEMENTED (2026-06-08 late).** `calc_engine` now consumes
+`IllustrationInputSet.policy_changes`: `project()` deep-copies the policy when changes
+exist (base cases untouched — verified byte-for-byte), compiles changes by duration,
+and `process_month` applies them at step 3-7 (`_apply_policy_change`). `run_engine_case.py`
+takes a `"changes":[{"kind":"face_amount"|"db_option","date":...,"value":...}]` arg.
+- **Face DECREASE — validated** on U0688012 (100k→75k at the year-9 anniversary):
+  reduces segment face + units, and deducts the decreased coverage's surrender charge
+  from AV. AV chain now matches RERUN to **~$5–20** (was ~$740 before the surrender-
+  charge deduction). **Residual:** a persistent **~$5.6 COI difference** — RERUN's COI
+  basis after a decrease stays higher than a pure 75k NAR (see Q5). Timing: RERUN
+  applies the COI/DB/surrender effect at the **anniversary** (the specified-amount
+  *display* lags one month).
+- **DBO change** — wired (`db_option` flip) but not yet validated vs a RERUN reference.
+- **Face INCREASE** — raises `NotImplementedError` (needs the new segment's COI rates
+  loaded at the increase issue age; guaranteed COI is local now via `coi_scale`, so
+  this is doable — pre-load at project() setup).
+- **Guideline recalc on change** — NOT wired; RERUN recalcs GLP/GSP at the change
+  (engine keeps loaded values → Guideline group diverges, but TEFRA-off so no AV
+  effect; reported only). Use `glp_on_change` + the guaranteed-COI rates.
+
+Original plan (still the roadmap for increase + guideline/TAMRA recalc) below.
 
 **RERUN face-increase reference (captured):** I added `overrides` to
 `tools/rerun_com.py` and built a face increase on U0688012 (100k→150k at policy

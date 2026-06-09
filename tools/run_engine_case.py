@@ -38,10 +38,14 @@ def main() -> None:
     cmd = json.loads(sys.argv[1])
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
+    import datetime
+
     from suiteview.core.policy_service import clear_cache
     from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.core.calc_engine import IllustrationEngine
-    from suiteview.illustration.models.input_set import IllustrationOptions
+    from suiteview.illustration.models.input_set import (
+        IllustrationOptions, IllustrationInputSet, PolicyChangeEvent, PolicyChangeKind,
+    )
     from suiteview.illustration.debug.excel_export import _PIPELINE_ORDER, _get_projection_value
 
     policy = cmd["policy"]
@@ -62,9 +66,22 @@ def main() -> None:
         opt_kwargs["exact_days_interest"] = bool(cmd["exact_days"])
     options = IllustrationOptions(**opt_kwargs)
 
+    # Optional policy changes: [{"kind":"face_amount"|"db_option","date":"YYYY-MM-DD","value":...}]
+    future_inputs = None
+    if cmd.get("changes"):
+        evs = []
+        for ch in cmd["changes"]:
+            kind = (PolicyChangeKind.FACE_AMOUNT if ch["kind"] == "face_amount"
+                    else PolicyChangeKind.DB_OPTION)
+            value = float(ch["value"]) if ch["kind"] == "face_amount" else ch["value"]
+            evs.append(PolicyChangeEvent(
+                kind=kind, effective_date=datetime.date.fromisoformat(ch["date"]), value=value))
+        future_inputs = IllustrationInputSet(policy_changes=evs)
+
     clear_cache()
     policy_data = build_illustration_data(policy, region=region, company_code=company)
-    states = IllustrationEngine().project(policy_data, months=months, options=options)
+    states = IllustrationEngine().project(
+        policy_data, months=months, options=options, future_inputs=future_inputs)
 
     # Guideline fields live on MonthlyState but aren't in the debug pipeline order.
     extra = ["glp", "gsp", "accumulated_glp", "guideline_limit", "guideline_forceout"]

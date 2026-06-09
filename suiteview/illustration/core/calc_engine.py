@@ -6,6 +6,7 @@ Public API:
 """
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -39,7 +40,9 @@ from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     IllustrationInputSet,
     IllustrationOptions,
+    PolicyChangeKind,
 )
+from suiteview.illustration.models.policy_data import CoverageSegment
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
@@ -102,6 +105,14 @@ class IllustrationEngine:
             total_months = max(remaining_months, 0)
         else:
             total_months = months
+
+        # Policy changes (face decrease, DBO change) mutate a PRIVATE copy of the
+        # policy at their effective month. Base cases (no changes) keep the original
+        # object and fast path — byte-for-byte unchanged.
+        changes_by_duration: Dict[int, list] = {}
+        if future_inputs is not None and future_inputs.policy_changes:
+            policy = copy.deepcopy(policy)
+            changes_by_duration = _compile_policy_changes(policy, future_inputs.policy_changes)
 
         # Inforce snapshot (month 0) — AV from CyberLife is after-deduction.
         # We must credit interest to roll AV to end-of-month before projecting.
@@ -362,6 +373,7 @@ class IllustrationEngine:
                 state = self.process_month(
                     state, policy, config, rates, bonus,
                     month_inputs=month_inputs, options=options,
+                    policy_changes=changes_by_duration.get(state.duration + 1),
                 )
             results.append(state)
             if stop_on_lapse and state.lapsed:
@@ -378,10 +390,13 @@ class IllustrationEngine:
         bonus: BonusConfig,
         month_inputs=None,
         options: Optional[IllustrationOptions] = None,
+        policy_changes=None,
     ) -> MonthlyState:
         """Process a single month of the calculation pipeline.
 
-        Pure function — takes the previous month's state, produces the next.
+        Takes the previous month's state, produces the next. ``policy_changes`` are
+        applied to ``policy`` (a private copy made in project()) at their effective
+        month, before coverage/deduction reads the segments.
         """
         if options is None:
             options = IllustrationOptions()
@@ -403,8 +418,12 @@ class IllustrationEngine:
         rate_year = next_year
 
         # ── 3-7. Policy changes / coverage after change ───────
-        # Withdrawals, DB option, face, and coverage changes are read from the
-        # already-built policy state (no mid-projection mutation yet).
+        # Apply any dated policy change effective this month (mutates the private
+        # policy copy) before coverage/deduction reads the segments.
+        if policy_changes:
+            for change in policy_changes:
+                av += _apply_policy_change(
+                    policy, change, attained_age, month_date, rates, rate_year)
 
         # ── 8. Minimum Target Premium calculation/accumulation ─
         monthly_mtp = math.trunc(policy.mtp * 100) / 100
@@ -1019,6 +1038,71 @@ class IllustrationEngine:
         if seg is None:
             return IllustrationRates()
         return load_rates(policy, config)
+
+
+def _change_duration(policy: IllustrationPolicyData, effective_date) -> int:
+    """Projection duration (1-indexed month) at which a dated change takes effect."""
+    issue = policy.issue_date
+    if issue is None or effective_date is None:
+        return 0
+    months = (effective_date.year - issue.year) * 12 + (effective_date.month - issue.month)
+    if effective_date.day < issue.day:
+        months -= 1
+    return max(1, months + 1)
+
+
+def _compile_policy_changes(policy: IllustrationPolicyData, changes) -> Dict[int, list]:
+    """Bucket dated policy changes by the projection duration they take effect."""
+    by_duration: Dict[int, list] = {}
+    for change in changes:
+        by_duration.setdefault(_change_duration(policy, change.effective_date), []).append(change)
+    return by_duration
+
+
+def _apply_policy_change(policy, change, attained_age, change_date, rates, rate_year) -> float:
+    """Mutate the (private) policy state for one change at its effective month.
+
+    Returns an AV adjustment to apply this month (negative = reduction).
+
+    - DB_OPTION: switch the death benefit option (A/B/C).
+    - FACE_AMOUNT decrease: reduce the existing segment(s) (face + units) newest-first,
+      and DEDUCT the surrender charge on the decreased units from AV (RERUN charges the
+      decreased coverage's surrender charge at the decrease).
+    - FACE_AMOUNT increase: needs a new coverage segment WITH its own COI rates
+      (issue age = attained age) loaded — that rate load happens at project() setup,
+      so reaching here for an increase is a wiring bug; raise rather than undercharge.
+    """
+    if change.kind == PolicyChangeKind.DB_OPTION:
+        policy.db_option = str(change.value)
+        return 0.0
+
+    if change.kind == PolicyChangeKind.FACE_AMOUNT:
+        new_total = float(change.value)
+        current_total = sum(s.face_amount for s in policy.segments) or policy.face_amount
+        delta = new_total - current_total
+        av_adjustment = 0.0
+        if delta < -1e-6:
+            remaining = -delta
+            for seg in reversed(policy.segments):
+                if remaining <= 0:
+                    break
+                cut = min(seg.face_amount, remaining)
+                cut_units = cut / (seg.vpu or 1000.0)
+                schedule = rates.segment_scr.get(seg.coverage_phase, rates.scr)
+                scr_rate = _rate_from_schedule(
+                    schedule, _coverage_year(seg, change_date, rate_year))
+                av_adjustment -= scr_rate * cut_units  # surrender charge on the decrease
+                seg.units -= cut_units
+                seg.face_amount -= cut
+                remaining -= cut
+            policy.face_amount = sum(s.face_amount for s in policy.segments)
+        elif delta > 1e-6:
+            raise NotImplementedError(
+                "Face INCREASE requires loading the new segment's COI rates at the "
+                "increase issue age; wire it at project() setup (see QUESTION_LOG §D)."
+            )
+        return av_adjustment
+    return 0.0
 
 
 def _advance_month(policy_year: int, policy_month: int) -> tuple[int, int]:
