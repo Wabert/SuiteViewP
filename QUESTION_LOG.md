@@ -177,7 +177,13 @@ takes a `"changes":[{"kind":"face_amount"|"db_option","date":...,"value":...}]` 
   basis after a decrease stays higher than a pure 75k NAR (see Q5). Timing: RERUN
   applies the COI/DB/surrender effect at the **anniversary** (the specified-amount
   *display* lags one month).
-- **DBO change** — wired (`db_option` flip) but not yet validated vs a RERUN reference.
+- **DBO change** — wired (`db_option` flip) + compared vs a RERUN reference (A→B at
+  year 9, `vINPUT_DBO`=INPUT!K6:K126). Found the missing mechanic: RERUN keeps the death
+  benefit **level** at the change (DB stays ≈ face = 99,822), i.e. **A→B reduces the
+  specified amount by the current AV** so DB = (face−AV)+AV. The engine just flips the
+  option → DB jumps to face+AV (107,454, +7,631). Needs: on A→B reduce the base face by
+  AV (then re-band); B→A the inverse. Plus the MTP/PW residual (Q6) and DBO-B NAR
+  details. NOT implemented (more involved than the face changes).
 - **Face INCREASE — implemented; COI exact.** On the increase, a new coverage segment
   is appended at the current attained age, its COI/EPU/SCR loaded on the fly
   (`_load_segment_rates`), and ALL segments are re-banded to the new TOTAL specified
