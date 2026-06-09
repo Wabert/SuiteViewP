@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Dict
 
 from suiteview.illustration.core.corridor_rates import get_corridor_factor
@@ -19,6 +19,11 @@ def _round_near(value: float, decimals: int = 2) -> float:
     """Round half-up (normal rounding, not banker's)."""
     d = Decimal(f"{value:.12f}")
     return float(d.quantize(Decimal(10) ** -decimals, rounding=ROUND_HALF_UP))
+
+
+def _trunc2(value: float) -> float:
+    """Truncate to 2 decimals toward zero — matches RERUN TRUNC(x, 2)."""
+    return float(Decimal(f"{value:.12f}").quantize(Decimal("0.01"), rounding=ROUND_DOWN))
 
 
 def _rate_from_schedule(schedule, index: int) -> float:
@@ -55,7 +60,8 @@ def _adjusted_coi_rate(
         if segment.flat_extra and segment.flat_extra > 0 and _charge_active(segment.flat_cease_date, projection_date)
         else 0.0
     )
-    return raw_rate * (1.0 + config.table_rating_factor * table_rating) + flat_extra / 12.0
+    # RERUN truncates the monthly flat extra to cents: TRUNC(flat/12, 2).
+    return raw_rate * (1.0 + config.table_rating_factor * table_rating) + _trunc2(flat_extra / 12.0)
 
 
 def _coverage_year(segment, projection_date: date | None, fallback_year: int) -> int:
@@ -376,6 +382,17 @@ def calculate_deduction(
             rider_rate = float(rider.coi_rate)
         elif rider.premium_rate is not None:
             rider_rate = float(rider.premium_rate)
+
+        # Apply rider substandard (table rating + flat extra), mirroring RERUN
+        # RR = RO*(1 + factor*table) + TRUNC(flat/12, 2). The base COI applies the
+        # same adjustment; the rider previously used the raw rate, undercharging
+        # any table-rated/flat-extra rider.
+        rider_table = rider.table_rating if rider.table_rating else 0
+        rider_flat = rider.flat_extra if rider.flat_extra else 0.0
+        rider_rate = (
+            rider_rate * (1.0 + config.table_rating_factor * rider_table)
+            + _trunc2(rider_flat / 12.0)
+        )
 
         rider_amount = rider.face_amount
         rider_charge = rider.units * rider_rate

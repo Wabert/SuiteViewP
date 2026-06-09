@@ -138,13 +138,91 @@ def mode_cols(cmd):
     print(json.dumps({"sheet": sheet, "columns": columns}, indent=2, default=str))
 
 
+def mode_names(cmd):
+    """List workbook defined names (name -> refers-to range).
+
+    Optional ``filter`` substring restricts to matching names (case-insensitive).
+    """
+    wb = openpyxl.load_workbook(cmd["workbook"], read_only=True, data_only=False)
+    needle = (cmd.get("filter") or "").lower()
+    names = []
+    defined = wb.defined_names
+    # openpyxl >=3.1 exposes a dict-like mapping; older versions a list.
+    items = defined.values() if hasattr(defined, "values") else list(defined.definedName)
+    for dn in items:
+        nm = getattr(dn, "name", "")
+        if needle and needle not in nm.lower():
+            continue
+        names.append({"name": nm, "refers_to": getattr(dn, "value", getattr(dn, "attr_text", ""))})
+    wb.close()
+    names.sort(key=lambda d: d["name"].lower())
+    print(json.dumps({"count": len(names), "names": names}, indent=2, default=str))
+
+
+def mode_props(cmd):
+    """Report calculation properties (iteration / circular-ref settings)."""
+    wb = openpyxl.load_workbook(cmd["workbook"], read_only=True, data_only=False)
+    calc = wb.calculation
+    defined = wb.defined_names
+    name_count = len(defined) if hasattr(defined, "__len__") else len(list(defined.definedName))
+    out = {
+        "calc_mode": getattr(calc, "calcMode", None),
+        "iterate": getattr(calc, "iterate", None),
+        "iterate_count": getattr(calc, "iterateCount", None),
+        "iterate_delta": getattr(calc, "iterateDelta", None),
+        "full_calc_on_load": getattr(calc, "fullCalcOnLoad", None),
+        "defined_name_count": name_count,
+        "sheet_count": len(wb.sheetnames),
+    }
+    wb.close()
+    print(json.dumps(out, indent=2, default=str))
+
+
+def mode_dump(cmd):
+    """Dump a rectangular range of values (and optionally formulas) for a sheet.
+
+    {"mode":"dump","workbook":...,"sheet":"CalcEngine",
+     "min_row":6,"max_row":20,"cols":["A","W","BL"],   # or "min_col"/"max_col"
+     "data_only":true}
+    """
+    path = cmd["workbook"]
+    sheet = cmd["sheet"]
+    min_row = cmd.get("min_row", 1)
+    max_row = cmd.get("max_row", min_row)
+    data_only = cmd.get("data_only", True)
+    if cmd.get("cols"):
+        col_idx = [column_index_from_string(c) for c in cmd["cols"]]
+    else:
+        col_idx = list(range(cmd.get("min_col", 1), cmd.get("max_col", 1) + 1))
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=data_only)
+    ws = wb[sheet]
+    top = max(col_idx)
+    rows = []
+    for r, row in enumerate(ws.iter_rows(min_row=1, max_row=max_row, max_col=top), start=1):
+        if r < min_row:
+            continue
+        vals = [c.value for c in row]
+        rows.append({
+            "row": r,
+            "cells": {get_column_letter(ci): _clean(vals[ci - 1]) if ci - 1 < len(vals) else ""
+                      for ci in col_idx},
+        })
+    wb.close()
+    print(json.dumps({"sheet": sheet, "cols": [get_column_letter(ci) for ci in col_idx],
+                      "rows": rows}, indent=2, default=str))
+
+
 def main():
     if len(sys.argv) < 2:
         print(json.dumps({"error": "missing JSON arg"}))
         sys.exit(1)
     cmd = json.loads(sys.argv[1])
     mode = cmd.get("mode", "sheets")
-    {"sheets": mode_sheets, "map": mode_map, "cols": mode_cols}[mode](cmd)
+    {
+        "sheets": mode_sheets, "map": mode_map, "cols": mode_cols,
+        "names": mode_names, "props": mode_props, "dump": mode_dump,
+    }[mode](cmd)
 
 
 if __name__ == "__main__":

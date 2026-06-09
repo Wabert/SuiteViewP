@@ -86,8 +86,11 @@ def credit_interest(
     use_exact_days = config.interest_method == "ExactDays" if exact_days_interest is None else exact_days_interest
 
     if use_exact_days:
-        # 365/12 day convention: each month is exactly 365/12 days
-        monthly_rate = (1.0 + effective_annual_rate) ** (365.0 / 12.0 / 365.0) - 1.0
+        # Exact-days: credit interest on the ACTUAL calendar days in the month
+        # (matches CyberLife / RERUN, and the shadow side, which already use
+        # days/365). Previously this used a fixed 365/12 exponent and ignored the
+        # real day count, drifting ~0.3/mo vs RERUN on 28/31-day months.
+        monthly_rate = (1.0 + effective_annual_rate) ** (days / 365.0) - 1.0
     else:
         # Monthly compounding
         monthly_rate = (1.0 + effective_annual_rate) ** (1.0 / 12.0) - 1.0
@@ -116,8 +119,8 @@ def credit_interest(
         pref_credit_annual = raw_pref / 100.0 if raw_pref else policy.guaranteed_interest_rate
 
         if use_exact_days:
-            reg_credit_monthly = (1.0 + reg_credit_annual) ** (365.0 / 12.0 / 365.0) - 1.0
-            pref_credit_monthly = (1.0 + pref_credit_annual) ** (365.0 / 12.0 / 365.0) - 1.0
+            reg_credit_monthly = (1.0 + reg_credit_annual) ** (days / 365.0) - 1.0
+            pref_credit_monthly = (1.0 + pref_credit_annual) ** (days / 365.0) - 1.0
         else:
             reg_credit_monthly = (1.0 + reg_credit_annual) ** (1.0 / 12.0) - 1.0
             pref_credit_monthly = (1.0 + pref_credit_annual) ** (1.0 / 12.0) - 1.0

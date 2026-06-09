@@ -125,7 +125,12 @@ def build_illustration_data(
     # ── Withdrawals ───────────────────────────────────────────
     withdrawals = float(pi.total_withdrawals or 0)
 
-    # ── Shadow ────────────────────────────────────────────────
+    # ── Shadow seed ───────────────────────────────────────────
+    # TODO(shadow-ccv): for a CCV policy the shadow should be seeded from the
+    # current CCV *account value*, not the GPT GAV. The correct DB2 source is
+    # unconfirmed and is absent from the local fixtures (gav & ccv_target both null
+    # for U0492070). RERUN injects sInput_CurrentShadowAV at the valuation date.
+    # See QUESTION_LOG.md. Until confirmed, fall back to gav.
     gav_raw = pi.gav
     shadow_av = float(gav_raw) if gav_raw is not None else 0.0
 

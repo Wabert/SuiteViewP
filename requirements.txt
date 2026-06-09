@@ -27,6 +27,9 @@ requests>=2.32.0
 # Markdown rendering
 markdown>=3.10.0
 
+# Windows COM / Excel automation (Dump-to-Excel exports, RERUN comparison harness)
+pywin32>=306
+
 # Development & Testing
 pytest>=8.3.0
 pytest-qt>=4.4.0
