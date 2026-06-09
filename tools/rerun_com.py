@@ -239,6 +239,23 @@ def mode_run(cmd):
             except Exception as exc:
                 report["input_failures"].append({"name": name, "error": str(exc)})
 
+        # ── Scenario overrides (e.g. construct a face increase/decrease or DBO
+        # change on top of a loaded case). Each: {"target": "INPUT!J14:J126" or a
+        # defined name, "value": x}. A scalar fills the whole range. ──
+        for ov in cmd.get("overrides", []):
+            target = ov["target"]
+            try:
+                if "!" in target:
+                    sheet, addr = target.split("!", 1)
+                    rng = wb.Worksheets(sheet).Range(addr)
+                else:
+                    rng = wb.Names(target).RefersToRange
+                rng.Value = ov["value"]
+                report["overrides_applied"] = report.get("overrides_applied", 0) + 1
+            except Exception as exc:
+                report.setdefault("override_failures", []).append(
+                    {"target": target, "error": str(exc)})
+
         xl.CalculateFull()
 
         # ── Dump CalcEngine output rows ──

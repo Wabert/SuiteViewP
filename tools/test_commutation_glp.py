@@ -18,6 +18,7 @@ from suiteview.illustration.core.guideline_calc import (
     GuidelinePremiumInputs,
     calculate_glp,
     calculate_gsp,
+    calculate_7pay_premium,
     calculate_glp_iterative,  # import-only (needs live rates to run)
     glp_on_change,
 )
@@ -139,6 +140,21 @@ new_glp = glp_on_change(1200.0, base, bigger)
 check("face increase raises new GLP", new_glp > 1200.0)
 check("new GLP = current + delta",
       approx(new_glp, 1200.0 + (calculate_glp(bigger) - calculate_glp(base)), 1e-6))
+
+# ── 7702A 7-pay premium ──────────────────────────────────────────────────
+print("7-pay premium (7702A)")
+sevenpay = calculate_7pay_premium(base)
+_i = max(base.glp_rate, base.guaranteed_rate)
+_cc = CommutationFunctions.build(base.mortality, _i, start_age=base.attained_age)
+_a7 = _cc.annuity_due(base.attained_age, 7)
+_an = _cc.annuity_due(base.attained_age, base.years_to_maturity())
+check("7-pay funds same benefit: 7pay*ä7 == GLP*än", approx(sevenpay * _a7, glp * _an, 1e-3))
+check("7-pay premium exceeds GLP (7 pays vs n)", sevenpay > glp)
+check("pay_years=n collapses to the GLP",
+      approx(calculate_7pay_premium(base, pay_years=base.years_to_maturity()), glp, 1e-6))
+# Change recalc works with the 7-pay method too (reuses glp_on_change).
+new_7pay = glp_on_change(3000.0, base, bigger, method=calculate_7pay_premium)
+check("7-pay on face increase rises", new_7pay > 3000.0)
 
 check("iterative GLP symbol importable", callable(calculate_glp_iterative))
 

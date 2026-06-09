@@ -262,6 +262,55 @@ the commutation method (prevailing CSO vs the contract's guaranteed-COI-implied 
 
 ---
 
+### 1.8 Illustration — RERUN comparison harness + calc validation (2026-06-08, branch `feat/illustration-rerun-validation`)
+
+Built a fully-offline harness that drives the **RERUN** workbook via Excel COM and
+diffs it against the SuiteView engine, using the local SQLite fixtures. Found and
+fixed **three** engine bugs; **all four** local inforce cases now match RERUN to
+**sub-penny** on the base AV chain, deduction breakdown, interest, values, and
+rates. Branch pushed to origin. See `QUESTION_LOG.md` (root) for open questions and
+the policy-change plan.
+
+**Harness (all offline, minipc-safe — Excel IS available here now):**
+- `tools/rerun_com.py` — load a RERUN Saved Case into an **isolated** Excel
+  instance (`DispatchEx`), recalc, dump CalcEngine columns. Run-mode `overrides`
+  build face-change/DBO scenarios. **Gotchas baked in:** pywin32 needed
+  (`pip install pywin32`, now in requirements); set `Calculation=manual` before
+  writing inputs (else a recalc storm hangs Excel); block-write vectors.
+- `tools/run_engine_case.py` — engine on a local policy → MonthlyState CSV, with
+  per-case TEFRA/TAMRA/exception/exact-days toggles (read from the Saved Case).
+- `tools/compare_case.py` + `calc_compare_map.py` — align by valuation date, diff a
+  RERUN-ordered grouped column map with detail levels + collapse/drill-down.
+- `tools/query_local_fixture.py`, `tools/inspect_illustration_inputs.py` — data-gap
+  diagnostics. `extract_calcengine.py` gained names/props/dump modes.
+- **JSON arg gotcha:** PowerShell mangles the single-JSON-arg; run these via **Bash**
+  with `MSYS_NO_PATHCONV=1`.
+
+**Verify on the laptop (live rates/DB2):**
+- Re-run the 3 engine fixes against live UL_Rates / DB2 to confirm they hold with
+  real rate scales (they're validated vs RERUN locally): ExactDays interest
+  `days/365` (`interest_calc.py`); base-COI flat `TRUNC(flat/12,2)` and **rider
+  substandard** now applied (`monthly_deduction.py`).
+- **Data gaps to re-export** (block full validation locally):
+  (a) U0492070 current **CCV/shadow value** is absent from the fixture (`gav` &
+  `ccv_target` both null) — the shadow path can't be validated until exported, and
+  the engine seeds shadow from `gav` (GPT GAV), wrong for a CCV policy (see
+  QUESTION_LOG Q1). (b) The simple base case **UE000576** never made it into the
+  local policy SQLite — `export_local_policy_data.py UE000576 --region CKPR --append`.
+- **TAMRA 7-pay** (`calculate_7pay_premium`, `guideline_calc.py`) — penny-validate
+  against RERUN's `Guideline_Premiums` (CalcEngine `KY`) with the guaranteed-COI
+  table; confirm the expense/interest basis (QUESTION_LOG Q2).
+- **GSP $0.05** — replicate RERUN `KS = INT(GSP/12*100)*12/100` once force-out is
+  active (QUESTION_LOG Q3).
+
+**Policy changes (NOT implemented — full plan + RERUN reference in QUESTION_LOG §D):**
+face increase/decrease + DBO change create/modify coverage segments and trigger a
+guideline + 7-pay recalc (building blocks `glp_on_change` + `calculate_7pay_premium`
+are ready). Reference captured: RERUN creates a new segment (Cov2) at a face
+increase and recalcs guideline at the change anniversary.
+
+---
+
 ## §2 — DEFERRED: DB2 connection consolidation (Tier 2c) — NEEDS LIVE DB2
 
 **Goal:** route every DB2 caller through the canonical `DB2Connection`

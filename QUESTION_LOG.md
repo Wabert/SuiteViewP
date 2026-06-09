@@ -23,6 +23,28 @@ without you, and (3) a running progress log. I'll append as I go.
    that value so the shadow path can be validated. Engine seeds shadow from `gav`
    today (the GPT GAV) — conceptually wrong for a CCV policy.
 
+2. **TAMRA 7-pay basis** (I built `calculate_7pay_premium` in `guideline_calc.py`):
+   I used the GLP/GSP-style numerator (SA·A_{x:n} + PV of expense loads) over a
+   7-year annuity at the 4% §7702 interest floor. Two things to confirm: (a) does
+   the 7-pay premium include the expense loads the way GLP does, or is it a *net*
+   premium (no expense load)? (b) interest floor 4% (I assumed) vs something else?
+   RERUN computes its 7-pay on the `Guideline_Premiums` sheet (CalcEngine `KY` ←
+   col 6) — penny-validation needs the guaranteed-COI mortality table (live
+   UL_Rates), so this is a work-laptop check. You said my method may differ from
+   RERUN's and that's OK — flagging for confirmation.
+
+3. **GSP $0.05 rounding** — confirm RERUN's `KS = INT(GSP/12*100)*12/100` (floor
+   GSP to a monthly-divisible cent) is the intended admin convention. It's cosmetic
+   where TEFRA is off (all 4 current cases), but it'll matter once force-out is
+   active (the policy-change cases). I deferred matching it until then; easy to add.
+
+4. **Face-change processing detail** (from the RERUN reference I built, see §D): on a
+   face INCREASE, RERUN recalcs GLP/GSP at the *anniversary* of the increase year,
+   then the new segment appears the *following month*. Confirm: (a) new-segment
+   issue age = attained age at the increase (so it gets its own COI rate row)? (b)
+   the ~1-month lag between the anniversary guideline recalc and the segment taking
+   effect — intended, or a RERUN timing quirk?
+
 ---
 
 ## B. Decisions / assumptions I made autonomously
@@ -80,5 +102,60 @@ without you, and (3) a running progress log. I'll append as I go.
     group/detail/collapse + drill-down, `query_local_fixture.py` (policy & rates DB),
     `inspect_illustration_inputs.py`. All four cases' base calc validated; only
     cosmetic GSP rounding + data-gap shadow remain.
-  - **Still TODO tonight:** per-coverage (cov1..N) + rate columns in the harness;
-    policy-change cases (face dec/inc, DBO change) + TAMRA 7-pay calc; commit+push.
+  - **Rates group added** to the harness (`calc_compare_map.py`) and validated on
+    U0688012: COI rate, corridor, EPU, SCR, interest all match (COI rate to 5e-6 =
+    RERUN's `ROUND(rate,5)` vs engine full precision — cosmetic).
+  - **TAMRA 7-pay calc built** — `calculate_7pay_premium` in `guideline_calc.py`
+    (PV/commutation method; the GLP numerator over a 7-year annuity). Unit-tested
+    against actuarial identities (`tools/test_commutation_glp.py`, now 25 green:
+    `7pay*ä7 == GLP*än`, `7pay > GLP`, `pay_years=n → GLP`, composes with
+    `glp_on_change`). Penny-validation vs RERUN needs live mortality (work laptop).
+  - **Committed + pushed** the foundation to branch
+    `feat/illustration-rerun-validation` (3 fixes + harness). TAMRA + override
+    tooling + this plan in a follow-up commit.
+
+---
+
+## D. Policy changes — RERUN reference + implementation plan (HANDOFF)
+
+The engine has **no** policy-change handling yet (`PolicyChangeEvent` is modeled in
+`input_set.py` but consumed nowhere). I built the RERUN reference and the tooling to
+construct/validate these, but did **not** implement the engine side — it's net-new,
+multi-hour, and the guideline recalc needs live mortality to validate, so I'm handing
+it off rather than committing something unverifiable.
+
+**RERUN face-increase reference (captured):** I added `overrides` to
+`tools/rerun_com.py` and built a face increase on U0688012 (100k→150k at policy
+year 9) — `rerun_U0688012_faceinc.csv`. RERUN behavior:
+- At the **year-9 anniversary** (mo 97): GSP 31,311 → 52,004 and AccGLP jumps by the
+  change delta (attained-age delta method = `glp_on_change`). MD steps 102 → 172.
+- The **following month** (mo 98): a new segment **Cov2 = 50,000** (the increase)
+  appears (CalcEngine cols AH=Cov1, AI=Cov2, AJ=Cov3); Cov1 stays 100k; Total SA
+  150k. The new segment carries its own COI (issue age = attained age at increase).
+
+**Reproduce a scenario:** `rerun_com.py` run-mode now takes
+`"overrides":[{"target":"INPUT!J14:J126","value":150000}]` (J6:J126 =
+`vINPUT_Specified_Amount`, year 1..121; J14 = year 9). Face DECREASE = lower value;
+DBO change = override `vINPUT_DBO` (CalcEngine input) similarly.
+
+**Engine implementation plan:**
+1. Consume `IllustrationInputSet.policy_changes` in `calc_engine.process_month()` at
+   the change date. (Per the RERUN reference, recalc guideline at the *anniversary*
+   of the change year; apply the segment change the following month — confirm Q4.)
+2. **Face increase** → append a `CoverageSegment` for the increase amount, issue
+   age = attained age at change, and **load its COI/EPU/SCR rates** at that issue age
+   (needs `rate_loader` to load rates for a mid-projection segment — today it loads
+   all segments up front). The multi-segment deduction/NAR-FIFO path already exists.
+3. **Face decrease** → reduce the existing segment(s) (and surrender-charge basis).
+4. **DBO change (A↔B)** → flip `policy.db_option` at the change date (the deduction
+   already branches on DBO).
+5. **Guideline recalc** → use `glp_on_change(current, before, after, method=...)`
+   (built) for GLP, GSP, and **7-pay** (`calculate_7pay_premium`). A face **increase
+   restarts the TAMRA 7-pay period** (RERUN `KZ` material-change flag → new
+   `v7PayStartDate`, re-accumulate `XZ..YF` vs `KY`). Needs the guaranteed-COI
+   mortality table (live UL_Rates) to penny-match; locally you can inject RERUN's
+   recalculated GLP/GSP/7-pay to validate the AV/segment mechanics independently.
+6. **Validate** with the harness: `rerun_com.py` (overrides) → reference; extend
+   `run_engine_case.py` to take change inputs; add per-coverage groups (Cov1/Cov2…)
+   to `calc_compare_map.py` (engine already dumps `*_cov2` via `_get_projection_value`;
+   RERUN cols AH/AI/AJ for SA, and the per-segment NAR/COI columns).

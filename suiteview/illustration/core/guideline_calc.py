@@ -177,6 +177,61 @@ def calculate_gsp(inputs: GuidelinePremiumInputs) -> float:
     return numerator / denominator if denominator else 0.0
 
 
+def calculate_7pay_premium(inputs: GuidelinePremiumInputs, pay_years: int = 7) -> float:
+    """7702A 7-pay premium via commutation functions.
+
+    The 7-pay premium is the level annual premium payable over ``pay_years``
+    (default 7) that funds the contract's future benefits — the same NSP-style
+    numerator as the guideline premium, but the premium-paying annuity is capped
+    at the 7-pay period:
+
+        7-pay = [ SA·A_{x:n} + PV(expenses) ] / [ (1 − load)·ä_{x:k} ],  k = min(pay_years, n)
+
+    7702A uses the §7702 interest floor (4%) and the contract's guaranteed
+    mortality. Because the premium-paying period (k≤7) is shorter than the
+    benefit period (n), the 7-pay premium is materially larger than the GLP.
+
+    NOTE: like ``calculate_glp``, penny-validation against admin / RERUN's
+    Guideline_Premiums sheet needs the guaranteed-COI mortality table (live
+    UL_Rates) — verify on the work laptop. RERUN computes its own 7-pay
+    (CalcEngine ``KY`` ← Guideline_Premiums col 6) by a slightly different method;
+    they should agree closely. See QUESTION_LOG.md for the expense/interest basis
+    questions.
+    """
+    _check_level_db(inputs)
+    x = inputs.attained_age
+    n = inputs.years_to_maturity()
+    if n <= 0:
+        return 0.0
+
+    # 7702A interest basis: greater of 4% (the §7702 floor) and the contract rate.
+    i = max(inputs.glp_rate, inputs.guaranteed_rate)
+    comm = CommutationFunctions.build(
+        inputs.mortality, i, substandard=inputs.substandard,
+        issue_age=inputs.issue_age if inputs.issue_age is not None else x,
+        start_age=x,
+    )
+    pay_n = min(pay_years, n)
+    annuity_pay = comm.annuity_due(x, pay_n)
+    if annuity_pay <= 0:
+        return 0.0
+
+    pv_benefit = inputs.specified_amount * comm.endowment_insurance(x, n)
+    numerator = pv_benefit + _expense_numerator(comm, inputs, x, n)
+
+    exp = inputs.expenses
+    load_target = exp.premium_load_target
+    load_excess = exp.premium_load_excess if exp.premium_load_excess is not None else load_target
+    if exp.target_premium > 0.0 and abs(load_target - load_excess) > 1e-12:
+        net_load = load_excess
+        numerator += exp.target_premium * (load_target - load_excess) * annuity_pay
+    else:
+        net_load = load_target
+
+    denominator = (1.0 - net_load) * annuity_pay
+    return numerator / denominator if denominator else 0.0
+
+
 # ── Policy-change recalculation: new GLP = current + (GLPa − GLPb) ────────
 
 

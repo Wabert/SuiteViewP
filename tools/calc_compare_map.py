@@ -55,6 +55,13 @@ GROUPS = [
         ("death_benefit", "ending_db",        "WB", "val"),
         ("policy_debt",   "policy_debt",      "NA", "val"),
     ]},
+    {"name": "Rates", "level": "full", "fields": [
+        ("coi_rate",      "coi_rate",              "OY", "rate"),   # base COI w/ substandard
+        ("corridor_rate", "corridor_rate",         "OR", "rate"),
+        ("epu_rate",      "epu_rate",              "RX", "rate"),
+        ("scr_rate",      "scr_rate",              "AN", "val"),    # surrender charge per unit
+        ("interest_rate", "effective_annual_rate", "VL", "rate"),
+    ]},
     {"name": "Shadow", "level": "full", "fields": [
         ("shadow_bav",           "shadow_bav",           "WP", "val"),
         ("shadow_sa",            "shadow_sa",            "WR", "val"),
