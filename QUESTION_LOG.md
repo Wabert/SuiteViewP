@@ -5,6 +5,11 @@ autonomously through the calc-engine validation + policy-change development you
 asked for. This file holds (1) questions for you, (2) decisions/assumptions I made
 without you, and (3) a running progress log. I'll append as I go.
 
+> **2026-06-09 STATUS — see §E at the bottom.** The full policy-change pipeline
+> (MTP/CTP recompute, guideline recalc, TAMRA reset) is implemented and validated
+> EXACT vs RERUN on U0688012 for base, face increase, face decrease, and DBO A→B.
+> Q3, Q5, and Q6 below are RESOLVED; Q4's timing is validated as implemented.
+
 ---
 
 ## A. Questions for you (actuarial / product / scope)
@@ -249,3 +254,89 @@ DBO change = override `vINPUT_DBO` (CalcEngine input) similarly.
    `run_engine_case.py` to take change inputs; add per-coverage groups (Cov1/Cov2…)
    to `calc_compare_map.py` (engine already dumps `*_cov2` via `_get_projection_value`;
    RERUN cols AH/AI/AJ for SA, and the per-segment NAR/COI columns).
+
+---
+
+## E. 2026-06-09 — Policy-change pipeline COMPLETE & EXACT (minipc session)
+
+**Headline: U0688012 vs RERUN, all 10 comparison groups at literal 0.0 delta over
+40 months, for ALL FOUR scenarios** — base, face increase 100k→150k, face
+decrease 100k→75k, DBO A→B (all changes at the year-9 anniversary 2027-11-09).
+U0492070 and U0656998 base cases also re-validated at 0.0 (previously sub-penny).
+Guideline recalc values were INJECTED from RERUN (`metadata` on the change event)
+to validate the mechanics independently of guideline-calc calibration — see
+"Remaining" below.
+
+### Resolved questions
+- **Q3 (GSP $0.05)** — RESOLVED. RERUN floors GSP **and GLP** to a
+  monthly-divisible cent everywhere, including the loaded inforce values
+  (`KS/KT = INT(x/12*100)*12/100`). Engine now applies `floor_monthly_cent()`
+  (Decimal-based — binary-float floor dropped a cent on exact values).
+- **Q5 (decrease COI basis)** — fully closed; with re-banding + the fixes below
+  the decrease matches exactly.
+- **Q6 (MTP recompute)** — SOLVED. It is NOT recursive: PW target premium =
+  `BENMTP rate × (MTP w/o PW) × (1 + factor × table)` (CalcEngine IV), and
+  `vMTP = Σ cov targets + Σ benefit targets + IV` (JG). Each cov target =
+  `ROUND(SA·rate/1000,2) + ROUND(table·tblRate·SA/1000,2) + flat term` with
+  rates from Select_RATE_MTP / TBL1MTP at the segment's own issue age and the
+  **current total-SA band** (no band lock, current-SA basis for this product —
+  validated against the observed 1.734 / 0.983 ratios). vCTP identical from
+  CTP/TBL1CTP with `MIN(6, tblRate)` and its PW term = `ROUND(IV, 2)` (KP=IV).
+  `vMonthlyMTP = TRUNC(vMTP/12, 2)`; the PW waive basis uses `ROUND(vMTP/12,2)`.
+  New module: `suiteview/illustration/core/target_premium.py`. The PW residuals
+  on increase ($29/mo) and decrease ($0.67/mo) are GONE.
+- **Q4 (timing)** — validated as implemented: the engine applies segment change +
+  guideline recalc at the change-anniversary month and matches RERUN exactly
+  (RERUN's 1-month "lag" is display-only, as suspected for the decrease).
+
+### New mechanics discovered & implemented (all validated exact)
+- **Leap-day interest (ENGINE BUG, all cases):** RERUN/CyberLife exclude Feb 29
+  from ExactDays interest (`UB = C13−C12 − LeapDayRemoval`; 365-day year). The
+  engine credited 29 days in leap Februaries → +$0.61/mo drift from 2028-02.
+  Prior validations missed it because they ended before Feb 2028.
+- **COI rate display rounding:** cov 1's substandard-adjusted COI rate is
+  `ROUND(...,5)` (OY); cov 2/3 are NOT rounded (OZ/PA).
+- **EPU rounds per coverage:** each cov's table-EPU charge is `ROUND(SA·rate/1000,2)`
+  (SB-SE).
+- **Stale rate alias (ENGINE BUG):** after a mid-projection re-band, the
+  displayed cov-1 COI rate and the corridor-COI basis still read the load-time
+  `rates.coi` alias (issue band). Now reads the segment's own schedule.
+- **DBO A→B level-DB mechanic:** reduce base SA by **INT(AV entering the month)**
+  (7,312.75 → 7,312; SA 100,000→92,688), processed like a face decrease
+  **including the decreased units' surrender-charge deduction from AV** (215.78
+  = 7.312 units × 29.51). Then re-band (→ band 2), recompute MTP/CTP
+  (JE 150.13→182.43 exact), recalc guideline. B→A implemented as the inverse
+  (in-place face += INT(AV), material change) but NOT yet validated vs RERUN.
+- **7-pay recalc fires on ANY coverage change** (KY on vPolicyChangeIndicator),
+  capped at `sMax7702RecalcsAllowed = 1`; only the PERIOD RESTART (KZ/LA new
+  start date, contribution buckets reset) is material-change-gated (face
+  increase or B→A).
+- **Ending DB (WB):** recomputed at END of month — face + EOM AV (DBO B) +
+  corridor on EOM AV − policy debt. Engine previously reported deduction-time
+  gross DB (equal only for DBO A, no loans).
+- **Increase-segment SCR:** the new segment DOES carry its own surrender charge
+  (TI; vFullSC=TK sums all coverages). Earlier confusion was a column-mapping
+  artifact (TH is cov-1 only).
+- **TAMRA inforce fields now loaded** from LH_TAMRA_7_PY_PER/_YR (7-pay level
+  6,721.24, start date, per-year contributions) — present in the local fixtures.
+
+### Remaining gaps (next sessions)
+1. **Guideline own-calc calibration** — with no injected values the engine
+   computes the recalc via commutation + guaranteed COI: deltas ~15-18% low
+   (GSP after increase 48,946 vs RERUN 52,004; GLP delta 1,695 vs 2,077) and
+   7-pay ~4% high (12,033 vs 11,578). RERUN's Guideline_Premiums calculator
+   (228 cols, named results sGSP_Before1/After1 etc.) is the reference to
+   reverse-engineer — likely a monthly AV-projection method, not commutation.
+   The injectable `metadata` path keeps mechanics validatable meanwhile.
+2. **TEFRA/TAMRA-binding scenario** — force-out / premium-cap firing with
+   recalculated limits has no reference yet (all saved cases are TEFRA-off,
+   premiums far below limits). Construct an over-funded scenario (premium
+   override) with TEFRA/TAMRA ON in both RERUN + engine.
+3. **B→A DBO change** — implemented, unvalidated (no reference captured).
+4. **PWST / rider target premiums** — formulas stubbed per the TSV (PWST
+   substandard multiplier; rider target tables are dead refs for this family);
+   no local case exercises them.
+5. **U0492070 shadow/CCV value** — still blocked on the fixture export (Q1).
+6. **Mid-year (non-anniversary) changes** — Guideline_Premiums column K
+   (AccumAdjust) pro-rates the year-of-change GLP accumulation by months;
+   not implemented (all validated scenarios were anniversary-dated).

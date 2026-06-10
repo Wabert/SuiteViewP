@@ -607,7 +607,16 @@ class IllustrationEngine:
         )
         surrender_value = max(av - surrender_charge - accrual_loan.policy_debt, 0.0)
 
-        ending_db = ded.gross_db
+        # Ending death benefit (CalcEngine VY/VZ/WB): recomputed from the
+        # END-of-month AV — DBO B adds EOM AV, the corridor tests EOM AV, and
+        # outstanding policy debt is subtracted.
+        edb_wo_corr = policy.total_face
+        if policy.db_option == "B":
+            edb_wo_corr += max(0.0, av)
+        elif policy.db_option == "C":
+            edb_wo_corr += max(0.0, prem.premiums_to_date - withdrawals_to_date)
+        edb_corr = max(0.0, av * ded.corridor_rate - edb_wo_corr) if ded.corridor_rate > 0 else 0.0
+        ending_db = edb_wo_corr + edb_corr - accrual_loan.policy_debt
 
         positive_sv = config.lapse_value == "SV" and surrender_value > 0
         av_less_loans = av - accrual_loan.policy_debt
@@ -1250,21 +1259,25 @@ def _apply_policy_change(
         old = str(policy.db_option or "").upper()
         new = str(change.value or "").upper()
         if new and new != old:
+            # The SA adjustment uses the whole-dollar AV entering the month —
+            # RERUN truncates (100,000 face − AV 7,312.75 → SA 92,688).
+            av_whole = float(math.floor(max(av, 0.0)))
             if old == "A" and new == "B":
-                # Level-DB mechanic: shift AV out of the specified amount
-                # (SA-only — no AV movement, no surrender charge).
-                _reduce_base_face(
-                    policy, max(av, 0.0), rates, change_date, rate_year,
-                    charge_scr=False,
+                # Level-DB mechanic: shift AV out of the specified amount.
+                # The reduction is processed like a face decrease INCLUDING the
+                # decreased units' surrender charge (RERUN deducts it from AV).
+                outcome.av_adjustment += _reduce_base_face(
+                    policy, av_whole, rates, change_date, rate_year,
+                    charge_scr=True,
                 )
                 outcome.coverage_changed = True
             elif old == "B" and new == "A":
                 # Inverse: fold the AV back into the specified amount (in place,
                 # no new segment — this is not an elective face increase).
                 base = policy.base_segment
-                if base is not None and av > 0.0:
-                    base.face_amount += av
-                    base.units += av / (base.vpu or 1000.0)
+                if base is not None and av_whole > 0.0:
+                    base.face_amount += av_whole
+                    base.units += av_whole / (base.vpu or 1000.0)
                     _reband_segment(rates, base, policy.plancode)
                     policy.face_amount = sum(s.face_amount for s in policy.segments)
                     _reband_benefits(rates, policy)

@@ -410,6 +410,19 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
 ---
 
 ## Changelog
+- **2026-06-09 (minipc)** — Illustration policy-change pipeline COMPLETE and
+  validated EXACT (0.0 delta, all comparison groups, 40 months) vs RERUN on
+  U0688012 for base + face increase + face decrease + DBO A→B; U0492070 and
+  U0656998 base re-validated at 0.0. New `target_premium.py` computes vMTP/vCTP
+  from rates (recomputed at policy changes — the Q6 PW residual is gone);
+  guideline GLP/GSP recalc (attained-age delta, monthly-cent floor) + TAMRA
+  7-pay recalc/period-restart wired into `_apply_policy_change`, with
+  `metadata` injection of RERUN's values for mechanics-only validation. Engine
+  fixes: leap-day ExactDays interest (Feb 29 never credits), cov-1 COI rate
+  ROUND(.,5), per-coverage EPU ROUND(.,2), stale rates.coi alias after re-band,
+  ending DB recomputed from EOM AV less debt (WB), TAMRA inforce fields loaded
+  from LH_TAMRA_7_PY_PER/_YR. See QUESTION_LOG §E for the remaining gaps
+  (own guideline-calc calibration, TEFRA/TAMRA-binding scenario, B→A).
 - **2026-06-06** — Created. Tier 2a (DB2Connection retry/cursor hardening) and
   Tier 2b (JsonStore + 3 migrations) done on `cleanup/tier2`. Tier 2c deferred
   (needs live DB2). §1 items from Tiers 1a/1b/2a still need live verification.

@@ -234,7 +234,7 @@ Face increases append a new base `CoverageSegment`:
 - banding uses the new total specified amount, matching the CyberLife/RERUN behavior observed so far
 - COI, EPU, and SCR schedules for the new segment are loaded on the fly
 
-Still partial: monthly MTP/PW target-premium recomputation on face changes is not implemented, and guideline/GSP/7-pay recalculation on the change is not wired into the monthly projection path yet.
+On any specified-amount change the engine now recomputes the target premiums (vMTP/vCTP) from rates via `target_premium.py`, recalculates GLP/GSP by the attained-age delta method (guaranteed-COI commutation, monthly-cent floor), and on a material change (face increase, DBO B-to-A) restarts the 7-pay period and recomputes the 7-pay level. `PolicyChangeEvent.metadata` can inject RERUN's recalculated guideline values (`new_glp`/`new_gsp`/`new_7pay`) for mechanics-only validation. Validated EXACT vs RERUN on U0688012 (increase, decrease, DBO A-to-B at the year-9 anniversary; all comparison groups 0.0 over 40 months). Still open: the engine's own guideline recalc calibration vs RERUN's Guideline_Premiums calculator, B-to-A validation, and mid-year (non-anniversary) AccumGLP pro-ration.
 
 ### 4.6 Step 7 - Coverage After Change
 
@@ -940,9 +940,9 @@ The forecast rows expose the fields the Policy Support tab needs to audit the fo
 ### 7.2 Explicitly Incomplete or Partial in Current Code
 
 - advance-loan calculations are still out of scope; advance loans currently pass through without monthly accrual
-- face-change support does not yet recompute monthly MTP / premium-waiver target-premium basis, so PW can diverge from RERUN after increases or decreases
-- DB option future changes are simple option-code flips; RERUN's A-to-B/B-to-A specified-amount adjustment behavior is not fully modeled
-- future face or DB option changes do not yet recalculate GLP/GSP/7-pay in the monthly projection path
+- the engine's OWN guideline recalc (commutation on guaranteed COI) runs when no injected values are supplied, but is not yet calibrated to RERUN's Guideline_Premiums calculator (deltas ~15-18% low); DBO B after-states need the iterative method or injection
+- DBO B-to-A is implemented (inverse level-DB mechanic, material change) but not yet validated against a RERUN reference
+- mid-year (non-anniversary) changes do not pro-rate the year-of-change AccumGLP (Guideline_Premiums col K AccumAdjust)
 - some spec-era items such as full integrated 7702 recalculation, TAMRA/MEC flagging, deemed cash value, GCO logic, and broader policy change processing are not part of this monthly path
 
 ## 8. Recommended Next Review Questions
