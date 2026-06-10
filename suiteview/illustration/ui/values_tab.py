@@ -19,6 +19,7 @@ from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .styles import PURPLE_BG, PURPLE_DARK, TAB_WIDGET_STYLE
+from .values_overview import ValuesOverview
 
 
 class IllustrationValuesTab(QWidget):
@@ -374,6 +375,8 @@ class IllustrationValuesTab(QWidget):
 
         self.tabs = QTabWidget(self)
         self.tabs.setStyleSheet(TAB_WIDGET_STYLE)
+        self.overview = ValuesOverview(self.tabs)
+        self.tabs.addTab(self.overview, "Overview")
         for title in self.TAB_ORDER:
             grid = FilterTableView(self.tabs)
             grid.set_search_visible(False)
@@ -409,6 +412,7 @@ class IllustrationValuesTab(QWidget):
 
     def clear_results(self, message: str = "Load a policy, then click Run Values."):
         self.status_label.setText(message)
+        self.overview.clear()
         for grid in self._tab_grids.values():
             grid.set_dataframe(pd.DataFrame(), limit_rows=False)
 
@@ -458,6 +462,8 @@ class IllustrationValuesTab(QWidget):
             )
             if grid.model is not None:
                 grid.model._left_align_columns = {0}
+        self.overview.display(policy, result_list)
+        self.tabs.setCurrentIndex(0)
         self.status_label.setText(f"Showing valuation snapshot plus {months} projected months.")
 
     def _state_to_row(

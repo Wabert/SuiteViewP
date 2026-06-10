@@ -345,3 +345,55 @@ to validate the mechanics independently of guideline-calc calibration — see
 6. **Mid-year (non-anniversary) changes** — Guideline_Premiums column K
    (AccumAdjust) pro-rates the year-of-change GLP accumulation by months;
    not implemented (all validated scenarios were anniversary-dated).
+
+---
+
+## F. 2026-06-10 — Guideline calcs owned by the engine; Values Overview UI
+
+**The engine now computes its own GLP/GSP/7-pay** — `monthly_guideline.py`, a
+monthly accumulated-value endowment solve (fund is linear in premium → exact
+solve, no compression, unlimited recalcs). Penny-matches the workbook's
+Guideline_Premiums calculator: at issue (2,921.60 / 32,114.05 / 6,868.90 for
+U0688012 — admin's 2,880.33 / 31,311.53 / 6,721.24 is the known 1.4-2.6%
+workbook↔admin calibration gap) and EXACT at every captured policy-change
+before/after. All four projection scenarios are `all_ok` vs RERUN with the
+engine's own recalcs.
+
+### Workbook intent decoded (and where it was "fragile")
+- **Q2 ANSWERED — 7-pay is a NET premium**: the 7-pay block's MFEE, EPU, and
+  premium-load columns are simply EMPTY. Guaranteed COI + benefit/rider
+  charges only.
+- **GSP and 7-pay always solve on LEVEL-DB mechanics** — their blocks hardcode
+  DBO "A" (AW21/EB21 literals); only the GLP block reads the contract's option
+  (BQ21=C21). Deliberate, not fragile: a true DBO-B single-premium endowment
+  is degenerate (engine reproduced the absurd 142k GSP before pinning A).
+- **7-pay recalc start**: non-material changes re-solve from the ORIGINAL
+  7-pay period start with that period's starting AV (CH24, =SVPY_BEG_CSV_AMT,
+  new policy field `tamra_7pay_start_av`); material changes restart at the
+  change date with the current AV.
+- **Benefits cease at payup** (vPW_Active gates on age) — U0688012's PW stops
+  at the age-60 anniversary; the monthly-deduction loop now gates on
+  `ben.cease_date` too (it previously charged PW forever; was outside the
+  40-month comparison windows).
+- The 7-pay load treatment in the workbook is internally inconsistent with
+  GSP/GLP ((1−TPP) header vs empty cells) — moot since the cells are blank.
+
+### Search routine (Find GP/TAMRA by Search Routine, default OFF)
+`guideline_calc.search_guideline_premiums` — premium binary-search on the real
+engine (guaranteed COI, statutory rate, current expenses, no bonus, machinery
+off), GSP/7-pay forced level-DB like the formula. Face-increase check vs the
+formula: GLP within $1.56 (0.03%), GSP $46.68 (0.09%); **7-pay ~7% higher BY
+DESIGN** (the search includes current expenses per spec; the formula 7-pay is
+net). Multi-base-coverage policies are the known divergence case (formula uses
+one COI stream on total SA; the search runs true per-segment NAR/COI).
+
+### Values Overview UI (new default sub-tab)
+KPI chips (horizon, ending AV/SV/DB, lapse year/age, GP room, premiums in) →
+hand-painted chart (AV/SV/DB/cum-premium/guideline-limit; hover crosshair
+readout; click a year to jump the ledger; legend toggles; no dependencies) →
+annual⇄monthly drill-down ledger (year rows expand to the 12 monthliversaries;
+status flags SNET/Shadow/ForceOut/PremCap/ExcPrem/LAPSED; right-click → Dump
+to Excel via the shared COM helper). Deep per-column grids unchanged on their
+own sub-tabs. **Laptop:** click-test interactions; consider next: per-coverage
+columns in the ledger, scenario-compare overlay (two runs side by side on the
+chart), force-out markers on the chart.

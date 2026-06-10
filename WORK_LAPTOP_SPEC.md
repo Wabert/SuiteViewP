@@ -410,6 +410,29 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
 ---
 
 ## Changelog
+- **2026-06-10 (minipc)** — Guideline calcs OWNED by the engine + Illustration UI
+  overhaul. (a) New `monthly_guideline.py`: monthly accumulated-value endowment
+  solve (linear in premium, exact, no compression, unlimited recalcs) —
+  penny-matches the workbook's Guideline_Premiums calculator at issue AND at
+  every captured policy-change before/after; all four U0688012 scenarios now
+  `all_ok` with the engine computing its OWN GLP/GSP/7-pay recalcs (no injected
+  values). Workbook intent decoded: 7-pay is a NET premium (no fees/EPU/loads);
+  GSP + 7-pay always solve level-DB (only GLP honors the DBO); non-material
+  changes re-solve 7-pay from the ORIGINAL period start (new
+  `tamra_7pay_start_av` from SVPY_BEG_CSV_AMT); benefits cease at payup (gate
+  added to monthly deduction too). (b) "Find GP/TAMRA by Search Routine"
+  toggle (default off): engine premium-solve with guaranteed COI / statutory
+  rate / current expenses — GLP within $1.56, GSP $46.68 of the formula on the
+  face-increase check; 7-pay ~7% higher BY DESIGN (search includes expenses).
+  (c) UI: Inputs tab reordered (Transactions first) + valuation/monthliversary/
+  first-forecast banner + scheduled premium prefilled from billing; NEW Values
+  "Overview" tab — KPI chips, hand-painted AV/SV/DB/premium chart (hover
+  readout, click-year-to-jump, legend toggles), annual⇄monthly drill-down
+  ledger with right-click Excel dump. **Laptop follow-ups:** click-test the
+  Overview interactions (hover/legend/expand/Excel dump) and the GP-search
+  toggle in-app; re-validate vs live UL_Rates; remaining engine gaps in
+  QUESTION_LOG §E (rider/CCV target premiums, TEFRA-binding scenario, B→A,
+  mid-year AccumAdjust).
 - **2026-06-09 (minipc)** — Illustration policy-change pipeline COMPLETE and
   validated EXACT (0.0 delta, all comparison groups, 40 months) vs RERUN on
   U0688012 for base + face increase + face decrease + DBO A→B; U0492070 and
