@@ -151,5 +151,20 @@ def credit_interest(
 
 
 def _days_in_month(d: date) -> int:
-    """Return the number of days in the month for the given date."""
-    return calendar.monthrange(d.year, d.month)[1]
+    """ExactDays day count for the monthiversary span starting at ``d``.
+
+    RERUN (CalcEngine UB = C13−C12 − LeapDayRemoval): the days from this
+    month-date to the next, EXCLUDING Feb 29 — CyberLife works on a 365-day
+    year, so the leap day never earns interest. For day-of-month ≤ 28 the span
+    equals the calendar days of the month containing ``d``; the leap-day
+    removal turns Feb 2028's 29 into 28.
+    """
+    days = calendar.monthrange(d.year, d.month)[1]
+    if _leap_day_in_span(d):
+        days -= 1
+    return days
+
+
+def _leap_day_in_span(d: date) -> bool:
+    """True when Feb 29 falls inside (d, d + 1 month] (CalcEngine U)."""
+    return calendar.isleap(d.year) and d.month == 2 and d.day < 29

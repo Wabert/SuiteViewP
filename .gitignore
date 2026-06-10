@@ -67,3 +67,4 @@ node_modules/
 # Large media files
 *.mp4
 *.mov
+tmp_compare/

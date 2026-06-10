@@ -52,8 +52,10 @@ class MonthlyState:
     requested_premium: float = 0.0         # premium before guideline/TAMRA cap
     premium_cap: float = 0.0               # applied cap (min of guideline/TAMRA room)
     premium_capped: bool = False           # True when the cap reduced the premium
-    accumulated_7pay: float = 0.0          # cumulative 7-pay contributions (LE)
+    accumulated_7pay: float = 0.0          # cumulative 7-pay contributions, end of month
+    amount_in_7pay: float = 0.0            # begin-of-month cumulative (LE; 0 in a new period's month 1)
     tamra_year: int = 0                    # year within the 7-pay window (LD)
+    tamra_7pay_level: float = 0.0          # 7-pay annual premium level (KY)
     guideline_limit_reached: bool = False  # SX — at guideline ceiling this year
 
     # ── 1d. GP Exception Premium (cols 519-524) ──
@@ -185,7 +187,8 @@ class MonthlyState:
     shadow_eav_less_debt: float = 0.0   # Shadow EAV minus policy debt
 
     # ── 6. Safety Net / Lapse Protection (cols 265-267, 662-669) ─
-    monthly_mtp: float = 0.0            # Monthly minimum target premium
+    monthly_mtp: float = 0.0            # Monthly minimum target premium (JE)
+    ctp: float = 0.0                    # Annual commission target premium (KQ)
     accumulated_mtp: float = 0.0        # Running accumulated MTP
     accum_mtp_less_prem: float = 0.0    # (PremTD - WD - Loans) - AccumMTP
     snet_active: bool = False           # Safety net protection active

@@ -47,7 +47,14 @@ def _adjusted_coi_rate(
     segment,
     config: PlancodeConfig,
     projection_date: date | None = None,
+    round_5: bool = False,
 ) -> float:
+    """Substandard-adjusted COI rate.
+
+    RERUN rounds the FIRST coverage's adjusted rate to 5 decimals (CalcEngine
+    ``OY = ROUND(rate*(1+factor*table)+flat, 5)``) but leaves cov 2/3 (OZ/PA)
+    at full precision — pass ``round_5=True`` for cov 1 only.
+    """
     if segment is None:
         return raw_rate
     table_rating = (
@@ -61,7 +68,8 @@ def _adjusted_coi_rate(
         else 0.0
     )
     # RERUN truncates the monthly flat extra to cents: TRUNC(flat/12, 2).
-    return raw_rate * (1.0 + config.table_rating_factor * table_rating) + _trunc2(flat_extra / 12.0)
+    adjusted = raw_rate * (1.0 + config.table_rating_factor * table_rating) + _trunc2(flat_extra / 12.0)
+    return _round_near(adjusted, 5) if round_5 else adjusted
 
 
 def _coverage_year(segment, projection_date: date | None, fallback_year: int) -> int:
@@ -273,7 +281,7 @@ def calculate_deduction(
     seg = policy.base_segment
     first_segment_coi_year = _coi_rate_year(seg, policy, projection_date, rate_year)
     first_segment_raw_coi = get_rate(rates, "coi", first_segment_coi_year)
-    adjusted_coi = _adjusted_coi_rate(first_segment_raw_coi, seg, config, projection_date)
+    adjusted_coi = _adjusted_coi_rate(first_segment_raw_coi, seg, config, projection_date, round_5=True)
 
     coi_rates_by_coverage: Dict[str, float] = {}
     coi_charges_by_coverage: Dict[str, float] = {}
@@ -281,7 +289,8 @@ def calculate_deduction(
         segment_schedule = rates.coi if segment is None else rates.segment_coi.get(segment.coverage_phase, rates.coi)
         segment_rate_year = _coi_rate_year(segment, policy, projection_date, rate_year)
         segment_raw_coi = _rate_from_schedule(segment_schedule, segment_rate_year)
-        segment_adjusted_coi = _adjusted_coi_rate(segment_raw_coi, segment, config, projection_date)
+        segment_adjusted_coi = _adjusted_coi_rate(
+            segment_raw_coi, segment, config, projection_date, round_5=(index == 1))
         segment_coi_charge = (segment_nar / 1000.0) * segment_adjusted_coi
         if bln_round_charge:
             segment_coi_charge = _round_near(segment_coi_charge, 2)

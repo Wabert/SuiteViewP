@@ -258,6 +258,19 @@ def mode_run(cmd):
 
         xl.CalculateFull()
 
+        # ── Optional post-recalc reads: defined names or sheet cells ──
+        # [{"name":"sGSP_After1"} or {"sheet":"Guideline_Premiums","cell":"D5"}]
+        # Used to harvest RERUN's recalculated guideline values for injection.
+        for spec in cmd.get("reads", []):
+            try:
+                if "name" in spec:
+                    val = wb.Names(spec["name"]).RefersToRange.Value
+                else:
+                    val = wb.Worksheets(spec["sheet"]).Range(spec["cell"]).Value
+                report.setdefault("reads", []).append({**spec, "value": val})
+            except Exception as exc:
+                report.setdefault("reads", []).append({**spec, "error": str(exc)})
+
         # ── Dump CalcEngine output rows ──
         ce = wb.Worksheets("CalcEngine")
         col_idx = [column_index_from_string(c) for c in cols]

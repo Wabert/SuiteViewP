@@ -136,6 +136,16 @@ def build_illustration_data(
 
     # ── MEC / TAMRA ───────────────────────────────────────────
     is_mec = pi.is_mec
+    tamra_level_raw = pi.tamra_7pay_level
+    tamra_7pay_level = float(tamra_level_raw) if tamra_level_raw is not None else 0.0
+    tamra_7pay_start = pi.tamra_7pay_start_date
+    tamra_contributions = []
+    for tamra_yr in range(1, 8):
+        paid = pi.tamra_7pay_premium_paid(tamra_yr)
+        withdrawn = pi.tamra_7pay_withdrawals(tamra_yr)
+        tamra_contributions.append(
+            float(paid or 0.0) - float(withdrawn or 0.0)
+        )
 
     # ── Build coverage segments ───────────────────────────────
     segments = []
@@ -328,6 +338,9 @@ def build_illustration_data(
         map_cease_date=map_cease_date,
         ctp=ctp,
         is_mec=is_mec,
+        tamra_7pay_level=tamra_7pay_level,
+        tamra_7pay_start_date=tamra_7pay_start,
+        tamra_7year_contributions=tamra_contributions,
         regular_loan_principal=reg_loan_prin,
         regular_loan_accrued=reg_loan_acc,
         preferred_loan_principal=pref_loan_prin,

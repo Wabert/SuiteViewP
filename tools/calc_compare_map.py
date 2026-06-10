@@ -32,9 +32,20 @@ GROUPS = [
     ]},
     {"name": "Guideline", "level": "standard", "fields": [
         ("gsp",             "gsp",                "KS", "val"),
+        ("glp",             "glp",                "KT", "val"),
         ("accum_glp",       "accumulated_glp",    "KU", "val"),
         ("guideline_limit", "guideline_limit",    "KV", "val"),
         ("forceout",        "guideline_forceout", "KX", "val"),
+    ]},
+    {"name": "Targets", "level": "standard", "fields": [
+        ("monthly_mtp", "monthly_mtp",     "JE", "val"),
+        ("accum_mtp",   "accumulated_mtp", "JF", "val"),
+        ("ctp",         "ctp",             "KQ", "val"),
+    ]},
+    {"name": "TAMRA", "level": "standard", "fields": [
+        ("sevenpay_level", "tamra_7pay_level", "KY", "val"),
+        ("tamra_year",     "tamra_year",       "LD", "int"),
+        ("amount_in_7pay", "amount_in_7pay",   "LE", "val"),
     ]},
     {"name": "Deduction", "level": "standard", "fields": [
         ("coi_charge",    "coi_charge",                          "QZ", "val"),

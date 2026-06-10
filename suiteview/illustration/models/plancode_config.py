@@ -47,6 +47,12 @@ class PlancodeConfig:
     # Substandard
     table_rating_factor: float = 0.25
 
+    # Target premiums (MTP/CTP) — RERUN sTarget_SA_Basis / sTarget_BandLock.
+    # Defaults validated against RERUN for the EXECUL family: targets use the
+    # CURRENT specified amount and re-band to the current total-SA band.
+    target_sa_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA"
+    target_band_lock: bool = False       # True = keep each segment's original band
+
     # Corridor
     corridor_code: int = 1              # 1 = GPT corridor, 2 = CVAT MDBR
 
@@ -154,6 +160,8 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         bonus=data.get("Bonus", "Table"),
         dbd=float(data.get("DBD", 0)),
         table_rating_factor=float(data.get("TableRatingFactor", 0.25)),
+        target_sa_basis=data.get("Target_SA_Basis", "CurrentSA"),
+        target_band_lock=bool(data.get("Target_BandLock", False)),
         corridor_code=int(data.get("CorridorCode", 1)),
         premium_cease_age=int(data.get("PremiumCeaseAge", 121)),
         maturity_age=int(data.get("MaturityAge", 121)),

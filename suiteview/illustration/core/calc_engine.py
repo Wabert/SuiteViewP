@@ -7,6 +7,7 @@ Public API:
 from __future__ import annotations
 
 import copy
+import logging
 import math
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -27,6 +28,7 @@ from suiteview.illustration.core.loan_handler import (
 from suiteview.illustration.core.monthly_deduction import (
     _coverage_year,
     _rate_from_schedule,
+    _round_near,
     calculate_deduction,
 )
 from suiteview.illustration.core.premium_handler import apply_premium
@@ -36,6 +38,10 @@ from suiteview.illustration.core.rate_loader import (
     load_rates,
 )
 from suiteview.illustration.core.shadow_calc import calculate_shadow
+from suiteview.illustration.core.target_premium import (
+    compute_target_premiums,
+    floor_monthly_cent,
+)
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     IllustrationInputSet,
@@ -45,6 +51,9 @@ from suiteview.illustration.models.input_set import (
 from suiteview.illustration.models.policy_data import CoverageSegment
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
+
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectionTiming(str, Enum):
@@ -212,13 +221,15 @@ class IllustrationEngine:
             duration=policy.duration,
             attained_age=policy.attained_age,
             av_after_premium=md_check_av_before_deduction,
-            glp=policy.glp,
-            gsp=policy.gsp,
+            glp=floor_monthly_cent(policy.glp),
+            gsp=floor_monthly_cent(policy.gsp),
             accumulated_glp=policy.accumulated_glp,
-            guideline_limit=max(policy.gsp, policy.accumulated_glp),
+            guideline_limit=max(floor_monthly_cent(policy.gsp), policy.accumulated_glp),
             guideline_forceout=0.0,
             guideline_av_before_monthly_deduction=md_check_av_before_deduction,
             accumulated_7pay=sum(policy.tamra_7year_contributions or []),
+            amount_in_7pay=sum(policy.tamra_7year_contributions or []),
+            tamra_7pay_level=policy.tamra_7pay_level,
             # Deduction check
             nar_av=ded0.nar_av,
             standard_db=ded0.standard_db,
@@ -335,6 +346,7 @@ class IllustrationEngine:
             shadow_eav_less_debt=shd0.shadow_eav_less_debt,
             # Safety Net / Lapse Protection
             monthly_mtp=monthly_mtp_0,
+            ctp=policy.ctp,
             accumulated_mtp=accumulated_mtp_0,
             accum_mtp_less_prem=accum_mtp_less_prem_0,
             snet_active=snet_active_0,
@@ -419,14 +431,25 @@ class IllustrationEngine:
 
         # ── 3-7. Policy changes / coverage after change ───────
         # Apply any dated policy change effective this month (mutates the private
-        # policy copy) before coverage/deduction reads the segments.
+        # policy copy) before coverage/deduction reads the segments. A coverage
+        # change recomputes vMTP/vCTP and the guideline premiums; a material
+        # change (face increase, B→A) also restarts the 7-pay period.
+        tamra_reset = False
         if policy_changes:
             for change in policy_changes:
-                av += _apply_policy_change(
-                    policy, change, attained_age, month_date, rates, rate_year)
+                outcome = _apply_policy_change(
+                    policy, config, change, attained_age, month_date,
+                    rates, rate_year, av,
+                )
+                av += outcome.av_adjustment
+                tamra_reset = tamra_reset or outcome.material_change
 
         # ── 8. Minimum Target Premium calculation/accumulation ─
+        # Accumulation uses vMonthlyMTP = TRUNC(vMTP/12, 2) (JE/JF); the PW
+        # waive basis uses ROUND(vMTP/12, 2) (SL) — they differ by a cent when
+        # the recomputed annual MTP is not an even multiple of 12 cents.
         monthly_mtp = math.trunc(policy.mtp * 100) / 100
+        pw_monthly_mtp = _round_near(policy.mtp, 2)
         accumulated_mtp = state.accumulated_mtp + monthly_mtp
 
         # Safety-net window — needed before exception-premium eligibility.
@@ -440,10 +463,13 @@ class IllustrationEngine:
         # ── 9. Commission Target Premium (split handled in apply_premium) ─
 
         # ── 10. 7702 — GLP accumulation, guideline limit, force-out ─
+        # GSP/GLP are consumed floored to a monthly-divisible cent (KS/KT:
+        # INT(x/12*100)*12/100) — RERUN floors even the loaded inforce values.
+        gsp_floored = floor_monthly_cent(policy.gsp)
         accumulated_glp = _accumulate_guideline_premium(
             state, policy, is_anniversary, attained_age
         )
-        guideline_limit = max(policy.gsp, accumulated_glp)
+        guideline_limit = max(gsp_floored, accumulated_glp)
 
         # ── 11. Loan capitalization (within-bucket at anniversary) ─
         cap_loan = capitalize_loans(
@@ -457,7 +483,7 @@ class IllustrationEngine:
         # available AV, gated by TEFRA conformance, disabled once exception
         # mode is on (KX checks the prior month's exception flag).
         guideline_forceout, withdrawals_to_date, av = _apply_guideline_forceout(
-            policy.gsp,
+            gsp_floored,
             accumulated_glp,
             premiums_to_date,
             state.withdrawals_to_date,
@@ -478,11 +504,14 @@ class IllustrationEngine:
         withdrawals_to_date = cash_flows.withdrawals_to_date
 
         # ── 12. Apply premium (capped by guideline / TAMRA) ───
+        # A material change restarted the 7-pay period: the prior window's
+        # contributions no longer count (LE = 0 in month 1 of a new period).
+        accumulated_7pay_base = 0.0 if tamra_reset else state.accumulated_7pay
         tamra_year = _tamra_year(policy, month_date)
         premium_cap = _guideline_premium_cap(
             options, policy, guideline_limit,
             premiums_to_date, withdrawals_to_date,
-            state.accumulated_7pay, tamra_year,
+            accumulated_7pay_base, tamra_year,
         )
         prem = apply_premium(
             av, policy, config, rates, rate_year,
@@ -497,7 +526,7 @@ class IllustrationEngine:
         ded = calculate_deduction(
             av, policy, config, rates, rate_year,
             attained_age, prem.premiums_to_date,
-            monthly_mtp=monthly_mtp,
+            monthly_mtp=pw_monthly_mtp,
             projection_date=month_date,
         )
         av_after_charge = ded.av_after_deduction
@@ -594,7 +623,7 @@ class IllustrationEngine:
         lapsed = state.lapsed or not any_protection
 
         # 7-pay contributions accumulate while inside the 7-pay window.
-        accumulated_7pay = state.accumulated_7pay + (
+        accumulated_7pay = accumulated_7pay_base + (
             prem.gross_premium if tamra_year <= 7 else 0.0
         )
 
@@ -633,14 +662,16 @@ class IllustrationEngine:
             requested_premium=prem.requested_premium,
             premium_cap=prem.premium_cap,
             premium_capped=prem.premium_capped,
-            glp=policy.glp,
-            gsp=policy.gsp,
+            glp=floor_monthly_cent(policy.glp),
+            gsp=gsp_floored,
             accumulated_glp=accumulated_glp,
             guideline_limit=guideline_limit,
             guideline_forceout=guideline_forceout,
             guideline_av_before_monthly_deduction=av_before_deduction,
             accumulated_7pay=accumulated_7pay,
+            amount_in_7pay=accumulated_7pay_base,
             tamra_year=tamra_year,
+            tamra_7pay_level=policy.tamra_7pay_level,
             guideline_limit_reached=guideline_limit_reached,
             exception_prem_mode=exception.mode,
             gp_exception_prem_gross=exception.gross,
@@ -754,6 +785,7 @@ class IllustrationEngine:
             shadow_eav_less_debt=shd.shadow_eav_less_debt,
             # Safety Net / Lapse Protection
             monthly_mtp=monthly_mtp,
+            ctp=policy.ctp,
             accumulated_mtp=accumulated_mtp,
             accum_mtp_less_prem=accum_mtp_less_prem,
             snet_active=snet_active,
@@ -815,12 +847,13 @@ class IllustrationEngine:
             exact_days_interest=options.exact_days_interest,
         )
 
+        gsp_floored = floor_monthly_cent(policy.gsp)
         accumulated_glp = _accumulate_guideline_premium(
             state, policy, is_anniversary, attained_age
         )
-        guideline_limit = max(policy.gsp, accumulated_glp)
+        guideline_limit = max(gsp_floored, accumulated_glp)
         guideline_forceout, withdrawals_to_date, av_after_guideline = _apply_guideline_forceout(
-            policy.gsp,
+            gsp_floored,
             accumulated_glp,
             premiums_to_date,
             state.withdrawals_to_date,
@@ -937,14 +970,15 @@ class IllustrationEngine:
             requested_premium=prem.requested_premium,
             premium_cap=prem.premium_cap,
             premium_capped=prem.premium_capped,
-            glp=policy.glp,
-            gsp=policy.gsp,
+            glp=floor_monthly_cent(policy.glp),
+            gsp=gsp_floored,
             accumulated_glp=accumulated_glp,
             guideline_limit=guideline_limit,
             guideline_forceout=guideline_forceout,
             guideline_av_before_monthly_deduction=av_before_deduction,
             accumulated_7pay=accumulated_7pay,
             tamra_year=tamra_year,
+            tamra_7pay_level=policy.tamra_7pay_level,
             guideline_limit_reached=guideline_limit_reached,
             exception_prem_mode=exception.mode,
             gp_exception_prem_gross=exception.gross,
@@ -1017,6 +1051,7 @@ class IllustrationEngine:
             cumulative_interest=state.cumulative_interest + intr.interest_credited,
             cumulative_charges=state.cumulative_charges + ded.total_deduction,
             monthly_mtp=monthly_mtp,
+            ctp=policy.ctp,
             accumulated_mtp=accumulated_mtp,
             accum_mtp_less_prem=accum_mtp_less_prem,
             av_less_loans=av_less_loans,
@@ -1114,77 +1149,296 @@ def _reband_benefits(rates, policy) -> None:
         ) or []
 
 
-def _apply_policy_change(policy, change, attained_age, change_date, rates, rate_year) -> float:
+@dataclass
+class _PolicyChangeOutcome:
+    """What one applied policy change did to the projection month."""
+
+    av_adjustment: float = 0.0       # AV movement this month (negative = charge)
+    coverage_changed: bool = False   # SA moved -> targets + guideline recompute fired
+    material_change: bool = False    # face increase / B->A -> new 7-pay period (KZ)
+
+
+def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr) -> float:
+    """Reduce base coverage newest-first by ``amount``; re-band what remains.
+
+    Returns the AV adjustment (the decreased units' surrender charge when
+    ``charge_scr`` — RERUN charges it on an elective face decrease, but not on
+    the A->B level-DB specified-amount adjustment).
+    """
+    av_adjustment = 0.0
+    remaining = amount
+    for seg in reversed(policy.segments):
+        if remaining <= 0:
+            break
+        cut = min(seg.face_amount, remaining)
+        cut_units = cut / (seg.vpu or 1000.0)
+        if charge_scr:
+            schedule = rates.segment_scr.get(seg.coverage_phase, rates.scr)
+            scr_rate = _rate_from_schedule(
+                schedule, _coverage_year(seg, change_date, rate_year))
+            av_adjustment -= scr_rate * cut_units
+        seg.units -= cut_units
+        seg.face_amount -= cut
+        remaining -= cut
+        _reband_segment(rates, seg, policy.plancode)
+    policy.face_amount = sum(s.face_amount for s in policy.segments)
+    _reband_benefits(rates, policy)  # benefit COI rates follow the base band
+    return av_adjustment
+
+
+def _append_face_increase_segment(policy, rates, delta, attained_age, change_date) -> None:
+    """Append the face-increase segment, issued at the current attained age.
+
+    CyberLife/RERUN band the increase's COI by the new TOTAL specified amount,
+    not the increment's own size.
+    """
+    from suiteview.core.rates import Rates
+
+    base = policy.base_segment
+    new_total = policy.total_face + delta
+    new_band = Rates().get_band(policy.plancode, new_total)
+    new_band = int(new_band) if new_band is not None else base.band
+    new_phase = max((s.coverage_phase for s in policy.segments), default=1) + 1
+    new_seg = CoverageSegment(
+        coverage_phase=new_phase,
+        is_base=True,
+        issue_date=change_date,
+        issue_age=attained_age,
+        rate_sex=base.rate_sex,
+        rate_class=base.rate_class,
+        face_amount=delta,
+        original_face_amount=delta,
+        units=delta / (base.vpu or 1000.0),
+        vpu=base.vpu,
+        band=new_band,
+        original_band=new_band,
+        table_rating=base.table_rating,
+        flat_extra=base.flat_extra,
+        status="A",
+    )
+    policy.segments.append(new_seg)
+    _load_segment_rates(rates, new_seg, policy.plancode)
+    policy.face_amount = sum(s.face_amount for s in policy.segments)
+
+
+def _apply_policy_change(
+    policy, config, change, attained_age, change_date, rates, rate_year, av,
+) -> _PolicyChangeOutcome:
     """Mutate the (private) policy state for one change at its effective month.
 
-    Returns an AV adjustment to apply this month (negative = reduction).
+    - DB_OPTION: RERUN keeps the death benefit LEVEL at the change — A->B reduces
+      the specified amount by the current account value (so DB = (face-AV)+AV) and
+      B->A adds it back. B->A is a TAMRA material change (CalcEngine KZ "BA").
+    - FACE_AMOUNT decrease: reduce existing segment(s) newest-first and DEDUCT the
+      decreased coverage's surrender charge from AV.
+    - FACE_AMOUNT increase: append a new segment at the current attained age with
+      its own COI/EPU/SCR rates; TAMRA material change.
 
-    - DB_OPTION: switch the death benefit option (A/B/C).
-    - FACE_AMOUNT decrease: reduce the existing segment(s) (face + units) newest-first,
-      and DEDUCT the surrender charge on the decreased units from AV (RERUN charges the
-      decreased coverage's surrender charge at the decrease).
-    - FACE_AMOUNT increase: needs a new coverage segment WITH its own COI rates
-      (issue age = attained age) loaded — that rate load happens at project() setup,
-      so reaching here for an increase is a wiring bug; raise rather than undercharge.
+    After any specified-amount movement (vPolicyChangeIndicator) the targets
+    (vMTP/vCTP) are recomputed from rates and the guideline premiums (GLP/GSP)
+    are recalculated by the attained-age delta method; a material change also
+    restarts the 7-pay period and recomputes the 7-pay level.
     """
+    outcome = _PolicyChangeOutcome()
+    face_before = sum(s.face_amount for s in policy.segments) or policy.face_amount
+
     if change.kind == PolicyChangeKind.DB_OPTION:
-        policy.db_option = str(change.value)
-        return 0.0
-
-    if change.kind == PolicyChangeKind.FACE_AMOUNT:
+        old = str(policy.db_option or "").upper()
+        new = str(change.value or "").upper()
+        if new and new != old:
+            if old == "A" and new == "B":
+                # Level-DB mechanic: shift AV out of the specified amount
+                # (SA-only — no AV movement, no surrender charge).
+                _reduce_base_face(
+                    policy, max(av, 0.0), rates, change_date, rate_year,
+                    charge_scr=False,
+                )
+                outcome.coverage_changed = True
+            elif old == "B" and new == "A":
+                # Inverse: fold the AV back into the specified amount (in place,
+                # no new segment — this is not an elective face increase).
+                base = policy.base_segment
+                if base is not None and av > 0.0:
+                    base.face_amount += av
+                    base.units += av / (base.vpu or 1000.0)
+                    _reband_segment(rates, base, policy.plancode)
+                    policy.face_amount = sum(s.face_amount for s in policy.segments)
+                    _reband_benefits(rates, policy)
+                    outcome.coverage_changed = True
+                outcome.material_change = True  # KZ fires on "BA"
+            policy.db_option = new
+    elif change.kind == PolicyChangeKind.FACE_AMOUNT:
         new_total = float(change.value)
-        current_total = sum(s.face_amount for s in policy.segments) or policy.face_amount
-        delta = new_total - current_total
-        av_adjustment = 0.0
+        delta = new_total - face_before
         if delta < -1e-6:
-            remaining = -delta
-            for seg in reversed(policy.segments):
-                if remaining <= 0:
-                    break
-                cut = min(seg.face_amount, remaining)
-                cut_units = cut / (seg.vpu or 1000.0)
-                schedule = rates.segment_scr.get(seg.coverage_phase, rates.scr)
-                scr_rate = _rate_from_schedule(
-                    schedule, _coverage_year(seg, change_date, rate_year))
-                av_adjustment -= scr_rate * cut_units  # surrender charge on the decrease
-                seg.units -= cut_units
-                seg.face_amount -= cut
-                remaining -= cut
-                _reband_segment(rates, seg, policy.plancode)  # re-band to the new face
-            policy.face_amount = sum(s.face_amount for s in policy.segments)
-            _reband_benefits(rates, policy)  # benefit COI rates follow the base band
+            outcome.av_adjustment += _reduce_base_face(
+                policy, -delta, rates, change_date, rate_year, charge_scr=True)
+            outcome.coverage_changed = True
         elif delta > 1e-6:
-            # Increase: new coverage segment for the added face, issued at the
-            # current attained age (its own COI rate row + band), loaded on the fly.
-            from suiteview.core.rates import Rates
+            _append_face_increase_segment(policy, rates, delta, attained_age, change_date)
+            outcome.coverage_changed = True
+            outcome.material_change = True
 
-            base = policy.base_segment
-            # CyberLife/RERUN band the COI by the new TOTAL specified amount.
-            new_band = Rates().get_band(policy.plancode, new_total)
-            new_band = int(new_band) if new_band is not None else base.band
-            new_phase = max((s.coverage_phase for s in policy.segments), default=1) + 1
-            new_seg = CoverageSegment(
-                coverage_phase=new_phase,
-                is_base=True,
-                issue_date=change_date,
-                issue_age=attained_age,
-                rate_sex=base.rate_sex,
-                rate_class=base.rate_class,
-                face_amount=delta,
-                original_face_amount=delta,
-                units=delta / (base.vpu or 1000.0),
-                vpu=base.vpu,
-                band=new_band,
-                original_band=new_band,
-                table_rating=base.table_rating,
-                flat_extra=base.flat_extra,
-                status="A",
+    if outcome.coverage_changed:
+        ctp_before = policy.ctp
+        targets = compute_target_premiums(policy, config, as_of=change_date)
+        policy.mtp = targets.mtp_annual / 12.0
+        policy.ctp = targets.ctp_annual
+        _recalc_guideline_on_change(
+            policy, config, change, attained_age,
+            face_before=face_before,
+            ctp_before=ctp_before,
+            material_change=outcome.material_change,
+            change_date=change_date,
+        )
+    return outcome
+
+
+def _recalc_guideline_on_change(
+    policy,
+    config,
+    change,
+    attained_age: int,
+    *,
+    face_before: float,
+    ctp_before: float,
+    material_change: bool,
+    change_date,
+) -> None:
+    """Recalculate GLP/GSP (and 7-pay on a material change) at a policy change.
+
+    RERUN (Guideline_Premiums rows 5..10): the new guideline premiums are the
+    attained-age delta — new = prior + (after − before) — floored to a
+    monthly-divisible cent (TRUNC(x/12,2)·12). A material change restarts the
+    7-pay period at the change date and fully recomputes the 7-pay level at the
+    after-change state, capped at sMax7702RecalcsAllowed (=1) recalcs.
+
+    ``change.metadata`` may inject RERUN's own recalculated values
+    (``new_glp`` / ``new_gsp`` / ``new_7pay``) so the AV/segment/target
+    mechanics can be penny-validated independently of guideline-calc
+    calibration; otherwise the values come from the commutation calculator on
+    the guaranteed COI scale.
+    """
+    md = change.metadata or {}
+    recalc_count = getattr(policy, "_guideline_recalc_count", 0) + 1
+    policy._guideline_recalc_count = recalc_count
+
+    new_glp = md.get("new_glp")
+    new_gsp = md.get("new_gsp")
+    new_7pay = md.get("new_7pay")
+
+    glp_delta = gsp_delta = 0.0
+    computed_7pay: Optional[float] = None
+    needs_calc = (
+        new_glp is None or new_gsp is None
+        or (material_change and new_7pay is None)
+    )
+    if needs_calc:
+        try:
+            before, after = _guideline_change_inputs(
+                policy, config, attained_age, face_before, ctp_before)
+            from suiteview.illustration.core.guideline_calc import (
+                calculate_7pay_premium,
+                calculate_glp,
+                calculate_gsp,
             )
-            policy.segments.append(new_seg)
-            _load_segment_rates(rates, new_seg, policy.plancode)
-            policy.face_amount = sum(s.face_amount for s in policy.segments)
-        return av_adjustment
-    return 0.0
+
+            glp_delta = calculate_glp(after) - calculate_glp(before)
+            gsp_delta = calculate_gsp(after) - calculate_gsp(before)
+            if material_change:
+                computed_7pay = calculate_7pay_premium(after)
+        except NotImplementedError:
+            # Commutation method covers level (DBO A) benefits only. Keep the
+            # loaded guideline values rather than produce a quietly-wrong one.
+            logger.warning(
+                "Guideline recalc skipped at %s: non-level death benefit "
+                "(DBO %s) needs the iterative method or injected values.",
+                change_date, policy.db_option,
+            )
+
+    if new_glp is not None:
+        policy.glp = floor_monthly_cent(float(new_glp))
+    elif glp_delta:
+        policy.glp = floor_monthly_cent(floor_monthly_cent(policy.glp) + glp_delta)
+    if new_gsp is not None:
+        policy.gsp = floor_monthly_cent(float(new_gsp))
+    elif gsp_delta:
+        policy.gsp = floor_monthly_cent(floor_monthly_cent(policy.gsp) + gsp_delta)
+
+    if material_change:
+        # New 7-pay period (KZ / LA): the start date resets on every material
+        # change; the LEVEL only recalculates within the allowed recalc count
+        # (sMax7702RecalcsAllowed = 1) unless a value is injected.
+        policy.tamra_7pay_start_date = change_date
+        if new_7pay is not None:
+            policy.tamra_7pay_level = floor_monthly_cent(float(new_7pay))
+        elif computed_7pay is not None and recalc_count <= 1:
+            policy.tamra_7pay_level = floor_monthly_cent(computed_7pay)
+
+
+def _guideline_change_inputs(policy, config, attained_age, face_before, ctp_before):
+    """Build before/after GuidelinePremiumInputs at the current attained age.
+
+    Mortality is the contract's guaranteed COI (scale 0) expressed as annual qx;
+    expenses are the CURRENT loads/fees. The before/after states differ by
+    specified amount, units, and target premium.
+    """
+    from suiteview.illustration.core.commutation import MortalityTable
+    from suiteview.illustration.core.guideline_calc import (
+        ExpenseAssumptions,
+        GuidelinePremiumInputs,
+    )
+
+    base = policy.base_segment
+    guar = load_rates(policy, config, coi_scale=0)
+    coi_sched = guar.segment_coi.get(base.coverage_phase, [])
+    qx = []
+    for dur in range(1, len(coi_sched)):
+        rate = coi_sched[dur]
+        if rate is None:
+            break
+        monthly_q = float(rate) / 1000.0
+        qx.append(min(1.0, 1.0 - (1.0 - monthly_q) ** 12))
+    mortality = MortalityTable.from_rates(qx, start_age=base.issue_age, name="guar-coi")
+
+    cur = load_rates(policy, config, coi_scale=1)
+    if config.mfee == "Table":
+        mfee_annual = 12.0 * get_rate(cur, "mfee", 1)
+    else:
+        try:
+            mfee_annual = 12.0 * float(config.mfee)
+        except (TypeError, ValueError):
+            mfee_annual = 0.0
+    if config.epu_code == "Table":
+        epu_annual = 12.0 * get_rate(cur, "epu", 1)
+    else:
+        try:
+            epu_annual = 12.0 * float(config.epu_code)
+        except (TypeError, ValueError):
+            epu_annual = 0.0
+
+    def build(face: float, ctp: float) -> GuidelinePremiumInputs:
+        expenses = ExpenseAssumptions(
+            premium_load_target=get_rate(cur, "tpp", 1),
+            premium_load_excess=get_rate(cur, "epp", 1),
+            target_premium=float(ctp or 0.0),
+            per_policy_fee_annual=mfee_annual,
+            per_unit_charge_annual=epu_annual,
+            units=face / 1000.0,
+        )
+        return GuidelinePremiumInputs(
+            attained_age=attained_age,
+            mortality=mortality,
+            specified_amount=face,
+            db_option=policy.db_option,
+            endowment_age=100,
+            guaranteed_rate=float(policy.guaranteed_interest_rate or 0.0),
+            glp_rate=0.04,
+            gsp_rate=0.06,
+            expenses=expenses,
+        )
+
+    return build(face_before, ctp_before), build(policy.total_face, policy.ctp)
 
 
 def _advance_month(policy_year: int, policy_month: int) -> tuple[int, int]:
@@ -1230,11 +1484,14 @@ def _accumulate_guideline_premium(
 ) -> float:
     """Accumulate GLP at each anniversary (CalcEngine KU).
 
-    AccumGLP stops growing once attained age reaches 100.
+    AccumGLP stops growing once attained age reaches 100. The GLP added is the
+    floored vGLP (KT — INT(x/12*100)*12/100).
     """
     if attained_age >= 100:
         return state.accumulated_glp
-    return state.accumulated_glp + (policy.glp if is_anniversary else 0.0)
+    return state.accumulated_glp + (
+        floor_monthly_cent(policy.glp) if is_anniversary else 0.0
+    )
 
 
 def _apply_guideline_forceout(

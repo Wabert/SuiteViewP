@@ -66,7 +66,10 @@ def main() -> None:
         opt_kwargs["exact_days_interest"] = bool(cmd["exact_days"])
     options = IllustrationOptions(**opt_kwargs)
 
-    # Optional policy changes: [{"kind":"face_amount"|"db_option","date":"YYYY-MM-DD","value":...}]
+    # Optional policy changes: [{"kind":"face_amount"|"db_option","date":"YYYY-MM-DD","value":...,
+    #   "metadata":{"new_glp":...,"new_gsp":...,"new_7pay":...}}]
+    # metadata injects RERUN's recalculated guideline values so the AV/segment
+    # mechanics validate independently of guideline-calc calibration.
     future_inputs = None
     if cmd.get("changes"):
         evs = []
@@ -75,7 +78,8 @@ def main() -> None:
                     else PolicyChangeKind.DB_OPTION)
             value = float(ch["value"]) if ch["kind"] == "face_amount" else ch["value"]
             evs.append(PolicyChangeEvent(
-                kind=kind, effective_date=datetime.date.fromisoformat(ch["date"]), value=value))
+                kind=kind, effective_date=datetime.date.fromisoformat(ch["date"]),
+                value=value, metadata=ch.get("metadata") or {}))
         future_inputs = IllustrationInputSet(policy_changes=evs)
 
     clear_cache()
@@ -83,8 +87,12 @@ def main() -> None:
     states = IllustrationEngine().project(
         policy_data, months=months, options=options, future_inputs=future_inputs)
 
-    # Guideline fields live on MonthlyState but aren't in the debug pipeline order.
-    extra = ["glp", "gsp", "accumulated_glp", "guideline_limit", "guideline_forceout"]
+    # Guideline/target fields live on MonthlyState but aren't in the debug pipeline order.
+    extra = [
+        "glp", "gsp", "accumulated_glp", "guideline_limit", "guideline_forceout",
+        "monthly_mtp", "ctp", "accumulated_mtp",
+        "accumulated_7pay", "amount_in_7pay", "tamra_year", "tamra_7pay_level",
+    ]
     fields = list(_PIPELINE_ORDER) + [f for f in extra if f not in _PIPELINE_ORDER]
 
     def cell(state, fname):
