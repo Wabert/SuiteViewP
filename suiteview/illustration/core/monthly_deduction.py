@@ -280,7 +280,12 @@ def calculate_deduction(
     # ── 3.2.6 COI charge — per segment (col 427) ─────────────
     seg = policy.base_segment
     first_segment_coi_year = _coi_rate_year(seg, policy, projection_date, rate_year)
-    first_segment_raw_coi = get_rate(rates, "coi", first_segment_coi_year)
+    # Read the base segment's own schedule (rates.coi is a load-time alias that
+    # goes stale when a face change re-bands the segment mid-projection).
+    base_coi_schedule = (
+        rates.segment_coi.get(seg.coverage_phase, rates.coi) if seg is not None else rates.coi
+    )
+    first_segment_raw_coi = _rate_from_schedule(base_coi_schedule, first_segment_coi_year)
     adjusted_coi = _adjusted_coi_rate(first_segment_raw_coi, seg, config, projection_date, round_5=True)
 
     coi_rates_by_coverage: Dict[str, float] = {}
@@ -321,9 +326,8 @@ def calculate_deduction(
                 segment_basis = segment.original_face_amount if segment else face
             else:
                 segment_basis = segment.face_amount if segment else face
-            segment_epu_charge = (segment_basis / 1000.0) * segment_epu_rate
-            if bln_round_charge:
-                segment_epu_charge = _round_near(segment_epu_charge, 2)
+            # RERUN rounds each coverage's EPU charge to cents (SB-SE).
+            segment_epu_charge = _round_near((segment_basis / 1000.0) * segment_epu_rate, 2)
             key = f"cov{index}"
             epu_rates_by_coverage[key] = segment_epu_rate
             epu_charges_by_coverage[key] = segment_epu_charge

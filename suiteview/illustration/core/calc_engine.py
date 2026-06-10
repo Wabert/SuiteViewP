@@ -1117,7 +1117,11 @@ def _reband_segment(rates, segment, plancode: str) -> None:
 
 
 def _load_segment_rates(rates, segment, plancode: str) -> None:
-    """Load COI/EPU/SCR schedules for a NEW segment at its issue age + band."""
+    """Load COI/EPU/SCR schedules for a NEW segment at its issue age + band.
+
+    The face-increase segment carries its OWN surrender charge schedule from
+    its issue age (RERUN TI — vFullSC sums every coverage's charge).
+    """
     from suiteview.core.rates import Rates
 
     rates_db = Rates()
@@ -1329,10 +1333,7 @@ def _recalc_guideline_on_change(
 
     glp_delta = gsp_delta = 0.0
     computed_7pay: Optional[float] = None
-    needs_calc = (
-        new_glp is None or new_gsp is None
-        or (material_change and new_7pay is None)
-    )
+    needs_calc = new_glp is None or new_gsp is None or new_7pay is None
     if needs_calc:
         try:
             before, after = _guideline_change_inputs(
@@ -1345,8 +1346,7 @@ def _recalc_guideline_on_change(
 
             glp_delta = calculate_glp(after) - calculate_glp(before)
             gsp_delta = calculate_gsp(after) - calculate_gsp(before)
-            if material_change:
-                computed_7pay = calculate_7pay_premium(after)
+            computed_7pay = calculate_7pay_premium(after)
         except NotImplementedError:
             # Commutation method covers level (DBO A) benefits only. Keep the
             # loaded guideline values rather than produce a quietly-wrong one.
@@ -1365,15 +1365,15 @@ def _recalc_guideline_on_change(
     elif gsp_delta:
         policy.gsp = floor_monthly_cent(floor_monthly_cent(policy.gsp) + gsp_delta)
 
+    # 7-pay LEVEL recalculates on ANY coverage change (KY fires on HJ), within
+    # the allowed recalc count (sMax7702RecalcsAllowed = 1) unless injected;
+    # only a MATERIAL change restarts the 7-pay period (KZ / LA).
+    if new_7pay is not None:
+        policy.tamra_7pay_level = floor_monthly_cent(float(new_7pay))
+    elif computed_7pay is not None and recalc_count <= 1:
+        policy.tamra_7pay_level = floor_monthly_cent(computed_7pay)
     if material_change:
-        # New 7-pay period (KZ / LA): the start date resets on every material
-        # change; the LEVEL only recalculates within the allowed recalc count
-        # (sMax7702RecalcsAllowed = 1) unless a value is injected.
         policy.tamra_7pay_start_date = change_date
-        if new_7pay is not None:
-            policy.tamra_7pay_level = floor_monthly_cent(float(new_7pay))
-        elif computed_7pay is not None and recalc_count <= 1:
-            policy.tamra_7pay_level = floor_monthly_cent(computed_7pay)
 
 
 def _guideline_change_inputs(policy, config, attained_age, face_before, ctp_before):

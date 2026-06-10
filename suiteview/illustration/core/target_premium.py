@@ -31,7 +31,6 @@ specified amount — a face change re-bands every segment's target rate.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
@@ -126,8 +125,10 @@ def compute_target_premiums(
 
     mtp_cov_sum = 0.0
     ctp_cov_sum = 0.0
+    # policy.segments holds only active base coverages (same convention as the
+    # deduction path — no status filtering here).
     for seg in policy.segments:
-        if seg.face_amount <= 0 or seg.status != "A":
+        if seg.face_amount <= 0:
             continue
         band = seg.original_band if config.target_band_lock else current_band
         sa = (
@@ -228,7 +229,10 @@ def floor_monthly_cent(value: float) -> float:
     """RERUN's guideline floor: INT(x/12*100)*12/100 (KS/KT).
 
     Floors an annual amount so the monthly twelfth is an exact cent amount.
+    Decimal arithmetic — binary floats put already-exact values like 52004.28
+    a hair below their cent boundary and a raw floor() drops a cent.
     """
     if value <= 0.0:
         return value
-    return math.floor(value / 12.0 * 100.0) * 12.0 / 100.0
+    monthly_cents = (Decimal(f"{value:.10f}") * 100 / 12).to_integral_value(rounding=ROUND_DOWN)
+    return float(monthly_cents * 12) / 100.0

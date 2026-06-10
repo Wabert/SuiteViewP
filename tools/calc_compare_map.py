@@ -61,7 +61,7 @@ GROUPS = [
         ("av_end",   "av_end_of_month",   "VV", "val"),
     ]},
     {"name": "Values", "level": "summary", "fields": [
-        ("surr_charge",   "surrender_charge", "TH", "val"),
+        ("surr_charge",   "surrender_charge", "TK", "val"),   # vFullSC — all coverages
         ("surr_value",    "surrender_value",  "WG", "val"),
         ("death_benefit", "ending_db",        "WB", "val"),
         ("policy_debt",   "policy_debt",      "NA", "val"),
