@@ -333,9 +333,14 @@ to validate the mechanics independently of guideline-calc calibration — see
    premiums far below limits). Construct an over-funded scenario (premium
    override) with TEFRA/TAMRA ON in both RERUN + engine.
 3. **B→A DBO change** — implemented, unvalidated (no reference captured).
-4. **PWST / rider target premiums** — formulas stubbed per the TSV (PWST
-   substandard multiplier; rider target tables are dead refs for this family);
-   no local case exercises them.
+4. **PWST / rider / CCV target premiums** — `check_target_premium.py` on the
+   other cases shows the gap concretely: U0688012 exact / U0492070 MTP exact
+   but CTP −95.00/yr (the CCV rider's CTP — sourced from
+   `tRates_Rider_CCV_Targets`, NOT Select_RATE_BENMTP; not in the local export)
+   / U0656998 MTP −40.00/mo, CTP −525.75/yr (the LTR rider's target premium —
+   RERUN's generic rider target tables are dead refs, so it comes from
+   somewhere else; find it). Harmless for base projections (RERUN carries the
+   DB value forward), but a policy change on those cases would recompute wrong.
 5. **U0492070 shadow/CCV value** — still blocked on the fixture export (Q1).
 6. **Mid-year (non-anniversary) changes** — Guideline_Premiums column K
    (AccumAdjust) pro-rates the year-of-change GLP accumulation by months;
