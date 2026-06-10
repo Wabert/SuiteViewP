@@ -435,7 +435,15 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
   untouched for other consumers) + `autofit_columns_to_data()`: columns size to
   the FORMATTED DATA (not headers) and long header names word-wrap onto 2-3
   lines (floor = longest header word so wraps never become letter stacks) —
-  roughly doubles visible columns per screen. **Laptop follow-ups:** click-test the
+  roughly doubles visible columns per screen. Long RERUN-derived column names
+  got compact wrap-friendly display relabels (COMPACT_HEADER_LABELS in
+  values_tab.py — display-only, DataFrame keys unchanged). NEW drill-down
+  system on the Values tab: "☰ Find Value" navigator rail (search every column
+  across all group tabs, click to jump + highlight), "Inspect Month" panel
+  (select any row anywhere → that month's full premium→deduction→interest
+  waterfall + guideline/TAMRA/target state), and Overview double-click
+  drill-through (jumps to the owning detail tab at that month and opens the
+  inspector). **Laptop follow-ups:** click-test the
   Overview interactions (hover/legend/expand/Excel dump) and the GP-search
   toggle in-app; re-validate vs live UL_Rates; remaining engine gaps in
   QUESTION_LOG §E (rider/CCV target premiums, TEFRA-binding scenario, B→A,

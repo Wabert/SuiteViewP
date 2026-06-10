@@ -19,7 +19,186 @@ from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .styles import PURPLE_BG, PURPLE_DARK, TAB_WIDGET_STYLE
+from .values_inspector import MonthInspector
 from .values_overview import PolicyValueChart, ValuesOverview, build_chart_series
+
+
+# Double-clicking an Overview ledger cell drills into the detail tab where
+# that value is calculated, pinned to the same month.
+LEDGER_DRILL_TABS = {
+    "Premium": "Apply Premium",
+    "Withdrawals": "Summary",
+    "Interest": "Accumulation",
+    "Charges": "Monthly Deduction",
+    "AV": "Policy Values",
+    "SV": "Policy Values",
+    "Death Benefit": "Ending Values",
+    "GP Room": "TEFRA and TAMRA",
+    "Status": "Testing",
+}
+
+
+# Display-only relabels applied to EVERY grid: compact, wrap-friendly forms of
+# the long RERUN-derived names (DataFrame keys are unchanged — comparisons and
+# exports still see the originals). Spaces let the wrapped headers break at
+# word boundaries instead of letter stacks.
+COMPACT_HEADER_LABELS = {
+    # TEFRA and TAMRA
+    "AccumGLP": "Accum GLP",
+    "TEFRA_Limit": "TEFRA Limit",
+    "Prem-WD": "Prem − WD",
+    "ForceOut": "Force Out",
+    "7PayPrem": "7Pay Prem",
+    "New TAMRA Period": "New TAMRA Per",
+    "7PayStartDate": "7Pay Start",
+    "TAMRAMonth": "TAMRA Mth",
+    "TAMRA_MonthOfYear": "TAMRA Mth of Yr",
+    "TAMRA_Year": "TAMRA Yr",
+    "Amount In 7-Pay": "Amt in 7Pay",
+    "Lowest7YearFace": "Lowest 7Yr Face",
+    "Value_for_NPT": "NPT Value",
+    "NPT_NSP": "NPT NSP",
+    "NPT_Premium": "NPT Prem",
+    # Requested Premium
+    "1035_Amount": "1035 Amt",
+    "PlannedPremium": "Planned Prem",
+    "PlannedPremiumMode": "Planned Mode",
+    "Premium Frequency": "Prem Freq",
+    "Premium Period": "Prem Period",
+    "Scheduled Premium Due": "Sched Prem Due",
+    "Scheduled Premium": "Sched Prem",
+    "Payment Count For Policy Year": "Pmt Cnt Policy Yr",
+    "Payment Count for TAMRA Year": "Pmt Cnt TAMRA Yr",
+    # Loan Capitalize and Repay
+    "Advance - Rg Ln Princ/Total": "Adv Reg Princ",
+    "Advance - Rg Ln Int Accrued": "Adv Reg Accr",
+    "Advance - Pf Ln Princ/Total": "Adv Pref Princ",
+    "Advance - Pf Ln Int Accrued": "Adv Pref Accr",
+    "Advance - Var Ln Princ/Total": "Adv Vbl Princ",
+    "Advance - Var Ln Int Accrued": "Adv Vbl Accr",
+    "Advance - Adv Reg LN Payoff": "Adv Reg Payoff",
+    "Advance - Adv Pref LN Payoff": "Adv Pref Payoff",
+    "Advance - LoanPayoff": "Adv Loan Payoff",
+    "Arrears - PremToPayLoanInterest": "Prem to Pay Ln Int",
+    "Arrears - From Lumpsum": "Repay fr Lumpsum",
+    "Arrears - From Scheduled Prem": "Repay fr Sched Prem",
+    "Arrears - LoanRepayFromForceout": "Repay fr Force Out",
+    "Arrears - LoanRepayFromPremAndForceout": "Repay fr Prem & FO",
+    "Arrears - Requested Loan Repayment": "Req Loan Repay",
+    "Arrears - Total Loan Repayment Attempted": "Tot Repay Attempt",
+    "Advance - Adv Reg LN Repay": "Adv Reg Repay",
+    "Advance - Adv Pref LN Repay": "Adv Pref Repay",
+    "Advance - Adv Total Loan Repayment": "Adv Tot Repay",
+    "LNRepayLeftOver": "Repay Left Over",
+    "TotalLoanReduction": "Tot Loan Reduction",
+    "PolicyDebtDisplay": "Policy Debt",
+    # Apply Premium
+    "GP_Allowance0": "GP Alw 0",
+    "NPT Allowance0": "NPT Alw 0",
+    "TAMRA_Allowance0": "TAMRA Alw 0",
+    "Annual Cap0": "Annual Cap 0",
+    "Applied1035": "Applied 1035",
+    "GP_Allowance1": "GP Alw 1",
+    "NPT Allowance 1": "NPT Alw 1",
+    "TAMRA_Allowance1": "TAMRA Alw 1",
+    "Annual Cap1": "Annual Cap 1",
+    "Lumpsum Remaining": "Lumpsum Remain",
+    "vAppliedLumpsum": "Applied Lumpsum",
+    "GP_Allowance2": "GP Alw 2",
+    "NPT Allowance 2": "NPT Alw 2",
+    "TAMRA_Allowance2": "TAMRA Alw 2",
+    "Annual Cap2": "Annual Cap 2",
+    "TAMRA_Level_Allowance_BOY": "TAMRA Lvl Alw BOY",
+    "TAMRA_Level_Allowance_EOY": "TAMRA Lvl Alw EOY",
+    "NPT_Level_Allowance": "NPT Lvl Alw",
+    "GP_Level_Allowance": "GP Lvl Alw",
+    "Scheduled Prem Cap": "Sched Prem Cap",
+    "Levelized Max Premium": "Lvlized Max Prem",
+    "Apply Levelized Premium": "Apply Lvlized Prem",
+    "Scheduled Premium less Loan Repay": "Sched Prem less Repay",
+    "AppliedScheduledPremium": "Applied Sched Prem",
+    "AppliedTotalPremium": "Applied Total Prem",
+    "PremTD": "Prem TD",
+    "PremYTD": "Prem YTD",
+    "CostBasis": "Cost Basis",
+    "TotalPremLoad": "Total Prem Load",
+    "NetPremium": "Net Premium",
+    # Exception Premiums
+    "Guideline Limit Reached": "GP Limit Reached",
+    "vExceptionPremMode": "Exc Prem Mode",
+    "GP_Exception_Prem_Gross": "Exc Prem Gross",
+    "Exception_Prem_Discount": "Exc Prem Discount",
+    "vGP_Exception_Prem": "Exception Prem",
+    # Policy Values
+    "Requested Loan": "Req Loan",
+    "Loan Mode Effective": "Loan Mode Eff",
+    "Scheduled Loan Amount": "Sched Loan Amt",
+    "Remaining Distribution": "Remain Distrib",
+    "vAppliedLoan": "Applied Loan",
+    "AdvRegLNInt": "Adv Reg Ln Int",
+    "PrefRegLNInt": "Pref Ln Int",
+    "Total Rg Ln Princ": "Tot Reg Princ",
+    "Total Pref Ln Princ": "Tot Pref Princ",
+    "Total Vbl Ln Princ": "Tot Vbl Princ",
+    # Accumulation
+    "Fixed Ln Prinicple": "Fixed Ln Princ",
+    "PolicyBonus": "Policy Bonus",
+    "Declared Rate + Policy Bonus": "Declared + Bonus",
+    "Blended Index Rate": "Blend Index Rate",
+    "BlendedCreditingRate": "Blend Cred Rate",
+    "BlendInterest": "Blend Interest",
+    "Accrued Reg Ln Int": "Accr Reg Ln Int",
+    "Accrued Pref Ln Int": "Accr Pref Ln Int",
+    "Accured Vbl Ln Int": "Accr Vbl Ln Int",
+    # Ending Values
+    "EDBwoCORR": "EDB wo Corr",
+    "EDB_CORR": "EDB Corr",
+    "EDBwLNs": "EDB w Lns",
+    "IllustrationAV": "Illus AV",
+    "IllustrationInterestRate": "Illus Int Rate",
+    "IllustrationLN": "Illus Loan",
+    "IllustrationSV": "Illus SV",
+    "IllustrationDB": "Illus DB",
+    "PremiumOutlay": "Prem Outlay",
+    "ForceOutDisplay": "Force Out",
+    "LoanRepayFromPremDisplay": "Repay fr Prem",
+    "LoanRepayDisplay": "Loan Repay",
+    "DistributionFromPolicy": "Distrib fr Policy",
+    "IllustrationGCO": "Illus GCO",
+    # Testing
+    "ScheduledPremLimitedByGP": "Sched Prem Ltd by GP",
+    # Shadow Account (the Shadow prefix is redundant on its own tab)
+    "Shadow_BAV": "BAV",
+    "WD, Charges and ForceOuts": "WD Chg & FO",
+    "Shadow SA": "SA",
+    "Shadow_TPR": "TPR",
+    "Shadow_TBL1TPR": "TBL1 TPR",
+    "Shadow_TP": "Target Prem",
+    "Applied Total Premium": "Applied Tot Prem",
+    "Premium YTD": "Prem YTD",
+    "Target Percent Prem": "TPP",
+    "Excess Precent Prem": "EPP",
+    "Target Prem Load": "Target Load",
+    "Excess Prem Load": "Excess Load",
+    "Shadow Premium Load": "Prem Load",
+    "Shadow Net Prem": "Net Prem",
+    "Shadow_NARAV": "NAR AV",
+    "Shadow DB": "DB",
+    "Shadow COIR": "COIR",
+    "Shadow COIR + Sub": "COIR + Sub",
+    "Shadow DBD Rate": "DBD Rate",
+    "Shadow NAR": "NAR",
+    "Shadow COI": "COI",
+    "Shadow EPUR": "EPUR",
+    "Shadow EPU": "EPU",
+    "Shadow MFEE": "MFEE",
+    "Shadow MD": "MD",
+    "Shadow AV": "AV",
+    "Shadow Int Rate": "Int Rate",
+    "Shadow Interest": "Interest",
+    "ShadowEAV": "EAV",
+    "ShadowEAV_less_Debt": "EAV less Debt",
+}
 
 
 class IllustrationValuesTab(QWidget):
@@ -102,10 +281,8 @@ class IllustrationValuesTab(QWidget):
         "Inforce?",
     ]
     TESTING_HEADER_LABELS = {
-        "Accum MTP less Prem": "AccumMTP_less_PremTD",
         "SNET Active": "SNET",
-        "Positive SV": "PositiveSV",
-        "Exception Protection": "GP Exception Prem Protection",
+        "Exception Protection": "Exc Prem Protect",
     }
     MONTHLY_DEDUCTION_GROUP = "Monthly Deduction"
     APPLY_PREMIUM_GROUP = "Apply Premium"
@@ -358,24 +535,84 @@ class IllustrationValuesTab(QWidget):
         self._rider_columns: list[str] = []
         self._monthly_deduction_columns: list[str] = []
         self._tab_grids: dict[str, FilterTableView] = {}
+        self._results: list[MonthlyState] = []
+        self._inspected_row: int | None = None
         self._setup_ui()
         self.clear_results()
 
     def _setup_ui(self):
+        from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QSplitter, QTreeWidget
+
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
+        toggle_style = (
+            f"QPushButton {{ background-color: #F3ECFC; color: {PURPLE_DARK};"
+            " border: 1px solid #7E57C2; border-radius: 4px; padding: 1px 10px;"
+            " min-height: 18px; font-size: 10px; font-weight: bold; }"
+            "QPushButton:checked { background-color: #5E35A5; color: #FFD54F; }"
+        )
+        top_row = QHBoxLayout()
+        top_row.setSpacing(6)
         self.status_label = QLabel("")
         self.status_label.setStyleSheet(
             f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;"
         )
-        layout.addWidget(self.status_label)
+        top_row.addWidget(self.status_label)
+        top_row.addStretch(1)
+        self.nav_toggle = QPushButton("☰ Find Value")
+        self.nav_toggle.setCheckable(True)
+        self.nav_toggle.setStyleSheet(toggle_style)
+        self.nav_toggle.setToolTip("Search every column across the value tabs and jump to it.")
+        self.nav_toggle.toggled.connect(lambda on: self.navigator.setVisible(on))
+        top_row.addWidget(self.nav_toggle)
+        self.inspector_toggle = QPushButton("Inspect Month")
+        self.inspector_toggle.setCheckable(True)
+        self.inspector_toggle.setStyleSheet(toggle_style)
+        self.inspector_toggle.setToolTip(
+            "Explain the selected month: the full premium → deduction → interest waterfall."
+        )
+        self.inspector_toggle.toggled.connect(self._on_inspector_toggled)
+        top_row.addWidget(self.inspector_toggle)
+        layout.addLayout(top_row)
+
+        self.body = QSplitter(Qt.Orientation.Horizontal, self)
+        self.body.setHandleWidth(4)
+
+        # ── Navigator rail: searchable stage → column tree ──
+        self.navigator = QWidget(self)
+        nav_layout = QVBoxLayout(self.navigator)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.setSpacing(4)
+        self.nav_search = QLineEdit(self.navigator)
+        self.nav_search.setPlaceholderText("Find a value…")
+        self.nav_search.setStyleSheet(
+            "QLineEdit { background: white; border: 1px solid #B79CDE; border-radius: 4px;"
+            " padding: 2px 6px; font-size: 11px; color: #2A1458; }"
+        )
+        self.nav_search.textChanged.connect(self._filter_navigator)
+        nav_layout.addWidget(self.nav_search)
+        self.nav_tree = QTreeWidget(self.navigator)
+        self.nav_tree.setHeaderHidden(True)
+        self.nav_tree.setUniformRowHeights(True)
+        self.nav_tree.setIndentation(12)
+        self.nav_tree.setStyleSheet(
+            "QTreeWidget { background: white; border: 1px solid #B79CDE; font-size: 11px; }"
+            "QTreeWidget::item { height: 16px; }"
+            "QTreeWidget::item:selected { background: #E8DDF8; color: #2A1458; }"
+        )
+        self.nav_tree.itemClicked.connect(self._on_navigator_clicked)
+        nav_layout.addWidget(self.nav_tree, 1)
+        self.navigator.setVisible(False)
+        self.body.addWidget(self.navigator)
 
         self.tabs = QTabWidget(self)
         self.tabs.setStyleSheet(TAB_WIDGET_STYLE)
         self.overview = ValuesOverview(self.tabs)
+        self.overview.monthSelected.connect(self._inspect_month)
+        self.overview.cellActivated.connect(self._drill_down)
         self.tabs.addTab(self.overview, "Overview")
         self.chart = PolicyValueChart(self.tabs)
         self.chart.yearClicked.connect(self._on_chart_year_clicked)
@@ -386,12 +623,128 @@ class IllustrationValuesTab(QWidget):
             grid.apply_ledger_style()
             self._tab_grids[title] = grid
             self.tabs.addTab(grid, title)
-        layout.addWidget(self.tabs)
+        self.body.addWidget(self.tabs)
+
+        # ── Month Inspector: the per-month waterfall ──
+        self.inspector = MonthInspector(self)
+        self.inspector.setVisible(False)
+        self.body.addWidget(self.inspector)
+
+        self.body.setStretchFactor(0, 0)
+        self.body.setStretchFactor(1, 1)
+        self.body.setStretchFactor(2, 0)
+        self.body.setSizes([180, 760, 270])
+        layout.addWidget(self.body, 1)
 
     def _on_chart_year_clicked(self, year: int):
         """Chart click-through: jump the Overview ledger to that policy year."""
         self.tabs.setCurrentWidget(self.overview)
         self.overview.jump_to_year(year)
+
+    # ── Drill-down plumbing ───────────────────────────────────
+
+    def _on_inspector_toggled(self, on: bool):
+        self.inspector.setVisible(on)
+        if on and self._results and self._inspected_row is not None:
+            self._show_inspector_row(self._inspected_row)
+
+    def _inspect_month(self, result_row: int):
+        """Pin the inspector to a month (selection in the ledger or any grid)."""
+        self._inspected_row = result_row
+        if self.inspector.isVisible():
+            self._show_inspector_row(result_row)
+
+    def _show_inspector_row(self, result_row: int):
+        if not self._results or not (0 <= result_row < len(self._results)):
+            return
+        prior = self._results[result_row - 1] if result_row > 0 else None
+        self.inspector.show_month(self._results[result_row], prior)
+
+    def _drill_down(self, result_row: int, ledger_column: str):
+        """Overview double-click: open the detail tab for that value at that month."""
+        title = LEDGER_DRILL_TABS.get(ledger_column, self.SUMMARY_GROUP)
+        grid = self._tab_grids.get(title)
+        if grid is None:
+            return
+        self.tabs.setCurrentWidget(grid)
+        self._select_grid_row(grid, result_row)
+        if not self.inspector_toggle.isChecked():
+            self.inspector_toggle.setChecked(True)
+        self._inspect_month(result_row)
+
+    @staticmethod
+    def _select_grid_row(grid: FilterTableView, result_row: int):
+        if grid.model is None:
+            return
+        display = grid.model.get_display_data()
+        try:
+            position = display.index.get_loc(result_row)
+        except KeyError:
+            return
+        grid.table_view.selectRow(position)
+        grid.table_view.scrollTo(
+            grid.table_view.model().index(position, 0),
+            grid.table_view.ScrollHint.PositionAtCenter,
+        )
+
+    def _on_grid_cursor(self, grid: FilterTableView, current):
+        if not current.isValid() or grid.model is None:
+            return
+        display = grid.model.get_display_data()
+        if current.row() >= len(display.index):
+            return
+        self._inspect_month(int(display.index[current.row()]))
+
+    # ── Navigator ─────────────────────────────────────────────
+
+    def _rebuild_navigator(self, tab_columns_by_title: dict[str, list[str]]):
+        from PyQt6.QtWidgets import QTreeWidgetItem
+
+        self.nav_tree.clear()
+        for title, columns in tab_columns_by_title.items():
+            labels = self._header_labels_for_tab(title)
+            stage = QTreeWidgetItem([title])
+            stage.setData(0, Qt.ItemDataRole.UserRole, (title, None))
+            for column_name in columns:
+                if column_name in self.LEAD_COLUMNS:
+                    continue
+                leaf = QTreeWidgetItem([labels.get(column_name, column_name)])
+                leaf.setData(0, Qt.ItemDataRole.UserRole, (title, column_name))
+                stage.addChild(leaf)
+            self.nav_tree.addTopLevelItem(stage)
+
+    def _filter_navigator(self, text: str):
+        needle = text.strip().lower()
+        for stage_index in range(self.nav_tree.topLevelItemCount()):
+            stage = self.nav_tree.topLevelItem(stage_index)
+            any_visible = False
+            for leaf_index in range(stage.childCount()):
+                leaf = stage.child(leaf_index)
+                match = not needle or needle in leaf.text(0).lower()
+                leaf.setHidden(not match)
+                any_visible = any_visible or match
+            stage.setHidden(bool(needle) and not any_visible)
+            stage.setExpanded(bool(needle) and any_visible)
+
+    def _on_navigator_clicked(self, item, _column):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+        title, column_name = data
+        grid = self._tab_grids.get(title)
+        if grid is None:
+            return
+        self.tabs.setCurrentWidget(grid)
+        if column_name is None or grid.model is None:
+            return
+        columns = list(grid.model.get_original_data().columns)
+        if column_name in columns:
+            column_index = columns.index(column_name)
+            grid.table_view.selectColumn(column_index)
+            grid.table_view.scrollTo(
+                grid.table_view.model().index(0, column_index),
+                grid.table_view.ScrollHint.PositionAtCenter,
+            )
 
     def _post_lead_columns(self, title: str) -> list[str]:
         """Columns shown on ``title`` after the shared Date/Year/Month/Age lead."""
@@ -411,18 +764,21 @@ class IllustrationValuesTab(QWidget):
         }.get(title, [])
 
     def _header_labels_for_tab(self, title: str) -> dict[str, str]:
-        if title == self.SUMMARY_GROUP:
-            return self.SUMMARY_HEADER_LABELS
-        if title == self.SHADOW_ACCOUNT_GROUP:
-            return self.SHADOW_ACCOUNT_HEADER_LABELS
-        if title == self.TESTING_GROUP:
-            return self.TESTING_HEADER_LABELS
-        return {}
+        tab_specific = {
+            self.SUMMARY_GROUP: self.SUMMARY_HEADER_LABELS,
+            self.SHADOW_ACCOUNT_GROUP: self.SHADOW_ACCOUNT_HEADER_LABELS,
+            self.TESTING_GROUP: self.TESTING_HEADER_LABELS,
+        }.get(title, {})
+        return {**COMPACT_HEADER_LABELS, **tab_specific}
 
     def clear_results(self, message: str = "Load a policy, then click Run Values."):
         self.status_label.setText(message)
         self.overview.clear()
         self.chart.clear()
+        self.inspector.clear()
+        self.nav_tree.clear()
+        self._results = []
+        self._inspected_row = None
         for grid in self._tab_grids.values():
             grid.set_dataframe(pd.DataFrame(), limit_rows=False)
 
@@ -456,6 +812,7 @@ class IllustrationValuesTab(QWidget):
         column_decimals.update({f"SCR Cov {index}": 6 for index in (1, 2, 3)})
         column_decimals.update({column: 6 for column in ("Shadow COIR", "Shadow COIR + Sub", "Shadow DBD Rate", "Shadow EPUR")})
         injected = injected_first_row_columns or set()
+        navigator_columns: dict[str, list[str]] = {}
         for title, grid in self._tab_grids.items():
             ordered = self.LEAD_COLUMNS + list(self._post_lead_columns(title))
             seen: set[str] = set()
@@ -464,6 +821,7 @@ class IllustrationValuesTab(QWidget):
                 if column_name in frame.columns and column_name not in seen:
                     seen.add(column_name)
                     tab_columns.append(column_name)
+            navigator_columns[title] = tab_columns
             grid.set_dataframe(frame.loc[:, tab_columns], limit_rows=False)
             grid.set_numeric_formatting(default_decimals=2, column_decimals=column_decimals)
             grid.set_header_labels(self._header_labels_for_tab(title))
@@ -473,6 +831,14 @@ class IllustrationValuesTab(QWidget):
             if grid.model is not None:
                 grid.model._left_align_columns = {0}
             grid.autofit_columns_to_data()
+            selection = grid.table_view.selectionModel()
+            if selection is not None:
+                selection.currentChanged.connect(
+                    lambda current, _previous, g=grid: self._on_grid_cursor(g, current))
+        self._results = result_list
+        self._inspected_row = None
+        self.inspector.clear()
+        self._rebuild_navigator(navigator_columns)
         self.overview.display(policy, result_list)
         self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)
         self.tabs.setCurrentIndex(0)

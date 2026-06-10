@@ -147,7 +147,7 @@ def test_testing_tab_columns_and_relabels():
         return model.headerData(index, QtCore.Orientation.Horizontal, QtCore.ItemDataRole.DisplayRole)
 
     assert header("SNET Active") == "SNET"
-    assert header("Exception Protection") == "GP Exception Prem Protection"
+    assert header("Exception Protection") == "Exc Prem Protect"
 
 
 def test_monthly_deduction_tab_follows_rerun_order():

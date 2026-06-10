@@ -329,7 +329,10 @@ NUMERIC_LEDGER = set(range(2, 10))
 
 
 class ValuesOverview(QWidget):
-    """KPI strip + value chart + annual/monthly drill-down ledger."""
+    """KPI strip + annual/monthly drill-down ledger."""
+
+    monthSelected = pyqtSignal(int)        # result-row index of the highlighted month
+    cellActivated = pyqtSignal(int, str)   # double-click: (result-row index, ledger column)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -376,7 +379,21 @@ class ValuesOverview(QWidget):
         header.setStretchLastSection(True)
         self.ledger.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.ledger.customContextMenuRequested.connect(self._on_ledger_menu)
+        self.ledger.currentItemChanged.connect(self._on_current_item)
+        self.ledger.itemDoubleClicked.connect(self._on_item_double_clicked)
         layout.addWidget(self.ledger, 1)
+
+    def _on_current_item(self, current, _previous):
+        if current is None:
+            return
+        index = current.data(0, Qt.ItemDataRole.UserRole)
+        if index is not None:
+            self.monthSelected.emit(int(index))
+
+    def _on_item_double_clicked(self, item, column):
+        index = item.data(0, Qt.ItemDataRole.UserRole)
+        if index is not None:
+            self.cellActivated.emit(int(index), LEDGER_COLUMNS[column])
 
     def _on_ledger_menu(self, pos):
         from PyQt6.QtWidgets import QMenu
@@ -443,16 +460,19 @@ class ValuesOverview(QWidget):
         self.kpi_premium.set(_fmt_money(final.premiums_to_date - results[0].premiums_to_date))
 
         # ── ledger: annual rows with monthly children ──
+        # Each entry keeps its index into ``results`` so selection and
+        # double-click can hand the exact month to the inspector / detail tabs.
         by_year: dict[int, list] = {}
-        for state in projected:
-            by_year.setdefault(state.policy_year, []).append(state)
+        for result_index, state in enumerate(projected, start=1):
+            by_year.setdefault(state.policy_year, []).append((result_index, state))
 
         bold = QFont()
         bold.setBold(True)
         prior_wd = results[0].withdrawals_to_date
         for year in sorted(by_year):
-            months = by_year[year]
-            eoy = months[-1]
+            month_entries = by_year[year]
+            months = [state for _, state in month_entries]
+            eoy_index, eoy = month_entries[-1]
             premium = sum(s.gross_premium for s in months)
             interest = sum(s.interest_credited for s in months)
             charges = sum(s.total_deduction for s in months)
@@ -474,11 +494,15 @@ class ValuesOverview(QWidget):
             if eoy.lapsed:
                 for column in range(len(LEDGER_COLUMNS)):
                     item.setForeground(column, QColor("#B71C1C"))
+            item.setData(0, Qt.ItemDataRole.UserRole, eoy_index)
             self._year_items[year] = item
             self.ledger.addTopLevelItem(item)
 
-            previous_wd = by_year[year - 1][-1].withdrawals_to_date if year - 1 in by_year else results[0].withdrawals_to_date
-            for state in months:
+            previous_wd = (
+                by_year[year - 1][-1][1].withdrawals_to_date
+                if year - 1 in by_year else results[0].withdrawals_to_date
+            )
+            for result_index, state in month_entries:
                 month_wd = state.withdrawals_to_date - previous_wd
                 previous_wd = state.withdrawals_to_date
                 child = QTreeWidgetItem([
@@ -496,6 +520,7 @@ class ValuesOverview(QWidget):
                 if state.lapsed:
                     for column in range(len(LEDGER_COLUMNS)):
                         child.setForeground(column, QColor("#B71C1C"))
+                child.setData(0, Qt.ItemDataRole.UserRole, result_index)
                 item.addChild(child)
 
     def jump_to_year(self, year: int):
