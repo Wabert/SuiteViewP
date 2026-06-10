@@ -888,9 +888,63 @@ class FilterTableView(QWidget):
         self.info_label.setStyleSheet("color: #666; font-size: 10px; padding: 2px;")
         layout.addWidget(self.info_label)
 
+    def apply_ledger_style(
+        self,
+        header_bg: str = "#E8DDF8",
+        header_fg: str = "#2A1458",
+        border: str = "#B79CDE",
+        selection_bg: str = "#E8DDF8",
+        selection_fg: str = "#2A1458",
+    ):
+        """Opt-in dense ledger look: no grid lines, no zebra striping, tight
+        17px rows, 11px default-family text, and a compact tinted header.
+
+        Matches the Illustration Overview ledger aesthetic; callers pass their
+        sub-app's header/border colors to rebrand it. The stock FilterTableView
+        style is unchanged for existing users.
+        """
+        self.table_view.setAlternatingRowColors(False)
+        self.table_view.setShowGrid(False)
+        self.table_view.setFont(QFont())  # default family; size set via QSS
+        self.table_view.verticalHeader().setVisible(False)  # no row numbers
+        self.table_view.verticalHeader().setDefaultSectionSize(17)
+        self.table_view.verticalHeader().setMinimumSectionSize(15)
+        self.table_view.setStyleSheet(f"""
+            QTableView#filterTableView {{
+                background-color: white;
+                border: 1px solid {border};
+                font-size: 11px;
+                selection-background-color: {selection_bg};
+                selection-color: {selection_fg};
+            }}
+            QTableView#filterTableView::item {{
+                padding: 0px 4px;
+                margin: 0px;
+                border: none;
+            }}
+            QTableView#filterTableView::item:selected {{
+                background-color: {selection_bg};
+                color: {selection_fg};
+            }}
+            QHeaderView::section {{
+                background-color: {header_bg};
+                color: {header_fg};
+                font-size: 10px;
+                font-weight: bold;
+                border: none;
+                border-right: 1px solid {border};
+                border-bottom: 1px solid {border};
+                padding: 2px 20px 2px 6px;  /* right padding clears the sort icon */
+                height: 18px;
+            }}
+            QHeaderView::section:hover {{
+                background-color: white;
+            }}
+        """)
+
     def set_dataframe(self, df: pd.DataFrame, limit_rows: bool = True):
         """Set the DataFrame to display
-        
+
         Args:
             df: DataFrame to display
             limit_rows: If True, limit to MAX_DISPLAY_ROWS for performance. Set to False for query results.

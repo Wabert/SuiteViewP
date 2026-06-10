@@ -427,8 +427,12 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
   (c) UI: Inputs tab reordered (Transactions first) + valuation/monthliversary/
   first-forecast banner + scheduled premium prefilled from billing; NEW Values
   "Overview" tab — KPI chips, hand-painted AV/SV/DB/premium chart (hover
-  readout, click-year-to-jump, legend toggles), annual⇄monthly drill-down
-  ledger with right-click Excel dump. **Laptop follow-ups:** click-test the
+  readout, click-year-to-jump, legend toggles; now on its OWN "Chart" sub-tab
+  for full height), annual⇄monthly drill-down ledger with right-click Excel
+  dump. All Values group grids restyled via the new opt-in
+  `FilterTableView.apply_ledger_style()` (no grid/zebra/row numbers, 17px rows,
+  11px text, tinted compact header — themable per sub-app, stock style
+  untouched for other consumers). **Laptop follow-ups:** click-test the
   Overview interactions (hover/legend/expand/Excel dump) and the GP-search
   toggle in-app; re-validate vs live UL_Rates; remaining engine gaps in
   QUESTION_LOG §E (rider/CCV target premiums, TEFRA-binding scenario, B→A,

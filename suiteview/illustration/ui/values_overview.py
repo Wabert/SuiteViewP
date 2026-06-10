@@ -21,7 +21,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QSplitter,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -186,7 +185,9 @@ class PolicyValueChart(QWidget):
         painter.setPen(QPen(AXIS_COLOR, 1))
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
 
-        # Series lines.
+        # Series lines (clear any brush left over from legend swatches —
+        # QPainter fills open paths with the active brush).
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         for series in self._series:
             if not series.visible or not series.points:
                 continue
@@ -356,13 +357,6 @@ class ValuesOverview(QWidget):
         kpi_row.addStretch(1)
         layout.addLayout(kpi_row)
 
-        splitter = QSplitter(Qt.Orientation.Vertical, self)
-        splitter.setHandleWidth(4)
-
-        self.chart = PolicyValueChart(self)
-        self.chart.yearClicked.connect(self._jump_to_year)
-        splitter.addWidget(self.chart)
-
         self.ledger = QTreeWidget(self)
         self.ledger.setColumnCount(len(LEDGER_COLUMNS))
         self.ledger.setHeaderLabels(LEDGER_COLUMNS)
@@ -382,9 +376,7 @@ class ValuesOverview(QWidget):
         header.setStretchLastSection(True)
         self.ledger.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.ledger.customContextMenuRequested.connect(self._on_ledger_menu)
-        splitter.addWidget(self.ledger)
-        splitter.setSizes([220, 420])
-        layout.addWidget(splitter, 1)
+        layout.addWidget(self.ledger, 1)
 
     def _on_ledger_menu(self, pos):
         from PyQt6.QtWidgets import QMenu
@@ -421,7 +413,6 @@ class ValuesOverview(QWidget):
     def clear(self):
         self.ledger.clear()
         self._year_items = {}
-        self.chart.clear()
         for chip in (self.kpi_horizon, self.kpi_av, self.kpi_sv, self.kpi_db,
                      self.kpi_lapse, self.kpi_room, self.kpi_premium):
             chip.set("—")
@@ -431,7 +422,6 @@ class ValuesOverview(QWidget):
         self.clear()
         if not results:
             return
-        issue_age = policy.issue_age
 
         projected = results[1:] if len(results) > 1 else []
         final = results[-1]
@@ -451,21 +441,6 @@ class ValuesOverview(QWidget):
         room = final.guideline_limit - (final.premiums_to_date - final.withdrawals_to_date)
         self.kpi_room.set(_fmt_money(room), alert=room < 0)
         self.kpi_premium.set(_fmt_money(final.premiums_to_date - results[0].premiums_to_date))
-
-        # ── chart series (monthly granularity, x = fractional policy year) ──
-        def xs(state):
-            return state.policy_year + (state.policy_month - 1) / 12.0
-
-        series = [
-            ChartSeries("Account Value", [(xs(s), s.av_end_of_month) for s in projected]),
-            ChartSeries("Surrender Value", [(xs(s), s.surrender_value) for s in projected]),
-            ChartSeries("Death Benefit", [(xs(s), s.ending_db or s.gross_db) for s in projected]),
-            ChartSeries("Cum Premium", [(xs(s), s.premiums_to_date) for s in projected]),
-            ChartSeries("Guideline Limit", [(xs(s), s.guideline_limit) for s in projected]),
-        ]
-        for entry in series:
-            entry.visible = entry.name not in DEFAULT_HIDDEN
-        self.chart.set_data(series, issue_age)
 
         # ── ledger: annual rows with monthly children ──
         by_year: dict[int, list] = {}
@@ -523,7 +498,8 @@ class ValuesOverview(QWidget):
                         child.setForeground(column, QColor("#B71C1C"))
                 item.addChild(child)
 
-    def _jump_to_year(self, year: int):
+    def jump_to_year(self, year: int):
+        """Expand and scroll the ledger to a policy year (chart click-through)."""
         item = self._year_items.get(year)
         if item is None:
             return
@@ -531,6 +507,24 @@ class ValuesOverview(QWidget):
         item.setExpanded(True)
         self.ledger.scrollToItem(item, QTreeWidget.ScrollHint.PositionAtTop)
         self.ledger.setCurrentItem(item)
+
+
+def build_chart_series(projected: list) -> list[ChartSeries]:
+    """Chart series from projected monthly states (x = fractional policy year)."""
+
+    def xs(state):
+        return state.policy_year + (state.policy_month - 1) / 12.0
+
+    series = [
+        ChartSeries("Account Value", [(xs(s), s.av_end_of_month) for s in projected]),
+        ChartSeries("Surrender Value", [(xs(s), s.surrender_value) for s in projected]),
+        ChartSeries("Death Benefit", [(xs(s), s.ending_db or s.gross_db) for s in projected]),
+        ChartSeries("Cum Premium", [(xs(s), s.premiums_to_date) for s in projected]),
+        ChartSeries("Guideline Limit", [(xs(s), s.guideline_limit) for s in projected]),
+    ]
+    for entry in series:
+        entry.visible = entry.name not in DEFAULT_HIDDEN
+    return series
 
 
 def _status_text(state) -> str:

@@ -81,6 +81,7 @@ def test_values_tab_uses_one_tab_per_group_each_leading_with_locators():
     titles = [tab.tabs.tabText(index) for index in range(tab.tabs.count())]
     assert titles == [
         "Overview",
+        "Chart",
         "Summary",
         "TEFRA and TAMRA",
         "Requested Premium",

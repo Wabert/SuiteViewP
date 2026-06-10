@@ -19,7 +19,7 @@ from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .styles import PURPLE_BG, PURPLE_DARK, TAB_WIDGET_STYLE
-from .values_overview import ValuesOverview
+from .values_overview import PolicyValueChart, ValuesOverview, build_chart_series
 
 
 class IllustrationValuesTab(QWidget):
@@ -377,12 +377,21 @@ class IllustrationValuesTab(QWidget):
         self.tabs.setStyleSheet(TAB_WIDGET_STYLE)
         self.overview = ValuesOverview(self.tabs)
         self.tabs.addTab(self.overview, "Overview")
+        self.chart = PolicyValueChart(self.tabs)
+        self.chart.yearClicked.connect(self._on_chart_year_clicked)
+        self.tabs.addTab(self.chart, "Chart")
         for title in self.TAB_ORDER:
             grid = FilterTableView(self.tabs)
             grid.set_search_visible(False)
+            grid.apply_ledger_style()
             self._tab_grids[title] = grid
             self.tabs.addTab(grid, title)
         layout.addWidget(self.tabs)
+
+    def _on_chart_year_clicked(self, year: int):
+        """Chart click-through: jump the Overview ledger to that policy year."""
+        self.tabs.setCurrentWidget(self.overview)
+        self.overview.jump_to_year(year)
 
     def _post_lead_columns(self, title: str) -> list[str]:
         """Columns shown on ``title`` after the shared Date/Year/Month/Age lead."""
@@ -413,6 +422,7 @@ class IllustrationValuesTab(QWidget):
     def clear_results(self, message: str = "Load a policy, then click Run Values."):
         self.status_label.setText(message)
         self.overview.clear()
+        self.chart.clear()
         for grid in self._tab_grids.values():
             grid.set_dataframe(pd.DataFrame(), limit_rows=False)
 
@@ -463,6 +473,7 @@ class IllustrationValuesTab(QWidget):
             if grid.model is not None:
                 grid.model._left_align_columns = {0}
         self.overview.display(policy, result_list)
+        self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)
         self.tabs.setCurrentIndex(0)
         self.status_label.setText(f"Showing valuation snapshot plus {months} projected months.")
 
