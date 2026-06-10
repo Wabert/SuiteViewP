@@ -171,7 +171,10 @@ def compute_target_premiums(
         ben_type = ben.benefit_type or ""
         if not ben.is_active or ben_type.startswith("#"):
             continue
-        if not _active(ben.cease_date, as_of):
+        # Benefits contribute no target from their payup/cease anniversary on —
+        # STRICT, matching the deduction loop's vPW_Active gate (attained age <
+        # payup age). Segment table/flat cease stays inclusive (_active).
+        if ben.cease_date is not None and as_of is not None and as_of >= ben.cease_date:
             continue
         ben_key = ben_type + (ben.benefit_subtype or "")
         ben_args = (

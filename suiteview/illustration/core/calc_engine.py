@@ -1176,6 +1176,35 @@ def _reband_benefits(rates, policy) -> None:
         ) or []
 
 
+def _reload_policy_band_rates(rates, policy, config) -> None:
+    """Reload the policy-level band-keyed schedules at the CURRENT total-SA band.
+
+    RERUN keys TPP/EPP (premium loads), MFEE, and PoAV on the month's
+    CurrentBand (PolicyRates EC/ED/FE/FF all VLOOKUP on CalcEngine FD), so a
+    face change that crosses a band breakpoint moves these schedules too —
+    e.g. this plancode's band-3 target load steps 8%->4% at year 11 while
+    bands 1-2 stay 8%.
+    """
+    from suiteview.core.rates import Rates
+
+    seg = policy.base_segment
+    if seg is None:
+        return
+    rates_db = Rates()
+    band = rates_db.get_band(policy.plancode, policy.total_face)
+    band = int(band) if band is not None else seg.band
+    for attr, kind in (("tpp", "TPP"), ("epp", "EPP"), ("mfee", "MFEE")):
+        setattr(rates, attr, rates_db.get_rates(
+            kind, policy.plancode, issue_age=seg.issue_age, sex=seg.rate_sex,
+            rateclass=seg.rate_class, scale=1, band=band,
+        ) or [])
+    if config.poav_code == "Table":
+        rates.poav = rates_db.get_rates(
+            "POAV", policy.plancode, seg.issue_age, seg.rate_sex,
+            seg.rate_class, scale=1, band=band,
+        ) or []
+
+
 @dataclass
 class _PolicyChangeOutcome:
     """What one applied policy change did to the projection month."""
@@ -1447,6 +1476,7 @@ def _apply_policy_change(
             outcome.material_change = True
 
     if outcome.coverage_changed:
+        _reload_policy_band_rates(rates, policy, config)
         targets = compute_target_premiums(policy, config, as_of=change_date)
         policy.mtp = targets.mtp_annual / 12.0
         policy.ctp = targets.ctp_annual

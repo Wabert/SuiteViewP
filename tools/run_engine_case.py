@@ -9,7 +9,12 @@ Usage (single JSON arg):
 
     {"policy":"U0688012","region":"CKPR","company":"01","months":120,
      "out_csv":"out.csv",
-     "tefra":false,"tamra":true,"exception":false,"exact_days":true}
+     "tefra":false,"tamra":true,"exception":false,"exact_days":true,
+     "premiums":[{"year":1,"amount":25000,"mode":"A"}]}
+
+Scheduled premiums REPLACE the policy's billed premium from the given policy
+year on (mirrors overriding RERUN's vINPUT_Premium_Amount/_Mode vectors); the
+engine still caps at acceptance per the TEFRA/TAMRA toggles.
 
 Option flags mirror the RERUN sINPUT_* booleans (omit to use engine defaults):
   tefra      -> IllustrationOptions.conform_to_tefra
@@ -45,6 +50,7 @@ def main() -> None:
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.models.input_set import (
         IllustrationOptions, IllustrationInputSet, PolicyChangeEvent, PolicyChangeKind,
+        ScheduledTransaction, TransactionKind,
     )
     from suiteview.illustration.debug.excel_export import _PIPELINE_ORDER, _get_projection_value
 
@@ -73,16 +79,28 @@ def main() -> None:
     # metadata injects RERUN's recalculated guideline values so the AV/segment
     # mechanics validate independently of guideline-calc calibration.
     future_inputs = None
-    if cmd.get("changes"):
+    if cmd.get("changes") or cmd.get("premiums"):
         evs = []
-        for ch in cmd["changes"]:
+        for ch in cmd.get("changes") or []:
             kind = (PolicyChangeKind.FACE_AMOUNT if ch["kind"] == "face_amount"
                     else PolicyChangeKind.DB_OPTION)
             value = float(ch["value"]) if ch["kind"] == "face_amount" else ch["value"]
             evs.append(PolicyChangeEvent(
                 kind=kind, effective_date=datetime.date.fromisoformat(ch["date"]),
                 value=value, metadata=ch.get("metadata") or {}))
-        future_inputs = IllustrationInputSet(policy_changes=evs)
+        # Scheduled premiums: [{"year":1,"amount":25000,"mode":"A"}] — replaces
+        # the billed premium from that policy year on (RERUN premium-vector
+        # override equivalent).
+        scheds = [
+            ScheduledTransaction(
+                kind=TransactionKind.PREMIUM,
+                policy_year=int(p["year"]),
+                amount=float(p["amount"]),
+                mode=p.get("mode", "A"))
+            for p in cmd.get("premiums") or []
+        ]
+        future_inputs = IllustrationInputSet(
+            scheduled_transactions=scheds, policy_changes=evs)
 
     clear_cache()
     policy_data = build_illustration_data(policy, region=region, company_code=company)
@@ -94,6 +112,7 @@ def main() -> None:
         "glp", "gsp", "accumulated_glp", "guideline_limit", "guideline_forceout",
         "monthly_mtp", "ctp", "accumulated_mtp",
         "accumulated_7pay", "amount_in_7pay", "tamra_year", "tamra_7pay_level",
+        "premium_cap", "premium_capped",
     ]
     fields = list(_PIPELINE_ORDER) + [f for f in extra if f not in _PIPELINE_ORDER]
 

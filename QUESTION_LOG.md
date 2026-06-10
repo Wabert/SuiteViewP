@@ -397,3 +397,64 @@ to Excel via the shared COM helper). Deep per-column grids unchanged on their
 own sub-tabs. **Laptop:** click-test interactions; consider next: per-coverage
 columns in the ledger, scenario-compare overlay (two runs side by side on the
 chart), force-out markers on the chart.
+
+---
+
+## G. 2026-06-10 (minipc, later) — TEFRA/TAMRA-binding + B→A all EXACT
+
+**Headline: the three remaining validation gaps (§E items 2/3) are CLOSED — all
+at literal 0.0 delta vs RERUN over 90 months on U0688012.** Three new scenarios,
+all over-funded (premium vector → 25,000/yr annual, mode A) so the 7702
+machinery actually fires for the first time:
+
+- **T0 — TEFRA acceptance cap** (`sINPUT_TEFRA_Force=TRUE`, no change): year-8
+  anniversary pays the partial 18,889.80 (= GSP 31,311.48 − premTD 12,421.68),
+  years 9-10 capped to 0, year-11 crossover pays 371.79 (AccumGLP passes GSP),
+  then the 2,880.24/yr GLP trickle. EXACT with no engine change.
+- **T1 — force-out** (T0 + face decrease 100k→75k at year 9): guideline recalc
+  drops the limit to AccumGLP 25,045.11 → **force-out 6,266.37** (KX) fires at
+  the change month. EXACT after engine fix #1 below.
+- **T2 — TAMRA cap** (T0 + face increase 100k→150k at year 9): material change
+  restarts the 7-pay (new level 8,871.12); TAMRA cap binds years 9-10, guideline
+  cap takes over year 11 (2,950.56), zeros, then crossover trickle. EXACT.
+- **B→A DBO change** (A→B year 9, B→A year 11, normal premiums, TEFRA off):
+  face += INT(AV) in place, material change (7-pay restart), re-band. EXACT
+  after engine fix #2 below. §E "B→A implemented but unvalidated" is now
+  validated.
+
+**Engine bug #1 — premium loads don't re-band (engine wrong, RERUN right):**
+RERUN keys TPP/EPP (premium loads), MFEE, and PoAV on the month's
+**CurrentBand** (PolicyRates EC/ED/FE/FF all VLOOKUP on CalcEngine FD) — this
+plancode's band-3 target load steps 8%→4% at year 11 while bands 1-2 stay 8%,
+so the year-9 decrease (re-band 3→2) must flip the load schedule. The engine
+loaded tpp/epp/mfee/poav once at the issue band. New
+`_reload_policy_band_rates()` in `calc_engine.py`, called on
+`outcome.coverage_changed`. (Guideline solves were unaffected — they use the
+guaranteed scale, where TPP is 8% flat across bands.)
+
+**Engine bug #2 — benefit cease gate in targets is inclusive (engine wrong):**
+`compute_target_premiums` included a benefit when `as_of <= cease_date`; the
+deduction loop (and RERUN vPW_Active) are STRICT — a benefit contributes
+nothing from its payup anniversary on. Exposed because the B→A change landed
+exactly on U0688012's PW age-60 payup anniversary: RERUN's recomputed
+vMTP/vCTP (132.37/1,832.00) exclude PW; engine had 151.04/2,055.98. Segment
+table/flat cease stays inclusive (matches `_charge_active`).
+
+**Tooling:** `run_engine_case.py` now takes
+`"premiums":[{"year":1,"amount":25000,"mode":"A"}]` (scheduled premiums that
+REPLACE the billed premium — the RERUN premium-vector-override equivalent) and
+dumps `premium_cap`/`premium_capped`. RERUN diagnostic columns worth adding to
+captures: LN (planned prem), NV (sched prem cap), NZ (applied sched prem), SX
+(limit reached). References: `tmp_compare/rerun_tefra_t0/t1_facedec/t2_faceinc.csv`,
+`rerun_dbo_ba.csv` (+ engine_* counterparts).
+
+**Regression:** all four §E scenarios + U0492070/U0656998 base re-validated
+`all_ok` after both fixes. **Flag gotcha:** match each saved case's
+sINPUT_TEFRA_Force/TAMRA_Force — running U0656998 with TEFRA defaulted ON caps
+its premium at the guideline (its premTD sits at the limit) and the comparison
+fails spuriously.
+
+**Remaining (updated §E list):** PWST/rider/CCV target premiums (#4), U0492070
+shadow fixture export (#5, laptop), mid-year non-anniversary change
+AccumAdjust pro-rating (#6), UE000576 local export (laptop), Overview UI
+click-test (laptop).
