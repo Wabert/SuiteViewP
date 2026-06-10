@@ -447,6 +447,62 @@ class IllustrationValuesTab(QWidget):
         "DistributionFromPolicy",
         "IllustrationGCO",
     ]
+    COV_AFTER_CHANGE_GROUP = "Cov After Change"
+    COV_AFTER_CHANGE_COLUMNS = [
+        "Cov 1 Active",
+        "Cov 2 Active",
+        "Cov 3 Active",
+        "APB Active",
+        "Cov 1 Issue Date",
+        "Cov 2 Issue Date",
+        "Cov 3 Issue Date",
+        "Cov 1 Months from Issue",
+        "Cov 2 Months from Issue",
+        "Cov 3 Months from Issue",
+        "Cov 1 Months from Issue w setback",
+        "Cov 2 Months from Issue w setback",
+        "Cov 3 Months from Issue w setback",
+        "Year by Pol Ann Cov 1",
+        "Year by Pol Ann Cov 2",
+        "Year by Pol Ann Cov 3",
+        "Year by Pol Ann w setback Cov 1",
+        "Year by Pol Ann w setback Cov 2",
+        "Year by Pol Ann w setback Cov 3",
+        "Year by Cov Ann Cov 1",
+        "Year by Cov Ann Cov 2",
+        "Year by Cov Ann Cov 3",
+        "Year by Cov Ann w setback Cov 1",
+        "Year by Cov Ann w setback Cov 2",
+        "Year by Cov Ann w setback Cov 3",
+        "Original SA Cov 1",
+        "Original SA Cov 2",
+        "Original SA Cov 3",
+        "Original SA APB",
+        "LastActiveSegment",
+        "Current SA Cov 1",
+        "Current SA Cov 2",
+        "Current SA Cov 3",
+        "Current SA APB",
+        "Band Lock Cov 1",
+        "Band Lock Cov 2",
+        "Band Lock Cov 3",
+        "Band APB",
+        "CurrentSA",
+        "CurrentBand",
+        "Issue Age Cov 1",
+        "Issue Age Cov 2",
+        "Issue Age Cov 3",
+        "Rateclass Cov 1",
+        "Rateclass Cov 2",
+        "Rateclass Cov 3",
+        "Table Rating Cov 1",
+        "Table Rating Cov 2",
+        "Table Rating Cov 3",
+        "Base Flat1",
+        "Base Flat2",
+        "Coverage_Change",
+        "PolicyChangeAVReduction",
+    ]
     TEFRA_TAMRA_GROUP = "TEFRA and TAMRA"
     TEFRA_TAMRA_COLUMNS = [
         "GSP",
@@ -513,6 +569,7 @@ class IllustrationValuesTab(QWidget):
     ]
     TAB_ORDER = [
         SUMMARY_GROUP,
+        COV_AFTER_CHANGE_GROUP,
         TEFRA_TAMRA_GROUP,
         REQUESTED_PREMIUM_GROUP,
         LOAN_CAPITALIZE_GROUP,
@@ -750,6 +807,7 @@ class IllustrationValuesTab(QWidget):
         """Columns shown on ``title`` after the shared Date/Year/Month/Age lead."""
         return {
             self.SUMMARY_GROUP: self.SUMMARY_COLUMNS,
+            self.COV_AFTER_CHANGE_GROUP: self.COV_AFTER_CHANGE_COLUMNS,
             self.TEFRA_TAMRA_GROUP: self.TEFRA_TAMRA_COLUMNS,
             self.REQUESTED_PREMIUM_GROUP: self.REQUESTED_PREMIUM_COLUMNS,
             self.LOAN_CAPITALIZE_GROUP: self.LOAN_CAPITALIZE_COLUMNS,
@@ -921,6 +979,7 @@ class IllustrationValuesTab(QWidget):
         })
         row.update(self._tefra_tamra_values(state))
         row.update(self._requested_premium_values(state))
+        row.update(self._cov_after_change_values(state))
         loan_capitalize = self._loan_capitalize_values(state)
         row.update(loan_capitalize)
         row.update(self._surrender_values(state, coverage_keys))
@@ -1245,6 +1304,12 @@ class IllustrationValuesTab(QWidget):
             "Payment Count For Policy Year": 0,
             "Payment Count for TAMRA Year": 0,
         }
+
+    @staticmethod
+    def _cov_after_change_values(state: MonthlyState) -> dict:
+        # Per-month "Cov After Change" snapshot built by the engine
+        # (CalcEngine cols DQ..FQ). Keys match COV_AFTER_CHANGE_COLUMNS.
+        return dict(state.coverage_after_change)
 
     @staticmethod
     def _loan_capitalize_values(state: MonthlyState) -> dict:

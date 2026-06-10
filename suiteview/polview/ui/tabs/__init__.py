@@ -18,7 +18,11 @@ from .policy_list_tab import PolicyListWindow
 from .policy_support_tab import PolicySupportTab, PolicyLibraryTab
 from .reinsurance_tab import ReinsuranceTab
 from .annuity_rider_tab import AnnuityRiderTab
-
+from .sap_tab import SapTab
+from .claims_tab import ClaimsTab
+from .tai_fd_tab import TaiFdTab
+from .orion_pcr_tab import OrionPcrTab
+from .cyberlife_pdf_tab import CyberlifePdfTab
 __all__ = [
     "CoveragesTab",
     "PolicyTab",
@@ -34,4 +38,9 @@ __all__ = [
     "PolicyLibraryTab",
     "ReinsuranceTab",
     "AnnuityRiderTab",
+    "SapTab",
+    "ClaimsTab",
+    "TaiFdTab",
+    "OrionPcrTab",
+    "CyberlifePdfTab",
 ]

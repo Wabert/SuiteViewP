@@ -306,6 +306,7 @@ def build_illustration_data(
         issue_date=issue_date,
         issue_age=issue_age,
         attained_age=attained_age,
+        insured_birth_date=pi.primary_insured_birth_date,
         rate_sex=rate_sex,
         rate_class=rate_class,
         face_amount=face_amount,

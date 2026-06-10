@@ -1068,6 +1068,11 @@ class PolicySupportTab(QWidget):
 
     folder_opened = pyqtSignal(str)
     policy_library_requested = pyqtSignal()
+    sap_requested = pyqtSignal()
+    claims_requested = pyqtSignal()
+    tai_fd_requested = pyqtSignal()
+    orion_pcr_requested = pyqtSignal()
+    cyberlife_pdf_requested = pyqtSignal()
 
     # Mode constants
     MODE_POLICY_SUPPORT = "policy_support"
@@ -1141,6 +1146,36 @@ class PolicySupportTab(QWidget):
             lambda: self._select_section(self.SECTION_ANNUITY_RIDER)
         )
         nav_col.addWidget(self._btn_mode_annuity)
+
+        self._btn_sap = QPushButton("SAP")
+        self._btn_sap.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_sap.setMinimumWidth(108)
+        self._btn_sap.clicked.connect(self.sap_requested.emit)
+        nav_col.addWidget(self._btn_sap)
+
+        self._btn_claims = QPushButton("CLAIMSFILE")
+        self._btn_claims.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_claims.setMinimumWidth(108)
+        self._btn_claims.clicked.connect(self.claims_requested.emit)
+        nav_col.addWidget(self._btn_claims)
+
+        self._btn_tai_fd = QPushButton("TAICyberTAIFd")
+        self._btn_tai_fd.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_tai_fd.setMinimumWidth(108)
+        self._btn_tai_fd.clicked.connect(self.tai_fd_requested.emit)
+        nav_col.addWidget(self._btn_tai_fd)
+
+        self._btn_orion_pcr = QPushButton("orion_pcr3_r")
+        self._btn_orion_pcr.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_orion_pcr.setMinimumWidth(108)
+        self._btn_orion_pcr.clicked.connect(self.orion_pcr_requested.emit)
+        nav_col.addWidget(self._btn_orion_pcr)
+
+        self._btn_cyberlife_pdf = QPushButton("CYBERLIFE_PDF")
+        self._btn_cyberlife_pdf.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_cyberlife_pdf.setMinimumWidth(108)
+        self._btn_cyberlife_pdf.clicked.connect(self.cyberlife_pdf_requested.emit)
+        nav_col.addWidget(self._btn_cyberlife_pdf)
         nav_col.addStretch(1)
 
         layout.addWidget(nav_panel)

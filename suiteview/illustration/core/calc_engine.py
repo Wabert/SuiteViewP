@@ -220,6 +220,9 @@ class IllustrationEngine:
             policy_month=policy.policy_month,
             duration=policy.duration,
             attained_age=policy.attained_age,
+            coverage_after_change=_coverage_after_change_snapshot(
+                policy, config, policy.valuation_date or policy.issue_date, 0.0, None,
+            ),
             av_after_premium=md_check_av_before_deduction,
             glp=floor_monthly_cent(policy.glp),
             gsp=floor_monthly_cent(policy.gsp),
@@ -435,6 +438,7 @@ class IllustrationEngine:
         # change recomputes vMTP/vCTP and the guideline premiums; a material
         # change (face increase, B→A) also restarts the 7-pay period.
         tamra_reset = False
+        policy_change_av_reduction = 0.0
         if policy_changes:
             for change in policy_changes:
                 outcome = _apply_policy_change(
@@ -442,7 +446,13 @@ class IllustrationEngine:
                     rates, rate_year, av, options=options,
                 )
                 av += outcome.av_adjustment
+                policy_change_av_reduction += max(0.0, -outcome.av_adjustment)
                 tamra_reset = tamra_reset or outcome.material_change
+
+        cov_after_change = _coverage_after_change_snapshot(
+            policy, config, month_date, policy_change_av_reduction,
+            state.coverage_after_change,
+        )
 
         # ── 8. Minimum Target Premium calculation/accumulation ─
         # Accumulation uses vMonthlyMTP = TRUNC(vMTP/12, 2) (JE/JF); the PW
@@ -651,6 +661,7 @@ class IllustrationEngine:
             duration=duration,
             attained_age=attained_age,
             is_anniversary=is_anniversary,
+            coverage_after_change=cov_after_change,
             # Set 1: Loan cap/repay (beginning of month)
             rg_loan_princ=cap_loan.rg_loan_princ,
             rg_loan_accrued=cap_loan.rg_loan_accrued,
@@ -961,6 +972,9 @@ class IllustrationEngine:
             duration=duration,
             attained_age=attained_age,
             is_anniversary=is_anniversary,
+            coverage_after_change=_coverage_after_change_snapshot(
+                policy, config, month_date, 0.0, state.coverage_after_change,
+            ),
             rg_loan_princ=cap_loan.rg_loan_princ,
             rg_loan_accrued=cap_loan.rg_loan_accrued,
             pf_loan_princ=cap_loan.pf_loan_princ,
@@ -1199,15 +1213,142 @@ def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr)
     return av_adjustment
 
 
-def _append_face_increase_segment(policy, rates, delta, attained_age, change_date) -> None:
-    """Append the face-increase segment, issued at the current attained age.
+def _coverage_after_change_snapshot(policy, config, month_date, av_reduction, prior) -> Dict[str, object]:
+    """Per-segment coverage snapshot after policy changes (CalcEngine DQ..FQ).
+
+    Keyed by the RERUN display column names so the values tab can read them
+    directly. The engine's base coverage segments map onto RERUN's three
+    coverage slots (Cov 1 = base, later segments = face increases) plus APB.
+    APB is not modeled as a coverage in this engine, so its slots stay
+    inactive / 0.
+    """
+    from suiteview.core.rates import Rates
+
+    snap: Dict[str, object] = {}
+    segments = sorted(
+        (s for s in policy.segments if getattr(s, "is_base", True)),
+        key=lambda s: s.coverage_phase,
+    )
+    issue_date = policy.issue_date
+
+    def months_between(d0, d1):
+        if d0 is None or d1 is None:
+            return 0
+        rd = relativedelta(d1, d0)
+        return rd.years * 12 + rd.months
+
+    last_active = 0
+    for index in (1, 2, 3):
+        seg = segments[index - 1] if index - 1 < len(segments) else None
+        active = bool(
+            seg and seg.face_amount > 0 and str(seg.status or "A").upper() == "A"
+        )
+        seg_issue = seg.issue_date if seg else None
+        cov_months = (months_between(seg_issue, month_date) + 1) if active else 0
+        terminated = int(getattr(seg, "months_since_terminated", 0) or 0) if seg else 0
+        cov_months_sb = max(0, cov_months - terminated)
+        # Policy-anniversary alignment: offset the coverage's own duration so the
+        # year rolls on the policy anniversary, not the coverage anniversary.
+        pol_offset = months_between(issue_date, seg_issue) % 12 if (active and seg_issue) else 0
+        year_cov_ann = (cov_months - 1) // 12 + 1 if cov_months > 0 else 0
+        year_pol_ann = (cov_months - 1 + pol_offset) // 12 + 1 if cov_months > 0 else 0
+        year_cov_ann_sb = max(1, (cov_months_sb - 1) // 12 + 1) if active else 0
+        year_pol_ann_sb = max(1, (cov_months_sb - 1 + pol_offset) // 12 + 1) if active else 0
+        if active:
+            last_active = index
+        snap[f"Cov {index} Active"] = active
+        snap[f"Cov {index} Issue Date"] = seg_issue if active else None
+        snap[f"Cov {index} Months from Issue"] = cov_months
+        snap[f"Cov {index} Months from Issue w setback"] = cov_months_sb
+        snap[f"Year by Pol Ann Cov {index}"] = year_pol_ann
+        snap[f"Year by Pol Ann w setback Cov {index}"] = year_pol_ann_sb
+        snap[f"Year by Cov Ann Cov {index}"] = year_cov_ann
+        snap[f"Year by Cov Ann w setback Cov {index}"] = year_cov_ann_sb
+        snap[f"Original SA Cov {index}"] = float(seg.original_face_amount) if seg else 0.0
+        snap[f"Current SA Cov {index}"] = float(seg.face_amount) if seg else 0.0
+        snap[f"Band Lock Cov {index}"] = int(seg.original_band) if seg else 0
+        snap[f"Issue Age Cov {index}"] = int(seg.issue_age) if seg else 0
+        snap[f"Rateclass Cov {index}"] = (seg.rate_class or "") if seg else ""
+        snap[f"Table Rating Cov {index}"] = int(seg.table_rating) if seg else 0
+
+    # APB is not modeled as a coverage segment in this engine.
+    snap["APB Active"] = False
+    snap["Original SA APB"] = 0.0
+    snap["Current SA APB"] = 0.0
+    snap["Band APB"] = 0
+    snap["LastActiveSegment"] = last_active
+
+    current_sa = float(policy.total_face)
+    snap["CurrentSA"] = current_sa
+    base = policy.base_segment
+    band = Rates().get_band(policy.plancode, current_sa)
+    snap["CurrentBand"] = (
+        int(band) if band is not None else (int(base.original_band) if base else 0)
+    )
+
+    # Base flat extras (FN/FO). This engine carries a single flat on the base
+    # segment; map it to Base Flat1 and leave Base Flat2 at 0.
+    base_flat = 0.0
+    if base and base.flat_extra and base.flat_extra > 0:
+        if base.flat_cease_date is None or month_date <= base.flat_cease_date:
+            base_flat = float(base.flat_extra)
+    snap["Base Flat1"] = base_flat
+    snap["Base Flat2"] = 0.0
+
+    # Coverage_Change (FP): any monitored coverage attribute moved this month.
+    change_keys = (
+        ["CurrentSA"]
+        + [f"Rateclass Cov {i}" for i in (1, 2, 3)]
+        + [f"Table Rating Cov {i}" for i in (1, 2, 3)]
+        + ["Base Flat1", "Base Flat2"]
+    )
+    coverage_change = bool(prior) and any(
+        snap.get(key) != prior.get(key) for key in change_keys
+    )
+    snap["Coverage_Change"] = coverage_change
+    snap["PolicyChangeAVReduction"] = float(av_reduction)
+    return snap
+
+
+def _age_on_date(birth_date, as_of, age_basis, fallback) -> int:
+    """Insured's true age on ``as_of`` under the plancode's age basis.
+
+    ALB (Age Last Birthday): completed years since birth.
+    ANB (Age Nearest Birthday): ALB plus one when the insured is nearer the next
+        birthday — i.e. 183+ days have elapsed since the last birthday (182 days
+        or fewer keeps the current age).
+
+    Returns ``fallback`` (the policy attained age) when the DOB is missing.
+    """
+    if birth_date is None or as_of is None:
+        return fallback
+    age = as_of.year - birth_date.year - (
+        (as_of.month, as_of.day) < (birth_date.month, birth_date.day)
+    )
+    if str(age_basis).upper() == "ANB":
+        last_birthday = birth_date + relativedelta(years=age)
+        if (as_of - last_birthday).days >= 183:
+            age += 1
+    return age
+
+
+def _append_face_increase_segment(policy, rates, delta, attained_age, change_date, config=None) -> None:
+    """Append the face-increase segment, issued at the insured's true age.
 
     CyberLife/RERUN band the increase's COI by the new TOTAL specified amount,
     not the increment's own size.
+
+    The increase segment's issue age is the insured's actual age on the increase
+    date — computed from the insured DOB under the plancode's age basis (ANB or
+    ALB), not the policy's anniversary-based attained age. Falls back to
+    ``attained_age`` when the DOB is unavailable.
     """
     from suiteview.core.rates import Rates
 
     base = policy.base_segment
+    age_basis = getattr(config, "age_calc", "") if config is not None else ""
+    increase_age = _age_on_date(
+        getattr(policy, "insured_birth_date", None), change_date, age_basis, attained_age)
     new_total = policy.total_face + delta
     new_band = Rates().get_band(policy.plancode, new_total)
     new_band = int(new_band) if new_band is not None else base.band
@@ -1216,7 +1357,7 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
         coverage_phase=new_phase,
         is_base=True,
         issue_date=change_date,
-        issue_age=attained_age,
+        issue_age=increase_age,
         rate_sex=base.rate_sex,
         rate_class=base.rate_class,
         face_amount=delta,
@@ -1301,7 +1442,7 @@ def _apply_policy_change(
                 policy, -delta, rates, change_date, rate_year, charge_scr=True)
             outcome.coverage_changed = True
         elif delta > 1e-6:
-            _append_face_increase_segment(policy, rates, delta, attained_age, change_date)
+            _append_face_increase_segment(policy, rates, delta, attained_age, change_date, config)
             outcome.coverage_changed = True
             outcome.material_change = True
 

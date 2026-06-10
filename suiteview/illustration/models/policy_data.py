@@ -115,6 +115,7 @@ class IllustrationPolicyData:
     issue_date: Optional[date] = None
     issue_age: int = 0
     attained_age: int = 0
+    insured_birth_date: Optional[date] = None  # Primary insured DOB (LH_CTT_CLIENT.BIR_DT)
     rate_sex: str = ""              # "M", "F", "U"
     rate_class: str = ""            # "N", "S", "P", "Q", "R", "T"
 

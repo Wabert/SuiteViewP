@@ -165,7 +165,7 @@ class IllustrationPolicyTab(QWidget):
             ("Market Org", "market_org_label"),
             ("Sex", "sex"),
             ("Policy Debt", "policy_debt_label"),
-            ("spacer", "policy_info_spacer_1"),
+            ("Insured DOB", "insured_dob"),
             ("Issue State", "issue_state_label"),
             ("Rateclass", "rateclass"),
             ("Total Face", "total_face_label"),
@@ -248,6 +248,7 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info.set_value("policy_year_label", policy.policy_year)
         self.policy_info.set_value("att_age_label", policy.attained_age)
         self.policy_info.set_value("maturity_age", policy.age_at_maturity or "")
+        self.policy_info.set_value("insured_dob", format_date(policy.primary_insured_birth_date))
         self.policy_info.set_value("policy_debt_label", format_currency(policy.policy_debt, "$"))
         self.policy_info.set_value("total_face_label", format_amount(policy.base_total_face_amount))
         self.policy_info.set_value("total_death_benefit_label", format_amount(policy.total_death_benefit))

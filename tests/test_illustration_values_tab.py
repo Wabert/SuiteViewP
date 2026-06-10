@@ -83,6 +83,7 @@ def test_values_tab_uses_one_tab_per_group_each_leading_with_locators():
         "Overview",
         "Chart",
         "Summary",
+        "Cov After Change",
         "TEFRA and TAMRA",
         "Requested Premium",
         "Loan Capitalize and Repay",

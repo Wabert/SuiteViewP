@@ -39,6 +39,7 @@ from .tabs import (
     CoveragesTab, PolicyTab, TargetsAccumulatorsTab, PersonsTab,
     AdvProdValuesTab, ActivityTab, DividendsTab, LoansTab, RawTableTab,
     PolicyListWindow, PolicySupportTab, PolicyLibraryTab, ReinsuranceTab,
+    SapTab, ClaimsTab, TaiFdTab, OrionPcrTab, CyberlifePdfTab,
 )
 
 
@@ -98,6 +99,10 @@ class GetPolicyWindow(FramelessWindowBase):
         self._history_panel_visible = False
         # Cache: (policy_number, region) -> (PolicyInformation, policy_info_dict, where_clause)
         self._policy_cache: dict = {}
+        # Per-policy snapshots of the optional SAP / CLAIMSFILE tabs so switching
+        # between already-viewed policies restores what was there, while a brand
+        # new policy starts with a clean slate.
+        self._aux_tab_state: dict = {}
 
         super().__init__(
             title="SuiteView:  PolView",
@@ -198,6 +203,22 @@ class GetPolicyWindow(FramelessWindowBase):
 
         self.policy_support_tab = PolicySupportTab(self.tabs)
         self.policy_library_tab = PolicyLibraryTab(self.tabs)
+        self.sap_tab = SapTab(self.tabs)
+        self.claims_tab = ClaimsTab(self.tabs)
+        self.tai_fd_tab = TaiFdTab(self.tabs)
+        self.orion_pcr_tab = OrionPcrTab(self.tabs)
+        self.cyberlife_pdf_tab = CyberlifePdfTab(self.tabs)
+
+        # Optional database-backed tabs that get a clean slate on a new policy
+        # but are restored when switching back to an already-viewed policy.
+        # (tab widget, tab title)
+        self._aux_tabs = [
+            (self.sap_tab, "SAP"),
+            (self.claims_tab, "CLAIMSFILE"),
+            (self.tai_fd_tab, "TAICyberTAIFd"),
+            (self.orion_pcr_tab, "orion_pcr3_r"),
+            (self.cyberlife_pdf_tab, "CYBERLIFE_PDF"),
+        ]
 
         self.tabs.addTab(self.coverages_tab, "Coverages")
         self.tabs.addTab(self.policy_tab, "Policy")
@@ -214,10 +235,20 @@ class GetPolicyWindow(FramelessWindowBase):
             self.loans_tab,
             self.reinsurance_tab,
             self.policy_library_tab,
+            self.sap_tab,
+            self.claims_tab,
+            self.tai_fd_tab,
+            self.orion_pcr_tab,
+            self.cyberlife_pdf_tab,
         ):
             optional_tab.hide()
 
         self.policy_support_tab.policy_library_requested.connect(self._show_policy_library_tab)
+        self.policy_support_tab.sap_requested.connect(self._show_sap_tab)
+        self.policy_support_tab.claims_requested.connect(self._show_claims_tab)
+        self.policy_support_tab.tai_fd_requested.connect(self._show_tai_fd_tab)
+        self.policy_support_tab.orion_pcr_requested.connect(self._show_orion_pcr_tab)
+        self.policy_support_tab.cyberlife_pdf_requested.connect(self._show_cyberlife_pdf_tab)
         self.coverages_tab.annuity_rider_requested.connect(self._show_annuity_rider_tab)
 
         tabs_layout.addWidget(self.tabs)
@@ -505,6 +536,95 @@ class GetPolicyWindow(FramelessWindowBase):
         self.tabs.setCurrentWidget(self.policy_library_tab)
         self._show_status("Policy Library tab opened")
 
+    def _insert_aux_tab(self, tab: QWidget, title: str):
+        """Insert an optional database-backed tab just before Raw Table."""
+        if self.tabs.indexOf(tab) >= 0:
+            return
+        raw_idx = self.tabs.indexOf(self.raw_table_tab)
+        if raw_idx >= 0:
+            self.tabs.insertTab(raw_idx, tab, title)
+        else:
+            self.tabs.addTab(tab, title)
+
+    def _show_aux_tab(self, tab: QWidget, title: str):
+        """Open (or focus) an optional database-backed tab for the loaded policy."""
+        first_open = self.tabs.indexOf(tab) < 0
+        self._insert_aux_tab(tab, title)
+        if first_open:
+            tab.load_policy(self._policy)
+        self.tabs.setCurrentWidget(tab)
+        self._show_status(f"{title} tab opened")
+
+    def _show_sap_tab(self):
+        """Show the SAP.LDTI_TX7 ledger tab for the loaded policy."""
+        self._show_aux_tab(self.sap_tab, "SAP")
+
+    def _show_claims_tab(self):
+        """Show the CLAIMSFILE claim-file tab for the loaded policy."""
+        self._show_aux_tab(self.claims_tab, "CLAIMSFILE")
+
+    def _show_tai_fd_tab(self):
+        """Show the dbo.TAICyberTAIFd tab for the loaded policy."""
+        self._show_aux_tab(self.tai_fd_tab, "TAICyberTAIFd")
+
+    def _show_orion_pcr_tab(self):
+        """Show the dbo.orion_pcr3_r tab for the loaded policy."""
+        self._show_aux_tab(self.orion_pcr_tab, "orion_pcr3_r")
+
+    def _show_cyberlife_pdf_tab(self):
+        """Show the dbo.CYBERLIFE_PDF (pivoted) tab for the loaded policy."""
+        self._show_aux_tab(self.cyberlife_pdf_tab, "CYBERLIFE_PDF")
+
+    # -- Optional-tab state (SAP / CLAIMSFILE) ----------------------------
+
+    def _current_aux_key(self):
+        """Cache key for the currently loaded policy, or None if none loaded."""
+        if not self._current_policy:
+            return None
+        company = (self._policy_info or {}).get("CompanyCode", "")
+        return (self._current_policy, self._current_region, company)
+
+    def _save_current_aux_state(self):
+        """Snapshot the optional database-backed tabs for the outgoing policy."""
+        key = self._current_aux_key()
+        if key is None:
+            return
+        snapshot = {}
+        for tab, title in self._aux_tabs:
+            snapshot[title] = {
+                "open": self.tabs.indexOf(tab) >= 0,
+                "state": tab.export_state(),
+            }
+        self._aux_tab_state[key] = snapshot
+
+    def _remove_aux_tabs(self):
+        """Detach all optional database-backed tabs from the tab bar."""
+        for tab, _title in self._aux_tabs:
+            idx = self.tabs.indexOf(tab)
+            if idx >= 0:
+                self.tabs.removeTab(idx)
+            tab.hide()
+
+    def _reset_aux_tabs(self, key=None):
+        """Clean slate for a brand new policy: close and clear all aux tabs."""
+        self._remove_aux_tabs()
+        for tab, _title in self._aux_tabs:
+            tab.reset()
+        if key is not None:
+            self._aux_tab_state.pop(key, None)
+
+    def _restore_aux_tabs(self, key):
+        """Restore the optional tabs for a previously-viewed policy."""
+        self._remove_aux_tabs()
+        snapshot = self._aux_tab_state.get(key) or {}
+        for tab, title in self._aux_tabs:
+            entry = snapshot.get(title)
+            if entry and entry.get("open"):
+                self._insert_aux_tab(tab, title)
+                tab.restore_state(self._policy, entry.get("state", {}))
+            else:
+                tab.reset()
+
     def _show_annuity_rider_tab(self, coverage=None):
         """Focus the embedded Annuity Rider section for eligible rider coverage."""
         if not self._policy or not self._policy.exists:
@@ -531,6 +651,10 @@ class GetPolicyWindow(FramelessWindowBase):
         """
         # Hide any previous company chooser
         self.lookup_bar.hide_company_chooser()
+
+        # Snapshot the optional SAP / CLAIMSFILE tabs for the outgoing policy
+        # before we switch, so returning to it restores what was there.
+        self._save_current_aux_state()
 
         # Show loading indicator immediately
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
@@ -573,6 +697,9 @@ class GetPolicyWindow(FramelessWindowBase):
             self.records_tree.show_rates_tab()
 
             self._load_all_tabs()
+            # Switching back to a previously-viewed policy: restore its
+            # SAP / CLAIMSFILE tabs exactly as they were left.
+            self._restore_aux_tabs(self._current_aux_key())
             self._show_status(
                 f"Loaded policy {policy_number} ({company_code}) "
                 f"- {self._policy.status_description} (cached)"
@@ -698,6 +825,9 @@ class GetPolicyWindow(FramelessWindowBase):
 
             t2 = _time.perf_counter()
             self._load_all_tabs()
+            # Brand new policy: start with a clean slate — close the optional
+            # SAP / CLAIMSFILE tabs and clear any prior policy's data.
+            self._reset_aux_tabs(store_key)
             t_tabs = _time.perf_counter() - t2
 
             t_total = _time.perf_counter() - t0

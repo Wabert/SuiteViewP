@@ -2233,9 +2233,18 @@ class PolicyInformation:
             return self.person_full_name(idx)
         return ""
     
+    @property
+    def primary_insured_birth_date(self) -> Optional[date]:
+        """Primary insured date of birth (LH_CTT_CLIENT.BIR_DT)."""
+        idx = self.person_index("00", 1)
+        if idx is not None:
+            return self.person_birth_date(idx)
+        return None
+    
     # =========================================================================
     # ADDRESS INFORMATION (LH_LOC_CLT_ADR)
     # =========================================================================
+
     
     @property
     def address_count(self) -> int:

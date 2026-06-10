@@ -21,6 +21,11 @@ class MonthlyState:
     attained_age: int = 0
     is_anniversary: bool = False
 
+    # ── Cov After Change (CalcEngine DQ..FQ) ──
+    # Per-segment coverage snapshot after any policy change for the month, keyed
+    # by the RERUN display column name (e.g. "Cov 1 Active", "CurrentSA").
+    coverage_after_change: Dict[str, object] = field(default_factory=dict)
+
     # ── 0b. Loan Capitalize and Repay (cols 336-341) ──
     rg_loan_princ: float = 0.0          # After cap/repay — beginning of month
     rg_loan_accrued: float = 0.0
