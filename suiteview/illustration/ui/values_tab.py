@@ -472,6 +472,7 @@ class IllustrationValuesTab(QWidget):
             )
             if grid.model is not None:
                 grid.model._left_align_columns = {0}
+            grid.autofit_columns_to_data()
         self.overview.display(policy, result_list)
         self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)
         self.tabs.setCurrentIndex(0)

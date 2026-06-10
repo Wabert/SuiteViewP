@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView, QLis
                               QHeaderView, QLineEdit, QPushButton, QMenu, QStyledItemDelegate,
                               QLabel, QWidgetAction)
 from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QRect, QPoint, QTimer, QThread, QStringListModel, QSize
-from PyQt6.QtGui import QFont, QAction, QPainter, QColor
+from PyQt6.QtGui import QFont, QFontMetrics, QAction, QPainter, QColor
 
 logger = logging.getLogger(__name__)
 
@@ -32,20 +32,46 @@ class ClickableHeaderView(QHeaderView):
         self.hovered_section = -1
         self.sort_order = {}  # column_index -> Qt.SortOrder
         self.filtered_columns = set()  # Track which columns have active filters
+        # Wrapped-header mode (ledger style): sections are painted manually with
+        # word-wrapped labels instead of the single-line elided default.
+        self.wrap_mode = False
+        self.wrap_bg = QColor("#E8DDF8")
+        self.wrap_fg = QColor("#2A1458")
+        self.wrap_border = QColor("#B79CDE")
         self.setMouseTracking(True)
-    
+
+    def wrap_font(self) -> QFont:
+        font = QFont(self.font())
+        font.setPixelSize(10)
+        font.setBold(True)
+        return font
+
+    @staticmethod
+    def wrap_flags(metrics: QFontMetrics, avail: QRect, label: str) -> int:
+        """Word-wrap, falling back to wrap-anywhere for unbreakable long names."""
+        flags = (Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                 | Qt.TextFlag.TextWordWrap)
+        needed = metrics.boundingRect(avail, flags, label)
+        if needed.width() > avail.width():
+            flags = (Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                     | Qt.TextFlag.TextWrapAnywhere)
+        return flags
+
     def paintSection(self, painter: QPainter, rect: QRect, logicalIndex: int):
         """Paint header section with sort icon"""
-        # Let default painting happen first
-        super().paintSection(painter, rect, logicalIndex)
-        
+        if self.wrap_mode:
+            self._paint_wrapped_section(painter, rect, logicalIndex)
+        else:
+            # Let default painting happen first
+            super().paintSection(painter, rect, logicalIndex)
+
         # If this column is filtered, draw a pale blue background overlay
         if logicalIndex in self.filtered_columns:
             painter.save()
             # Draw semi-transparent pale blue overlay
             painter.fillRect(rect, QColor(173, 216, 230, 80))  # Light blue with transparency
             painter.restore()
-        
+
         # Draw sort icon on the right side
         icon_rect = self.get_sort_icon_rect(rect)
         
@@ -85,6 +111,26 @@ class ClickableHeaderView(QHeaderView):
         
         painter.restore()
     
+    def _paint_wrapped_section(self, painter: QPainter, rect: QRect, logicalIndex: int):
+        """Ledger-style section: tinted background, hairline borders, wrapped label."""
+        painter.save()
+        painter.fillRect(rect, self.wrap_bg)
+        painter.setPen(self.wrap_border)
+        painter.drawLine(rect.topRight(), rect.bottomRight())
+        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+
+        model = self.model()
+        label = ""
+        if model is not None:
+            value = model.headerData(
+                logicalIndex, self.orientation(), Qt.ItemDataRole.DisplayRole)
+            label = "" if value is None else str(value)
+        avail = rect.adjusted(5, 1, -(self.sort_icon_width + 3), -1)
+        painter.setFont(self.wrap_font())
+        painter.setPen(self.wrap_fg)
+        painter.drawText(avail, self.wrap_flags(painter.fontMetrics(), avail, label), label)
+        painter.restore()
+
     def get_sort_icon_rect(self, section_rect: QRect) -> QRect:
         """Get the rectangle for the sort icon within a section"""
         icon_x = section_rect.right() - self.sort_icon_width - self.sort_icon_margin
@@ -905,10 +951,17 @@ class FilterTableView(QWidget):
         """
         self.table_view.setAlternatingRowColors(False)
         self.table_view.setShowGrid(False)
-        self.table_view.setFont(QFont())  # default family; size set via QSS
+        body_font = QFont()
+        body_font.setPixelSize(11)
+        self.table_view.setFont(body_font)  # set programmatically so font metrics match
         self.table_view.verticalHeader().setVisible(False)  # no row numbers
         self.table_view.verticalHeader().setDefaultSectionSize(17)
         self.table_view.verticalHeader().setMinimumSectionSize(15)
+        # Wrapped multi-line headers painted by the header view itself.
+        self.header.wrap_mode = True
+        self.header.wrap_bg = QColor(header_bg)
+        self.header.wrap_fg = QColor(header_fg)
+        self.header.wrap_border = QColor(border)
         self.table_view.setStyleSheet(f"""
             QTableView#filterTableView {{
                 background-color: white;
@@ -941,6 +994,77 @@ class FilterTableView(QWidget):
                 background-color: white;
             }}
         """)
+
+    def autofit_columns_to_data(
+        self,
+        sample_rows: int = 400,
+        padding: int = 14,
+        min_width: int = 34,
+        max_width: int = 260,
+    ):
+        """Size each column to its DATA (formatted), not its header.
+
+        Long header names wrap instead of widening the column (ledger style
+        paints multi-line headers), so the grid stays as compact as the values
+        allow. Samples up to ``sample_rows`` from each end for width
+        measurement. Call after set_dataframe / set_numeric_formatting /
+        set_header_labels so widths reflect the final formatting.
+        """
+        if self.model is None or self.model.get_original_data().empty:
+            return
+        df = self.model.get_display_data()
+        if len(df) > sample_rows:
+            df = pd.concat([df.head(sample_rows // 2), df.tail(sample_rows // 2)])
+
+        metrics = QFontMetrics(self.table_view.font())
+        header_metrics = QFontMetrics(self.header.wrap_font())
+        for column_index, column_name in enumerate(self.model.get_original_data().columns):
+            if self.table_view.isColumnHidden(column_index):
+                continue
+            widest = 0
+            if column_name in df.columns:
+                for value in df[column_name]:
+                    text = self.model.format_value_for_column(column_name, value)
+                    width = metrics.horizontalAdvance(str(text))
+                    if width > widest:
+                        widest = width
+            target = widest + padding
+            if self.header.wrap_mode:
+                # The column must fit the header's longest WORD so the wrapped
+                # label breaks at spaces, never into letter stacks.
+                value = self.model.headerData(
+                    column_index, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole)
+                label = "" if value is None else str(value)
+                longest_word = max(
+                    (header_metrics.horizontalAdvance(word) for word in label.split()),
+                    default=0,
+                )
+                target = max(target, longest_word + self.header.sort_icon_width + 9)
+            self.table_view.setColumnWidth(
+                column_index, max(min_width, min(target, max_width)))
+
+        self._refresh_wrapped_header_height()
+
+    def _refresh_wrapped_header_height(self):
+        """Fit the header band to the tallest wrapped label at current widths."""
+        if not self.header.wrap_mode or self.model is None:
+            return
+        metrics = QFontMetrics(self.header.wrap_font())
+        tallest = 18
+        for column_index in range(len(self.model.get_original_data().columns)):
+            if self.table_view.isColumnHidden(column_index):
+                continue
+            value = self.model.headerData(
+                column_index, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole)
+            label = "" if value is None else str(value)
+            avail_width = max(
+                10, self.table_view.columnWidth(column_index) - self.header.sort_icon_width - 8)
+            avail = QRect(0, 0, avail_width, 200)
+            flags = self.header.wrap_flags(metrics, avail, label)
+            needed = metrics.boundingRect(avail, flags, label).height() + 6
+            if needed > tallest:
+                tallest = needed
+        self.header.setFixedHeight(min(tallest, 56))
 
     def set_dataframe(self, df: pd.DataFrame, limit_rows: bool = True):
         """Set the DataFrame to display
