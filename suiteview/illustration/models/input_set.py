@@ -114,6 +114,13 @@ class IllustrationOptions:
     # monthly compounding for what-if illustration runs.
     exact_days_interest: Optional[bool] = None
 
+    # Find GP/TAMRA by Search Routine — solve GLP/GSP/7-pay by premium search
+    # on the calc engine (guaranteed COIs, statutory interest floors, current
+    # expenses) instead of the monthly commutation formula. Default off; the
+    # two methods should agree closely except in edge cases such as multiple
+    # base coverage segments.
+    guideline_by_search: bool = False
+
     # Internal escape hatch: a consumer can keep force-out on while still letting
     # injected premiums intentionally exceed the guideline (no acceptance cap).
     # None -> derive from conform_to_tefra. Used by the PolView GLP solver, which

@@ -43,6 +43,11 @@ from suiteview.polview.ui.formatting import format_date
 from .styles import GROUP_STYLE, INPUT_TABLE_STYLE, PURPLE_BG, PURPLE_DARK
 
 
+def _ordinal(day: int) -> str:
+    suffix = "th" if 11 <= day % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix}"
+
+
 LOAN_TOGGLE_STYLE = f"""
     QPushButton {{
         background-color: #F3ECFC;
@@ -196,8 +201,10 @@ class IllustrationInputsTab(QWidget):
     def _setup_ui(self):
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(12, 10, 12, 12)
-        outer.setSpacing(8)
+        outer.setContentsMargins(12, 8, 12, 12)
+        outer.setSpacing(6)
+
+        outer.addWidget(self._build_valuation_banner())
 
         self.input_tabs = QTabWidget(self)
         self.input_tabs.setStyleSheet(
@@ -206,9 +213,44 @@ class IllustrationInputsTab(QWidget):
             " border: 1px solid #B79CDE; border-bottom: none; font-size: 11px; font-weight: bold; }"
             "QTabBar::tab:selected { background: white; color: #4B2383; }"
         )
-        self.input_tabs.addTab(self._build_control_tab(), "Illustration Control")
         self.input_tabs.addTab(self._build_transaction_tab(), "Transaction Inputs")
+        self.input_tabs.addTab(self._build_control_tab(), "Illustration Control")
         outer.addWidget(self.input_tabs, 1)
+
+    def _build_valuation_banner(self):
+        """Compact date strip: valuation date, monthliversary day, first forecast month.
+
+        Dated inputs must land on monthliversary dates and the projection's
+        first row is one month after the valuation date — surfacing all three
+        here saves the user a trip back to the Policy tab.
+        """
+        banner = QWidget(self)
+        banner.setStyleSheet(
+            "background-color: #2A1458; border: 1px solid #5E35A5; border-radius: 4px;"
+        )
+        row = QHBoxLayout(banner)
+        row.setContentsMargins(10, 3, 10, 3)
+        row.setSpacing(18)
+
+        def _pair(caption: str):
+            cap = QLabel(caption)
+            cap.setStyleSheet(
+                "color: #B79CDE; background: transparent; border: none; font-size: 10px;"
+            )
+            val = QLabel("—")
+            val.setStyleSheet(
+                "color: #FFD54F; background: transparent; border: none;"
+                " font-size: 11px; font-weight: bold;"
+            )
+            row.addWidget(cap)
+            row.addWidget(val)
+            return val
+
+        self.banner_valuation_label = _pair("Valuation Date")
+        self.banner_monthliversary_label = _pair("Monthliversary Day")
+        self.banner_first_forecast_label = _pair("First Forecast Month")
+        row.addStretch(1)
+        return banner
 
     def _build_transaction_tab(self):
         tab = QWidget(self)
@@ -284,6 +326,13 @@ class IllustrationInputsTab(QWidget):
         self.cap_acceptance_check.setChecked(True)
         self.cap_acceptance_check.setToolTip("Apply TEFRA/TAMRA room to scheduled and unscheduled premiums when they are accepted.")
         layout.addWidget(self.cap_acceptance_check)
+
+        self.gp_search_check = self._make_control_checkbox("Find GP/TAMRA by Search Routine")
+        self.gp_search_check.setToolTip(
+            "Solve GLP/GSP/7-pay by premium search on the calc engine (guaranteed COIs, "
+            "statutory interest, current expenses) instead of the monthly commutation formula."
+        )
+        layout.addWidget(self.gp_search_check)
 
         self.stop_on_lapse_check = self._make_control_checkbox("Stop Projection on Lapse")
         self.stop_on_lapse_check.setChecked(True)
@@ -628,6 +677,53 @@ class IllustrationInputsTab(QWidget):
             base_text = label.property("base_text") or label.text()
             label.setText(self._warning_text(base_text))
 
+        self._update_valuation_banner(policy)
+        self._prepopulate_scheduled_premium(policy)
+
+    def _update_valuation_banner(self, policy):
+        valuation_date = getattr(policy, "valuation_date", None)
+        if valuation_date is not None:
+            self.banner_valuation_label.setText(format_date(valuation_date))
+            self.banner_first_forecast_label.setText(
+                format_date(valuation_date + relativedelta(months=1))
+            )
+        else:
+            self.banner_valuation_label.setText("—")
+            self.banner_first_forecast_label.setText("—")
+        if self._issue_date is not None:
+            self.banner_monthliversary_label.setText(_ordinal(self._issue_date.day))
+        else:
+            self.banner_monthliversary_label.setText("—")
+
+    def _prepopulate_scheduled_premium(self, policy):
+        """Seed row 0 with the policy's current schedule (year / billable / mode).
+
+        Loading a policy resets the row to that policy's as-is billing so the
+        default Run Values mirrors what the policyholder is actually paying.
+        """
+        table = self.scheduled_premium_table
+        policy_year = getattr(policy, "policy_year", None)
+        modal_premium = getattr(policy, "modal_premium", None)
+        if policy_year is None or modal_premium in (None, 0):
+            return
+
+        frequency = getattr(policy, "billing_frequency", None)
+        try:
+            frequency = int(frequency) if frequency is not None else 1
+        except (TypeError, ValueError):
+            frequency = 1
+        # Non-standard modes (bi-weekly etc.) bill into the PDF and post
+        # monthly, so anything that isn't Q/S/A schedules as monthly.
+        mode = {3: "Q", 6: "S", 12: "A"}.get(frequency, "M")
+
+        table.blockSignals(True)
+        try:
+            table.item(0, 0).setText(str(int(policy_year)))
+            table.item(0, 1).setText(f"{float(modal_premium):,.2f}")
+            table.item(0, 2).setText(mode)
+        finally:
+            table.blockSignals(False)
+
     def export_input_set(self) -> IllustrationInputSet:
         input_set = IllustrationInputSet()
 
@@ -707,6 +803,7 @@ class IllustrationInputsTab(QWidget):
             allow_exception_prems=self.exception_prem_check.isChecked(),
             exact_days_interest=True if self.exact_days_check.isChecked() else None,
             cap_premiums_at_acceptance=self.cap_acceptance_check.isChecked(),
+            guideline_by_search=self.gp_search_check.isChecked(),
         )
 
     def stop_on_lapse_enabled(self) -> bool:
