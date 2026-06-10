@@ -422,6 +422,10 @@ def calculate_deduction(
             continue
         if (ben.benefit_type or "").startswith("#"):
             continue
+        # Benefits stop charging at their payup/cease anniversary (RERUN
+        # vPW_Active: attained age < payup age — strict on the cease date).
+        if ben.cease_date is not None and projection_date is not None and projection_date >= ben.cease_date:
+            continue
         ben_type = ben.benefit_type or ""
         ben_subtype = ben.benefit_subtype or ""
         ben_key = (ben.benefit_type or "") + (ben.benefit_subtype or "")

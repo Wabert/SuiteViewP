@@ -64,6 +64,8 @@ def main() -> None:
         opt_kwargs["allow_exception_prems"] = bool(cmd["exception"])
     if "exact_days" in cmd:
         opt_kwargs["exact_days_interest"] = bool(cmd["exact_days"])
+    if "gp_search" in cmd:
+        opt_kwargs["guideline_by_search"] = bool(cmd["gp_search"])
     options = IllustrationOptions(**opt_kwargs)
 
     # Optional policy changes: [{"kind":"face_amount"|"db_option","date":"YYYY-MM-DD","value":...,

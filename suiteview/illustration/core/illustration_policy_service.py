@@ -139,6 +139,8 @@ def build_illustration_data(
     tamra_level_raw = pi.tamra_7pay_level
     tamra_7pay_level = float(tamra_level_raw) if tamra_level_raw is not None else 0.0
     tamra_7pay_start = pi.tamra_7pay_start_date
+    tamra_start_av_raw = pi.tamra_7pay_av
+    tamra_7pay_start_av = float(tamra_start_av_raw) if tamra_start_av_raw is not None else 0.0
     tamra_contributions = []
     for tamra_yr in range(1, 8):
         paid = pi.tamra_7pay_premium_paid(tamra_yr)
@@ -340,6 +342,7 @@ def build_illustration_data(
         is_mec=is_mec,
         tamra_7pay_level=tamra_7pay_level,
         tamra_7pay_start_date=tamra_7pay_start,
+        tamra_7pay_start_av=tamra_7pay_start_av,
         tamra_7year_contributions=tamra_contributions,
         regular_loan_principal=reg_loan_prin,
         regular_loan_accrued=reg_loan_acc,

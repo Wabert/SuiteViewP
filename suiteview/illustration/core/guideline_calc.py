@@ -377,3 +377,145 @@ def calculate_glp_iterative(
 
     glp = (low + high) / 2.0
     return IterativeGuidelineResult(glp, glp, ending_av(glp), face, iters, True)
+
+
+# ── Search routine: GLP/GSP/7-pay by premium solve on the real engine ─────
+
+
+def search_guideline_premiums(
+    policy,
+    config,
+    guaranteed_rates,
+    *,
+    attained_age: int,
+    as_of=None,
+    starting_av: float = 0.0,
+    glp_rate_floor: float = 0.04,
+    gsp_rate_spread: float = 0.02,
+    maturity_age: int = 100,
+    tolerance: float = 0.01,
+    max_iter: int = 60,
+):
+    """Solve GLP / GSP / 7-pay by premium search on the CALC ENGINE.
+
+    The "Find GP/TAMRA by Search Routine" path: project the real engine with
+    guaranteed COIs, the statutory interest rate, current expenses, no bonus,
+    and the guideline machinery off — then binary-search the premium whose
+    ending account value endows the face at the 7702 maturity. Because this
+    runs the full engine it picks up mechanics the closed-form solve
+    approximates (true corridor, the dynamic PW waive basis, per-segment COI
+    on multi-coverage policies) — which is exactly where the two methods can
+    diverge.
+
+    Returns a ``monthly_guideline.GuidelineSolveResult``.
+    """
+    import dataclasses
+
+    from suiteview.illustration.core.bonus_rates import BonusConfig
+    from suiteview.illustration.core.calc_engine import IllustrationEngine
+    from suiteview.illustration.core.monthly_guideline import (
+        SEVEN_PAY_YEARS,
+        GuidelineSolveResult,
+    )
+    from suiteview.illustration.models.input_set import (
+        IllustrationInputSet,
+        IllustrationOptions,
+        ScheduledTransaction,
+        TransactionKind,
+    )
+
+    face = policy.total_face
+    months = max(0, (maturity_age - attained_age) * 12)
+    if months <= 0 or face <= 0:
+        return GuidelineSolveResult()
+
+    glp_rate = max(float(policy.guaranteed_interest_rate or 0.0), glp_rate_floor)
+    gsp_rate = max(float(policy.guaranteed_interest_rate or 0.0), glp_rate_floor + gsp_rate_spread)
+
+    # Anchor the projection so the FIRST projected month is the anniversary at
+    # ``attained_age`` (policy month 1) — the annual premium then lands on the
+    # calculation date, and the last projected row's ending AV falls exactly on
+    # the age-``maturity_age`` anniversary (the endowment test point).
+    elapsed_years = max(0, attained_age - policy.issue_age)
+    base_policy = dataclasses.replace(
+        policy,
+        attained_age=attained_age,
+        policy_year=max(1, elapsed_years),
+        policy_month=12 if elapsed_years > 0 else 0,
+        duration=elapsed_years * 12,
+        valuation_date=as_of or policy.valuation_date or policy.issue_date,
+        account_value=0.0,
+        modal_premium=0.0,
+        premiums_ytd=0.0,
+        premiums_paid_to_date=0.0,
+        withdrawals_to_date=0.0,
+        regular_loan_principal=0.0,
+        regular_loan_accrued=0.0,
+        preferred_loan_principal=0.0,
+        preferred_loan_accrued=0.0,
+        variable_loan_principal=0.0,
+        variable_loan_accrued=0.0,
+    )
+    start_policy_year = elapsed_years + 1
+
+    engine = IllustrationEngine()
+    options = IllustrationOptions(
+        conform_to_tefra=False, conform_to_tamra=False,
+        allow_exception_prems=False, exact_days_interest=False,
+    )
+    zero_bonus = BonusConfig()
+
+    def ending_av(
+        annual_premium: float, premium_years: Optional[int], rate: float,
+        av0: float, db_option: Optional[str] = None,
+    ) -> float:
+        overrides = {"current_interest_rate": rate, "account_value": av0}
+        if db_option is not None:
+            overrides["db_option"] = db_option
+        gpolicy = dataclasses.replace(base_policy, **overrides)
+        schedule = [ScheduledTransaction(
+            kind=TransactionKind.PREMIUM, policy_year=1, amount=annual_premium, mode="A")]
+        if premium_years is not None:
+            # Stop the schedule after N premium years FROM THE CALC START
+            # (schedule years are absolute policy years).
+            schedule.append(ScheduledTransaction(
+                kind=TransactionKind.PREMIUM,
+                policy_year=start_policy_year + premium_years,
+                amount=0.0, mode="A"))
+        results = engine.project(
+            gpolicy, months=months,
+            future_inputs=IllustrationInputSet(scheduled_transactions=schedule),
+            options=options, bonus_override=zero_bonus,
+            rates_override=guaranteed_rates, stop_on_lapse=False,
+        )
+        return results[-1].av_end_of_month if results else 0.0
+
+    def solve(
+        premium_years: Optional[int], rate: float, av0: float = 0.0,
+        db_option: Optional[str] = None,
+    ) -> float:
+        low, high = 0.0, max(face / 10.0, 100.0)
+        for _ in range(40):
+            if ending_av(high, premium_years, rate, av0, db_option) >= face:
+                break
+            high *= 2.0
+        else:
+            return high
+        for _ in range(max_iter):
+            mid = (low + high) / 2.0
+            av = ending_av(mid, premium_years, rate, av0, db_option)
+            if abs(av - face) <= tolerance:
+                return mid
+            if av < face:
+                low = mid
+            else:
+                high = mid
+        return (low + high) / 2.0
+
+    # GSP and 7-pay always solve on LEVEL-DB mechanics; GLP honors the
+    # contract's actual DB option (same convention as the formula method).
+    return GuidelineSolveResult(
+        glp=solve(None, glp_rate),
+        gsp=solve(1, gsp_rate, db_option="A"),
+        seven_pay=solve(SEVEN_PAY_YEARS, glp_rate, av0=starting_av, db_option="A"),
+    )

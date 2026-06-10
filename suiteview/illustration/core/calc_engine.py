@@ -439,7 +439,7 @@ class IllustrationEngine:
             for change in policy_changes:
                 outcome = _apply_policy_change(
                     policy, config, change, attained_age, month_date,
-                    rates, rate_year, av,
+                    rates, rate_year, av, options=options,
                 )
                 av += outcome.av_adjustment
                 tamra_reset = tamra_reset or outcome.material_change
@@ -1236,6 +1236,7 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
 
 def _apply_policy_change(
     policy, config, change, attained_age, change_date, rates, rate_year, av,
+    options=None,
 ) -> _PolicyChangeOutcome:
     """Mutate the (private) policy state for one change at its effective month.
 
@@ -1250,10 +1251,18 @@ def _apply_policy_change(
     After any specified-amount movement (vPolicyChangeIndicator) the targets
     (vMTP/vCTP) are recomputed from rates and the guideline premiums (GLP/GSP)
     are recalculated by the attained-age delta method; a material change also
-    restarts the 7-pay period and recomputes the 7-pay level.
+    restarts the 7-pay period. The before-change guideline solve runs BEFORE the
+    mutation so it sees the pre-change coverage basis.
     """
     outcome = _PolicyChangeOutcome()
     face_before = sum(s.face_amount for s in policy.segments) or policy.face_amount
+
+    md = change.metadata or {}
+    fully_injected = {"new_glp", "new_gsp", "new_7pay"} <= md.keys()
+    before = None
+    if _will_alter_coverage(policy, change, face_before, av) and not fully_injected:
+        before = _solve_guideline_state(
+            policy, config, attained_age, change_date, options)
 
     if change.kind == PolicyChangeKind.DB_OPTION:
         old = str(policy.db_option or "").upper()
@@ -1297,18 +1306,73 @@ def _apply_policy_change(
             outcome.material_change = True
 
     if outcome.coverage_changed:
-        ctp_before = policy.ctp
         targets = compute_target_premiums(policy, config, as_of=change_date)
         policy.mtp = targets.mtp_annual / 12.0
         policy.ctp = targets.ctp_annual
         _recalc_guideline_on_change(
             policy, config, change, attained_age,
-            face_before=face_before,
-            ctp_before=ctp_before,
-            material_change=outcome.material_change,
             change_date=change_date,
+            before=before,
+            av=av,
+            material_change=outcome.material_change,
+            options=options,
         )
     return outcome
+
+
+def _will_alter_coverage(policy, change, face_before: float, av: float) -> bool:
+    """Predict whether the change will move the specified amount (and so needs
+    a before-change guideline solve captured ahead of the mutation)."""
+    if change.kind == PolicyChangeKind.FACE_AMOUNT:
+        return abs(float(change.value) - face_before) > 1e-6
+    if change.kind == PolicyChangeKind.DB_OPTION:
+        old = str(policy.db_option or "").upper()
+        new = str(change.value or "").upper()
+        return bool(new) and new != old
+    return False
+
+
+def _months_into_policy_year(policy, as_of) -> int:
+    """Months elapsed since the last policy anniversary (0 = on an anniversary)."""
+    issue = policy.issue_date
+    if issue is None or as_of is None:
+        return 0
+    months = (as_of.year - issue.year) * 12 + (as_of.month - issue.month)
+    if as_of.day < issue.day:
+        months -= 1
+    return max(0, months) % 12
+
+
+def _solve_guideline_state(
+    policy, config, attained_age, change_date, options, starting_av: float = 0.0,
+):
+    """Solve GLP/GSP/7-pay for the policy's CURRENT coverage state.
+
+    Default: the monthly accumulated-value solve (``monthly_guideline``) — the
+    exact monthly equivalent of the workbook's compressed commutation. With
+    ``IllustrationOptions.guideline_by_search`` on: a premium search on the
+    real calc engine (guaranteed COIs, statutory interest, current expenses).
+    """
+    guar = load_rates(policy, config, coi_scale=0)
+    if options is not None and getattr(options, "guideline_by_search", False):
+        from suiteview.illustration.core.guideline_calc import search_guideline_premiums
+
+        return search_guideline_premiums(
+            policy, config, guar,
+            attained_age=attained_age, as_of=change_date, starting_av=starting_av,
+        )
+
+    from suiteview.illustration.core.monthly_guideline import (
+        build_guideline_basis,
+        solve_guideline_premiums,
+    )
+
+    basis = build_guideline_basis(
+        policy, config, guar,
+        attained_age=attained_age, as_of=change_date,
+        months_into_year=_months_into_policy_year(policy, change_date),
+    )
+    return solve_guideline_premiums(basis, starting_av=starting_av)
 
 
 def _recalc_guideline_on_change(
@@ -1317,141 +1381,77 @@ def _recalc_guideline_on_change(
     change,
     attained_age: int,
     *,
-    face_before: float,
-    ctp_before: float,
-    material_change: bool,
     change_date,
+    before,
+    av: float,
+    material_change: bool,
+    options=None,
 ) -> None:
-    """Recalculate GLP/GSP (and 7-pay on a material change) at a policy change.
+    """Recalculate GLP/GSP/7-pay at a policy change.
 
     RERUN (Guideline_Premiums rows 5..10): the new guideline premiums are the
     attained-age delta — new = prior + (after − before) — floored to a
-    monthly-divisible cent (TRUNC(x/12,2)·12). A material change restarts the
-    7-pay period at the change date and fully recomputes the 7-pay level at the
-    after-change state, capped at sMax7702RecalcsAllowed (=1) recalcs.
+    monthly-divisible cent (TRUNC(x/12,2)·12). The 7-pay level is fully
+    recomputed at the after-change state (offset by the account value at the
+    change); a MATERIAL change also restarts the 7-pay period. Unlike the
+    workbook, recalcs are unlimited.
 
-    ``change.metadata`` may inject RERUN's own recalculated values
-    (``new_glp`` / ``new_gsp`` / ``new_7pay``) so the AV/segment/target
-    mechanics can be penny-validated independently of guideline-calc
-    calibration; otherwise the values come from the commutation calculator on
-    the guaranteed COI scale.
+    ``change.metadata`` may inject reference values (``new_glp`` / ``new_gsp``
+    / ``new_7pay``) so AV/segment/target mechanics can be validated
+    independently of the guideline calculator.
     """
     md = change.metadata or {}
-    recalc_count = getattr(policy, "_guideline_recalc_count", 0) + 1
-    policy._guideline_recalc_count = recalc_count
-
     new_glp = md.get("new_glp")
     new_gsp = md.get("new_gsp")
     new_7pay = md.get("new_7pay")
 
-    glp_delta = gsp_delta = 0.0
-    computed_7pay: Optional[float] = None
-    needs_calc = new_glp is None or new_gsp is None or new_7pay is None
-    if needs_calc:
-        try:
-            before, after = _guideline_change_inputs(
-                policy, config, attained_age, face_before, ctp_before)
-            from suiteview.illustration.core.guideline_calc import (
-                calculate_7pay_premium,
-                calculate_glp,
-                calculate_gsp,
-            )
+    # A MATERIAL change restarts the 7-pay period at the change date with the
+    # current account value as the period's starting AV (CH24 "Starting AV").
+    if material_change:
+        policy.tamra_7pay_start_date = change_date
+        policy.tamra_7pay_start_av = max(av, 0.0)
 
-            glp_delta = calculate_glp(after) - calculate_glp(before)
-            gsp_delta = calculate_gsp(after) - calculate_gsp(before)
-            computed_7pay = calculate_7pay_premium(after)
-        except NotImplementedError:
-            # Commutation method covers level (DBO A) benefits only. Keep the
-            # loaded guideline values rather than produce a quietly-wrong one.
-            logger.warning(
-                "Guideline recalc skipped at %s: non-level death benefit "
-                "(DBO %s) needs the iterative method or injected values.",
-                change_date, policy.db_option,
-            )
+    after = None
+    if (new_glp is None or new_gsp is None) and before is not None:
+        after = _solve_guideline_state(
+            policy, config, attained_age, change_date, options)
 
     if new_glp is not None:
         policy.glp = floor_monthly_cent(float(new_glp))
-    elif glp_delta:
-        policy.glp = floor_monthly_cent(floor_monthly_cent(policy.glp) + glp_delta)
+    elif after is not None:
+        policy.glp = floor_monthly_cent(
+            floor_monthly_cent(policy.glp) + after.glp - before.glp)
     if new_gsp is not None:
         policy.gsp = floor_monthly_cent(float(new_gsp))
-    elif gsp_delta:
-        policy.gsp = floor_monthly_cent(floor_monthly_cent(policy.gsp) + gsp_delta)
+    elif after is not None:
+        policy.gsp = floor_monthly_cent(
+            floor_monthly_cent(policy.gsp) + after.gsp - before.gsp)
 
-    # 7-pay LEVEL recalculates on ANY coverage change (KY fires on HJ), within
-    # the allowed recalc count (sMax7702RecalcsAllowed = 1) unless injected;
-    # only a MATERIAL change restarts the 7-pay period (KZ / LA).
+    # The 7-pay LEVEL recalculates on ANY coverage change (KY fires on the
+    # policy-change indicator), solved from the CURRENT 7-pay period start —
+    # the change date after a material change, otherwise the original start
+    # date — with that period's starting account value.
     if new_7pay is not None:
         policy.tamra_7pay_level = floor_monthly_cent(float(new_7pay))
-    elif computed_7pay is not None and recalc_count <= 1:
-        policy.tamra_7pay_level = floor_monthly_cent(computed_7pay)
-    if material_change:
-        policy.tamra_7pay_start_date = change_date
-
-
-def _guideline_change_inputs(policy, config, attained_age, face_before, ctp_before):
-    """Build before/after GuidelinePremiumInputs at the current attained age.
-
-    Mortality is the contract's guaranteed COI (scale 0) expressed as annual qx;
-    expenses are the CURRENT loads/fees. The before/after states differ by
-    specified amount, units, and target premium.
-    """
-    from suiteview.illustration.core.commutation import MortalityTable
-    from suiteview.illustration.core.guideline_calc import (
-        ExpenseAssumptions,
-        GuidelinePremiumInputs,
-    )
-
-    base = policy.base_segment
-    guar = load_rates(policy, config, coi_scale=0)
-    coi_sched = guar.segment_coi.get(base.coverage_phase, [])
-    qx = []
-    for dur in range(1, len(coi_sched)):
-        rate = coi_sched[dur]
-        if rate is None:
-            break
-        monthly_q = float(rate) / 1000.0
-        qx.append(min(1.0, 1.0 - (1.0 - monthly_q) ** 12))
-    mortality = MortalityTable.from_rates(qx, start_age=base.issue_age, name="guar-coi")
-
-    cur = load_rates(policy, config, coi_scale=1)
-    if config.mfee == "Table":
-        mfee_annual = 12.0 * get_rate(cur, "mfee", 1)
-    else:
-        try:
-            mfee_annual = 12.0 * float(config.mfee)
-        except (TypeError, ValueError):
-            mfee_annual = 0.0
-    if config.epu_code == "Table":
-        epu_annual = 12.0 * get_rate(cur, "epu", 1)
-    else:
-        try:
-            epu_annual = 12.0 * float(config.epu_code)
-        except (TypeError, ValueError):
-            epu_annual = 0.0
-
-    def build(face: float, ctp: float) -> GuidelinePremiumInputs:
-        expenses = ExpenseAssumptions(
-            premium_load_target=get_rate(cur, "tpp", 1),
-            premium_load_excess=get_rate(cur, "epp", 1),
-            target_premium=float(ctp or 0.0),
-            per_policy_fee_annual=mfee_annual,
-            per_unit_charge_annual=epu_annual,
-            units=face / 1000.0,
+    elif before is not None:
+        start = policy.tamra_7pay_start_date or change_date
+        start_age = _attained_age_at(policy, start)
+        seven_solve = _solve_guideline_state(
+            policy, config, start_age, start, options,
+            starting_av=policy.tamra_7pay_start_av,
         )
-        return GuidelinePremiumInputs(
-            attained_age=attained_age,
-            mortality=mortality,
-            specified_amount=face,
-            db_option=policy.db_option,
-            endowment_age=100,
-            guaranteed_rate=float(policy.guaranteed_interest_rate or 0.0),
-            glp_rate=0.04,
-            gsp_rate=0.06,
-            expenses=expenses,
-        )
+        policy.tamra_7pay_level = floor_monthly_cent(seven_solve.seven_pay)
 
-    return build(face_before, ctp_before), build(policy.total_face, policy.ctp)
+
+def _attained_age_at(policy, as_of) -> int:
+    """Attained age (anniversary-aligned) at a date."""
+    issue = policy.issue_date
+    if issue is None or as_of is None:
+        return policy.attained_age
+    years = as_of.year - issue.year
+    if (as_of.month, as_of.day) < (issue.month, issue.day):
+        years -= 1
+    return policy.issue_age + max(0, years)
 
 
 def _advance_month(policy_year: int, policy_month: int) -> tuple[int, int]:

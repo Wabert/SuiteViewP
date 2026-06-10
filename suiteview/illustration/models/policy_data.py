@@ -167,6 +167,7 @@ class IllustrationPolicyData:
     is_mec: bool = False
     tamra_7pay_level: float = 0.0
     tamra_7pay_start_date: Optional[date] = None
+    tamra_7pay_start_av: float = 0.0   # account value at the 7-pay period start (SVPY_BEG_CSV_AMT)
     tamra_7pay_cash_value: float = 0.0
     tamra_7year_lowest_db: float = 0.0
     tamra_7year_contributions: List[float] = field(default_factory=lambda: [0.0] * 7)
