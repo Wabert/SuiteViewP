@@ -447,164 +447,17 @@ class IllustrationValuesTab(QWidget):
         "DistributionFromPolicy",
         "IllustrationGCO",
     ]
+    # Withdrawals / DB Option Change / Increase-Decrease / Cov After Change /
+    # MTP / CTP columns are built per projection by the _*_column_names()
+    # builders — the Cov 1..3 / APB slots only appear for coverages that are
+    # actually active somewhere in the run (same convention as the Monthly
+    # Deduction per-coverage columns).
     WITHDRAWALS_GROUP = "Withdrawals"
-    WITHDRAWALS_COLUMNS = [
-        "Input Withdrawal",
-        "Max Net Allowed",
-        "CostBasis before WD",
-        "Applied Net WD",
-        "Remaining Distribution",
-        "CostBasis after WD",
-        "WithdrawalTD",
-        "WD YTD",
-        "Corridor Amount",
-        "WD Reduces SA",
-        "WD SA Change Cov 1",
-        "WD SA Change Cov 2",
-        "WD SA Change Cov 3",
-        "Partial SC",
-        "GrossWD",
-        "AV post WD",
-        "WD Face Decrease",
-    ]
     DBO_CHANGE_GROUP = "DB Option Change"
-    DBO_CHANGE_COLUMNS = [
-        "Prev DBO",
-        "Input DBO",
-        "DBO Changed",
-        "Change Type",
-        "DBO Change Allowed",
-        "DBO Face Decrease",
-        "DBO Decrease Cov 1",
-        "DBO Decrease Cov 2",
-        "DBO Decrease Cov 3",
-        "DBO PSC Cov 1",
-        "DBO PSC Cov 2",
-        "DBO PSC Cov 3",
-        "Total PSC DBO",
-        "DBO Face Increase",
-        "DBO Increase Cov 1",
-        "DBO Increase Cov 2",
-        "DBO Increase Cov 3",
-        "DBO",
-        "Total SA",
-    ]
     FACE_CHANGE_GROUP = "Increase/Decrease"
-    FACE_CHANGE_COLUMNS = [
-        "Input Face",
-        "Change in Input Face",
-        "Specified Face Decrease",
-        "Spec Decrease Cov 1",
-        "Spec Decrease Cov 2",
-        "Spec Decrease Cov 3",
-        "Spec PSC Cov 1",
-        "Spec PSC Cov 2",
-        "Spec PSC Cov 3",
-        "Total PSC Spec Dec",
-        "Specified Face Increase",
-        "Spec Increase Cov 1",
-        "Spec Increase Cov 2",
-        "Spec Increase Cov 3",
-        "Total SA",
-    ]
     MTP_GROUP = "MTP"
-    MTP_COLUMNS = [
-        "MTP Rate Cov 1",
-        "MTP Rate Cov 2",
-        "MTP Rate Cov 3",
-        "MTP Rate Cov 1 Tbl",
-        "MTP Rate Cov 2 Tbl",
-        "MTP Rate Cov 3 Tbl",
-        "MTP Cov 1",
-        "MTP Cov 2",
-        "MTP Cov 3",
-        "MTP APB",
-        "CCV MTP",
-        "GIR MTP",
-        "Other Benefits MTP",
-        "MTP w/o PW",
-        "PW MTPR",
-        "PW MTP",
-        "vMTP",
-        "vMonthlyMTP",
-        "vAccumMTP",
-    ]
     CTP_GROUP = "CTP"
-    CTP_COLUMNS = [
-        "CTP Rate Cov 1",
-        "CTP Rate Cov 2",
-        "CTP Rate Cov 3",
-        "CTP Rate Cov 1 Tbl",
-        "CTP Rate Cov 2 Tbl",
-        "CTP Rate Cov 3 Tbl",
-        "CTP Cov 1",
-        "CTP Cov 2",
-        "CTP Cov 3",
-        "CTP APB",
-        "CCV CTP",
-        "GIR CTP",
-        "Other Benefits CTP",
-        "CTP w/o PW",
-        "CTP PW",
-        "Target Band",
-        "vCTP",
-    ]
     COV_AFTER_CHANGE_GROUP = "Cov After Change"
-    COV_AFTER_CHANGE_COLUMNS = [
-        "Cov 1 Active",
-        "Cov 2 Active",
-        "Cov 3 Active",
-        "APB Active",
-        "Cov 1 Issue Date",
-        "Cov 2 Issue Date",
-        "Cov 3 Issue Date",
-        "Cov 1 Months from Issue",
-        "Cov 2 Months from Issue",
-        "Cov 3 Months from Issue",
-        "Cov 1 Months from Issue w setback",
-        "Cov 2 Months from Issue w setback",
-        "Cov 3 Months from Issue w setback",
-        "Year by Pol Ann Cov 1",
-        "Year by Pol Ann Cov 2",
-        "Year by Pol Ann Cov 3",
-        "Year by Pol Ann w setback Cov 1",
-        "Year by Pol Ann w setback Cov 2",
-        "Year by Pol Ann w setback Cov 3",
-        "Year by Cov Ann Cov 1",
-        "Year by Cov Ann Cov 2",
-        "Year by Cov Ann Cov 3",
-        "Year by Cov Ann w setback Cov 1",
-        "Year by Cov Ann w setback Cov 2",
-        "Year by Cov Ann w setback Cov 3",
-        "Original SA Cov 1",
-        "Original SA Cov 2",
-        "Original SA Cov 3",
-        "Original SA APB",
-        "LastActiveSegment",
-        "Current SA Cov 1",
-        "Current SA Cov 2",
-        "Current SA Cov 3",
-        "Current SA APB",
-        "Band Lock Cov 1",
-        "Band Lock Cov 2",
-        "Band Lock Cov 3",
-        "Band APB",
-        "CurrentSA",
-        "CurrentBand",
-        "Issue Age Cov 1",
-        "Issue Age Cov 2",
-        "Issue Age Cov 3",
-        "Rateclass Cov 1",
-        "Rateclass Cov 2",
-        "Rateclass Cov 3",
-        "Table Rating Cov 1",
-        "Table Rating Cov 2",
-        "Table Rating Cov 3",
-        "Base Flat1",
-        "Base Flat2",
-        "Coverage_Change",
-        "PolicyChangeAVReduction",
-    ]
     TEFRA_TAMRA_GROUP = "TEFRA and TAMRA"
     TEFRA_TAMRA_COLUMNS = [
         "GSP",
@@ -698,6 +551,13 @@ class IllustrationValuesTab(QWidget):
         self._benefit_columns: list[str] = []
         self._rider_columns: list[str] = []
         self._monthly_deduction_columns: list[str] = []
+        # Per-projection slot-driven groups (single coverage until a run shows more).
+        self._withdrawals_columns = self._withdrawals_column_names([1])
+        self._dbo_change_columns = self._dbo_change_column_names([1])
+        self._face_change_columns = self._face_change_column_names([1])
+        self._mtp_columns = self._mtp_column_names([1], False)
+        self._ctp_columns = self._ctp_column_names([1], False)
+        self._cov_after_change_columns = self._cov_after_change_column_names([1], False)
         self._tab_grids: dict[str, FilterTableView] = {}
         self._results: list[MonthlyState] = []
         self._inspected_row: int | None = None
@@ -914,12 +774,12 @@ class IllustrationValuesTab(QWidget):
         """Columns shown on ``title`` after the shared Date/Year/Month/Age lead."""
         return {
             self.SUMMARY_GROUP: self.SUMMARY_COLUMNS,
-            self.WITHDRAWALS_GROUP: self.WITHDRAWALS_COLUMNS,
-            self.DBO_CHANGE_GROUP: self.DBO_CHANGE_COLUMNS,
-            self.FACE_CHANGE_GROUP: self.FACE_CHANGE_COLUMNS,
-            self.COV_AFTER_CHANGE_GROUP: self.COV_AFTER_CHANGE_COLUMNS,
-            self.MTP_GROUP: self.MTP_COLUMNS,
-            self.CTP_GROUP: self.CTP_COLUMNS,
+            self.WITHDRAWALS_GROUP: self._withdrawals_columns,
+            self.DBO_CHANGE_GROUP: self._dbo_change_columns,
+            self.FACE_CHANGE_GROUP: self._face_change_columns,
+            self.COV_AFTER_CHANGE_GROUP: self._cov_after_change_columns,
+            self.MTP_GROUP: self._mtp_columns,
+            self.CTP_GROUP: self._ctp_columns,
             self.TEFRA_TAMRA_GROUP: self.TEFRA_TAMRA_COLUMNS,
             self.REQUESTED_PREMIUM_GROUP: self.REQUESTED_PREMIUM_COLUMNS,
             self.LOAN_CAPITALIZE_GROUP: self.LOAN_CAPITALIZE_COLUMNS,
@@ -972,6 +832,13 @@ class IllustrationValuesTab(QWidget):
             benefit_keys,
             rider_keys,
         )
+        cov_slots, show_apb = self._cov_slots(result_list)
+        self._withdrawals_columns = self._withdrawals_column_names(cov_slots)
+        self._dbo_change_columns = self._dbo_change_column_names(cov_slots)
+        self._face_change_columns = self._face_change_column_names(cov_slots)
+        self._mtp_columns = self._mtp_column_names(cov_slots, show_apb)
+        self._ctp_columns = self._ctp_column_names(cov_slots, show_apb)
+        self._cov_after_change_columns = self._cov_after_change_column_names(cov_slots, show_apb)
         rows = [self._state_to_row(policy, state, coverage_keys, benefit_keys, rider_keys) for state in result_list]
         frame = pd.DataFrame(rows)
         self._all_columns = list(frame.columns)
@@ -1178,6 +1045,140 @@ class IllustrationValuesTab(QWidget):
         if key.startswith("cov") and key[3:].isdigit():
             return f"Cov{key[3:]}"
         return key.upper()
+
+    @staticmethod
+    def _cov_slots(results: list[MonthlyState]) -> tuple[list[int], bool]:
+        """RERUN coverage slots (1..3) ever active in the run, plus the APB flag.
+
+        Read from the engine's Cov After Change snapshots — a slot created
+        mid-projection (face increase) appears once its "Cov n Active" flips.
+        Slot 1 always shows.
+        """
+        slots = {1}
+        show_apb = False
+        for state in results:
+            snap = state.coverage_after_change
+            for index in (2, 3):
+                if snap.get(f"Cov {index} Active"):
+                    slots.add(index)
+            show_apb = show_apb or bool(snap.get("APB Active"))
+        return sorted(slots), show_apb
+
+    @staticmethod
+    def _withdrawals_column_names(slots: list[int]) -> list[str]:
+        return [
+            "Input Withdrawal",
+            "Max Net Allowed",
+            "CostBasis before WD",
+            "Applied Net WD",
+            "Remaining Distribution",
+            "CostBasis after WD",
+            "WithdrawalTD",
+            "WD YTD",
+            "Corridor Amount",
+            "WD Reduces SA",
+            *[f"WD SA Change Cov {i}" for i in slots],
+            "Partial SC",
+            "GrossWD",
+            "AV post WD",
+            "WD Face Decrease",
+        ]
+
+    @staticmethod
+    def _dbo_change_column_names(slots: list[int]) -> list[str]:
+        return [
+            "Prev DBO",
+            "Input DBO",
+            "DBO Changed",
+            "Change Type",
+            "DBO Change Allowed",
+            "DBO Face Decrease",
+            *[f"DBO Decrease Cov {i}" for i in slots],
+            *[f"DBO PSC Cov {i}" for i in slots],
+            "Total PSC DBO",
+            "DBO Face Increase",
+            *[f"DBO Increase Cov {i}" for i in slots],
+            "DBO",
+            "Total SA",
+        ]
+
+    @staticmethod
+    def _face_change_column_names(slots: list[int]) -> list[str]:
+        return [
+            "Input Face",
+            "Change in Input Face",
+            "Specified Face Decrease",
+            *[f"Spec Decrease Cov {i}" for i in slots],
+            *[f"Spec PSC Cov {i}" for i in slots],
+            "Total PSC Spec Dec",
+            "Specified Face Increase",
+            *[f"Spec Increase Cov {i}" for i in slots],
+            "Total SA",
+        ]
+
+    @staticmethod
+    def _mtp_column_names(slots: list[int], show_apb: bool) -> list[str]:
+        return [
+            *[f"MTP Rate Cov {i}" for i in slots],
+            *[f"MTP Rate Cov {i} Tbl" for i in slots],
+            *[f"MTP Cov {i}" for i in slots],
+            *(["MTP APB"] if show_apb else []),
+            "CCV MTP",
+            "GIR MTP",
+            "Other Benefits MTP",
+            "MTP w/o PW",
+            "PW MTPR",
+            "PW MTP",
+            "vMTP",
+            "vMonthlyMTP",
+            "vAccumMTP",
+        ]
+
+    @staticmethod
+    def _ctp_column_names(slots: list[int], show_apb: bool) -> list[str]:
+        return [
+            *[f"CTP Rate Cov {i}" for i in slots],
+            *[f"CTP Rate Cov {i} Tbl" for i in slots],
+            *[f"CTP Cov {i}" for i in slots],
+            *(["CTP APB"] if show_apb else []),
+            "CCV CTP",
+            "GIR CTP",
+            "Other Benefits CTP",
+            "CTP w/o PW",
+            "CTP PW",
+            "Target Band",
+            "vCTP",
+        ]
+
+    @staticmethod
+    def _cov_after_change_column_names(slots: list[int], show_apb: bool) -> list[str]:
+        return [
+            *[f"Cov {i} Active" for i in slots],
+            *(["APB Active"] if show_apb else []),
+            *[f"Cov {i} Issue Date" for i in slots],
+            *[f"Cov {i} Months from Issue" for i in slots],
+            *[f"Cov {i} Months from Issue w setback" for i in slots],
+            *[f"Year by Pol Ann Cov {i}" for i in slots],
+            *[f"Year by Pol Ann w setback Cov {i}" for i in slots],
+            *[f"Year by Cov Ann Cov {i}" for i in slots],
+            *[f"Year by Cov Ann w setback Cov {i}" for i in slots],
+            *[f"Original SA Cov {i}" for i in slots],
+            *(["Original SA APB"] if show_apb else []),
+            "LastActiveSegment",
+            *[f"Current SA Cov {i}" for i in slots],
+            *(["Current SA APB"] if show_apb else []),
+            *[f"Band Lock Cov {i}" for i in slots],
+            *(["Band APB"] if show_apb else []),
+            "CurrentSA",
+            "CurrentBand",
+            *[f"Issue Age Cov {i}" for i in slots],
+            *[f"Rateclass Cov {i}" for i in slots],
+            *[f"Table Rating Cov {i}" for i in slots],
+            "Base Flat1",
+            "Base Flat2",
+            "Coverage_Change",
+            "PolicyChangeAVReduction",
+        ]
 
     @classmethod
     def _coverage_column_names(cls, coverage_keys: list[str]) -> list[str]:
@@ -1424,12 +1425,13 @@ class IllustrationValuesTab(QWidget):
     @staticmethod
     def _cov_after_change_values(state: MonthlyState) -> dict:
         # Per-month "Cov After Change" snapshot built by the engine
-        # (CalcEngine cols DQ..FQ). Keys match COV_AFTER_CHANGE_COLUMNS.
+        # (CalcEngine cols DQ..FQ), keyed by the RERUN display names.
         return dict(state.coverage_after_change)
 
     @staticmethod
     def _withdrawal_values(state: MonthlyState) -> dict:
-        # Withdrawal block (CalcEngine AX..BU). Keys match WITHDRAWALS_COLUMNS.
+        # Withdrawal block (CalcEngine AX..BU). Rows carry every cov slot;
+        # the per-tab column list trims to the coverages active in the run.
         row = {
             "Input Withdrawal": state.input_withdrawal,
             "Max Net Allowed": state.max_net_withdrawal,
@@ -1451,10 +1453,12 @@ class IllustrationValuesTab(QWidget):
             row[f"WD SA Change Cov {i}"] = cuts[i - 1][1] if i - 1 < len(cuts) else 0.0
         return row
 
-    @staticmethod
-    def _dbo_change_values(state: MonthlyState) -> dict:
-        # DB Option Change block (CalcEngine BW..CU) — zeros on no-change months.
-        row = {col: 0.0 for col in IllustrationValuesTab.DBO_CHANGE_COLUMNS}
+    @classmethod
+    def _dbo_change_values(cls, state: MonthlyState) -> dict:
+        # DB Option Change block (CalcEngine BW..CU) — zeros on no-change
+        # months. Rows always carry every slot; the per-tab column list trims
+        # to the coverages active in the run.
+        row = {col: 0.0 for col in cls._dbo_change_column_names([1, 2, 3])}
         row.update({
             "Prev DBO": "", "Input DBO": "", "DBO Changed": False,
             "Change Type": "", "DBO Change Allowed": "", "DBO": "",
@@ -1462,10 +1466,10 @@ class IllustrationValuesTab(QWidget):
         row.update(state.dbo_change_detail)
         return row
 
-    @staticmethod
-    def _face_change_values(state: MonthlyState) -> dict:
+    @classmethod
+    def _face_change_values(cls, state: MonthlyState) -> dict:
         # Specified Increase/Decrease block (CalcEngine CW..DO).
-        row = {col: 0.0 for col in IllustrationValuesTab.FACE_CHANGE_COLUMNS}
+        row = {col: 0.0 for col in cls._face_change_column_names([1, 2, 3])}
         row.update(state.face_change_detail)
         return row
 

@@ -107,6 +107,45 @@ def test_values_tab_uses_one_tab_per_group_each_leading_with_locators():
         assert columns[:4] == ["Date", "Year", "Month", "Attained Age"], title
 
 
+def test_cov_slot_groups_show_only_active_coverages():
+    _app()
+    tab = IllustrationValuesTab()
+
+    single = _state()
+    single.coverage_after_change = {
+        "Cov 1 Active": True, "Cov 2 Active": False, "Cov 3 Active": False,
+        "APB Active": False, "Current SA Cov 1": 100000.0,
+        "Current SA Cov 2": 0.0, "Current SA Cov 3": 0.0,
+        "CurrentSA": 100000.0,
+    }
+    single.mtp_detail = {"MTP Cov 1": 100.0, "MTP Cov 2": 0.0, "vMTP": 1200.0}
+    single.ctp_detail = {"CTP Cov 1": 120.0, "CTP Cov 2": 0.0, "vCTP": 1440.0}
+    tab.display_projection(_policy(), [single])
+
+    cov_columns = list(tab._tab_grids["Cov After Change"].df.columns)
+    assert "Current SA Cov 1" in cov_columns
+    assert "Current SA Cov 2" not in cov_columns
+    assert "Original SA APB" not in cov_columns
+    mtp_columns = list(tab._tab_grids["MTP"].df.columns)
+    assert "MTP Cov 1" in mtp_columns
+    assert "MTP Cov 2" not in mtp_columns
+    assert "WD SA Change Cov 2" not in list(tab._tab_grids["Withdrawals"].df.columns)
+
+    # A coverage activated mid-run (face increase) brings its slot in.
+    second = _state()
+    second.coverage_after_change = dict(
+        single.coverage_after_change,
+        **{"Cov 2 Active": True, "Current SA Cov 2": 50000.0},
+    )
+    second.mtp_detail = dict(single.mtp_detail, **{"MTP Cov 2": 50.0})
+    second.ctp_detail = dict(single.ctp_detail)
+    tab.display_projection(_policy(), [single, second])
+
+    assert "Current SA Cov 2" in list(tab._tab_grids["Cov After Change"].df.columns)
+    assert "MTP Cov 2" in list(tab._tab_grids["MTP"].df.columns)
+    assert "Cov 3 Active" not in list(tab._tab_grids["Cov After Change"].df.columns)
+
+
 def test_summary_tab_columns_and_relabels():
     _app()
     tab = IllustrationValuesTab()
