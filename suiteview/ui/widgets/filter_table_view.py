@@ -57,6 +57,23 @@ class ClickableHeaderView(QHeaderView):
                      | Qt.TextFlag.TextWrapAnywhere)
         return flags
 
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self.wrap_mode:
+            return
+        # Columns no longer stretch to fill the viewport — continue the header
+        # band across the empty strip beyond the last section so the bar reads
+        # as one piece instead of ending mid-window.
+        end = self.length() - self.offset()
+        viewport = self.viewport()
+        if end < viewport.width():
+            painter = QPainter(viewport)
+            strip = QRect(end, 0, viewport.width() - end, viewport.height())
+            painter.fillRect(strip, self.wrap_bg)
+            painter.setPen(self.wrap_border)
+            painter.drawLine(strip.bottomLeft(), strip.bottomRight())
+            painter.end()
+
     def paintSection(self, painter: QPainter, rect: QRect, logicalIndex: int):
         """Paint header section with sort icon"""
         if self.wrap_mode:
@@ -891,6 +908,12 @@ class FilterTableView(QWidget):
             QTableView#filterTableView::item:hover {
                 background-color: #e8f0fa;
             }
+            QHeaderView {
+                /* Continues the header band past the last column now that
+                   sections no longer stretch to fill the viewport. */
+                background-color: #f0f0f0;
+                border: none;
+            }
             QHeaderView::section {
                 background-color: #f0f0f0;
                 color: #000000;
@@ -909,7 +932,11 @@ class FilterTableView(QWidget):
         self.table_view.setHorizontalHeader(self.header)
         
         self.header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        self.header.setStretchLastSection(True)
+        # Columns keep their content width — the LAST column no longer
+        # stretches into a giant filler when the data underfills the window
+        # (the area past it stays an empty sheet, like a spreadsheet). A view
+        # that wants a fill column sets Stretch on that column explicitly.
+        self.header.setStretchLastSection(False)
         self.header.sectionClicked.connect(self.show_filter_popup)
         self.header.sort_clicked.connect(self.on_sort_clicked)
         self.header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
