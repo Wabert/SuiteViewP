@@ -20,7 +20,13 @@ from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .styles import PURPLE_BG, PURPLE_DARK, TAB_WIDGET_STYLE
 from .values_inspector import MonthInspector
-from .values_overview import PolicyValueChart, ValuesOverview, build_chart_series
+from .values_overview import (
+    AccumulatedChargesChart,
+    PolicyValueChart,
+    ValuesOverview,
+    build_chart_series,
+    build_charge_bands,
+)
 
 
 # Double-clicking an Overview ledger cell drills into the detail tab where
@@ -641,10 +647,15 @@ class IllustrationValuesTab(QWidget):
         self.chart = PolicyValueChart(self.tabs)
         self.chart.yearClicked.connect(self._on_chart_year_clicked)
         self.tabs.addTab(self.chart, "Chart")
+        self.charges_chart = AccumulatedChargesChart(self.tabs)
+        self.tabs.addTab(self.charges_chart, "Charges")
         for title in self.TAB_ORDER:
             grid = FilterTableView(self.tabs)
             grid.set_search_visible(False)
             grid.apply_ledger_style()
+            # Chronological ledger — no sort toggle; reclaiming the icon zone
+            # keeps the columns tight.
+            grid.set_sort_enabled(False)
             self._tab_grids[title] = grid
             self.tabs.addTab(grid, title)
         self.body.addWidget(self.tabs)
@@ -725,6 +736,11 @@ class IllustrationValuesTab(QWidget):
         from PyQt6.QtWidgets import QTreeWidgetItem
 
         self.nav_tree.clear()
+        # Overview and the charts lead the rail so the user can always jump back.
+        for title in ("Overview", "Chart", "Charges"):
+            jump = QTreeWidgetItem([title])
+            jump.setData(0, Qt.ItemDataRole.UserRole, (title, None))
+            self.nav_tree.addTopLevelItem(jump)
         for title, columns in tab_columns_by_title.items():
             labels = self._header_labels_for_tab(title)
             stage = QTreeWidgetItem([title])
@@ -755,6 +771,15 @@ class IllustrationValuesTab(QWidget):
         if not data:
             return
         title, column_name = data
+        if title == "Overview":
+            self.tabs.setCurrentWidget(self.overview)
+            return
+        if title == "Chart":
+            self.tabs.setCurrentWidget(self.chart)
+            return
+        if title == "Charges":
+            self.tabs.setCurrentWidget(self.charges_chart)
+            return
         grid = self._tab_grids.get(title)
         if grid is None:
             return
@@ -805,6 +830,7 @@ class IllustrationValuesTab(QWidget):
         self.status_label.setText(message)
         self.overview.clear()
         self.chart.clear()
+        self.charges_chart.clear()
         self.inspector.clear()
         self.nav_tree.clear()
         self._results = []
@@ -878,6 +904,7 @@ class IllustrationValuesTab(QWidget):
         self._rebuild_navigator(navigator_columns)
         self.overview.display(policy, result_list)
         self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)
+        self.charges_chart.set_data(build_charge_bands(result_list[1:]), policy.issue_age)
         self.tabs.setCurrentIndex(0)
         self.status_label.setText(f"Showing valuation snapshot plus {months} projected months.")
 

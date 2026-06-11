@@ -527,3 +527,74 @@ crashes the CSV writer — use max_month ≥ 2.
 **All 11 scenarios re-validated all_ok** (base ×3 policies, facedec, faceinc,
 DBO A→B, B→A, T0/T1/T2 binding, W1, L1). Cases 5/6 proper run on the laptop
 once UE000576 is exported (WORK_LAPTOP_SPEC).
+
+---
+
+## I. 2026-06-10 (overnight) — Report tab, dynamic Input tab, charges chart
+
+### UL Illustration Report (new Report tab)
+`core/report_builder.py` (pure data) + `ui/report_tab.py` (white fixed-width
+sheets on the purple background), wired into Run Values. Decoded from the
+workbook's "UL - Illustration Pages" + 'Illustration Values' sheets:
+- Annual ledger from MonthlyState (EOY values; outlay/forceout/exception/WD
+  sums) with the R17 marker system — `*` GP-capped, `@` force-out,
+  `^` exception prems, `&` forecast MEC year, `%` SV-maturity (`#` premiums-
+  repay-loans pends per-month repayment surfacing). Legends print only when
+  triggered. GUARANTEED columns blank (current-assumptions engine only).
+- Cover: policy block, AV-basis line, RLE-compressed request lines
+  (premium/loan/WD), forecasted-change summaries, MEC sentence.
+- Notes page (assumptions + termination years + bonus note) and the
+  riders/regulatory page (GSP/GLP/AccumGLP + 7-pay inside the TAMRA window,
+  per-change ESTIMATED limits from the engine's recalc'd values).
+- MEC detection: accumulated_7pay > level×year inside the window (reachable
+  with TAMRA conformance off). Rendered vs the validated W1/T1 runs — ledger
+  numbers match the harness CSVs. mock: tools/mock_illustration_report.py.
+- '#4/#5/#6' benefit → ABR terminal/critical/chronic name mapping worked
+  against the U0688012 fixture (TODO marked: verify on live data).
+
+### Dynamic "Input" tab (ui/inputs_dynamic.py)
+"Transaction Inputs" renamed **Grid Inputs**; new first tab **Input** with
+vendor-style dynamic rows (＋ adds, − removes, first row fixed):
+- Premiums/Loans/Withdrawals/Loan Repayments: Type(Input|Solve-disabled) /
+  Year / Age / Amount / Mode / For Years / To Age. Year↔Age and For
+  Years↔To Age sync (anniversary-aligned: age=issue+year−1,
+  to_age=start_age+for_years); bounds clamp to [forecast year, maturity];
+  overlap across rows blocks export with red fields + warning (gaps fine).
+- Premium row defaults: forecast year/age, billed modal premium + mode,
+  For Years to maturity, To Age = maturity age.
+- Face/DBO (no span), Rate Class (current Cov 1 class shown), Table Rating —
+  export PolicyChangeEvents at the year's anniversary.
+- Export semantics: premium/loan year-spans → schedules with explicit ZERO
+  rows at gaps and after the last span (a schedule persists until the next);
+  WD/repay rows → expanded DATED monthliversary transactions (the compiler
+  only schedules premiums/loans). Dynamic rows are appended AFTER the grid
+  exports, so same-year ties resolve to the dynamic row.
+- Suspended policies (status 2): bold red banner — illustration still uses
+  current crediting rates from the last valuation date; the forecast date
+  stays one month after it (in the past).
+- Riders & Benefits buttons (premium-paying enabled — coi-rate/premium
+  heuristic; ABR '#' benefits show disabled): keep/change/drop dialog with
+  new-amount + effective year/age; button recolors amber (changed) / red
+  (dropped); exports RIDER_DROP events.
+
+### Engine: three NEW change kinds (UNVALIDATED vs RERUN — laptop)
+`_apply_policy_change` now handles RATE_CLASS (base-segment class swap +
+rate reload + targets/guideline recompute), SUBSTANDARD (table-rating
+set/remove), RIDER_DROP (deactivate or re-amount riders/benefits by
+metadata target). All reuse the validated recompute machinery but none has
+a RERUN reference yet — the workbook has sINPUT_Rateclass_Change inputs to
+build one. Unknown kinds now log a warning instead of silently no-oping.
+
+### Charts
+- New **Charges** sub-tab: stacked accumulated-charge bands (Base COI incl
+  substandard, EPU, Monthly Fee, AV charge when present, one band per
+  benefit/rider) with hover split ($ + % of total) and legend toggles. The
+  PW band visibly stops growing at its age-60 payup on U0688012.
+- Main chart: default-on now Account Value / Cum Premium / Guideline Limit;
+  new dashed "Accum 7-Pay Prem" series only while a TAMRA window runs
+  (line breaks/resumes across window restarts after a material change).
+
+### Values tab polish
+Overview/Chart/Charges jump entries at the top of the Find Value rail; the
+header sort toggle is OFF for illustration grids (`set_sort_enabled(False)`
+on FilterTableView — icon zone reclaimed, autofit tighter).

@@ -41,9 +41,11 @@ SERIES_COLORS = {
     "Death Benefit": QColor("#8B1A2A"),
     "Cum Premium": QColor("#C9A227"),
     "Guideline Limit": QColor("#4A6FA5"),
+    "Accum 7-Pay Prem": QColor("#B03A8C"),
 }
-DASHED_SERIES = {"Guideline Limit", "Cum Premium"}
-DEFAULT_HIDDEN = {"Guideline Limit"}
+DASHED_SERIES = {"Guideline Limit", "Cum Premium", "Accum 7-Pay Prem"}
+# Default view: AV vs cumulative premium vs the guideline ceiling.
+DEFAULT_HIDDEN = {"Surrender Value", "Death Benefit"}
 
 
 @dataclass
@@ -198,12 +200,16 @@ class PolicyValueChart(QWidget):
                 pen.setWidthF(1.2)
             painter.setPen(pen)
             path = QPainterPath()
+            prev_x: float | None = None
             for index, (x, y) in enumerate(series.points):
                 p = self._to_px(x, y, rng, rect)
-                if index == 0:
+                # Break the line across gaps (e.g. the 7-pay series stops when
+                # a TAMRA window closes and resumes when a change opens a new one).
+                if index == 0 or (prev_x is not None and x - prev_x > 0.2):
                     path.moveTo(p)
                 else:
                     path.lineTo(p)
+                prev_x = x
             painter.drawPath(path)
 
         self._paint_crosshair(painter, rng, rect, metrics)
@@ -547,9 +553,307 @@ def build_chart_series(projected: list) -> list[ChartSeries]:
         ChartSeries("Cum Premium", [(xs(s), s.premiums_to_date) for s in projected]),
         ChartSeries("Guideline Limit", [(xs(s), s.guideline_limit) for s in projected]),
     ]
+    # Accumulated 7-pay contributions, only while a 7-pay window is running
+    # (TAMRA year 1-7). A material change restarts the window mid-projection,
+    # so the line can break and resume against the NEW window's accumulation.
+    seven_pay_points = [
+        (xs(s), s.accumulated_7pay)
+        for s in projected
+        if 1 <= s.tamra_year <= 7 and s.tamra_7pay_level > 0
+    ]
+    if seven_pay_points:
+        series.append(ChartSeries("Accum 7-Pay Prem", seven_pay_points))
     for entry in series:
         entry.visible = entry.name not in DEFAULT_HIDDEN
     return series
+
+
+_CHARGE_BAND_PALETTE = [
+    QColor("#5E35A5"),  # base COI — primary purple
+    QColor("#C9A227"),  # EPU
+    QColor("#00695C"),  # monthly fee
+    QColor("#8B1A2A"),  # benefit/rider cycle starts
+    QColor("#4A6FA5"),
+    QColor("#B03A8C"),
+    QColor("#7B5E00"),
+    QColor("#2E7D32"),
+    QColor("#5C0A14"),
+]
+
+_CHARGE_LABELS = {"39": "Premium Waiver", "3#": "Stip Premium Waiver", "76": "GIO"}
+
+
+@dataclass
+class ChargeBand:
+    name: str
+    points: list = field(default_factory=list)   # [(policy_year_float, cumulative $)]
+    visible: bool = True
+
+
+def build_charge_bands(projected: list) -> list[ChargeBand]:
+    """Cumulative charge bands for the stacked proportion chart.
+
+    Base COI (incl. substandard and the corridor slice), per-unit expense
+    (EPU), the monthly fee, the %-of-AV charge when present, and one band per
+    benefit / rider charge stream.
+    """
+
+    def xs(state):
+        return state.policy_year + (state.policy_month - 1) / 12.0
+
+    benefit_keys: list[str] = []
+    rider_keys: list[str] = []
+    for state in projected:
+        for key in state.benefit_charge_detail:
+            if key not in benefit_keys:
+                benefit_keys.append(key)
+        for key in state.rider_charge_detail:
+            if key not in rider_keys:
+                rider_keys.append(key)
+
+    bands = [ChargeBand("Base COI")]
+    bands.append(ChargeBand("Expense / Unit"))
+    bands.append(ChargeBand("Monthly Fee"))
+    has_av_charge = any(s.av_charge > 0 for s in projected)
+    if has_av_charge:
+        bands.append(ChargeBand("AV Charge"))
+    for key in benefit_keys:
+        bands.append(ChargeBand(_CHARGE_LABELS.get(key, f"Benefit {key}")))
+    for key in rider_keys:
+        bands.append(ChargeBand(f"Rider {key.split('_')[0]}" if "_" in key else f"Rider {key}"))
+
+    totals = [0.0] * len(bands)
+    for state in projected:
+        x = xs(state)
+        values = [state.coi_charge, state.epu_charge, state.mfee_charge]
+        if has_av_charge:
+            values.append(state.av_charge)
+        values.extend(state.benefit_charge_detail.get(key, 0.0) for key in benefit_keys)
+        values.extend(state.rider_charge_detail.get(key, 0.0) for key in rider_keys)
+        for index, value in enumerate(values):
+            totals[index] += max(value, 0.0)
+            bands[index].points.append((x, totals[index]))
+    return [band for band in bands if band.points and band.points[-1][1] > 0.005]
+
+
+class AccumulatedChargesChart(QWidget):
+    """Stacked area chart of ACCUMULATED charges — each band's share of the
+    total cost of the policy over the projection.
+
+    Same hand-painted aesthetic as PolicyValueChart: hover crosshair with the
+    per-band split at that point, legend chips toggle bands out of the stack.
+    """
+
+    MARGIN_LEFT = 56
+    MARGIN_RIGHT = 10
+    MARGIN_TOP = 26
+    MARGIN_BOTTOM = 30
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._bands: list[ChargeBand] = []
+        self._issue_age: int = 0
+        self._hover_x: float | None = None
+        self._legend_rects: list[tuple[QRectF, str]] = []
+        self.setMouseTracking(True)
+        self.setMinimumHeight(170)
+
+    def set_data(self, bands: list[ChargeBand], issue_age: int):
+        self._bands = bands
+        self._issue_age = issue_age
+        self._hover_x = None
+        self.update()
+
+    def clear(self):
+        self._bands = []
+        self.update()
+
+    def _band_color(self, index: int) -> QColor:
+        return _CHARGE_BAND_PALETTE[index % len(_CHARGE_BAND_PALETTE)]
+
+    def _plot_rect(self) -> QRectF:
+        return QRectF(
+            self.MARGIN_LEFT, self.MARGIN_TOP,
+            max(10.0, self.width() - self.MARGIN_LEFT - self.MARGIN_RIGHT),
+            max(10.0, self.height() - self.MARGIN_TOP - self.MARGIN_BOTTOM),
+        )
+
+    def _visible(self) -> list[ChargeBand]:
+        return [band for band in self._bands if band.visible and band.points]
+
+    def _stack_tops(self):
+        """Per-x stacked cumulative boundaries for the visible bands."""
+        visible = self._visible()
+        if not visible:
+            return None, None
+        xs_all = [p[0] for p in visible[0].points]
+        tops: list[list[float]] = []
+        running = [0.0] * len(xs_all)
+        for band in visible:
+            level = []
+            for index, (_, value) in enumerate(band.points[:len(xs_all)]):
+                running[index] = running[index] + value
+                level.append(running[index])
+            tops.append(level)
+        return xs_all, tops
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(self.rect(), CHART_BG)
+
+        small = QFont(self.font())
+        small.setPointSizeF(7.5)
+        painter.setFont(small)
+        metrics = QFontMetrics(small)
+        self._paint_legend(painter, metrics)
+
+        xs_all, tops = self._stack_tops()
+        rect = self._plot_rect()
+        if not xs_all:
+            painter.setPen(QPen(TEXT_COLOR))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                             "Run Values to chart accumulated charges.")
+            return
+
+        x0, x1 = xs_all[0], xs_all[-1]
+        if x1 - x0 < 1e-9:
+            x1 = x0 + 1.0
+        y1 = max(tops[-1]) * 1.04 if tops[-1] else 1.0
+        y0 = 0.0
+
+        def to_px(x, y):
+            px = rect.left() + (x - x0) / (x1 - x0) * rect.width()
+            py = rect.bottom() - (y - y0) / (y1 - y0) * rect.height()
+            return QPointF(px, py)
+
+        # $ guides
+        painter.setPen(QPen(GRID_COLOR, 1))
+        for i in range(5):
+            y = y0 + (y1 - y0) * i / 4
+            p = to_px(x0, y)
+            painter.drawLine(QPointF(rect.left(), p.y()), QPointF(rect.right(), p.y()))
+            painter.setPen(QPen(TEXT_COLOR))
+            painter.drawText(
+                QRectF(0, p.y() - 7, self.MARGIN_LEFT - 6, 14),
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                _fmt_axis(y),
+            )
+            painter.setPen(QPen(GRID_COLOR, 1))
+
+        # X ticks (year/age)
+        span = x1 - x0
+        tick = 1 if span <= 12 else 2 if span <= 24 else 5 if span <= 60 else 10
+        year = int(x0) + (0 if x0 == int(x0) else 1)
+        while year <= x1 + 1e-9:
+            if (year - int(x0)) % tick == 0:
+                p = to_px(year, y0)
+                painter.setPen(QPen(AXIS_COLOR, 1))
+                painter.drawLine(QPointF(p.x(), rect.bottom()), QPointF(p.x(), rect.bottom() + 3))
+                painter.setPen(QPen(TEXT_COLOR))
+                painter.drawText(QRectF(p.x() - 24, rect.bottom() + 4, 48, 12),
+                                 Qt.AlignmentFlag.AlignCenter, f"Yr {year}")
+                painter.drawText(QRectF(p.x() - 24, rect.bottom() + 15, 48, 12),
+                                 Qt.AlignmentFlag.AlignCenter, f"{self._issue_age + year - 1}")
+            year += 1
+
+        # Stacked bands: fill between the prior boundary and this band's top.
+        visible = self._visible()
+        lower = [0.0] * len(xs_all)
+        for band, level in zip(visible, tops):
+            color = QColor(self._band_color(self._bands.index(band)))
+            color.setAlpha(165)
+            path = QPainterPath()
+            path.moveTo(to_px(xs_all[0], lower[0]))
+            for x, y in zip(xs_all, level):
+                path.lineTo(to_px(x, y))
+            for x, y in zip(reversed(xs_all), reversed(lower)):
+                path.lineTo(to_px(x, y))
+            path.closeSubpath()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color)
+            painter.drawPath(path)
+            lower = list(level)
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(AXIS_COLOR, 1))
+        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+
+        self._paint_crosshair(painter, metrics, rect, xs_all, tops, to_px)
+
+    def _paint_legend(self, painter: QPainter, metrics: QFontMetrics):
+        self._legend_rects = []
+        x = float(self.MARGIN_LEFT)
+        for index, band in enumerate(self._bands):
+            color = self._band_color(index)
+            w = metrics.horizontalAdvance(band.name) + 18
+            chip = QRectF(x, 5, w, 15)
+            self._legend_rects.append((chip, band.name))
+            swatch = QRectF(x + 3, 10, 8, 5)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color if band.visible else QColor("#D7CCE8"))
+            painter.drawRect(swatch)
+            painter.setPen(QPen(TEXT_COLOR if band.visible else QColor("#9E91B5")))
+            painter.drawText(QRectF(x + 14, 5, w - 14, 15),
+                             Qt.AlignmentFlag.AlignVCenter, band.name)
+            x += w + 6
+
+    def _paint_crosshair(self, painter, metrics, rect, xs_all, tops, to_px):
+        if self._hover_x is None or not xs_all:
+            return
+        # Snap to the nearest sample.
+        nearest_index = min(range(len(xs_all)), key=lambda i: abs(xs_all[i] - self._hover_x))
+        x = xs_all[nearest_index]
+        p = to_px(x, 0)
+        painter.setPen(QPen(CROSSHAIR_COLOR, 1, Qt.PenStyle.DashLine))
+        painter.drawLine(QPointF(p.x(), rect.top()), QPointF(p.x(), rect.bottom()))
+
+        visible = self._visible()
+        total = tops[-1][nearest_index] if tops else 0.0
+        lines = [f"Year {int(x)}  -  Total {_fmt_money(total)}"]
+        lower = 0.0
+        for band, level in zip(visible, tops):
+            amount = level[nearest_index] - lower
+            lower = level[nearest_index]
+            share = (amount / total * 100.0) if total > 0 else 0.0
+            lines.append(f"{band.name}:  {_fmt_money(amount)}  ({share:.1f}%)")
+        width = max(metrics.horizontalAdvance(line) for line in lines) + 14
+        height = len(lines) * 13 + 8
+        bx = min(p.x() + 8, rect.right() - width)
+        by = rect.top() + 4
+        painter.setPen(QPen(AXIS_COLOR))
+        painter.setBrush(QColor(255, 255, 255, 235))
+        painter.drawRect(QRectF(bx, by, width, height))
+        painter.setPen(QPen(TEXT_COLOR))
+        for index, line in enumerate(lines):
+            painter.drawText(QRectF(bx + 7, by + 4 + index * 13, width - 10, 13),
+                             Qt.AlignmentFlag.AlignVCenter, line)
+
+    def mouseMoveEvent(self, event):
+        rect = self._plot_rect()
+        xs_all, tops = self._stack_tops()
+        if not xs_all or not rect.contains(event.position()):
+            self._hover_x = None
+            self.update()
+            return
+        x0, x1 = xs_all[0], xs_all[-1]
+        frac = (event.position().x() - rect.left()) / max(rect.width(), 1.0)
+        self._hover_x = x0 + frac * (x1 - x0)
+        self.update()
+
+    def leaveEvent(self, event):
+        self._hover_x = None
+        self.update()
+
+    def mousePressEvent(self, event):
+        for chip, name in self._legend_rects:
+            if chip.contains(event.position()):
+                for band in self._bands:
+                    if band.name == name:
+                        band.visible = not band.visible
+                        self.update()
+                        return
+        super().mousePressEvent(event)
 
 
 def _status_text(state) -> str:

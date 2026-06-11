@@ -18,6 +18,7 @@ from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from .inputs_tab import IllustrationInputsTab
 from .policy_list import IllustrationPolicyListWindow
 from .policy_tab import IllustrationPolicyTab
+from .report_tab import IllustrationReportTab
 from .values_tab import IllustrationValuesTab
 from .styles import (
     GOLD_TEXT,
@@ -96,9 +97,11 @@ class IllustrationWindow(FramelessWindowBase):
         self.policy_tab = IllustrationPolicyTab()
         self.inputs_tab = IllustrationInputsTab()
         self.values_tab = IllustrationValuesTab()
+        self.report_tab = IllustrationReportTab()
         self.tabs.addTab(self.policy_tab, "Policy")
         self.tabs.addTab(self.inputs_tab, "Illustration Inputs")
         self.tabs.addTab(self.values_tab, "Values")
+        self.tabs.addTab(self.report_tab, "Report")
         tabs_layout.addWidget(self.tabs)
         main_layout.addWidget(tabs_container, 1)
 
@@ -188,6 +191,7 @@ class IllustrationWindow(FramelessWindowBase):
                 self._show_status("Policy not found")
                 self.run_values_btn.setEnabled(False)
                 self.values_tab.clear_results("Load a policy, then click Run Values.")
+                self.report_tab.clear("Load a policy, then click Run Values.")
                 return
 
             company_code = self._policy.company_code
@@ -238,6 +242,7 @@ class IllustrationWindow(FramelessWindowBase):
         self.policy_tab.load_data_from_policy(self._policy, self._policy_info)
         self.inputs_tab.load_data_from_policy(self._policy)
         self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")
+        self.report_tab.clear()
         self.run_values_btn.setEnabled(True)
         cache_note = " (cached)" if cached else ""
         self._show_status(f"Loaded policy {self._policy.policy_number} ({company_code}) - {self._policy.status_description}{cache_note}")
@@ -283,6 +288,17 @@ class IllustrationWindow(FramelessWindowBase):
                 months=max(len(results) - 1, 0),
                 injected_first_row_columns=self._first_row_injected_columns(scenario),
             )
+            from datetime import date as _date
+
+            from suiteview.illustration.core.report_builder import build_ul_report
+
+            self.report_tab.display_report(build_ul_report(
+                scenario.projectable_policy,
+                results,
+                options=self.inputs_tab.export_options(),
+                future_inputs=scenario.future_inputs,
+                run_date=_date.today(),
+            ))
             self.tabs.setCurrentWidget(self.values_tab)
             self._show_status(
                 f"Values ready for {policy_number} - valuation snapshot plus {max(len(results) - 1, 0)} projected months"

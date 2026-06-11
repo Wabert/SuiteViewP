@@ -301,6 +301,19 @@ the policy-change plan.
   withdrawal yr 11 + DBO A→B at age 65; case 6 = 3,000 loans yrs 12-15). The
   scenario SHAPES are validated EXACT on U0688012 (QUESTION_LOG §H), so once
   the export lands the cases should run as-is via the standard harness loop.
+- **NEW engine change kinds need RERUN references** (QUESTION_LOG §I): the
+  dynamic Input tab exports RATE_CLASS / SUBSTANDARD (table rating) /
+  RIDER_DROP policy changes and the engine applies them, but none is
+  validated. The workbook has `sINPUT_Rateclass_Change_NewRateclassCode/_Date`
+  and per-rider change inputs — build references via `rerun_com.py overrides`
+  and compare like the face/DBO changes were.
+- **Report tab spot-checks on live data**: insured/agent names + address on
+  the cover (blank in fixtures), the '#4/#5/#6' benefit → ABR rider-name
+  mapping, suspended-policy banner against a real suspended policy, and the
+  Input tab's rider buttons' premium-paying heuristic (coi_rate/premium).
+- **UI click-tests** (no UI on the minipc beyond render mocks): dynamic Input
+  rows (year↔age sync feel, ＋/− behavior, overlap warning), rider
+  keep/change/drop dialog, Charges chart hover, Report tab scrolling.
 - **TAMRA 7-pay** (`calculate_7pay_premium`, `guideline_calc.py`) — penny-validate
   against RERUN's `Guideline_Premiums` (CalcEngine `KY`) with the guaranteed-COI
   table; confirm the expense/interest basis (QUESTION_LOG Q2).

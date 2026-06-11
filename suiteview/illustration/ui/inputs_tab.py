@@ -40,6 +40,7 @@ from suiteview.illustration.models.input_set import (
 from suiteview.audit.tabs._styles import _CHECKMARK_PATH, _ensure_checkmark
 from suiteview.polview.ui.formatting import format_date
 
+from .inputs_dynamic import DynamicInputsPanel
 from .styles import GROUP_STYLE, INPUT_TABLE_STYLE, PURPLE_BG, PURPLE_DARK
 
 
@@ -213,7 +214,9 @@ class IllustrationInputsTab(QWidget):
             " border: 1px solid #B79CDE; border-bottom: none; font-size: 11px; font-weight: bold; }"
             "QTabBar::tab:selected { background: white; color: #4B2383; }"
         )
-        self.input_tabs.addTab(self._build_transaction_tab(), "Transaction Inputs")
+        self.dynamic_panel = DynamicInputsPanel(self)
+        self.input_tabs.addTab(self.dynamic_panel, "Input")
+        self.input_tabs.addTab(self._build_transaction_tab(), "Grid Inputs")
         self.input_tabs.addTab(self._build_control_tab(), "Illustration Control")
         outer.addWidget(self.input_tabs, 1)
 
@@ -679,6 +682,7 @@ class IllustrationInputsTab(QWidget):
 
         self._update_valuation_banner(policy)
         self._prepopulate_scheduled_premium(policy)
+        self.dynamic_panel.load_from_policy(policy)
 
     def _update_valuation_banner(self, policy):
         valuation_date = getattr(policy, "valuation_date", None)
@@ -793,6 +797,11 @@ class IllustrationInputsTab(QWidget):
                         value=db_option,
                     )
                 )
+
+        # Dynamic Input tab rows (year/age driven). Appended after the grids,
+        # so on a same-year schedule tie the dynamic row wins — the compiler
+        # takes the LAST schedule at or before a year.
+        self.dynamic_panel.collect_into(input_set)
 
         return input_set
 

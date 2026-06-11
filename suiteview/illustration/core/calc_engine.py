@@ -1704,6 +1704,61 @@ def _apply_policy_change(
             detail[f"Spec Increase Cov {len(policy.segments)}"] = delta  # DK..DM
         detail["Total SA"] = policy.total_face                   # DO
         outcome.face_detail = detail
+    elif change.kind == PolicyChangeKind.RATE_CLASS:
+        # Cov 1 rate-class change: reload every class-keyed schedule for the
+        # base segment; targets/guideline recompute via coverage_changed.
+        # TODO: validate vs RERUN (sINPUT_Rateclass_Change) on the laptop.
+        new_class = str(change.value or "").strip().upper()
+        base = policy.base_segment
+        if base is not None and new_class and new_class != (base.rate_class or "").upper():
+            base.rate_class = new_class
+            policy.rate_class = new_class
+            _load_segment_rates(rates, base, policy.plancode)
+            _reband_benefits(rates, policy)
+            outcome.coverage_changed = True
+    elif change.kind == PolicyChangeKind.SUBSTANDARD:
+        # Table-rating change on the base coverage (0 removes the rating).
+        # COI substandard applies as a multiplier at deduction time; targets
+        # pick up the new rating through the recompute below.
+        # TODO: validate vs RERUN on the laptop.
+        new_table = int(change.value or 0)
+        base = policy.base_segment
+        if base is not None and new_table != base.table_rating:
+            base.table_rating = new_table
+            if new_table == 0:
+                base.table_cease_date = change_date
+            else:
+                base.table_cease_date = None
+            outcome.coverage_changed = True
+    elif change.kind == PolicyChangeKind.RIDER_DROP:
+        # Drop/changed rider or benefit: value is the new amount (0 = drop).
+        # metadata["target"]: "cov:<phase>" or "ben:<key>:<phase>".
+        # TODO: validate vs RERUN rider-change inputs on the laptop.
+        target = str((change.metadata or {}).get("target", ""))
+        new_amount = float(change.value or 0.0)
+        if target.startswith("cov:"):
+            phase = int(target.split(":", 1)[1])
+            for rider in policy.riders:
+                if rider.coverage_phase == phase:
+                    if new_amount <= 0.0:
+                        rider.is_active = False
+                    else:
+                        rider.face_amount = new_amount
+                        rider.units = new_amount / (rider.vpu or 1000.0)
+                    outcome.coverage_changed = True
+        elif target.startswith("ben:"):
+            parts = target.split(":")
+            ben_key, phase = parts[1], int(parts[2]) if len(parts) > 2 else 0
+            for ben in policy.benefits:
+                key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+                if key == ben_key and (phase == 0 or ben.coverage_phase == phase):
+                    if new_amount <= 0.0:
+                        ben.is_active = False
+                    else:
+                        ben.benefit_amount = new_amount
+                    outcome.coverage_changed = True
+    else:
+        logger.warning("Policy change kind %s is not implemented; ignored", change.kind)
 
     if outcome.coverage_changed:
         _reload_policy_band_rates(rates, policy, config)

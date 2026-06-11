@@ -32,6 +32,10 @@ class ClickableHeaderView(QHeaderView):
         self.hovered_section = -1
         self.sort_order = {}  # column_index -> Qt.SortOrder
         self.filtered_columns = set()  # Track which columns have active filters
+        # Sort toggle (the ▲/▼ icon zone on every section). Views showing
+        # chronological data (illustration ledgers) turn it off — the icon
+        # zone is reclaimed so columns can autofit tighter.
+        self.sort_enabled = True
         # Wrapped-header mode (ledger style): sections are painted manually with
         # word-wrapped labels instead of the single-line elided default.
         self.wrap_mode = False
@@ -89,9 +93,12 @@ class ClickableHeaderView(QHeaderView):
             painter.fillRect(rect, QColor(173, 216, 230, 80))  # Light blue with transparency
             painter.restore()
 
+        if not self.sort_enabled:
+            return
+
         # Draw sort icon on the right side
         icon_rect = self.get_sort_icon_rect(rect)
-        
+
         # Draw sort icon (square/triangle/arrow based on sort state)
         painter.save()
         
@@ -142,7 +149,8 @@ class ClickableHeaderView(QHeaderView):
             value = model.headerData(
                 logicalIndex, self.orientation(), Qt.ItemDataRole.DisplayRole)
             label = "" if value is None else str(value)
-        avail = rect.adjusted(5, 1, -(self.sort_icon_width + 3), -1)
+        icon_allowance = (self.sort_icon_width + 3) if self.sort_enabled else 3
+        avail = rect.adjusted(5, 1, -icon_allowance, -1)
         painter.setFont(self.wrap_font())
         painter.setPen(self.wrap_fg)
         painter.drawText(avail, self.wrap_flags(painter.fontMetrics(), avail, label), label)
@@ -205,8 +213,8 @@ class ClickableHeaderView(QHeaderView):
             )
             
             icon_rect = self.get_sort_icon_rect(section_rect)
-            
-            if icon_rect.contains(event.pos()):
+
+            if self.sort_enabled and icon_rect.contains(event.pos()):
                 # Sort icon clicked - emit custom signal
                 logger.debug(f"Sort icon clicked for column {logical_index}")
                 self.sort_clicked.emit(logical_index)
@@ -249,8 +257,8 @@ class ClickableHeaderView(QHeaderView):
                 )
                 
                 icon_rect = self.get_sort_icon_rect(section_rect)
-                
-                if icon_rect.contains(event.pos()):
+
+                if self.sort_enabled and icon_rect.contains(event.pos()):
                     if self.hovered_section != logical_index:
                         self.hovered_section = logical_index
                         self.viewport().update()
@@ -1022,6 +1030,18 @@ class FilterTableView(QWidget):
             }}
         """)
 
+    def set_sort_enabled(self, enabled: bool):
+        """Show/hide the per-column sort toggle (▲/▼ icon zone).
+
+        Chronological views (illustration ledgers) turn it off; the reclaimed
+        icon zone lets autofit make columns tighter. Call before autofit.
+        """
+        self.header.sort_enabled = enabled
+        if not enabled:
+            self.sort_order = {}
+            self.header.sort_order = {}
+        self.header.viewport().update()
+
     def autofit_columns_to_data(
         self,
         sample_rows: int = 400,
@@ -1066,7 +1086,8 @@ class FilterTableView(QWidget):
                     (header_metrics.horizontalAdvance(word) for word in label.split()),
                     default=0,
                 )
-                target = max(target, longest_word + self.header.sort_icon_width + 9)
+                icon_allowance = (self.header.sort_icon_width + 9) if self.header.sort_enabled else 9
+                target = max(target, longest_word + icon_allowance)
             self.table_view.setColumnWidth(
                 column_index, max(min_width, min(target, max_width)))
 
@@ -1084,8 +1105,9 @@ class FilterTableView(QWidget):
             value = self.model.headerData(
                 column_index, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole)
             label = "" if value is None else str(value)
+            header_icon_allowance = (self.header.sort_icon_width + 8) if self.header.sort_enabled else 8
             avail_width = max(
-                10, self.table_view.columnWidth(column_index) - self.header.sort_icon_width - 8)
+                10, self.table_view.columnWidth(column_index) - header_icon_allowance)
             avail = QRect(0, 0, avail_width, 200)
             flags = self.header.wrap_flags(metrics, avail, label)
             needed = metrics.boundingRect(avail, flags, label).height() + 6

@@ -82,6 +82,7 @@ def test_values_tab_uses_one_tab_per_group_each_leading_with_locators():
     assert titles == [
         "Overview",
         "Chart",
+        "Charges",
         "Summary",
         "Withdrawals",
         "DB Option Change",
