@@ -30,6 +30,17 @@ GROUPS = [
         ("premium",          "gross_premium",    "WI", "val"),
         ("av_after_premium", "av_after_premium", "OO", "val"),
     ]},
+    {"name": "Withdrawal", "level": "standard", "fields": [
+        ("input_wd",      "input_withdrawal",       "AX", "val"),
+        ("max_net",       "max_net_withdrawal",     "AY", "val"),
+        ("applied_net",   "applied_net_withdrawal", "BA", "val"),
+        ("wd_to_date",    "withdrawals_to_date",    "BD", "val"),
+        ("partial_sc",    "wd_partial_sc",          "BM", "val"),
+        ("gross_wd",      "gross_withdrawal",       "BN", "val"),
+        ("av_post_wd",    "av_post_withdrawal",     "BO", "val"),
+        ("face_decrease", "wd_face_decrease",       "BP", "val"),
+        ("cost_basis",    "cost_basis_after_wd",    "BC", "val"),
+    ]},
     {"name": "Guideline", "level": "standard", "fields": [
         ("gsp",             "gsp",                "KS", "val"),
         ("glp",             "glp",                "KT", "val"),
@@ -64,7 +75,18 @@ GROUPS = [
         ("surr_charge",   "surrender_charge", "TK", "val"),   # vFullSC — all coverages
         ("surr_value",    "surrender_value",  "WG", "val"),
         ("death_benefit", "ending_db",        "WB", "val"),
-        ("policy_debt",   "policy_debt",      "NA", "val"),
+        # NA displays the BEGINNING-of-month debt (before new loans/accrual).
+        ("policy_debt",   ["rg_loan_princ", "rg_loan_accrued", "pf_loan_princ",
+                           "pf_loan_accrued", "vbl_loan_princ", "vbl_loan_accrued"],
+                          "NA", "val"),
+    ]},
+    {"name": "Loans", "level": "standard", "fields": [
+        ("end_rg_princ",   "end_rg_loan_princ",   "VO", "val"),
+        ("end_rg_accrued", "end_rg_loan_accrued", "VP", "val"),
+        ("end_pf_princ",   "end_pf_loan_princ",   "VQ", "val"),
+        ("end_pf_accrued", "end_pf_loan_accrued", "VR", "val"),
+        ("end_vbl_princ",  "end_vbl_loan_princ",  "VS", "val"),
+        ("end_vbl_accrued","end_vbl_loan_accrued","VT", "val"),
     ]},
     {"name": "Rates", "level": "full", "fields": [
         ("coi_rate",      "coi_rate",              "OY", "rate"),   # base COI w/ substandard

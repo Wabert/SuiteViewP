@@ -119,6 +119,7 @@ def build_guideline_basis(
     attained_age: int,
     as_of: Optional[date] = None,
     months_into_year: int = 0,
+    active_as_of: Optional[date] = None,
 ) -> GuidelineBasis:
     """Build the monthly guideline-basis inputs from the CURRENT policy state.
 
@@ -127,10 +128,18 @@ def build_guideline_basis(
     ``months_into_year`` positions a mid-year calculation date (0 = on an
     anniversary); the first partial year then has ``12 − months_into_year``
     months before the first anniversary.
+
+    ``active_as_of`` gates which benefits exist in the basis AT ALL — the
+    workbook's after-change blocks key every active flag off the CHANGE row
+    (FR163: IF(vPW_Active@change, ...)), so a 7-pay re-solve from the original
+    period start still EXCLUDES a benefit that has since ceased. Defaults to
+    ``as_of`` (the solve start).
     """
     base = policy.base_segment
     issue_age = policy.issue_age
     total_months = max(0, (DEEMED_MATURITY_AGE - attained_age) * 12 - months_into_year)
+    if active_as_of is None:
+        active_as_of = as_of
 
     # Year offset from ISSUE for duration-indexed schedules (COI/loads/fees).
     start_year = max(1, attained_age - issue_age + 1)
@@ -199,6 +208,14 @@ def build_guideline_basis(
         for ben in policy.benefits:
             ben_type = ben.benefit_type or ""
             if not ben.is_active or ben_type.startswith("#"):
+                continue
+            # A benefit already ceased at the calculation date contributes
+            # nothing anywhere in the solve (strict, matching vPW_Active).
+            if (
+                ben.cease_date is not None
+                and active_as_of is not None
+                and active_as_of >= ben.cease_date
+            ):
                 continue
             cease_year = _benefit_cease_year(policy, ben)
             if cease_year is not None and policy_year > cease_year:

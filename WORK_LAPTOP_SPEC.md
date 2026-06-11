@@ -297,6 +297,10 @@ the policy-change plan.
   the engine seeds shadow from `gav` (GPT GAV), wrong for a CCV policy (see
   QUESTION_LOG Q1). (b) The simple base case **UE000576** never made it into the
   local policy SQLite — `export_local_policy_data.py UE000576 --region CKPR --append`.
+  Now also blocks RERUN **Saved Cases 5 and 6** (UE000576 clones: case 5 =
+  withdrawal yr 11 + DBO A→B at age 65; case 6 = 3,000 loans yrs 12-15). The
+  scenario SHAPES are validated EXACT on U0688012 (QUESTION_LOG §H), so once
+  the export lands the cases should run as-is via the standard harness loop.
 - **TAMRA 7-pay** (`calculate_7pay_premium`, `guideline_calc.py`) — penny-validate
   against RERUN's `Guideline_Premiums` (CalcEngine `KY`) with the guaranteed-COI
   table; confirm the expense/interest basis (QUESTION_LOG Q2).

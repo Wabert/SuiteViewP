@@ -10,22 +10,22 @@ from suiteview.illustration.core.loan_handler import LoanState
 class CashFlowApplication:
     av: float
     loan_state: LoanState
-    withdrawals_to_date: float
 
 
 def apply_cash_flow_inputs(
     av: float,
     loan_state: LoanState,
-    withdrawals_to_date: float,
     month_inputs: CompiledMonthInputs | None,
 ) -> CashFlowApplication:
-    """Apply early-month cash-flow inputs before monthly deduction.
+    """Apply early-month loan inputs (variable loans, repayments).
 
-    Fixed loan requests are handled later in the policy-values slice after
-    monthly deduction, once preferred-vs-regular allocation can be determined.
+    Withdrawals are processed earlier by the dedicated withdrawal stage
+    (calc_engine._process_withdrawal — CalcEngine AX..BU). Fixed loan requests
+    are handled later in the policy-values slice after monthly deduction, once
+    preferred-vs-regular allocation can be determined.
     """
     if month_inputs is None:
-        return CashFlowApplication(av=av, loan_state=loan_state, withdrawals_to_date=withdrawals_to_date)
+        return CashFlowApplication(av=av, loan_state=loan_state)
 
     new_loan_state = LoanState(
         rg_loan_princ=loan_state.rg_loan_princ,
@@ -45,12 +45,7 @@ def apply_cash_flow_inputs(
         new_loan_state.vbl_loan_accrued, repayment_remaining = _reduce_bucket(new_loan_state.vbl_loan_accrued, repayment_remaining)
         new_loan_state.vbl_loan_princ, repayment_remaining = _reduce_bucket(new_loan_state.vbl_loan_princ, repayment_remaining)
 
-    applied_withdrawal = min(max(month_inputs.withdrawal, 0.0), max(av, 0.0))
-    return CashFlowApplication(
-        av=av - applied_withdrawal,
-        loan_state=new_loan_state,
-        withdrawals_to_date=withdrawals_to_date + applied_withdrawal,
-    )
+    return CashFlowApplication(av=av, loan_state=new_loan_state)
 
 
 def _reduce_bucket(balance: float, amount: float) -> tuple[float, float]:

@@ -447,6 +447,108 @@ class IllustrationValuesTab(QWidget):
         "DistributionFromPolicy",
         "IllustrationGCO",
     ]
+    WITHDRAWALS_GROUP = "Withdrawals"
+    WITHDRAWALS_COLUMNS = [
+        "Input Withdrawal",
+        "Max Net Allowed",
+        "CostBasis before WD",
+        "Applied Net WD",
+        "Remaining Distribution",
+        "CostBasis after WD",
+        "WithdrawalTD",
+        "WD YTD",
+        "Corridor Amount",
+        "WD Reduces SA",
+        "WD SA Change Cov 1",
+        "WD SA Change Cov 2",
+        "WD SA Change Cov 3",
+        "Partial SC",
+        "GrossWD",
+        "AV post WD",
+        "WD Face Decrease",
+    ]
+    DBO_CHANGE_GROUP = "DB Option Change"
+    DBO_CHANGE_COLUMNS = [
+        "Prev DBO",
+        "Input DBO",
+        "DBO Changed",
+        "Change Type",
+        "DBO Change Allowed",
+        "DBO Face Decrease",
+        "DBO Decrease Cov 1",
+        "DBO Decrease Cov 2",
+        "DBO Decrease Cov 3",
+        "DBO PSC Cov 1",
+        "DBO PSC Cov 2",
+        "DBO PSC Cov 3",
+        "Total PSC DBO",
+        "DBO Face Increase",
+        "DBO Increase Cov 1",
+        "DBO Increase Cov 2",
+        "DBO Increase Cov 3",
+        "DBO",
+        "Total SA",
+    ]
+    FACE_CHANGE_GROUP = "Increase/Decrease"
+    FACE_CHANGE_COLUMNS = [
+        "Input Face",
+        "Change in Input Face",
+        "Specified Face Decrease",
+        "Spec Decrease Cov 1",
+        "Spec Decrease Cov 2",
+        "Spec Decrease Cov 3",
+        "Spec PSC Cov 1",
+        "Spec PSC Cov 2",
+        "Spec PSC Cov 3",
+        "Total PSC Spec Dec",
+        "Specified Face Increase",
+        "Spec Increase Cov 1",
+        "Spec Increase Cov 2",
+        "Spec Increase Cov 3",
+        "Total SA",
+    ]
+    MTP_GROUP = "MTP"
+    MTP_COLUMNS = [
+        "MTP Rate Cov 1",
+        "MTP Rate Cov 2",
+        "MTP Rate Cov 3",
+        "MTP Rate Cov 1 Tbl",
+        "MTP Rate Cov 2 Tbl",
+        "MTP Rate Cov 3 Tbl",
+        "MTP Cov 1",
+        "MTP Cov 2",
+        "MTP Cov 3",
+        "MTP APB",
+        "CCV MTP",
+        "GIR MTP",
+        "Other Benefits MTP",
+        "MTP w/o PW",
+        "PW MTPR",
+        "PW MTP",
+        "vMTP",
+        "vMonthlyMTP",
+        "vAccumMTP",
+    ]
+    CTP_GROUP = "CTP"
+    CTP_COLUMNS = [
+        "CTP Rate Cov 1",
+        "CTP Rate Cov 2",
+        "CTP Rate Cov 3",
+        "CTP Rate Cov 1 Tbl",
+        "CTP Rate Cov 2 Tbl",
+        "CTP Rate Cov 3 Tbl",
+        "CTP Cov 1",
+        "CTP Cov 2",
+        "CTP Cov 3",
+        "CTP APB",
+        "CCV CTP",
+        "GIR CTP",
+        "Other Benefits CTP",
+        "CTP w/o PW",
+        "CTP PW",
+        "Target Band",
+        "vCTP",
+    ]
     COV_AFTER_CHANGE_GROUP = "Cov After Change"
     COV_AFTER_CHANGE_COLUMNS = [
         "Cov 1 Active",
@@ -569,7 +671,12 @@ class IllustrationValuesTab(QWidget):
     ]
     TAB_ORDER = [
         SUMMARY_GROUP,
+        WITHDRAWALS_GROUP,
+        DBO_CHANGE_GROUP,
+        FACE_CHANGE_GROUP,
         COV_AFTER_CHANGE_GROUP,
+        MTP_GROUP,
+        CTP_GROUP,
         TEFRA_TAMRA_GROUP,
         REQUESTED_PREMIUM_GROUP,
         LOAN_CAPITALIZE_GROUP,
@@ -807,7 +914,12 @@ class IllustrationValuesTab(QWidget):
         """Columns shown on ``title`` after the shared Date/Year/Month/Age lead."""
         return {
             self.SUMMARY_GROUP: self.SUMMARY_COLUMNS,
+            self.WITHDRAWALS_GROUP: self.WITHDRAWALS_COLUMNS,
+            self.DBO_CHANGE_GROUP: self.DBO_CHANGE_COLUMNS,
+            self.FACE_CHANGE_GROUP: self.FACE_CHANGE_COLUMNS,
             self.COV_AFTER_CHANGE_GROUP: self.COV_AFTER_CHANGE_COLUMNS,
+            self.MTP_GROUP: self.MTP_COLUMNS,
+            self.CTP_GROUP: self.CTP_COLUMNS,
             self.TEFRA_TAMRA_GROUP: self.TEFRA_TAMRA_COLUMNS,
             self.REQUESTED_PREMIUM_GROUP: self.REQUESTED_PREMIUM_COLUMNS,
             self.LOAN_CAPITALIZE_GROUP: self.LOAN_CAPITALIZE_COLUMNS,
@@ -979,7 +1091,11 @@ class IllustrationValuesTab(QWidget):
         })
         row.update(self._tefra_tamra_values(state))
         row.update(self._requested_premium_values(state))
+        row.update(self._withdrawal_values(state))
+        row.update(self._dbo_change_values(state))
+        row.update(self._face_change_values(state))
         row.update(self._cov_after_change_values(state))
+        row.update(self._target_premium_values(state))
         loan_capitalize = self._loan_capitalize_values(state)
         row.update(loan_capitalize)
         row.update(self._surrender_values(state, coverage_keys))
@@ -1310,6 +1426,62 @@ class IllustrationValuesTab(QWidget):
         # Per-month "Cov After Change" snapshot built by the engine
         # (CalcEngine cols DQ..FQ). Keys match COV_AFTER_CHANGE_COLUMNS.
         return dict(state.coverage_after_change)
+
+    @staticmethod
+    def _withdrawal_values(state: MonthlyState) -> dict:
+        # Withdrawal block (CalcEngine AX..BU). Keys match WITHDRAWALS_COLUMNS.
+        row = {
+            "Input Withdrawal": state.input_withdrawal,
+            "Max Net Allowed": state.max_net_withdrawal,
+            "CostBasis before WD": state.cost_basis_before_wd,
+            "Applied Net WD": state.applied_net_withdrawal,
+            "Remaining Distribution": state.remaining_distribution,
+            "CostBasis after WD": state.cost_basis_after_wd,
+            "WithdrawalTD": state.withdrawals_to_date,
+            "WD YTD": state.withdrawals_ytd,
+            "Corridor Amount": state.wd_corridor_amount,
+            "WD Reduces SA": state.wd_reduces_sa,
+            "Partial SC": state.wd_partial_sc,
+            "GrossWD": state.gross_withdrawal,
+            "AV post WD": state.av_post_withdrawal,
+            "WD Face Decrease": state.wd_face_decrease,
+        }
+        cuts = sorted(state.wd_sa_change_by_cov.items())
+        for i in (1, 2, 3):
+            row[f"WD SA Change Cov {i}"] = cuts[i - 1][1] if i - 1 < len(cuts) else 0.0
+        return row
+
+    @staticmethod
+    def _dbo_change_values(state: MonthlyState) -> dict:
+        # DB Option Change block (CalcEngine BW..CU) — zeros on no-change months.
+        row = {col: 0.0 for col in IllustrationValuesTab.DBO_CHANGE_COLUMNS}
+        row.update({
+            "Prev DBO": "", "Input DBO": "", "DBO Changed": False,
+            "Change Type": "", "DBO Change Allowed": "", "DBO": "",
+        })
+        row.update(state.dbo_change_detail)
+        return row
+
+    @staticmethod
+    def _face_change_values(state: MonthlyState) -> dict:
+        # Specified Increase/Decrease block (CalcEngine CW..DO).
+        row = {col: 0.0 for col in IllustrationValuesTab.FACE_CHANGE_COLUMNS}
+        row.update(state.face_change_detail)
+        return row
+
+    @staticmethod
+    def _target_premium_values(state: MonthlyState) -> dict:
+        # MTP / CTP detail (CalcEngine HO..JG / JI..KQ) — engine snapshots,
+        # recomputed on coverage changes, carried forward between. The headline
+        # vMTP/vMonthlyMTP/vAccumMTP/vCTP come from the projection state.
+        row = {}
+        row.update(state.mtp_detail)
+        row.update(state.ctp_detail)
+        row["vMTP"] = state.mtp_annual
+        row["vMonthlyMTP"] = state.monthly_mtp
+        row["vAccumMTP"] = state.accumulated_mtp
+        row["vCTP"] = state.ctp
+        return row
 
     @staticmethod
     def _loan_capitalize_values(state: MonthlyState) -> dict:

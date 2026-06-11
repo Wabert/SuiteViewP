@@ -21,10 +21,41 @@ class MonthlyState:
     attained_age: int = 0
     is_anniversary: bool = False
 
+    # ── Withdrawal (CalcEngine AX..BU) ──
+    input_withdrawal: float = 0.0        # AX — requested net (anniversary months)
+    max_net_withdrawal: float = 0.0      # AY
+    cost_basis_before_wd: float = 0.0    # AZ
+    applied_net_withdrawal: float = 0.0  # BA
+    remaining_distribution: float = 0.0  # BB (Sw2LnAtCostBasis only)
+    cost_basis_after_wd: float = 0.0     # BC
+    withdrawals_ytd: float = 0.0         # BE (net)
+    wd_corridor_amount: float = 0.0      # BG
+    wd_reduces_sa: bool = False          # BH
+    wd_partial_sc: float = 0.0           # BM
+    gross_withdrawal: float = 0.0        # BN
+    av_post_withdrawal: float = 0.0      # BO
+    wd_face_decrease: float = 0.0        # BP
+    wd_sa_change_by_cov: Dict[int, float] = field(default_factory=dict)  # BI..BL
+
+    # ── DB Option Change (CalcEngine BW..CU) ──
+    # Keyed by the RERUN display column name (e.g. "Prev DBO", "Change Type").
+    dbo_change_detail: Dict[str, object] = field(default_factory=dict)
+
+    # ── Specified Increase/Decrease (CalcEngine CW..DO) ──
+    face_change_detail: Dict[str, object] = field(default_factory=dict)
+
     # ── Cov After Change (CalcEngine DQ..FQ) ──
     # Per-segment coverage snapshot after any policy change for the month, keyed
     # by the RERUN display column name (e.g. "Cov 1 Active", "CurrentSA").
     coverage_after_change: Dict[str, object] = field(default_factory=dict)
+
+    # ── MTP / CTP detail (CalcEngine HO..JG / JI..KQ) ──
+    # Per-component target premium snapshots keyed by the RERUN display names;
+    # recomputed at projection start and on any coverage change, carried
+    # forward between (RERUN recomputes only on vPolicyChangeIndicator).
+    mtp_detail: Dict[str, object] = field(default_factory=dict)
+    ctp_detail: Dict[str, object] = field(default_factory=dict)
+    mtp_annual: float = 0.0              # JG — vMTP (annual)
 
     # ── 0b. Loan Capitalize and Repay (cols 336-341) ──
     rg_loan_princ: float = 0.0          # After cap/repay — beginning of month

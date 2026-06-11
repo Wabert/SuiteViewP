@@ -67,6 +67,15 @@ class TargetPremiumResult:
     pw_component: float = 0.0   # IV — full precision, MTP basis
     target_band: int = 0
 
+    # Rate detail for the Values tab (CalcEngine HO..HV / JI..JP / IU).
+    mtp_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
+    mtp_tbl_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
+    ctp_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
+    ctp_tbl_rates_by_coverage: Dict[int, float] = field(default_factory=dict)
+    pw_rate: float = 0.0        # IU — PW MTPR
+    mtp_wo_pw: float = 0.0      # IT
+    ctp_wo_pw: float = 0.0      # KN basis (cov + benefit CTPs before PW)
+
     @property
     def mtp_monthly(self) -> float:
         """vMonthlyMTP = TRUNC(vMTP/12, 2)."""
@@ -147,14 +156,20 @@ def compute_target_premiums(
             else 0.0
         )
         args = (policy.plancode, seg.issue_age, seg.rate_sex, seg.rate_class, band)
+        mtp_rate = rates_db.get_mtp(*args) or 0.0
+        mtp_tbl_rate = rates_db.get_tbl1_mtp(*args) or 0.0
+        ctp_rate = rates_db.get_ctp(*args) or 0.0
+        ctp_tbl_rate = rates_db.get_tbl1_ctp(*args) or 0.0
         mtp_val = _segment_target(
-            sa, rates_db.get_mtp(*args) or 0.0, rates_db.get_tbl1_mtp(*args) or 0.0,
-            table, flat, cap_tbl_rate=False,
+            sa, mtp_rate, mtp_tbl_rate, table, flat, cap_tbl_rate=False,
         )
         ctp_val = _segment_target(
-            sa, rates_db.get_ctp(*args) or 0.0, rates_db.get_tbl1_ctp(*args) or 0.0,
-            table, flat, cap_tbl_rate=True,
+            sa, ctp_rate, ctp_tbl_rate, table, flat, cap_tbl_rate=True,
         )
+        result.mtp_rates_by_coverage[seg.coverage_phase] = mtp_rate
+        result.mtp_tbl_rates_by_coverage[seg.coverage_phase] = mtp_tbl_rate
+        result.ctp_rates_by_coverage[seg.coverage_phase] = ctp_rate
+        result.ctp_tbl_rates_by_coverage[seg.coverage_phase] = ctp_tbl_rate
         result.mtp_by_coverage[seg.coverage_phase] = mtp_val
         result.ctp_by_coverage[seg.coverage_phase] = ctp_val
         mtp_cov_sum += mtp_val
@@ -222,10 +237,71 @@ def compute_target_premiums(
         result.mtp_benefits["39"] = pw_component
         result.ctp_benefits["39"] = _round2(pw_component)
 
+    result.pw_rate = pw_rate
+    result.mtp_wo_pw = mtp_wo_pw
+    result.ctp_wo_pw = ctp_wo_pw
     result.pw_component = pw_component
     result.mtp_annual = mtp_wo_pw + pw_component
     result.ctp_annual = ctp_wo_pw + _round2(pw_component)
     return result
+
+
+def build_target_detail_snapshots(
+    policy: IllustrationPolicyData,
+    result: TargetPremiumResult,
+) -> tuple[Dict[str, object], Dict[str, object]]:
+    """MTP / CTP per-component snapshots keyed by the RERUN display names.
+
+    Mirrors CalcEngine HO..JG (MTP) and JI..KQ (CTP). The engine's base
+    segments map onto RERUN's Cov 1..3 slots (same convention as the Cov After
+    Change snapshot); APB is not modeled, so its slots stay 0. Benefit slots:
+    PW = type 39, GIR/GIO = type+subtype 76, CCV = type A; PWSTP/CTR/ADB have
+    no target rates for this product family — unmapped benefit targets land in
+    "Other Benefits" so nothing silently disappears.
+    """
+    segments = sorted(
+        (s for s in policy.segments if getattr(s, "is_base", True)),
+        key=lambda s: s.coverage_phase,
+    )
+    mtp: Dict[str, object] = {}
+    ctp: Dict[str, object] = {}
+    for index in (1, 2, 3):
+        seg = segments[index - 1] if index - 1 < len(segments) else None
+        phase = seg.coverage_phase if seg else None
+        mtp[f"MTP Rate Cov {index}"] = result.mtp_rates_by_coverage.get(phase, 0.0)
+        mtp[f"MTP Rate Cov {index} Tbl"] = result.mtp_tbl_rates_by_coverage.get(phase, 0.0)
+        mtp[f"MTP Cov {index}"] = result.mtp_by_coverage.get(phase, 0.0)
+        ctp[f"CTP Rate Cov {index}"] = result.ctp_rates_by_coverage.get(phase, 0.0)
+        ctp[f"CTP Rate Cov {index} Tbl"] = result.ctp_tbl_rates_by_coverage.get(phase, 0.0)
+        ctp[f"CTP Cov {index}"] = result.ctp_by_coverage.get(phase, 0.0)
+    mtp["MTP APB"] = 0.0
+    ctp["CTP APB"] = 0.0
+
+    ccv_keys = {k for k in result.mtp_benefits if k.startswith("A")}
+    named = {"39": "PW", "76": "GIR"}
+    def _ben(values: Dict[str, float], slot: str) -> float:
+        if slot == "CCV":
+            return sum(values.get(k, 0.0) for k in ccv_keys)
+        return sum(v for k, v in values.items() if named.get(k) == slot)
+    for label, slot in (("CCV", "CCV"), ("GIR", "GIR")):
+        mtp[f"{label} MTP"] = _ben(result.mtp_benefits, slot)
+        ctp[f"{label} CTP"] = _ben(result.ctp_benefits, slot)
+    other_keys = [
+        k for k in result.mtp_benefits
+        if k not in named and k not in ccv_keys
+    ]
+    mtp["Other Benefits MTP"] = sum(result.mtp_benefits[k] for k in other_keys)
+    ctp["Other Benefits CTP"] = sum(result.ctp_benefits.get(k, 0.0) for k in other_keys)
+
+    mtp["MTP w/o PW"] = result.mtp_wo_pw          # IT
+    mtp["PW MTPR"] = result.pw_rate               # IU
+    mtp["PW MTP"] = result.pw_component           # IV
+    mtp["vMTP"] = result.mtp_annual               # JG
+    ctp["CTP w/o PW"] = result.ctp_wo_pw          # KN basis
+    ctp["CTP PW"] = _round2(result.pw_component)  # KP = ROUND(IV, 2)
+    ctp["vCTP"] = result.ctp_annual               # KQ
+    ctp["Target Band"] = result.target_band
+    return mtp, ctp
 
 
 def floor_monthly_cent(value: float) -> float:

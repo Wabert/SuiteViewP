@@ -134,6 +134,7 @@ def apply_new_fixed_loan(
     account_value: float,
     premiums_to_date: float,
     withdrawals_to_date: float,
+    max_loan: float | None = None,
 ) -> LoanState:
     """Allocate a new fixed-loan request between preferred and regular loans.
 
@@ -143,12 +144,18 @@ def apply_new_fixed_loan(
 
         max(0, AV - current policy debt - (PremTD - AccumWDs))
 
+    ``max_loan`` caps the applied amount (TQ vAppliedLoan with
+    sInput_RestrictLoansToSV: MIN(requested, MAX(0, lapseSV − holdback·MD)) —
+    you cannot borrow past the surrender value).
+
     The split always applies to a fixed loan; when there is no gain the whole
     request becomes regular loan (preferred_amount = 0). Capitalized loan
     interest is not re-split here — it stays in its own bucket, matching the
     workbook (capitalization happens within-bucket before this step).
     """
     loan_amount = max(requested_amount, 0.0)
+    if max_loan is not None:
+        loan_amount = min(loan_amount, max(0.0, max_loan))
     if loan_amount == 0.0:
         return loan
 

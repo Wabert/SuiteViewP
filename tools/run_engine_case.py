@@ -10,11 +10,16 @@ Usage (single JSON arg):
     {"policy":"U0688012","region":"CKPR","company":"01","months":120,
      "out_csv":"out.csv",
      "tefra":false,"tamra":true,"exception":false,"exact_days":true,
-     "premiums":[{"year":1,"amount":25000,"mode":"A"}]}
+     "premiums":[{"year":1,"amount":25000,"mode":"A"}],
+     "withdrawals":[{"date":"2029-11-09","amount":1000}],
+     "loans":[{"year":12,"amount":3000},{"year":16,"amount":0}]}
 
 Scheduled premiums REPLACE the policy's billed premium from the given policy
 year on (mirrors overriding RERUN's vINPUT_Premium_Amount/_Mode vectors); the
-engine still caps at acceptance per the TEFRA/TAMRA toggles.
+engine still caps at acceptance per the TEFRA/TAMRA toggles. Withdrawals are
+dated (RERUN takes them at the anniversary — use the anniversary date).
+Loans are annual schedules by policy year; a schedule persists until the next
+entry, so end a finite run with a 0-amount year (RERUN vINPUT_Loans rows).
 
 Option flags mirror the RERUN sINPUT_* booleans (omit to use engine defaults):
   tefra      -> IllustrationOptions.conform_to_tefra
@@ -49,8 +54,8 @@ def main() -> None:
     from suiteview.illustration.core.illustration_policy_service import build_illustration_data
     from suiteview.illustration.core.calc_engine import IllustrationEngine
     from suiteview.illustration.models.input_set import (
-        IllustrationOptions, IllustrationInputSet, PolicyChangeEvent, PolicyChangeKind,
-        ScheduledTransaction, TransactionKind,
+        DatedTransaction, IllustrationOptions, IllustrationInputSet,
+        PolicyChangeEvent, PolicyChangeKind, ScheduledTransaction, TransactionKind,
     )
     from suiteview.illustration.debug.excel_export import _PIPELINE_ORDER, _get_projection_value
 
@@ -79,7 +84,7 @@ def main() -> None:
     # metadata injects RERUN's recalculated guideline values so the AV/segment
     # mechanics validate independently of guideline-calc calibration.
     future_inputs = None
-    if cmd.get("changes") or cmd.get("premiums"):
+    if any(cmd.get(k) for k in ("changes", "premiums", "withdrawals", "loans")):
         evs = []
         for ch in cmd.get("changes") or []:
             kind = (PolicyChangeKind.FACE_AMOUNT if ch["kind"] == "face_amount"
@@ -90,7 +95,7 @@ def main() -> None:
                 value=value, metadata=ch.get("metadata") or {}))
         # Scheduled premiums: [{"year":1,"amount":25000,"mode":"A"}] — replaces
         # the billed premium from that policy year on (RERUN premium-vector
-        # override equivalent).
+        # override equivalent). Loans use the same year-schedule semantics.
         scheds = [
             ScheduledTransaction(
                 kind=TransactionKind.PREMIUM,
@@ -98,9 +103,25 @@ def main() -> None:
                 amount=float(p["amount"]),
                 mode=p.get("mode", "A"))
             for p in cmd.get("premiums") or []
+        ] + [
+            ScheduledTransaction(
+                kind=TransactionKind.LOAN,
+                policy_year=int(ln["year"]),
+                amount=float(ln["amount"]),
+                mode=ln.get("mode", "A"),
+                metadata={"loan_type": ln["type"]} if ln.get("type") else {})
+            for ln in cmd.get("loans") or []
+        ]
+        dated = [
+            DatedTransaction(
+                kind=TransactionKind.WITHDRAWAL,
+                effective_date=datetime.date.fromisoformat(wd["date"]),
+                amount=float(wd["amount"]))
+            for wd in cmd.get("withdrawals") or []
         ]
         future_inputs = IllustrationInputSet(
-            scheduled_transactions=scheds, policy_changes=evs)
+            scheduled_transactions=scheds, dated_transactions=dated,
+            policy_changes=evs)
 
     clear_cache()
     policy_data = build_illustration_data(policy, region=region, company_code=company)
@@ -110,9 +131,14 @@ def main() -> None:
     # Guideline/target fields live on MonthlyState but aren't in the debug pipeline order.
     extra = [
         "glp", "gsp", "accumulated_glp", "guideline_limit", "guideline_forceout",
-        "monthly_mtp", "ctp", "accumulated_mtp",
+        "monthly_mtp", "ctp", "accumulated_mtp", "mtp_annual",
         "accumulated_7pay", "amount_in_7pay", "tamra_year", "tamra_7pay_level",
         "premium_cap", "premium_capped",
+        # Withdrawal block (CalcEngine AX..BU)
+        "input_withdrawal", "max_net_withdrawal", "applied_net_withdrawal",
+        "withdrawals_ytd", "wd_corridor_amount", "wd_reduces_sa",
+        "wd_partial_sc", "gross_withdrawal", "av_post_withdrawal",
+        "wd_face_decrease", "cost_basis_after_wd",
     ]
     fields = list(_PIPELINE_ORDER) + [f for f in extra if f not in _PIPELINE_ORDER]
 

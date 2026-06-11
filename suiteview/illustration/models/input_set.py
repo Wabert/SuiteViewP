@@ -121,6 +121,11 @@ class IllustrationOptions:
     # base coverage segments.
     guideline_by_search: bool = False
 
+    # sInput_RestrictLoansToSV — cap a new fixed loan at the lapse surrender
+    # value (AV − surrender charge − existing debt, less the MD holdback).
+    # The workbook default is ON: you cannot borrow past the surrender value.
+    restrict_loans_to_sv: bool = True
+
     # Internal escape hatch: a consumer can keep force-out on while still letting
     # injected premiums intentionally exceed the guideline (no acceptance cap).
     # None -> derive from conform_to_tefra. Used by the PolView GLP solver, which

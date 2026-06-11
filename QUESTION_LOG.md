@@ -458,3 +458,72 @@ fails spuriously.
 shadow fixture export (#5, laptop), mid-year non-anniversary change
 AccumAdjust pro-rating (#6), UE000576 local export (laptop), Overview UI
 click-test (laptop).
+
+---
+
+## H. 2026-06-10 (minipc, evening) — Withdrawals + loans EXACT; 5 new Values groups
+
+**Headline: real withdrawal processing and the loan SV-cap are implemented and
+EXACT vs RERUN over 120 months; the Values tab gained Withdrawals / DB Option
+Change / Increase-Decrease / MTP / CTP groups.** Robert added Saved Cases 5/6
+(UE000576 clones — case 5: WD 1,000 yr 11 + DBO A→B at 65; case 6: 3,000 loans
+yrs 12-15). UE000576 is still not in the local fixture, so the identical
+scenario SHAPES were validated on U0688012 (same issue age 50 → same ages):
+- **W1** = WD 1,000 at yr-11 anniversary + A→B at yr 16: all groups 0.0/120mo.
+- **L1** = 3,000 loans yrs 12-15: all groups 0.0/120mo, including the new
+  Loans group (all six end-of-month buckets VO..VT).
+
+### Withdrawal stage (CalcEngine AX..BU) — `withdrawal_handler.py`
+Decoded + implemented: max-net = CSV − holdback·MD − fee, SA floor 25,000+fee
+under DBO A (AY); the WD reduces SA only under DBO A and only past the
+corridor-driven DB (BG/BH); the partial surrender charge is computed on the
+NET allocation (newest coverage first) but the FACE decrease equals the GROSS
+(net + PSC + fee — fee excluded only on an OriginalSA target basis, BP); WD
+to-date/YTD and cost basis track the NET. Constants from Rates_Control:
+sWithdrawalFee 25 / sMD_HoldBack 0 / sbln_PSC True → new PlancodeConfig fields
+(withdrawal_fee, md_holdback, partial_surrender_charge, min_face_after_wd).
+**Pipeline order matters and was reordered to match the workbook's columns:
+loan capitalize → WITHDRAWAL → dated policy changes → guideline/force-out.**
+A SA-reducing WD fires the same targets/guideline/7-pay recompute as a face
+decrease (vCoverage_Change → vPolicyChangeIndicator), with NO extra SCR charge
+(the PSC is inside the gross). 7-pay contribution buckets net out the GROSS WD
+(XZ..YF). FQ vPolicyChangeAVReduction = gross WD + change PSCs.
+
+### Two more engine fixes (both "engine wrong, RERUN right")
+1. **7-pay re-solve benefit gating:** the workbook's after-change blocks key
+   every benefit active flag off the CHANGE row (FR163:
+   IF(vPW_Active@change,...)) even when the re-solve is dated at the original
+   period start — a since-ceased PW is excluded from the WHOLE solve. The
+   engine solved from the start date with PW included (6,862.08 vs RERUN
+   6,358.56). New `active_as_of` threading through `_solve_guideline_state` →
+   `build_guideline_basis`. (Exposed because W1's WD lands on the PW age-60
+   payup anniversary; T1's elective decrease at age 58 couldn't catch it.
+   The `guideline_by_search` path still has the old behavior — TODO.)
+2. **Loan SV cap:** new fixed loans cap at the lapse SV (TQ vAppliedLoan with
+   sInput_RestrictLoansToSV=True (INPUT!E64): MIN(requested, MAX(0, AV − full
+   SC − existing debt − holdback·MD))). L1's 4th loan: RERUN lends 2,298.68 of
+   the requested 3,000. New `IllustrationOptions.restrict_loans_to_sv`
+   (default ON) + `max_loan` on `apply_new_fixed_loan`.
+
+### Values tab + state plumbing
+Five new groups in the RERUN pipeline order (Summary → **Withdrawals → DB
+Option Change → Increase/Decrease** → Cov After Change → **MTP → CTP** →
+TEFRA…). Engine state: flat withdrawal fields (AX..BU), `dbo_change_detail` /
+`face_change_detail` dicts built by `_apply_policy_change` (per-cov
+decrease/PSC/increase splits via the new `_FaceCutResult`), and `mtp_detail` /
+`ctp_detail` snapshots (per-cov rates/tbl-rates/values + PW/GIO/CCV benefit
+slots + unmapped catch-all) recomputed on any coverage change and carried
+forward between (`build_target_detail_snapshots` in target_premium.py).
+
+### Harness
+`run_engine_case.py` takes `"withdrawals":[{"date","amount"}]` (dated — use
+anniversary dates) and `"loans":[{"year","amount"}]` (year schedules persist —
+end finite runs with a 0 year). `calc_compare_map.py` gained Withdrawal (AX,
+AY, BA, BC, BD, BM, BN, BO, BP) and Loans (VO..VT) groups; NA (policy debt
+display) is the BEGINNING-of-month debt → mapped to the cap/repay buckets sum.
+**rerun_com gotcha:** a 1-row × 1-col dump block comes back as a scalar and
+crashes the CSV writer — use max_month ≥ 2.
+
+**All 11 scenarios re-validated all_ok** (base ×3 policies, facedec, faceinc,
+DBO A→B, B→A, T0/T1/T2 binding, W1, L1). Cases 5/6 proper run on the laptop
+once UE000576 is exported (WORK_LAPTOP_SPEC).

@@ -53,6 +53,14 @@ class PlancodeConfig:
     target_sa_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA"
     target_band_lock: bool = False       # True = keep each segment's original band
 
+    # Withdrawals — RERUN sWithdrawalFee / sMD_HoldBack / sbln_PSC, plus the
+    # post-withdrawal minimum face hardcoded in the workbook (AY: SA - 25,025
+    # = 25,000 floor + the fee).
+    withdrawal_fee: float = 25.0
+    md_holdback: float = 0.0             # months of prior MD held back from max-net
+    partial_surrender_charge: bool = True
+    min_face_after_wd: float = 25000.0
+
     # Corridor
     corridor_code: int = 1              # 1 = GPT corridor, 2 = CVAT MDBR
 
@@ -162,6 +170,10 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         table_rating_factor=float(data.get("TableRatingFactor", 0.25)),
         target_sa_basis=data.get("Target_SA_Basis", "CurrentSA"),
         target_band_lock=bool(data.get("Target_BandLock", False)),
+        withdrawal_fee=float(data.get("WithdrawalFee", 25)),
+        md_holdback=float(data.get("MD_HoldBack", 0)),
+        partial_surrender_charge=bool(data.get("PartialSurrenderCharge", True)),
+        min_face_after_wd=float(data.get("MinFaceAfterWD", 25000)),
         corridor_code=int(data.get("CorridorCode", 1)),
         premium_cease_age=int(data.get("PremiumCeaseAge", 121)),
         maturity_age=int(data.get("MaturityAge", 121)),

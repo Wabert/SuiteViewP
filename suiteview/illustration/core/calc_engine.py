@@ -9,13 +9,14 @@ from __future__ import annotations
 import copy
 import logging
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field as dataclass_field, replace
 from enum import Enum
 from typing import Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
 
 from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_config
+from suiteview.illustration.core.corridor_rates import get_corridor_factor
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.illustration.core.interest_calc import credit_interest
@@ -39,14 +40,21 @@ from suiteview.illustration.core.rate_loader import (
 )
 from suiteview.illustration.core.shadow_calc import calculate_shadow
 from suiteview.illustration.core.target_premium import (
+    build_target_detail_snapshots,
     compute_target_premiums,
     floor_monthly_cent,
+)
+from suiteview.illustration.core.withdrawal_handler import (
+    WithdrawalResult,
+    compute_withdrawal,
 )
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     IllustrationInputSet,
     IllustrationOptions,
+    PolicyChangeEvent,
     PolicyChangeKind,
+    TransactionKind,
 )
 from suiteview.illustration.models.policy_data import CoverageSegment
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
@@ -116,11 +124,20 @@ class IllustrationEngine:
             total_months = months
 
         # Policy changes (face decrease, DBO change) mutate a PRIVATE copy of the
-        # policy at their effective month. Base cases (no changes) keep the original
-        # object and fast path — byte-for-byte unchanged.
+        # policy at their effective month — as can a withdrawal that reduces the
+        # specified amount. Base cases (no changes, no withdrawals) keep the
+        # original object and fast path — byte-for-byte unchanged.
         changes_by_duration: Dict[int, list] = {}
-        if future_inputs is not None and future_inputs.policy_changes:
-            policy = copy.deepcopy(policy)
+        if future_inputs is not None and not future_inputs.is_empty():
+            has_withdrawal = any(
+                tx.kind == TransactionKind.WITHDRAWAL
+                for tx in future_inputs.dated_transactions
+            ) or any(
+                tx.kind == TransactionKind.WITHDRAWAL
+                for tx in future_inputs.scheduled_transactions
+            )
+            if future_inputs.policy_changes or has_withdrawal:
+                policy = copy.deepcopy(policy)
             changes_by_duration = _compile_policy_changes(policy, future_inputs.policy_changes)
 
         # Inforce snapshot (month 0) — AV from CyberLife is after-deduction.
@@ -132,6 +149,11 @@ class IllustrationEngine:
             else policy.issue_date + relativedelta(months=policy.duration)
         )
         monthly_mtp_0 = math.trunc(policy.mtp * 100) / 100
+        # MTP/CTP per-component detail (display) — computed from rates for the
+        # inforce coverage state; the headline vMTP/vCTP stay the loaded values.
+        mtp_detail_0, ctp_detail_0 = build_target_detail_snapshots(
+            policy, compute_target_premiums(policy, config, as_of=month_date_inforce)
+        )
         md_check_av_before_deduction = policy.account_value + policy.system_monthly_deduction
         ded0 = calculate_deduction(
             md_check_av_before_deduction,
@@ -223,6 +245,9 @@ class IllustrationEngine:
             coverage_after_change=_coverage_after_change_snapshot(
                 policy, config, policy.valuation_date or policy.issue_date, 0.0, None,
             ),
+            mtp_detail=mtp_detail_0,
+            ctp_detail=ctp_detail_0,
+            mtp_annual=policy.mtp * 12.0,
             av_after_premium=md_check_av_before_deduction,
             glp=floor_monthly_cent(policy.glp),
             gsp=floor_monthly_cent(policy.gsp),
@@ -432,13 +457,33 @@ class IllustrationEngine:
         av = state.av_end_of_month
         rate_year = next_year
 
+        # ── 2b. Loan capitalization (within-bucket at anniversary) ─
+        cap_loan = capitalize_loans(
+            state.end_rg_loan_princ, state.end_rg_loan_accrued,
+            state.end_pf_loan_princ, state.end_pf_loan_accrued,
+            state.end_vbl_loan_princ, state.end_vbl_loan_accrued,
+            is_anniversary,
+        )
+
+        # ── 2c. Withdrawal (CalcEngine AX..BU — before the dated changes) ─
+        wd = _process_withdrawal(
+            state, policy, config, rates, rate_year, attained_age, month_date,
+            av, cost_basis, month_inputs, cap_loan, is_anniversary, options,
+        )
+        av = wd.av_post_withdrawal
+        cost_basis = wd.cost_basis_after_wd
+        withdrawals_to_date = wd.withdrawals_to_date
+
         # ── 3-7. Policy changes / coverage after change ───────
         # Apply any dated policy change effective this month (mutates the private
         # policy copy) before coverage/deduction reads the segments. A coverage
         # change recomputes vMTP/vCTP and the guideline premiums; a material
         # change (face increase, B→A) also restarts the 7-pay period.
         tamra_reset = False
-        policy_change_av_reduction = 0.0
+        # FQ vPolicyChangeAVReduction = gross WD + change partial SCs.
+        policy_change_av_reduction = wd.gross_withdrawal
+        dbo_change_detail: Dict[str, object] = {}
+        face_change_detail: Dict[str, object] = {}
         if policy_changes:
             for change in policy_changes:
                 outcome = _apply_policy_change(
@@ -448,11 +493,28 @@ class IllustrationEngine:
                 av += outcome.av_adjustment
                 policy_change_av_reduction += max(0.0, -outcome.av_adjustment)
                 tamra_reset = tamra_reset or outcome.material_change
+                dbo_change_detail.update(outcome.dbo_detail)
+                face_change_detail.update(outcome.face_detail)
 
         cov_after_change = _coverage_after_change_snapshot(
             policy, config, month_date, policy_change_av_reduction,
             state.coverage_after_change,
         )
+
+        # ── 7b. MTP/CTP detail snapshots (HO..JG / JI..KQ) ────
+        # Recomputed when a change or SA-reducing withdrawal moved the coverage
+        # this month (vPolicyChangeIndicator); carried forward otherwise.
+        if (
+            not state.mtp_detail
+            or policy_changes
+            or wd.face_decrease > 1e-9
+        ):
+            mtp_detail, ctp_detail = build_target_detail_snapshots(
+                policy, compute_target_premiums(policy, config, as_of=month_date)
+            )
+        else:
+            mtp_detail = state.mtp_detail
+            ctp_detail = state.ctp_detail
 
         # ── 8. Minimum Target Premium calculation/accumulation ─
         # Accumulation uses vMonthlyMTP = TRUNC(vMTP/12, 2) (JE/JF); the PW
@@ -481,14 +543,6 @@ class IllustrationEngine:
         )
         guideline_limit = max(gsp_floored, accumulated_glp)
 
-        # ── 11. Loan capitalization (within-bucket at anniversary) ─
-        cap_loan = capitalize_loans(
-            state.end_rg_loan_princ, state.end_rg_loan_accrued,
-            state.end_pf_loan_princ, state.end_pf_loan_accrued,
-            state.end_vbl_loan_princ, state.end_vbl_loan_accrued,
-            is_anniversary,
-        )
-
         # Force-out: limit is the GREATER of GSP and AccumGLP, capped by
         # available AV, gated by TEFRA conformance, disabled once exception
         # mode is on (KX checks the prior month's exception flag).
@@ -496,7 +550,7 @@ class IllustrationEngine:
             gsp_floored,
             accumulated_glp,
             premiums_to_date,
-            state.withdrawals_to_date,
+            withdrawals_to_date,
             av,
             enabled=options.force_out_enabled,
             is_cvat=policy.is_cvat,
@@ -506,12 +560,10 @@ class IllustrationEngine:
         cash_flows = apply_cash_flow_inputs(
             av,
             cap_loan,
-            withdrawals_to_date,
             month_inputs,
         )
         av = cash_flows.av
         cap_loan = cash_flows.loan_state
-        withdrawals_to_date = cash_flows.withdrawals_to_date
 
         # ── 12. Apply premium (capped by guideline / TAMRA) ───
         # A material change restarted the 7-pay period: the prior window's
@@ -558,12 +610,23 @@ class IllustrationEngine:
         av = exception.av_after_exception
 
         # ── 15. Policy values / new fixed loans (gain → preferred) ─
+        # The applied loan is capped at the lapse SV (TQ vAppliedLoan with
+        # sInput_RestrictLoansToSV): AV − full SC − existing debt − MD holdback.
+        loan_cap = None
+        if options.restrict_loans_to_sv:
+            _, full_sc_for_loan, _, _ = _calculate_surrender_charge(
+                policy, rates, rate_year, month_date)
+            loan_cap = (
+                av - full_sc_for_loan - cap_loan.policy_debt
+                - config.md_holdback * ded.total_deduction
+            )
         fixed_loan_state = apply_new_fixed_loan(
             cap_loan,
             month_inputs.regular_loan if month_inputs is not None else 0.0,
             av,
             prem.premiums_to_date,
             withdrawals_to_date,
+            max_loan=loan_cap,
         )
 
         # ── 16. Accumulation: interest crediting ──────────────
@@ -641,9 +704,11 @@ class IllustrationEngine:
         )
         lapsed = state.lapsed or not any_protection
 
-        # 7-pay contributions accumulate while inside the 7-pay window.
+        # 7-pay contributions accumulate while inside the 7-pay window —
+        # premiums in, GROSS withdrawals out (XZ..YF add
+        # vAppliedTotalPremium − vGrossWD to the year's bucket).
         accumulated_7pay = accumulated_7pay_base + (
-            prem.gross_premium if tamra_year <= 7 else 0.0
+            prem.gross_premium - wd.gross_withdrawal if tamra_year <= 7 else 0.0
         )
 
         # ── 19. Deemed cash value ─────────────────────────────
@@ -662,6 +727,15 @@ class IllustrationEngine:
             attained_age=attained_age,
             is_anniversary=is_anniversary,
             coverage_after_change=cov_after_change,
+            # Withdrawal (AX..BU)
+            **_withdrawal_state_fields(wd),
+            # DBO / specified face change details (BW..CU / CW..DO)
+            dbo_change_detail=dbo_change_detail,
+            face_change_detail=face_change_detail,
+            # MTP / CTP detail (HO..JG / JI..KQ)
+            mtp_detail=mtp_detail,
+            ctp_detail=ctp_detail,
+            mtp_annual=policy.mtp * 12.0,
             # Set 1: Loan cap/repay (beginning of month)
             rg_loan_princ=cap_loan.rg_loan_princ,
             rg_loan_accrued=cap_loan.rg_loan_accrued,
@@ -867,6 +941,15 @@ class IllustrationEngine:
             exact_days_interest=options.exact_days_interest,
         )
 
+        # Withdrawal (CalcEngine AX..BU) — before the guideline force-out so the
+        # month's net withdrawal is already in withdrawals-to-date.
+        wd = _process_withdrawal(
+            state, policy, config, rates, rate_year, attained_age, month_date,
+            intr.av_end_of_month, cost_basis, month_inputs, cap_loan,
+            is_anniversary, options,
+        )
+        cost_basis = wd.cost_basis_after_wd
+
         gsp_floored = floor_monthly_cent(policy.gsp)
         accumulated_glp = _accumulate_guideline_premium(
             state, policy, is_anniversary, attained_age
@@ -876,8 +959,8 @@ class IllustrationEngine:
             gsp_floored,
             accumulated_glp,
             premiums_to_date,
-            state.withdrawals_to_date,
-            intr.av_end_of_month,
+            wd.withdrawals_to_date,
+            wd.av_post_withdrawal,
             enabled=options.force_out_enabled,
             is_cvat=policy.is_cvat,
             prior_exception_mode=prior_exception_mode,
@@ -886,11 +969,9 @@ class IllustrationEngine:
         cash_flows = apply_cash_flow_inputs(
             av_after_guideline,
             cap_loan,
-            withdrawals_to_date,
             month_inputs,
         )
         cap_loan = cash_flows.loan_state
-        withdrawals_to_date = cash_flows.withdrawals_to_date
 
         tamra_year = _tamra_year(policy, month_date)
         premium_cap = _guideline_premium_cap(
@@ -939,12 +1020,21 @@ class IllustrationEngine:
         )
         av_end = exception.av_after_exception
 
+        loan_cap = None
+        if options.restrict_loans_to_sv:
+            _, full_sc_for_loan, _, _ = _calculate_surrender_charge(
+                policy, rates, rate_year, month_date)
+            loan_cap = (
+                av_end - full_sc_for_loan - cap_loan.policy_debt
+                - config.md_holdback * ded.total_deduction
+            )
         fixed_loan_state = apply_new_fixed_loan(
             cap_loan,
             month_inputs.regular_loan if month_inputs is not None else 0.0,
             av_end,
             prem.premiums_to_date,
             withdrawals_to_date,
+            max_loan=loan_cap,
         )
         accrual_loan = accrue_loan_interest(
             fixed_loan_state,
@@ -973,8 +1063,13 @@ class IllustrationEngine:
             attained_age=attained_age,
             is_anniversary=is_anniversary,
             coverage_after_change=_coverage_after_change_snapshot(
-                policy, config, month_date, 0.0, state.coverage_after_change,
+                policy, config, month_date, wd.gross_withdrawal,
+                state.coverage_after_change,
             ),
+            **_withdrawal_state_fields(wd),
+            mtp_detail=state.mtp_detail,
+            ctp_detail=state.ctp_detail,
+            mtp_annual=policy.mtp * 12.0,
             rg_loan_princ=cap_loan.rg_loan_princ,
             rg_loan_accrued=cap_loan.rg_loan_accrued,
             pf_loan_princ=cap_loan.pf_loan_princ,
@@ -1212,16 +1307,29 @@ class _PolicyChangeOutcome:
     av_adjustment: float = 0.0       # AV movement this month (negative = charge)
     coverage_changed: bool = False   # SA moved -> targets + guideline recompute fired
     material_change: bool = False    # face increase / B->A -> new 7-pay period (KZ)
+    # Display detail keyed by RERUN column names (BW..CU / CW..DO).
+    dbo_detail: Dict[str, object] = dataclass_field(default_factory=dict)
+    face_detail: Dict[str, object] = dataclass_field(default_factory=dict)
 
 
-def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr) -> float:
+@dataclass
+class _FaceCutResult:
+    """Per-coverage detail of a face reduction (decrease / A->B / withdrawal)."""
+
+    av_adjustment: float = 0.0
+    cuts_by_phase: Dict[int, float] = dataclass_field(default_factory=dict)
+    psc_by_phase: Dict[int, float] = dataclass_field(default_factory=dict)
+
+
+def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr) -> _FaceCutResult:
     """Reduce base coverage newest-first by ``amount``; re-band what remains.
 
-    Returns the AV adjustment (the decreased units' surrender charge when
-    ``charge_scr`` — RERUN charges it on an elective face decrease, but not on
-    the A->B level-DB specified-amount adjustment).
+    The AV adjustment is the decreased units' surrender charge when
+    ``charge_scr`` — RERUN charges it on an elective face decrease and the
+    A->B level-DB adjustment, but NOT on a withdrawal's face reduction (the
+    partial surrender charge is already inside the gross withdrawal).
     """
-    av_adjustment = 0.0
+    result = _FaceCutResult()
     remaining = amount
     for seg in reversed(policy.segments):
         if remaining <= 0:
@@ -1232,14 +1340,16 @@ def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr)
             schedule = rates.segment_scr.get(seg.coverage_phase, rates.scr)
             scr_rate = _rate_from_schedule(
                 schedule, _coverage_year(seg, change_date, rate_year))
-            av_adjustment -= scr_rate * cut_units
+            result.psc_by_phase[seg.coverage_phase] = scr_rate * cut_units
+            result.av_adjustment -= scr_rate * cut_units
+        result.cuts_by_phase[seg.coverage_phase] = cut
         seg.units -= cut_units
         seg.face_amount -= cut
         remaining -= cut
         _reband_segment(rates, seg, policy.plancode)
     policy.face_amount = sum(s.face_amount for s in policy.segments)
     _reband_benefits(rates, policy)  # benefit COI rates follow the base band
-    return av_adjustment
+    return result
 
 
 def _coverage_after_change_snapshot(policy, config, month_date, av_reduction, prior) -> Dict[str, object]:
@@ -1404,6 +1514,88 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
     policy.face_amount = sum(s.face_amount for s in policy.segments)
 
 
+def _process_withdrawal(
+    state, policy, config, rates, rate_year, attained_age, month_date,
+    av, cost_basis, month_inputs, cap_loan, is_anniversary, options,
+) -> WithdrawalResult:
+    """Compute and APPLY one month's withdrawal (CalcEngine AX..BU).
+
+    Runs BEFORE the dated policy changes (the workbook pipeline order). A
+    withdrawal that reduces the specified amount is processed like a face
+    decrease — newest coverage first, no extra SCR charge (the partial
+    surrender charge is already inside the gross) — and fires the same
+    target/guideline/7-pay recompute as any coverage change.
+    """
+    request = month_inputs.withdrawal if month_inputs is not None else 0.0
+    scr_rates = {
+        seg.coverage_phase: _rate_from_schedule(
+            rates.segment_scr.get(seg.coverage_phase, rates.scr),
+            _coverage_year(seg, month_date, rate_year),
+        )
+        for seg in policy.segments
+    }
+    debt = (
+        cap_loan.rg_loan_princ + cap_loan.rg_loan_accrued
+        + cap_loan.pf_loan_princ + cap_loan.pf_loan_accrued
+        + cap_loan.vbl_loan_princ + cap_loan.vbl_loan_accrued
+    )
+    wd = compute_withdrawal(
+        av, policy, config, scr_rates, request,
+        corridor_rate=get_corridor_factor(
+            policy.plancode, attained_age, config.corridor_code),
+        prior_total_md=state.total_deduction,
+        policy_debt=debt,
+        cost_basis=cost_basis,
+        withdrawals_to_date=state.withdrawals_to_date,
+        withdrawals_ytd=state.withdrawals_ytd,
+        is_anniversary=is_anniversary,
+    )
+    if wd.face_decrease > 1e-9:
+        before = _solve_guideline_state(
+            policy, config, attained_age, month_date, options)
+        _reduce_base_face(
+            policy, wd.face_decrease, rates, month_date, rate_year,
+            charge_scr=False)
+        _reload_policy_band_rates(rates, policy, config)
+        targets = compute_target_premiums(policy, config, as_of=month_date)
+        policy.mtp = targets.mtp_annual / 12.0
+        policy.ctp = targets.ctp_annual
+        _recalc_guideline_on_change(
+            policy, config,
+            PolicyChangeEvent(
+                kind=PolicyChangeKind.FACE_AMOUNT,
+                effective_date=month_date,
+                value=policy.total_face),
+            attained_age,
+            change_date=month_date,
+            before=before,
+            av=wd.av_post_withdrawal,
+            material_change=False,
+            options=options,
+        )
+    return wd
+
+
+def _withdrawal_state_fields(wd: WithdrawalResult) -> Dict[str, object]:
+    """MonthlyState kwargs for the withdrawal block (shared by both pipelines)."""
+    return dict(
+        input_withdrawal=wd.input_withdrawal,
+        max_net_withdrawal=wd.max_net_withdrawal,
+        cost_basis_before_wd=wd.cost_basis_before_wd,
+        applied_net_withdrawal=wd.applied_net_withdrawal,
+        remaining_distribution=wd.remaining_distribution,
+        cost_basis_after_wd=wd.cost_basis_after_wd,
+        withdrawals_ytd=wd.withdrawals_ytd,
+        wd_corridor_amount=wd.corridor_amount,
+        wd_reduces_sa=wd.reduces_sa,
+        wd_partial_sc=wd.partial_sc,
+        gross_withdrawal=wd.gross_withdrawal,
+        av_post_withdrawal=wd.av_post_withdrawal,
+        wd_face_decrease=wd.face_decrease,
+        wd_sa_change_by_cov=dict(wd.sa_change_by_cov),
+    )
+
+
 def _apply_policy_change(
     policy, config, change, attained_age, change_date, rates, rate_year, av,
     options=None,
@@ -1441,15 +1633,29 @@ def _apply_policy_change(
             # The SA adjustment uses the whole-dollar AV entering the month —
             # RERUN truncates (100,000 face − AV 7,312.75 → SA 92,688).
             av_whole = float(math.floor(max(av, 0.0)))
+            detail: Dict[str, object] = {
+                "Prev DBO": old,                 # BW
+                "Input DBO": new,                # BY
+                "DBO Changed": True,             # BZ
+                "Change Type": old + new,        # CA — "AB" / "BA"
+                "DBO Change Allowed": True,      # CC
+            }
             if old == "A" and new == "B":
                 # Level-DB mechanic: shift AV out of the specified amount.
                 # The reduction is processed like a face decrease INCLUDING the
                 # decreased units' surrender charge (RERUN deducts it from AV).
-                outcome.av_adjustment += _reduce_base_face(
+                cuts = _reduce_base_face(
                     policy, av_whole, rates, change_date, rate_year,
                     charge_scr=True,
                 )
+                outcome.av_adjustment += cuts.av_adjustment
                 outcome.coverage_changed = True
+                detail["DBO Face Decrease"] = av_whole          # CD
+                detail["DBO Face Increase"] = 0.0               # CO
+                detail["Total PSC DBO"] = -cuts.av_adjustment   # CM
+                for i, (phase, cut) in enumerate(sorted(cuts.cuts_by_phase.items()), 1):
+                    detail[f"DBO Decrease Cov {i}"] = cut        # CE..CG
+                    detail[f"DBO PSC Cov {i}"] = cuts.psc_by_phase.get(phase, 0.0)  # CI..CK
             elif old == "B" and new == "A":
                 # Inverse: fold the AV back into the specified amount (in place,
                 # no new segment — this is not an elective face increase).
@@ -1462,18 +1668,42 @@ def _apply_policy_change(
                     _reband_benefits(rates, policy)
                     outcome.coverage_changed = True
                 outcome.material_change = True  # KZ fires on "BA"
+                detail["DBO Face Decrease"] = 0.0
+                detail["DBO Face Increase"] = av_whole           # CO
+                detail["DBO Increase Cov 1"] = av_whole          # CP
+                detail["Total PSC DBO"] = 0.0
             policy.db_option = new
+            detail["DBO"] = new                                  # CT
+            detail["Total SA"] = policy.total_face               # CU
+            outcome.dbo_detail = detail
     elif change.kind == PolicyChangeKind.FACE_AMOUNT:
         new_total = float(change.value)
         delta = new_total - face_before
+        detail = {
+            "Input Face": new_total,             # CW
+            "Change in Input Face": delta,       # CX
+            "Specified Face Decrease": 0.0,      # CY
+            "Specified Face Increase": 0.0,      # DJ
+            "Total PSC Spec Dec": 0.0,           # DH
+        }
         if delta < -1e-6:
-            outcome.av_adjustment += _reduce_base_face(
+            cuts = _reduce_base_face(
                 policy, -delta, rates, change_date, rate_year, charge_scr=True)
+            outcome.av_adjustment += cuts.av_adjustment
             outcome.coverage_changed = True
+            detail["Specified Face Decrease"] = -delta
+            detail["Total PSC Spec Dec"] = -cuts.av_adjustment
+            for i, (phase, cut) in enumerate(sorted(cuts.cuts_by_phase.items()), 1):
+                detail[f"Spec Decrease Cov {i}"] = cut           # CZ..DB
+                detail[f"Spec PSC Cov {i}"] = cuts.psc_by_phase.get(phase, 0.0)  # DD..DF
         elif delta > 1e-6:
             _append_face_increase_segment(policy, rates, delta, attained_age, change_date, config)
             outcome.coverage_changed = True
             outcome.material_change = True
+            detail["Specified Face Increase"] = delta
+            detail[f"Spec Increase Cov {len(policy.segments)}"] = delta  # DK..DM
+        detail["Total SA"] = policy.total_face                   # DO
+        outcome.face_detail = detail
 
     if outcome.coverage_changed:
         _reload_policy_band_rates(rates, policy, config)
@@ -1516,6 +1746,7 @@ def _months_into_policy_year(policy, as_of) -> int:
 
 def _solve_guideline_state(
     policy, config, attained_age, change_date, options, starting_av: float = 0.0,
+    active_as_of=None,
 ):
     """Solve GLP/GSP/7-pay for the policy's CURRENT coverage state.
 
@@ -1523,11 +1754,17 @@ def _solve_guideline_state(
     exact monthly equivalent of the workbook's compressed commutation. With
     ``IllustrationOptions.guideline_by_search`` on: a premium search on the
     real calc engine (guaranteed COIs, statutory interest, current expenses).
+
+    ``active_as_of`` gates benefit existence for a re-solve dated in the past
+    (the 7-pay period start): the workbook keys active flags off the CHANGE
+    row, so a since-ceased benefit is excluded from the whole solve.
     """
     guar = load_rates(policy, config, coi_scale=0)
     if options is not None and getattr(options, "guideline_by_search", False):
         from suiteview.illustration.core.guideline_calc import search_guideline_premiums
 
+        # TODO: the search path does not yet gate since-ceased benefits by the
+        # change date (active_as_of) — it projects from the solve start.
         return search_guideline_premiums(
             policy, config, guar,
             attained_age=attained_age, as_of=change_date, starting_av=starting_av,
@@ -1542,6 +1779,7 @@ def _solve_guideline_state(
         policy, config, guar,
         attained_age=attained_age, as_of=change_date,
         months_into_year=_months_into_policy_year(policy, change_date),
+        active_as_of=active_as_of,
     )
     return solve_guideline_premiums(basis, starting_av=starting_av)
 
@@ -1610,6 +1848,10 @@ def _recalc_guideline_on_change(
         seven_solve = _solve_guideline_state(
             policy, config, start_age, start, options,
             starting_av=policy.tamra_7pay_start_av,
+            # Benefit active flags come from the CHANGE row even when the
+            # solve is dated at the original period start (FR159..FR165 all
+            # INDEX at FM158) — a since-ceased PW is excluded entirely.
+            active_as_of=change_date,
         )
         policy.tamra_7pay_level = floor_monthly_cent(seven_solve.seven_pay)
 
