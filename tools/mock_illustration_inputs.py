@@ -57,6 +57,34 @@ def main() -> None:
     panel.grab().save(str(out))
     panel.hide()
 
+    # Capture the rider keep/change/drop dialog (hook exec so it renders and
+    # closes itself instead of blocking).
+    from PyQt6.QtWidgets import QDialog
+
+    riders = panel.riders_panel
+    enabled = [(k, l, r, a) for (k, l, r, _p, a) in riders._items
+               if riders._buttons[k].isEnabled()]
+    if enabled:
+        key, label, rows, amount = enabled[0]
+        riders._adjustments[key].action = "change"
+        riders._adjustments[key].new_amount = amount
+        dialog_png = Path.home() / ".suiteview" / "mock_rider_dialog.png"
+        original_exec = QDialog.exec
+
+        def grab_and_close(dlg):
+            dlg.show()
+            app.processEvents()
+            dlg.grab().save(str(dialog_png))
+            dlg.close()
+            return 1
+
+        QDialog.exec = grab_and_close
+        try:
+            riders._open_dialog(key, label, rows, amount)
+        finally:
+            QDialog.exec = original_exec
+        print(f"saved {dialog_png}")
+
     # Export + engine smoke: the rate-class change must apply without error.
     input_set = IllustrationInputSet()
     panel.collect_into(input_set)

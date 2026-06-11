@@ -20,14 +20,15 @@ consumes the same ``IllustrationInputSet`` as the grid inputs.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
-from typing import Callable, Optional
+from typing import Optional
 
 from dateutil.relativedelta import relativedelta
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator, QIntValidator
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QComboBox,
     QDialog,
     QGridLayout,
@@ -36,8 +37,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QRadioButton,
-    QButtonGroup,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -100,6 +99,8 @@ class PolicyContext:
     suspended: bool = False
     valuation_date: Optional[date] = None
 
+    forecast_date: Optional[date] = None  # valuation + 1 month (a monthliversary)
+
     @property
     def maturity_year(self) -> int:
         return max(1, self.maturity_age - self.issue_age)
@@ -114,6 +115,22 @@ class PolicyContext:
         if self.issue_date is None:
             return None
         return self.issue_date + relativedelta(years=year - 1)
+
+    def effective_date(self, year: int) -> Optional[date]:
+        """When a change requested for ``year`` takes effect.
+
+        The CURRENT policy year's anniversary is already in the past — a
+        change requested for it takes effect on the FORECAST date. Later
+        years take effect at the start of that year (its anniversary).
+        """
+        when = self.anniversary(year)
+        if (
+            self.forecast_date is not None
+            and when is not None
+            and when < self.forecast_date
+        ):
+            return self.forecast_date
+        return when
 
 
 def context_from_policy(policy) -> PolicyContext:
@@ -155,6 +172,7 @@ def context_from_policy(policy) -> PolicyContext:
         issue_age=issue_age,
         forecast_year=forecast_year,
         forecast_age=issue_age + forecast_year - 1,
+        forecast_date=forecast,
         maturity_age=maturity_age,
         default_mode=mode,
         modal_premium=float(getattr(policy, "modal_premium", 0.0) or 0.0),
@@ -564,6 +582,25 @@ class RiderAdjustment:
         self.action = self.KEEP
         self.new_amount: Optional[float] = None
         self.effective_year: Optional[int] = None
+        self.effective_date: Optional[date] = None   # set when entered by date
+
+
+_SEGMENT_STYLE = f"""
+    QPushButton {{
+        background-color: #F3ECFC;
+        color: {PURPLE_DARK};
+        border: 1px solid #7E57C2;
+        padding: 3px 14px;
+        font-size: 11px;
+        font-weight: bold;
+    }}
+    QPushButton:hover {{ background-color: #E6DAF8; }}
+    QPushButton:checked {{
+        background-color: #5E35A5;
+        color: #FFD54F;
+        border-color: #4B2383;
+    }}
+"""
 
 
 class RiderButtonsPanel(QGroupBox):
@@ -690,33 +727,83 @@ class RiderButtonsPanel(QGroupBox):
             grid.addWidget(val, row_index, 1, Qt.AlignmentFlag.AlignRight)
         layout.addLayout(grid)
 
+        # Segmented action toggle — one clearly-lit selection, no radios.
         toggle_row = QHBoxLayout()
+        toggle_row.setSpacing(0)
         group = QButtonGroup(dlg)
-        keep_radio = QRadioButton("Keep rider")
-        change_radio = QRadioButton("Change rider")
-        drop_radio = QRadioButton("Drop rider")
-        for radio in (keep_radio, change_radio, drop_radio):
-            radio.setStyleSheet(
-                f"QRadioButton {{ color: {PURPLE_DARK}; font-size: 11px; font-weight: bold; }}")
-            group.addButton(radio)
-            toggle_row.addWidget(radio)
+        group.setExclusive(True)
+        keep_btn = QPushButton("Keep rider")
+        change_btn = QPushButton("Change rider")
+        drop_btn = QPushButton("Drop rider")
+        for index, button in enumerate((keep_btn, change_btn, drop_btn)):
+            button.setCheckable(True)
+            button.setStyleSheet(_SEGMENT_STYLE)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            group.addButton(button)
+            toggle_row.addWidget(button)
         toggle_row.addStretch(1)
         layout.addLayout(toggle_row)
 
-        detail_row = QHBoxLayout()
-        amount_caption = QLabel("New amount:")
+        # Detail controls stay in place — greyed when not applicable, so the
+        # dialog never reflows as the toggle moves.
+        detail_grid = QGridLayout()
+        detail_grid.setHorizontalSpacing(8)
+        detail_grid.setVerticalSpacing(4)
+
+        amount_caption = QLabel("New amount")
         amount_caption.setStyleSheet(_CAPTION_STYLE)
-        amount_edit = _Field(86, decimals=2)
-        year_caption = QLabel("Effective year:")
+        amount_edit = _Field(90, decimals=2)
+        detail_grid.addWidget(amount_caption, 0, 0)
+        detail_grid.addWidget(amount_edit, 1, 0)
+
+        effective_caption = QLabel("Effective")
+        effective_caption.setStyleSheet(_CAPTION_STYLE)
+        by_year_btn = QPushButton("Year")
+        by_date_btn = QPushButton("Date")
+        when_group = QButtonGroup(dlg)
+        when_group.setExclusive(True)
+        when_row = QHBoxLayout()
+        when_row.setSpacing(0)
+        for button in (by_year_btn, by_date_btn):
+            button.setCheckable(True)
+            button.setStyleSheet(_SEGMENT_STYLE)
+            when_group.addButton(button)
+            when_row.addWidget(button)
+        detail_grid.addWidget(effective_caption, 0, 1)
+        detail_grid.addLayout(when_row, 1, 1)
+
+        year_caption = QLabel("Year")
         year_caption.setStyleSheet(_CAPTION_STYLE)
         year_edit = _Field(50)
-        age_caption = QLabel("Age:")
+        age_caption = QLabel("Age")
         age_caption.setStyleSheet(_CAPTION_STYLE)
         age_edit = _Field(46)
-        for widget in (amount_caption, amount_edit, year_caption, year_edit, age_caption, age_edit):
-            detail_row.addWidget(widget)
-        detail_row.addStretch(1)
-        layout.addLayout(detail_row)
+        detail_grid.addWidget(year_caption, 0, 2)
+        detail_grid.addWidget(year_edit, 1, 2)
+        detail_grid.addWidget(age_caption, 0, 3)
+        detail_grid.addWidget(age_edit, 1, 3)
+
+        from PyQt6.QtWidgets import QDateEdit
+        from PyQt6.QtCore import QDate
+
+        date_caption = QLabel("Date (monthliversary)")
+        date_caption.setStyleSheet(_CAPTION_STYLE)
+        date_edit = QDateEdit(dlg)
+        date_edit.setCalendarPopup(True)
+        date_edit.setDisplayFormat("MM/dd/yyyy")
+        date_edit.setStyleSheet(
+            "QDateEdit { background: white; color: #2A1458; border: 1px solid #B79CDE;"
+            " border-radius: 3px; padding: 1px 4px; min-height: 18px; font-size: 11px; }"
+            "QDateEdit:disabled { background: #E8DDF8; color: #7A6B91; }")
+        date_warning = QLabel("Not a monthliversary — will use the year instead.")
+        date_warning.setStyleSheet(
+            "color: #C62828; background: transparent; font-size: 9px; font-weight: bold;")
+        date_warning.setVisible(False)
+        detail_grid.addWidget(date_caption, 0, 4)
+        detail_grid.addWidget(date_edit, 1, 4)
+        detail_grid.addWidget(date_warning, 2, 4)
+        detail_grid.setColumnStretch(5, 1)
+        layout.addLayout(detail_grid)
 
         def sync_age_from_year():
             year = year_edit.value()
@@ -732,26 +819,36 @@ class RiderButtonsPanel(QGroupBox):
                 year_edit.set_value(year)
                 age_edit.set_value(ctx.age_for_year(year))
 
+        def check_monthliversary():
+            chosen = date_edit.date().toPyDate()
+            ok = ctx.issue_date is not None and chosen.day == ctx.issue_date.day
+            date_warning.setVisible(by_date_btn.isChecked() and not ok)
+
         year_edit.editingFinished.connect(sync_age_from_year)
         age_edit.editingFinished.connect(sync_year_from_age)
+        date_edit.dateChanged.connect(lambda _d: check_monthliversary())
 
         def refresh_detail():
-            changing = change_radio.isChecked()
-            dropping = drop_radio.isChecked()
-            for widget in (amount_caption, amount_edit):
-                widget.setVisible(changing)
+            adjusting = change_btn.isChecked() or drop_btn.isChecked()
+            by_date = by_date_btn.isChecked()
+            amount_caption.setEnabled(change_btn.isChecked())
+            amount_edit.setEnabled(change_btn.isChecked())
+            for widget in (effective_caption, by_year_btn, by_date_btn):
+                widget.setEnabled(adjusting)
             for widget in (year_caption, year_edit, age_caption, age_edit):
-                widget.setVisible(changing or dropping)
-            if dropping:
+                widget.setEnabled(adjusting and not by_date)
+            for widget in (date_caption, date_edit):
+                widget.setEnabled(adjusting and by_date)
+            if drop_btn.isChecked():
                 amount_edit.set_value(0, decimals=2)
+            check_monthliversary()
 
-        keep_radio.toggled.connect(refresh_detail)
-        change_radio.toggled.connect(refresh_detail)
-        drop_radio.toggled.connect(refresh_detail)
+        for button in (keep_btn, change_btn, drop_btn, by_year_btn, by_date_btn):
+            button.toggled.connect(lambda _on: refresh_detail())
 
-        {RiderAdjustment.KEEP: keep_radio,
-         RiderAdjustment.CHANGE: change_radio,
-         RiderAdjustment.DROP: drop_radio}[adj.action].setChecked(True)
+        {RiderAdjustment.KEEP: keep_btn,
+         RiderAdjustment.CHANGE: change_btn,
+         RiderAdjustment.DROP: drop_btn}[adj.action].setChecked(True)
         if adj.new_amount is not None:
             amount_edit.set_value(adj.new_amount, decimals=2)
         elif current_amount:
@@ -762,6 +859,15 @@ class RiderButtonsPanel(QGroupBox):
         else:
             year_edit.set_value(ctx.forecast_year)
             age_edit.set_value(ctx.forecast_age)
+        if adj.effective_date is not None:
+            by_date_btn.setChecked(True)
+            date_edit.setDate(QDate(adj.effective_date.year, adj.effective_date.month,
+                                    adj.effective_date.day))
+        else:
+            by_year_btn.setChecked(True)
+            default_date = ctx.forecast_date or ctx.anniversary(ctx.forecast_year)
+            if default_date is not None:
+                date_edit.setDate(QDate(default_date.year, default_date.month, default_date.day))
         refresh_detail()
 
         close_btn = QPushButton("Close")
@@ -773,10 +879,10 @@ class RiderButtonsPanel(QGroupBox):
         layout.addLayout(btn_row)
         dlg.exec()
 
-        if drop_radio.isChecked():
+        if drop_btn.isChecked():
             adj.action = RiderAdjustment.DROP
             adj.new_amount = 0.0
-        elif change_radio.isChecked():
+        elif change_btn.isChecked():
             adj.action = RiderAdjustment.CHANGE
             adj.new_amount = amount_edit.value()
         else:
@@ -784,15 +890,22 @@ class RiderButtonsPanel(QGroupBox):
             adj.new_amount = None
         year = year_edit.value()
         adj.effective_year = int(year) if year is not None else None
+        chosen = date_edit.date().toPyDate()
+        is_monthliversary = ctx.issue_date is not None and chosen.day == ctx.issue_date.day
+        adj.effective_date = chosen if (by_date_btn.isChecked() and is_monthliversary) else None
         self._style_button(self._buttons[key], adj.action)
         self.changed.emit()
 
     def collect_changes(self, ctx: PolicyContext) -> list[PolicyChangeEvent]:
         events: list[PolicyChangeEvent] = []
         for key, adj in self._adjustments.items():
-            if adj.action == RiderAdjustment.KEEP or adj.effective_year is None:
+            if adj.action == RiderAdjustment.KEEP:
                 continue
-            when = ctx.anniversary(adj.effective_year)
+            when = adj.effective_date
+            if when is None and adj.effective_year is not None:
+                # Current-year requests land on the forecast date; later
+                # years at that year's anniversary.
+                when = ctx.effective_date(adj.effective_year)
             if when is None:
                 continue
             events.append(PolicyChangeEvent(
@@ -903,7 +1016,11 @@ class DynamicInputsPanel(QWidget):
 
     def _expand_dated(self, entries: list[dict], kind: TransactionKind) -> list[DatedTransaction]:
         """Year/mode rows -> dated monthliversary transactions (the compiler
-        only schedules premiums and loans by year)."""
+        only schedules premiums and loans by year).
+
+        Within the CURRENT policy year the grid starts at the forecast date —
+        the year's anniversary is already behind us.
+        """
         ctx = self._ctx
         out: list[DatedTransaction] = []
         for entry in entries:
@@ -912,14 +1029,16 @@ class DynamicInputsPanel(QWidget):
             interval = _MODE_INTERVALS.get(entry["mode"], 12)
             for year in range(entry["year"], (entry["end_year"] or entry["year"]) + 1):
                 anniversary = ctx.anniversary(year)
-                if anniversary is None:
+                next_anniversary = ctx.anniversary(year + 1)
+                if anniversary is None or next_anniversary is None:
                     continue
-                for month_offset in range(0, 12, interval):
+                when = anniversary
+                if ctx.forecast_date is not None and when < ctx.forecast_date:
+                    when = ctx.forecast_date
+                while when < next_anniversary:
                     out.append(DatedTransaction(
-                        kind=kind,
-                        effective_date=anniversary + relativedelta(months=month_offset),
-                        amount=float(entry["amount"]),
-                    ))
+                        kind=kind, effective_date=when, amount=float(entry["amount"])))
+                    when = when + relativedelta(months=interval)
         return out
 
     def _scheduled(self, entries: list[dict], kind: TransactionKind,
@@ -944,39 +1063,75 @@ class DynamicInputsPanel(QWidget):
                 metadata=dict(metadata or {})))
         return out
 
+    def _split_current_year(self, entries: list[dict]) -> tuple[list[dict], list[dict]]:
+        """Split spans touching the CURRENT policy year out for dated handling.
+
+        The current year's anniversary is in the past, so a year-schedule
+        would never pay this year — its payments are expanded to dated
+        monthliversary transactions from the forecast date instead; the rest
+        of the span stays a schedule from next year on.
+        """
+        ctx = self._ctx
+        dated: list[dict] = []
+        scheduled: list[dict] = []
+        for entry in entries:
+            start = entry["year"]
+            end = entry["end_year"] or start
+            if start <= ctx.forecast_year:
+                dated.append({**entry, "year": start, "end_year": min(end, ctx.forecast_year)})
+                if end > ctx.forecast_year:
+                    scheduled.append({**entry, "year": ctx.forecast_year + 1, "end_year": end})
+            else:
+                scheduled.append(entry)
+        return dated, scheduled
+
     def collect_into(self, input_set: IllustrationInputSet):
         ctx = self._ctx
+        prem_entries = [e for e in self.premium_section.entries() if e["amount"] is not None]
+        dated_prem, sched_prem = self._split_current_year(prem_entries)
+        if prem_entries:
+            # Any premium input REPLACES the billed default from the forecast
+            # year on: silence billing with a zero schedule, then layer the
+            # requested premiums (dated this year, schedules after).
+            input_set.scheduled_transactions.append(ScheduledTransaction(
+                kind=TransactionKind.PREMIUM, policy_year=ctx.forecast_year,
+                amount=0.0, mode="A"))
+        input_set.dated_transactions.extend(
+            self._expand_dated(dated_prem, TransactionKind.PREMIUM))
         input_set.scheduled_transactions.extend(
-            self._scheduled([e for e in self.premium_section.entries() if e["amount"] is not None],
-                            TransactionKind.PREMIUM))
+            self._scheduled(sched_prem, TransactionKind.PREMIUM))
+
+        loan_entries = [e for e in self.loan_section.entries() if e["amount"] is not None]
+        dated_loan, sched_loan = self._split_current_year(loan_entries)
+        input_set.dated_transactions.extend(
+            self._expand_dated(dated_loan, TransactionKind.LOAN))
         input_set.scheduled_transactions.extend(
-            self._scheduled([e for e in self.loan_section.entries() if e["amount"] is not None],
-                            TransactionKind.LOAN, metadata={"loan_type": "fixed"}))
+            self._scheduled(sched_loan, TransactionKind.LOAN, metadata={"loan_type": "fixed"}))
         input_set.dated_transactions.extend(
             self._expand_dated(self.withdrawal_section.entries(), TransactionKind.WITHDRAWAL))
         input_set.dated_transactions.extend(
             self._expand_dated(self.repayment_section.entries(), TransactionKind.LOAN_REPAYMENT))
 
         for entry in self.face_section.entries():
-            when = ctx.anniversary(entry["year"])
+            when = ctx.effective_date(entry["year"])
             if when is not None and entry["amount"]:
                 input_set.policy_changes.append(PolicyChangeEvent(
                     kind=PolicyChangeKind.FACE_AMOUNT, effective_date=when,
                     value=float(entry["amount"])))
         for entry in self.dbo_section.entries():
-            when = ctx.anniversary(entry["year"])
+            when = ctx.effective_date(entry["year"])
             if when is not None and entry["value"]:
                 input_set.policy_changes.append(PolicyChangeEvent(
                     kind=PolicyChangeKind.DB_OPTION, effective_date=when,
                     value=entry["value"]))
         for entry in self.rateclass_section.entries():
-            when = ctx.anniversary(entry["year"])
+            when = ctx.effective_date(entry["year"])
             if when is not None and entry["value"]:
                 input_set.policy_changes.append(PolicyChangeEvent(
                     kind=PolicyChangeKind.RATE_CLASS, effective_date=when,
                     value=entry["value"]))
         for entry in self.table_section.entries():
-            when = ctx.anniversary(entry["year"])
+            when = ctx.effective_date(entry["year"])
             if when is not None and entry["value"] is not None:
                 input_set.policy_changes.append(PolicyChangeEvent(
                     kind=PolicyChangeKind.SUBSTANDARD, effective_date=when,

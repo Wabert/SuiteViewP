@@ -180,8 +180,11 @@ def format_report_pages(report: IllustrationReport) -> List[List[str]]:
                 riders.add(f"    {line}")
         for section in report.change_sections:
             when = section.effective_date.strftime("%m/%d/%Y") if section.effective_date else ""
+            # Visual break between the as-of block and each policy-change block.
+            riders.blank()
+            riders.add("-" * PAGE_WIDTH)
+            riders.blank()
             if section.rider_lines:
-                riders.blank()
                 riders.add(f"RIDERS AND BENEFITS ASSUMED IN THIS ILLUSTRATION AS OF {when}:")
                 for line in section.rider_lines:
                     riders.add(f"    {line}")

@@ -333,7 +333,13 @@ def _change_sections(
         return []
     projected = results[1:]
     sections: List[ChangeSection] = []
+    seen: set = set()
     for change in sorted(future_inputs.policy_changes, key=lambda c: c.effective_date):
+        # The same change entered through both input styles shows once.
+        signature = (change.kind, change.effective_date, str(change.value))
+        if signature in seen:
+            continue
+        seen.add(signature)
         at_or_after = [s for s in projected if s.date and s.date >= change.effective_date]
         if not at_or_after:
             continue

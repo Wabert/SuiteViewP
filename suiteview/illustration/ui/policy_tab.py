@@ -70,12 +70,21 @@ class IllustrationPolicyTab(QWidget):
 
         values_row = QHBoxLayout()
         values_row.setSpacing(8)
-        self.account_values = self._make_value_group("Policy Values", [
-            ("Shadow Account Value", "shadow_account_value"),
-            ("Sweep Account Min", "sweep_account_min"),
-            ("Deemed Cash Value", "deemed_cash_value"),
-            ("NSP", "nsp"),
-        ])
+        # Fund Values leads the row: total AV, the shadow/sweep figures that
+        # used to live in Policy Values, the policy's guaranteed rate, and the
+        # per-fund breakdown table.
+        self.fund_values = StyledInfoTableGroup("Fund Values", columns=1, show_info=True, show_table=True)
+        self.fund_values.setStyleSheet(GROUP_STYLE)
+        self.fund_values.add_field("Account Value", "fund_account_value", 120, 105)
+        self.fund_values.add_field("Shadow Account Value", "shadow_account_value", 120, 105)
+        self.fund_values.add_field("Sweep Account Min", "sweep_account_min", 120, 105)
+        self.fund_values.add_field("Guaranteed Int Rate", "guaranteed_int_rate", 120, 105)
+        self.fund_table = self.fund_values.table
+        self.fund_table.setColumnCount(2)
+        self.fund_table.setHorizontalHeaderLabels(["Fund", "Fund Value"])
+        self.fund_table._data_table.horizontalHeader().setVisible(True)
+        self.fund_table._outer_frame.setStyleSheet(FUND_TABLE_STYLE)
+        self.fund_table._data_table.setStyleSheet(FUND_TABLE_STYLE)
         self.premium_values = self._make_value_group("Premiums and Targets", [
             ("Premium YTD", "premium_ytd"),
             ("Premium TD", "premium_td"),
@@ -85,15 +94,18 @@ class IllustrationPolicyTab(QWidget):
             ("Monthly MTP", "monthly_mtp"),
             ("Commission Target Premium", "commission_target_premium"),
         ])
-        self.loan_values = self._make_value_group("Loans", [
-            ("Fixed Loan Principle", "fixed_loan_principal"),
-            ("Fixed Loan Accrued", "fixed_loan_accrued"),
-            ("Pref Loan Principle", "pref_loan_principal"),
-            ("Pref Loan Accrued", "pref_loan_accrued"),
-            ("Vbl Loan Principle", "vbl_loan_principal"),
-            ("Vbl Loan Accrued", "vbl_loan_accrued"),
-        ])
-        values_row.addWidget(self.account_values)
+        # Balances only (principal + accrued combined); the charge rate sits
+        # alongside each balance and only shows when the loan exists.
+        self.loan_values = StyledInfoTableGroup("Loans", columns=2, show_table=False)
+        self.loan_values.setStyleSheet(GROUP_STYLE)
+        for label, attr, rate_label, rate_attr in [
+            ("Fixed Loan Balance", "fixed_loan_balance", "Rate", "fixed_loan_rate"),
+            ("Pref Loan Balance", "pref_loan_balance", "Rate", "pref_loan_rate"),
+            ("Vbl Loan Balance", "vbl_loan_balance", "Rate", "vbl_loan_rate"),
+        ]:
+            self.loan_values.add_field(label, attr, 120, 95)
+            self.loan_values.add_field(rate_label, rate_attr, 40, 60)
+        values_row.addWidget(self.fund_values)
         values_row.addWidget(self.premium_values)
         values_row.addWidget(self.loan_values)
         layout.addLayout(values_row)
@@ -129,18 +141,15 @@ class IllustrationPolicyTab(QWidget):
             ("Guideline Level", "guideline_level"),
             ("Accum GLP", "accum_glp"),
         ])
-        self.fund_values = StyledInfoTableGroup("Fund Values", columns=1, show_info=True, show_table=True)
-        self.fund_values.setStyleSheet(GROUP_STYLE)
-        self.fund_values.add_field("Account Value", "fund_account_value", 120, 105)
-        self.fund_table = self.fund_values.table
-        self.fund_table.setColumnCount(2)
-        self.fund_table.setHorizontalHeaderLabels(["Fund", "Fund Value"])
-        self.fund_table._data_table.horizontalHeader().setVisible(True)
-        self.fund_table._outer_frame.setStyleSheet(FUND_TABLE_STYLE)
-        self.fund_table._data_table.setStyleSheet(FUND_TABLE_STYLE)
+        # Policy Values swapped into Fund Values' old slot — what remains here
+        # are the CVAT-only figures.
+        self.account_values = self._make_value_group("Policy Values", [
+            ("Deemed Cash Value", "deemed_cash_value"),
+            ("NSP", "nsp"),
+        ])
         tax_row.addWidget(self.tax_values, 2)
         tax_row.addWidget(self.mec_values, 1)
-        tax_row.addWidget(self.fund_values, 1)
+        tax_row.addWidget(self.account_values, 1)
         layout.addLayout(tax_row)
 
         layout.addStretch(1)
@@ -180,7 +189,7 @@ class IllustrationPolicyTab(QWidget):
             ("spacer", "policy_info_spacer_4"),
             ("Grace Indicator", "grace_label"),
             ("Flat Cease Date", "flat_cease_date"),
-            ("spacer", "policy_info_spacer_6"),
+            ("Guaranteed Int Rate", "guar_int_rate_label"),
             ("spacer", "policy_info_spacer_5"),
         ]
         for label, attr in fields:
@@ -256,6 +265,8 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info.set_value("status_label", f"{status_code} - {policy.premium_pay_status_description}")
         db_option = {"1": "A-Level", "2": "B-Increasing", "3": "C-ROP"}.get(str(policy.db_option_code or ""), "")
         self.policy_info.set_value("db_option_label", db_option if policy.is_advanced_product else "")
+        self.policy_info.set_value(
+            "guar_int_rate_label", self._format_rate(policy.guaranteed_interest_rate))
 
         if not base_cov:
             return
@@ -269,13 +280,24 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info.set_value("flat_extra", format_currency(base_cov.flat_extra, "$"))
         self.policy_info.set_value("flat_cease_date", format_date(base_cov.flat_cease_date) if base_cov.flat_extra else "")
 
+    @staticmethod
+    def _format_rate(rate) -> str:
+        """CyberLife stores some rates percent-form (3.0) and some decimal
+        (0.06) — values above 1 are already percentages."""
+        if rate is None:
+            return ""
+        value = float(rate)
+        return f"{value:.2f}%" if value > 1 else f"{value * 100:.2f}%"
+
     def _populate_value_groups(self, policy):
         definition = "GP" if policy.gpt_cvat == "GPT" else policy.gpt_cvat
-        self.account_values.set_value("shadow_account_value", format_currency(policy.gav, "$"))
-        self.account_values.set_value("sweep_account_min", "")
+        self.fund_values.set_value("fund_account_value", format_currency(policy.mv_av(0), "$"))
+        self.fund_values.set_value("shadow_account_value", format_currency(policy.gav, "$"))
+        self.fund_values.set_value("sweep_account_min", "")
+        self.fund_values.set_value(
+            "guaranteed_int_rate", self._format_rate(policy.guaranteed_interest_rate))
         self.account_values.set_value("deemed_cash_value", format_currency(policy.mv_av(0), "$"))
         self.account_values.set_value("nsp", format_currency(self._nsp_total(policy), "$"))
-        self.fund_values.set_value("fund_account_value", format_currency(policy.mv_av(0), "$"))
         for attr in ["deemed_cash_value", "nsp"]:
             self._set_group_field_visible(self.account_values, attr, definition == "CVAT")
 
@@ -287,12 +309,26 @@ class IllustrationPolicyTab(QWidget):
         self.premium_values.set_value("monthly_mtp", format_currency(policy.mtp, "$"))
         self.premium_values.set_value("commission_target_premium", format_currency(policy.ctp, "$"))
 
-        self.loan_values.set_value("fixed_loan_principal", format_currency(policy.total_regular_loan_principal, "$"))
-        self.loan_values.set_value("fixed_loan_accrued", format_currency(policy.total_regular_loan_accrued, "$"))
-        self.loan_values.set_value("pref_loan_principal", format_currency(policy.total_preferred_loan_principal, "$"))
-        self.loan_values.set_value("pref_loan_accrued", format_currency(policy.total_preferred_loan_accrued, "$"))
-        self.loan_values.set_value("vbl_loan_principal", format_currency(policy.total_variable_loan_principal, "$"))
-        self.loan_values.set_value("vbl_loan_accrued", format_currency(policy.total_variable_loan_accrued, "$"))
+        # Loan balances = principal + accrued; the charge rate shows only
+        # when the loan exists.
+        def _balance(principal, accrued):
+            total = Decimal(str(principal or 0)) + Decimal(str(accrued or 0))
+            return total
+
+        def _rate_text(rate, has_loan: bool) -> str:
+            return self._format_rate(rate) if has_loan else ""
+
+        fixed = _balance(policy.total_regular_loan_principal, policy.total_regular_loan_accrued)
+        pref = _balance(policy.total_preferred_loan_principal, policy.total_preferred_loan_accrued)
+        vbl = _balance(policy.total_variable_loan_principal, policy.total_variable_loan_accrued)
+        self.loan_values.set_value("fixed_loan_balance", format_currency(fixed, "$"))
+        self.loan_values.set_value("pref_loan_balance", format_currency(pref, "$"))
+        self.loan_values.set_value("vbl_loan_balance", format_currency(vbl, "$"))
+        self.loan_values.set_value(
+            "fixed_loan_rate", _rate_text(policy.fixed_loan_interest_rate, fixed > 0))
+        self.loan_values.set_value(
+            "pref_loan_rate", _rate_text(policy.preferred_loan_interest_rate, pref > 0))
+        self.loan_values.set_value("vbl_loan_rate", "")
 
         self.tax_values.set_value("cost_basis", format_currency(policy.cost_basis, "$"))
         for year in range(1, 8):

@@ -252,6 +252,9 @@ class IllustrationInputsTab(QWidget):
         self.banner_valuation_label = _pair("Valuation Date")
         self.banner_monthliversary_label = _pair("Monthliversary Day")
         self.banner_first_forecast_label = _pair("First Forecast Month")
+        self.banner_policy_year_label = _pair("Policy Year")
+        self.banner_face_label = _pair("Face Amount")
+        self.banner_rateclass_label = _pair("Rateclass")
         row.addStretch(1)
         return banner
 
@@ -681,7 +684,6 @@ class IllustrationInputsTab(QWidget):
             label.setText(self._warning_text(base_text))
 
         self._update_valuation_banner(policy)
-        self._prepopulate_scheduled_premium(policy)
         self.dynamic_panel.load_from_policy(policy)
 
     def _update_valuation_banner(self, policy):
@@ -698,35 +700,18 @@ class IllustrationInputsTab(QWidget):
             self.banner_monthliversary_label.setText(_ordinal(self._issue_date.day))
         else:
             self.banner_monthliversary_label.setText("—")
-
-    def _prepopulate_scheduled_premium(self, policy):
-        """Seed row 0 with the policy's current schedule (year / billable / mode).
-
-        Loading a policy resets the row to that policy's as-is billing so the
-        default Run Values mirrors what the policyholder is actually paying.
-        """
-        table = self.scheduled_premium_table
         policy_year = getattr(policy, "policy_year", None)
-        modal_premium = getattr(policy, "modal_premium", None)
-        if policy_year is None or modal_premium in (None, 0):
-            return
-
-        frequency = getattr(policy, "billing_frequency", None)
+        self.banner_policy_year_label.setText(str(policy_year) if policy_year else "—")
+        face = (getattr(policy, "base_total_face_amount", None)
+                or getattr(policy, "base_face_amount", None)
+                or getattr(policy, "face_amount", None))
         try:
-            frequency = int(frequency) if frequency is not None else 1
+            self.banner_face_label.setText(f"{float(face):,.0f}" if face else "—")
         except (TypeError, ValueError):
-            frequency = 1
-        # Non-standard modes (bi-weekly etc.) bill into the PDF and post
-        # monthly, so anything that isn't Q/S/A schedules as monthly.
-        mode = {3: "Q", 6: "S", 12: "A"}.get(frequency, "M")
-
-        table.blockSignals(True)
-        try:
-            table.item(0, 0).setText(str(int(policy_year)))
-            table.item(0, 1).setText(f"{float(modal_premium):,.2f}")
-            table.item(0, 2).setText(mode)
-        finally:
-            table.blockSignals(False)
+            self.banner_face_label.setText("—")
+        rateclass = (getattr(policy, "base_rate_class", None)
+                     or getattr(policy, "rate_class", None))
+        self.banner_rateclass_label.setText(str(rateclass) if rateclass else "—")
 
     def export_input_set(self) -> IllustrationInputSet:
         input_set = IllustrationInputSet()

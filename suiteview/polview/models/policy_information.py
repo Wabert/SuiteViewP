@@ -1595,7 +1595,19 @@ class PolicyInformation:
         """Guaranteed interest rate for advanced products."""
         val = self.data_item("LH_NON_TRD_POL", "POL_GUA_ITS_RT")
         return Decimal(str(val)) if val is not None else None
-    
+
+    @property
+    def fixed_loan_interest_rate(self) -> Optional[Decimal]:
+        """Fixed (regular) loan interest charge rate (LH_BAS_POL.LN_PLN_ITS_RT)."""
+        val = self.data_item("LH_BAS_POL", "LN_PLN_ITS_RT")
+        return Decimal(str(val)) if val is not None else None
+
+    @property
+    def preferred_loan_interest_rate(self) -> Optional[Decimal]:
+        """Preferred loan interest charge rate (LH_NON_TRD_POL.PRF_LN_ITS_CRG_RT)."""
+        val = self.data_item("LH_NON_TRD_POL", "PRF_LN_ITS_CRG_RT")
+        return Decimal(str(val)) if val is not None else None
+
     @property
     def corridor_percent(self) -> Optional[Decimal]:
         """Corridor percentage for death benefit calculation."""

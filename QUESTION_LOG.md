@@ -598,3 +598,32 @@ build one. Unknown kinds now log a warning instead of silently no-oping.
 Overview/Chart/Charges jump entries at the top of the Find Value rail; the
 header sort toggle is OFF for illustration grids (`set_sort_enabled(False)`
 on FilterTableView — icon zone reclaimed, autofit tighter).
+
+### Round 2 (same night, after Robert's review)
+- **Change-effective semantics:** a Year input at the CURRENT policy year
+  takes effect on the FORECAST date (the year's anniversary is in the past);
+  later years at that year's anniversary (`PolicyContext.effective_date`).
+  Applies to face/DBO/rateclass/table/rider changes AND the dated expansions.
+  Premium/loan spans touching the current year split: dated monthliversary
+  payments from the forecast date this year + schedules from next year; any
+  premium input also emits a billing-silencing zero schedule at the forecast
+  year (a schedule gap means BILLED premium, not zero).
+- **Rider dialog UX:** segmented keep/change/drop toggle (clearly lit
+  selection), controls fixed in place (enabled/greyed, no reflow), and an
+  Effective **Year | Date** toggle — dates must be monthliversaries (warns
+  and falls back to the year otherwise).
+- **Grids no longer prepopulate** the scheduled premium row — the Input tab
+  owns the defaults.
+- **Policy tab:** Fund Values moved to the front row and absorbed Shadow
+  Account Value / Sweep Account Min + Guaranteed Int Rate (also added to
+  Policy Info); Policy Values (CVAT-only Deemed CV/NSP) swapped to the back
+  row; Loans show three combined balances with a charge-rate column (new
+  PolicyInformation properties `fixed_loan_interest_rate` LH_BAS_POL
+  LN_PLN_ITS_RT / `preferred_loan_interest_rate` LH_NON_TRD_POL
+  PRF_LN_ITS_CRG_RT — rate shown only when the loan exists). **Rate-format
+  gotcha:** POL_GUA_ITS_RT is PERCENT-form (3.0) while LN_PLN_ITS_RT is
+  decimal (0.06) — `_format_rate` treats values > 1 as percentages.
+- **Inputs banner** now also shows Policy Year / Face Amount / Rateclass.
+- **Report:** dashed separator between the as-of and each policy-change
+  rider/regulatory block; duplicate change sections (same kind/date/value
+  entered via both input styles) dedupe.

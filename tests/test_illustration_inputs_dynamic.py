@@ -107,7 +107,12 @@ def test_overlap_blocks_export_and_gap_emits_zero_schedule():
     panel.collect_into(input_set)
     premiums = [t for t in input_set.scheduled_transactions if t.kind == TransactionKind.PREMIUM]
     by_year = {t.policy_year: t.amount for t in premiums}
-    assert by_year[7] > 0
+    # The current year (7) is handled as DATED payments from the forecast
+    # date; its schedule slot is the billing-silencing zero.
+    assert by_year[7] == 0.0
+    dated = [t for t in input_set.dated_transactions if t.kind == TransactionKind.PREMIUM]
+    assert dated and min(t.effective_date for t in dated) == date(2026, 6, 9)
+    assert by_year[8] > 0                      # the rest of the first span schedules
     assert by_year[10] == 0.0                  # gap zero
     assert by_year[12] == 500.0
     assert by_year[14] == 0.0                  # termination zero after year 13
@@ -154,6 +159,22 @@ def test_change_sections_export_policy_changes():
     assert (PolicyChangeKind.FACE_AMOUNT, date(2027, 11, 9)) in kinds
     assert (PolicyChangeKind.RATE_CLASS, date(2028, 11, 9)) in kinds
     assert (PolicyChangeKind.SUBSTANDARD, date(2028, 11, 9)) in kinds
+
+
+def test_current_year_change_lands_on_forecast_date():
+    panel = _panel()
+    face = panel.face_section.rows()[0]
+    face.year_edit.setText("7")                # current policy year
+    face._year_edited()
+    face.amount_edit.setText("75000")
+
+    input_set = IllustrationInputSet()
+    panel.collect_into(input_set)
+    change = next(c for c in input_set.policy_changes
+                  if c.kind == PolicyChangeKind.FACE_AMOUNT)
+    # The year-7 anniversary (2025-11-09) is in the past — the change takes
+    # effect on the forecast date instead.
+    assert change.effective_date == date(2026, 6, 9)
 
 
 def test_suspended_banner():
