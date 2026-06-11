@@ -132,6 +132,82 @@ def _detect_field_mode(col_name: str) -> str:
     return "contains"
 
 
+def _str_literal(value) -> str:
+    return repr(str(value))
+
+
+def _resolve_filter_column(df: pd.DataFrame, field_key: str, column: str) -> str:
+    """Resolve a filter field to the concrete result DataFrame column."""
+    candidates = [column, field_key]
+    if "." in field_key:
+        source_name, bare_column = field_key.rsplit(".", 1)
+        candidates.extend([
+            bare_column,
+            f"{bare_column}_{source_name}",
+            f"{bare_column}__{source_name}",
+        ])
+    for candidate in candidates:
+        if candidate and candidate in df.columns:
+            return candidate
+    return ""
+
+
+def _series_matches_range(series: pd.Series, lo: str, hi: str, column: str = "") -> pd.Series:
+    """Build a boolean mask for numeric, datetime, or string range values."""
+    mask = pd.Series(True, index=series.index)
+    non_null = series.dropna()
+
+    if non_null.empty:
+        return mask
+
+    lo_text = str(lo).strip()
+    hi_text = str(hi).strip()
+
+    sample_values = [str(value) for value in non_null.head(10)]
+    temporal_markers = ("date", "time", "dt")
+    looks_temporal = (
+        pd.api.types.is_datetime64_any_dtype(series)
+        or any(marker in column.lower() for marker in temporal_markers)
+        or any(any(sep in value for sep in ("/", "-", ":")) for value in [lo_text, hi_text, *sample_values])
+    )
+    if looks_temporal:
+        date_values = pd.to_datetime(series, errors="coerce")
+        parsed_bounds = {
+            "lo": pd.to_datetime(lo_text, errors="coerce") if lo_text else pd.NaT,
+            "hi": pd.to_datetime(hi_text, errors="coerce") if hi_text else pd.NaT,
+        }
+        if date_values.notna().any() and (
+            (lo_text and not pd.isna(parsed_bounds["lo"]))
+            or (hi_text and not pd.isna(parsed_bounds["hi"]))
+        ):
+            if lo_text:
+                mask &= date_values >= parsed_bounds["lo"]
+            if hi_text:
+                mask &= date_values <= parsed_bounds["hi"]
+            return mask & date_values.notna()
+
+    numeric_values = pd.to_numeric(series, errors="coerce")
+    if numeric_values.notna().any():
+        if lo_text:
+            try:
+                mask &= numeric_values >= float(lo_text.replace(",", ""))
+            except ValueError:
+                pass
+        if hi_text:
+            try:
+                mask &= numeric_values <= float(hi_text.replace(",", ""))
+            except ValueError:
+                pass
+        return mask & numeric_values.notna()
+
+    text_values = series.astype(str)
+    if lo_text:
+        mask &= text_values >= lo_text
+    if hi_text:
+        mask &= text_values <= hi_text
+    return mask
+
+
 # ── Filter Tab for DataForge ─────────────────────────────────────────
 
 class ForgeFilterTab(QScrollArea):
@@ -1479,13 +1555,13 @@ class DataForgeGroup(QWidget):
 
         filters = collect_field_filters(tab.grid)
         for filt in filters:
-            key = filt.get("key", "")
-            # key format: "query_name.column_name"
-            parts = key.split(".", 1)
-            if len(parts) != 2:
-                continue
-            col_name = parts[1]
-            if col_name not in df.columns:
+            field_key = filt.get("field_key") or filt.get("key", "")
+            col_name = _resolve_filter_column(
+                df,
+                field_key,
+                filt.get("column") or field_key.rsplit(".", 1)[-1],
+            )
+            if not col_name:
                 continue
 
             mode = filt.get("mode", "contains")
@@ -1498,20 +1574,12 @@ class DataForgeGroup(QWidget):
                 df = df[df[col_name].astype(str).str.contains(
                     value, case=False, na=False, regex=True)]
             elif mode == "range":
-                lo = filt.get("lo", "")
-                hi = filt.get("hi", "")
-                if lo:
-                    try:
-                        df = df[df[col_name] >= type(df[col_name].iloc[0])(lo)]
-                    except (ValueError, IndexError, TypeError):
-                        pass
-                if hi:
-                    try:
-                        df = df[df[col_name] <= type(df[col_name].iloc[0])(hi)]
-                    except (ValueError, IndexError, TypeError):
-                        pass
+                lo = filt.get("range_lo", filt.get("lo", ""))
+                hi = filt.get("range_hi", filt.get("hi", ""))
+                if lo or hi:
+                    df = df[_series_matches_range(df[col_name], lo, hi, col_name)]
             elif mode == "list":
-                items = filt.get("items", [])
+                items = filt.get("list_values", filt.get("items", []))
                 if items:
                     df = df[df[col_name].astype(str).isin(items)]
 
@@ -1525,24 +1593,29 @@ class DataForgeGroup(QWidget):
         """Generate real, runnable Python code that reproduces the DataForge."""
         lines = [
             "import pandas as pd",
-            "import pyodbc",
+        ]
+        if any(not self._is_adhoc_source(sq) for sq in self._sources.values()):
+            lines.append("import pyodbc")
+        lines.extend([
             "",
             "# ── Load datasets ──────────────────────────────────────────",
-        ]
+        ])
 
         for name, sq in self._sources.items():
             safe = name.replace('"', '\\"')
-            dsn = sq.dsn.replace('"', '\\"')
-            sql = sqls.get(name, sq.sql).replace('"""', '\\"""')
-            lines.extend([
-                "",
-                f'# Dataset: {safe}',
-                f'conn_{_var(name)} = pyodbc.connect("DSN={dsn}", autocommit=True)',
-                f'df_{_var(name)} = pd.read_sql("""',
-                f'{sql}',
-                f'""", conn_{_var(name)})',
-                f'conn_{_var(name)}.close()',
-            ])
+            lines.extend(["", f'# Dataset: {safe}'])
+            if self._is_adhoc_source(sq):
+                lines.extend(self._generate_adhoc_load_code(name, sq))
+            else:
+                dsn = sq.dsn.replace('"', '\\"')
+                sql = sqls.get(name, sq.sql).replace('"""', '\\"""')
+                lines.extend([
+                    f'conn_{_var(name)} = pyodbc.connect("DSN={dsn}", autocommit=True)',
+                    f'df_{_var(name)} = pd.read_sql("""',
+                    f'{sql}',
+                    f'""", conn_{_var(name)})',
+                    f'conn_{_var(name)}.close()',
+                ])
 
         if merge_ops:
             lines.extend([
@@ -1596,42 +1669,139 @@ class DataForgeGroup(QWidget):
 
         return "\n".join(lines)
 
+    def _generate_adhoc_load_code(self, name: str, sq: QDefinition) -> list[str]:
+        """Generate pandas load code for a DataForge ad hoc file source."""
+        metadata = getattr(sq, "query_object_source_metadata", {}) or {}
+        path = metadata.get("path", "")
+        var_name = f"df_{_var(name)}"
+        source_type = sq.source_design or "csv"
+        path_arg = _str_literal(path)
+
+        if source_type == "excel":
+            sheet_name = metadata.get("sheet_name", 0)
+            lines = [f"{var_name} = pd.read_excel({path_arg}, sheet_name={sheet_name!r})"]
+        elif source_type == "fixed_width":
+            columns = metadata.get("columns", [])
+            names = [str(column.get("name", "")) for column in columns]
+            colspecs = [
+                (int(column.get("start", 0) or 0) - 1,
+                 int(column.get("start", 0) or 0) - 1 + int(column.get("width", 0) or 0))
+                for column in columns
+            ]
+            lines = [
+                f"{var_name} = pd.read_fwf(",
+                f"    {path_arg},",
+                f"    colspecs={colspecs!r},",
+                f"    names={names!r},",
+                "    header=None,",
+                f"    encoding={metadata.get('encoding', 'utf-8-sig')!r},",
+                f"    skiprows={int(metadata.get('skip_rows', 0) or 0)!r},",
+                ")",
+            ]
+        else:
+            has_header = bool(metadata.get("has_header", True))
+            column_names = [str(name).strip() for name in metadata.get("column_names", []) if str(name).strip()]
+            lines = [
+                f"{var_name} = pd.read_csv(",
+                f"    {path_arg},",
+                f"    sep={metadata.get('delimiter', ',')!r},",
+                f"    header={0 if has_header else None!r},",
+                f"    encoding={metadata.get('encoding', 'utf-8-sig')!r},",
+                f"    skiprows={int(metadata.get('skip_rows', 0) or 0)!r},",
+                ")",
+            ]
+            if column_names:
+                lines.append(f"{var_name}.columns = {column_names!r}")
+
+        selected_columns = [column for column in sq.result_columns if column]
+        if selected_columns:
+            lines.append(f"{var_name} = {var_name}[[c for c in {selected_columns!r} if c in {var_name}.columns]]")
+        return lines
+
     def _generate_filter_code(self) -> list[str]:
         """Generate pandas filter code from filter tabs."""
         from suiteview.audit.dynamic_query import collect_field_filters
         lines = []
+        filter_lines = []
+        needs_range_helper = False
         for tab in self._filter_tabs:
             filters = collect_field_filters(tab.grid)
             for filt in filters:
-                key = filt.get("key", "")
-                parts = key.split(".", 1)
-                if len(parts) != 2:
+                field_key = filt.get("field_key") or filt.get("key", "")
+                col = filt.get("column") or field_key.rsplit(".", 1)[-1]
+                if not col:
                     continue
-                col = parts[1]
                 mode = filt.get("mode", "contains")
                 value = filt.get("value", "")
 
                 if mode == "contains" and value:
-                    lines.append(
+                    filter_lines.append(
                         f'result = result[result["{col}"].astype(str)'
                         f'.str.contains("{value}", case=False, na=False)]')
                 elif mode == "regex" and value:
-                    lines.append(
+                    filter_lines.append(
                         f'result = result[result["{col}"].astype(str)'
                         f'.str.contains(r"{value}", case=False, na=False)]')
                 elif mode == "range":
-                    lo = filt.get("lo", "")
-                    hi = filt.get("hi", "")
-                    if lo:
-                        lines.append(f'result = result[result["{col}"] >= "{lo}"]')
-                    if hi:
-                        lines.append(f'result = result[result["{col}"] <= "{hi}"]')
+                    lo = filt.get("range_lo", filt.get("lo", ""))
+                    hi = filt.get("range_hi", filt.get("hi", ""))
+                    if lo or hi:
+                        needs_range_helper = True
+                        filter_lines.append(
+                            f'result = result[_series_matches_range(result["{col}"], "{lo}", "{hi}", "{col}")]')
                 elif mode == "list":
-                    items = filt.get("items", [])
+                    items = filt.get("list_values", filt.get("items", []))
                     if items:
-                        lines.append(
+                        filter_lines.append(
                             f'result = result[result["{col}"].astype(str)'
                             f'.isin({items!r})]')
+        if needs_range_helper:
+            lines.extend([
+                "def _series_matches_range(series, lo='', hi='', column=''):",
+                "    mask = pd.Series(True, index=series.index)",
+                "    non_null = series.dropna()",
+                "    if non_null.empty:",
+                "        return mask",
+                "    lo_text = str(lo).strip()",
+                "    hi_text = str(hi).strip()",
+                "    sample_values = [str(value) for value in non_null.head(10)]",
+                "    looks_temporal = (",
+                "        pd.api.types.is_datetime64_any_dtype(series)",
+                "        or any(marker in column.lower() for marker in ('date', 'time', 'dt'))",
+                "        or any(any(sep in value for sep in ('/', '-', ':')) for value in [lo_text, hi_text, *sample_values])",
+                "    )",
+                "    if looks_temporal:",
+                "        date_values = pd.to_datetime(series, errors='coerce')",
+                "        lo_dt = pd.to_datetime(lo_text, errors='coerce') if lo_text else pd.NaT",
+                "        hi_dt = pd.to_datetime(hi_text, errors='coerce') if hi_text else pd.NaT",
+                "        if date_values.notna().any() and ((lo_text and not pd.isna(lo_dt)) or (hi_text and not pd.isna(hi_dt))):",
+                "            if lo_text:",
+                "                mask &= date_values >= lo_dt",
+                "            if hi_text:",
+                "                mask &= date_values <= hi_dt",
+                "            return mask & date_values.notna()",
+                "    numeric_values = pd.to_numeric(series, errors='coerce')",
+                "    if numeric_values.notna().any():",
+                "        if lo_text:",
+                "            try:",
+                "                mask &= numeric_values >= float(lo_text.replace(',', ''))",
+                "            except ValueError:",
+                "                pass",
+                "        if hi_text:",
+                "            try:",
+                "                mask &= numeric_values <= float(hi_text.replace(',', ''))",
+                "            except ValueError:",
+                "                pass",
+                "        return mask & numeric_values.notna()",
+                "    text_values = series.astype(str)",
+                "    if lo_text:",
+                "        mask &= text_values >= lo_text",
+                "    if hi_text:",
+                "        mask &= text_values <= hi_text",
+                "    return mask",
+                "",
+            ])
+        lines.extend(filter_lines)
         return lines
 
     # ── Save/Delete DataForge ────────────────────────────────────────

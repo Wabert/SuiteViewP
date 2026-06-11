@@ -13,7 +13,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton,
+    QLabel, QLineEdit, QPushButton, QCheckBox,
     QListWidget, QAbstractItemView, QStyledItemDelegate,
     QApplication,
 )
@@ -70,6 +70,10 @@ class PlancodeTab(QWidget):
         self.btn_add.setFont(_FONT)
         self.btn_add.setFixedSize(120, 26)
         left.addWidget(self.btn_add)
+
+        self.chk_cov1_plancode_match_only = QCheckBox("Cov1 plancode match only")
+        self.chk_cov1_plancode_match_only.setFont(_FONT)
+        left.addWidget(self.chk_cov1_plancode_match_only)
 
         left.addSpacing(4)
 
@@ -174,11 +178,21 @@ class PlancodeTab(QWidget):
             for i in range(self.list_plancodes.count())
         ]
 
+    def cov1_plancode_match_only(self) -> bool:
+        """Return True when plancode matching should only use Coverage 1."""
+        return self.chk_cov1_plancode_match_only.isChecked()
+
     # ── Profile save/load ────────────────────────────────────────────
     def get_state(self) -> dict:
-        return {"plancodes": self.get_plancodes()}
+        return {
+            "plancodes": self.get_plancodes(),
+            "cov1_plancode_match_only": self.cov1_plancode_match_only(),
+        }
 
     def set_state(self, state: dict):
         self.list_plancodes.clear()
         for code in state.get("plancodes", []):
             self.list_plancodes.addItem(code)
+        self.chk_cov1_plancode_match_only.setChecked(
+            bool(state.get("cov1_plancode_match_only", False))
+        )

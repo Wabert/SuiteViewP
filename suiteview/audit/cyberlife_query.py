@@ -1623,16 +1623,22 @@ def build_cyberlife_sql(
     if sys_code:
         wheres.append(f"POLICY1.CK_SYS_CD = '{esc(sys_code)}'")
 
-    # -- Policy tab: Plancode (searches all coverages) --
+    cov1_plancode_match_only = plancode_tab.cov1_plancode_match_only()
+
+    # -- Policy tab: Plancode (searches all coverages unless cov1-only is enabled) --
     plancode = pt.txt_plancode.text().strip()
     if plancode:
-        cov_filter_alias = result_cov_alias if coverage_level else "COVSALL"
+        cov_filter_alias = "COVERAGE1" if cov1_plancode_match_only else (
+            result_cov_alias if coverage_level else "COVSALL"
+        )
         wheres.append(f"{cov_filter_alias}.PLN_DES_SER_CD = '{esc(plancode)}'")
 
     # -- Plancode tab: multiple plancodes (IN list) --
     plancode_list = plancode_tab.get_plancodes()
     if plancode_list:
-        cov_filter_alias = result_cov_alias if coverage_level else "COVSALL"
+        cov_filter_alias = "COVERAGE1" if cov1_plancode_match_only else (
+            result_cov_alias if coverage_level else "COVSALL"
+        )
         wheres.append(
             f"{cov_filter_alias}.PLN_DES_SER_CD IN ({in_list(plancode_list)})")
 

@@ -251,6 +251,56 @@ def test_dataforge_display_fields_add_reorder_and_aggregate():
     print("  display fields add/reorder/aggregate  OK")
 
 
+def test_dataforge_flat_file_date_range_filter_and_code_tab(tmp_home):
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  flat-file date filter SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+    from suiteview.audit.qdefinition import QDefinition
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    group = DataForgeGroup("⚙ Claims Forge", saved_forge_name="Claims Forge")
+    qd = QDefinition(
+        name="CLAIMSDATA [CLAIMFILE Query]",
+        source_design="csv",
+        result_columns=["Policy", "Date of Death"],
+        column_types={"Date of Death": "DATE"},
+    )
+    qd.query_object_kind = "adhoc_source"
+    qd.query_object_source_metadata = {"path": "C:/claims/CLAIMDATA.csv"}
+    group._sources[qd.name] = qd
+
+    tab = group._filter_tabs[0]
+    tab.add_field_auto(qd.name, "Date of Death")
+    row = tab.grid.field(f"{qd.name}.Date of Death")
+    assert row is not None
+    row.txt_hi.setText("12/1/2024")
+
+    df = pd.DataFrame({
+        "Policy": ["P1", "P2", "P3"],
+        "Date of Death": ["11/30/2024", "12/01/2024", "12/02/2024"],
+    })
+
+    filtered = group._apply_pandas_filters(df, tab)
+
+    assert filtered["Policy"].tolist() == ["P1", "P2"]
+
+    code = group._generate_python_code(
+        {qd.name: "Ad hoc source: csv"},
+        [],
+        "",
+    )
+    assert "pd.read_csv" in code
+    assert "pyodbc.connect" not in code
+    assert '_series_matches_range(result["Date of Death"], "", "12/1/2024", "Date of Death")' in code
+    print("  flat-file date range filter + code tab  OK")
+
+
 def test_dataforge_add_source_deep_copies_query_object_for_join_canvas(tmp_home):
     try:
         from PyQt6.QtWidgets import QApplication

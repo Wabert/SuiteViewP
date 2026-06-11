@@ -67,3 +67,61 @@ def test_termination_display_includes_effective_date_and_transaction_types():
     assert "LISTAGG" not in sql
     assert "MAX(CASE WHEN TRANS = 'TD' THEN 1 ELSE 0 END) AS HAS_TD" in sql
     assert "SUBSTR(" in sql
+
+
+def test_plancode_list_defaults_to_all_coverages_match():
+    _app()
+    plancode_tab = PlancodeTab()
+    plancode_tab.list_plancodes.addItem("ABC123")
+
+    sql = build_cyberlife_sql(
+        "DB2TAB",
+        "",
+        "25",
+        policy_tab=PolicyTab(),
+        display_tab=DisplayTab(),
+        policy2_tab=Policy2Tab(),
+        adv_tab=AdvTab(),
+        coverages_tab=CoveragesTab(),
+        plancode_tab=plancode_tab,
+        benefits_tab=BenefitsTab(),
+        transaction_tab=TransactionTab(),
+    )
+
+    assert "COVSALL.PLN_DES_SER_CD IN ('ABC123')" in sql
+
+
+def test_plancode_list_can_force_cov1_only_match():
+    _app()
+    plancode_tab = PlancodeTab()
+    plancode_tab.list_plancodes.addItem("ABC123")
+    plancode_tab.chk_cov1_plancode_match_only.setChecked(True)
+
+    sql = build_cyberlife_sql(
+        "DB2TAB",
+        "",
+        "25",
+        policy_tab=PolicyTab(),
+        display_tab=DisplayTab(),
+        policy2_tab=Policy2Tab(),
+        adv_tab=AdvTab(),
+        coverages_tab=CoveragesTab(),
+        plancode_tab=plancode_tab,
+        benefits_tab=BenefitsTab(),
+        transaction_tab=TransactionTab(),
+    )
+
+    assert "COVERAGE1.PLN_DES_SER_CD IN ('ABC123')" in sql
+    assert "COVSALL.PLN_DES_SER_CD IN ('ABC123')" not in sql
+
+
+def test_plancode_tab_state_persists_cov1_only_flag():
+    _app()
+    plancode_tab = PlancodeTab()
+    plancode_tab.chk_cov1_plancode_match_only.setChecked(True)
+
+    state = plancode_tab.get_state()
+    restored = PlancodeTab()
+    restored.set_state(state)
+
+    assert restored.chk_cov1_plancode_match_only.isChecked()
