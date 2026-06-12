@@ -259,9 +259,9 @@ class JoinCanvasModel:
         clean = name.strip()
         if not clean:
             raise ValueError("An Append Table needs a name.")
-        if self.get_source(clean) is not None or self.get_append(clean) is not None:
+        if self.get_append(clean) is not None:
             raise ValueError(
-                f"The name {clean!r} is already used on this canvas.")
+                f"The Append Table name {clean!r} is already used.")
         ap = CanvasAppend(name=clean, x=x, y=y)
         self.appends.append(ap)
         return ap
@@ -280,9 +280,9 @@ class JoinCanvasModel:
         clean = new.strip()
         if ap is None or not clean or clean == old:
             return
-        if self.get_source(clean) is not None or self.get_append(clean) is not None:
+        if self.get_append(clean) is not None:
             raise ValueError(
-                f"The name {clean!r} is already used on this canvas.")
+                f"The Append Table name {clean!r} is already used.")
         ap.name = clean
         for j in self.joins:
             if j.left_source == old:
@@ -306,15 +306,51 @@ class JoinCanvasModel:
         if owner is not None:
             raise ValueError(
                 f"{alias!r} is already inside Append Table {owner!r}.")
+        if any(alias in (j.left_source, j.right_source) for j in self.joins):
+            raise ValueError(
+                f"{alias!r} already has joins. Delete those joins before "
+                f"adding it to an Append Table.")
         ap.members.append(alias)
-        self.joins = [j for j in self.joins
-                      if alias not in (j.left_source, j.right_source)]
+        self._prune_append_field_joins(append_name)
 
     def remove_member(self, append_name: str, alias: str) -> None:
-        """Pull a Source back out of an Append Table (its box returns)."""
+        """Remove a Source from an Append Table without restoring its box."""
         ap = self.get_append(append_name)
         if ap is not None and alias in ap.members:
             ap.members.remove(alias)
+            self.sources = [s for s in self.sources if s.alias != alias]
+            self.joins = [j for j in self.joins
+                          if alias not in (j.left_source, j.right_source)]
+            self._prune_append_field_joins(append_name)
+
+    def _prune_append_field_joins(self, append_name: str) -> None:
+        """Drop join keys that no longer exist in an Append Table schema."""
+        shared = {field.lower(): field for field in self.shared_fields(append_name)}
+        if not shared:
+            self.joins = [j for j in self.joins
+                          if append_name not in (j.left_source, j.right_source)]
+            return
+        kept: list[CanvasJoin] = []
+        for join in self.joins:
+            if join.left_source == append_name:
+                valid_keys = []
+                for key in join.keys:
+                    canonical = shared.get(key.left_field.lower())
+                    if canonical is not None:
+                        key.left_field = canonical
+                        valid_keys.append(key)
+                join.keys = valid_keys
+            elif join.right_source == append_name:
+                valid_keys = []
+                for key in join.keys:
+                    canonical = shared.get(key.right_field.lower())
+                    if canonical is not None:
+                        key.right_field = canonical
+                        valid_keys.append(key)
+                join.keys = valid_keys
+            if join.keys:
+                kept.append(join)
+        self.joins = kept
 
     def shared_fields(self, append_name: str) -> list[str]:
         """The Append Table's schema: ordered intersection of member columns."""
@@ -323,6 +359,35 @@ class JoinCanvasModel:
             return []
         schemas = {s.alias: s.field_names() for s in self.sources}
         return shared_append_columns(schemas, ap.members)
+
+    def append_type_conflicts(self, append_name: str) -> dict[str, list[tuple[str, str]]]:
+        """Shared fields whose member column types differ.
+
+        The append still runs; the engine/pandas path coerces to a common
+        representation. This returns enough detail for the view to warn without
+        blocking the drop.
+        """
+        ap = self.get_append(append_name)
+        if ap is None:
+            return {}
+        source_map = {s.alias: s for s in self.sources}
+        conflicts: dict[str, list[tuple[str, str]]] = {}
+        for field_name in self.shared_fields(append_name):
+            seen: dict[str, list[tuple[str, str]]] = {}
+            for member in ap.members:
+                src = source_map.get(member)
+                if src is None:
+                    continue
+                match = next((f for f in src.fields
+                              if f.name.lower() == field_name.lower()), None)
+                data_type = (match.data_type if match is not None else "").strip()
+                if not data_type:
+                    continue
+                seen.setdefault(data_type.lower(), []).append((member, data_type))
+            if len(seen) > 1:
+                conflicts[field_name] = [entry for entries in seen.values()
+                                         for entry in entries]
+        return conflicts
 
     def fields_of(self, name: str) -> list[str]:
         """Joinable fields of a Source box OR an Append Table."""

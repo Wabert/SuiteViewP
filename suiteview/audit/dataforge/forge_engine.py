@@ -73,7 +73,7 @@ class JoinSpec:
 
 @dataclass(frozen=True)
 class AppendSpec:
-    """A named append — UNION ALL of several Sources' rows (design §9).
+    """A named append — row-preserving stack of several Sources (design §9).
 
     Only the columns shared by ALL members survive, ordered by the first
     member's schema. The ``alias`` becomes joinable/filterable/selectable
@@ -92,17 +92,20 @@ class AppendSpec:
 
 def shared_append_columns(schemas: dict[str, list[str]],
                           members: tuple[str, ...] | list[str]) -> list[str]:
-    """The ordered intersection of the members' columns (first member's order).
+    """The ordered, case-insensitive intersection of member columns.
 
     This is THE definition of an Append Table's schema — the UI shows it and
     the engine selects it, so they can never disagree.
+    Matching is exact apart from case: ``PolicyNumber`` matches
+    ``policynumber`` but not ``Policy_Number``. The first member's order and
+    casing win.
     """
     if not members:
         return []
     shared = [c for c in schemas.get(members[0], [])]
     for member in members[1:]:
-        cols = set(schemas.get(member, []))
-        shared = [c for c in shared if c in cols]
+        cols = {c.lower() for c in schemas.get(member, [])}
+        shared = [c for c in shared if c.lower() in cols]
     return shared
 
 
@@ -409,8 +412,8 @@ def compile_forge_sql(
     ``filters`` are **Source-scope**: applied inside each Source's CTE (before
     the join). ``result_filters`` are **Result-scope**: applied to the joined,
     aliased output — each FilterSpec's ``column`` is an *output* column name
-    (its ``source`` is ignored). ``appends`` are Append Tables (UNION ALL of
-    member Sources over their shared columns); members leave the join graph
+    (its ``source`` is ignored). ``appends`` are Append Tables (row-preserving
+    stacks of member Sources over their shared columns); members leave the join graph
     and the append alias joins in their place. A filter whose ``source`` is
     an append alias applies to the appended rows. ``physical_names`` maps
     Source alias -> the registered DuckDB table name; defaults to the alias
@@ -471,7 +474,7 @@ def compile_forge_sql(
         where = f" WHERE {' AND '.join(preds)}" if preds else ""
         ctes.append(f"{_qi(src)} AS (SELECT * FROM {phys}{where})")
 
-    # Append CTEs: UNION ALL of the shared columns, in first-member order.
+    # Append CTEs: UNION ALL preserves the row stack, in first-member column order.
     for ap in appends:
         shared_cols = ", ".join(_qi(c) for c in append_schemas[ap.alias])
         union = "\n  UNION ALL\n  ".join(

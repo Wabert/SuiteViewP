@@ -292,29 +292,50 @@ A single JSON document (`~/.suiteview/query_organizer.json`, atomic writes via
   taller) < **DataForges** (orange, bolder/heavier still). The user should
   read structure from weight and origin from color without reading text.
 
-## 9. Append Tables on the join canvas (decided 2026-06-11)
+## 9. Append Tables on the join canvas (decided 2026-06-11; UI built 2026-06-12)
 
 A visual **append** (UNION) construct for the DataForge canvas — and for
 Visual Query once it adopts the canvas (roadmap #1):
 
-- The user creates and names an **Append Table** on the canvas; it renders as
-  a heavier group box.
-- **Dragging a query (Source box) into it** makes that query a member: the
-  full Source box collapses to **just its header bar**, and member bars stack
-  neatly at the **bottom** of the group (newest on top of the stack, growing
-  upward from the bottom edge).
-- The body of the group lists the **shared fields** — the ordered
-  intersection of all members' columns (first member's order wins). Only
-  shared fields survive the append, and they are the join anchors: drag from
-  a shared field to any other Source's field to join the appended dataset.
-- Semantics: **UNION ALL** (append = stack rows; no dedup). Source-scope
-  filters on a member apply *before* the append (member CTEs feed the append
-  CTE). Members leave the join graph — the Append Table takes their place.
+- The user right-clicks empty canvas and chooses **Add Append Table**. The
+  canvas creates a default **AppendTable** name (AppendTable 2, etc. when
+  needed); right-click the Append Table to rename it. Names must be unique
+  against other Append Tables.
+- It renders as a brown group/table box. Empty Append Tables show a compact
+  "Drop queries here" body.
+- **Dragging a query** from Forge Assist's Query list or an existing canvas
+  Source box into it makes that query a member. Only queries already added to
+  the DataForge are accepted. A Source with existing joins is rejected; join
+  from the Append Table instead.
+- Member query headers stack at the **bottom** of the group in drop order.
+  Reordering is not supported. Right-click a member header to remove it; this
+  removes that member from the Append Table and does **not** restore the full
+  Source box on the canvas.
+- The body lists the **shared fields** — the ordered intersection of all
+  members' columns (first member's order/casing wins). Field matching is exact
+  except for case: `PolicyNumber` matches `policynumber`, but not
+  `Policy_Number`. Only shared fields survive the append, and they are the
+  join anchors: drag from a shared field to any other Source's field to join
+  the appended dataset. If adding/removing a member removes a joined shared
+  field, that join key is removed automatically.
+- If members share no fields, the Append Table is allowed and shows an empty
+  error state inside the box. A run/compile will still fail until at least one
+  common field exists.
+- If shared field names have conflicting source types, the box shows a type
+  coercion warning and still allows the append. The engine/pandas paths coerce
+  to a common representation.
+- Semantics: **row-preserving append** (DuckDB `UNION ALL`, pandas `concat`) —
+  rows stack exactly as returned by each member. Source-scope filters on a member
+  apply *before* the append (member CTEs feed the append CTE). Members leave
+  the join graph — the Append Table takes their place.
 - Engine: `AppendSpec(alias, members)` compiles to a CTE
   `SELECT <shared> FROM m1 UNION ALL SELECT <shared> FROM m2 …`; the alias
   is then joinable/filterable/selectable like any Source. The pandas run
-  path mirrors it with `pd.concat` on the shared columns.
-- Removing a member (right-click its bar) restores its full Source box.
+  path mirrors it with `pd.concat(...)` on the shared columns.
+- When an Append Table exists, Forge Assist lists it as a virtual brown
+  `[Append]` source. Its shared fields can be added to Display and Filter tabs.
+- Saved Forges persist Append Table position, name, member order, shared-field
+  state, and joins consistently.
 
 ## 10. Constraints
 - DB2 / SQL Server can only be exercised on the **work laptop**, not the home
@@ -322,6 +343,14 @@ Visual Query once it adopts the canvas (roadmap #1):
   on the minipc with local parquet/flat-file Sources; live source Refresh is not.
 
 ## Changelog
+- **2026-06-12** — Built the Append Table canvas view/interaction layer from
+  §9: right-click Add Append Table, brown AppendBox rendering, query-list and
+  canvas-source drops, member removal, shared-field/error/type-warning states,
+  AppendTable-to-Source joins, virtual `[Append]` Forge Assist entries for
+  Display/Filter field picking, case-insensitive exact shared-field matching,
+  and row-preserving append semantics (`UNION ALL` / pandas `concat`). Tests:
+  `test_forge_canvas.py` (+ view workflow) and `test_forge_engine.py` (+ row
+  preservation and case-insensitive shared columns).
 - **2026-06-11 (evening)** — §8 + §9 built on the minipc (browser organization
   + Append Tables; the agreed designs are recorded in those sections):
   - **Identity:** `QueryObject.id` (uuid4), id-keyed store files
@@ -339,7 +368,7 @@ Visual Query once it adopts the canvas (roadmap #1):
     menus (new/rename/clone/delete group, clone forge, copy/move-to,
     extract/remove forge sources). Build-mode selector dropdown shows the
     same chips and the button takes the active mode's color.
-  - **Append Tables:** engine `AppendSpec` (UNION ALL CTEs over shared
+  - **Append Tables:** engine `AppendSpec` (`UNION ALL` CTEs over shared
     columns, members consumed from the join graph, member filters pre-append,
     alias filterable/joinable), runtime `appends_from_config` +
     append-aware `validate_forge`, canvas-model `CanvasAppend`
@@ -347,10 +376,8 @@ Visual Query once it adopts the canvas (roadmap #1):
     conversions), pandas run-path `pd.concat` mirror + Code-tab generation,
     `config["appends"]` persisted.
   - Tests: 227 green (engine 31, canvas 17, runtime 25, organizer 11,
-    query_object 53). **Remaining:** the canvas *view* for Append Tables
-    (AppendBoxItem group box: header + shared-field rows + stacked member
-    header bars + drop-to-join gestures) — next session; spec in §9. All
-    interactive click-tests deferred to the laptop (WORK_LAPTOP_SPEC §1.10).
+    query_object 53). Interactive click-tests still deferred to the laptop
+    (WORK_LAPTOP_SPEC §1.10).
 - **2026-06-06** — Created. Decisions: build on existing `audit/dataforge`;
   DuckDB engine; editable-copy Sources; no live pulls on open; link+filter first,
   aggregation later; MS-Access-style join canvas as the main UI rebuild.

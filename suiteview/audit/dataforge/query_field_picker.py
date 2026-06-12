@@ -72,6 +72,8 @@ def _repair_flat_file_qdefinition(
     forge_name: str = "",
 ) -> QDefinition:
     """Patch stale forge-local QDefinitions with metadata from the file source object."""
+    if getattr(source, "query_object_kind", "") == "append_table":
+        return source
     if _is_file_source_qdefinition(source):
         return source
 
@@ -141,6 +143,7 @@ def _list_query_sources() -> list[QDefinition]:
 def _source_kind_label(source: QDefinition) -> str:
     kind = getattr(source, "query_object_kind", "")
     labels = {
+        "append_table": "Append Table",
         "visual_query": "Visual",
         "executable_query": "Executable",
         "cyberlife_query": "Cyberlife",
@@ -152,6 +155,10 @@ def _source_kind_label(source: QDefinition) -> str:
     if source.source_design:
         return "Executable"
     return "Query"
+
+
+def _is_append_source(source: QDefinition | None) -> bool:
+    return bool(source and getattr(source, "query_object_kind", "") == "append_table")
 
 
 def _source_dsn_label(source: QDefinition | QueryObject) -> str:
@@ -206,6 +213,7 @@ _FONT_BOLD = QFont("Segoe UI", 9, QFont.Weight.Bold)
 _FONT_SMALL = QFont("Segoe UI", 8)
 
 FORGE_FIELD_DRAG_MIME = "application/x-dataforge-field-drag"
+FORGE_QUERY_DRAG_MIME = "application/x-dataforge-query-drag"
 
 _FORGE = "#EA580C"
 _FORGE_DARK = "#C2410C"
@@ -290,6 +298,31 @@ class DraggableQueryFieldList(QListWidget):
         drag.exec(Qt.DropAction.CopyAction)
 
 
+class DraggableQueryList(QListWidget):
+    """QListWidget that supports dragging whole Forge source queries."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+
+    def startDrag(self, supportedActions):
+        lines = []
+        owner = self.parent()
+        sources = getattr(owner, "_sources", {}) if owner is not None else {}
+        for item in self.selectedItems():
+            query_name = item.data(Qt.ItemDataRole.UserRole) or item.text()
+            if query_name and not _is_append_source(sources.get(str(query_name))):
+                lines.append(str(query_name))
+        if not lines:
+            return
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(FORGE_QUERY_DRAG_MIME, "\n".join(lines).encode("utf-8"))
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.CopyAction)
+
+
 class QueryFieldPicker(QWidget):
     """Side panel: Forge Assist query source picker and field list."""
     field_requested = pyqtSignal(str, str)
@@ -358,7 +391,7 @@ class QueryFieldPicker(QWidget):
         lbl_queries.setStyleSheet(_HEADER_STYLE)
         ql.addWidget(lbl_queries)
 
-        self.list_queries = QListWidget()
+        self.list_queries = DraggableQueryList(self)
         self.list_queries.setFont(_FONT)
         self.list_queries.setStyleSheet(_QUERY_LIST_STYLE)
         self.list_queries.setItemDelegate(TightItemDelegate(self.list_queries))
@@ -523,7 +556,7 @@ class QueryFieldPicker(QWidget):
 
     def _on_query_double_clicked(self, item):
         query_name = item.data(Qt.ItemDataRole.UserRole) or item.text()
-        if query_name:
+        if query_name and not _is_append_source(self._sources.get(query_name)):
             self.query_table_requested.emit(query_name)
 
     def _on_query_list_selection_changed(self):
@@ -541,12 +574,17 @@ class QueryFieldPicker(QWidget):
         self.list_queries.clear()
         selected_item = None
         for source in sorted(self._sources.values(), key=lambda qd: self._source_display_name(qd).lower()):
-            item = QListWidgetItem(self._source_display_name(source))
+            is_append = _is_append_source(source)
+            display_name = self._source_display_name(source)
+            item = QListWidgetItem(f"[Append] {display_name}" if is_append else display_name)
             item.setData(Qt.ItemDataRole.UserRole, source.name)
             tooltip = _source_kind_label(source)
             if item.text() != source.name:
                 tooltip = f"{tooltip} - stored as {source.name}"
             item.setToolTip(tooltip)
+            if is_append:
+                item.setForeground(QColor("#7C2D12"))
+                item.setFont(_FONT_BOLD)
             self.list_queries.addItem(item)
             if source.name == current_name:
                 selected_item = item
@@ -556,10 +594,16 @@ class QueryFieldPicker(QWidget):
 
     @staticmethod
     def _source_display_name(source: QDefinition) -> str:
+        if _is_append_source(source):
+            return source.name
         config = getattr(source, "query_object_config", {}) or {}
         dataforge = config.get("dataforge", {}) if isinstance(config, dict) else {}
         source_name = str(dataforge.get("source_name", "")).strip()
         return source_name or source.name
+
+    def _real_source_names(self) -> list[str]:
+        return [name for name, source in self._sources.items()
+                if not _is_append_source(source)]
 
     def _first_query_item(self):
         return self.list_queries.item(0) if self.list_queries.count() else None
@@ -687,7 +731,7 @@ class QueryFieldPicker(QWidget):
                     self.add_source(name)
                     added.append(name)
             if added:
-                self.sources_changed.emit(list(self._sources.keys()))
+                self.sources_changed.emit(self._real_source_names())
             dlg.accept()
         btn_add.clicked.connect(_add_selected)
 
@@ -744,6 +788,12 @@ class QueryFieldPicker(QWidget):
         query_name = item.data(Qt.ItemDataRole.UserRole) or item.text()
         if not query_name:
             return
+        if _is_append_source(self._sources.get(query_name)):
+            menu = QMenu(self)
+            act = menu.addAction("Append Table fields are managed on the Joins tab")
+            act.setEnabled(False)
+            menu.exec(self.list_queries.viewport().mapToGlobal(pos))
+            return
 
         menu = QMenu(self)
         act_preview = menu.addAction("Preview Data")
@@ -789,7 +839,7 @@ class QueryFieldPicker(QWidget):
             first = self._first_query_item()
             if first:
                 self.list_queries.setCurrentItem(first)
-        self.sources_changed.emit(list(self._sources.keys()))
+        self.sources_changed.emit(self._real_source_names())
 
     def _open_query_builder(self, query_name: str):
         audit_window = self._new_audit_window_for_builder(query_name)
@@ -990,7 +1040,7 @@ class QueryFieldPicker(QWidget):
 
         self._rebuild_query_list(select_name=new_name)
         self._update_query_object_button()
-        self.sources_changed.emit(list(self._sources.keys()))
+        self.sources_changed.emit(self._real_source_names())
 
     def _preview_query_data(self, query_name: str):
         sq = self._sources.get(query_name)

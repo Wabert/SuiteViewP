@@ -457,7 +457,7 @@ def test_manual_runs_compiled_visual_sql_unchanged():
     print("  compiled visual SQL runs unchanged in Manual mode  OK")
 
 
-# ── Append Tables (UNION ALL) ─────────────────────────────────────────────
+# ── Append Tables (row-preserving stack) ──────────────────────────────────
 
 def _claims_a() -> pd.DataFrame:
     return pd.DataFrame({
@@ -470,10 +470,10 @@ def _claims_a() -> pd.DataFrame:
 
 def _claims_b() -> pd.DataFrame:
     return pd.DataFrame({
-        "company_code": ["B", "C"],
-        "policy_number": ["201", "300"],
-        "claim_amount": [3000, 4000],
-        "examiner": ["JL", "RW"],       # only in B
+        "company_code": ["B", "C", "B"],
+        "policy_number": ["201", "300", "201"],
+        "claim_amount": [3000, 4000, 3000],
+        "examiner": ["JL", "RW", "JL"],       # only in B
     })
 
 
@@ -483,11 +483,25 @@ def test_append_two_sources_shared_columns():
         appends=[AppendSpec("All Claims", ("ca", "cb"))],
     )
     df = res.dataframe
-    # UNION ALL: 2 + 2 rows; only the shared columns survive, in ca's order.
-    assert len(df) == 4, df
+    # Append preserves rows; only shared columns survive, in ca's order.
+    assert len(df) == 5, df
     assert list(df.columns) == ["company_code", "policy_number", "claim_amount"]
-    assert sorted(df["claim_amount"]) == [1000, 2000, 3000, 4000]
-    print("  append: shared columns, UNION ALL  OK")
+    assert sorted(df["claim_amount"]) == [1000, 2000, 3000, 3000, 4000]
+    print("  append: shared columns, row-preserving stack  OK")
+
+
+def test_append_shared_columns_are_case_insensitive_exact_names():
+    res = run_forge(
+        {
+            "a": pd.DataFrame({"PolicyNumber": ["100"], "Policy_Number": ["x"]}),
+            "b": pd.DataFrame({"policynumber": ["200"], "policy_number": ["y"]}),
+        },
+        [],
+        appends=[AppendSpec("All Policies", ("a", "b"))],
+    )
+    assert list(res.dataframe.columns) == ["PolicyNumber", "Policy_Number"]
+    assert sorted(res.dataframe["PolicyNumber"]) == ["100", "200"]
+    print("  append: case-insensitive exact field matching  OK")
 
 
 def test_append_joins_to_other_source():
@@ -498,9 +512,9 @@ def test_append_joins_to_other_source():
         appends=[AppendSpec("All Claims", ("ca", "cb"))],
     )
     df = res.dataframe
-    # Claims (A,100),(B,200),(B,201),(C,300) all match policies → 4 rows,
-    # and the policy columns ride along.
-    assert len(df) == 4, df
+    # Claims (A,100),(B,200),(B,201),(C,300),(B,201 duplicate) all match
+    # policies, and the policy columns ride along.
+    assert len(df) == 5, df
     assert "face_amount" in df.columns and "claim_amount" in df.columns
     print("  append joins to another Source  OK")
 
@@ -513,7 +527,7 @@ def test_append_member_and_alias_filters():
         filters=[FilterSpec("ca", "company_code", mode="equals", value="A")],
         appends=[AppendSpec("All Claims", ("ca", "cb"))],
     )
-    assert sorted(res.dataframe["claim_amount"]) == [1000, 3000, 4000]
+    assert sorted(res.dataframe["claim_amount"]) == [1000, 3000, 3000, 4000]
 
     res = run_forge(
         {"ca": _claims_a(), "cb": _claims_b()}, [],
@@ -521,7 +535,7 @@ def test_append_member_and_alias_filters():
                             lo="2000", hi="3000")],
         appends=[AppendSpec("All Claims", ("ca", "cb"))],
     )
-    assert sorted(res.dataframe["claim_amount"]) == [2000, 3000]
+    assert sorted(res.dataframe["claim_amount"]) == [2000, 3000, 3000]
     print("  append member + alias filters  OK")
 
 

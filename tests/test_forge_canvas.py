@@ -354,6 +354,59 @@ def test_view_explicit_add_and_removed_persist():
     print("  explicit add + removed-table persistence  OK")
 
 
+def test_view_append_table_workflow():
+    try:
+        from PyQt6.QtCore import QPointF
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  append view SKIPPED (no PyQt6: {exc})")
+        return
+    from suiteview.audit.dataforge.forge_canvas_view import (
+        AppendBoxItem, ForgeJoinCanvas, JoinLineItem, SourceBoxItem,
+    )
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    canvas = ForgeJoinCanvas()
+    canvas.update_queries(
+        ["ca", "cb", "pol"],
+        {
+            "ca": ["company_code", "policy_number", "claim_amount", "office"],
+            "cb": ["COMPANY_CODE", "POLICY_NUMBER", "claim_amount", "examiner"],
+            "pol": ["company_code", "policy_number", "face_amount"],
+        },
+        {
+            "ca": {"claim_amount": "INTEGER"},
+            "cb": {"claim_amount": "DECIMAL"},
+            "pol": {},
+        },
+    )
+    assert canvas._add_append_table(QPointF(120, 80))
+    assert canvas.model.appends[0].name == "AppendTable"
+    assert canvas._add_query_to_append("AppendTable", "ca")
+    assert canvas._add_query_to_append("AppendTable", "cb")
+
+    append_box = next(it for it in canvas.scene.items()
+                      if isinstance(it, AppendBoxItem))
+    assert append_box.members == ["ca", "cb"]
+    assert append_box.fields == ["company_code", "policy_number", "claim_amount"]
+    assert "claim_amount" in append_box.type_conflicts
+    assert not [it for it in canvas.scene.items()
+                if isinstance(it, SourceBoxItem) and it.alias in {"ca", "cb"}]
+
+    assert canvas.add_query_table("pol")
+    assert canvas.scene.add_link("AppendTable", "policy_number", "pol", "policy_number")
+    lines = [it for it in canvas.scene.items() if isinstance(it, JoinLineItem)]
+    assert len(lines) == 1
+    assert canvas.to_config_appends() == [
+        {"alias": "AppendTable", "members": ["ca", "cb"]}]
+
+    canvas._remove_append_member("AppendTable", "cb")
+    assert canvas.model.get_source("cb") is None
+    assert canvas.model.get_append("AppendTable").members == ["ca"]
+    print("  append view workflow  OK")
+
+
 # ── Append Tables (design §9) ─────────────────────────────────────────────
 
 def _append_model() -> JoinCanvasModel:
@@ -381,35 +434,44 @@ def test_append_membership_and_shared_fields():
         "company_code", "policy_number", "claim_amount"]
     assert m.fields_of("All Claims") == m.shared_fields("All Claims")
 
-    # A member can't be in two appends; names can't collide.
+    # A member can't be in two appends; Append Table names can match Source
+    # names but must stay unique against other Append Tables.
     m.add_append("Other")
     try:
         m.add_member("Other", "ca")
         raise AssertionError("expected double-membership rejection")
     except ValueError:
         pass
+    m.add_append("pol")
     try:
         m.add_append("pol")
-        raise AssertionError("expected name-collision rejection")
+        raise AssertionError("expected append-name collision rejection")
     except ValueError:
         pass
 
-    # Removing a member restores it; removing the append frees them all.
+    # Removing a member deletes its canvas source state instead of restoring a
+    # full Source box.
     m.remove_member("All Claims", "cb")
     assert m.member_of("cb") is None
+    assert m.get_source("cb") is None
     m.remove_append("All Claims")
     assert m.member_of("ca") is None
     print("  append membership + shared fields  OK")
 
 
-def test_append_consumes_joins_and_links_via_append():
+def test_append_rejects_joined_sources_and_links_via_append():
     m = _append_model()
-    # 'ca' is joined to pol; dropping it into an append removes that join.
+    # A Source with existing joins cannot be added to an Append Table.
     m.add_link("ca", "company_code", "pol", "company_code")
     m.add_append("All Claims")
-    m.add_member("All Claims", "ca")
-    assert m.joins == []
+    try:
+        m.add_member("All Claims", "ca")
+        raise AssertionError("expected joined-source rejection")
+    except ValueError as e:
+        assert "already has joins" in str(e)
+    m.remove_join("ca", "pol")
     # Members can't be join endpoints anymore...
+    m.add_member("All Claims", "ca")
     try:
         m.add_link("ca", "company_code", "pol", "company_code")
         raise AssertionError("expected member-endpoint rejection")
@@ -421,7 +483,47 @@ def test_append_consumes_joins_and_links_via_append():
     assert {j.left_source, j.right_source} == {"All Claims", "pol"}
     specs = m.to_join_specs()
     assert specs[0].left_source in ("All Claims", "pol")
-    print("  append consumes joins; append is joinable  OK")
+    print("  append rejects joined sources; append is joinable  OK")
+
+
+def test_append_prunes_joins_when_shared_fields_change():
+    m = JoinCanvasModel()
+    m.set_sources(
+        ["ca", "cb", "cc", "pol"],
+        columns={
+            "ca": ["company_code", "policy_number", "claim_amount"],
+            "cb": ["company_code", "policy_number", "claim_amount"],
+            "cc": ["company_code", "policy_number"],
+            "pol": ["company_code", "claim_amount"],
+        },
+    )
+    m.add_append("All Claims")
+    m.add_member("All Claims", "ca")
+    m.add_member("All Claims", "cb")
+    m.add_link("All Claims", "claim_amount", "pol", "claim_amount")
+    assert len(m.joins) == 1
+    m.add_member("All Claims", "cc")
+    assert m.shared_fields("All Claims") == ["company_code", "policy_number"]
+    assert m.joins == []
+
+    m = JoinCanvasModel()
+    m.set_sources(
+        ["a", "b", "c", "pol"],
+        columns={
+            "a": ["PolicyNumber", "claim_amount"],
+            "b": ["policynumber", "claim_amount"],
+            "c": ["POLICYNUMBER", "claim_amount"],
+            "pol": ["POLICYNUMBER"],
+        },
+    )
+    m.add_append("All Policies")
+    m.add_member("All Policies", "a")
+    m.add_member("All Policies", "b")
+    m.add_link("All Policies", "PolicyNumber", "pol", "POLICYNUMBER")
+    m.remove_member("All Policies", "a")
+    assert m.shared_fields("All Policies") == ["policynumber", "claim_amount"]
+    assert m.joins[0].keys[0].left_field == "policynumber"
+    print("  append prunes joins when shared fields change  OK")
 
 
 def test_append_specs_config_and_state_round_trip():
@@ -481,11 +583,13 @@ def main():
         test_legacy_cards_import,
         test_validate,
         test_append_membership_and_shared_fields,
-        test_append_consumes_joins_and_links_via_append,
+        test_append_rejects_joined_sources_and_links_via_append,
+        test_append_prunes_joins_when_shared_fields_change,
         test_append_specs_config_and_state_round_trip,
         test_append_validate_warnings,
         test_view_smoke,
         test_view_explicit_add_and_removed_persist,
+        test_view_append_table_workflow,
     ]
     for t in tests:
         print(f"- {t.__name__}")

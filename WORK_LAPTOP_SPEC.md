@@ -498,10 +498,16 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
   legacy migration; `query_organizer.py` (groups/forge refs/reconcile/seed/
   clone); browser tree rebuilt on it with build-mode colors, `[DSN]` tags,
   weight hierarchy, drag-drop and group/forge clone; build-mode selector
-  colored; engine/canvas-model/pandas support for Append Tables (UNION ALL
-  over shared columns) with config persistence. Canvas VIEW for appends is
-  the next minipc task (design §9). Suite: 227 passed; same 6 live-DB2
-  failures as §1.9.
+  colored; engine/canvas-model/pandas support for Append Tables with config
+  persistence.
+- **2026-06-12 (minipc)** — Append Table canvas view completed: brown
+  AppendBox rendering, right-click Add/Rename/Delete, query-list and
+  canvas-source drops, member removal, shared-field/error/type-warning states,
+  AppendTable-to-Source joins, virtual `[Append]` Forge Assist entries for
+  Display/Filter picking, case-insensitive exact shared-field matching, and
+  row-preserving append semantics (`UNION ALL` / pandas `concat`). Focused
+  suite: DataForge canvas + engine 51 passed. Interactive laptop click-test is
+  still pending under §1.10.
 - **2026-06-11 (minipc)** — DataForge Phase 3 Manual mode (added §1.9): the
   engine gained `run_manual_sql` (Sources registered under their user-facing
   names; compiled Visual SQL runs unchanged in Manual mode), the runtime gained

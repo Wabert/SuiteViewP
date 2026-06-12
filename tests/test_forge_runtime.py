@@ -301,6 +301,69 @@ def test_dataforge_flat_file_date_range_filter_and_code_tab(tmp_home):
     print("  flat-file date range filter + code tab  OK")
 
 
+def test_dataforge_append_only_uses_append_result_and_keeps_rows(tmp_home):
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  append-only result SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    group = DataForgeGroup("⚙ Append Forge", saved_forge_name="Append Forge")
+    qd_a = QDefinition(
+        name="CL LTGUL TOP25",
+        sql="SELECT * FROM LTGUL FETCH FIRST 25 ROWS ONLY",
+        dsn="NEON_DSN",
+        result_columns=["POLICYNUMBER", "PLANCODE"],
+    )
+    qd_b = QDefinition(
+        name="CL EXECUL TOP 25",
+        sql="SELECT * FROM EXECUL FETCH FIRST 25 ROWS ONLY",
+        dsn="NEON_DSN",
+        result_columns=["POLICYNUMBER", "PLANCODE"],
+    )
+    group._sources = {qd_a.name: qd_a, qd_b.name: qd_b}
+    group.joins_tab.update_queries(
+        list(group._sources.keys()),
+        group._query_columns_map(),
+        group._query_column_types_map(),
+    )
+    assert group.joins_tab.add_query_table(qd_a.name) is True
+    assert group.joins_tab.add_query_table(qd_b.name) is True
+    group.joins_tab.model.add_append("AppendTable")
+    group.joins_tab.model.add_member("AppendTable", qd_b.name)
+    group.joins_tab.model.add_member("AppendTable", qd_a.name)
+
+    datasets = group._apply_append_ops({
+        qd_a.name: pd.DataFrame({
+            "POLICYNUMBER": ["L1", "L2"],
+            "PLANCODE": ["1U143800", "1U143800"],
+        }),
+        qd_b.name: pd.DataFrame({
+            "POLICYNUMBER": ["E1", "E1", "E2"],
+            "PLANCODE": ["1U143900", "1U143900", "1U143900"],
+        }),
+    })
+
+    assert group._default_result_source_name(datasets) == "AppendTable"
+    assert len(datasets["AppendTable"]) == 5
+    assert datasets["AppendTable"]["POLICYNUMBER"].tolist() == ["E1", "E1", "E2", "L1", "L2"]
+
+    code = group._generate_python_code(
+        {qd_a.name: qd_a.sql, qd_b.name: qd_b.sql},
+        [],
+        "",
+    )
+    assert "df_appendtable = pd.concat(_aligned, ignore_index=True)" in code
+    assert "drop_duplicates" not in code
+    assert "result = df_appendtable" in code
+    print("  append-only DataForge uses append result + keeps rows  OK")
+
+
 def test_dataforge_add_source_deep_copies_query_object_for_join_canvas(tmp_home):
     try:
         from PyQt6.QtWidgets import QApplication

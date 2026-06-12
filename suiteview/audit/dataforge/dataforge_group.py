@@ -58,7 +58,7 @@ from suiteview.audit.dataforge.forge_canvas_view import (
 # directly against the Source tables. See DATAFORGE_DESIGN.md §5.
 from suiteview.audit.dataforge.forge_engine import (
     FilterSpec, ForgeEngineError, JoinSpec, OutputColumn,
-    compile_forge_sql, run_manual_sql,
+    compile_forge_sql, run_manual_sql, shared_append_columns,
 )
 
 logger = logging.getLogger(__name__)
@@ -412,6 +412,23 @@ class ForgeSqlTab(QWidget):
         else:
             self._select_forge_view()
 
+    def clear_sql(self):
+        """Clear compiled, manual, and per-source SQL views."""
+        self._sqls.clear()
+        self._buttons.clear()
+        while self._btn_row.count():
+            item = self._btn_row.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._btn_row.addStretch()
+        self._active = _FORGE_VIEW
+        self._forge_sql = ""
+        self._manual_sql = ""
+        self.chk_manual.blockSignals(True)
+        self.chk_manual.setChecked(False)
+        self.chk_manual.blockSignals(False)
+        self._refresh_view()
+
     # ── View switching ────────────────────────────────────────────
 
     def _select_forge_view(self):
@@ -526,6 +543,9 @@ class ForgeCodeTab(QWidget):
 
     def set_code(self, code: str):
         self.txt_code.setPlainText(code)
+
+    def clear_code(self):
+        self.txt_code.clear()
 
     def _copy_code(self):
         QApplication.clipboard().setText(self.txt_code.toPlainText())
@@ -913,6 +933,7 @@ class DataForgeGroup(QWidget):
         self._queries_dialog = None
         self._loading = False
         self._dirty = False
+        self._last_picker_signature: tuple = ()
 
         self._build_ui()
 
@@ -936,7 +957,7 @@ class DataForgeGroup(QWidget):
         self.btn_new_forge.setFont(_FONT_BOLD)
         self.btn_new_forge.setFixedSize(82, 36)
         self.btn_new_forge.setStyleSheet(_SAVE_BTN_STYLE)
-        self.btn_new_forge.clicked.connect(self.new_forge_requested)
+        self.btn_new_forge.clicked.connect(self._confirm_new_forge)
 
         self.btn_save_as = QPushButton("Save As")
         self.btn_save_as.setFont(_FONT_BOLD)
@@ -976,7 +997,7 @@ class DataForgeGroup(QWidget):
 
         # Joins tab
         self.joins_tab = ForgeJoinsTab()
-        self.joins_tab.state_changed.connect(self._schedule_save)
+        self.joins_tab.state_changed.connect(self._on_joins_state_changed)
         self.tab_widget.addTab(self.joins_tab, "Joins")
 
         # Display tab
@@ -1037,6 +1058,21 @@ class DataForgeGroup(QWidget):
         root.addWidget(self.bottom_bar)
         self._update_forge_heading()
 
+    def _confirm_new_forge(self):
+        reply = QMessageBox.question(
+            self,
+            "Start New Forge?",
+            "This will clear the current DataForge builder. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.results_tab.clear_results()
+            self.sql_tab.clear_sql()
+            self.code_tab.clear_code()
+            self.lbl_result_count.setText("Result count:")
+            self.new_forge_requested.emit()
+
     # ── Tab management ───────────────────────────────────────────────
 
     def _add_filter_tab(self, name: str) -> ForgeFilterTab:
@@ -1090,6 +1126,49 @@ class DataForgeGroup(QWidget):
         """Build {query_name: [col, ...]} from current sources."""
         return {name: sq.result_columns
                 for name, sq in self._sources.items()}
+
+    def _query_column_types_map(self) -> dict[str, dict[str, str]]:
+        """Build {query_name: {col: type}} from current sources."""
+        return {name: dict(sq.column_types or {})
+                for name, sq in self._sources.items()}
+
+    def picker_source_names(self) -> list[str]:
+        """Real Sources plus virtual Append Tables for Forge Assist."""
+        return list(self.picker_source_definitions().keys())
+
+    def picker_source_definitions(self) -> dict[str, QDefinition]:
+        """Definitions shown in Forge Assist, including virtual appends."""
+        definitions = dict(self._sources)
+        for append in self.joins_tab.model.appends:
+            columns = self.joins_tab.model.shared_fields(append.name)
+            definitions[append.name] = QDefinition(
+                name=append.name,
+                forge_name=self._saved_forge_name,
+                result_columns=columns,
+                column_types={column: "" for column in columns},
+                query_object_kind="append_table",
+                query_object_config={
+                    "dataforge": {
+                        "forge_name": self._saved_forge_name,
+                        "append_table": True,
+                    }
+                },
+            )
+        return definitions
+
+    def _on_joins_state_changed(self):
+        self._schedule_save()
+        signature = self._picker_signature()
+        if signature != self._last_picker_signature:
+            self._last_picker_signature = signature
+            self.source_records_changed.emit()
+
+    def _picker_signature(self) -> tuple:
+        return tuple(
+            (append.name, tuple(append.members),
+             tuple(self.joins_tab.model.shared_fields(append.name)))
+            for append in self.joins_tab.model.appends
+        )
 
     def _dataforge_source_copy_name(self, source_name: str) -> str:
         """Return the private Query Object name used inside this DataForge."""
@@ -1217,7 +1296,8 @@ class DataForgeGroup(QWidget):
         self._sources[qd.name] = qd
         if refresh:
             self.joins_tab.update_queries(list(self._sources.keys()),
-                                         self._query_columns_map())
+                                         self._query_columns_map(),
+                                         self._query_column_types_map())
             self._schedule_save()
             self._persist_source_roster_if_saved()
             self.source_records_changed.emit()
@@ -1245,7 +1325,8 @@ class DataForgeGroup(QWidget):
             self._delete_query_copy_records(name, forge_name or self._saved_forge_name)
 
         self.joins_tab.update_queries(list(self._sources.keys()),
-                                     self._query_columns_map())
+                         self._query_columns_map(),
+                         self._query_column_types_map())
         self._schedule_save()
         self._persist_source_roster_if_saved()
         self.source_records_changed.emit()
@@ -1313,7 +1394,8 @@ class DataForgeGroup(QWidget):
         self._rename_filter_sources(mapping)
         self._rename_display_sources(mapping)
         self.joins_tab.update_queries(list(self._sources.keys()),
-                                     self._query_columns_map())
+                         self._query_columns_map(),
+                         self._query_column_types_map())
         for old_name, old_forge in temporary_records:
             self._delete_query_copy_records(old_name, old_forge)
 
@@ -1331,6 +1413,9 @@ class DataForgeGroup(QWidget):
         for join in state.get("joins", []):
             join["left_source"] = mapping.get(join.get("left_source", ""), join.get("left_source", ""))
             join["right_source"] = mapping.get(join.get("right_source", ""), join.get("right_source", ""))
+        for append in state.get("appends", []):
+            append["members"] = [mapping.get(member, member)
+                                  for member in append.get("members", [])]
         if state.get("removed"):
             state["removed"] = [mapping.get(a, a) for a in state["removed"]]
         self.joins_tab.set_state(state)
@@ -1365,7 +1450,8 @@ class DataForgeGroup(QWidget):
         """Programmatically add a source query."""
         self._sources[sq.name] = sq
         self.joins_tab.update_queries(list(self._sources.keys()),
-                                     self._query_columns_map())
+                                     self._query_columns_map(),
+                                     self._query_column_types_map())
 
     def add_source_object(self, query_object):
         """Programmatically add a QueryObject source via QDefinition adapter."""
@@ -1626,7 +1712,7 @@ class DataForgeGroup(QWidget):
                 self._show_manual_results(datasets, sqls, manual_sql, t_query)
                 return
 
-            # Append Tables: each becomes a dataset (UNION of members over
+            # Append Tables: each becomes a dataset (row-preserving stack of members over
             # their shared columns); members are consumed by the append and
             # the merge ops reference the Append Table's name instead.
             datasets = self._apply_append_ops(datasets)
@@ -1663,8 +1749,10 @@ class DataForgeGroup(QWidget):
                     # No valid merges — use first dataset
                     result = next(iter(datasets.values()))
             else:
-                # No merges — use first dataset
-                result = next(iter(datasets.values()))
+                # No merges — use the first surviving visual Source. In an
+                # append-only Forge, member Sources are consumed and the Append
+                # Table is the only surviving result source.
+                result = datasets[self._default_result_source_name(datasets)]
 
             # Step 3: Apply pandas filters from filter tabs
             for tab in self._filter_tabs:
@@ -1747,22 +1835,46 @@ class DataForgeGroup(QWidget):
                           ) -> dict[str, pd.DataFrame]:
         """Materialize Append Tables for the pandas run path.
 
-        Mirrors the engine's UNION ALL semantics: rows stack, only the
-        columns shared by every loaded member survive (first member's
-        order). The actual loaded frames are authoritative for the shared
-        set, like the engine's schemas are.
+        Mirrors the engine: rows stack, only the columns shared by
+        every loaded member survive (first member's order/casing). The actual
+        loaded frames are authoritative for the shared set, like the engine's
+        schemas are.
         """
         for op in self.joins_tab.get_append_ops():
             frames = [datasets[m] for m in op["members"] if m in datasets]
             if not frames:
                 continue
-            shared = [c for c in frames[0].columns
-                      if all(c in f.columns for f in frames)]
+            frame_names = [str(i) for i in range(len(frames))]
+            shared = shared_append_columns(
+                {name: list(frame.columns) for name, frame in zip(frame_names, frames)},
+                frame_names,
+            )
             if not shared:
                 continue
-            datasets[op["name"]] = pd.concat(
-                [f[shared] for f in frames], ignore_index=True)
+            aligned = []
+            for frame in frames:
+                lookup = {c.lower(): c for c in frame.columns}
+                part = frame[[lookup[c.lower()] for c in shared]].copy()
+                part.columns = shared
+                aligned.append(part)
+            datasets[op["name"]] = pd.concat(aligned, ignore_index=True)
         return datasets
+
+    def _default_result_source_name(self, datasets: dict[str, pd.DataFrame]) -> str:
+        consumed = {
+            member
+            for op in self.joins_tab.get_append_ops()
+            for member in op["members"]
+        }
+        surviving = [name for name in self._sources if name not in consumed]
+        surviving.extend(
+            op["name"] for op in self.joins_tab.get_append_ops()
+            if op["name"] in datasets
+        )
+        for name in surviving:
+            if name in datasets:
+                return name
+        return next(iter(datasets))
 
     def _apply_pandas_filters(self, df: pd.DataFrame,
                               tab: ForgeFilterTab) -> pd.DataFrame:
@@ -1803,6 +1915,12 @@ class DataForgeGroup(QWidget):
 
     # ── Visual design → DuckDB SQL (Phase 3) ─────────────────────────
 
+    def _visual_source_names(self) -> list[str]:
+        """Sources addressable by visual field keys, including Append Tables."""
+        names = list(self._sources.keys())
+        names.extend(ap.name for ap in self.joins_tab.model.appends)
+        return names
+
     def _source_for_field_key(self, field_key: str) -> tuple[str, str]:
         """Split a 'source.column' field key into (source, column).
 
@@ -1810,7 +1928,7 @@ class DataForgeGroup(QWidget):
         names by prefix first; fall back to splitting on the last dot.
         Returns ("", field_key) when no source can be identified.
         """
-        for name in self._sources:
+        for name in sorted(self._visual_source_names(), key=len, reverse=True):
             if field_key.startswith(name + "."):
                 return name, field_key[len(name) + 1:]
         if "." in field_key:
@@ -1833,9 +1951,10 @@ class DataForgeGroup(QWidget):
         if self.display_tab.display_all:
             return []
         outputs: list[dict] = []
+        valid_sources = set(self._visual_source_names())
         for spec in self.display_tab.get_display_columns():
             source, column = self._source_for_field_key(spec.get("field_key", ""))
-            if source not in self._sources or not column:
+            if source not in valid_sources or not column:
                 continue
             outputs.append({"source": source, "column": column,
                             "agg": spec.get("aggregate", "display")})
@@ -1858,11 +1977,12 @@ class DataForgeGroup(QWidget):
         """
         from suiteview.audit.dynamic_query import collect_field_filters
         specs: list[FilterSpec] = []
+        valid_sources = set(self._visual_source_names())
         for tab in self._filter_tabs:
             for filt in collect_field_filters(tab.grid):
                 field_key = filt.get("field_key") or filt.get("key", "")
                 source, column = self._source_for_field_key(field_key)
-                if source not in self._sources or not column:
+                if source not in valid_sources or not column:
                     continue
                 mode = filt.get("mode", "contains")
                 specs.append(FilterSpec(
@@ -2006,8 +2126,16 @@ class DataForgeGroup(QWidget):
                     f"_frames = [{member_vars}]",
                     "_shared = [c for c in _frames[0].columns"
                     " if all(c in f.columns for f in _frames)]",
-                    f"df_{_var(op['name'])} = pd.concat("
-                    "[f[_shared] for f in _frames], ignore_index=True)",
+                    "for _frame in _frames[1:]:",
+                    "    _lower = {c.lower() for c in _frame.columns}",
+                    "    _shared = [c for c in _shared if c.lower() in _lower]",
+                    "_aligned = []",
+                    "for _frame in _frames:",
+                    "    _lookup = {c.lower(): c for c in _frame.columns}",
+                    "    _part = _frame[[_lookup[c.lower()] for c in _shared]].copy()",
+                    "    _part.columns = _shared",
+                    "    _aligned.append(_part)",
+                    f"df_{_var(op['name'])} = pd.concat(_aligned, ignore_index=True)",
                 ])
 
         if merge_ops:
@@ -2032,7 +2160,7 @@ class DataForgeGroup(QWidget):
                         f'left_on="{left_on}", right_on="{right_on}", '
                         f'how="{how}")')
         else:
-            first_name = next(iter(self._sources)) if self._sources else "data"
+            first_name = self._default_code_result_source_name(append_ops)
             lines.extend([
                 "",
                 f"result = df_{_var(first_name)}",
@@ -2061,6 +2189,12 @@ class DataForgeGroup(QWidget):
         ])
 
         return "\n".join(lines)
+
+    def _default_code_result_source_name(self, append_ops: list[dict]) -> str:
+        consumed = {member for op in append_ops for member in op["members"]}
+        surviving = [name for name in self._sources if name not in consumed]
+        surviving.extend(op["name"] for op in append_ops)
+        return surviving[0] if surviving else "data"
 
     def _generate_adhoc_load_code(self, name: str, sq: QDefinition) -> list[str]:
         """Generate pandas load code for a DataForge ad hoc file source."""
@@ -2370,7 +2504,8 @@ class DataForgeGroup(QWidget):
                 if sq:
                     self._sources[name] = sq
             self.joins_tab.update_queries(list(self._sources.keys()),
-                                         self._query_columns_map())
+                                         self._query_columns_map(),
+                                         self._query_column_types_map())
 
             # Restore filter tabs
             tab_states = config.get("filter_tabs", [])

@@ -24,7 +24,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QGraphicsObject, QGraphicsPathItem, QGraphicsScene, QGraphicsView,
-    QGraphicsItem, QLabel, QMenu, QVBoxLayout, QWidget,
+    QGraphicsItem, QInputDialog, QLabel, QMenu, QMessageBox, QVBoxLayout, QWidget,
 )
 
 from .forge_canvas_model import JOIN_TYPES, JoinCanvasModel, JoinKey
@@ -51,6 +51,14 @@ _ROW_FG = QColor("#0F172A")
 _ROW_HOVER = QColor("#FED7AA")
 _LINE_COLOR = QColor("#EA580C")
 _LINE_SEL = QColor("#F59E0B")
+_APPEND = QColor("#7C2D12")
+_APPEND_BG = QColor("#FFFBEB")
+_APPEND_ROW_HOVER = QColor("#FDE68A")
+_APPEND_MEMBER_BG = QColor("#F5E6D3")
+_APPEND_MEMBER_FG = QColor("#431407")
+_WARN = QColor("#B45309")
+_QUERY_DRAG_MIME = "application/x-dataforge-query-drag"
+_MEMBER_H = 18
 
 _FONT = QFont("Segoe UI", 8)
 _FONT_BOLD = QFont("Segoe UI", 8, QFont.Weight.Bold)
@@ -64,6 +72,7 @@ class SourceBoxItem(QGraphicsObject):
     """A movable box for one Source, listing its fields."""
 
     moved = pyqtSignal()
+    released = pyqtSignal(str, QPointF)
 
     def __init__(self, alias: str, fields: list[str], collapsed: bool = False,
                  width: float = _BOX_W,
@@ -255,6 +264,7 @@ class SourceBoxItem(QGraphicsObject):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+        self.released.emit(self.alias, self.sceneBoundingRect().center())
 
     def toggle_collapsed(self):
         self.prepareGeometryChange()
@@ -284,6 +294,203 @@ class SourceBoxItem(QGraphicsObject):
             event.accept()
             return
         super().wheelEvent(event)
+
+
+# ── Append table box ─────────────────────────────────────────────────────
+
+class AppendBoxItem(QGraphicsObject):
+    """A movable Append Table box listing shared fields and member headers."""
+
+    moved = pyqtSignal()
+    query_dropped = pyqtSignal(str, str)
+
+    def __init__(self, alias: str, fields: list[str], members: list[str],
+                 type_conflicts: dict[str, list[tuple[str, str]]] | None = None,
+                 collapsed: bool = False, width: float = 220.0):
+        super().__init__()
+        self.alias = alias
+        self.fields = list(fields)
+        self.members = list(members)
+        self.type_conflicts = type_conflicts or {}
+        self.collapsed = collapsed
+        self.width = max(170.0, min(_MAX_BOX_W, float(width or 220.0)))
+        self._hover_field: str | None = None
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setAcceptHoverEvents(True)
+        self.setAcceptDrops(True)
+        self.setZValue(1.2)
+
+    def _message_rows(self) -> int:
+        if self.collapsed:
+            return 0
+        if not self.members or not self.fields:
+            return 1
+        return 1 if self.type_conflicts else 0
+
+    def _field_rows(self) -> int:
+        return 0 if self.collapsed else len(self.fields)
+
+    def _body_height(self) -> float:
+        return (self._field_rows() + self._message_rows()) * _ROW_H
+
+    def boundingRect(self) -> QRectF:
+        h = _HEADER_H
+        if not self.collapsed:
+            h += max(_ROW_H, self._body_height())
+            h += len(self.members) * _MEMBER_H
+        return QRectF(0, 0, self.width, max(h, _HEADER_H))
+
+    def is_header(self, local_y: float) -> bool:
+        return local_y < _HEADER_H
+
+    def is_resize_handle(self, pos: QPointF) -> bool:
+        return False
+
+    def field_at(self, local_y: float) -> str | None:
+        if self.collapsed or local_y < _HEADER_H:
+            return None
+        idx = int((local_y - _HEADER_H) // _ROW_H)
+        if 0 <= idx < len(self.fields):
+            return self.fields[idx]
+        return None
+
+    def member_at(self, local_y: float) -> str | None:
+        if self.collapsed or not self.members:
+            return None
+        y0 = _HEADER_H + max(_ROW_H, self._body_height())
+        if local_y < y0:
+            return None
+        idx = int((local_y - y0) // _MEMBER_H)
+        if 0 <= idx < len(self.members):
+            return self.members[idx]
+        return None
+
+    def _row_mid_y(self, field: str) -> float:
+        if self.collapsed or field not in self.fields:
+            return _HEADER_H / 2
+        idx = self.fields.index(field)
+        return _HEADER_H + idx * _ROW_H + _ROW_H / 2
+
+    def anchor_scene_pos(self, field: str, right_side: bool) -> QPointF:
+        x = self.width if right_side else 0.0
+        return self.mapToScene(QPointF(x, self._row_mid_y(field)))
+
+    def center_x_scene(self) -> float:
+        return self.mapToScene(QPointF(self.width / 2, 0)).x()
+
+    def paint(self, painter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.boundingRect()
+        painter.setBrush(QBrush(_APPEND_BG))
+        painter.setPen(QPen(_APPEND, 1.3))
+        painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+
+        header = QRectF(0, 0, self.width, _HEADER_H)
+        painter.setBrush(QBrush(_APPEND))
+        painter.setPen(Qt.PenStyle.NoPen)
+        path = QPainterPath()
+        path.addRoundedRect(header, 4, 4)
+        painter.drawPath(path)
+        painter.fillRect(QRectF(0, _HEADER_H - 6, self.width, 6), _APPEND)
+        painter.setPen(QPen(_HEADER_FG))
+        painter.setFont(_FONT_BOLD)
+        painter.drawText(header.adjusted(_PAD, 0, -_PAD, 0),
+                         Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                         self.alias)
+
+        if self.collapsed:
+            return
+
+        painter.setFont(_FONT)
+        y = _HEADER_H
+        if not self.members:
+            row = QRectF(1, y, self.width - 2, _ROW_H)
+            painter.setPen(QPen(_APPEND_MEMBER_FG))
+            painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
+                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                             "Drop queries here")
+            y += _ROW_H
+        elif not self.fields:
+            row = QRectF(1, y, self.width - 2, _ROW_H)
+            painter.setPen(QPen(_WARN))
+            painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
+                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                             "No shared fields")
+            y += _ROW_H
+        else:
+            for name in self.fields:
+                row = QRectF(1, y, self.width - 2, _ROW_H)
+                if name == self._hover_field:
+                    painter.fillRect(row, _APPEND_ROW_HOVER)
+                painter.setPen(QPen(_ROW_FG))
+                label = f"{name}  *" if name in self.type_conflicts else name
+                painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
+                                 Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                                 label)
+                y += _ROW_H
+            if self.type_conflicts:
+                row = QRectF(1, y, self.width - 2, _ROW_H)
+                painter.setPen(QPen(_WARN))
+                painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
+                                 Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                                 "* Type coercion warning")
+                y += _ROW_H
+
+        while y < _HEADER_H + max(_ROW_H, self._body_height()):
+            y += _ROW_H
+        for member in self.members:
+            row = QRectF(1, y, self.width - 2, _MEMBER_H)
+            painter.fillRect(row, _APPEND_MEMBER_BG)
+            painter.setPen(QPen(_APPEND, 1))
+            painter.drawLine(row.topLeft(), row.topRight())
+            painter.setPen(QPen(_APPEND_MEMBER_FG))
+            painter.setFont(_FONT_BOLD)
+            painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
+                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                             member)
+            y += _MEMBER_H
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            self.moved.emit()
+        return super().itemChange(change, value)
+
+    def hoverMoveEvent(self, event):
+        self._hover_field = self.field_at(event.pos().y())
+        self.update()
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        self._hover_field = None
+        self.update()
+        super().hoverLeaveEvent(event)
+
+    def toggle_collapsed(self):
+        self.prepareGeometryChange()
+        self.collapsed = not self.collapsed
+        self.update()
+        self.moved.emit()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(_QUERY_DRAG_MIME):
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat(_QUERY_DRAG_MIME):
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat(_QUERY_DRAG_MIME):
+            super().dropEvent(event)
+            return
+        data = bytes(event.mimeData().data(_QUERY_DRAG_MIME)).decode("utf-8")
+        self.query_dropped.emit(self.alias, data)
+        event.acceptProposedAction()
 
 
 # ── Join line ─────────────────────────────────────────────────────────────
@@ -344,24 +551,41 @@ class JoinCanvasScene(QGraphicsScene):
     """Holds the box/line items and keeps them in sync with the model."""
 
     changed_model = pyqtSignal()
+    warning_requested = pyqtSignal(str)
+    query_dropped_on_append = pyqtSignal(str, str)
 
     def __init__(self, model: JoinCanvasModel, parent=None):
         super().__init__(parent)
         self.model = model
-        self.box_items: dict[str, SourceBoxItem] = {}
+        self.box_items: dict[str, SourceBoxItem | AppendBoxItem] = {}
+        self.append_items: dict[str, AppendBoxItem] = {}
         self.line_items: list[JoinLineItem] = []
-        self._link_from: tuple[SourceBoxItem, str] | None = None
+        self._link_from: tuple[SourceBoxItem | AppendBoxItem, str] | None = None
         self._temp_line: QGraphicsPathItem | None = None
 
     # -- (re)build from model --
     def rebuild(self):
         self.clear()
         self.box_items.clear()
+        self.append_items.clear()
         self.line_items.clear()
         for src in self.model.sources:
+            if self.model.member_of(src.alias) is not None:
+                continue
             self._add_box_item(src.alias, src.field_names(), src.collapsed,
                                src.x, src.y, src.width, src.visible_rows,
                                src.scroll_offset)
+        for append in self.model.appends:
+            self._add_append_item(
+                append.name,
+                self.model.shared_fields(append.name),
+                append.members,
+                self.model.append_type_conflicts(append.name),
+                append.collapsed,
+                append.x,
+                append.y,
+                append.width,
+            )
         for join in self.model.joins:
             lbox = self.box_items.get(join.left_source)
             rbox = self.box_items.get(join.right_source)
@@ -377,8 +601,20 @@ class JoinCanvasScene(QGraphicsScene):
         box = SourceBoxItem(alias, fields, collapsed, width, visible_rows, scroll_offset)
         box.setPos(x, y)
         box.moved.connect(self._on_box_moved)
+        box.released.connect(self._on_source_released)
         self.addItem(box)
         self.box_items[alias] = box
+        return box
+
+    def _add_append_item(self, alias, fields, members, type_conflicts,
+                         collapsed, x, y, width) -> AppendBoxItem:
+        box = AppendBoxItem(alias, fields, members, type_conflicts, collapsed, width)
+        box.setPos(x, y)
+        box.moved.connect(self._on_box_moved)
+        box.query_dropped.connect(self.query_dropped_on_append.emit)
+        self.addItem(box)
+        self.box_items[alias] = box
+        self.append_items[alias] = box
         return box
 
     def _add_line_item(self, lbox, lfield, rbox, rfield, how) -> JoinLineItem:
@@ -394,18 +630,48 @@ class JoinCanvasScene(QGraphicsScene):
             if src is not None:
                 src.x = box.pos().x()
                 src.y = box.pos().y()
-                src.width = box.width
-                src.collapsed = box.collapsed
-                src.visible_rows = box.visible_rows
-                src.scroll_offset = box.scroll_offset
+                if isinstance(box, SourceBoxItem):
+                    src.width = box.width
+                    src.collapsed = box.collapsed
+                    src.visible_rows = box.visible_rows
+                    src.scroll_offset = box.scroll_offset
+                continue
+            append = self.model.get_append(alias)
+            if append is not None and isinstance(box, AppendBoxItem):
+                append.x = box.pos().x()
+                append.y = box.pos().y()
+                append.width = box.width
+                append.collapsed = box.collapsed
         for line in self.line_items:
             line.update_path()
         self.changed_model.emit()
+
+    def _on_source_released(self, alias: str, scene_center: QPointF):
+        for append_name, append_box in self.append_items.items():
+            if append_box.contains(append_box.mapFromScene(scene_center)):
+                self.add_append_member(append_name, alias)
+                return
 
     def remove_source(self, alias: str):
         self.model.remove_source(alias)
         self.rebuild()
         self.changed_model.emit()
+
+    def add_append_member(self, append_name: str, alias: str) -> bool:
+        try:
+            self.model.add_member(append_name, alias)
+        except ValueError as exc:
+            self.warning_requested.emit(str(exc))
+            return False
+        self.rebuild()
+        self.changed_model.emit()
+        return True
+
+    def remove_append_member(self, append_name: str, alias: str) -> bool:
+        self.model.remove_member(append_name, alias)
+        self.rebuild()
+        self.changed_model.emit()
+        return True
 
     # -- programmatic linking (used by the drag gesture and by tests) --
     def add_link(self, src_a: str, field_a: str,
@@ -455,7 +721,7 @@ class JoinCanvasScene(QGraphicsScene):
     def mousePressEvent(self, event):
         item = self.itemAt(event.scenePos(), self.views()[0].transform()
                            if self.views() else None)  # type: ignore[arg-type]
-        if isinstance(item, SourceBoxItem):
+        if isinstance(item, (SourceBoxItem, AppendBoxItem)):
             local = item.mapFromScene(event.scenePos())
             if item.is_resize_handle(local):
                 super().mousePressEvent(event)
@@ -501,7 +767,7 @@ class JoinCanvasScene(QGraphicsScene):
             return
         target = self.itemAt(scene_pos, self.views()[0].transform()
                              if self.views() else None)  # type: ignore[arg-type]
-        if not isinstance(target, SourceBoxItem) or target is src[0]:
+        if not isinstance(target, (SourceBoxItem, AppendBoxItem)) or target is src[0]:
             return
         tfield = target.field_at(target.mapFromScene(scene_pos).y())
         if tfield is None:
@@ -524,12 +790,15 @@ class ForgeJoinCanvas(QWidget):
         self.model = JoinCanvasModel()
         self._available_query_names: list[str] = []
         self._available_query_columns: dict[str, list[str]] = {}
+        self._available_query_types: dict[str, dict[str, str]] = {}
         # Sources the user explicitly removed from the canvas ("Delete Table").
         # Available queries are not shown until the user adds them from the join
         # canvas menu or by double-clicking the query list.
         self._removed_aliases: set[str] = set()
         self.scene = JoinCanvasScene(self.model, self)
         self.scene.changed_model.connect(self.state_changed.emit)
+        self.scene.warning_requested.connect(self._show_canvas_warning)
+        self.scene.query_dropped_on_append.connect(self._add_query_to_append)
 
         self.view = QGraphicsView(self.scene)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -556,7 +825,8 @@ class ForgeJoinCanvas(QWidget):
     # ── Public API (compatible with ForgeJoinsTab) ──────────────────────
 
     def update_queries(self, query_names: list[str],
-                       query_columns: dict[str, list[str]] | None = None):
+                       query_columns: dict[str, list[str]] | None = None,
+                       query_types: dict[str, dict[str, str]] | None = None):
         """Refresh the set of available Source queries.
 
         Adding a query to the Forge only makes it available to the join canvas;
@@ -566,13 +836,14 @@ class ForgeJoinCanvas(QWidget):
         """
         self._available_query_names = list(query_names)
         self._available_query_columns = query_columns or {}
+        self._available_query_types = query_types or {}
         # Forget removals for Sources that no longer exist.
         self._removed_aliases &= set(self._available_query_names)
         visible = [src.alias for src in self.model.sources
                if src.alias in self._available_query_names
                and src.alias not in self._removed_aliases]
         self.model.set_sources(visible, self._available_query_columns,
-                       add_missing=False)
+                   self._available_query_types, add_missing=False)
         self.scene.rebuild()
         self.state_changed.emit()
 
@@ -585,8 +856,8 @@ class ForgeJoinCanvas(QWidget):
     def to_config_joins(self) -> list[dict]:
         return self.model.to_config_joins()
 
-    # Append Tables (design §9) — model-backed; the visual group-box layer
-    # renders these (see AppendBoxItem work tracked in WORK_LAPTOP_SPEC).
+    # Append Tables (design §9) — model-backed; AppendBoxItem renders the
+    # shared-field body and stacked member headers.
     def to_append_specs(self):
         return self.model.to_append_specs()
 
@@ -627,10 +898,18 @@ class ForgeJoinCanvas(QWidget):
             if src is not None:
                 src.x = box.pos().x()
                 src.y = box.pos().y()
-                src.width = box.width
-                src.collapsed = box.collapsed
-                src.visible_rows = box.visible_rows
-                src.scroll_offset = box.scroll_offset
+                if isinstance(box, SourceBoxItem):
+                    src.width = box.width
+                    src.collapsed = box.collapsed
+                    src.visible_rows = box.visible_rows
+                    src.scroll_offset = box.scroll_offset
+                continue
+            append = self.model.get_append(alias)
+            if append is not None and isinstance(box, AppendBoxItem):
+                append.x = box.pos().x()
+                append.y = box.pos().y()
+                append.width = box.width
+                append.collapsed = box.collapsed
 
     def _available_to_add(self) -> list[str]:
         visible = {src.alias for src in self.model.sources}
@@ -644,10 +923,84 @@ class ForgeJoinCanvas(QWidget):
         if name in visible:
             return False
         self.model.set_sources(visible + [name], self._available_query_columns,
-                               add_missing=True)
+                               self._available_query_types, add_missing=True)
         self.scene.rebuild()
         self.state_changed.emit()
         return True
+
+    def _default_append_name(self) -> str:
+        base = "AppendTable"
+        existing = {ap.name for ap in self.model.appends}
+        if base not in existing:
+            return base
+        idx = 2
+        while f"{base} {idx}" in existing:
+            idx += 1
+        return f"{base} {idx}"
+
+    def _add_append_table(self, scene_pos: QPointF):
+        try:
+            self.model.add_append(self._default_append_name(), scene_pos.x(), scene_pos.y())
+        except ValueError as exc:
+            self._show_canvas_warning(str(exc))
+            return False
+        self.scene.rebuild()
+        self.state_changed.emit()
+        return True
+
+    def _rename_append_table(self, old_name: str):
+        text, ok = QInputDialog.getText(
+            self, "Rename Append Table", "Append Table name:", text=old_name)
+        if not ok:
+            return
+        try:
+            self.model.rename_append(old_name, text)
+        except ValueError as exc:
+            self._show_canvas_warning(str(exc))
+            return
+        self.scene.rebuild()
+        self.state_changed.emit()
+
+    def _delete_append_table(self, name: str):
+        self.model.remove_append(name)
+        self.scene.rebuild()
+        self.state_changed.emit()
+
+    def _remove_append_member(self, append_name: str, member: str):
+        self.scene.remove_append_member(append_name, member)
+
+    def _add_query_to_append(self, append_name: str, query_name: str) -> bool:
+        names = [line.strip() for line in str(query_name).split("\n") if line.strip()]
+        changed = False
+        warnings: list[str] = []
+        for name in names:
+            if name not in self._available_query_names:
+                warnings.append(f"{name!r} is not a Source in this DataForge.")
+                continue
+            self._removed_aliases.discard(name)
+            visible = [src.alias for src in self.model.sources]
+            if name not in visible:
+                self.model.set_sources(
+                    visible + [name],
+                    self._available_query_columns,
+                    self._available_query_types,
+                    add_missing=True,
+                )
+            try:
+                self.model.add_member(append_name, name)
+            except ValueError as exc:
+                warnings.append(str(exc))
+                continue
+            changed = True
+        if changed:
+            self.scene.rebuild()
+            self.state_changed.emit()
+        if warnings:
+            self._show_canvas_warning("\n".join(warnings))
+        return changed
+
+    def _show_canvas_warning(self, message: str):
+        QMessageBox.warning(self, "Append Table", message)
 
     def _remove_query_table(self, alias: str):
         """Remove a Source box from the canvas and remember the removal."""
@@ -678,6 +1031,29 @@ class ForgeJoinCanvas(QWidget):
             act_del = menu.addAction("Delete this key")
             act_del.triggered.connect(lambda: self.scene.remove_line(item))
             menu.exec(event.globalPos())
+        elif isinstance(item, AppendBoxItem):
+            local = item.mapFromScene(scene_pos)
+            member = item.member_at(local.y())
+            menu = QMenu(self.view)
+            if member:
+                act_member = menu.addAction(f"Remove {member} from Append Table")
+                act_member.triggered.connect(
+                    lambda _=False, a=item.alias, m=member: self._remove_append_member(a, m))
+                menu.addSeparator()
+            act = menu.addAction("Expand" if item.collapsed else "Collapse")
+            act.triggered.connect(item.toggle_collapsed)
+            act_rename = menu.addAction("Rename Append Table")
+            act_rename.triggered.connect(
+                lambda _=False, a=item.alias: self._rename_append_table(a))
+            if item.type_conflicts:
+                menu.addSeparator()
+                warn = menu.addAction("Type coercion warning")
+                warn.setEnabled(False)
+            menu.addSeparator()
+            act_delete = menu.addAction("Delete Append Table")
+            act_delete.triggered.connect(
+                lambda _=False, a=item.alias: self._delete_append_table(a))
+            menu.exec(event.globalPos())
         elif isinstance(item, SourceBoxItem):
             menu = QMenu(self.view)
             act = menu.addAction("Expand" if item.collapsed else "Collapse")
@@ -696,6 +1072,9 @@ class ForgeJoinCanvas(QWidget):
             menu.exec(event.globalPos())
         else:
             menu = QMenu(self.view)
+            act_append = menu.addAction("Add Append Table")
+            act_append.triggered.connect(lambda _=False, p=scene_pos: self._add_append_table(p))
+            menu.addSeparator()
             add_menu = menu.addMenu(self._add_menu_label)
             names = self._available_to_add()
             if names:
