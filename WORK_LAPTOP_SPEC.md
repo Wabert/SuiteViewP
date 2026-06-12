@@ -326,6 +326,35 @@ guideline + 7-pay recalc (building blocks `glp_on_change` + `calculate_7pay_prem
 are ready). Reference captured: RERUN creates a new segment (Cov2) at a face
 increase and recalcs guideline at the change anniversary.
 
+### 1.9 DataForge Phase 3 — Manual mode + Forge SQL view (2026-06-11, minipc)
+
+The SQL tab in the DataForge designer was rebuilt (`dataforge_group.py` →
+`ForgeSqlTab`): a **Forge (DuckDB)** button shows the single DuckDB statement
+compiled live from the visual design; a **Manual mode** checkbox makes it
+editable (prefilled from the compiled SQL — the Visual→Manual flip) and Run
+Forge then executes the hand-written SQL via DuckDB over the loaded Source
+tables instead of the pandas merge path. All engine/runtime/designer logic is
+headless-tested (engine 27 / runtime 25 / canvas 13 green), but **click-test
+in the running app**:
+
+- Open a Forge with 2+ Sources → SQL tab → **Forge (DuckDB)** shows compiled
+  SQL; per-Source buttons still show each Source's pull SQL; switching tabs
+  recompiles (edit a join/filter and re-check).
+- Tick **Manual mode** → editor prefills with the compiled SQL, goes editable
+  (white bg, orange border), hint text changes. Run Forge → results match the
+  visual run for the same design (compiled SQL semantics: Source filters apply
+  *before* outer joins — the pandas path's known post-merge filter bug means
+  outer-join + filter cases may legitimately differ; the SQL result is the
+  correct one).
+- Hand-edit the SQL (e.g. add a WHERE) → Run → results reflect the edit; the
+  Code tab shows a duckdb-based script; Save → reopen → Manual mode + SQL are
+  restored (config `sql_mode`/`manual_sql`).
+- Untick Manual mode → visual design runs again (pandas path unchanged).
+- Run with Manual on + empty editor → friendly warning, no run.
+- Saved-Forge config now also carries engine-shaped `joins`/`outputs`/`limit`
+  (from `get_config`) — spot-check a saved Forge's JSON under
+  `~/.suiteview/saved_dataforges/`.
+
 ---
 
 ## §2 — DEFERRED: DB2 connection consolidation (Tier 2c) — NEEDS LIVE DB2
@@ -427,6 +456,18 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
 ---
 
 ## Changelog
+- **2026-06-11 (minipc)** — DataForge Phase 3 Manual mode (added §1.9): the
+  engine gained `run_manual_sql` (Sources registered under their user-facing
+  names; compiled Visual SQL runs unchanged in Manual mode), the runtime gained
+  `compile_saved_forge_sql` + manual-aware `run_saved_forge`/`validate_forge`,
+  and the designer's SQL tab became the Forge (DuckDB) view + Manual-mode
+  editor. `get_config` now stores engine-shaped `joins`/`outputs`/`limit`
+  (closing the §1.5 config ask). Drive-by: `qdef_store.load_qdef`/`list_qdefs`
+  no longer crash when the qdefinitions dir doesn't exist; the stale
+  `FakePolicyInfo` in `test_glp_exception` was completed (missing
+  `age_at_maturity`/TAMRA fields), un-breaking that test. Full suite on the
+  minipc: 208 passed; remaining failures are the documented live-DB2 ones
+  (4× db2_query_performance, 2× illustration_md_check).
 - **2026-06-10 (minipc)** — Guideline calcs OWNED by the engine + Illustration UI
   overhaul. (a) New `monthly_guideline.py`: monthly accumulated-value endowment
   solve (linear in premium, exact, no compression, unlimited recalcs) —

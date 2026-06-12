@@ -467,6 +467,62 @@ def compile_forge_sql(
     return sql, column_sources
 
 
+def prepare_manual_statement(sql: str, limit: int | None = None) -> str:
+    """Normalize hand-written SQL for execution (Manual mode).
+
+    Strips trailing semicolons/whitespace and, when ``limit`` is given, wraps
+    the statement so the cap applies even if the SQL has its own LIMIT.
+    Raises ForgeEngineError on empty SQL.
+    """
+    body = sql.strip().rstrip(";").strip()
+    if not body:
+        raise ForgeEngineError(
+            "Manual SQL is empty. Type a SELECT against the Source tables, "
+            "or switch Manual mode off to run the visual design.")
+    if limit is not None and int(limit) > 0:
+        return f'SELECT * FROM (\n{body}\n) AS "_manual"\nLIMIT {int(limit)}'
+    return body
+
+
+def run_manual_sql(
+    sources: dict[str, pd.DataFrame],
+    sql: str,
+    *,
+    limit: int | None = None,
+    connection: "duckdb.DuckDBPyConnection | None" = None,
+) -> ForgeResult:
+    """Execute hand-written DuckDB SQL against Source Snapshots (Manual mode).
+
+    Each Source DataFrame is registered under its user-facing alias, so the
+    SQL references Sources by the same names the Visual-compiled SQL shows —
+    double-quoted when the name needs it (``SELECT * FROM "Claims [CSV]"``).
+    Because :func:`compile_forge_sql` defaults physical names to the aliases,
+    a compiled Visual statement runs here unchanged (the Visual→Manual flip).
+
+    Source filters are NOT applied — the SQL is authoritative; write them in.
+    ``column_sources`` is empty: arbitrary SQL output can't be mapped back.
+    """
+    if not sources:
+        raise ForgeEngineError("A Forge needs at least one Source.")
+    statement = prepare_manual_statement(sql, limit)
+
+    own_conn = connection is None
+    con = connection or duckdb.connect()
+    try:
+        for alias, df in sources.items():
+            con.register(alias, df)
+        try:
+            result_df = con.execute(statement).df()
+        except duckdb.Error as exc:
+            raise ForgeEngineError(
+                f"Manual SQL failed: {exc}\n\nSource tables available: "
+                + ", ".join(_qi(a) for a in sources)) from exc
+        return ForgeResult(dataframe=result_df, sql=statement, column_sources={})
+    finally:
+        if own_conn:
+            con.close()
+
+
 def run_forge(
     sources: dict[str, pd.DataFrame],
     joins: list[JoinSpec],

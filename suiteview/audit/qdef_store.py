@@ -79,7 +79,7 @@ def list_qdefs(forge_name: str = "") -> list[QDefinition]:
                         qdefs.append(qd)
                 except Exception:
                     logger.exception("Failed to load QDefinition: %s", f)
-    else:
+    elif _QDEFS_DIR.exists():
         # All forges
         for d in _QDEFS_DIR.iterdir():
             if not d.is_dir():
@@ -102,7 +102,9 @@ def list_qdefs(forge_name: str = "") -> list[QDefinition]:
 def load_qdef(name: str, forge_name: str = "") -> QDefinition | None:
     """Load a single QDefinition by name within a forge."""
     if not forge_name:
-        # Search all forges for this name
+        # Search all forges for this name (no dir yet => nothing saved).
+        if not _QDEFS_DIR.exists():
+            return None
         for d in _QDEFS_DIR.iterdir():
             if not d.is_dir():
                 continue

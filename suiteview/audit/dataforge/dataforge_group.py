@@ -19,7 +19,7 @@ from PyQt6.QtGui import QDrag, QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QPushButton, QMessageBox, QApplication, QInputDialog, QTextEdit, QScrollArea,
-    QFrame, QMenu,
+    QFrame, QMenu, QCheckBox,
 )
 
 from suiteview.audit.qdefinition import QDefinition
@@ -52,6 +52,13 @@ from suiteview.audit.dataforge.query_field_picker import FORGE_FIELD_DRAG_MIME
 # previously-saved Forges still load. forge_joins_tab.py is kept for rollback.
 from suiteview.audit.dataforge.forge_canvas_view import (
     ForgeJoinCanvas as ForgeJoinsTab,
+)
+# Phase 3 Manual mode: the visual design compiles to one DuckDB statement
+# (shown on the SQL tab); Manual mode lets the user edit and run that SQL
+# directly against the Source tables. See DATAFORGE_DESIGN.md §5.
+from suiteview.audit.dataforge.forge_engine import (
+    FilterSpec, ForgeEngineError, JoinSpec, OutputColumn,
+    compile_forge_sql, run_manual_sql,
 )
 
 logger = logging.getLogger(__name__)
@@ -261,13 +268,45 @@ class ForgeFilterTab(QScrollArea):
 
 # ── SQL Tab for DataForge (per-dataset buttons) ─────────────────────
 
+# Sentinel for the Forge (DuckDB) view on the SQL tab — distinct from any
+# real dataset name (those are query names).
+_FORGE_VIEW = "⚒ Forge"
+
+_FORGE_SQL_BTN_STYLE = (
+    f"QPushButton {{ background-color: {_FORGE_BG}; color: {_FORGE_DEEP};"
+    f" border: 1px solid {_FORGE_DARK}; border-radius: 3px;"
+    " padding: 4px 12px; font-size: 9pt; font-weight: bold; }"
+    f"QPushButton:hover {{ background-color: {_FORGE_LIGHT}; }}"
+)
+
+_FORGE_SQL_BTN_ACTIVE_STYLE = (
+    f"QPushButton {{ background-color: {_FORGE_DEEP}; color: white;"
+    f" border: 1px solid {_FORGE_DEEP}; border-radius: 3px;"
+    " padding: 4px 12px; font-size: 9pt; font-weight: bold; }"
+    f"QPushButton:hover {{ background-color: {_FORGE_DARK}; }}"
+)
+
+
 class ForgeSqlTab(QWidget):
-    """SQL tab showing a button per dataset and the SQL for the selected one."""
+    """SQL tab: the compiled Forge (DuckDB) SQL plus per-Source SQL views.
+
+    The **Forge (DuckDB)** view shows the single DuckDB statement compiled
+    from the visual design. Ticking **Manual mode** makes that SQL editable
+    and the Forge runs it instead of the visual design — the Visual→Manual
+    flip from DATAFORGE_DESIGN.md §5. The per-dataset buttons show the SQL
+    each Source pulls (read-only), as before.
+    """
+
+    forge_sql_requested = pyqtSignal()   # ask the designer to (re)compile
+    manual_state_changed = pyqtSignal()  # Manual toggled or manual SQL edited
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._sqls: dict[str, str] = {}  # query_name → SQL
-        self._active: str = ""
+        self._active: str = _FORGE_VIEW
+        self._forge_sql: str = ""        # compiled from the visual design
+        self._manual_sql: str = ""       # the user's hand-written SQL
+        self._updating = False           # guards programmatic editor updates
         self._build_ui()
 
     def _build_ui(self):
@@ -275,20 +314,44 @@ class ForgeSqlTab(QWidget):
         root.setContentsMargins(4, 4, 4, 4)
         root.setSpacing(4)
 
-        # ── Dataset buttons row ──────────────────────────────────
+        # ── Button row: [Forge (DuckDB)] [datasets…] [Manual mode] ──
+        top_row = QHBoxLayout()
+        top_row.setSpacing(4)
+        top_row.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_forge = QPushButton("Forge (DuckDB)")
+        self.btn_forge.setFont(QFont("Segoe UI", 9))
+        self.btn_forge.setStyleSheet(_FORGE_SQL_BTN_ACTIVE_STYLE)
+        self.btn_forge.clicked.connect(self._select_forge_view)
+        top_row.addWidget(self.btn_forge)
+
         self._btn_row = QHBoxLayout()
         self._btn_row.setSpacing(4)
         self._btn_row.setContentsMargins(0, 0, 0, 0)
         self._btn_row.addStretch()
-        root.addLayout(self._btn_row)
+        top_row.addLayout(self._btn_row, 1)
 
-        # ── SQL display ──────────────────────────────────────────
+        self.chk_manual = QCheckBox("Manual mode")
+        self.chk_manual.setFont(QFont("Segoe UI", 9))
+        self.chk_manual.setStyleSheet(f"QCheckBox {{ color: {_FORGE_DEEP}; }}")
+        self.chk_manual.setToolTip(
+            "Edit the Forge SQL and run it instead of the visual design.")
+        self.chk_manual.toggled.connect(self._on_manual_toggled)
+        top_row.addWidget(self.chk_manual)
+        root.addLayout(top_row)
+
+        # ── Hint line (the tab teaches what it shows) ─────────────
+        self.lbl_hint = QLabel()
+        self.lbl_hint.setFont(QFont("Segoe UI", 8))
+        self.lbl_hint.setStyleSheet("QLabel { color: #666; font-style: italic; }")
+        self.lbl_hint.setWordWrap(True)
+        root.addWidget(self.lbl_hint)
+
+        # ── SQL display / editor ──────────────────────────────────
         self.txt_sql = QTextEdit()
         self.txt_sql.setFont(_FONT_MONO)
         self.txt_sql.setReadOnly(True)
-        self.txt_sql.setStyleSheet(
-            "QTextEdit { background-color: #FAFAFA; border: 1px solid #DDD;"
-            " border-radius: 3px; }")
+        self.txt_sql.textChanged.connect(self._on_text_changed)
 
         # Syntax highlighting
         from suiteview.audit.tabs.sql_tab import _SqlHighlighter
@@ -297,24 +360,42 @@ class ForgeSqlTab(QWidget):
         root.addWidget(self.txt_sql, 1)
 
         self._buttons: dict[str, QPushButton] = {}
+        self._refresh_view()
+
+    # ── Public state ──────────────────────────────────────────────
+
+    @property
+    def manual_mode(self) -> bool:
+        return self.chk_manual.isChecked()
+
+    @property
+    def manual_sql(self) -> str:
+        return self._manual_sql
+
+    def set_manual_state(self, manual: bool, sql: str):
+        """Restore the saved Manual state (used by set_config)."""
+        self._manual_sql = sql or ""
+        self.chk_manual.setChecked(manual)
+        self._refresh_view()
+
+    def set_forge_sql(self, sql: str):
+        """Update the compiled-from-visual-design DuckDB SQL."""
+        self._forge_sql = sql or ""
+        if self._active == _FORGE_VIEW and not self.manual_mode:
+            self._refresh_view()
 
     def set_datasets(self, sqls: dict[str, str]):
         """Set the SQL for each dataset. Creates/updates buttons."""
         self._sqls = dict(sqls)
 
-        # Clear old buttons
-        for btn in self._buttons.values():
-            self._btn_row.removeWidget(btn)
-            btn.deleteLater()
+        # Clear old dataset buttons + stretch (the Forge button and the
+        # Manual checkbox live outside this layout and are kept).
         self._buttons.clear()
-
-        # Remove stretch
         while self._btn_row.count():
             item = self._btn_row.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        # Create buttons
         for name in sqls:
             btn = QPushButton(name)
             btn.setFont(QFont("Segoe UI", 9))
@@ -324,26 +405,84 @@ class ForgeSqlTab(QWidget):
             self._buttons[name] = btn
         self._btn_row.addStretch()
 
-        # Auto-select first
-        if sqls:
-            first = next(iter(sqls))
-            self._select_dataset(first)
+        # Keep the current selection when it still exists; default to the
+        # Forge view (the headline — the SQL the whole Forge runs).
+        if self._active in self._sqls:
+            self._select_dataset(self._active)
         else:
-            self.txt_sql.clear()
-            self._active = ""
+            self._select_forge_view()
+
+    # ── View switching ────────────────────────────────────────────
+
+    def _select_forge_view(self):
+        self._active = _FORGE_VIEW
+        self._refresh_view()
 
     def _select_dataset(self, name: str):
         self._active = name
-        # Update button styles
+        self._refresh_view()
+
+    def _refresh_view(self):
+        """Re-render buttons, hint, and editor for the active view/state."""
+        manual = self.manual_mode
+        forge_active = self._active == _FORGE_VIEW
+
+        self.btn_forge.setStyleSheet(
+            _FORGE_SQL_BTN_ACTIVE_STYLE if forge_active else _FORGE_SQL_BTN_STYLE)
         for n, btn in self._buttons.items():
-            if n == name:
-                btn.setStyleSheet(_DATASET_BTN_ACTIVE_STYLE)
+            btn.setStyleSheet(
+                _DATASET_BTN_ACTIVE_STYLE if (not forge_active and n == self._active)
+                else _DATASET_BTN_STYLE)
+
+        editable = forge_active and manual
+        self._updating = True
+        try:
+            self.txt_sql.setReadOnly(not editable)
+            if editable:
+                # Orange border = custom criteria (app-wide visual cue).
+                self.txt_sql.setStyleSheet(
+                    "QTextEdit { background-color: white;"
+                    f" border: 2px solid {_FORGE_DARK}; border-radius: 3px; }}")
+                self.txt_sql.setPlainText(self._manual_sql)
+                self.lbl_hint.setText(
+                    "Manual mode — this SQL runs instead of the visual design "
+                    "(Filter / Joins / Display tabs are ignored). Reference "
+                    "Sources by their quoted table names, e.g. "
+                    "SELECT * FROM \"My Query\".")
             else:
-                btn.setStyleSheet(_DATASET_BTN_STYLE)
-        # Show SQL
-        from suiteview.audit.tabs.sql_tab import _format_sql
-        sql = self._sqls.get(name, "")
-        self.txt_sql.setPlainText(_format_sql(sql) if sql else "")
+                self.txt_sql.setStyleSheet(
+                    "QTextEdit { background-color: #FAFAFA; border: 1px solid #DDD;"
+                    " border-radius: 3px; }")
+                if forge_active:
+                    self.txt_sql.setPlainText(self._forge_sql)
+                    self.lbl_hint.setText(
+                        "DuckDB SQL compiled from the visual design. Tick "
+                        "Manual mode to edit it and run your own SQL instead.")
+                else:
+                    from suiteview.audit.tabs.sql_tab import _format_sql
+                    sql = self._sqls.get(self._active, "")
+                    self.txt_sql.setPlainText(_format_sql(sql) if sql else "")
+                    self.lbl_hint.setText(
+                        f"SQL that pulls Source “{self._active}” (read-only).")
+        finally:
+            self._updating = False
+
+    # ── Manual mode ───────────────────────────────────────────────
+
+    def _on_manual_toggled(self, checked: bool):
+        if checked:
+            # Visual→Manual flip: prefill from the freshly-compiled design.
+            self.forge_sql_requested.emit()
+            if not self._manual_sql.strip():
+                self._manual_sql = self._forge_sql
+        self._select_forge_view()
+        self.manual_state_changed.emit()
+
+    def _on_text_changed(self):
+        if self._updating or not (self.manual_mode and self._active == _FORGE_VIEW):
+            return
+        self._manual_sql = self.txt_sql.toPlainText()
+        self.manual_state_changed.emit()
 
 
 # ── Code Tab (Python/Pandas) ────────────────────────────────────────
@@ -849,9 +988,12 @@ class DataForgeGroup(QWidget):
         self.results_tab = ResultsTab()
         self.tab_widget.addTab(self.results_tab, "Results")
 
-        # SQL tab (per-dataset)
+        # SQL tab — compiled Forge (DuckDB) SQL + Manual mode + per-dataset SQL
         self.sql_tab = ForgeSqlTab()
+        self.sql_tab.forge_sql_requested.connect(self._refresh_forge_sql)
+        self.sql_tab.manual_state_changed.connect(self._schedule_save)
         self.tab_widget.addTab(self.sql_tab, "SQL")
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
 
         # Code tab (Python/pandas)
         self.code_tab = ForgeCodeTab()
@@ -905,6 +1047,12 @@ class DataForgeGroup(QWidget):
         self.tab_widget.insertTab(idx, tab, name)
         tab.grid.state_changed.connect(self._schedule_save)
         return tab
+
+    def _on_tab_changed(self, idx: int):
+        # Compile the visual design whenever the SQL tab comes into view so
+        # the Forge (DuckDB) statement always reflects the current design.
+        if self.tab_widget.widget(idx) is self.sql_tab:
+            self._refresh_forge_sql()
 
     # ── Source management ────────────────────────────────────────────
 
@@ -1428,10 +1576,19 @@ class DataForgeGroup(QWidget):
     # ── Run DataForge ────────────────────────────────────────────────
 
     def _run_forge(self):
-        """Execute all source queries, merge with pandas, apply filters."""
+        """Execute all source queries, then combine: Manual-mode DuckDB SQL
+        when enabled, otherwise pandas merge + filters (the visual design)."""
         if not self._sources:
             QMessageBox.warning(self, "No Sources",
                                 "Add at least one query object via the Objects button.")
+            return
+
+        manual_sql = self.sql_tab.manual_sql if self.sql_tab.manual_mode else ""
+        if self.sql_tab.manual_mode and not manual_sql.strip():
+            QMessageBox.warning(
+                self, "Manual SQL Empty",
+                "Manual mode is on but the SQL editor is empty.\n"
+                "Type SQL in the SQL tab, or untick Manual mode.")
             return
 
         # Validate + snapshot sources on the GUI thread before going async.
@@ -1462,6 +1619,12 @@ class DataForgeGroup(QWidget):
             # Notify open dialog about data availability
             if self._queries_dialog and self._queries_dialog.isVisible():
                 self._queries_dialog.update_data_status(set(self._datasets.keys()))
+
+            # Manual mode: the hand-written DuckDB SQL replaces the visual
+            # design (joins/filters/display) entirely.
+            if manual_sql.strip():
+                self._show_manual_results(datasets, sqls, manual_sql, t_query)
+                return
 
             # Step 2: Apply pandas merge operations
             t1 = time.time()
@@ -1524,8 +1687,9 @@ class DataForgeGroup(QWidget):
             self.lbl_total_time.setText(f"Total time:  {fmt_time(t_total)}")
             self.lbl_result_count.setText(f"Result count:   {len(result)}")
 
-            # Update SQL tab with per-dataset SQL
+            # Update SQL tab: per-dataset SQL + the compiled Forge SQL
             self.sql_tab.set_datasets(sqls)
+            self._refresh_forge_sql()
 
             # Generate Python code
             code = self._generate_python_code(sqls, merge_ops, max_count)
@@ -1547,6 +1711,32 @@ class DataForgeGroup(QWidget):
             bar=self.bottom_bar,
         )
 
+    def _show_manual_results(self, datasets: dict[str, pd.DataFrame],
+                             sqls: dict[str, str], manual_sql: str,
+                             t_query: float):
+        """Run Manual-mode DuckDB SQL over the loaded Source tables and show it."""
+        t1 = time.time()
+        max_count = self.txt_max_count.text().strip()
+        limit = int(max_count) if max_count.isdigit() else None
+        try:
+            res = run_manual_sql(datasets, manual_sql, limit=limit)
+        except ForgeEngineError as exc:
+            QMessageBox.warning(self, "Manual SQL Error", str(exc))
+            return
+        result = res.dataframe
+
+        t_sql = time.time() - t1
+        self.results_tab.set_results(result)
+        self.lbl_query_time.setText(f"Query time:  {fmt_time(t_query)}")
+        self.lbl_print_time.setText(f"SQL time:  {fmt_time(t_sql)}")
+        self.lbl_total_time.setText(f"Total time:  {fmt_time(t_query + t_sql)}")
+        self.lbl_result_count.setText(f"Result count:   {len(result)}")
+
+        self.sql_tab.set_datasets(sqls)
+        self._refresh_forge_sql()
+        self.code_tab.set_code(
+            self._generate_manual_python_code(sqls, manual_sql, limit))
+        self.tab_widget.setCurrentWidget(self.results_tab)
 
     def _apply_pandas_filters(self, df: pd.DataFrame,
                               tab: ForgeFilterTab) -> pd.DataFrame:
@@ -1585,15 +1775,144 @@ class DataForgeGroup(QWidget):
 
         return df
 
+    # ── Visual design → DuckDB SQL (Phase 3) ─────────────────────────
+
+    def _source_for_field_key(self, field_key: str) -> tuple[str, str]:
+        """Split a 'source.column' field key into (source, column).
+
+        Source names may themselves contain dots, so match known Source
+        names by prefix first; fall back to splitting on the last dot.
+        Returns ("", field_key) when no source can be identified.
+        """
+        for name in self._sources:
+            if field_key.startswith(name + "."):
+                return name, field_key[len(name) + 1:]
+        if "." in field_key:
+            source, column = field_key.rsplit(".", 1)
+            return source, column
+        return "", field_key
+
+    def _engine_schemas(self) -> dict[str, list[str]]:
+        """Best-known columns per Source: loaded data first, else definition."""
+        schemas: dict[str, list[str]] = {}
+        for name, sq in self._sources.items():
+            if name in self._datasets:
+                schemas[name] = list(self._datasets[name].columns)
+            else:
+                schemas[name] = list(sq.result_columns or [])
+        return schemas
+
+    def _outputs_config(self) -> list[dict]:
+        """Display-tab rows as engine-shaped output dicts (for the config)."""
+        if self.display_tab.display_all:
+            return []
+        outputs: list[dict] = []
+        for spec in self.display_tab.get_display_columns():
+            source, column = self._source_for_field_key(spec.get("field_key", ""))
+            if source not in self._sources or not column:
+                continue
+            outputs.append({"source": source, "column": column,
+                            "agg": spec.get("aggregate", "display")})
+        return outputs
+
+    def _engine_outputs(self) -> list[OutputColumn] | None:
+        """OutputColumns for compilation, or None for select-everything."""
+        outputs = [OutputColumn(source=o["source"], column=o["column"],
+                                agg=o["agg"])
+                   for o in self._outputs_config()]
+        return outputs or None
+
+    def _engine_filter_specs(self) -> list[FilterSpec]:
+        """Filter-tab criteria as Source-scope engine FilterSpecs.
+
+        Note the scope difference from the pandas run path: the engine
+        applies these inside each Source's CTE (before the join), which is
+        the design-correct semantics (DATAFORGE_DESIGN.md §3); the pandas
+        path filters the merged result. A combo pick compiles to equals.
+        """
+        from suiteview.audit.dynamic_query import collect_field_filters
+        specs: list[FilterSpec] = []
+        for tab in self._filter_tabs:
+            for filt in collect_field_filters(tab.grid):
+                field_key = filt.get("field_key") or filt.get("key", "")
+                source, column = self._source_for_field_key(field_key)
+                if source not in self._sources or not column:
+                    continue
+                mode = filt.get("mode", "contains")
+                specs.append(FilterSpec(
+                    source=source,
+                    column=column,
+                    mode="equals" if mode == "combo" else mode,
+                    value=filt.get("value", ""),
+                    lo=str(filt.get("range_lo", filt.get("lo", ""))),
+                    hi=str(filt.get("range_hi", filt.get("hi", ""))),
+                    items=tuple(filt.get("list_values", filt.get("items", []))),
+                ))
+        return specs
+
+    def _engine_joins(self) -> list[JoinSpec]:
+        """Canvas relationships as engine JoinSpecs."""
+        return [
+            JoinSpec(
+                left_source=j["left_source"],
+                right_source=j["right_source"],
+                left_keys=tuple(j["left_keys"]),
+                right_keys=tuple(j["right_keys"]),
+                how=j.get("how", "inner"),
+            )
+            for j in self.joins_tab.to_config_joins()
+        ]
+
+    def _compile_visual_sql(self) -> str:
+        """Compile the current visual design into one DuckDB statement.
+
+        Physical table names default to the Source names, so the returned
+        SQL is exactly what Manual mode runs (the Visual→Manual flip).
+        Raises ForgeEngineError when the design doesn't compile.
+        """
+        schemas = self._engine_schemas()
+        outputs = self._engine_outputs()
+        # A Source whose columns aren't known yet (never run, no saved
+        # columns) would reject its outputs — trust the display rows.
+        unknown = {s for s, cols in schemas.items() if not cols}
+        for oc in outputs or []:
+            if oc.source in unknown and oc.column not in schemas[oc.source]:
+                schemas[oc.source].append(oc.column)
+
+        max_count = self.txt_max_count.text().strip()
+        sql, _ = compile_forge_sql(
+            schemas,
+            self._engine_joins(),
+            filters=self._engine_filter_specs(),
+            outputs=outputs,
+            limit=int(max_count) if max_count.isdigit() else None,
+        )
+        return sql
+
+    def _refresh_forge_sql(self):
+        """Recompile the visual design and update the SQL tab's Forge view."""
+        if not self._sources:
+            self.sql_tab.set_forge_sql(
+                "-- Add Sources via the Queries button, then the compiled\n"
+                "-- DuckDB SQL for the whole Forge appears here.")
+            return
+        try:
+            self.sql_tab.set_forge_sql(self._compile_visual_sql())
+        except Exception as exc:
+            self.sql_tab.set_forge_sql(
+                "-- The visual design doesn't compile yet:\n-- "
+                + str(exc).replace("\n", "\n-- ")
+                + "\n-- Fix the design, or write your own SQL in Manual mode.")
+
     # ── Python code generation ───────────────────────────────────────
 
-    def _generate_python_code(self, sqls: dict[str, str],
-                              merge_ops: list[dict],
-                              max_count: str) -> str:
-        """Generate real, runnable Python code that reproduces the DataForge."""
+    def _generate_load_code(self, sqls: dict[str, str],
+                            extra_imports: tuple[str, ...] = ()) -> list[str]:
+        """Imports + per-Source dataset-load lines shared by both generators."""
         lines = [
             "import pandas as pd",
         ]
+        lines.extend(extra_imports)
         if any(not self._is_adhoc_source(sq) for sq in self._sources.values()):
             lines.append("import pyodbc")
         lines.extend([
@@ -1616,6 +1935,37 @@ class DataForgeGroup(QWidget):
                     f'""", conn_{_var(name)})',
                     f'conn_{_var(name)}.close()',
                 ])
+        return lines
+
+    def _generate_manual_python_code(self, sqls: dict[str, str],
+                                     manual_sql: str,
+                                     limit: int | None) -> str:
+        """Generate runnable Python that reproduces a Manual-mode run."""
+        lines = self._generate_load_code(sqls, extra_imports=("import duckdb",))
+        lines.extend([
+            "",
+            "# ── Run Manual SQL with DuckDB ─────────────────────────────",
+            "con = duckdb.connect()",
+        ])
+        for name in self._sources:
+            safe = name.replace('"', '\\"')
+            lines.append(f'con.register("{safe}", df_{_var(name)})')
+        lines.extend([
+            'result = con.execute("""',
+            manual_sql.replace('"""', '\\"""'),
+            '""").df()',
+            "con.close()",
+        ])
+        if limit:
+            lines.append(f"result = result.head({limit})")
+        lines.extend(["", "print(result)"])
+        return "\n".join(lines)
+
+    def _generate_python_code(self, sqls: dict[str, str],
+                              merge_ops: list[dict],
+                              max_count: str) -> str:
+        """Generate real, runnable Python code that reproduces the DataForge."""
+        lines = self._generate_load_code(sqls)
 
         if merge_ops:
             lines.extend([
@@ -1940,6 +2290,7 @@ class DataForgeGroup(QWidget):
     # ── State persistence ────────────────────────────────────────────
 
     def get_config(self) -> dict:
+        max_count = self.txt_max_count.text().strip()
         return {
             "name": self.forge_name,
             "sources": list(self._sources.keys()),
@@ -1947,6 +2298,15 @@ class DataForgeGroup(QWidget):
             "filter_tabs": [t.get_state() for t in self._filter_tabs],
             "joins_tab": self.joins_tab.get_state(),
             "display_tab": self.display_tab.get_state(),
+            # Engine-shaped views of the design, so forge_runtime can run a
+            # saved Forge headless over Snapshots (run_saved_forge reads
+            # joins/outputs/limit — see WORK_LAPTOP_SPEC §1.5/§3b).
+            "joins": self.joins_tab.to_config_joins(),
+            "outputs": self._outputs_config(),
+            "limit": int(max_count) if max_count.isdigit() else None,
+            # Manual mode (Phase 3): hand-written DuckDB SQL, when enabled.
+            "sql_mode": "manual" if self.sql_tab.manual_mode else "visual",
+            "manual_sql": self.sql_tab.manual_sql,
         }
 
     def set_config(self, config: dict):
@@ -1996,6 +2356,11 @@ class DataForgeGroup(QWidget):
             display_state = config.get("display_tab", {})
             if display_state:
                 self.display_tab.set_state(display_state)
+
+            # Restore Manual mode (after sources/joins so a compile works)
+            self.sql_tab.set_manual_state(
+                config.get("sql_mode") == "manual",
+                config.get("manual_sql", ""))
 
         finally:
             self._loading = False

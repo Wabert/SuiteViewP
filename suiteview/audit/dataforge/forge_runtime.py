@@ -29,7 +29,10 @@ from suiteview.audit.query_object import QueryObject
 
 from . import dataforge_store
 from .dataforge_model import DataForge, DataForgeSource, SourceSnapshot
-from .forge_engine import FilterSpec, JoinSpec, OutputColumn, ForgeResult, run_forge
+from .forge_engine import (
+    FilterSpec, JoinSpec, OutputColumn, ForgeResult,
+    compile_forge_sql, run_forge, run_manual_sql,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +163,80 @@ def source_filter_specs(source: DataForgeSource) -> list[FilterSpec]:
     return specs
 
 
+def result_filter_specs(config: dict[str, Any]) -> list[FilterSpec]:
+    """Convert a Forge config's result-scope filter dicts into FilterSpecs.
+
+    Result filters target *output* column names (the engine ignores their
+    ``source``); see forge_engine.compile_forge_sql.
+    """
+    return [
+        FilterSpec(
+            source="",
+            column=rf["column"],
+            mode=rf.get("mode", "contains"),
+            value=rf.get("value", ""),
+            lo=rf.get("lo", ""),
+            hi=rf.get("hi", ""),
+            items=tuple(rf.get("items", [])),
+        )
+        for rf in config.get("result_filters", [])
+    ]
+
+
+# ── Manual mode (config-driven) ──────────────────────────────────────────
+
+def is_manual_mode(config: dict[str, Any] | None) -> bool:
+    """Whether the Forge runs its hand-written SQL instead of the visual design."""
+    return (config or {}).get("sql_mode", "") == "manual"
+
+
 # ── Running a Forge over Snapshots ───────────────────────────────────────
+
+def source_schemas(forge: DataForge,
+                   snapshots: dict[str, pd.DataFrame] | None = None,
+                   ) -> dict[str, list[str]]:
+    """Best-known columns per Source alias, without requiring a data pull.
+
+    Prefers live Snapshot data when supplied, then the Snapshot metadata
+    recorded at the last Refresh, then the definition's result columns. A
+    Source with none of those yields an empty list (its columns are unknown
+    until a Refresh).
+    """
+    schemas: dict[str, list[str]] = {}
+    for s in forge.sources:
+        alias = s.effective_alias()
+        if snapshots is not None and alias in snapshots:
+            schemas[alias] = list(snapshots[alias].columns)
+        elif s.snapshot.columns:
+            schemas[alias] = list(s.snapshot.columns)
+        else:
+            schemas[alias] = list(s.definition.get("result_columns", []) or [])
+    return schemas
+
+
+def compile_saved_forge_sql(forge: DataForge,
+                            snapshots: dict[str, pd.DataFrame] | None = None,
+                            *, limit: int | None = None) -> str:
+    """Compile a saved Forge's visual design into its DuckDB SQL (no execution).
+
+    This is the Visual→Manual generator: physical table names default to the
+    Source aliases, so the returned statement runs unchanged in Manual mode
+    (and is what the SQL tab shows the user). Raises ForgeEngineError when
+    the design can't compile (e.g. disconnected joins).
+    """
+    filters: list[FilterSpec] = []
+    for s in forge.sources:
+        filters.extend(source_filter_specs(s))
+    sql, _ = compile_forge_sql(
+        source_schemas(forge, snapshots),
+        joins_from_config(forge.config),
+        filters=filters,
+        result_filters=result_filter_specs(forge.config),
+        outputs=outputs_from_config(forge.config),
+        limit=limit if limit is not None else forge.config.get("limit"),
+    )
+    return sql
+
 
 def load_snapshots(forge: DataForge) -> dict[str, pd.DataFrame]:
     """Load every Source's Snapshot DataFrame, keyed by alias.
@@ -236,39 +312,35 @@ def run_saved_forge(forge: DataForge,
                     ) -> ForgeResult:
     """Run a saved Forge over its Snapshots and return the engine result.
 
-    Source filters come from each Source; result-scope filters and joins/
-    outputs come from the Forge config. Snapshots are loaded from disk unless
+    In Manual mode (``config["sql_mode"] == "manual"``) the Forge's
+    hand-written ``manual_sql`` runs directly against the Snapshot tables and
+    the visual design (joins/filters/outputs) is ignored. Otherwise, Source
+    filters come from each Source; result-scope filters and joins/outputs
+    come from the Forge config. Snapshots are loaded from disk unless
     supplied (handy for tests). An explicit ``limit`` overrides the Forge's
     configured row cap — used for a fast preview (see ``preview_saved_forge``).
     """
     if snapshots is None:
         snapshots = load_snapshots(forge)
 
+    effective_limit = limit if limit is not None else forge.config.get("limit")
+
+    if is_manual_mode(forge.config):
+        return run_manual_sql(
+            snapshots, forge.config.get("manual_sql", ""),
+            limit=effective_limit)
+
     filters: list[FilterSpec] = []
     for s in forge.sources:
         filters.extend(source_filter_specs(s))
-
-    # Result-scope filters target output column names (see forge_engine).
-    result_filters = [
-        FilterSpec(
-            source="",
-            column=rf["column"],
-            mode=rf.get("mode", "contains"),
-            value=rf.get("value", ""),
-            lo=rf.get("lo", ""),
-            hi=rf.get("hi", ""),
-            items=tuple(rf.get("items", [])),
-        )
-        for rf in forge.config.get("result_filters", [])
-    ]
 
     return run_forge(
         snapshots,
         joins_from_config(forge.config),
         filters=filters,
-        result_filters=result_filters,
+        result_filters=result_filter_specs(forge.config),
         outputs=outputs_from_config(forge.config),
-        limit=limit if limit is not None else forge.config.get("limit"),
+        limit=effective_limit,
     )
 
 
@@ -303,6 +375,9 @@ def validate_forge(forge: DataForge) -> list[ForgeIssue]:
     missing Snapshots, duplicate handles, malformed/unknown joins, and
     disconnected Sources — phrasing each as "what's wrong → where to fix it".
     Callers should block a run when any issue ``is_error``.
+
+    In Manual mode the join checks are skipped (the hand-written SQL defines
+    its own relationships); an empty SQL editor is an error instead.
     """
     sources = forge.sources
     if not sources:
@@ -329,6 +404,15 @@ def validate_forge(forge: DataForge) -> list[ForgeIssue]:
             issues.append(ForgeIssue(
                 "warning", f"Source '{a}' has unapplied filter changes.",
                 "Refresh it to apply them before running."))
+
+    # Manual mode: the SQL replaces the visual joins entirely — skip the
+    # join checks, but an empty editor can't run anything.
+    if is_manual_mode(forge.config):
+        if not str(forge.config.get("manual_sql", "")).strip():
+            issues.append(ForgeIssue(
+                "error", "Manual mode is on but the SQL editor is empty.",
+                "Type SQL in the SQL tab, or switch Manual mode off."))
+        return issues
 
     # Joins: parse, check endpoints, check connectivity.
     alias_set = set(aliases)

@@ -377,6 +377,7 @@ def test_illustration_policy_data_uses_regular_plus_additional_premium(monkeypat
         policy_year = 5
         policy_month = 6
         attained_age = 39
+        age_at_maturity = 100
         guaranteed_interest_rate = 4.0
         def_of_life_ins_code = "1"
         glp = 1_000.0
@@ -400,12 +401,22 @@ def test_illustration_policy_data_uses_regular_plus_additional_premium(monkeypat
         total_withdrawals = 0.0
         gav = 0.0
         is_mec = False
+        tamra_7pay_level = 0.0
+        tamra_7pay_start_date = None
+        tamra_7pay_av = 0.0
         company_code = "01"
         primary_insured_name = "Test Policy"
+        primary_insured_birth_date = None
         product_type = "UL"
         issue_state = "TX"
         company_name = "TEST"
         preferred_loans_available = False
+
+        def tamra_7pay_premium_paid(self, _year):
+            return 0.0
+
+        def tamra_7pay_withdrawals(self, _year):
+            return 0.0
 
         def mv_av(self, _index):
             return 1_000.0

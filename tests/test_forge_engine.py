@@ -14,7 +14,7 @@ sys.path.insert(0, project_root)
 
 from suiteview.audit.dataforge.forge_engine import (  # noqa: E402
     FilterSpec, ForgeEngineError, JoinSpec, OutputColumn, compile_forge_sql,
-    run_forge,
+    run_forge, run_manual_sql,
 )
 
 
@@ -383,6 +383,80 @@ def test_display_vocabulary_treated_as_group():
     print("  'display'/'COUNT'/'none' vocabulary accepted  OK")
 
 
+# ── Phase 3: Manual mode ──────────────────────────────────────────────────
+
+def test_manual_sql_basic_join():
+    res = run_manual_sql(
+        {"pol": _policies(), "re": _reinsurance()},
+        'SELECT pol.policy_number, re.reinsurer FROM pol '
+        'JOIN re ON pol.company_code = re.company_code '
+        'AND pol.policy_number = re.policy_number',
+    )
+    df = res.dataframe
+    assert len(df) == 3, df
+    assert set(df.columns) == {"policy_number", "reinsurer"}
+    print("  manual SQL basic join:", len(df), "rows  OK")
+
+
+def test_manual_sql_weird_source_names():
+    # Source names carry spaces, brackets, and dots in practice; users
+    # reference them double-quoted (the compiled SQL shows them that way).
+    res = run_manual_sql(
+        {"CLAIMSDATA [CLAIMFILE Query]": _policies(),
+         "Reins (SQL.Server)": _reinsurance()},
+        'SELECT p.policy_number, r.reinsurer '
+        'FROM "CLAIMSDATA [CLAIMFILE Query]" p '
+        'JOIN "Reins (SQL.Server)" r ON p.policy_number = r.policy_number',
+    )
+    assert len(res.dataframe) == 3, res.dataframe
+    print("  manual SQL weird source names  OK")
+
+
+def test_manual_sql_limit_and_trailing_semicolon():
+    res = run_manual_sql(
+        {"pol": _policies()}, "SELECT * FROM pol ;  ", limit=2)
+    assert len(res.dataframe) == 2, res.dataframe
+    assert "LIMIT 2" in res.sql
+    print("  manual SQL trailing semicolon + limit cap  OK")
+
+
+def test_manual_sql_errors():
+    # Empty SQL.
+    try:
+        run_manual_sql({"pol": _policies()}, "   ;  ")
+    except ForgeEngineError as e:
+        assert "empty" in str(e).lower(), e
+    else:
+        raise AssertionError("expected ForgeEngineError for empty SQL")
+    # Bad SQL surfaces as a ForgeEngineError that names the Source tables.
+    try:
+        run_manual_sql({"pol": _policies()}, "SELECT * FROM no_such_table")
+    except ForgeEngineError as e:
+        assert "pol" in str(e), e
+    else:
+        raise AssertionError("expected ForgeEngineError for bad SQL")
+    print("  manual SQL error surfacing  OK")
+
+
+def test_manual_runs_compiled_visual_sql_unchanged():
+    # The Visual→Manual flip: compile_forge_sql with default physical names
+    # (the aliases themselves) must run as-is through run_manual_sql, even
+    # though each CTE shadows the registered table of the same name.
+    sources = {"pol": _policies(), "re": _reinsurance()}
+    joins = [JoinSpec("pol", "re", ("company_code", "policy_number"),
+                      ("company_code", "policy_number"), "left")]
+    filters = [FilterSpec("re", "reinsurer", mode="equals", value="XYZ")]
+
+    sql, _ = compile_forge_sql(
+        {a: list(df.columns) for a, df in sources.items()},
+        joins, filters=filters)
+    manual_res = run_manual_sql(sources, sql)
+    engine_res = run_forge(sources, joins, filters=filters)
+    assert manual_res.dataframe.equals(engine_res.dataframe), (
+        manual_res.dataframe, engine_res.dataframe)
+    print("  compiled visual SQL runs unchanged in Manual mode  OK")
+
+
 def main():
     tests = [
         test_two_way_inner_multikey,
@@ -407,6 +481,11 @@ def main():
         test_no_aggregate_has_no_group_by,
         test_bad_aggregate_raises,
         test_display_vocabulary_treated_as_group,
+        test_manual_sql_basic_join,
+        test_manual_sql_weird_source_names,
+        test_manual_sql_limit_and_trailing_semicolon,
+        test_manual_sql_errors,
+        test_manual_runs_compiled_visual_sql_unchanged,
     ]
     print("=" * 60)
     print("DataForge engine tests")

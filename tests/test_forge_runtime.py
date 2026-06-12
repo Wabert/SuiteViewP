@@ -821,6 +821,137 @@ def test_preview_saved_forge_caps_rows():
     print("  preview caps rows  OK")
 
 
+# ── Phase 3: Manual mode + Visual→Manual SQL generation ──────────────────
+
+def _manual_snapshots() -> dict[str, pd.DataFrame]:
+    return {
+        "pol": pd.DataFrame({"company_code": ["A", "B", "C"],
+                             "policy_number": ["1", "2", "3"]}),
+        "re": pd.DataFrame({"company_code": ["A", "B"],
+                            "policy_number": ["1", "2"],
+                            "reinsurer": ["XYZ", "ACME"]}),
+    }
+
+
+def test_compile_saved_forge_sql_matches_engine_run():
+    # compile_saved_forge_sql (schemas from Snapshot metadata) must produce
+    # SQL that, run manually over the Snapshots, matches run_saved_forge.
+    from suiteview.audit.dataforge.forge_engine import run_manual_sql
+
+    snapshots = _manual_snapshots()
+    forge = DataForge(
+        name="F",
+        sources=[_src("pol"), _src("re")],
+        config={"joins": [{"left_source": "pol", "right_source": "re",
+                           "left_keys": ["company_code", "policy_number"],
+                           "right_keys": ["company_code", "policy_number"],
+                           "how": "left"}]},
+    )
+    # Snapshot metadata drives the schemas (no data needed to compile).
+    forge.source_by_alias("re").snapshot.columns = [
+        "company_code", "policy_number", "reinsurer"]
+
+    sql = forge_runtime.compile_saved_forge_sql(forge)
+    assert '"pol"' in sql and '"re"' in sql and "LEFT JOIN" in sql, sql
+
+    manual = run_manual_sql(snapshots, sql)
+    visual = forge_runtime.run_saved_forge(forge, snapshots)
+    assert manual.dataframe.equals(visual.dataframe), (
+        manual.dataframe, visual.dataframe)
+    print("  compile_saved_forge_sql matches engine run  OK")
+
+
+def test_run_saved_forge_manual_mode():
+    forge = DataForge(
+        name="F",
+        sources=[_src("pol"), _src("re")],
+        config={"sql_mode": "manual",
+                "manual_sql": 'SELECT pol.policy_number, re.reinsurer '
+                              'FROM pol JOIN re '
+                              'ON pol.policy_number = re.policy_number'},
+    )
+    res = forge_runtime.run_saved_forge(forge, _manual_snapshots())
+    assert len(res.dataframe) == 2, res.dataframe
+    assert list(res.dataframe.columns) == ["policy_number", "reinsurer"]
+    # The Forge's configured limit caps manual runs too.
+    forge.config["limit"] = 1
+    res = forge_runtime.run_saved_forge(forge, _manual_snapshots())
+    assert len(res.dataframe) == 1, res.dataframe
+    print("  run_saved_forge manual mode (+limit)  OK")
+
+
+def test_validate_manual_mode():
+    # Disconnected Sources are fine in Manual mode — the SQL joins them.
+    forge = DataForge(name="F", sources=[_src("pol"), _src("re")],
+                      config={"sql_mode": "manual",
+                              "manual_sql": "SELECT 1"})
+    issues = forge_runtime.validate_forge(forge)
+    assert not any(i.is_error for i in issues), [i.text for i in issues]
+    # …but an empty editor can't run anything.
+    forge.config["manual_sql"] = "   "
+    issues = forge_runtime.validate_forge(forge)
+    assert any(i.is_error and "empty" in i.message for i in issues), \
+        [i.text for i in issues]
+    print("  validate: manual mode  OK")
+
+
+def test_dataforge_manual_mode_flip_and_round_trip(tmp_home):
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  manual mode flip SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    group = DataForgeGroup("⚙ Claims Forge", saved_forge_name="Claims Forge")
+    qd = QDefinition(
+        name="CLAIMS [Claims Query]",
+        source_design="csv",
+        result_columns=["Policy", "Amount"],
+    )
+    qd.query_object_kind = "adhoc_source"
+    qd.query_object_source_metadata = {"path": "C:/claims/CLAIMS.csv"}
+    group._sources[qd.name] = qd
+    df = pd.DataFrame({"Policy": ["P1", "P2", "P3"],
+                       "Amount": [100, 200, 300]})
+    group._datasets[qd.name] = df
+
+    # Visual design compiles to DuckDB SQL referencing the Source by name.
+    sql = group._compile_visual_sql()
+    assert '"CLAIMS [Claims Query]"' in sql and "SELECT" in sql, sql
+
+    # Visual→Manual flip prefills the editor with the compiled SQL.
+    group.sql_tab.chk_manual.setChecked(True)
+    assert group.sql_tab.manual_mode
+    assert group.sql_tab.manual_sql.strip() == sql.strip(), \
+        group.sql_tab.manual_sql
+
+    # The manual run path executes and reports.
+    group._show_manual_results(
+        {qd.name: df}, {qd.name: "Ad hoc source: csv"},
+        group.sql_tab.manual_sql, 0.0)
+    assert "3" in group.lbl_result_count.text(), \
+        group.lbl_result_count.text()
+    code = group.code_tab.txt_code.toPlainText()
+    assert "import duckdb" in code and "con.register" in code, code
+
+    # Config round-trip: a fresh designer restores the Manual state.
+    config = group.get_config()
+    assert config["sql_mode"] == "manual" and config["manual_sql"].strip()
+    assert "joins" in config and "outputs" in config and "limit" in config
+
+    group2 = DataForgeGroup("⚙ Claims Forge", saved_forge_name="Claims Forge")
+    group2.set_config(config)
+    assert group2.sql_tab.manual_mode
+    assert group2.sql_tab.manual_sql == config["manual_sql"]
+    assert group2.dirty is False
+    print("  manual mode flip + run + config round-trip  OK")
+
+
 def main():
     print("=" * 60)
     print("DataForge model/store/runtime tests")
@@ -844,7 +975,11 @@ def main():
         test_validate_connected_has_no_errors,
         test_validate_unknown_join_source,
         test_preview_saved_forge_caps_rows,
+        test_compile_saved_forge_sql_matches_engine_run,
+        test_run_saved_forge_manual_mode,
+        test_validate_manual_mode,
     ]
+    needs_home.append(test_dataforge_manual_mode_flip_and_round_trip)
     for t in no_fixture:
         print(f"- {t.__name__}")
         t()

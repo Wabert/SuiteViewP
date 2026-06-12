@@ -180,8 +180,27 @@ canonical `core/db2_connection.py`, SQL Server via `core/connection_manager.py`.
   - **Remaining (needs work laptop):** interactive verification of the canvas
     (drag-to-join, line editing, save/reload, legacy-Forge migration). See
     `WORK_LAPTOP_SPEC.md`.
-- **Phase 3 — Manual mode:** raw DuckDB SQL editor against Source tables; Visual→
-  Manual SQL generation.
+- **Phase 3 — Manual mode:** ✅ *built + unit-tested on the minipc (2026-06-11);
+  in-app click-through pending on the laptop.*
+  - `forge_engine.run_manual_sql()` — registers each Source DataFrame under its
+    user-facing name (spaces/brackets/dots all work, double-quoted in SQL) and
+    executes hand-written DuckDB SQL; `prepare_manual_statement()` strips
+    trailing semicolons and wraps an outer LIMIT. Errors surface as
+    `ForgeEngineError` naming the available Source tables.
+  - **Visual→Manual flip:** `compile_forge_sql` with default physical names
+    produces SQL that runs *unchanged* through `run_manual_sql` (a non-recursive
+    CTE may shadow the registered table it reads from — verified). The designer's
+    SQL tab gained a **Forge (DuckDB)** view showing the live-compiled visual
+    design; ticking **Manual mode** prefills the editor with it, makes it
+    editable (orange border = custom), and Run Forge executes it via DuckDB over
+    the loaded Source tables instead of the pandas merge path. The Code tab
+    generates a matching duckdb-based Python script.
+  - `forge_runtime.compile_saved_forge_sql()` (schemas from Snapshot metadata,
+    no pull needed) + `run_saved_forge` honors `config["sql_mode"]/"manual_sql"`;
+    `validate_forge` skips join checks in Manual mode (empty editor = error).
+  - The designer's `get_config()` now also stores engine-shaped
+    `joins`/`outputs`/`limit` (the §1.5 ask) so a saved Forge is runnable
+    headless by `forge_runtime` without the canvas.
 - **Phase 4 — Aggregation / GROUP BY:** ⏳ *engine landed (2026-06-07); live
   run-path swap pending on the laptop.* `forge_engine.OutputColumn` now carries
   an `agg` (count/sum/min/max/avg, or group/display = plain key);
@@ -229,6 +248,17 @@ canonical `core/db2_connection.py`, SQL Server via `core/connection_manager.py`.
   runtime 10 / query_object 51, all green. The live pandas `_run_forge`
   execution path + its outer-join filter semantics remain deferred to the
   laptop (`WORK_LAPTOP_SPEC.md` §1.5).
+- **2026-06-11** — Phase 3 Manual mode built + unit-tested on the minipc:
+  `run_manual_sql` in the engine, `compile_saved_forge_sql` + manual-aware
+  `run_saved_forge`/`validate_forge` in the runtime, and the designer SQL tab
+  rebuilt around a "Forge (DuckDB)" compiled view with a Manual-mode toggle
+  (prefill-from-visual, editable editor, manual Run path, duckdb Code-tab
+  generation, `sql_mode`/`manual_sql` persisted in the config). `get_config`
+  also gained engine-shaped `joins`/`outputs`/`limit`. Drive-by fixes:
+  `qdef_store` no longer crashes when `~/.suiteview/qdefinitions` doesn't exist
+  yet. Tests: engine 27, runtime 25 (incl. an offscreen-Qt designer
+  flip/run/round-trip), canvas 13 — all green. In-app click-through deferred
+  to the laptop (`WORK_LAPTOP_SPEC.md` §1.9).
 - **2026-06-07** — Phase 4 aggregation landed in the DuckDB engine (minipc):
   `OutputColumn.agg` + GROUP BY compilation in `forge_engine.py`, `agg` parsing
   in `forge_runtime.outputs_from_config`, and acceptance of the Display tab's
