@@ -30,10 +30,10 @@ class ModeStyle:
 
 MODE_STYLES: dict[str, ModeStyle] = {
     OBJECT_KIND_CYBERLIFE: ModeStyle("Cyberlife", "#1E5BA8", "#E3ECF7"),
-    OBJECT_KIND_VISUAL: ModeStyle("Visual Query", "#0F766E", "#DFF0EE"),
-    OBJECT_KIND_MANUAL_SQL: ModeStyle("Manual SQL", "#6D28D9", "#EDE7FA"),
-    OBJECT_KIND_ADHOC_SOURCE: ModeStyle("File Source", "#4D7C0F", "#EFF5E4"),
-    OBJECT_KIND_EXECUTABLE: ModeStyle("Executable", "#475569", "#E8ECF1"),
+    OBJECT_KIND_VISUAL: ModeStyle("Visual Query", "#2E7D32", "#E6F3E6"),
+    OBJECT_KIND_MANUAL_SQL: ModeStyle("Manual SQL", "#5A3218", "#F4E9DC"),
+    OBJECT_KIND_ADHOC_SOURCE: ModeStyle("File Source", "#B58900", "#FFF4C2"),
+    OBJECT_KIND_EXECUTABLE: ModeStyle("Executable", "#374151", "#E5E7EB"),
 }
 
 _DEFAULT_STYLE = ModeStyle("Query", "#475569", "#E8ECF1")

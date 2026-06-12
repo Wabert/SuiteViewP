@@ -408,6 +408,11 @@ class DynamicQuery(QWidget):
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
+            self.results_tab.clear_results()
+            self.sql_tab.clear_sql()
+            self.build_sql_tab.clear_sql()
+            self.build_sql_results_tab.clear_results()
+            self.lbl_result_count.setText("Result count:")
             self.new_query_requested.emit()
 
     # ── Tab management ───────────────────────────────────────────────

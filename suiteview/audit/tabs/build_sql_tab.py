@@ -104,6 +104,10 @@ class BuildSqlTab(QWidget):
         """Load SQL text into the editor."""
         self.txt_sql.setPlainText(sql)
 
+    def clear_sql(self):
+        """Clear the editable SQL text."""
+        self.txt_sql.clear()
+
     def _on_run_sql(self):
         """Emit the current SQL text for execution."""
         sql = self.txt_sql.toPlainText()

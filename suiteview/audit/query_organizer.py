@@ -52,6 +52,10 @@ logger = logging.getLogger(__name__)
 ITEM_QUERY = "query"
 ITEM_GROUP = "group"
 ITEM_FORGE = "forge"
+COMMONS_GROUP_ID = 0
+COMMONS_GROUP_NAME = "Commons"
+COMMONS_GROUP_COLOR = "#D8DEE8"
+DEFAULT_GROUP_COLOR = "#CE93D8"
 
 # Seed groups for first run — the old build-type categories, as groups the
 # user is then free to rename/delete/reorganize.
@@ -120,6 +124,21 @@ class QueryOrganizer:
                 return item
         return None
 
+    def commons_group(self) -> dict:
+        self._ensure_commons()
+        group = self.find_group(COMMONS_GROUP_ID)
+        if group is None:
+            raise RuntimeError("Commons group could not be created.")
+        return group
+
+    @staticmethod
+    def is_commons_group(group: dict | None) -> bool:
+        return bool(
+            group
+            and group.get("type") == ITEM_GROUP
+            and group.get("id") == COMMONS_GROUP_ID
+        )
+
     def group_names(self) -> list[str]:
         return [g["name"] for g in self.items if g.get("type") == ITEM_GROUP]
 
@@ -130,6 +149,8 @@ class QueryOrganizer:
             if item.get("type") == ITEM_GROUP:
                 for child in item.get("items", []):
                     if child.get("query_id") == query_id:
+                        if item.get("id") == COMMONS_GROUP_ID:
+                            return None
                         return item["id"]
         return None
 
@@ -153,7 +174,8 @@ class QueryOrganizer:
 
     def create_group(self, name: str, index: int | None = None) -> dict:
         group = {"type": ITEM_GROUP, "id": self._data["next_group_id"],
-                 "name": name.strip() or "New Group", "items": []}
+                 "name": name.strip() or "New Group", "items": [],
+                 "color": DEFAULT_GROUP_COLOR, "expanded": True}
         self._data["next_group_id"] += 1
         if index is None:
             self.items.append(group)
@@ -163,9 +185,25 @@ class QueryOrganizer:
 
     def rename_group(self, group_id: int, new_name: str) -> bool:
         group = self.find_group(group_id)
+        if self.is_commons_group(group):
+            return False
         if group is None or not new_name.strip():
             return False
         group["name"] = new_name.strip()
+        return True
+
+    def set_group_color(self, group_id: int, color: str) -> bool:
+        group = self.find_group(group_id)
+        if group is None or self.is_commons_group(group):
+            return False
+        group["color"] = color or DEFAULT_GROUP_COLOR
+        return True
+
+    def set_group_expanded(self, group_id: int, expanded: bool) -> bool:
+        group = self.find_group(group_id)
+        if group is None:
+            return False
+        group["expanded"] = bool(expanded)
         return True
 
     def delete_group(self, group_id: int, *, keep_queries: bool = True) -> list[str]:
@@ -176,6 +214,8 @@ class QueryOrganizer:
         caller is responsible for deleting the query objects too.
         """
         group = self.find_group(group_id)
+        if self.is_commons_group(group):
+            return []
         if group is None:
             return []
         contained = [c["query_id"] for c in group.get("items", [])
@@ -183,9 +223,9 @@ class QueryOrganizer:
         idx = self.items.index(group)
         self.items.pop(idx)
         if keep_queries:
+            commons_items = self.commons_group().setdefault("items", [])
             for offset, query_id in enumerate(contained):
-                self.items.insert(idx + offset,
-                                  {"type": ITEM_QUERY, "query_id": query_id})
+                commons_items.insert(offset, {"type": ITEM_QUERY, "query_id": query_id})
         return contained
 
     # ── Query refs ────────────────────────────────────────────────────
@@ -193,11 +233,11 @@ class QueryOrganizer:
     def add_query(self, query_id: str, group_id: int | None = None,
                   index: int | None = None) -> dict:
         """Add a ref for a (new) query. Moves it if already organized."""
+        self._ensure_commons()
         self.remove_query(query_id)
         ref = {"type": ITEM_QUERY, "query_id": query_id}
-        container = (self.find_group(group_id)["items"]
-                     if group_id is not None and self.find_group(group_id)
-                     else self.items)
+        target_group = self.find_group(group_id if group_id is not None else COMMONS_GROUP_ID)
+        container = target_group.setdefault("items", []) if target_group is not None else self.commons_group()["items"]
         if index is None:
             container.append(ref)
         else:
@@ -225,7 +265,8 @@ class QueryOrganizer:
         """Reorder a root item (group/forge/loose query) to a new index."""
         if item in self.items:
             self.items.remove(item)
-            self.items.insert(max(0, min(index, len(self.items))), item)
+            target_index = max(0, min(index, len(self.items)))
+            self.items.insert(target_index, item)
 
     # ── Forge refs ────────────────────────────────────────────────────
 
@@ -233,7 +274,7 @@ class QueryOrganizer:
         existing = self.forge_ref(forge_name)
         if existing is not None:
             return existing
-        ref = {"type": ITEM_FORGE, "name": forge_name}
+        ref = {"type": ITEM_FORGE, "name": forge_name, "expanded": True}
         if index is None:
             self.items.append(ref)
         else:
@@ -251,6 +292,13 @@ class QueryOrganizer:
         ref = self.forge_ref(old_name)
         if ref is not None:
             ref["name"] = new_name
+
+    def set_forge_expanded(self, forge_name: str, expanded: bool) -> bool:
+        ref = self.forge_ref(forge_name)
+        if ref is None:
+            return False
+        ref["expanded"] = bool(expanded)
+        return True
 
     # ── Reconcile (keep the document honest) ──────────────────────────
 
@@ -274,6 +322,8 @@ class QueryOrganizer:
         if not self._loaded:
             self.load()
 
+        changed = self._ensure_commons() or changed
+
         if first_run and organizable:
             self._seed_from_kinds(organizable)
             self._data["seeded"] = True
@@ -296,17 +346,87 @@ class QueryOrganizer:
 
         # Append anything on disk that isn't organized yet.
         organized = {ref.get("query_id") for ref in self._all_query_refs()}
+        commons_items = self.commons_group().setdefault("items", [])
         for obj in organizable:
             if obj.id not in organized:
-                self.items.append({"type": ITEM_QUERY, "query_id": obj.id})
+                commons_items.append({"type": ITEM_QUERY, "query_id": obj.id})
                 changed = True
         listed_forges = {i.get("name") for i in self.items
                          if i.get("type") == ITEM_FORGE}
         for forge_name in forge_names:
             if forge_name not in listed_forges:
-                self.items.append({"type": ITEM_FORGE, "name": forge_name})
+                self.items.append({"type": ITEM_FORGE, "name": forge_name, "expanded": True})
                 changed = True
 
+        return changed
+
+    def _ensure_commons(self) -> bool:
+        """Ensure the permanent Commons group exists and owns loose queries."""
+        if not self._loaded:
+            self.load()
+
+        changed = False
+        commons = None
+        for item in self.items:
+            if (item.get("type") == ITEM_GROUP
+                    and (item.get("id") == COMMONS_GROUP_ID
+                         or item.get("name") == COMMONS_GROUP_NAME
+                         or item.get("system") == "commons")):
+                commons = item
+                break
+
+        if commons is None:
+            commons = {
+                "type": ITEM_GROUP,
+                "id": COMMONS_GROUP_ID,
+                "name": COMMONS_GROUP_NAME,
+                "system": "commons",
+                "color": COMMONS_GROUP_COLOR,
+                "expanded": True,
+                "items": [],
+            }
+            self.items.insert(0, commons)
+            changed = True
+        else:
+            expected = {
+                "id": COMMONS_GROUP_ID,
+                "name": COMMONS_GROUP_NAME,
+                "system": "commons",
+                "color": COMMONS_GROUP_COLOR,
+            }
+            for key, value in expected.items():
+                if commons.get(key) != value:
+                    commons[key] = value
+                    changed = True
+            if "items" not in commons:
+                commons["items"] = []
+                changed = True
+            if "expanded" not in commons:
+                commons["expanded"] = True
+                changed = True
+
+        loose_refs = [item for item in list(self.items)
+                      if item.get("type") == ITEM_QUERY]
+        if loose_refs:
+            for ref in loose_refs:
+                self.items.remove(ref)
+                commons["items"].append(ref)
+            changed = True
+
+        for item in self.items:
+            if item.get("type") == ITEM_GROUP and not self.is_commons_group(item):
+                for key, value in {
+                    "color": DEFAULT_GROUP_COLOR,
+                    "expanded": True,
+                    "items": [],
+                }.items():
+                    if key not in item:
+                        item[key] = value
+                        changed = True
+            elif item.get("type") == ITEM_FORGE:
+                if "expanded" not in item:
+                    item["expanded"] = True
+                    changed = True
         return changed
 
     def _all_query_refs(self) -> list[dict]:
@@ -376,13 +496,64 @@ class QueryOrganizer:
         Copy keeps the standalone query; move removes it (Sources are
         self-contained copies, so nothing dangles — see DATAFORGE_DESIGN §2).
         """
-        from suiteview.audit.dataforge import dataforge_store, forge_runtime
+        from suiteview.audit import qdef_store
+        from suiteview.audit.query_object import qdefinition_from_query_object
+        from suiteview.audit.dataforge import dataforge_store
+        from suiteview.audit.dataforge.dataforge_model import DataForgeSource
 
         obj = query_object_store.load_object_by_id(query_id)
         forge = dataforge_store.load_forge(forge_name)
         if obj is None or forge is None:
             return False
-        forge_runtime.add_object_as_source(forge, obj)
+
+        dataforge_config = (obj.config or {}).get("dataforge", {})
+        if not isinstance(dataforge_config, dict):
+            dataforge_config = {}
+        original_name = (
+            str(dataforge_config.get("source_name", "")).strip() or obj.name
+        )
+        copy_name = f"{original_name} [{forge.name}]"
+
+        copied = query_object_store.load_object(copy_name)
+        if copied is None:
+            try:
+                copied = query_object_store.copy_object_by_id(obj.id, copy_name)
+            except ValueError:
+                logger.exception(
+                    "Failed to copy query object %s into DataForge %s",
+                    obj.name,
+                    forge.name,
+                )
+                return False
+
+        copied.config = dict(copied.config or {})
+        copied.config["dataforge"] = {
+            "forge_name": forge.name,
+            "source_name": original_name,
+        }
+        copied.source_design = copied.source_design or original_name
+        query_object_store.save_object(copied)
+
+        qd = qdefinition_from_query_object(copied)
+        qd.forge_name = forge.name
+        qdef_store.save_qdef(qd)
+        copied = query_object_store.load_object(copy_name) or copied
+
+        forge.sources = [
+            source for source in forge.sources
+            if source.effective_alias() != copy_name
+            and source.query_name != copy_name
+        ]
+        forge.sources.append(DataForgeSource(
+            query_name=copy_name,
+            alias="",
+            definition=copied.to_dict(),
+        ))
+        config = dict(forge.config or {})
+        sources = [name for name in config.get("sources", []) if name != copy_name]
+        sources.append(copy_name)
+        config["sources"] = sources
+        forge.config = config
         dataforge_store.save_forge(forge)
         if move:
             query_object_store.delete_object_by_id(query_id)

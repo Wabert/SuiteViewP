@@ -15,12 +15,16 @@ import pandas as pd
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from suiteview.audit import query_object_store, saved_query_store  # noqa: E402
+from suiteview.audit import qdef_store, query_object_store, saved_query_store  # noqa: E402
 from suiteview.audit.query_object import (  # noqa: E402
     QueryObject, adhoc_source_object, manual_sql_query_object,
     query_display_name,
 )
-from suiteview.audit.query_organizer import QueryOrganizer  # noqa: E402
+from suiteview.audit.query_organizer import (  # noqa: E402
+    COMMONS_GROUP_ID,
+    COMMONS_GROUP_NAME,
+    QueryOrganizer,
+)
 from suiteview.audit.dataforge import dataforge_store  # noqa: E402
 from suiteview.audit.dataforge.dataforge_model import DataForge  # noqa: E402
 
@@ -40,9 +44,12 @@ class _TmpHome:
         os.environ["SUITEVIEW_QUERY_ORGANIZER_FILE"] = os.path.join(
             self._dir, "query_organizer.json")
         self._old_forges = dataforge_store._FORGES_DIR
+        self._old_qdefs = qdef_store._QDEFS_DIR
         self._old_queries = saved_query_store._QUERIES_DIR
         dataforge_store._FORGES_DIR = (
             Path(self._dir) / ".suiteview" / "saved_dataforges")
+        qdef_store._QDEFS_DIR = (
+            Path(self._dir) / ".suiteview" / "qdefinitions")
         saved_query_store._QUERIES_DIR = (
             Path(self._dir) / ".suiteview" / "saved_queries")
         return self
@@ -50,6 +57,7 @@ class _TmpHome:
     def __exit__(self, *exc):
         import shutil
         dataforge_store._FORGES_DIR = self._old_forges
+        qdef_store._QDEFS_DIR = self._old_qdefs
         saved_query_store._QUERIES_DIR = self._old_queries
         for key, val in self._old_env.items():
             if val is None:
@@ -167,6 +175,37 @@ def test_copy_by_id_keeps_name_new_id(tmp_home):
     print("  copy_object_by_id keeps name, new id  OK")
 
 
+def test_send_query_to_forge_persists_builder_source_copy(tmp_home):
+    src = _make("Policies")
+    dataforge_store.save_forge(DataForge(
+        name="Builder Forge",
+        config={"sources": []},
+    ))
+
+    org = _organizer_no_seed()
+    assert org.send_query_to_forge(src.id, "Builder Forge") is True
+
+    copy_name = "Policies [Builder Forge]"
+    copied = query_object_store.load_object(copy_name)
+    assert copied is not None
+    assert copied.id != src.id
+    assert copied.config["dataforge"] == {
+        "forge_name": "Builder Forge",
+        "source_name": "Policies",
+    }
+    assert qdef_store.qdef_exists(copy_name, forge_name="Builder Forge")
+
+    reloaded = dataforge_store.load_forge("Builder Forge")
+    assert reloaded is not None
+    assert reloaded.config["sources"] == [copy_name]
+    assert [source.query_name for source in reloaded.sources] == [copy_name]
+    assert reloaded.sources[0].definition["config"]["dataforge"] == {
+        "forge_name": "Builder Forge",
+        "source_name": "Policies",
+    }
+    print("  send query to forge persists builder source copy  OK")
+
+
 # -- Organizer ---------------------------------------------------------------
 
 def test_groups_create_move_delete(tmp_home):
@@ -182,13 +221,22 @@ def test_groups_create_move_delete(tmp_home):
     # Move back to root at index 0.
     org.move_query(a.id, None, 0)
     assert org.query_location(a.id) is None
-    assert org.items[0]["query_id"] == a.id
+    commons = org.commons_group()
+    assert commons["id"] == COMMONS_GROUP_ID
+    assert commons["name"] == COMMONS_GROUP_NAME
+    assert commons["items"][0]["query_id"] == a.id
+    assert not org.rename_group(COMMONS_GROUP_ID, "Other")
+    org.move_root_item(commons, len(org.items))
+    assert org.items[-1] is commons
+    org.reconcile(query_object_store.list_objects(), [])
+    assert org.items[-1]["id"] == COMMONS_GROUP_ID
 
     # Deleting a group keeps its queries (refs move to root).
     org.move_query(b.id, group["id"])
     kept = org.delete_group(group["id"], keep_queries=True)
     assert kept == [b.id]
     assert org.query_ref(b.id) is not None
+    assert any(child["query_id"] == b.id for child in org.commons_group()["items"])
     print("  groups: create/move/delete  OK")
 
 
@@ -264,7 +312,7 @@ def test_forge_membership_and_clone(tmp_home):
     assert org.send_query_to_forge(q.id, "MyForge")
     forge = dataforge_store.load_forge("MyForge")
     assert len(forge.sources) == 1
-    assert forge.sources[0].definition["name"] == "Policies"
+    assert forge.sources[0].definition["name"] == "Policies [MyForge]"
     assert query_object_store.load_object_by_id(q.id) is not None
 
     # Move a second query in: standalone query is consumed.
@@ -276,22 +324,22 @@ def test_forge_membership_and_clone(tmp_home):
     assert len(dataforge_store.load_forge("MyForge").sources) == 2
 
     # Extract a Source back out as a standalone query (move semantics).
-    out = org.extract_query_from_forge("MyForge", "Reins",
+    out = org.extract_query_from_forge("MyForge", "Reins [MyForge]",
                                        remove_source=True)
-    assert out is not None and out.name == "Reins"
+    assert out is not None and out.name == "Reins [MyForge]"
     assert query_object_store.load_object_by_id(out.id) is not None
     assert len(dataforge_store.load_forge("MyForge").sources) == 1
     assert "dataforge" not in (out.config or {})
 
     # Clone the forge with its Snapshot.
     dataforge_store.save_source_snapshot(
-        "MyForge", "Policies", pd.DataFrame({"a": [1, 2]}))
+        "MyForge", "Policies [MyForge]", pd.DataFrame({"a": [1, 2]}))
     clone_name = org.clone_forge("MyForge")
     assert clone_name == "MyForge (2)"
     assert dataforge_store.forge_exists(clone_name)
     cloned = dataforge_store.load_forge(clone_name)
     assert len(cloned.sources) == 1
-    snap = dataforge_store.load_source_snapshot(clone_name, "Policies")
+    snap = dataforge_store.load_source_snapshot(clone_name, "Policies [MyForge]")
     assert snap is not None and len(snap) == 2
     assert org.forge_ref(clone_name) is not None
     print("  forge membership (copy/move/extract) + clone  OK")
@@ -299,7 +347,9 @@ def test_forge_membership_and_clone(tmp_home):
 
 def test_browser_tree_builds_from_organizer(tmp_home):
     try:
-        from PyQt6.QtWidgets import QApplication, QAbstractItemView
+        from PyQt6.QtCore import QRect, Qt
+        from PyQt6.QtGui import QPainter, QPixmap
+        from PyQt6.QtWidgets import QApplication, QAbstractItemView, QStyleOptionViewItem
     except Exception as exc:  # pragma: no cover
         print(f"  browser tree SKIPPED (no PyQt6: {exc})")
         return
@@ -326,28 +376,85 @@ def test_browser_tree_builds_from_organizer(tmp_home):
     window = QueryObjectViewerWindow()
     try:
         app.processEvents()
-        # Walk the top level: expect the loose query, the group, the forge.
+        # Walk the top level: expect Commons, the user group, and the forge.
         kinds = {}
         for i in range(window.tree.topLevelItemCount()):
             item = window.tree.topLevelItem(i)
             kinds.setdefault(_payload(item).get("type"), []).append(item)
-        assert {"query", "group", "forge"} <= set(kinds), kinds.keys()
+        assert {"group", "forge"} <= set(kinds), kinds.keys()
 
-        group_item = kinds["group"][0]
+        commons_item = next(item for item in kinds["group"]
+                            if _payload(item)["group_id"] == COMMONS_GROUP_ID)
+        assert _payload(commons_item)["name"] == COMMONS_GROUP_NAME
+        assert commons_item.childCount() == 1
+        loose = commons_item.child(0)
+        def expected_query_payload(query_id, name):
+            return {"type": "query", "id": query_id,
+                "name": name, "badge": "SQL",
+                "badge_color": "#5A3218",
+                "badge_fill": "#5A3218",
+                "badge_text_color": "#FFFFFF"}
+
+        loose_payload = _payload(loose)
+        assert loose_payload == expected_query_payload(b.id, "Loose One")
+        assert "[UL_Rates]" in loose.text(0)
+
+        group_item = next(item for item in kinds["group"]
+                          if _payload(item).get("name") == "Claims Work")
         assert _payload(group_item)["name"] == "Claims Work"
         assert group_item.childCount() == 1
         child = group_item.child(0)
-        assert _payload(child) == {"type": "query", "id": a.id,
-                                   "name": "Claims Pull"}
+        assert _payload(child) == expected_query_payload(a.id, "Claims Pull")
         assert "[NEON_DSN]" in child.text(0)
-
-        loose = kinds["query"][0]
-        assert "[UL_Rates]" in loose.text(0)
 
         forge_item = kinds["forge"][0]
         assert _payload(forge_item) == {"type": "forge", "name": "Claims Forge"}
 
+        # Delegate paint covers the custom pill rendering path that real Qt
+        # painting uses for groups, DataForges, and query badge colors.
+        delegate = window.tree.itemDelegate()
+        for painted_item in (commons_item, group_item, forge_item, loose):
+            pixmap = QPixmap(280, 40)
+            pixmap.fill(Qt.GlobalColor.white)
+            painter = QPainter(pixmap)
+            option = QStyleOptionViewItem()
+            option.rect = QRect(0, 0, 260, 30)
+            delegate.paint(painter, option, window.tree.indexFromItem(painted_item))
+            painter.end()
+
+        window.edit_search.setText("loose")
+        app.processEvents()
+        assert window.tree.topLevelItemCount() == 1
+        assert not window.tree.dragEnabled()
+        assert not window.tree.acceptDrops()
+        filtered_parent = window.tree.topLevelItem(0)
+        assert _payload(filtered_parent)["group_id"] == COMMONS_GROUP_ID
+        assert filtered_parent.childCount() == 1
+        filtered = filtered_parent.child(0)
+        assert _payload(filtered) == expected_query_payload(b.id, "Loose One")
+
+        window.edit_search.setText("claims")
+        app.processEvents()
+        filtered_kinds = {}
+        for i in range(window.tree.topLevelItemCount()):
+            item = window.tree.topLevelItem(i)
+            filtered_kinds.setdefault(_payload(item).get("type"), []).append(item)
+        assert {"group", "forge"} <= set(filtered_kinds), filtered_kinds.keys()
+        assert filtered_kinds["group"][0].childCount() == 1
+
         # Drop-position resolution: OnItem over the group targets the group.
+        window.edit_search.clear()
+        app.processEvents()
+        assert window.tree.dragEnabled()
+        assert window.tree.acceptDrops()
+        kinds = {}
+        for i in range(window.tree.topLevelItemCount()):
+            item = window.tree.topLevelItem(i)
+            kinds.setdefault(_payload(item).get("type"), []).append(item)
+        group_item = kinds["group"][0]
+        if _payload(group_item)["group_id"] == COMMONS_GROUP_ID:
+            group_item = kinds["group"][1]
+        child = group_item.child(0)
         on_item = QAbstractItemView.DropIndicatorPosition.OnItem
         below = QAbstractItemView.DropIndicatorPosition.BelowItem
         assert window._drop_position(group_item, on_item) == (group["id"], None)

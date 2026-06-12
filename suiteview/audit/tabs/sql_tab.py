@@ -183,6 +183,10 @@ class SqlTab(QWidget):
         """Format and display the SQL statement."""
         self.txt_sql.setPlainText(_format_sql(raw_sql))
 
+    def clear_sql(self):
+        """Clear the displayed SQL."""
+        self.txt_sql.clear()
+
     def _on_move_to_build(self):
         """Emit the current SQL text for the Build SQL tab."""
         sql = self.txt_sql.toPlainText()

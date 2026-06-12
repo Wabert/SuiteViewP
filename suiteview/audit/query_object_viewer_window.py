@@ -10,13 +10,22 @@ import json
 import logging
 import re
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 
-from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QBrush, QColor, QFont
+from PyQt6.QtCore import QSize, Qt, QTimer
+from PyQt6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QLinearGradient,
+    QPainter,
+    QPen,
+)
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QFrame,
     QDialog,
     QFileDialog,
     QGridLayout,
@@ -31,6 +40,8 @@ from PyQt6.QtWidgets import (
     QApplication,
     QSizePolicy,
     QSplitter,
+    QStyle,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -54,17 +65,35 @@ from suiteview.audit.query_object import (
     OBJECT_KIND_VISUAL,
     QueryObject,
     object_from_qdefinition,
+    qdefinition_from_query_object,
 )
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit.query_runner import execute_odbc_query
 from suiteview.audit import query_object_store
 from suiteview.audit.build_mode_styles import (
-    FORGE_STYLE, GROUP_STYLE, mode_icon as _mode_icon, mode_style,
+    FORGE_STYLE, GROUP_STYLE, mode_style,
 )
-from suiteview.audit.query_organizer import get_query_organizer
-from suiteview.core.odbc_utils import ACCESS, DB2, SQL_SERVER, UNKNOWN, detect_dialect
+from suiteview.audit.query_organizer import (
+    COMMONS_GROUP_ID,
+    COMMONS_GROUP_NAME,
+    get_query_organizer,
+)
+from suiteview.audit.group_config import load_ui_settings, save_ui_settings
+from suiteview.core.odbc_utils import (
+    ACCESS,
+    DB2,
+    SQL_SERVER,
+    UNKNOWN,
+    detect_dialect,
+    get_dsn_details,
+)
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+from suiteview.ui.widgets.bookmark_widgets import (
+    ColorPickerPopup,
+    darken_color,
+    lighten_color,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +124,80 @@ _BTN_DANGER_STYLE = (
 # {"type": "group", "group_id": <organizer group id>, "name": <group name>}
 # {"type": "forge", "name": <forge name>}
 
+_LEFT_PANEL_DEFAULT_WIDTH = 280
+_LEFT_PANEL_MIN_WIDTH = 220
+_LEFT_PANEL_MAX_WIDTH = 520
+_SOURCE_PANEL_DEFAULT_WIDTH = 300
+_SOURCE_PANEL_MIN_WIDTH = 240
+_SOURCE_PANEL_MAX_WIDTH = 440
+_FILE_SOURCE_TYPES = {"csv", "excel", "fixed_width"}
+_SENSITIVE_ODBC_KEYS = {
+    "password",
+    "pwd",
+    "pass",
+    "uid",
+    "user",
+    "username",
+    "userid",
+    "user id",
+}
+
+_QUERY_BADGES = {
+    OBJECT_KIND_VISUAL: "VIS",
+    OBJECT_KIND_MANUAL_SQL: "SQL",
+    OBJECT_KIND_CYBERLIFE: "CL",
+    OBJECT_KIND_ADHOC_SOURCE: "FILE",
+    OBJECT_KIND_EXECUTABLE: "RUN",
+}
+
+_THEME_PILL_COLORS = {
+    "theme:blue_gold": ("#1E5BA8", "#082B5C", "#D4A017", "#D4A017"),
+    "theme:gold_blue": ("#D4A017", "#8B6914", "#0D3A7A", "#0D3A7A"),
+    "theme:navy_silver": ("#0A1E3E", "#050F1F", "#C0C0C0", "#C0C0C0"),
+    "theme:teal_coral": ("#008080", "#004040", "#FF7F50", "#FF7F50"),
+    "theme:purple_gold": ("#6B2D8E", "#3D1A52", "#FFD700", "#FFD700"),
+    "theme:forest_cream": ("#228B22", "#145214", "#FFFDD0", "#FFFDD0"),
+    "theme:crimson_slate": ("#DC143C", "#8B0A25", "#708090", "#B0C0D0"),
+    "theme:ocean_sunset": ("#006994", "#003D56", "#FF6B35", "#FF6B35"),
+    "theme:silver_blue": ("#C0C0C0", "#808080", "#1E5BA8", "#1E5BA8"),
+    "theme:mint_chocolate": ("#98FB98", "#3CB371", "#8B4513", "#5D2E0C"),
+    "theme:sunset_purple": ("#FF7F50", "#FF6347", "#6B2D8E", "#6B2D8E"),
+    "theme:steel_orange": ("#708090", "#4A5568", "#FF8C00", "#FF8C00"),
+}
+
 
 def _payload(item) -> dict:
     if item is None:
         return {}
     data = item.data(0, Qt.ItemDataRole.UserRole)
     return data if isinstance(data, dict) else {}
+
+
+def _filename_from_path(path_or_name: str) -> str:
+    clean = str(path_or_name or "").strip()
+    if not clean:
+        return "(unknown file)"
+    return clean.rsplit("/", 1)[-1].rsplit("\\", 1)[-1] or clean
+
+
+def _file_source_key(path: str, source_name: str) -> str:
+    clean_path = str(path or "").strip()
+    if clean_path:
+        return f"path:{clean_path.lower()}"
+    return f"name:{str(source_name or '').strip().lower()}"
+
+
+def _pill_colors_for_group(color: str) -> tuple[str, str, str, str]:
+    if color in _THEME_PILL_COLORS:
+        return _THEME_PILL_COLORS[color]
+    if not color or not str(color).startswith("#"):
+        color = GROUP_STYLE.tint
+    return (
+        lighten_color(color, 0.42),
+        color,
+        darken_color(color, 0.58),
+        "#202124",
+    )
 
 
 class _OrganizerTree(QTreeWidget):
@@ -129,6 +226,145 @@ class _OrganizerTree(QTreeWidget):
         event.setDropAction(Qt.DropAction.IgnoreAction)
         event.accept()
         self._window._handle_tree_drop(dragged, target, indicator)
+
+
+class _OrganizerPillDelegate(QStyledItemDelegate):
+    """Paint Query Object organizer rows as bookmark-style pills."""
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        payload = index.data(Qt.ItemDataRole.UserRole) or {}
+        if not isinstance(payload, dict):
+            super().paint(painter, option, index)
+            return
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = option.rect.adjusted(3, 2, -3, -2)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+
+        if payload.get("type") == "query":
+            self._paint_query(painter, rect, index.data(Qt.ItemDataRole.DisplayRole) or "", payload, selected)
+        elif payload.get("type") == "forge":
+            self._paint_container(
+                painter,
+                rect,
+                index.data(Qt.ItemDataRole.DisplayRole) or "",
+                "#B91C1C",
+                "#F97316",
+                "#7F1D1D",
+                selected,
+                radius=0,
+                text_color="#FFF7ED",
+            )
+        elif payload.get("type") == "group":
+            if payload.get("group_id") == COMMONS_GROUP_ID:
+                top_color, bottom_color, border_color, text_color = (
+                    "#9CA3AF", "#4B5563", "#374151", "#F8FAFC")
+            else:
+                top_color, bottom_color, border_color, text_color = _pill_colors_for_group(
+                    payload.get("color") or GROUP_STYLE.tint)
+            radius = 0 if payload.get("group_id") == COMMONS_GROUP_ID else 10
+            self._paint_container(
+                painter,
+                rect,
+                index.data(Qt.ItemDataRole.DisplayRole) or "",
+                top_color,
+                bottom_color,
+                border_color,
+                selected,
+                radius=radius,
+                text_color=text_color,
+            )
+        else:
+            super().paint(painter, option, index)
+        painter.restore()
+
+    def sizeHint(self, option, index) -> QSize:
+        payload = index.data(Qt.ItemDataRole.UserRole) or {}
+        if isinstance(payload, dict) and payload.get("type") in {"group", "forge"}:
+            return QSize(option.rect.width(), 30)
+        if isinstance(payload, dict) and payload.get("type") == "query":
+            return QSize(option.rect.width(), 25)
+        return super().sizeHint(option, index)
+
+    @staticmethod
+    def _paint_container(
+        painter: QPainter,
+        rect,
+        text: str,
+        top_color: str,
+        bottom_color: str,
+        border_color: str,
+        selected: bool,
+        *,
+        radius: int,
+        text_color: str,
+    ) -> None:
+        gradient = QLinearGradient(
+            float(rect.left()),
+            float(rect.top()),
+            float(rect.left()),
+            float(rect.bottom()),
+        )
+        gradient.setColorAt(0, QColor(top_color))
+        gradient.setColorAt(1, QColor(bottom_color))
+        border = QColor("#1E5BA8" if selected else border_color)
+        painter.setPen(QPen(border, 2))
+        painter.setBrush(QBrush(gradient))
+        painter.drawRoundedRect(rect, radius, radius)
+        painter.setPen(QColor(text_color))
+        font = QFont(_FONT_BOLD)
+        painter.setFont(font)
+        painter.drawText(rect.adjusted(10, 0, -8, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
+
+    @staticmethod
+    def _paint_query(painter: QPainter, rect, text: str, payload: dict, selected: bool) -> None:
+        border = QColor("#1E5BA8" if selected else "#8AAED8")
+        painter.setPen(QPen(border, 1.4))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(rect.adjusted(10, 1, -2, -1), 7, 7)
+
+        badge = payload.get("badge", "Q")
+        badge_color = payload.get("badge_color") or "#64748B"
+        badge_fill = payload.get("badge_fill") or badge_color
+        badge_text_color = payload.get("badge_text_color") or "#FFFFFF"
+        badge_rect = rect.adjusted(16, 4, 0, -4)
+        badge_rect.setWidth(34 if len(badge) <= 3 else 42)
+        painter.setPen(QPen(QColor(badge_color), 1))
+        painter.setBrush(QColor(badge_fill))
+        painter.drawRoundedRect(badge_rect, 4, 4)
+        painter.setPen(QColor(badge_text_color))
+        badge_font = QFont(_FONT_SMALL)
+        badge_font.setBold(True)
+        painter.setFont(badge_font)
+        painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge)
+
+        painter.setPen(QColor("#202124"))
+        text_rect = rect.adjusted(16 + badge_rect.width() + 8, 0, -8, 0)
+        _OrganizerPillDelegate._draw_bracketed_text(painter, text_rect, text)
+
+    @staticmethod
+    def _draw_bracketed_text(painter: QPainter, rect, text: str) -> None:
+        painter.save()
+        painter.setClipRect(rect)
+        x = rect.left()
+        parts = re.split(r"(\[[^\]]+\])", text)
+        normal_font = QFont(_FONT)
+        bold_font = QFont(_FONT)
+        bold_font.setBold(True)
+        painter.setFont(normal_font)
+        metrics = painter.fontMetrics()
+        baseline = int(rect.top() + (rect.height() + metrics.ascent() - metrics.descent()) / 2)
+        for part in parts:
+            if not part:
+                continue
+            painter.setFont(bold_font if part.startswith("[") and part.endswith("]") else normal_font)
+            metrics = painter.fontMetrics()
+            painter.drawText(x, baseline, part)
+            x += metrics.horizontalAdvance(part)
+            if x > rect.right():
+                break
+        painter.restore()
 
 
 def _kind_label(kind: str) -> str:
@@ -258,10 +494,16 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def __init__(self, parent=None):
         self._current: QueryObject | None = None
         self._current_forge_name = ""
+        self._current_source_path = ""
         self._loading_detail = False
+        self._loading_tree = False
+        self._loading_source_tree = False
+        self._restoring_left_width = False
+        self._left_panel_width = self._load_left_panel_width()
         self._audit_parent = parent
         self._dataforge_builder_windows: list[QDialog] = []
         self._audit_builder_windows: list[QWidget] = []
+        self._file_nav_window = None
         super().__init__(
             title="Query Object Browser",
             default_size=(1120, 620),
@@ -292,40 +534,114 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         root.setSpacing(4)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._browser_splitter = splitter
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(4)
+        splitter.splitterMoved.connect(self._on_browser_splitter_moved)
 
         left = QWidget()
-        left.setMinimumWidth(220)
-        left.setMaximumWidth(520)
+        left.setMinimumWidth(_LEFT_PANEL_MIN_WIDTH)
+        left.setMaximumWidth(_LEFT_PANEL_MAX_WIDTH)
         left.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_lay = QVBoxLayout(left)
         left_lay.setContentsMargins(0, 0, 0, 0)
         left_lay.setSpacing(4)
 
+        header_row = QWidget()
+        header_lay = QHBoxLayout(header_row)
+        header_lay.setContentsMargins(0, 0, 0, 0)
+        header_lay.setSpacing(3)
+
         lbl_left = QLabel("Query Objects")
         lbl_left.setFont(_FONT_BOLD)
         lbl_left.setStyleSheet("color: #1E5BA8;")
-        left_lay.addWidget(lbl_left)
+        header_lay.addWidget(lbl_left, 1)
+
+        self.btn_group_new = self._make_group_tool_button("+", "New Query Group")
+        self.btn_group_rename = self._make_group_tool_button("R", "Rename selected Query Group")
+        self.btn_group_color = self._make_group_tool_button("C", "Change selected Query Group color")
+        self.btn_group_delete = self._make_group_tool_button("X", "Delete selected Query Group and its queries")
+        self.btn_group_new.clicked.connect(self._on_new_group)
+        self.btn_group_rename.clicked.connect(self._on_rename_selected_group)
+        self.btn_group_color.clicked.connect(self._on_color_selected_group)
+        self.btn_group_delete.clicked.connect(self._on_delete_selected_group)
+        for button in (
+            self.btn_group_new,
+            self.btn_group_rename,
+            self.btn_group_color,
+            self.btn_group_delete,
+        ):
+            header_lay.addWidget(button)
+        left_lay.addWidget(header_row)
+
+        search_row = QWidget()
+        search_lay = QHBoxLayout(search_row)
+        search_lay.setContentsMargins(0, 0, 0, 0)
+        search_lay.setSpacing(4)
+
+        self.edit_search = QLineEdit()
+        self.edit_search.setFont(_FONT)
+        self.edit_search.setFixedHeight(24)
+        self.edit_search.setPlaceholderText("Search query objects...")
+        self.edit_search.setClearButtonEnabled(True)
+        self.edit_search.setStyleSheet(
+            "QLineEdit { background: white; border: 1px solid #1E5BA8;"
+            " border-radius: 3px; padding: 2px 6px; }"
+        )
+        self.edit_search.textChanged.connect(lambda _text: self.refresh())
+        search_lay.addWidget(self.edit_search, 1)
+
+        self.btn_expand_all = QPushButton("+")
+        self.btn_expand_all.setFont(_FONT_BOLD)
+        self.btn_expand_all.setFixedSize(24, 24)
+        self.btn_expand_all.setToolTip("Expand all Query Groups and DataForges")
+        self.btn_expand_all.setStyleSheet(
+            "QPushButton { background: #E8F0FB; border: 1px solid #1E5BA8;"
+            " border-radius: 3px; padding: 2px 6px; color: #0D3A7A; }"
+            "QPushButton:hover { background: #D7E6F8; }"
+        )
+        self.btn_expand_all.clicked.connect(lambda: self._set_all_containers_expanded(True))
+        search_lay.addWidget(self.btn_expand_all)
+
+        self.btn_collapse_all = QPushButton("-")
+        self.btn_collapse_all.setFont(_FONT_BOLD)
+        self.btn_collapse_all.setFixedSize(24, 24)
+        self.btn_collapse_all.setToolTip("Collapse all Query Groups and DataForges")
+        self.btn_collapse_all.setStyleSheet(self.btn_expand_all.styleSheet())
+        self.btn_collapse_all.clicked.connect(lambda: self._set_all_containers_expanded(False))
+        search_lay.addWidget(self.btn_collapse_all)
+        left_lay.addWidget(search_row)
 
         self.tree = _OrganizerTree(self)
         self.tree.setHeaderHidden(True)
         self.tree.setMinimumWidth(210)
         self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.tree.setRootIsDecorated(False)
+        self.tree.setIndentation(14)
+        self.tree.setUniformRowHeights(False)
+        self.tree.setItemDelegate(_OrganizerPillDelegate(self.tree))
         self.tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.tree.setFont(_FONT)
         self.tree.setStyleSheet(
             "QTreeWidget { border: 1px solid #1E5BA8; background: white; }"
-            "QTreeWidget::item { padding: 1px 4px; }"
-            "QTreeWidget::item:selected { background-color: #A0C4E8; color: black; }"
+            "QTreeWidget::item { padding: 0px; border: none; background: transparent; }"
+            "QTreeWidget::item:selected { background: transparent; color: black; }"
         )
+        self.tree.itemClicked.connect(self._on_tree_clicked)
         self.tree.currentItemChanged.connect(self._on_tree_selection)
         self.tree.itemDoubleClicked.connect(self._on_tree_double_clicked)
+        self.tree.itemExpanded.connect(lambda item: self._on_tree_expansion_changed(item, True))
+        self.tree.itemCollapsed.connect(lambda item: self._on_tree_expansion_changed(item, False))
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_tree_context_menu)
         left_lay.addWidget(self.tree, 1)
 
         splitter.addWidget(left)
+
+        source_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._source_splitter = source_splitter
+        source_splitter.setChildrenCollapsible(False)
+        source_splitter.setHandleWidth(4)
 
         right = QWidget()
         right_lay = QVBoxLayout(right)
@@ -373,13 +689,28 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.btn_preview_file.clicked.connect(self._on_preview_file)
         info_lay.addWidget(self.btn_preview_file)
 
+        self.btn_open_source_folder = QPushButton("Open Folder")
+        self.btn_open_source_folder.setFont(_FONT_BOLD)
+        self.btn_open_source_folder.setFixedSize(98, 26)
+        self.btn_open_source_folder.setStyleSheet(_BTN_STYLE)
+        self.btn_open_source_folder.setToolTip("Open this source file's folder in File Nav")
+        self.btn_open_source_folder.clicked.connect(self._on_open_source_folder)
+        self.btn_open_source_folder.setVisible(False)
+        info_lay.addWidget(self.btn_open_source_folder)
+
         self.btn_promote = QPushButton("Register Source")
         self.btn_promote.setFont(_FONT_BOLD)
         self.btn_promote.setFixedSize(112, 26)
         self.btn_promote.setStyleSheet(_BTN_STYLE)
         self.btn_promote.setToolTip("Mark a file source object as a registered, reusable source")
         self.btn_promote.clicked.connect(self._on_promote)
-        info_lay.addWidget(self.btn_promote)
+        self._promote_slot = QWidget()
+        self._promote_slot.setFixedSize(112, 26)
+        promote_lay = QHBoxLayout(self._promote_slot)
+        promote_lay.setContentsMargins(0, 0, 0, 0)
+        promote_lay.setSpacing(0)
+        promote_lay.addWidget(self.btn_promote)
+        info_lay.addWidget(self._promote_slot)
 
         self.btn_delete = QPushButton("Delete")
         self.btn_delete.setFont(_FONT_BOLD)
@@ -471,14 +802,21 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.tabs.addTab(self.txt_config, "Config")
 
         right_lay.addWidget(self.tabs, 1)
-        splitter.addWidget(right)
+        source_splitter.addWidget(right)
+        source_splitter.addWidget(self._build_data_source_panel())
+        source_splitter.setStretchFactor(0, 1)
+        source_splitter.setStretchFactor(1, 0)
+        source_splitter.setSizes([820, _SOURCE_PANEL_DEFAULT_WIDTH])
+
+        splitter.addWidget(source_splitter)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([280, 840])
+        splitter.setSizes([self._left_panel_width, 1120 - self._left_panel_width])
 
         root.addWidget(splitter, 1)
 
         self.refresh()
+        QTimer.singleShot(0, self._apply_left_panel_width)
         return body
 
     @staticmethod
@@ -493,6 +831,66 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             " padding: 2px 4px; }"
         )
         return edit
+
+    @staticmethod
+    def _make_group_tool_button(text: str, tooltip: str) -> QPushButton:
+        button = QPushButton(text)
+        button.setFont(_FONT_SMALL)
+        button.setFixedSize(22, 22)
+        button.setToolTip(tooltip)
+        button.setStyleSheet(
+            "QPushButton { background: #F8FAFC; border: 1px solid #8AAED8;"
+            " border-radius: 3px; color: #0D3A7A; padding: 0px; }"
+            "QPushButton:hover { background: #E8F0FB; border-color: #1E5BA8; }"
+            "QPushButton:disabled { color: #A0A0A0; border-color: #D0D0D0; }"
+        )
+        return button
+
+    def _build_data_source_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setMinimumWidth(_SOURCE_PANEL_MIN_WIDTH)
+        panel.setMaximumWidth(_SOURCE_PANEL_MAX_WIDTH)
+        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        panel_lay = QVBoxLayout(panel)
+        panel_lay.setContentsMargins(0, 0, 0, 0)
+        panel_lay.setSpacing(4)
+
+        lbl = QLabel("Data Sources")
+        lbl.setFont(_FONT_BOLD)
+        lbl.setStyleSheet("color: #1E5BA8;")
+        panel_lay.addWidget(lbl)
+
+        self.edit_source_search = QLineEdit()
+        self.edit_source_search.setFont(_FONT)
+        self.edit_source_search.setFixedHeight(24)
+        self.edit_source_search.setPlaceholderText("Search data sources...")
+        self.edit_source_search.setClearButtonEnabled(True)
+        self.edit_source_search.setStyleSheet(
+            "QLineEdit { background: white; border: 1px solid #1E5BA8;"
+            " border-radius: 3px; padding: 2px 6px; }"
+        )
+        self.edit_source_search.textChanged.connect(lambda _text: self._refresh_source_tree())
+        panel_lay.addWidget(self.edit_source_search)
+
+        self.source_tree = QTreeWidget()
+        self.source_tree.setHeaderHidden(True)
+        self.source_tree.setDragEnabled(False)
+        self.source_tree.setAcceptDrops(False)
+        self.source_tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.source_tree.setRootIsDecorated(True)
+        self.source_tree.setIndentation(14)
+        self.source_tree.setUniformRowHeights(True)
+        self.source_tree.setFont(_FONT)
+        self.source_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.source_tree.setStyleSheet(
+            "QTreeWidget { border: 1px solid #1E5BA8; background: white; }"
+            "QTreeWidget::item { padding: 2px 3px; min-height: 19px; }"
+            "QTreeWidget::item:selected { background: #D7E6F8; color: #0D3A7A; }"
+        )
+        self.source_tree.itemClicked.connect(self._on_source_tree_clicked)
+        self.source_tree.currentItemChanged.connect(self._on_source_tree_selection)
+        panel_lay.addWidget(self.source_tree, 1)
+        return panel
 
     @staticmethod
     def _add_editor_field(layout: QGridLayout, row: int, col: int, label: str, widget: QLineEdit):
@@ -536,6 +934,10 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         table.resizeColumnsToContents()
 
     def _configure_object_tables(self) -> None:
+        self._set_tab_labels([
+            "Object", "Sources", "Outputs", "Inputs",
+            "Joins", "All Fields", "SQL", "Config",
+        ])
         self._set_table_headers(self.tbl_sources, ["Name", "Type", "DSN", "Status"])
         self._set_table_headers(self.tbl_outputs, ["Field", "Type", "Display Name", "Source"])
         self._set_table_headers(self.tbl_inputs, ["Field", "Type", "Display Name", "Source"])
@@ -543,11 +945,34 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._set_table_headers(self.tbl_fields, ["Field", "Type", "Role", "Display Name", "Source"])
 
     def _configure_forge_tables(self) -> None:
+        self._set_tab_labels([
+            "Forge", "Sources", "Outputs", "Filters",
+            "Joins", "All Fields", "SQL", "Config",
+        ])
         self._set_table_headers(self.tbl_sources, ["Source", "Query Copy", "Kind", "DSN", "Columns", "Snapshot", "Rows"])
         self._set_table_headers(self.tbl_outputs, ["Field", "Display Name", "Source", "Type"])
         self._set_table_headers(self.tbl_inputs, ["Filter Tab", "Field", "Mode", "Value"])
         self._set_table_headers(self.tbl_joins, ["Left Source", "Left Field(s)", "Right Source", "Right Field(s)", "Type"])
         self._set_table_headers(self.tbl_fields, ["Field", "Type", "Role", "Source"])
+
+    def _configure_data_source_tables(self) -> None:
+        self._set_tab_labels([
+            "Source", "Setup", "Query Objects", "Source Uses",
+            "Joins", "Fields", "SQL", "Config",
+        ])
+        self._set_table_headers(self.tbl_sources, ["Property", "Value"])
+        self._set_table_headers(self.tbl_outputs, ["Query Object", "Kind", "Builder", "Fields"])
+        self._set_table_headers(self.tbl_inputs, ["Query Object", "Source/Table", "Type", "Status"])
+        self._set_table_headers(self.tbl_joins, ["", ""])
+        self._set_table_headers(self.tbl_fields, ["Query Object", "Field", "Role", "Type", "Source"])
+
+    def _set_tab_labels(self, labels: list[str]) -> None:
+        if not hasattr(self, "tabs"):
+            return
+        for index, label in enumerate(labels):
+            if index >= self.tabs.count():
+                break
+            self.tabs.setTabText(index, label)
 
     def refresh(self):
         """Rebuild the tree from the organizer: groups, forges, loose queries.
@@ -556,7 +981,13 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         (build-mode chips/tints; DataForge orange) — design §8.
         """
         current_payload = _payload(self.tree.currentItem())
+        search_text = self.edit_search.text() if hasattr(self, "edit_search") else ""
+        search_active = bool(search_text.strip())
+        self._loading_tree = True
         self.tree.clear()
+        self.tree.setDragEnabled(not search_active)
+        self.tree.setAcceptDrops(not search_active)
+        self.tree.setDropIndicatorShown(not search_active)
         self._ensure_dataforge_query_objects()
         objects = query_object_store.list_objects()
         by_id = {o.id: o for o in objects}
@@ -595,9 +1026,16 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             item.setFont(0, _FONT)
             item.setForeground(0, QColor(style.color))
             item.setBackground(0, QBrush(QColor(style.tint)))
-            item.setIcon(0, _mode_icon(style.color))
             item.setToolTip(0, f"{style.label} — {dsn}")
-            payload = {"type": "query", "id": obj.id, "name": obj.name}
+            payload = {
+                "type": "query",
+                "id": obj.id,
+                "name": obj.name,
+                "badge": _QUERY_BADGES.get(obj.kind, "Q"),
+                "badge_color": style.color,
+                "badge_fill": style.color,
+                "badge_text_color": "#FFFFFF",
+            }
             if forge_name:
                 payload["forge"] = forge_name
             item.setData(0, Qt.ItemDataRole.UserRole, payload)
@@ -609,42 +1047,60 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return item
 
         def _add_forge_item(forge_name: str):
-            item = QTreeWidgetItem([f"⚙ {_dataforge_display_name(forge_name)}"])
+            children = sorted(forge_children.get(forge_name, []),
+                              key=lambda o: o.name.lower())
+            forge_matches = self._text_matches_search(
+                search_text, ["DataForge", _dataforge_display_name(forge_name), forge_name])
+            if search_text:
+                children = [obj for obj in children
+                            if self._object_matches_search(obj, search_text)]
+            if search_text and not forge_matches and not children:
+                return
+            item = QTreeWidgetItem([f"⚙ {_dataforge_display_name(forge_name)} ({len(children)})"])
             item.setFont(0, QFont("Segoe UI", 10, QFont.Weight.Bold))
             item.setForeground(0, QColor(FORGE_STYLE.color))
             item.setBackground(0, QBrush(QColor(FORGE_STYLE.tint)))
-            item.setSizeHint(0, QSize(0, 26))
+            item.setSizeHint(0, QSize(0, 30))
             payload = {"type": "forge", "name": forge_name}
             item.setData(0, Qt.ItemDataRole.UserRole, payload)
             self.tree.addTopLevelItem(item)
-            for obj in sorted(forge_children.get(forge_name, []),
-                              key=lambda o: o.name.lower()):
+            for obj in children:
                 _add_query_item(item, obj, forge_name=forge_name)
-            item.setExpanded(True)
+            item.setExpanded(self._expanded_for_item(payload, search_active))
             _track(item, payload)
 
         def _add_group_item(group: dict):
-            item = QTreeWidgetItem([group["name"]])
+            children = []
+            group_matches = self._text_matches_search(search_text, [group["name"]])
+            for child in group.get("items", []):
+                obj = by_id.get(child.get("query_id"))
+                if obj is not None and (not search_text
+                                        or self._object_matches_search(obj, search_text)):
+                    children.append(obj)
+            if search_text and not group_matches and not children:
+                return
+            prefix = "" if group.get("id") == COMMONS_GROUP_ID else "▣ "
+            item = QTreeWidgetItem([f"{prefix}{group['name']} ({len(children)})"])
             item.setFont(0, QFont("Segoe UI", 9, QFont.Weight.Bold))
             item.setForeground(0, QColor(GROUP_STYLE.color))
             item.setBackground(0, QBrush(QColor(GROUP_STYLE.tint)))
-            item.setSizeHint(0, QSize(0, 24))
+            item.setSizeHint(0, QSize(0, 30))
             payload = {"type": "group", "group_id": group["id"],
-                       "name": group["name"]}
+                       "name": group["name"],
+                       "color": group.get("color"),
+                       "expanded": group.get("expanded", True)}
             item.setData(0, Qt.ItemDataRole.UserRole, payload)
             self.tree.addTopLevelItem(item)
-            for child in group.get("items", []):
-                obj = by_id.get(child.get("query_id"))
-                if obj is not None:
-                    _add_query_item(item, obj)
-            item.setExpanded(True)
+            for obj in children:
+                _add_query_item(item, obj)
+            item.setExpanded(self._expanded_for_item(payload, search_active))
             _track(item, payload)
 
         for entry in organizer.items:
             kind = entry.get("type")
             if kind == "query":
                 obj = by_id.get(entry.get("query_id"))
-                if obj is not None:
+                if obj is not None and self._object_matches_search(obj, search_text):
                     _add_query_item(None, obj)
             elif kind == "group":
                 _add_group_item(entry)
@@ -656,6 +1112,316 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             self.tree.setCurrentItem(item_to_select)
         else:
             self._clear_detail()
+        self._loading_tree = False
+        if hasattr(self, "source_tree"):
+            self._refresh_source_tree(objects)
+
+    def _refresh_source_tree(self, objects: list[QueryObject] | None = None) -> None:
+        if not hasattr(self, "source_tree"):
+            return
+        current_payload = _payload(self.source_tree.currentItem())
+        search_text = self.edit_source_search.text() if hasattr(self, "edit_source_search") else ""
+        search_active = bool(search_text.strip())
+        self._loading_source_tree = True
+        self.source_tree.clear()
+        objects = objects if objects is not None else query_object_store.list_objects()
+        index = self._build_data_source_index(objects)
+
+        selected_item = None
+
+        def _track(item: QTreeWidgetItem, payload: dict) -> None:
+            nonlocal selected_item
+            if not current_payload or payload.get("type") != current_payload.get("type"):
+                return
+            keys = {
+                "odbc_source": ("dsn",),
+                "file_source": ("key",),
+                "source_query": ("id", "source_key"),
+                "source_group": ("group",),
+            }.get(payload.get("type"), ())
+            if keys and all(payload.get(key) == current_payload.get(key) for key in keys):
+                selected_item = item
+
+        def _add_query_leaf(parent: QTreeWidgetItem, obj: QueryObject, source_key: str) -> None:
+            item = QTreeWidgetItem([obj.name])
+            item.setFont(0, _FONT)
+            item.setForeground(0, QColor("#333333"))
+            item.setToolTip(0, f"{_kind_label(obj.kind)} - {_display_dsn_for_object(obj) or obj.source_design}")
+            payload = {"type": "source_query", "id": obj.id, "name": obj.name, "source_key": source_key}
+            item.setData(0, Qt.ItemDataRole.UserRole, payload)
+            parent.addChild(item)
+            _track(item, payload)
+
+        def _filtered_source_objects(source: dict) -> list[QueryObject]:
+            source_values = [
+                source.get("label", ""), source.get("path", ""),
+                source.get("source_type", ""), source.get("group", ""),
+            ]
+            source_matches = self._text_matches_search(search_text, source_values)
+            if source_matches:
+                return list(source.get("objects", []))
+            return [
+                obj for obj in source.get("objects", [])
+                if self._object_matches_search(obj, search_text)
+            ]
+
+        def _add_group(group_key: str, title: str, sources: list[dict]) -> None:
+            visible_sources: list[tuple[dict, list[QueryObject]]] = []
+            for source in sources:
+                children = _filtered_source_objects(source)
+                source_matches = self._text_matches_search(search_text, [
+                    source.get("label", ""), source.get("path", ""),
+                    source.get("source_type", ""), title,
+                ])
+                if not search_active or source_matches or children:
+                    visible_sources.append((source, children))
+            if search_active and not visible_sources:
+                return
+            root = QTreeWidgetItem([f"{title} ({len(visible_sources)})"])
+            root.setFont(0, QFont("Segoe UI", 9, QFont.Weight.Bold))
+            root.setForeground(0, QColor("#0D3A7A"))
+            root.setBackground(0, QBrush(QColor("#E8F0FB")))
+            payload = {"type": "source_group", "group": group_key}
+            root.setData(0, Qt.ItemDataRole.UserRole, payload)
+            self.source_tree.addTopLevelItem(root)
+            _track(root, payload)
+            for source, children in visible_sources:
+                label = source.get("label", "")
+                source_item = QTreeWidgetItem([label])
+                source_item.setFont(0, _FONT_BOLD)
+                source_item.setForeground(0, QColor("#1E5BA8" if group_key == "odbc" else "#8B6914"))
+                tooltip = source.get("path") or source.get("dsn") or label
+                source_item.setToolTip(0, tooltip)
+                source_payload = {
+                    "type": "odbc_source" if group_key == "odbc" else "file_source",
+                    "group": group_key,
+                    "key": source.get("key", ""),
+                    "dsn": source.get("dsn", ""),
+                    "path": source.get("path", ""),
+                    "label": label,
+                    "source_type": source.get("source_type", ""),
+                    "metadata": source.get("metadata", {}),
+                    "object_ids": [obj.id for obj in source.get("objects", [])],
+                }
+                source_item.setData(0, Qt.ItemDataRole.UserRole, source_payload)
+                root.addChild(source_item)
+                _track(source_item, source_payload)
+                for obj in children:
+                    _add_query_leaf(source_item, obj, source.get("key", ""))
+                source_item.setExpanded(search_active)
+            root.setExpanded(True)
+
+        _add_group("odbc", "ODBC", sorted(index["odbc"].values(), key=lambda item: item["label"].lower()))
+        _add_group("files", "Files", sorted(index["files"].values(), key=lambda item: (item["label"].lower(), item.get("path", "").lower())))
+
+        if selected_item is not None:
+            self.source_tree.setCurrentItem(selected_item)
+        self._loading_source_tree = False
+
+    def _build_data_source_index(self, objects: list[QueryObject]) -> dict[str, dict[str, dict]]:
+        index: dict[str, dict[str, dict]] = {"odbc": {}, "files": {}}
+
+        for obj in objects:
+            for dsn in self._odbc_dsns_for_object(obj):
+                entry = index["odbc"].setdefault(dsn.lower(), {
+                    "group": "odbc",
+                    "key": dsn.lower(),
+                    "label": dsn,
+                    "dsn": dsn,
+                    "objects": [],
+                })
+                if all(existing.id != obj.id for existing in entry["objects"]):
+                    entry["objects"].append(obj)
+
+            for file_entry in self._file_sources_for_object(obj):
+                key = file_entry["key"]
+                entry = index["files"].setdefault(key, {
+                    "group": "files",
+                    "key": key,
+                    "label": file_entry["label"],
+                    "path": file_entry["path"],
+                    "source_type": file_entry["source_type"],
+                    "metadata": file_entry["metadata"],
+                    "objects": [],
+                })
+                if all(existing.id != obj.id for existing in entry["objects"]):
+                    entry["objects"].append(obj)
+
+        for group in index.values():
+            for entry in group.values():
+                entry["objects"].sort(key=lambda item: item.name.lower())
+        return index
+
+    @staticmethod
+    def _odbc_dsns_for_object(obj: QueryObject) -> list[str]:
+        if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
+            return []
+        dsns: set[str] = set()
+        if obj.dsn.strip():
+            dsns.add(obj.dsn.strip())
+        for source in obj.sources:
+            if source.dsn.strip():
+                dsns.add(source.dsn.strip())
+        return sorted(dsns, key=str.lower)
+
+    @staticmethod
+    def _file_sources_for_object(obj: QueryObject) -> list[dict]:
+        entries: list[dict] = []
+        for source in obj.sources:
+            metadata = dict(source.metadata or {})
+            path = str(metadata.get("path", "")).strip()
+            source_type = (source.source_type or obj.source_design or "").strip().lower()
+            if obj.kind != OBJECT_KIND_ADHOC_SOURCE and not path and source_type not in _FILE_SOURCE_TYPES:
+                continue
+            label = _filename_from_path(path or source.name or obj.name)
+            entries.append({
+                "key": _file_source_key(path, source.name or obj.name),
+                "label": label,
+                "path": path,
+                "source_type": source_type or source.source_type or obj.source_design,
+                "metadata": metadata,
+                "source_name": source.name,
+                "status": source.status,
+            })
+        if not entries and obj.kind == OBJECT_KIND_ADHOC_SOURCE:
+            metadata = dict((obj.config or {}).get("source_metadata", {}) or {})
+            path = str(metadata.get("path", "")).strip()
+            entries.append({
+                "key": _file_source_key(path, obj.name),
+                "label": _filename_from_path(path or obj.name),
+                "path": path,
+                "source_type": obj.source_design,
+                "metadata": metadata,
+                "source_name": obj.name,
+                "status": obj.metadata_status,
+            })
+        return entries
+
+    def _on_source_tree_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        payload = _payload(item)
+        if payload.get("type") == "source_group":
+            item.setExpanded(not item.isExpanded())
+
+    def _on_source_tree_selection(self, current, previous) -> None:
+        if self._loading_source_tree:
+            return
+        payload = _payload(current)
+        payload_type = payload.get("type")
+        if payload_type == "source_query":
+            obj = query_object_store.load_object_by_id(payload.get("id", ""))
+            if obj is not None:
+                self._show_detail(obj)
+            return
+        if payload_type == "odbc_source":
+            self._show_odbc_source_detail(payload)
+            return
+        if payload_type == "file_source":
+            self._show_file_source_detail(payload)
+
+    def _expanded_for_item(self, payload: dict, search_active: bool) -> bool:
+        if search_active:
+            return True
+        if payload.get("type") == "group":
+            return bool(payload.get("expanded", True))
+        if payload.get("type") == "forge":
+            organizer = get_query_organizer()
+            ref = organizer.forge_ref(payload.get("name", ""))
+            return bool((ref or {}).get("expanded", True))
+        return False
+
+    def _set_all_containers_expanded(self, expanded: bool) -> None:
+        organizer = get_query_organizer()
+        for entry in organizer.items:
+            if entry.get("type") == "group":
+                organizer.set_group_expanded(entry.get("id"), expanded)
+            elif entry.get("type") == "forge":
+                organizer.set_forge_expanded(entry.get("name", ""), expanded)
+        organizer.save()
+        self.refresh()
+
+    def _on_tree_expansion_changed(self, item: QTreeWidgetItem, expanded: bool) -> None:
+        if self._loading_tree:
+            return
+        payload = _payload(item)
+        organizer = get_query_organizer()
+        changed = False
+        if payload.get("type") == "group":
+            changed = organizer.set_group_expanded(payload.get("group_id"), expanded)
+        elif payload.get("type") == "forge":
+            changed = organizer.set_forge_expanded(payload.get("name", ""), expanded)
+        if changed:
+            organizer.save()
+
+    def _on_tree_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        payload = _payload(item)
+        if payload.get("type") in {"group", "forge"}:
+            item.setExpanded(not item.isExpanded())
+
+    @staticmethod
+    def _load_left_panel_width() -> int:
+        ui = load_ui_settings()
+        width = ui.get("query_object_browser_left_width", _LEFT_PANEL_DEFAULT_WIDTH)
+        if not isinstance(width, (int, float)):
+            return _LEFT_PANEL_DEFAULT_WIDTH
+        return max(_LEFT_PANEL_MIN_WIDTH, min(int(width), _LEFT_PANEL_MAX_WIDTH))
+
+    def _save_left_panel_width(self) -> None:
+        ui = load_ui_settings()
+        ui["query_object_browser_left_width"] = self._left_panel_width
+        save_ui_settings(ui)
+
+    def _on_browser_splitter_moved(self, pos: int, index: int) -> None:
+        if self._restoring_left_width:
+            return
+        handle = self._browser_splitter.handle(index)
+        user_drag = bool(QApplication.mouseButtons() & Qt.MouseButton.LeftButton)
+        if handle is None or not handle.underMouse() or not user_drag:
+            QTimer.singleShot(0, self._apply_left_panel_width)
+            return
+        sizes = self._browser_splitter.sizes()
+        if not sizes:
+            return
+        width = max(_LEFT_PANEL_MIN_WIDTH, min(int(sizes[0]), _LEFT_PANEL_MAX_WIDTH))
+        self._left_panel_width = width
+        self._save_left_panel_width()
+
+    def _apply_left_panel_width(self) -> None:
+        splitter = getattr(self, "_browser_splitter", None)
+        if splitter is None:
+            return
+        sizes = splitter.sizes()
+        total = sum(sizes) if sizes else 1120
+        width = max(_LEFT_PANEL_MIN_WIDTH, min(self._left_panel_width, _LEFT_PANEL_MAX_WIDTH))
+        self._restoring_left_width = True
+        try:
+            splitter.setSizes([width, max(400, total - width)])
+        finally:
+            self._restoring_left_width = False
+
+    def _restore_left_panel_width(self) -> None:
+        try:
+            self._apply_left_panel_width()
+        finally:
+            self._restoring_left_width = False
+
+    @staticmethod
+    def _text_matches_search(search_text: str, values: list[object]) -> bool:
+        terms = [term for term in search_text.lower().split() if term]
+        if not terms:
+            return True
+        haystack = " ".join(str(value or "") for value in values).lower()
+        return all(term in haystack for term in terms)
+
+    @staticmethod
+    def _object_matches_search(obj: QueryObject, search_text: str) -> bool:
+        return QueryObjectViewerWindow._text_matches_search(search_text, [
+            obj.name,
+            _display_dsn_for_object(obj),
+            _kind_label(obj.kind),
+            obj.source_design,
+            obj.description,
+            " ".join(obj.tags),
+        ])
 
     def _ensure_dataforge_query_objects(self) -> None:
         """Publish missing browser QueryObjects from saved DataForge definitions."""
@@ -712,16 +1478,54 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.select_object(name)
 
     def _on_tree_selection(self, current, previous):
+        self._update_group_action_buttons()
+        saved_width = self._left_panel_width
+        self._restoring_left_width = True
         payload = _payload(current)
-        if payload.get("type") == "forge":
-            self._show_forge_detail(payload.get("name", ""))
-            return
-        if payload.get("type") == "query":
-            obj = query_object_store.load_object_by_id(payload.get("id", ""))
-            if obj is not None:
-                self._show_detail(obj)
+        try:
+            if payload.get("type") == "forge":
+                self._clear_detail()
                 return
-        self._clear_detail()
+            if payload.get("type") == "query":
+                obj = query_object_store.load_object_by_id(payload.get("id", ""))
+                if obj is not None:
+                    self._show_detail(obj)
+                    return
+            self._clear_detail()
+        finally:
+            self._left_panel_width = saved_width
+            QTimer.singleShot(0, self._restore_left_panel_width)
+
+    def _selected_group_payload(self) -> dict:
+        payload = _payload(self.tree.currentItem())
+        return payload if payload.get("type") == "group" else {}
+
+    def _selected_group_is_editable(self) -> bool:
+        payload = self._selected_group_payload()
+        return bool(payload and payload.get("group_id") != COMMONS_GROUP_ID)
+
+    def _update_group_action_buttons(self) -> None:
+        editable = self._selected_group_is_editable()
+        for button in (self.btn_group_rename, self.btn_group_color, self.btn_group_delete):
+            button.setEnabled(editable)
+
+    def _on_rename_selected_group(self) -> None:
+        payload = self._selected_group_payload()
+        if not payload or payload.get("group_id") == COMMONS_GROUP_ID:
+            return
+        self._rename_group(payload)
+
+    def _on_color_selected_group(self) -> None:
+        payload = self._selected_group_payload()
+        if not payload or payload.get("group_id") == COMMONS_GROUP_ID:
+            return
+        self._choose_group_color(payload)
+
+    def _on_delete_selected_group(self) -> None:
+        payload = self._selected_group_payload()
+        if not payload or payload.get("group_id") == COMMONS_GROUP_ID:
+            return
+        self._delete_group_and_queries(payload)
 
     def _on_tree_double_clicked(self, item, column):
         payload = _payload(item)
@@ -761,22 +1565,25 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def _group_context_menu(self, payload: dict, global_pos):
         group_id = payload["group_id"]
         menu = QMenu(self)
+        is_commons = group_id == COMMONS_GROUP_ID
         rename = menu.addAction("Rename Group...")
+        rename.setEnabled(not is_commons)
+        color = menu.addAction("Group Color...")
+        color.setEnabled(not is_commons)
         clone = menu.addAction("Clone Group (with queries)")
+        clone.setEnabled(not is_commons)
         menu.addSeparator()
         new_group = menu.addAction("New Query Group...")
         menu.addSeparator()
-        delete = menu.addAction("Delete Group (keep queries)")
+        delete = menu.addAction("Delete Group and Queries")
+        delete.setEnabled(not is_commons)
 
         chosen = menu.exec(global_pos)
         organizer = get_query_organizer()
         if chosen == rename:
-            new_name, ok = QInputDialog.getText(
-                self, "Rename Group", "Group name:", text=payload["name"])
-            if ok and new_name.strip():
-                organizer.rename_group(group_id, new_name)
-                organizer.save()
-                self.refresh()
+            self._rename_group(payload)
+        elif chosen == color:
+            self._choose_group_color(payload)
         elif chosen == clone:
             organizer.clone_group(group_id)
             organizer.save()
@@ -784,16 +1591,62 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         elif chosen == new_group:
             self._on_new_group()
         elif chosen == delete:
-            reply = QMessageBox.question(
-                self, "Delete Group",
-                f"Delete group \"{payload['name']}\"?\n\n"
-                "The queries inside move back to the top level.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                organizer.delete_group(group_id, keep_queries=True)
-                organizer.save()
-                self.refresh()
+            self._delete_group_and_queries(payload)
+
+    def _rename_group(self, payload: dict) -> None:
+        group_id = payload.get("group_id")
+        if group_id == COMMONS_GROUP_ID:
+            return
+        new_name, ok = QInputDialog.getText(
+            self, "Rename Group", "Group name:", text=payload.get("name", ""))
+        if ok and new_name.strip():
+            organizer = get_query_organizer()
+            organizer.rename_group(group_id, new_name)
+            organizer.save()
+            self.refresh()
+
+    def _choose_group_color(self, payload: dict) -> None:
+        group_id = payload.get("group_id")
+        if group_id == COMMONS_GROUP_ID:
+            return
+        picker = ColorPickerPopup(self, payload.get("color"))
+        picker.color_selected.connect(lambda color: self._set_group_color(group_id, color))
+        picker.move(self.mapToGlobal(self.rect().center()))
+        picker.show()
+
+    def _set_group_color(self, group_id: int, color: str) -> None:
+        organizer = get_query_organizer()
+        if organizer.set_group_color(group_id, color):
+            organizer.save()
+            self.refresh()
+
+    def _delete_group_and_queries(self, payload: dict) -> None:
+        group_id = payload.get("group_id")
+        if group_id == COMMONS_GROUP_ID:
+            return
+        organizer = get_query_organizer()
+        group = organizer.find_group(group_id)
+        if group is None:
+            return
+        query_ids = [child.get("query_id") for child in group.get("items", [])
+                     if child.get("type") == "query" and child.get("query_id")]
+        reply = QMessageBox.question(
+            self,
+            "Delete Query Group",
+            f"Delete group \"{group.get('name', payload.get('name', ''))}\"?\n\n"
+            f"All {len(query_ids)} query object(s) inside this group will be deleted. "
+            "This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        for query_id in query_ids:
+            query_object_store.delete_object_by_id(query_id)
+        organizer.delete_group(group_id, keep_queries=False)
+        organizer.save()
+        self.refresh()
+        self._clear_detail()
 
     def _forge_context_menu(self, payload: dict, global_pos):
         forge_name = payload["name"]
@@ -827,45 +1680,56 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         organizer = get_query_organizer()
 
         menu = QMenu(self)
-        open_builder = menu.addAction("Open in Builder")
-        open_builder.setEnabled(self._can_open_in_builder(obj))
-        preview = menu.addAction("Preview Data")
-        preview.setEnabled(self._can_preview_object(obj))
-        menu.addSeparator()
-        copy_here = menu.addAction("Make Copy")
-        move_menu = menu.addMenu("Move to")
-        copy_menu = menu.addMenu("Copy to")
-        targets = self._container_targets(organizer)
-        move_actions = {move_menu.addAction(label): target
-                        for label, target in targets}
-        copy_actions = {copy_menu.addAction(label): target
-                        for label, target in targets}
-        register_source = None
-        if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
-            menu.addSeparator()
-            register_source = menu.addAction("Register Source")
-        menu.addSeparator()
+        rename = menu.addAction("Rename")
+        copy_here = menu.addAction("Copy")
         delete = menu.addAction("Delete")
 
         chosen = menu.exec(global_pos)
         if chosen is None:
             return
-        if chosen == open_builder:
-            self._on_open_builder()
-        elif chosen == preview:
-            self._on_preview_file()
+        if chosen == rename:
+            self._rename_query_object(obj)
         elif chosen == copy_here:
             organizer.copy_query(obj.id, organizer.query_location(obj.id))
             organizer.save()
             self.refresh()
-        elif chosen in move_actions:
-            self._send_query_to(obj, move_actions[chosen], move=True)
-        elif chosen in copy_actions:
-            self._send_query_to(obj, copy_actions[chosen], move=False)
-        elif register_source is not None and chosen == register_source:
-            self._on_promote()
         elif chosen == delete:
-            self._on_delete()
+            self._delete_query_object(obj)
+
+    def _rename_query_object(self, obj: QueryObject) -> None:
+        new_name, ok = QInputDialog.getText(
+            self, "Rename Query Object", "Object name:", text=obj.name)
+        if not ok or not new_name.strip() or new_name.strip() == obj.name:
+            return
+        if obj.kind == OBJECT_KIND_VISUAL and query_object_store.object_exists(new_name.strip()):
+            QMessageBox.warning(
+                self,
+                "Name Already Exists",
+                f"A visual Query Object named \"{new_name.strip()}\" already exists.",
+            )
+            return
+        obj.name = new_name.strip()
+        obj.updated_at = datetime.now()
+        query_object_store.save_object(obj)
+        self.refresh()
+
+    def _delete_query_object(self, obj: QueryObject) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Delete Query Object",
+            f"Delete query object \"{obj.name}\"?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        query_object_store.delete_object_by_id(obj.id)
+        organizer = get_query_organizer()
+        organizer.remove_query(obj.id)
+        organizer.save()
+        self.refresh()
+        if self._current is not None and self._current.id == obj.id:
+            self._clear_detail()
 
     def _forge_query_context_menu(self, payload: dict, global_pos):
         """Context menu for a Source copy inside a DataForge node."""
@@ -874,6 +1738,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         if obj is None:
             return
         menu = QMenu(self)
+        rename = menu.addAction("Rename Source...")
         open_forge = menu.addAction("Open DataForge in Builder")
         menu.addSeparator()
         copy_out = menu.addAction("Copy out to Browser")
@@ -883,7 +1748,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
         chosen = menu.exec(global_pos)
         organizer = get_query_organizer()
-        if chosen == open_forge:
+        if chosen == rename:
+            self._rename_forge_query_object(forge_name, obj)
+        elif chosen == open_forge:
             self._open_dataforge_builder(forge_name)
         elif chosen in (copy_out, move_out):
             out = organizer.extract_query_from_forge(
@@ -908,6 +1775,139 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             if reply == QMessageBox.StandardButton.Yes:
                 self._remove_source_from_forge(forge_name, obj)
                 self.refresh()
+
+    def _rename_forge_query_object(self, forge_name: str, obj: QueryObject) -> None:
+        new_name, ok = QInputDialog.getText(
+            self, "Rename DataForge Source", "Source name:", text=obj.name)
+        new_name = new_name.strip()
+        if not ok or not new_name or new_name == obj.name:
+            return
+        try:
+            self._rename_forge_source_records(forge_name, obj, new_name)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Rename Source Failed", str(exc))
+            return
+        self._notify_forge_list_changed()
+        self.refresh()
+
+    @staticmethod
+    def _rename_forge_source_records(
+            forge_name: str, obj: QueryObject, new_name: str) -> QueryObject:
+        """Rename a Forge-local Source copy across the persisted stores."""
+        new_name = new_name.strip()
+        old_name = obj.name
+        if not new_name:
+            raise ValueError("Source name cannot be blank.")
+        if new_name == old_name:
+            return obj
+
+        from suiteview.audit import qdef_store
+        from suiteview.audit.dataforge import dataforge_store
+
+        forge = dataforge_store.load_forge(forge_name)
+        if forge is None:
+            raise ValueError(f"DataForge \"{forge_name}\" was not found.")
+
+        source = None
+        for candidate in forge.sources:
+            definition = candidate.definition or {}
+            if (candidate.query_name == old_name
+                    or candidate.effective_alias() == old_name
+                    or definition.get("id") == obj.id):
+                source = candidate
+                break
+        if source is None:
+            raise ValueError(
+                f"Source \"{old_name}\" was not found in \"{forge_name}\".")
+
+        old_alias = source.effective_alias()
+        new_alias = new_name if not source.alias or source.alias == old_name else source.alias
+        for candidate in forge.sources:
+            if candidate is source:
+                continue
+            if candidate.query_name == new_name or candidate.effective_alias() == new_alias:
+                raise ValueError(
+                    f"A Source named \"{new_name}\" already exists in \"{forge_name}\".")
+
+        obj.name = new_name
+        obj.updated_at = datetime.now()
+        obj.config = dict(obj.config or {})
+        dataforge_config = obj.config.get("dataforge", {})
+        if not isinstance(dataforge_config, dict):
+            dataforge_config = {}
+        dataforge_config["forge_name"] = forge_name
+        dataforge_config.setdefault("source_name", old_name)
+        obj.config["dataforge"] = dataforge_config
+        query_object_store.save_object(obj)
+
+        QueryObjectViewerWindow._delete_forge_qdef_file_only(forge_name, old_name)
+        qd = qdefinition_from_query_object(obj)
+        qd.forge_name = forge_name
+        qdef_store.save_qdef(qd)
+
+        source.query_name = new_name
+        if source.alias == old_name:
+            source.alias = new_name
+        source.definition = obj.to_dict()
+
+        mapping = {old_name: new_name}
+        if old_alias != new_alias:
+            mapping[old_alias] = new_alias
+            QueryObjectViewerWindow._rename_forge_source_snapshot(
+                forge_name, old_alias, new_alias)
+        forge.config = QueryObjectViewerWindow._rename_forge_config_sources(
+            dict(forge.config or {}), mapping)
+        dataforge_store.save_forge(forge)
+        return obj
+
+    @staticmethod
+    def _delete_forge_qdef_file_only(forge_name: str, qdef_name: str) -> None:
+        from suiteview.audit import qdef_store
+
+        safe = qdef_store._safe_filename(qdef_name)
+        directory = qdef_store._forge_dir(forge_name)
+        for suffix in (".json", ".parquet"):
+            path = directory / f"{safe}{suffix}"
+            if path.exists():
+                path.unlink()
+
+    @staticmethod
+    def _rename_forge_source_snapshot(forge_name: str, old_alias: str, new_alias: str) -> None:
+        from suiteview.audit.dataforge import dataforge_store
+
+        old_path = dataforge_store.source_snapshot_path(forge_name, old_alias)
+        if not old_path.exists():
+            return
+        new_path = dataforge_store.source_snapshot_path(forge_name, new_alias)
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        if new_path.exists():
+            raise ValueError(
+                f"A Snapshot already exists for Source \"{new_alias}\".")
+        old_path.replace(new_path)
+
+    @staticmethod
+    def _rename_forge_config_sources(value, mapping: dict[str, str]):
+        if isinstance(value, dict):
+            return {
+                QueryObjectViewerWindow._rename_forge_config_sources(k, mapping):
+                QueryObjectViewerWindow._rename_forge_config_sources(v, mapping)
+                for k, v in value.items()
+            }
+        if isinstance(value, list):
+            return [QueryObjectViewerWindow._rename_forge_config_sources(v, mapping)
+                    for v in value]
+        if isinstance(value, str):
+            return QueryObjectViewerWindow._replace_forge_source_name(value, mapping)
+        return value
+
+    @staticmethod
+    def _replace_forge_source_name(value: str, mapping: dict[str, str]) -> str:
+        for old_name, new_name in sorted(mapping.items(), key=lambda pair: len(pair[0]), reverse=True):
+            if value == old_name:
+                return new_name
+            if value.startswith(f"{old_name}."):
+                return f"{new_name}{value[len(old_name):]}"
+        return value
 
     # ── Organizer actions ─────────────────────────────────────────────
 
@@ -1000,11 +2000,14 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 self._drop_query_on_forge(obj, dst["name"])
             elif on_item and dst.get("type") == "group":
                 organizer.move_query(obj.id, dst["group_id"])
+                organizer.set_group_expanded(dst["group_id"], True)
             elif on_item and dst.get("type") == "query" and dst.get("forge"):
                 self._drop_query_on_forge(obj, dst["forge"])
             else:
                 group_id, index = self._drop_position(target, indicator)
                 organizer.move_query(obj.id, group_id, index)
+                if group_id is not None:
+                    organizer.set_group_expanded(group_id, True)
             organizer.save()
             self.refresh()
             return
@@ -1029,6 +2032,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 remove_source=(box.clickedButton() is move_btn))
             if out is not None and box.clickedButton() is move_btn:
                 self._delete_forge_source_records(src["forge"], obj)
+            if out is not None and group_id is not None:
+                organizer.set_group_expanded(group_id, True)
             organizer.save()
             self.refresh()
             return
@@ -1041,6 +2046,10 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             if entry is None:
                 return
             _, index = self._drop_position(target, indicator, root_only=True)
+            if src["type"] == "group":
+                organizer.set_group_expanded(src.get("group_id"), False)
+            else:
+                organizer.set_forge_expanded(src.get("name", ""), False)
             organizer.move_root_item(entry, index)
             organizer.save()
             self.refresh()
@@ -1062,6 +2071,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         organizer = get_query_organizer()
         organizer.send_query_to_forge(obj.id, forge_name,
                                       move=box.clickedButton() is move_btn)
+        organizer.set_forge_expanded(forge_name, True)
         self._notify_forge_list_changed()
 
     def _drop_position(self, target, indicator,
@@ -1090,6 +2100,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def _clear_detail(self):
         self._current = None
         self._current_forge_name = ""
+        self._current_source_path = ""
+        self._set_editor_read_only(False)
         self._configure_object_tables()
         self.lbl_name.setText("Select a QueryObject")
         self.lbl_kind.setText("")
@@ -1107,6 +2119,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.txt_config.clear()
         self.btn_open_builder.setEnabled(False)
         self.btn_preview_file.setEnabled(False)
+        self.btn_open_source_folder.setEnabled(False)
+        self.btn_open_source_folder.setVisible(False)
         self.btn_promote.setEnabled(False)
         self.btn_promote.setVisible(False)
         self.btn_delete.setEnabled(False)
@@ -1116,6 +2130,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._loading_detail = True
         self._current = obj
         self._current_forge_name = ""
+        self._current_source_path = ""
+        self._set_editor_read_only(False)
         self._configure_object_tables()
         self.lbl_name.setText(obj.name)
         self.lbl_kind.setText(_kind_label(obj.kind))
@@ -1124,6 +2140,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.btn_save.setEnabled(True)
         self.btn_open_builder.setEnabled(self._can_open_in_builder(obj))
         self.btn_preview_file.setEnabled(self._can_preview_object(obj))
+        self.btn_open_source_folder.setEnabled(False)
+        self.btn_open_source_folder.setVisible(False)
         self.btn_promote.setEnabled(obj.kind == OBJECT_KIND_ADHOC_SOURCE)
         self.btn_promote.setVisible(obj.kind == OBJECT_KIND_ADHOC_SOURCE)
         self.edit_name.setText(obj.name)
@@ -1173,6 +2191,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._loading_detail = True
         self._current = None
         self._current_forge_name = forge_name
+        self._current_source_path = ""
+        self._set_editor_read_only(False)
         self._configure_forge_tables()
 
         forge = dataforge_store.load_forge(forge_name)
@@ -1188,6 +2208,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.btn_save.setEnabled(False)
         self.btn_open_builder.setEnabled(forge is not None)
         self.btn_preview_file.setEnabled(False)
+        self.btn_open_source_folder.setEnabled(False)
+        self.btn_open_source_folder.setVisible(False)
         self.btn_promote.setEnabled(False)
         self.btn_promote.setVisible(False)
         self.edit_name.setText(display_name)
@@ -1216,6 +2238,196 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             indent=2,
         ))
         self._loading_detail = False
+
+    def _show_odbc_source_detail(self, payload: dict) -> None:
+        dsn = str(payload.get("dsn", "")).strip()
+        objects = self._objects_from_payload(payload)
+        self._loading_detail = True
+        self._current = None
+        self._current_forge_name = ""
+        self._current_source_path = ""
+        self._set_editor_read_only(True)
+        self._configure_data_source_tables()
+
+        self.lbl_name.setText(f"ODBC: {dsn}")
+        self.lbl_kind.setText("Data Source")
+        self.lbl_status.setText(f"Query Objects: {len(objects)}")
+        self.btn_delete.setEnabled(False)
+        self.btn_save.setEnabled(False)
+        self.btn_open_builder.setEnabled(False)
+        self.btn_preview_file.setEnabled(False)
+        self.btn_open_source_folder.setEnabled(False)
+        self.btn_open_source_folder.setVisible(False)
+        self.btn_promote.setEnabled(False)
+        self.btn_promote.setVisible(False)
+        self.edit_name.setText(dsn)
+        self.edit_origin.setText("ODBC")
+        self.edit_tags.clear()
+        self.edit_description.setText("Windows ODBC setup information for this DSN.")
+
+        self._set_table_rows(self.tbl_sources, self._odbc_detail_rows(dsn))
+        self._set_table_rows(self.tbl_outputs, self._source_query_rows(objects))
+        self._set_table_rows(self.tbl_inputs, self._odbc_source_use_rows(dsn, objects))
+        self.tbl_joins.setRowCount(0)
+        self._set_table_rows(self.tbl_fields, self._source_field_rows(objects))
+        self.txt_sql.setPlainText(self._source_sql_text(objects))
+        self.txt_config.setPlainText(json.dumps({
+            "type": "odbc",
+            "dsn": dsn,
+            "query_objects": [obj.id for obj in objects],
+        }, indent=2))
+        self._loading_detail = False
+
+    def _show_file_source_detail(self, payload: dict) -> None:
+        path = str(payload.get("path", "")).strip()
+        label = str(payload.get("label", "")).strip() or _filename_from_path(path)
+        source_type = str(payload.get("source_type", "")).strip()
+        objects = self._objects_from_payload(payload)
+        self._loading_detail = True
+        self._current = None
+        self._current_forge_name = ""
+        self._current_source_path = path
+        self._set_editor_read_only(True)
+        self._configure_data_source_tables()
+
+        self.lbl_name.setText(f"File: {label}")
+        self.lbl_kind.setText("Data Source")
+        self.lbl_status.setText(f"Query Objects: {len(objects)}")
+        self.btn_delete.setEnabled(False)
+        self.btn_save.setEnabled(False)
+        self.btn_open_builder.setEnabled(False)
+        self.btn_preview_file.setEnabled(False)
+        self.btn_open_source_folder.setEnabled(bool(path))
+        self.btn_open_source_folder.setVisible(True)
+        self.btn_promote.setEnabled(False)
+        self.btn_promote.setVisible(False)
+        self.edit_name.setText(label)
+        self.edit_origin.setText(_file_source_type_label(source_type, payload.get("metadata", {})))
+        self.edit_tags.clear()
+        self.edit_description.setText(path or "File path was not saved for this source.")
+
+        self._set_table_rows(self.tbl_sources, self._file_detail_rows(payload, objects))
+        self._set_table_rows(self.tbl_outputs, self._source_query_rows(objects))
+        self._set_table_rows(self.tbl_inputs, self._file_source_use_rows(payload, objects))
+        self.tbl_joins.setRowCount(0)
+        self._set_table_rows(self.tbl_fields, self._source_field_rows(objects))
+        self.txt_sql.setPlainText(self._source_sql_text(objects))
+        self.txt_config.setPlainText(json.dumps({
+            "type": "file",
+            "path": path,
+            "source_type": source_type,
+            "metadata": payload.get("metadata", {}),
+            "query_objects": [obj.id for obj in objects],
+        }, indent=2))
+        self._loading_detail = False
+
+    def _set_editor_read_only(self, read_only: bool) -> None:
+        for edit in (self.edit_name, self.edit_origin, self.edit_tags, self.edit_description):
+            edit.setReadOnly(read_only)
+
+    @staticmethod
+    def _objects_from_payload(payload: dict) -> list[QueryObject]:
+        objects: list[QueryObject] = []
+        for object_id in payload.get("object_ids", []) or []:
+            obj = query_object_store.load_object_by_id(object_id)
+            if obj is not None:
+                objects.append(obj)
+        return sorted(objects, key=lambda item: item.name.lower())
+
+    @staticmethod
+    def _source_query_rows(objects: list[QueryObject]) -> list[list[object]]:
+        return [[obj.name, _kind_label(obj.kind), obj.source_design or obj.kind, len(obj.fields)]
+                for obj in objects]
+
+    @staticmethod
+    def _source_field_rows(objects: list[QueryObject]) -> list[list[object]]:
+        rows: list[list[object]] = []
+        for obj in objects:
+            for field in obj.fields:
+                rows.append([obj.name, field.name, field.role, field.data_type, field.source])
+        return rows
+
+    @staticmethod
+    def _source_sql_text(objects: list[QueryObject]) -> str:
+        chunks: list[str] = []
+        for obj in objects:
+            sql = obj.sql.strip()
+            if sql:
+                chunks.append(f"-- Query Object: {obj.name}\n{sql}")
+        return "\n\n".join(chunks)
+
+    @staticmethod
+    def _odbc_detail_rows(dsn: str) -> list[list[object]]:
+        try:
+            details = get_dsn_details(dsn)
+        except Exception as exc:
+            details = {"DSN": dsn, "Error": str(exc)}
+        details = dict(details or {})
+        details.setdefault("DSN", dsn)
+        details["Dialect"] = detect_dialect(dsn) if dsn else UNKNOWN
+
+        priority = [
+            "DSN", "Scope", "Driver", "Description", "Server", "Database",
+            "Host", "Port", "Port Number", "Subsystem", "Dialect", "Error",
+        ]
+        keys: list[str] = []
+        for key in priority:
+            if key in details and key not in keys:
+                keys.append(key)
+        keys.extend(sorted(key for key in details if key not in keys))
+
+        rows: list[list[object]] = []
+        for key in keys:
+            value = details.get(key, "")
+            if value in (None, ""):
+                continue
+            display_value = "(hidden)" if key.strip().lower() in _SENSITIVE_ODBC_KEYS else value
+            rows.append([key, display_value])
+        return rows
+
+    @staticmethod
+    def _odbc_source_use_rows(dsn: str, objects: list[QueryObject]) -> list[list[object]]:
+        rows: list[list[object]] = []
+        dsn_key = dsn.lower()
+        for obj in objects:
+            matched = False
+            for source in obj.sources:
+                if source.dsn.strip().lower() == dsn_key:
+                    rows.append([obj.name, source.name, source.source_type, source.status])
+                    matched = True
+            if not matched and obj.dsn.strip().lower() == dsn_key:
+                rows.append([obj.name, obj.source_design or obj.kind, "object", obj.metadata_status])
+        return rows
+
+    @staticmethod
+    def _file_detail_rows(payload: dict, objects: list[QueryObject]) -> list[list[object]]:
+        path = str(payload.get("path", "")).strip()
+        metadata = dict(payload.get("metadata", {}) or {})
+        source_type = str(payload.get("source_type", "")).strip()
+        rows: list[list[object]] = [
+            ["File Name", payload.get("label", "")],
+            ["Full Path", path or "(not saved)"],
+            ["Folder", str(Path(path).parent) if path else ""],
+            ["Source Type", source_type or "File"],
+            ["Query Objects", len(objects)],
+        ]
+        for key in sorted(metadata):
+            if key == "path":
+                continue
+            rows.append([key, metadata[key]])
+        return rows
+
+    @staticmethod
+    def _file_source_use_rows(payload: dict, objects: list[QueryObject]) -> list[list[object]]:
+        target_key = str(payload.get("key", ""))
+        rows: list[list[object]] = []
+        for obj in objects:
+            for source in obj.sources:
+                metadata = dict(source.metadata or {})
+                path = str(metadata.get("path", "")).strip()
+                if _file_source_key(path, source.name or obj.name) == target_key:
+                    rows.append([obj.name, source.name, source.source_type, source.status])
+        return rows
 
     @staticmethod
     def _definition_source_label(definition: dict, fallback: str) -> str:
@@ -1375,6 +2587,96 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         table.resizeColumnsToContents()
         table.setColumnWidth(0, max(table.columnWidth(0), 180))
         table.setColumnWidth(1, max(table.columnWidth(1), 110))
+
+    def _on_open_source_folder(self) -> None:
+        path_text = self._current_source_path.strip()
+        if not path_text:
+            return
+        path = Path(path_text)
+        folder = path.parent if path.suffix else path
+        folder_text = str(folder)
+        if self._open_folder_in_suiteview_file_nav(folder_text):
+            return
+        try:
+            import os
+            os.startfile(folder_text)
+        except Exception as exc:
+            QMessageBox.warning(self, "Open Folder Failed", str(exc))
+
+    def _open_folder_in_suiteview_file_nav(self, folder: str) -> bool:
+        launcher = self._find_file_nav_launcher()
+        if launcher is not None:
+            if hasattr(launcher, "_open_file_nav_at"):
+                launcher._open_file_nav_at(folder)
+                return True
+            if hasattr(launcher, "_open_file_nav"):
+                launcher._open_file_nav()
+                file_nav = getattr(launcher, "file_nav_window", None)
+                if file_nav is not None and hasattr(file_nav, "add_new_tab"):
+                    file_nav.add_new_tab(path=folder)
+                    return True
+        existing = self._find_existing_file_nav_window()
+        if existing is not None:
+            existing.show()
+            existing.raise_()
+            existing.activateWindow()
+            existing.add_new_tab(path=folder)
+            return True
+        if self._file_nav_window is not None:
+            try:
+                _ = self._file_nav_window.isVisible()
+            except RuntimeError:
+                self._file_nav_window = None
+        if self._file_nav_window is None:
+            try:
+                from suiteview.taskbar_launcher.suiteview_taskbar import FileNavWindow
+                self._file_nav_window = FileNavWindow(parent_bar=None)
+            except Exception:
+                logger.exception("Failed to open standalone File Nav")
+                return False
+        self._file_nav_window.show()
+        self._file_nav_window.raise_()
+        self._file_nav_window.activateWindow()
+        if hasattr(self._file_nav_window, "add_new_tab"):
+            self._file_nav_window.add_new_tab(path=folder)
+            return True
+        return False
+
+    def _find_file_nav_launcher(self):
+        current = self._audit_parent
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if hasattr(current, "_open_file_nav_at") or hasattr(current, "_open_file_nav"):
+                return current
+            parent_bar = getattr(current, "_parent_bar", None) or getattr(current, "parent_bar", None)
+            if parent_bar is not None and id(parent_bar) not in seen:
+                current = parent_bar
+                continue
+            current = current.parent() if hasattr(current, "parent") else None
+        for window in QApplication.topLevelWidgets():
+            try:
+                _ = window.isVisible()
+            except RuntimeError:
+                continue
+            if hasattr(window, "_open_file_nav_at") or hasattr(window, "_open_file_nav"):
+                return window
+        return None
+
+    def _find_existing_file_nav_window(self):
+        for window in QApplication.topLevelWidgets():
+            try:
+                _ = window.isVisible()
+            except RuntimeError:
+                continue
+            if window is self:
+                continue
+            if window.__class__.__name__ == "FileNavWindow" and hasattr(window, "add_new_tab"):
+                return window
+            file_nav = getattr(window, "file_nav_window", None)
+            if file_nav is not None and hasattr(file_nav, "add_new_tab"):
+                return file_nav
+        return None
 
     def _on_save_changes(self):
         if self._current is None or self._loading_detail:
@@ -1598,7 +2900,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 qdef_store.delete_qdef(obj.name, forge_name=forge_name)
             except Exception:
                 logger.exception("Failed to delete DataForge QDefinition: %s", obj.name)
-            query_object_store.delete_object(obj.name)
+            query_object_store.delete_object_by_id(obj.id)
 
     def _on_promote(self):
         if self._current is None:

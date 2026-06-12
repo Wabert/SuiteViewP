@@ -156,6 +156,14 @@ class ResultsTab(QWidget):
             f"Showing all {row_count} rows" if row_count else "")
         self.btn_export.setEnabled(row_count > 0)
 
+    def clear_results(self):
+        """Clear displayed rows and any captured query metadata."""
+        self._df = None
+        self._query_context = None
+        self.table.set_dataframe(pd.DataFrame(), limit_rows=False)
+        self.lbl_status.setText("")
+        self.btn_export.setEnabled(False)
+
     def set_query_context(self, *, sql: str, dsn: str, source_design: str = "",
                           result_columns: list[str] = None,
                           column_types: dict[str, str] = None,

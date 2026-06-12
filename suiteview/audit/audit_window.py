@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QComboBox, QPushButton, QCheckBox,
     QMessageBox, QDialog, QInputDialog,
-    QSplitter, QFileDialog, QMenu,
+    QSplitter, QFileDialog, QMenu, QToolButton,
 )
 from suiteview.core.db2_constants import DEFAULT_REGION
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
@@ -61,6 +61,7 @@ _FONT = QFont("Segoe UI", 9)
 # Theme — default SuiteView blue header, gold border
 _HEADER_COLORS = ("#1E5BA8", "#0D3A7A", "#082B5C")
 _BORDER_COLOR = "#D4A017"
+_BUILD_MODE_BUTTON_WIDTH = 132
 
 
 class QueryObjectModeDialog(QDialog):
@@ -163,6 +164,7 @@ class AuditWindow(FramelessWindowBase):
         root.setSpacing(2)
         # ── Mode tracking ─────────────────────────────────────────
         self._current_mode = "cyberlife"
+        self._selected_build_mode = "cyberlife"
         self._cyberlife_saved_object_name = ""
         self._manual_sql_started = False
         # Registry and +Group buttons — placed in the window header bar
@@ -192,10 +194,13 @@ class AuditWindow(FramelessWindowBase):
         self.lbl_build_mode = QLabel("Build Mode")
         self.lbl_build_mode.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
         self.lbl_build_mode.setStyleSheet("color: #D4A017; padding: 0 4px;")
-        self.btn_build_mode = QPushButton("Cyberlife")
+        self.btn_build_mode = QToolButton()
         self.btn_build_mode.setFont(QFont("Segoe UI", 8))
-        self.btn_build_mode.setFixedHeight(24)
+        self.btn_build_mode.setFixedSize(_BUILD_MODE_BUTTON_WIDTH, 24)
+        self.btn_build_mode.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_build_mode.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self.btn_build_mode.setToolTip("Choose the Query Object build mode")
+        self.btn_build_mode.clicked.connect(self._on_build_mode_button_clicked)
         # Each mode carries its identity color (build_mode_styles) — the
         # same chip/color the browser shows on queries built by that mode.
         from suiteview.audit.build_mode_styles import build_mode_style, mode_icon
@@ -705,10 +710,7 @@ class AuditWindow(FramelessWindowBase):
         self._refresh_picker_forge_list()
         fg = self._dataforge_groups.get(mode)
         if fg:
-            self._forge_field_picker.set_sources(
-                list(fg._sources.keys()),
-                forge_name=fg._saved_forge_name,
-                source_definitions=fg._sources)
+            self._set_forge_picker_sources(fg)
             raw_name = mode.removeprefix("⚙ ")
             self._forge_field_picker.highlight_forge(raw_name)
         self._content_splitter.setStyleSheet(
@@ -897,11 +899,7 @@ class AuditWindow(FramelessWindowBase):
             if qd is None:
                 return
             query_name = qd.name
-            self._forge_field_picker.set_sources(
-                list(group._sources.keys()),
-                forge_name=group._saved_forge_name,
-                source_definitions=group._sources,
-            )
+            self._set_forge_picker_sources(group)
         add_query_table = getattr(group.joins_tab, "add_query_table", None)
         if callable(add_query_table) and add_query_table(query_name):
             group.tab_widget.setCurrentWidget(group.joins_tab)
@@ -922,13 +920,22 @@ class AuditWindow(FramelessWindowBase):
         """Show the active DataForge group's source queries in Forge Assist."""
         if group is None:
             return
-        self._forge_field_picker.set_sources(
-            list(group._sources.keys()),
-            forge_name=group._saved_forge_name,
-            source_definitions=group._sources,
-        )
+        self._set_forge_picker_sources(group)
         self._forge_field_picker.highlight_forge(
             forge_name or group._saved_forge_name)
+
+    def _set_forge_picker_sources(self, group):
+        names = (group.picker_source_names()
+                 if hasattr(group, "picker_source_names")
+                 else list(group._sources.keys()))
+        definitions = (group.picker_source_definitions()
+                       if hasattr(group, "picker_source_definitions")
+                       else group._sources)
+        self._forge_field_picker.set_sources(
+            names,
+            forge_name=group._saved_forge_name,
+            source_definitions=definitions,
+        )
 
     def _refresh_picker_forge_list(self):
         """Refresh the forge list in the forge field picker from saved forges."""
@@ -941,11 +948,7 @@ class AuditWindow(FramelessWindowBase):
         group = self._dataforge_groups.get(self._current_mode)
         if group is not None:
             group.sync_source_copies(source_names)
-            self._forge_field_picker.set_sources(
-                list(group._sources.keys()),
-                forge_name=group._saved_forge_name,
-                source_definitions=group._sources,
-            )
+            self._set_forge_picker_sources(group)
 
     def _refresh_query_object_browser_if_open(self):
         try:
@@ -970,13 +973,10 @@ class AuditWindow(FramelessWindowBase):
         group.joins_tab.update_queries(
             list(group._sources.keys()),
             group._query_columns_map(),
+            group._query_column_types_map(),
         )
         group._schedule_save()
-        self._forge_field_picker.set_sources(
-            list(group._sources.keys()),
-            forge_name=group._saved_forge_name,
-            source_definitions=group._sources,
-        )
+        self._set_forge_picker_sources(group)
         self._forge_field_picker.add_source(qd.name)
         self._refresh_query_object_browser_if_open()
 
@@ -1312,15 +1312,24 @@ class AuditWindow(FramelessWindowBase):
         from suiteview.audit.build_mode_styles import build_mode_style, mode_icon
 
         style = build_mode_style(mode)
+        self._selected_build_mode = mode
         self.btn_build_mode.setText(style.label)
         self.btn_build_mode.setIcon(mode_icon("#FFFFFF"))
+        self.btn_build_mode.setFixedSize(_BUILD_MODE_BUTTON_WIDTH, 24)
         self.btn_build_mode.setStyleSheet(
-            f"QPushButton {{ background-color: {style.color}; color: white;"
+            f"QToolButton {{ background-color: {style.color}; color: white;"
             " border: 1px solid rgba(255,255,255,0.45); border-radius: 3px;"
             " padding: 2px 8px; font-weight: bold; }"
-            f"QPushButton:hover {{ background-color: {style.color};"
+            f"QToolButton:hover {{ background-color: {style.color};"
             " border: 1px solid white; }"
-            "QPushButton::menu-indicator { width: 10px; }")
+            "QToolButton::menu-button { border-left: 1px solid rgba(255,255,255,0.45); width: 22px; }"
+            "QToolButton::menu-arrow { image: none; border-left: 4px solid transparent;"
+            " border-right: 4px solid transparent; border-top: 5px solid white;"
+            " width: 0px; height: 0px; margin-right: 6px; }")
+
+    def _on_build_mode_button_clicked(self, checked: bool = False):
+        """Activate the current build mode from the main split-button face."""
+        self._on_build_mode_selected(self._selected_build_mode)
 
     def _on_build_mode_selected(self, mode: str):
         """Switch the primary Audit build surface from the header selector."""
@@ -1653,6 +1662,12 @@ class AuditWindow(FramelessWindowBase):
             tab.set_state({})
         self.txt_max_count.setText("25")
         self.chk_coverage_level.setChecked(False)
+        self.results_tab.clear_results()
+        self.sql_tab.clear_sql()
+        self.build_sql_tab.clear_sql()
+        self.build_sql_results_tab.clear_results()
+        self.lbl_result_count.setText("Result count:")
+        self.tabs.setCurrentWidget(self.policy_tab)
     # ── Run audit ────────────────────────────────────────────────────
     def _run_audit(self):
         """Execute the audit query and display results."""
@@ -1829,21 +1844,28 @@ class AuditWindow(FramelessWindowBase):
         display = f"⚙ {forge.name}"
         # If already loaded, switch to it
         if display in self._dataforge_groups:
+            group = self._dataforge_groups.get(display)
+            if group is not None:
+                self._sync_loaded_dataforge_sources(group, forge)
             self._switch_mode(display)
             self._sync_forge_picker_to_group(
-                self._dataforge_groups.get(display), forge.name)
+                group, forge.name)
             return
         group = self._create_dataforge_group(
             display, forge_name=forge.name, saved_forge_name=forge.name)
         # Restore sources
-        for src in forge.sources:
-            qd = self._qdefinition_from_dataforge_source(src, forge.name)
-            if qd is not None:
-                group.add_source_query(qd)
+        self._sync_loaded_dataforge_sources(group, forge)
         # Restore config
         if forge.config:
             group.set_config(forge.config)
         self._sync_forge_picker_to_group(group, forge.name)
+
+    def _sync_loaded_dataforge_sources(self, group, forge) -> None:
+        """Merge persisted DataForge sources into an already-created builder."""
+        for src in forge.sources:
+            qd = self._qdefinition_from_dataforge_source(src, forge.name)
+            if qd is not None and qd.name not in group._sources:
+                group.add_source_query(qd)
 
     @staticmethod
     def _qdefinition_from_dataforge_source(src, forge_name: str):
@@ -1910,6 +1932,9 @@ class AuditWindow(FramelessWindowBase):
         self._dataforge_groups[display] = group
         self._dynamic_query_container.addWidget(group)
         group.source_records_changed.connect(self._refresh_query_object_browser_if_open)
+        group.source_records_changed.connect(
+            lambda g=group: self._sync_forge_picker_to_group(g, g._saved_forge_name)
+            if self._dataforge_groups.get(self._current_mode) is g else None)
         group.forge_saved.connect(self._on_forge_saved_refresh)
         group.forge_deleted.connect(self._on_forge_deleted_from_group)
         group.new_forge_requested.connect(self._on_new_dataforge)

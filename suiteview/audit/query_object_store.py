@@ -187,8 +187,9 @@ def save_object(query_object: QueryObject, *, force_new: bool = False) -> None:
             continue
         try:
             with open(path, "r", encoding="utf-8") as handle:
-                if json.load(handle).get("id") == query_object.id:
-                    path.unlink()
+                stale = json.load(handle).get("id") == query_object.id
+            if stale:
+                path.unlink()
         except Exception:
             logger.exception("Failed to clean stale query object file: %s", path)
     # Pre-migration leftover for the same name (no id inside) is superseded.
@@ -196,8 +197,9 @@ def save_object(query_object: QueryObject, *, force_new: bool = False) -> None:
     if legacy.exists():
         try:
             with open(legacy, "r", encoding="utf-8") as handle:
-                if "id" not in json.load(handle):
-                    legacy.unlink()
+                legacy_without_id = "id" not in json.load(handle)
+            if legacy_without_id:
+                legacy.unlink()
         except Exception:
             logger.exception("Failed to clean legacy query object file: %s", legacy)
 

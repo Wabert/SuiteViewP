@@ -101,6 +101,14 @@ class BuildSqlResultsTab(QWidget):
         self.table.set_dataframe(df, limit_rows=False)
         self.btn_save_object.setEnabled(bool(sql) and df is not None)
 
+    def clear_results(self):
+        """Clear displayed Build SQL output and save-object state."""
+        self._df = None
+        self._sql = ""
+        self._dsn = ""
+        self.table.set_dataframe(pd.DataFrame(), limit_rows=False)
+        self.btn_save_object.setEnabled(False)
+
     def _on_save_object(self):
         if self._df is None or not self._sql:
             QMessageBox.information(self, "No Results", "Run SQL before saving an object.")

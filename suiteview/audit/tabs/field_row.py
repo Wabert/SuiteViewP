@@ -105,6 +105,9 @@ _BORDER_COLOR_SELECTED = QColor("#1E5BA8")
 _BG_COLOR = QColor("#f0f0f0")
 _BG_COLOR_SELECTED = QColor("#E0E8F4")
 _RESIZE_HANDLE_SIZE = 8   # resize grip area in bottom-right corner
+_LABEL_RESIZE_HANDLE_WIDTH = 8
+_MIN_LABEL_W = 25
+_MAX_LABEL_W = 420
 
 
 # ── Regex help dialog ────────────────────────────────────────────────
@@ -347,6 +350,11 @@ class FieldRow(QWidget):
         self._resizing = False
         self._resize_start: QPoint | None = None
         self._resize_origin_size: QSize | None = None
+        self._label_resizing = False
+        self._label_resize_start: QPoint | None = None
+        self._label_resize_origin_width = _LBL_W
+        self._label_resize_origin_size: QSize | None = None
+        self._label_resize_siblings = []
         self.setMouseTracking(True)
 
         outer = QVBoxLayout(self)
@@ -364,6 +372,8 @@ class FieldRow(QWidget):
         self._dn_lbl = QLabel(label_text)
         self._dn_lbl.setFont(_FONT_BOLD)
         self._dn_lbl.setFixedHeight(_CTRL_H)
+        self._dn_lbl.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._dn_lbl.setStyleSheet("QLabel { color: black; }")
         self._display_name_row.addWidget(self._dn_lbl)
         self._display_name_row.addStretch()
@@ -389,6 +399,8 @@ class FieldRow(QWidget):
         self._lbl.setFont(_FONT_BOLD)
         self._lbl.setFixedWidth(_LBL_W)
         self._lbl.setFixedHeight(_CTRL_H)
+        self._lbl.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         ctrl.addWidget(self._lbl)
 
         self.txt = QLineEdit()
@@ -397,6 +409,7 @@ class FieldRow(QWidget):
         self.txt.setFixedWidth(input_width)
         self.txt.setPlaceholderText(placeholder)
         self.txt.setStyleSheet(_TEXT_INPUT_STYLE)
+        self.txt.setMouseTracking(True)
         self.txt.installEventFilter(self)
         ctrl.addWidget(self.txt)
 
@@ -407,6 +420,8 @@ class FieldRow(QWidget):
         self.cmb.setEditable(True)
         self.cmb.setStyleSheet(_COMBO_STYLE)
         self.cmb.setVisible(False)
+        self.cmb.setMouseTracking(True)
+        self.cmb.installEventFilter(self)
         style_combo(self.cmb)
         ctrl.addWidget(self.cmb)
 
@@ -527,6 +542,87 @@ class FieldRow(QWidget):
 
     def _in_resize_zone(self, pos: QPoint) -> bool:
         return self._resize_rect().contains(pos)
+
+    def _first_input_widget(self):
+        return self.cmb if self.cmb.isVisible() else self.txt
+
+    def _label_resize_rect(self) -> QRect:
+        """Return the grab zone at the left edge of the first input."""
+        if self._display_name_shown:
+            return QRect()
+        first_input = self._first_input_widget()
+        if not first_input.isVisible():
+            return QRect()
+        edge_x = first_input.geometry().left()
+        top = max(0, first_input.geometry().top() - 2)
+        return QRect(
+            edge_x - (_LABEL_RESIZE_HANDLE_WIDTH // 2),
+            top,
+            _LABEL_RESIZE_HANDLE_WIDTH,
+            first_input.height() + 4,
+        )
+
+    def _in_label_resize_zone(self, pos: QPoint) -> bool:
+        return self._label_resize_rect().contains(pos)
+
+    def _start_label_resize(self, global_pos: QPoint) -> None:
+        self._label_resizing = True
+        self._label_resize_start = global_pos
+        self._label_resize_origin_width = self._lbl.width()
+        self._label_resize_origin_size = self.size()
+        self._label_resize_siblings = []
+        grid = self._find_parent_grid()
+        if grid and self in grid._selection and len(grid._selection) > 1:
+            for row in grid._selection:
+                if row is not self:
+                    self._label_resize_siblings.append(
+                        (row, row._lbl.width(), row.size()))
+        self.setCursor(Qt.CursorShape.SizeHorCursor)
+
+    def _resize_label_from_global(self, global_pos: QPoint) -> None:
+        if (self._label_resize_start is None
+                or self._label_resize_origin_size is None):
+            return
+        delta_x = global_pos.x() - self._label_resize_start.x()
+        self._apply_label_resize_delta(
+            self, self._label_resize_origin_width,
+            self._label_resize_origin_size, delta_x)
+        for row, origin_width, origin_size in self._label_resize_siblings:
+            self._apply_label_resize_delta(
+                row, origin_width, origin_size, delta_x)
+
+    @staticmethod
+    def _apply_label_resize_delta(
+            row: "FieldRow", origin_width: int,
+            origin_size: QSize, delta_x: int) -> None:
+        new_label_width = max(
+            _MIN_LABEL_W,
+            min(origin_width + delta_x, _MAX_LABEL_W),
+        )
+        row_delta = new_label_width - origin_width
+        row._lbl.setFixedWidth(new_label_width)
+        row._dn_lbl.setFixedWidth(new_label_width)
+        if not row._display_name_shown:
+            row.setFixedSize(
+                max(
+                    origin_size.width() + row_delta,
+                    row.minimumSizeHint().width(),
+                    120,
+                ),
+                origin_size.height(),
+            )
+        row.updateGeometry()
+
+    def _finish_label_resize(self) -> None:
+        self._label_resizing = False
+        self._label_resize_start = None
+        self._label_resize_origin_size = None
+        self._label_resize_siblings = []
+        self.unsetCursor()
+        grid = self._find_parent_grid()
+        if grid:
+            grid._update_canvas_bounds()
+        self.state_changed.emit()
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -909,9 +1005,35 @@ class FieldRow(QWidget):
         popup.move(g)
         popup.show()
 
-    # ── Event filter (click txt in list mode) ────────────────────────
+    # ── Event filter (input divider + click txt in list mode) ────────
 
     def eventFilter(self, obj, event):
+        if obj in (self.txt, self.cmb):
+            etype = event.type()
+            if etype in (QEvent.Type.MouseButtonPress,
+                         QEvent.Type.MouseMove,
+                         QEvent.Type.MouseButtonRelease):
+                row_pos = obj.mapTo(self, event.position().toPoint())
+                if (etype == QEvent.Type.MouseButtonPress
+                        and event.button() == Qt.MouseButton.LeftButton
+                        and self._in_label_resize_zone(row_pos)):
+                    self._start_label_resize(event.globalPosition().toPoint())
+                    obj.setCursor(Qt.CursorShape.SizeHorCursor)
+                    return True
+                if etype == QEvent.Type.MouseMove:
+                    if self._label_resizing:
+                        self._resize_label_from_global(
+                            event.globalPosition().toPoint())
+                        return True
+                    if self._in_label_resize_zone(row_pos):
+                        obj.setCursor(Qt.CursorShape.SizeHorCursor)
+                    else:
+                        obj.unsetCursor()
+                elif (etype == QEvent.Type.MouseButtonRelease
+                      and self._label_resizing):
+                    self._finish_label_resize()
+                    obj.unsetCursor()
+                    return True
         if (obj is self.txt
                 and event.type() == QEvent.Type.MouseButtonPress
                 and self.mode == "list"
@@ -1136,8 +1258,21 @@ class FieldRow(QWidget):
 
     def _set_label_width(self, width: int):
         """Set the field name label to the given width in pixels."""
-        self._lbl.setFixedWidth(width)
-        self._dn_lbl.setFixedWidth(width)
+        old_width = self._lbl.width()
+        new_width = max(_MIN_LABEL_W, min(width, _MAX_LABEL_W))
+        self._lbl.setFixedWidth(new_width)
+        self._dn_lbl.setFixedWidth(new_width)
+        if not self._display_name_shown and new_width != old_width:
+            new_row_width = max(
+                self.width() + (new_width - old_width),
+                self.minimumSizeHint().width(),
+                120,
+            )
+            self.setFixedWidth(new_row_width)
+            grid = self._find_parent_grid()
+            if grid:
+                grid._update_canvas_bounds()
+        self.updateGeometry()
         self.state_changed.emit()
 
     def _apply_display_options(self):
@@ -1295,6 +1430,10 @@ class FieldRow(QWidget):
                         if r is not self:
                             self._resize_siblings.append((r, r.size()))
                 return
+            # Field-name divider: drag the first input's left edge.
+            if self._in_label_resize_zone(event.pos()):
+                self._start_label_resize(event.globalPosition().toPoint())
+                return
             # Drag grip
             grip_rect = self._grip.geometry()
             if grip_rect.contains(event.pos()):
@@ -1322,6 +1461,12 @@ class FieldRow(QWidget):
                 sh = max(orig_sz.height() + delta.y(), _CTRL_H)
                 r.setFixedSize(sw, sh)
             return
+        # Live resize of the field-name area by dragging the input edge.
+        if (self._label_resizing
+                and self._label_resize_start is not None
+                and self._label_resize_origin_size is not None):
+            self._resize_label_from_global(event.globalPosition().toPoint())
+            return
         # Drag from grip
         if (self._drag_start is not None
                 and (event.pos() - self._drag_start).manhattanLength() > 6):
@@ -1346,11 +1491,16 @@ class FieldRow(QWidget):
         # Cursor hint for resize zone
         if self._in_resize_zone(event.pos()):
             self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        elif self._in_label_resize_zone(event.pos()):
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
         else:
             self.unsetCursor()
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
+        if self._label_resizing:
+            self._finish_label_resize()
+            return
         if self._resizing:
             self._resizing = False
             self._resize_start = None

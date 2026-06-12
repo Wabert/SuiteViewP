@@ -4,8 +4,9 @@ import unittest
 from datetime import datetime
 from unittest.mock import patch
 
+import pandas as pd
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QListWidgetItem, QWidget
+from PyQt6.QtWidgets import QApplication, QListWidgetItem, QMessageBox, QPushButton, QWidget
 
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit.adhoc_source_intake import (
@@ -39,6 +40,7 @@ from suiteview.audit.query_object_store import (
     delete_object,
     list_objects,
     load_object,
+    load_object_by_id,
     object_exists,
     restore_saved_visual_design,
     save_object,
@@ -46,6 +48,7 @@ from suiteview.audit.query_object_store import (
 from suiteview.audit.query_object_viewer_window import _display_dsn_for_definition, _display_dsn_for_object, _limited_preview_sql, _preview_dialect_for_object
 from suiteview.audit.query_object_viewer_window import QueryObjectViewerWindow
 from suiteview.audit.saved_query import SavedQuery
+from suiteview.audit.tabs.results_tab import ResultsTab
 from suiteview.audit import qdef_store, saved_query_store
 from suiteview.audit.dataforge.query_field_picker import QueryFieldPicker, _group_query_objects_for_selector, _load_query_source
 from suiteview.audit.dataforge import dataforge_store
@@ -282,6 +285,48 @@ class QueryObjectTests(unittest.TestCase):
 
         with patch("suiteview.audit.query_object_viewer_window.detect_dialect", return_value="UNKNOWN"):
             self.assertEqual(_preview_dialect_for_object(obj), "DB2")
+
+    def test_query_object_viewer_builds_data_source_index(self):
+        sql_obj = manual_sql_query_object(
+            "Rates SQL",
+            sql="SELECT Plan FROM Rates",
+            dsn="UL_Rates",
+            result_columns=["Plan"],
+        )
+        file_obj = adhoc_source_object(
+            "Claims Source",
+            source_type="csv",
+            metadata={"path": r"C:\temp\claims.csv"},
+            columns=["claim_id"],
+        )
+        browser = QueryObjectViewerWindow.__new__(QueryObjectViewerWindow)
+
+        index = browser._build_data_source_index([sql_obj, file_obj])
+
+        self.assertIn("ul_rates", index["odbc"])
+        self.assertEqual(index["odbc"]["ul_rates"]["label"], "UL_Rates")
+        self.assertEqual([obj.name for obj in index["odbc"]["ul_rates"]["objects"]], ["Rates SQL"])
+        file_entry = next(iter(index["files"].values()))
+        self.assertEqual(file_entry["label"], "claims.csv")
+        self.assertEqual(file_entry["path"], r"C:\temp\claims.csv")
+        self.assertEqual([obj.name for obj in file_entry["objects"]], ["Claims Source"])
+
+    def test_odbc_detail_rows_mask_sensitive_setup_values(self):
+        with patch(
+            "suiteview.audit.query_object_viewer_window.get_dsn_details",
+            return_value={
+                "DSN": "UL_Rates",
+                "Driver": "ODBC Driver 17 for SQL Server",
+                "Server": "RatesServer",
+                "Password": "secret",
+            },
+        ), patch("suiteview.audit.query_object_viewer_window.detect_dialect", return_value="SQL_SERVER"):
+            rows = QueryObjectViewerWindow._odbc_detail_rows("UL_Rates")
+
+        values = {key: value for key, value in rows}
+        self.assertEqual(values["Server"], "RatesServer")
+        self.assertEqual(values["Password"], "(hidden)")
+        self.assertEqual(values["Dialect"], "SQL_SERVER")
 
     def test_cyberlife_query_object_marks_common_join_keys(self):
         obj = cyberlife_query_object(
@@ -732,8 +777,10 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_query_object_viewer_initial_selection_populates_detail(self):
         old_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        old_forges_dir = dataforge_store._FORGES_DIR
+        with tempfile.TemporaryDirectory() as tmp_dir, tempfile.TemporaryDirectory() as tmp_forges:
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_dir
+            dataforge_store._FORGES_DIR = dataforge_store.Path(tmp_forges)
             save_object(manual_sql_query_object(
                 "Initial Viewer Object",
                 sql="SELECT POLICY FROM WORK",
@@ -753,13 +800,247 @@ class QueryObjectTests(unittest.TestCase):
                 self.assertEqual(window.tree.currentItem().text(0),
                                  "Initial Viewer Object  [WORK_DSN]")
                 self.assertEqual(window.lbl_name.text(), "Initial Viewer Object")
+                self.assertEqual(window.source_tree.topLevelItem(0).text(0), "ODBC (1)")
+                odbc_item = window.source_tree.topLevelItem(0).child(0)
+                self.assertEqual(odbc_item.text(0), "WORK_DSN")
+                self.assertEqual(odbc_item.child(0).text(0), "Initial Viewer Object")
             finally:
                 window.close()
 
+        dataforge_store._FORGES_DIR = old_forges_dir
         if old_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_dir
+
+    def test_query_object_viewer_file_source_keeps_left_width_and_dark_badge(self):
+        old_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_forges_dir = dataforge_store._FORGES_DIR
+        with tempfile.TemporaryDirectory() as tmp_dir, tempfile.TemporaryDirectory() as tmp_forges:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_dir
+            dataforge_store._FORGES_DIR = dataforge_store.Path(tmp_forges)
+            save_object(adhoc_source_object(
+                "Claims File Source",
+                source_type="csv",
+                metadata={"path": "claims.csv"},
+                columns=["claim_id", "amount"],
+            ))
+
+            app = QApplication.instance()
+            if app is None:
+                app = QApplication([])
+
+            window = QueryObjectViewerWindow()
+            try:
+                app.processEvents()
+                window._left_panel_width = 333
+                window._apply_left_panel_width()
+                app.processEvents()
+                self.assertEqual(window._promote_slot.minimumWidth(), 112)
+                self.assertEqual(window._promote_slot.maximumWidth(), 112)
+
+                window._browser_splitter.setSizes([250, 870])
+                window._on_browser_splitter_moved(250, 1)
+                app.processEvents()
+                self.assertEqual(window._left_panel_width, 333)
+
+                def find_query_item(item):
+                    payload = item.data(0, Qt.ItemDataRole.UserRole) or {}
+                    if payload.get("type") == "query" and payload.get("name") == "Claims File Source":
+                        return item
+                    for child_index in range(item.childCount()):
+                        found = find_query_item(item.child(child_index))
+                        if found is not None:
+                            return found
+                    return None
+
+                file_item = None
+                for row in range(window.tree.topLevelItemCount()):
+                    file_item = find_query_item(window.tree.topLevelItem(row))
+                    if file_item is not None:
+                        break
+
+                self.assertIsNotNone(file_item)
+                payload = file_item.data(0, Qt.ItemDataRole.UserRole)
+                self.assertEqual(payload["badge_fill"], "#B58900")
+                self.assertEqual(payload["badge_text_color"], "#FFFFFF")
+                files_item = window.source_tree.topLevelItem(1)
+                self.assertEqual(files_item.text(0), "Files (1)")
+                source_item = files_item.child(0)
+                self.assertEqual(source_item.text(0), "claims.csv")
+                self.assertEqual(source_item.child(0).text(0), "Claims File Source")
+
+                window.tree.setCurrentItem(file_item)
+                app.processEvents()
+
+                self.assertEqual(window._left_panel_width, 333)
+            finally:
+                window.close()
+
+        dataforge_store._FORGES_DIR = old_forges_dir
+        if old_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_dir
+
+    def test_results_tab_clear_results_resets_table_context_and_export(self):
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+
+        tab = ResultsTab()
+        try:
+            tab.set_results(pd.DataFrame({"PolicyNumber": ["123"], "CompanyCode": ["01"]}))
+            tab.set_query_context(sql="SELECT 1", dsn="CKPR", result_columns=["PolicyNumber"])
+
+            tab.clear_results()
+
+            self.assertIsNone(tab._df)
+            self.assertIsNone(tab._query_context)
+            self.assertFalse(tab.btn_export.isEnabled())
+            self.assertEqual(tab.table.model.rowCount(), 0)
+        finally:
+            tab.close()
+
+    def test_build_badges_use_cyberlife_and_dark_manual_sql_labels(self):
+        from suiteview.audit.build_mode_styles import mode_style
+        from suiteview.audit.query_object_viewer_window import _QUERY_BADGES
+
+        self.assertEqual(_QUERY_BADGES[OBJECT_KIND_CYBERLIFE], "CL")
+        self.assertEqual(_QUERY_BADGES[OBJECT_KIND_MANUAL_SQL], "SQL")
+        self.assertEqual(mode_style(OBJECT_KIND_MANUAL_SQL).color, "#5A3218")
+
+    def test_new_visual_query_confirmation_clears_results_and_sql_tabs(self):
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+
+        from suiteview.audit.dynamic_group import DynamicQuery
+
+        group = DynamicQuery("Visual Query", "WORK_DSN", [])
+        emitted = []
+        group.new_query_requested.connect(lambda: emitted.append(True))
+        try:
+            group.results_tab.set_results(pd.DataFrame({"PolicyNumber": ["123"]}))
+            group.sql_tab.set_sql("SELECT * FROM POLICY")
+            group.build_sql_tab.set_sql("SELECT * FROM BUILD")
+            group.build_sql_results_tab.set_results(
+                pd.DataFrame({"PolicyNumber": ["123"]}), sql="SELECT 1", dsn="WORK_DSN")
+            group.lbl_result_count.setText("Result count:   1")
+
+            with patch(
+                "suiteview.audit.dynamic_group.QMessageBox.question",
+                return_value=QMessageBox.StandardButton.Yes,
+            ):
+                group._confirm_new_query()
+
+            self.assertEqual(emitted, [True])
+            self.assertIsNone(group.results_tab._df)
+            self.assertEqual(group.sql_tab.txt_sql.toPlainText(), "")
+            self.assertEqual(group.build_sql_tab.txt_sql.toPlainText(), "")
+            self.assertIsNone(group.build_sql_results_tab._df)
+            self.assertEqual(group.lbl_result_count.text(), "Result count:")
+        finally:
+            group.close()
+
+    def test_cyberlife_clear_selects_policy_tab_and_clears_sql_tabs(self):
+        from suiteview.audit.audit_window import AuditWindow
+
+        calls = []
+
+        class FakeCriteriaTab:
+            def set_state(self, state):
+                calls.append(("criteria", state))
+
+        class FakeText:
+            def __init__(self):
+                self.value = ""
+
+            def setText(self, value):
+                self.value = value
+
+        class FakeCheck:
+            def __init__(self):
+                self.checked = True
+
+            def setChecked(self, checked):
+                self.checked = checked
+
+        class FakeClear:
+            def __init__(self, name):
+                self.name = name
+                self.cleared = False
+
+            def clear_results(self):
+                self.cleared = True
+                calls.append(self.name)
+
+            def clear_sql(self):
+                self.cleared = True
+                calls.append(self.name)
+
+        class FakeTabs:
+            def __init__(self):
+                self.current = None
+
+            def setCurrentWidget(self, widget):
+                self.current = widget
+
+        fake = type("FakeAudit", (), {})()
+        fake.policy_tab = object()
+        fake.tabs = FakeTabs()
+        fake.txt_max_count = FakeText()
+        fake.chk_coverage_level = FakeCheck()
+        fake.results_tab = FakeClear("results")
+        fake.sql_tab = FakeClear("sql")
+        fake.build_sql_tab = FakeClear("build_sql")
+        fake.build_sql_results_tab = FakeClear("build_sql_results")
+        fake.lbl_result_count = FakeText()
+        fake._cyberlife_criteria_tabs = lambda: [("policy", FakeCriteriaTab())]
+
+        AuditWindow._on_clear_cyberlife(fake)
+
+        self.assertEqual(fake.txt_max_count.value, "25")
+        self.assertFalse(fake.chk_coverage_level.checked)
+        self.assertEqual(fake.lbl_result_count.value, "Result count:")
+        self.assertIs(fake.tabs.current, fake.policy_tab)
+        self.assertIn("sql", calls)
+        self.assertIn("build_sql", calls)
+        self.assertIn("build_sql_results", calls)
+
+    def test_new_forge_confirmation_clears_results_sql_and_code_tabs(self):
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+
+        from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
+
+        group = DataForgeGroup("⚙ Forge")
+        emitted = []
+        group.new_forge_requested.connect(lambda: emitted.append(True))
+        try:
+            group.results_tab.set_results(pd.DataFrame({"PolicyNumber": ["123"]}))
+            group.sql_tab.set_forge_sql("SELECT * FROM FORGE")
+            group.sql_tab.set_datasets({"Source Query": "SELECT * FROM SOURCE"})
+            group.sql_tab.set_manual_state(True, "SELECT * FROM MANUAL")
+            group.code_tab.set_code("print('stale')")
+            group.lbl_result_count.setText("Result count:   1")
+
+            with patch(
+                "suiteview.audit.dataforge.dataforge_group.QMessageBox.question",
+                return_value=QMessageBox.StandardButton.Yes,
+            ):
+                group._confirm_new_forge()
+
+            self.assertEqual(emitted, [True])
+            self.assertIsNone(group.results_tab._df)
+            self.assertEqual(group.sql_tab.txt_sql.toPlainText(), "")
+            self.assertEqual(group.sql_tab.manual_sql, "")
+            self.assertFalse(group.sql_tab.manual_mode)
+            self.assertEqual(group.code_tab.txt_code.toPlainText(), "")
+            self.assertEqual(group.lbl_result_count.text(), "Result count:")
+        finally:
+            group.close()
 
     def test_query_object_viewer_shows_hidden_audit_parent_for_builder(self):
         app = QApplication.instance() or QApplication([])
@@ -866,6 +1147,25 @@ class QueryObjectTests(unittest.TestCase):
 
         self.assertEqual(calls, [])
         self.assertEqual(manual_calls, ["Claims [Forge]"])
+
+    def test_audit_build_mode_button_width_stays_static(self):
+        from suiteview.audit.audit_window import AuditWindow, _BUILD_MODE_BUTTON_WIDTH
+
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+
+        class DummyAudit:
+            pass
+
+        dummy = DummyAudit()
+        dummy.btn_build_mode = QPushButton("Cyberlife")
+        dummy.btn_build_mode.setFixedSize(_BUILD_MODE_BUTTON_WIDTH, 24)
+
+        for mode in ("cyberlife", "visual", "manual_sql", "file"):
+            AuditWindow._style_build_mode_button(dummy, mode)
+            self.assertEqual(dummy.btn_build_mode.minimumWidth(), _BUILD_MODE_BUTTON_WIDTH)
+            self.assertEqual(dummy.btn_build_mode.maximumWidth(), _BUILD_MODE_BUTTON_WIDTH)
+            self.assertEqual(dummy.btn_build_mode.width(), _BUILD_MODE_BUTTON_WIDTH)
 
     def test_audit_builder_opens_cyberlife_dataforge_copy_itself(self):
         from suiteview.audit.audit_window import AuditWindow
@@ -1035,7 +1335,12 @@ class QueryObjectTests(unittest.TestCase):
                 calls.append(tuple(names))
 
         class FakeAudit:
-            pass
+            def _set_forge_picker_sources(self, group):
+                self._forge_field_picker.set_sources(
+                    list(group._sources.keys()),
+                    forge_name=group._saved_forge_name,
+                    source_definitions=group._sources,
+                )
 
         fake = FakeAudit()
         fake._current_mode = "forge"
@@ -1169,6 +1474,93 @@ class QueryObjectTests(unittest.TestCase):
             self.assertIsNone(dataforge_store.load_forge("RGA - EXECUL and Claims"))
             self.assertFalse(object_exists("Claims [RGA - EXECUL and Claims]"))
             self.assertTrue(object_exists("Claims"))
+
+        qdef_store._QDEFS_DIR = old_qdefs_dir
+        dataforge_store._FORGES_DIR = old_forges_dir
+        if old_obj_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
+    def test_query_object_browser_renames_dataforge_source_records(self):
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_qdefs_dir = qdef_store._QDEFS_DIR
+        old_forges_dir = dataforge_store._FORGES_DIR
+        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs, tempfile.TemporaryDirectory() as tmp_forges:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
+            dataforge_store._FORGES_DIR = dataforge_store.Path(tmp_forges)
+
+            forge_name = "Forge"
+            old_name = "Claims [Forge]"
+            new_name = "Claims Latest [Forge]"
+            forge_copy = manual_sql_query_object(
+                old_name,
+                sql="SELECT claim_id, amount FROM CLAIMS",
+                dsn="FAKE_DSN",
+                result_columns=["claim_id", "amount"],
+            )
+            forge_copy.config["dataforge"] = {
+                "forge_name": forge_name,
+                "source_name": "Claims",
+            }
+            save_object(forge_copy)
+            qdef_store.save_qdef(QDefinition(
+                name=old_name,
+                forge_name=forge_name,
+                sql=forge_copy.sql,
+                dsn=forge_copy.dsn,
+                result_columns=forge_copy.result_columns,
+            ))
+            dataforge_store.save_source_snapshot(
+                forge_name,
+                old_name,
+                pd.DataFrame([["C1", 100]], columns=["claim_id", "amount"]),
+            )
+            dataforge_store.save_forge(DataForge(
+                name=forge_name,
+                sources=[DataForgeSource(
+                    query_name=old_name,
+                    definition=forge_copy.to_dict(),
+                )],
+                config={
+                    "sources": [old_name],
+                    "filter_tabs": [{
+                        "grid": {
+                            "fields": {f"{old_name}.claim_id": {}},
+                            "positions": {f"{old_name}.claim_id": [0, 0]},
+                        }
+                    }],
+                    "display_tab": {
+                        "rows": [{"field_key": f"{old_name}.amount"}],
+                    },
+                    "joins": [{"left_source": old_name, "right_source": "Other"}],
+                },
+            ))
+
+            QueryObjectViewerWindow._rename_forge_source_records(
+                forge_name,
+                forge_copy,
+                new_name,
+            )
+
+            renamed = load_object_by_id(forge_copy.id)
+            self.assertIsNotNone(renamed)
+            self.assertEqual(renamed.name, new_name)
+            self.assertFalse(object_exists(old_name))
+            self.assertTrue(object_exists(new_name))
+            self.assertIsNone(qdef_store.load_qdef(old_name, forge_name=forge_name))
+            self.assertIsNotNone(qdef_store.load_qdef(new_name, forge_name=forge_name))
+            self.assertFalse(dataforge_store.has_source_snapshot(forge_name, old_name))
+            self.assertTrue(dataforge_store.has_source_snapshot(forge_name, new_name))
+            forge = dataforge_store.load_forge(forge_name)
+            self.assertIsNotNone(forge)
+            self.assertEqual(forge.sources[0].query_name, new_name)
+            self.assertEqual(forge.sources[0].definition["name"], new_name)
+            self.assertEqual(forge.config["sources"], [new_name])
+            self.assertIn(f"{new_name}.claim_id", forge.config["filter_tabs"][0]["grid"]["fields"])
+            self.assertEqual(forge.config["display_tab"]["rows"][0]["field_key"], f"{new_name}.amount")
+            self.assertEqual(forge.config["joins"][0]["left_source"], new_name)
 
         qdef_store._QDEFS_DIR = old_qdefs_dir
         dataforge_store._FORGES_DIR = old_forges_dir
