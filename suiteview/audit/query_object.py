@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 
 OBJECT_KIND_VISUAL = "visual_query"
@@ -106,9 +107,14 @@ class QueryObject:
     source_design: str = ""
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
+    # Permanent identity (uuid4 hex). Names are display labels and need NOT be
+    # unique — the organizer, browser, and store reference queries by id.
+    # Stamped at creation; legacy objects get one on first load (from_dict).
+    id: str = field(default_factory=lambda: uuid4().hex)
 
     def to_dict(self) -> dict:
         return {
+            "id": self.id,
             "name": self.name,
             "kind": self.kind,
             "description": self.description,
@@ -129,6 +135,7 @@ class QueryObject:
     @staticmethod
     def from_dict(data: dict) -> QueryObject:
         return QueryObject(
+            id=data.get("id") or uuid4().hex,  # legacy objects: stamp now
             name=data["name"],
             kind=data.get("kind", OBJECT_KIND_VISUAL),
             description=data.get("description", ""),
@@ -438,6 +445,34 @@ def manual_sql_query_object(
         created_at=now,
         updated_at=now,
     )
+
+
+_FILE_DESIGN_LABELS = {
+    "csv": "CSV",
+    "excel": "Excel",
+    "fixed_width": "Fixed Width",
+}
+
+
+def query_datasource_label(query_object: QueryObject) -> str:
+    """The bracketed datasource tag for display: DSN, or file format.
+
+    Every query shows where its data comes from at a glance: ODBC queries show
+    their DSN; flat-file sources show their format (CSV / Excel / Fixed Width).
+    """
+    if query_object.dsn:
+        return query_object.dsn
+    design = (query_object.source_design or "").strip()
+    if design.lower() in _FILE_DESIGN_LABELS:
+        return _FILE_DESIGN_LABELS[design.lower()]
+    if query_object.kind == OBJECT_KIND_ADHOC_SOURCE:
+        return design or "File"
+    return design or "?"
+
+
+def query_display_name(query_object: QueryObject) -> str:
+    """User-facing label: ``Name [<datasource>]``. Computed, never stored."""
+    return f"{query_object.name} [{query_datasource_label(query_object)}]"
 
 
 def adhoc_source_object(

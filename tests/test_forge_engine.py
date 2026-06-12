@@ -13,8 +13,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from suiteview.audit.dataforge.forge_engine import (  # noqa: E402
-    FilterSpec, ForgeEngineError, JoinSpec, OutputColumn, compile_forge_sql,
-    run_forge, run_manual_sql,
+    AppendSpec, FilterSpec, ForgeEngineError, JoinSpec, OutputColumn,
+    compile_forge_sql, run_forge, run_manual_sql,
 )
 
 
@@ -457,6 +457,104 @@ def test_manual_runs_compiled_visual_sql_unchanged():
     print("  compiled visual SQL runs unchanged in Manual mode  OK")
 
 
+# ── Append Tables (UNION ALL) ─────────────────────────────────────────────
+
+def _claims_a() -> pd.DataFrame:
+    return pd.DataFrame({
+        "company_code": ["A", "B"],
+        "policy_number": ["100", "200"],
+        "claim_amount": [1000, 2000],
+        "claim_office": ["TX", "MO"],   # only in A
+    })
+
+
+def _claims_b() -> pd.DataFrame:
+    return pd.DataFrame({
+        "company_code": ["B", "C"],
+        "policy_number": ["201", "300"],
+        "claim_amount": [3000, 4000],
+        "examiner": ["JL", "RW"],       # only in B
+    })
+
+
+def test_append_two_sources_shared_columns():
+    res = run_forge(
+        {"ca": _claims_a(), "cb": _claims_b()}, [],
+        appends=[AppendSpec("All Claims", ("ca", "cb"))],
+    )
+    df = res.dataframe
+    # UNION ALL: 2 + 2 rows; only the shared columns survive, in ca's order.
+    assert len(df) == 4, df
+    assert list(df.columns) == ["company_code", "policy_number", "claim_amount"]
+    assert sorted(df["claim_amount"]) == [1000, 2000, 3000, 4000]
+    print("  append: shared columns, UNION ALL  OK")
+
+
+def test_append_joins_to_other_source():
+    res = run_forge(
+        {"ca": _claims_a(), "cb": _claims_b(), "pol": _policies()},
+        [JoinSpec("All Claims", "pol", ("company_code", "policy_number"),
+                  ("company_code", "policy_number"), "inner")],
+        appends=[AppendSpec("All Claims", ("ca", "cb"))],
+    )
+    df = res.dataframe
+    # Claims (A,100),(B,200),(B,201),(C,300) all match policies → 4 rows,
+    # and the policy columns ride along.
+    assert len(df) == 4, df
+    assert "face_amount" in df.columns and "claim_amount" in df.columns
+    print("  append joins to another Source  OK")
+
+
+def test_append_member_and_alias_filters():
+    # Member filter applies BEFORE the append; alias filter applies to the
+    # appended rows.
+    res = run_forge(
+        {"ca": _claims_a(), "cb": _claims_b()}, [],
+        filters=[FilterSpec("ca", "company_code", mode="equals", value="A")],
+        appends=[AppendSpec("All Claims", ("ca", "cb"))],
+    )
+    assert sorted(res.dataframe["claim_amount"]) == [1000, 3000, 4000]
+
+    res = run_forge(
+        {"ca": _claims_a(), "cb": _claims_b()}, [],
+        filters=[FilterSpec("All Claims", "claim_amount", mode="range",
+                            lo="2000", hi="3000")],
+        appends=[AppendSpec("All Claims", ("ca", "cb"))],
+    )
+    assert sorted(res.dataframe["claim_amount"]) == [2000, 3000]
+    print("  append member + alias filters  OK")
+
+
+def test_append_errors():
+    schemas = {"ca": ["x", "y"], "cb": ["y", "z"], "pol": ["p"]}
+    # Alias collides with a Source.
+    try:
+        compile_forge_sql(schemas, [], appends=[AppendSpec("pol", ("ca", "cb"))])
+        raise AssertionError("expected collision error")
+    except ForgeEngineError as e:
+        assert "collides" in str(e), e
+    # Unknown member.
+    try:
+        compile_forge_sql(schemas, [], appends=[AppendSpec("ap", ("ca", "ghost"))])
+        raise AssertionError("expected unknown member error")
+    except ForgeEngineError as e:
+        assert "ghost" in str(e), e
+    # No shared columns.
+    try:
+        compile_forge_sql(schemas, [], appends=[AppendSpec("ap", ("ca", "pol"))])
+        raise AssertionError("expected no-shared-columns error")
+    except ForgeEngineError as e:
+        assert "share no columns" in str(e), e
+    # A Source can be appended only once.
+    try:
+        compile_forge_sql(schemas, [], appends=[
+            AppendSpec("ap1", ("ca", "cb")), AppendSpec("ap2", ("ca",))])
+        raise AssertionError("expected double-membership error")
+    except ForgeEngineError as e:
+        assert "two Append Tables" in str(e), e
+    print("  append error cases  OK")
+
+
 def main():
     tests = [
         test_two_way_inner_multikey,
@@ -486,6 +584,10 @@ def main():
         test_manual_sql_limit_and_trailing_semicolon,
         test_manual_sql_errors,
         test_manual_runs_compiled_visual_sql_unchanged,
+        test_append_two_sources_shared_columns,
+        test_append_joins_to_other_source,
+        test_append_member_and_alias_filters,
+        test_append_errors,
     ]
     print("=" * 60)
     print("DataForge engine tests")

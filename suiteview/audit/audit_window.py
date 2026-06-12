@@ -195,8 +195,10 @@ class AuditWindow(FramelessWindowBase):
         self.btn_build_mode = QPushButton("Cyberlife")
         self.btn_build_mode.setFont(QFont("Segoe UI", 8))
         self.btn_build_mode.setFixedHeight(24)
-        self.btn_build_mode.setStyleSheet(_HEADER_BTN_STYLE)
         self.btn_build_mode.setToolTip("Choose the Query Object build mode")
+        # Each mode carries its identity color (build_mode_styles) — the
+        # same chip/color the browser shows on queries built by that mode.
+        from suiteview.audit.build_mode_styles import build_mode_style, mode_icon
         mode_menu = QMenu(self.btn_build_mode)
         for mode, label in (
             ("cyberlife", "Cyberlife"),
@@ -205,8 +207,10 @@ class AuditWindow(FramelessWindowBase):
             ("file", "File Source"),
         ):
             action = mode_menu.addAction(label)
+            action.setIcon(mode_icon(build_mode_style(mode).color))
             action.triggered.connect(lambda checked=False, value=mode: self._on_build_mode_selected(value))
         self.btn_build_mode.setMenu(mode_menu)
+        self._style_build_mode_button("cyberlife")
         # Cyberlife header button (view toggle)
         _CYB_HDR_BTN_STYLE = (
             "QPushButton { background-color: rgba(10,42,92,0.8);"
@@ -640,7 +644,7 @@ class AuditWindow(FramelessWindowBase):
     def _enter_cyberlife_mode(self):
         """Configure UI for Cyberlife mode."""
         self._hide_mode_footer()
-        self.btn_build_mode.setText("Cyberlife")
+        self._style_build_mode_button("cyberlife")
         self.btn_save_cyberlife.setVisible(bool(self._cyberlife_saved_object_name.strip()))
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(True)
@@ -653,7 +657,7 @@ class AuditWindow(FramelessWindowBase):
         self._hide_picker_panel()
     def _enter_query_mode(self, mode: str, prev_had_picker: bool):
         """Configure UI for a dynamic query or the query-blank placeholder."""
-        self.btn_build_mode.setText("Visual Query")
+        self._style_build_mode_button("visual")
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(False)
         self.btn_cyberlife.blockSignals(False)
@@ -716,7 +720,7 @@ class AuditWindow(FramelessWindowBase):
     def _enter_manual_sql_object_mode(self):
         """Configure UI for the standalone Manual SQL Object editor."""
         self._hide_mode_footer()
-        self.btn_build_mode.setText("Manual SQL")
+        self._style_build_mode_button("manual_sql")
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(False)
         self.btn_cyberlife.blockSignals(False)
@@ -731,7 +735,7 @@ class AuditWindow(FramelessWindowBase):
     def _enter_csv_excel_object_mode(self):
         """Configure UI for the File Source Object editor."""
         self._hide_mode_footer()
-        self.btn_build_mode.setText("File Source")
+        self._style_build_mode_button("file")
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(False)
         self.btn_cyberlife.blockSignals(False)
@@ -1303,19 +1307,31 @@ class AuditWindow(FramelessWindowBase):
         elif chosen == "file":
             self._start_csv_excel_object(reset=True)
 
+    def _style_build_mode_button(self, mode: str):
+        """Paint the selector in the active mode's identity color."""
+        from suiteview.audit.build_mode_styles import build_mode_style, mode_icon
+
+        style = build_mode_style(mode)
+        self.btn_build_mode.setText(style.label)
+        self.btn_build_mode.setIcon(mode_icon("#FFFFFF"))
+        self.btn_build_mode.setStyleSheet(
+            f"QPushButton {{ background-color: {style.color}; color: white;"
+            " border: 1px solid rgba(255,255,255,0.45); border-radius: 3px;"
+            " padding: 2px 8px; font-weight: bold; }"
+            f"QPushButton:hover {{ background-color: {style.color};"
+            " border: 1px solid white; }"
+            "QPushButton::menu-indicator { width: 10px; }")
+
     def _on_build_mode_selected(self, mode: str):
         """Switch the primary Audit build surface from the header selector."""
+        self._style_build_mode_button(mode)
         if mode == "cyberlife":
-            self.btn_build_mode.setText("Cyberlife")
             self._switch_mode("cyberlife")
         elif mode == "visual":
-            self.btn_build_mode.setText("Visual Query")
             self._open_visual_query_builder()
         elif mode == "manual_sql":
-            self.btn_build_mode.setText("Manual SQL")
             self._start_manual_sql_object(reset=False)
         elif mode == "file":
-            self.btn_build_mode.setText("File Source")
             self._start_csv_excel_object(reset=False)
 
     def _open_visual_query_builder(self):

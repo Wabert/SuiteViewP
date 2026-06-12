@@ -585,6 +585,17 @@ class ForgeJoinCanvas(QWidget):
     def to_config_joins(self) -> list[dict]:
         return self.model.to_config_joins()
 
+    # Append Tables (design §9) — model-backed; the visual group-box layer
+    # renders these (see AppendBoxItem work tracked in WORK_LAPTOP_SPEC).
+    def to_append_specs(self):
+        return self.model.to_append_specs()
+
+    def to_config_appends(self) -> list[dict]:
+        return self.model.to_config_appends()
+
+    def get_append_ops(self) -> list[dict]:
+        return self.model.get_append_ops()
+
     def card_count(self) -> int:
         return len(self.model.joins)
 

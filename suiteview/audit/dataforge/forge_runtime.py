@@ -30,7 +30,7 @@ from suiteview.audit.query_object import QueryObject
 from . import dataforge_store
 from .dataforge_model import DataForge, DataForgeSource, SourceSnapshot
 from .forge_engine import (
-    FilterSpec, JoinSpec, OutputColumn, ForgeResult,
+    AppendSpec, FilterSpec, JoinSpec, OutputColumn, ForgeResult,
     compile_forge_sql, run_forge, run_manual_sql,
 )
 
@@ -43,19 +43,17 @@ FetchFn = Callable[[QueryObject], pd.DataFrame]
 
 # ── Building Sources from shared Queries ─────────────────────────────────
 
-def add_query_as_source(forge: DataForge, query_name: str,
-                        alias: str = "") -> DataForgeSource:
-    """Add a shared Query to ``forge`` as an editable-copy Source.
+def add_object_as_source(forge: DataForge, obj: QueryObject,
+                         alias: str = "") -> DataForgeSource:
+    """Add a QueryObject to ``forge`` as an editable-copy Source.
 
     Copies the Query's current definition into the Source. No data is pulled;
-    the Snapshot starts empty (a Refresh is required to populate it).
+    the Snapshot starts empty (a Refresh is required to populate it). Prefer
+    this object-based form — names may be duplicated, ids are unambiguous.
     """
-    obj = query_object_store.load_object(query_name)
-    if obj is None:
-        raise ValueError(f"Query not found: {query_name}")
     source = DataForgeSource(
-        query_name=query_name,
-        alias=alias or query_name,
+        query_name=obj.name,
+        alias=alias or obj.name,
         definition=obj.to_dict(),
         filters=[],
         snapshot=SourceSnapshot(),
@@ -63,6 +61,15 @@ def add_query_as_source(forge: DataForge, query_name: str,
     )
     forge.sources.append(source)
     return source
+
+
+def add_query_as_source(forge: DataForge, query_name: str,
+                        alias: str = "") -> DataForgeSource:
+    """Add a shared Query to ``forge`` as a Source, by name (compat seam)."""
+    obj = query_object_store.load_object(query_name)
+    if obj is None:
+        raise ValueError(f"Query not found: {query_name}")
+    return add_object_as_source(forge, obj, alias)
 
 
 def resync_source(source: DataForgeSource) -> bool:
@@ -233,6 +240,7 @@ def compile_saved_forge_sql(forge: DataForge,
         filters=filters,
         result_filters=result_filter_specs(forge.config),
         outputs=outputs_from_config(forge.config),
+        appends=appends_from_config(forge.config),
         limit=limit if limit is not None else forge.config.get("limit"),
     )
     return sql
@@ -288,6 +296,17 @@ def joins_from_config(config: dict[str, Any]) -> list[JoinSpec]:
     return specs
 
 
+def appends_from_config(config: dict[str, Any]) -> list[AppendSpec]:
+    """Build AppendSpecs from a Forge config's ``appends`` list.
+
+    Shape: ``[{"alias": "All Claims", "members": ["Claims A", "Claims B"]}]``.
+    """
+    return [
+        AppendSpec(alias=a["alias"], members=tuple(a.get("members", [])))
+        for a in config.get("appends", [])
+    ]
+
+
 def outputs_from_config(config: dict[str, Any]) -> list[OutputColumn] | None:
     """Build OutputColumns from a Forge config's ``outputs`` list, or None.
 
@@ -340,6 +359,7 @@ def run_saved_forge(forge: DataForge,
         filters=filters,
         result_filters=result_filter_specs(forge.config),
         outputs=outputs_from_config(forge.config),
+        appends=appends_from_config(forge.config),
         limit=effective_limit,
     )
 
@@ -414,8 +434,22 @@ def validate_forge(forge: DataForge) -> list[ForgeIssue]:
                 "Type SQL in the SQL tab, or switch Manual mode off."))
         return issues
 
+    # Append Tables: members are represented by their append alias in the
+    # join graph (the append consumes them — design §9).
+    member_to_append: dict[str, str] = {}
+    append_aliases: list[str] = []
+    try:
+        for ap in appends_from_config(forge.config):
+            append_aliases.append(ap.alias)
+            for m in ap.members:
+                member_to_append[m] = ap.alias
+    except Exception as exc:
+        issues.append(ForgeIssue(
+            "error", f"An Append Table is malformed: {exc}",
+            "Re-create the Append Table on the Joins canvas."))
+
     # Joins: parse, check endpoints, check connectivity.
-    alias_set = set(aliases)
+    alias_set = set(aliases) | set(append_aliases)
     try:
         specs = joins_from_config(forge.config)
     except Exception as exc:  # malformed join (e.g. mismatched key counts)
@@ -437,21 +471,26 @@ def validate_forge(forge: DataForge) -> list[ForgeIssue]:
         else:
             valid_edges.append((spec.left_source, spec.right_source))
 
-    # Connectivity: with >1 Source, every Source must connect to the first.
-    if len(aliases) > 1:
-        adj: dict[str, set[str]] = {a: set() for a in aliases}
+    # Connectivity: every surviving node (Sources not consumed by an append,
+    # plus the Append Tables) must connect to the first.
+    nodes = [a for a in aliases if a not in member_to_append] + append_aliases
+    if len(nodes) > 1:
+        adj: dict[str, set[str]] = {a: set() for a in nodes}
         for left, right in valid_edges:
-            adj[left].add(right)
-            adj[right].add(left)
+            left = member_to_append.get(left, left)
+            right = member_to_append.get(right, right)
+            if left in adj and right in adj:
+                adj[left].add(right)
+                adj[right].add(left)
         seen: set[str] = set()
-        stack = [aliases[0]]
+        stack = [nodes[0]]
         while stack:
             cur = stack.pop()
             if cur in seen:
                 continue
             seen.add(cur)
             stack.extend(adj[cur] - seen)
-        unreached = [a for a in aliases if a not in seen]
+        unreached = [a for a in nodes if a not in seen]
         if unreached:
             issues.append(ForgeIssue(
                 "error",

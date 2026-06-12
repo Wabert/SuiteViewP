@@ -1626,6 +1626,11 @@ class DataForgeGroup(QWidget):
                 self._show_manual_results(datasets, sqls, manual_sql, t_query)
                 return
 
+            # Append Tables: each becomes a dataset (UNION of members over
+            # their shared columns); members are consumed by the append and
+            # the merge ops reference the Append Table's name instead.
+            datasets = self._apply_append_ops(datasets)
+
             # Step 2: Apply pandas merge operations
             t1 = time.time()
             merge_ops = self.joins_tab.get_merge_ops()
@@ -1737,6 +1742,27 @@ class DataForgeGroup(QWidget):
         self.code_tab.set_code(
             self._generate_manual_python_code(sqls, manual_sql, limit))
         self.tab_widget.setCurrentWidget(self.results_tab)
+
+    def _apply_append_ops(self, datasets: dict[str, pd.DataFrame]
+                          ) -> dict[str, pd.DataFrame]:
+        """Materialize Append Tables for the pandas run path.
+
+        Mirrors the engine's UNION ALL semantics: rows stack, only the
+        columns shared by every loaded member survive (first member's
+        order). The actual loaded frames are authoritative for the shared
+        set, like the engine's schemas are.
+        """
+        for op in self.joins_tab.get_append_ops():
+            frames = [datasets[m] for m in op["members"] if m in datasets]
+            if not frames:
+                continue
+            shared = [c for c in frames[0].columns
+                      if all(c in f.columns for f in frames)]
+            if not shared:
+                continue
+            datasets[op["name"]] = pd.concat(
+                [f[shared] for f in frames], ignore_index=True)
+        return datasets
 
     def _apply_pandas_filters(self, df: pd.DataFrame,
                               tab: ForgeFilterTab) -> pd.DataFrame:
@@ -1885,6 +1911,7 @@ class DataForgeGroup(QWidget):
             self._engine_joins(),
             filters=self._engine_filter_specs(),
             outputs=outputs,
+            appends=self.joins_tab.to_append_specs(),
             limit=int(max_count) if max_count.isdigit() else None,
         )
         return sql
@@ -1966,6 +1993,22 @@ class DataForgeGroup(QWidget):
                               max_count: str) -> str:
         """Generate real, runnable Python code that reproduces the DataForge."""
         lines = self._generate_load_code(sqls)
+
+        append_ops = self.joins_tab.get_append_ops()
+        if append_ops:
+            lines.extend([
+                "",
+                "# ── Append Tables (stack rows over shared columns) ─────────",
+            ])
+            for op in append_ops:
+                member_vars = ", ".join(f"df_{_var(m)}" for m in op["members"])
+                lines.extend([
+                    f"_frames = [{member_vars}]",
+                    "_shared = [c for c in _frames[0].columns"
+                    " if all(c in f.columns for f in _frames)]",
+                    f"df_{_var(op['name'])} = pd.concat("
+                    "[f[_shared] for f in _frames], ignore_index=True)",
+                ])
 
         if merge_ops:
             lines.extend([
@@ -2300,8 +2343,9 @@ class DataForgeGroup(QWidget):
             "display_tab": self.display_tab.get_state(),
             # Engine-shaped views of the design, so forge_runtime can run a
             # saved Forge headless over Snapshots (run_saved_forge reads
-            # joins/outputs/limit — see WORK_LAPTOP_SPEC §1.5/§3b).
+            # joins/appends/outputs/limit — see WORK_LAPTOP_SPEC §1.5/§3b).
             "joins": self.joins_tab.to_config_joins(),
+            "appends": self.joins_tab.to_config_appends(),
             "outputs": self._outputs_config(),
             "limit": int(max_count) if max_count.isdigit() else None,
             # Manual mode (Phase 3): hand-written DuckDB SQL, when enabled.

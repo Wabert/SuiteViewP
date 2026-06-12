@@ -214,12 +214,143 @@ canonical `core/db2_connection.py`, SQL Server via `core/connection_manager.py`.
 
 ---
 
-## 8. Constraints
+## 8. Query organization — Groups, IDs, colors (decided 2026-06-11)
+
+The Query Object browser stops grouping by build type. Instead the user
+organizes queries **bookmark-style** (the File Nav bookmarks/categories model
+is the explicit blueprint): free-form **Query Groups** the user creates,
+renames, reorders, and drags queries between.
+
+### Identity — unique IDs, names no longer unique
+- Every `QueryObject` carries a permanent `id` (uuid4 hex), stamped on
+  creation and migrated onto legacy objects on first load.
+- On disk: `~/.suiteview/query_objects/<safe_name>__<id8>.json` — readable
+  *and* collision-free. `load_object(name)` survives as a compatibility seam
+  (first match, newest-updated); new code references queries **by id**.
+  Duplicate names are now legal (e.g. the same query copied into two groups).
+- DataForge `query_name` Re-sync references and qdef_store stay name-based
+  for now (Sources are self-contained editable copies, so ambiguity is
+  benign); they migrate to ids in the #11 vocabulary/identity pass.
+
+### The organizer (`suiteview/audit/query_organizer.py`)
+A single JSON document (`~/.suiteview/query_organizer.json`, atomic writes via
+`json_store`), modeled on `BookmarkDataManager`:
+
+```json
+{
+  "next_group_id": 3,
+  "items": [
+    {"type": "query", "query_id": "ab12cd34…"},
+    {"type": "group", "id": 1, "name": "Claims Work",
+     "items": [{"type": "query", "query_id": "…"}]},
+    {"type": "forge", "name": "ReinForge"}
+  ]
+}
+```
+
+- **Root** holds loose queries, groups, and forge refs (like bookmarks on the
+  bar). Groups hold queries only (one level — groups don't nest, mirroring
+  bookmark categories).
+- **Forges are first-class browser citizens**: the organizer stores only a
+  positioned *reference*; a forge's contents stay in `dataforge_store`.
+- **Reconcile on load**: organizer refs to deleted queries/forges are pruned;
+  queries/forges on disk but not in the organizer are appended to root. So
+  the organizer can never lose or orphan a query.
+- **Seed migration**: first run creates groups named for the old build-type
+  categories (Cyberlife, Visual Queries, Manual SQL, File Sources) and files
+  existing queries into them — the browser looks familiar, then diverges.
+
+### Operations (all by id)
+- Move query: root ⇄ group ⇄ group, with explicit index (drag-drop).
+- Copy query (within or across containers): `store.copy` → new id; the name
+  may stay identical (ids disambiguate).
+- **Into a forge** = `add_query_as_source` (editable copy per §2); *move*
+  additionally deletes the standalone query, *copy* keeps it.
+- **Out of a forge** = materialize the Source's definition as a new
+  standalone QueryObject (new id) in the target container; remove the Source.
+- **Clone group**: new group, every contained query deep-copied (new ids).
+- **Clone forge**: forge JSON + every Source + its Snapshot parquet dir
+  copied — a clone is immediately runnable.
+
+### Look — color tells the story at a glance
+- Every query displays as `Name [<DSN>]` (flat files show their format,
+  e.g. `[CSV]`). Computed, never stored in the name.
+- **Build-mode colors** (single source of truth:
+  `suiteview/audit/build_mode_styles.py`), used for the chip/tint on browser
+  items AND the build-mode selector dropdown entries:
+
+  | Build mode | Color | Tint |
+  |---|---|---|
+  | Cyberlife | `#1E5BA8` deep blue | `#E3ECF7` |
+  | Visual Query | `#0F766E` teal | `#DFF0EE` |
+  | Manual SQL | `#6D28D9` violet | `#EDE7FA` |
+  | File Source | `#4D7C0F` moss | `#EFF5E4` |
+  | Executable | `#475569` slate | `#E8ECF1` |
+  | **DataForge** | `#C2410C` orange (reserved) | `#FFEDD5` |
+
+- **Weight hierarchy**: plain queries < **Query Groups** (bold, filled row,
+  taller) < **DataForges** (orange, bolder/heavier still). The user should
+  read structure from weight and origin from color without reading text.
+
+## 9. Append Tables on the join canvas (decided 2026-06-11)
+
+A visual **append** (UNION) construct for the DataForge canvas — and for
+Visual Query once it adopts the canvas (roadmap #1):
+
+- The user creates and names an **Append Table** on the canvas; it renders as
+  a heavier group box.
+- **Dragging a query (Source box) into it** makes that query a member: the
+  full Source box collapses to **just its header bar**, and member bars stack
+  neatly at the **bottom** of the group (newest on top of the stack, growing
+  upward from the bottom edge).
+- The body of the group lists the **shared fields** — the ordered
+  intersection of all members' columns (first member's order wins). Only
+  shared fields survive the append, and they are the join anchors: drag from
+  a shared field to any other Source's field to join the appended dataset.
+- Semantics: **UNION ALL** (append = stack rows; no dedup). Source-scope
+  filters on a member apply *before* the append (member CTEs feed the append
+  CTE). Members leave the join graph — the Append Table takes their place.
+- Engine: `AppendSpec(alias, members)` compiles to a CTE
+  `SELECT <shared> FROM m1 UNION ALL SELECT <shared> FROM m2 …`; the alias
+  is then joinable/filterable/selectable like any Source. The pandas run
+  path mirrors it with `pd.concat` on the shared columns.
+- Removing a member (right-click its bar) restores its full Source box.
+
+## 10. Constraints
 - DB2 / SQL Server can only be exercised on the **work laptop**, not the home
   minipc (see `WORK_LAPTOP_SPEC.md`). DuckDB + Snapshot + UI logic is testable
   on the minipc with local parquet/flat-file Sources; live source Refresh is not.
 
 ## Changelog
+- **2026-06-11 (evening)** — §8 + §9 built on the minipc (browser organization
+  + Append Tables; the agreed designs are recorded in those sections):
+  - **Identity:** `QueryObject.id` (uuid4), id-keyed store files
+    (`name__id8.json`) with in-place legacy migration, duplicate names legal,
+    republish-by-name adopts the existing id (no forks), copies/clones get
+    fresh ids (`copy_object_by_id`). Visual queries still auto-suffix names
+    (SavedQuery designs are name-keyed until the #11 identity pass).
+  - **Organizer:** `audit/query_organizer.py` (bookmark-style root/groups/
+    forge refs, reconcile-with-reality, first-run seeding from build kinds,
+    move/copy queries, clone group, queries in/out of Forges, clone Forge
+    incl. Snapshots via `dataforge_store.copy_forge_snapshots`).
+  - **Browser rebuilt** on the organizer: weight hierarchy (query < Group <
+    ⚙ Forge), build-mode chips + tints, `Name [DSN]` labels, drag-drop
+    (internal moves; into/out of Forges with move/copy prompts), context
+    menus (new/rename/clone/delete group, clone forge, copy/move-to,
+    extract/remove forge sources). Build-mode selector dropdown shows the
+    same chips and the button takes the active mode's color.
+  - **Append Tables:** engine `AppendSpec` (UNION ALL CTEs over shared
+    columns, members consumed from the join graph, member filters pre-append,
+    alias filterable/joinable), runtime `appends_from_config` +
+    append-aware `validate_forge`, canvas-model `CanvasAppend`
+    (membership, shared fields, state round-trip, config/spec/pandas-op
+    conversions), pandas run-path `pd.concat` mirror + Code-tab generation,
+    `config["appends"]` persisted.
+  - Tests: 227 green (engine 31, canvas 17, runtime 25, organizer 11,
+    query_object 53). **Remaining:** the canvas *view* for Append Tables
+    (AppendBoxItem group box: header + shared-field rows + stacked member
+    header bars + drop-to-join gestures) — next session; spec in §9. All
+    interactive click-tests deferred to the laptop (WORK_LAPTOP_SPEC §1.10).
 - **2026-06-06** — Created. Decisions: build on existing `audit/dataforge`;
   DuckDB engine; editable-copy Sources; no live pulls on open; link+filter first,
   aggregation later; MS-Access-style join canvas as the main UI rebuild.

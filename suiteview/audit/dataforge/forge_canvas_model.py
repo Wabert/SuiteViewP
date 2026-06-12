@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .forge_engine import JoinSpec
+from .forge_engine import AppendSpec, JoinSpec, shared_append_columns
 
 # Allowed relationship types (match forge_engine._JOIN_SQL keys we expose in UI).
 JOIN_TYPES = ("inner", "left", "right", "outer")
@@ -81,6 +81,45 @@ class CanvasSource:
 
 
 @dataclass
+class CanvasAppend:
+    """An Append Table group box (design §9): a named UNION of member Sources.
+
+    ``members`` are Source aliases in stack order (first in = bottom of the
+    stack = the member whose column order defines the shared fields). Member
+    Sources stay in the model's ``sources`` list (their fields define the
+    shared set) but leave the join graph — the view hides their boxes and
+    renders just their header bars inside this group.
+    """
+    name: str
+    members: list[str] = field(default_factory=list)
+    x: float = 0.0
+    y: float = 0.0
+    width: float = 220.0
+    collapsed: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "members": list(self.members),
+            "x": self.x,
+            "y": self.y,
+            "width": self.width,
+            "collapsed": self.collapsed,
+        }
+
+    @staticmethod
+    def from_dict(d: dict) -> CanvasAppend:
+        return CanvasAppend(
+            name=d["name"],
+            members=list(d.get("members", [])),
+            x=float(d.get("x", 0.0)),
+            y=float(d.get("y", 0.0)),
+            width=max(160.0, float(d.get("width", 220.0))),
+            collapsed=bool(d.get("collapsed", False)),
+        )
+
+
+@dataclass
 class JoinKey:
     """One field-to-field link (one drawn line) within a relationship."""
     left_field: str
@@ -135,6 +174,7 @@ class JoinCanvasModel:
     def __init__(self):
         self.sources: list[CanvasSource] = []
         self.joins: list[CanvasJoin] = []
+        self.appends: list[CanvasAppend] = []
 
     # ── Sources ─────────────────────────────────────────────────────────
 
@@ -158,11 +198,15 @@ class JoinCanvasModel:
         types = types or {}
         keep = set(names)
 
-        # Drop gone sources and joins referencing them.
+        # Drop gone sources; prune them out of Append Tables too.
         self.sources = [s for s in self.sources if s.alias in keep]
+        for ap in self.appends:
+            ap.members = [m for m in ap.members if m in keep]
+        # Joins may legally reference Append Tables as endpoints.
+        join_names = keep | {ap.name for ap in self.appends}
         self.joins = [
             j for j in self.joins
-            if j.left_source in keep and j.right_source in keep
+            if j.left_source in join_names and j.right_source in join_names
         ]
 
         existing = {s.alias for s in self.sources}
@@ -190,6 +234,120 @@ class JoinCanvasModel:
             j for j in self.joins
             if j.left_source != alias and j.right_source != alias
         ]
+        for ap in self.appends:
+            if alias in ap.members:
+                ap.members.remove(alias)
+
+    # ── Append Tables (design §9) ────────────────────────────────────────
+
+    def get_append(self, name: str) -> CanvasAppend | None:
+        for ap in self.appends:
+            if ap.name == name:
+                return ap
+        return None
+
+    def member_of(self, alias: str) -> str | None:
+        """The Append Table this Source belongs to, or None."""
+        for ap in self.appends:
+            if alias in ap.members:
+                return ap.name
+        return None
+
+    def add_append(self, name: str, x: float = 60.0,
+                   y: float = 60.0) -> CanvasAppend:
+        """Create a named, empty Append Table on the canvas."""
+        clean = name.strip()
+        if not clean:
+            raise ValueError("An Append Table needs a name.")
+        if self.get_source(clean) is not None or self.get_append(clean) is not None:
+            raise ValueError(
+                f"The name {clean!r} is already used on this canvas.")
+        ap = CanvasAppend(name=clean, x=x, y=y)
+        self.appends.append(ap)
+        return ap
+
+    def remove_append(self, name: str) -> None:
+        """Delete an Append Table; its members become plain Sources again."""
+        ap = self.get_append(name)
+        if ap is None:
+            return
+        self.appends.remove(ap)
+        self.joins = [j for j in self.joins
+                      if name not in (j.left_source, j.right_source)]
+
+    def rename_append(self, old: str, new: str) -> None:
+        ap = self.get_append(old)
+        clean = new.strip()
+        if ap is None or not clean or clean == old:
+            return
+        if self.get_source(clean) is not None or self.get_append(clean) is not None:
+            raise ValueError(
+                f"The name {clean!r} is already used on this canvas.")
+        ap.name = clean
+        for j in self.joins:
+            if j.left_source == old:
+                j.left_source = clean
+            if j.right_source == old:
+                j.right_source = clean
+
+    def add_member(self, append_name: str, alias: str) -> None:
+        """Drop a Source into an Append Table.
+
+        The Source leaves the join graph (its relationships are removed —
+        the Append Table joins in its place) and its box collapses to a
+        header bar inside the group.
+        """
+        ap = self.get_append(append_name)
+        if ap is None:
+            raise ValueError(f"No Append Table named {append_name!r}.")
+        if self.get_source(alias) is None:
+            raise ValueError(f"No Source named {alias!r} on the canvas.")
+        owner = self.member_of(alias)
+        if owner is not None:
+            raise ValueError(
+                f"{alias!r} is already inside Append Table {owner!r}.")
+        ap.members.append(alias)
+        self.joins = [j for j in self.joins
+                      if alias not in (j.left_source, j.right_source)]
+
+    def remove_member(self, append_name: str, alias: str) -> None:
+        """Pull a Source back out of an Append Table (its box returns)."""
+        ap = self.get_append(append_name)
+        if ap is not None and alias in ap.members:
+            ap.members.remove(alias)
+
+    def shared_fields(self, append_name: str) -> list[str]:
+        """The Append Table's schema: ordered intersection of member columns."""
+        ap = self.get_append(append_name)
+        if ap is None:
+            return []
+        schemas = {s.alias: s.field_names() for s in self.sources}
+        return shared_append_columns(schemas, ap.members)
+
+    def fields_of(self, name: str) -> list[str]:
+        """Joinable fields of a Source box OR an Append Table."""
+        src = self.get_source(name)
+        if src is not None:
+            return src.field_names()
+        if self.get_append(name) is not None:
+            return self.shared_fields(name)
+        return []
+
+    def to_append_specs(self) -> list[AppendSpec]:
+        """Engine specs for every Append Table with at least one member."""
+        return [AppendSpec(alias=ap.name, members=tuple(ap.members))
+                for ap in self.appends if ap.members]
+
+    def to_config_appends(self) -> list[dict]:
+        """Append dicts for DataForge.config (forge_runtime reads these)."""
+        return [{"alias": ap.name, "members": list(ap.members)}
+                for ap in self.appends if ap.members]
+
+    def get_append_ops(self) -> list[dict]:
+        """Append ops for the live pandas run path (pd.concat on shared cols)."""
+        return [{"name": ap.name, "members": list(ap.members),
+                 "columns": self.shared_fields(ap.name)}
+                for ap in self.appends if ap.members]
 
     # ── Relationships / keys ─────────────────────────────────────────────
 
@@ -210,8 +368,14 @@ class JoinCanvasModel:
         """
         if src_a == src_b:
             raise ValueError("Cannot join a Source to itself.")
-        if self.get_source(src_a) is None or self.get_source(src_b) is None:
-            raise ValueError("Both Sources must exist on the canvas.")
+        for name in (src_a, src_b):
+            if self.get_source(name) is None and self.get_append(name) is None:
+                raise ValueError("Both Sources must exist on the canvas.")
+            owner = self.member_of(name)
+            if owner is not None:
+                raise ValueError(
+                    f"{name!r} is inside Append Table {owner!r} — draw the "
+                    f"join from the Append Table's shared fields instead.")
 
         join = self.find_join(src_a, src_b)
         if join is None:
@@ -328,14 +492,26 @@ class JoinCanvasModel:
     def validate(self) -> list[str]:
         """Return human-readable warnings about the current configuration."""
         warnings: list[str] = []
+        for ap in self.appends:
+            if len(ap.members) == 1:
+                warnings.append(
+                    f"Append Table {ap.name} has only one member — drop more "
+                    f"queries in to append them.")
+            if ap.members and not self.shared_fields(ap.name):
+                warnings.append(
+                    f"Append Table {ap.name}: its members share no columns.")
         for j in self.joins:
-            left = self.get_source(j.left_source)
-            right = self.get_source(j.right_source)
+            left_known = (self.get_source(j.left_source) is not None
+                          or self.get_append(j.left_source) is not None)
+            right_known = (self.get_source(j.right_source) is not None
+                           or self.get_append(j.right_source) is not None)
+            left_fields = self.fields_of(j.left_source)
+            right_fields = self.fields_of(j.right_source)
             for k in j.keys:
-                if left and k.left_field and not left.has_field(k.left_field):
+                if left_known and k.left_field and k.left_field not in left_fields:
                     warnings.append(
                         f"{j.left_source}.{k.left_field} is not a known field.")
-                if right and k.right_field and not right.has_field(k.right_field):
+                if right_known and k.right_field and k.right_field not in right_fields:
                     warnings.append(
                         f"{j.right_source}.{k.right_field} is not a known field.")
             if not j.complete_keys():
@@ -350,12 +526,15 @@ class JoinCanvasModel:
         return {
             "sources": [s.to_dict() for s in self.sources],
             "joins": [j.to_dict() for j in self.joins],
+            "appends": [ap.to_dict() for ap in self.appends],
         }
 
     def from_state(self, state: dict) -> None:
         self.sources = [CanvasSource.from_dict(s)
                         for s in state.get("sources", [])]
         self.joins = [CanvasJoin.from_dict(j) for j in state.get("joins", [])]
+        self.appends = [CanvasAppend.from_dict(a)
+                        for a in state.get("appends", [])]
 
     @staticmethod
     def from_legacy_merges(merges: list[dict]) -> "JoinCanvasModel":

@@ -354,6 +354,116 @@ def test_view_explicit_add_and_removed_persist():
     print("  explicit add + removed-table persistence  OK")
 
 
+# ── Append Tables (design §9) ─────────────────────────────────────────────
+
+def _append_model() -> JoinCanvasModel:
+    m = JoinCanvasModel()
+    m.set_sources(
+        ["ca", "cb", "pol"],
+        columns={
+            "ca": ["company_code", "policy_number", "claim_amount", "office"],
+            "cb": ["company_code", "policy_number", "claim_amount", "examiner"],
+            "pol": ["company_code", "policy_number", "face_amount"],
+        },
+    )
+    return m
+
+
+def test_append_membership_and_shared_fields():
+    m = _append_model()
+    ap = m.add_append("All Claims")
+    m.add_member("All Claims", "ca")
+    m.add_member("All Claims", "cb")
+    assert ap.members == ["ca", "cb"]
+    assert m.member_of("ca") == "All Claims"
+    # Shared fields: ordered intersection, first member's order.
+    assert m.shared_fields("All Claims") == [
+        "company_code", "policy_number", "claim_amount"]
+    assert m.fields_of("All Claims") == m.shared_fields("All Claims")
+
+    # A member can't be in two appends; names can't collide.
+    m.add_append("Other")
+    try:
+        m.add_member("Other", "ca")
+        raise AssertionError("expected double-membership rejection")
+    except ValueError:
+        pass
+    try:
+        m.add_append("pol")
+        raise AssertionError("expected name-collision rejection")
+    except ValueError:
+        pass
+
+    # Removing a member restores it; removing the append frees them all.
+    m.remove_member("All Claims", "cb")
+    assert m.member_of("cb") is None
+    m.remove_append("All Claims")
+    assert m.member_of("ca") is None
+    print("  append membership + shared fields  OK")
+
+
+def test_append_consumes_joins_and_links_via_append():
+    m = _append_model()
+    # 'ca' is joined to pol; dropping it into an append removes that join.
+    m.add_link("ca", "company_code", "pol", "company_code")
+    m.add_append("All Claims")
+    m.add_member("All Claims", "ca")
+    assert m.joins == []
+    # Members can't be join endpoints anymore...
+    try:
+        m.add_link("ca", "company_code", "pol", "company_code")
+        raise AssertionError("expected member-endpoint rejection")
+    except ValueError as e:
+        assert "Append Table" in str(e)
+    # ...but the Append Table itself can.
+    m.add_member("All Claims", "cb")
+    j = m.add_link("All Claims", "policy_number", "pol", "policy_number")
+    assert {j.left_source, j.right_source} == {"All Claims", "pol"}
+    specs = m.to_join_specs()
+    assert specs[0].left_source in ("All Claims", "pol")
+    print("  append consumes joins; append is joinable  OK")
+
+
+def test_append_specs_config_and_state_round_trip():
+    m = _append_model()
+    m.add_append("All Claims", x=120, y=80)
+    m.add_member("All Claims", "ca")
+    m.add_member("All Claims", "cb")
+    m.add_link("All Claims", "company_code", "pol", "company_code")
+
+    specs = m.to_append_specs()
+    assert len(specs) == 1
+    assert specs[0].alias == "All Claims" and specs[0].members == ("ca", "cb")
+    assert m.to_config_appends() == [
+        {"alias": "All Claims", "members": ["ca", "cb"]}]
+    ops = m.get_append_ops()
+    assert ops[0]["columns"] == ["company_code", "policy_number", "claim_amount"]
+
+    # State round-trip preserves the append (position included).
+    m2 = JoinCanvasModel()
+    m2.from_state(m.to_state())
+    ap = m2.get_append("All Claims")
+    assert ap is not None and ap.members == ["ca", "cb"]
+    assert ap.x == 120 and ap.y == 80
+    assert m2.member_of("ca") == "All Claims"
+    assert len(m2.joins) == 1
+
+    # Reconcile: a member whose query disappears is pruned from the append.
+    m2.set_sources(["ca", "pol"],
+                   columns={"ca": ["company_code"], "pol": ["company_code"]})
+    assert m2.get_append("All Claims").members == ["ca"]
+    print("  append specs/config/state round-trip + reconcile  OK")
+
+
+def test_append_validate_warnings():
+    m = _append_model()
+    m.add_append("Lonely")
+    m.add_member("Lonely", "ca")
+    warnings = m.validate()
+    assert any("only one member" in w for w in warnings), warnings
+    print("  append validate warnings  OK")
+
+
 def main():
     print("=" * 60)
     print("DataForge join-canvas tests")
@@ -370,6 +480,10 @@ def main():
         test_legacy_merges_import,
         test_legacy_cards_import,
         test_validate,
+        test_append_membership_and_shared_fields,
+        test_append_consumes_joins_and_links_via_append,
+        test_append_specs_config_and_state_round_trip,
+        test_append_validate_warnings,
         test_view_smoke,
         test_view_explicit_add_and_removed_persist,
     ]

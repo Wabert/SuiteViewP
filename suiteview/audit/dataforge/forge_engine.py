@@ -72,6 +72,41 @@ class JoinSpec:
 
 
 @dataclass(frozen=True)
+class AppendSpec:
+    """A named append — UNION ALL of several Sources' rows (design §9).
+
+    Only the columns shared by ALL members survive, ordered by the first
+    member's schema. The ``alias`` becomes joinable/filterable/selectable
+    like a Source; the members are *consumed* — they leave the join graph
+    and the Append Table takes their place. Source-scope filters on a member
+    still apply (member CTEs feed the append CTE).
+    """
+    alias: str
+    members: tuple[str, ...]
+
+    def __post_init__(self):
+        if len(self.members) < 1:
+            raise ForgeEngineError(
+                f"Append Table {self.alias!r} needs at least one member.")
+
+
+def shared_append_columns(schemas: dict[str, list[str]],
+                          members: tuple[str, ...] | list[str]) -> list[str]:
+    """The ordered intersection of the members' columns (first member's order).
+
+    This is THE definition of an Append Table's schema — the UI shows it and
+    the engine selects it, so they can never disagree.
+    """
+    if not members:
+        return []
+    shared = [c for c in schemas.get(members[0], [])]
+    for member in members[1:]:
+        cols = set(schemas.get(member, []))
+        shared = [c for c in shared if c in cols]
+    return shared
+
+
+@dataclass(frozen=True)
 class FilterSpec:
     """A filter on a single column.
 
@@ -364,6 +399,7 @@ def compile_forge_sql(
     filters: list[FilterSpec] = (),
     result_filters: list[FilterSpec] = (),
     outputs: list[OutputColumn] | None = None,
+    appends: list[AppendSpec] = (),
     limit: int | None = None,
     physical_names: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, tuple[str, str]]]:
@@ -373,24 +409,60 @@ def compile_forge_sql(
     ``filters`` are **Source-scope**: applied inside each Source's CTE (before
     the join). ``result_filters`` are **Result-scope**: applied to the joined,
     aliased output — each FilterSpec's ``column`` is an *output* column name
-    (its ``source`` is ignored). ``physical_names`` maps Source alias -> the
-    registered DuckDB table name; defaults to the alias itself.
-    Returns (sql, column_sources).
+    (its ``source`` is ignored). ``appends`` are Append Tables (UNION ALL of
+    member Sources over their shared columns); members leave the join graph
+    and the append alias joins in their place. A filter whose ``source`` is
+    an append alias applies to the appended rows. ``physical_names`` maps
+    Source alias -> the registered DuckDB table name; defaults to the alias
+    itself. Returns (sql, column_sources).
     """
     sources = list(schemas.keys())
     if not sources:
         raise ForgeEngineError("A Forge needs at least one Source.")
     physical_names = physical_names or {s: s for s in sources}
 
-    # Group filters by Source so each Source's CTE carries its own predicates.
+    # ── Validate appends; work out who is consumed ────────────────────
+    appends = list(appends)
+    append_aliases = [a.alias for a in appends]
+    consumed: set[str] = set()
+    append_schemas: dict[str, list[str]] = {}
+    for ap in appends:
+        if ap.alias in schemas or append_aliases.count(ap.alias) > 1:
+            raise ForgeEngineError(
+                f"Append Table name {ap.alias!r} collides with another "
+                f"Source/Append Table; give it a unique name.")
+        for m in ap.members:
+            if m not in schemas:
+                raise ForgeEngineError(
+                    f"Append Table {ap.alias!r} references unknown Source "
+                    f"{m!r}.")
+            if m in consumed:
+                raise ForgeEngineError(
+                    f"Source {m!r} is a member of two Append Tables; a "
+                    f"Source can be appended only once.")
+        shared = shared_append_columns(schemas, ap.members)
+        if not shared:
+            raise ForgeEngineError(
+                f"Append Table {ap.alias!r}: its members share no columns, "
+                f"so the append would be empty. Members need at least one "
+                f"common field.")
+        append_schemas[ap.alias] = shared
+        consumed.update(ap.members)
+
+    # Group filters by Source/append so each CTE carries its own predicates.
     filters_by_source: dict[str, list[FilterSpec]] = {s: [] for s in sources}
+    filters_by_append: dict[str, list[FilterSpec]] = {a: [] for a in append_aliases}
     for f in filters:
-        if f.source not in filters_by_source:
+        if f.source in filters_by_source:
+            filters_by_source[f.source].append(f)
+        elif f.source in filters_by_append:
+            filters_by_append[f.source].append(f)
+        else:
             raise ForgeEngineError(
                 f"Filter references unknown Source {f.source!r}.")
-        filters_by_source[f.source].append(f)
 
     # Build a CTE per Source: SELECT * FROM <physical> [WHERE <source filters>].
+    # Members keep their CTEs (their filters apply BEFORE the append).
     ctes = []
     for src in sources:
         phys = _qi(physical_names[src])
@@ -398,7 +470,28 @@ def compile_forge_sql(
                              for f in filters_by_source[src]) if p]
         where = f" WHERE {' AND '.join(preds)}" if preds else ""
         ctes.append(f"{_qi(src)} AS (SELECT * FROM {phys}{where})")
+
+    # Append CTEs: UNION ALL of the shared columns, in first-member order.
+    for ap in appends:
+        shared_cols = ", ".join(_qi(c) for c in append_schemas[ap.alias])
+        union = "\n  UNION ALL\n  ".join(
+            f"SELECT {shared_cols} FROM {_qi(m)}" for m in ap.members)
+        preds = [p for p in (_filter_to_sql(f, _qi("_ap"))
+                             for f in filters_by_append[ap.alias]) if p]
+        if preds:
+            body = (f"SELECT * FROM (\n  {union}\n  ) AS {_qi('_ap')}"
+                    f" WHERE {' AND '.join(preds)}")
+        else:
+            body = union
+        ctes.append(f"{_qi(ap.alias)} AS (\n  {body}\n  )")
     with_clause = "WITH " + ",\n     ".join(ctes)
+
+    # The join graph sees the surviving Sources + the Append Tables.
+    sources = [s for s in sources if s not in consumed] + append_aliases
+    schemas = {**{s: schemas[s] for s in schemas if s not in consumed},
+               **append_schemas}
+    if not sources:
+        raise ForgeEngineError("A Forge needs at least one Source.")
 
     # FROM / JOIN chain.
     placed, steps = _ordered_joins(list(joins), sources)
@@ -530,6 +623,7 @@ def run_forge(
     filters: list[FilterSpec] = (),
     result_filters: list[FilterSpec] = (),
     outputs: list[OutputColumn] | None = None,
+    appends: list[AppendSpec] = (),
     limit: int | None = None,
     connection: "duckdb.DuckDBPyConnection | None" = None,
 ) -> ForgeResult:
@@ -537,7 +631,7 @@ def run_forge(
 
     ``sources`` maps Source alias -> Snapshot DataFrame. Each DataFrame is
     registered as a DuckDB virtual table, then the compiled SQL runs once.
-    See :func:`compile_forge_sql` for the filter scopes.
+    See :func:`compile_forge_sql` for the filter scopes and Append Tables.
     """
     if not sources:
         raise ForgeEngineError("A Forge needs at least one Source.")
@@ -558,7 +652,7 @@ def run_forge(
         sql, column_sources = compile_forge_sql(
             schemas, joins,
             filters=filters, result_filters=result_filters,
-            outputs=outputs, limit=limit,
+            outputs=outputs, appends=appends, limit=limit,
             physical_names=physical_names,
         )
         result_df = con.execute(sql).df()

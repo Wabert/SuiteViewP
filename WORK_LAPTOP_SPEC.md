@@ -355,6 +355,43 @@ in the running app**:
   (from `get_config`) — spot-check a saved Forge's JSON under
   `~/.suiteview/saved_dataforges/`.
 
+### 1.10 Query Browser groups/IDs/colors + Append Tables backbone (2026-06-11, minipc)
+
+The Query Object browser was rebuilt on a bookmark-style organizer
+(`audit/query_organizer.py`; design in `DATAFORGE_DESIGN.md` §8) and queries
+got permanent unique ids (`QueryObject.id`, id-keyed store files with
+in-place legacy migration — the first browser open MIGRATES
+`~/.suiteview/query_objects/*.json` to `name__id8.json`; verify it's clean).
+All headless-tested (227 green); **click-test in the running app:**
+
+- **First open:** old kind-categories appear as seeded GROUPS (Cyberlife,
+  Visual Queries, Manual SQL, File Sources); every query shows `Name [DSN]`
+  with its build-mode color chip + tint; Forges appear as heavier orange
+  ⚙ nodes with their Source copies under them.
+- **Groups:** right-click background → New Query Group; rename/clone/delete
+  (delete keeps queries, they fall to root). Clone Group deep-copies every
+  query inside (same names, new ids — verify both copies open/run).
+- **Drag-drop:** query → group / root / another group (position respected);
+  query → Forge prompts Move in / Copy in (Move consumes the standalone
+  query); Source dragged out of a Forge prompts Copy out / Move out; groups
+  and forges reorder at root level. After every drop the tree must match
+  `~/.suiteview/query_organizer.json`.
+- **Forge ops from the browser:** Clone DataForge (Sources + Snapshots —
+  run the clone immediately, no Refresh needed), Remove from DataForge
+  (Source + Snapshot + forge-local copy records gone).
+- **Duplicate names:** copy a query into two groups, rename one — confirm
+  the other is untouched (ids, not names). DataForge Re-sync against a
+  duplicated name resolves to the newest — acceptable until the identity
+  pass (#11) — but confirm nothing crashes.
+- **Build-mode selector:** dropdown entries show mode chips; the button
+  takes the active mode's color (Cyberlife blue, Visual teal, Manual SQL
+  violet, File moss). Confirm legibility against the navy header.
+- **Append Tables (engine/model only so far):** `config["appends"]` runs
+  through both the pandas path and the compiled DuckDB SQL. The canvas
+  VIEW (the group box with stacked member header bars per design §9) is NOT
+  built yet — next minipc session; do not expect to see appends on the
+  canvas, but a hand-edited saved-forge config with appends should run.
+
 ---
 
 ## §2 — DEFERRED: DB2 connection consolidation (Tier 2c) — NEEDS LIVE DB2
@@ -456,6 +493,15 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
 ---
 
 ## Changelog
+- **2026-06-11 (minipc, evening)** — Query Browser reorganization + Append
+  Tables backbone (added §1.10): QueryObject unique ids + id-keyed store with
+  legacy migration; `query_organizer.py` (groups/forge refs/reconcile/seed/
+  clone); browser tree rebuilt on it with build-mode colors, `[DSN]` tags,
+  weight hierarchy, drag-drop and group/forge clone; build-mode selector
+  colored; engine/canvas-model/pandas support for Append Tables (UNION ALL
+  over shared columns) with config persistence. Canvas VIEW for appends is
+  the next minipc task (design §9). Suite: 227 passed; same 6 live-DB2
+  failures as §1.9.
 - **2026-06-11 (minipc)** — DataForge Phase 3 Manual mode (added §1.9): the
   engine gained `run_manual_sql` (Sources registered under their user-facing
   names; compiled Visual SQL runs unchanged in Manual mode), the runtime gained

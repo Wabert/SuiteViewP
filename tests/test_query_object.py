@@ -43,7 +43,7 @@ from suiteview.audit.query_object_store import (
     restore_saved_visual_design,
     save_object,
 )
-from suiteview.audit.query_object_viewer_window import _display_dsn_for_definition, _display_dsn_for_object, _limited_preview_sql, _object_group_label, _preview_dialect_for_object
+from suiteview.audit.query_object_viewer_window import _display_dsn_for_definition, _display_dsn_for_object, _limited_preview_sql, _preview_dialect_for_object
 from suiteview.audit.query_object_viewer_window import QueryObjectViewerWindow
 from suiteview.audit.saved_query import SavedQuery
 from suiteview.audit import qdef_store, saved_query_store
@@ -318,15 +318,15 @@ class QueryObjectTests(unittest.TestCase):
         self.assertEqual(obj.sources[0].status, SOURCE_STATUS_ADHOC)
         self.assertEqual(obj.result_columns, ["producer_id", "territory"])
 
-    def test_adhoc_sources_group_as_file_sources(self):
-        obj = adhoc_source_object(
-            "claims.txt",
-            source_type="csv",
-            metadata={"path": "C:/temp/claims.txt", "format": "delimited"},
-            columns=["Policy", "Claim"],
-        )
+    def test_adhoc_sources_seed_into_file_sources_group(self):
+        # Kind-based browser grouping was replaced by user-defined Query
+        # Groups (DATAFORGE_DESIGN §8); the equivalent guarantee is the
+        # organizer's first-run seed, which files adhoc sources under a
+        # "File Sources" group.
+        from suiteview.audit.query_organizer import _SEED_GROUPS
 
-        self.assertEqual(_object_group_label(obj), "File Sources")
+        seed_map = dict(_SEED_GROUPS)
+        self.assertEqual(seed_map.get("adhoc_source"), "File Sources")
 
     def test_csv_file_becomes_adhoc_query_object(self):
         with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as handle:
@@ -749,7 +749,9 @@ class QueryObjectTests(unittest.TestCase):
             try:
                 app.processEvents()
 
-                self.assertEqual(window.tree.currentItem().text(0), "Initial Viewer Object")
+                # Browser items show the datasource tag (design §8).
+                self.assertEqual(window.tree.currentItem().text(0),
+                                 "Initial Viewer Object  [WORK_DSN]")
                 self.assertEqual(window.lbl_name.text(), "Initial Viewer Object")
             finally:
                 window.close()

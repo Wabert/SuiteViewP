@@ -13,8 +13,8 @@ from datetime import datetime
 
 import pandas as pd
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QBrush, QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -58,6 +58,10 @@ from suiteview.audit.query_object import (
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit.query_runner import execute_odbc_query
 from suiteview.audit import query_object_store
+from suiteview.audit.build_mode_styles import (
+    FORGE_STYLE, GROUP_STYLE, mode_icon as _mode_icon, mode_style,
+)
+from suiteview.audit.query_organizer import get_query_organizer
 from suiteview.core.odbc_utils import ACCESS, DB2, SQL_SERVER, UNKNOWN, detect_dialect
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
@@ -86,17 +90,45 @@ _BTN_DANGER_STYLE = (
     "QPushButton:hover { background-color: #E00000; }"
 )
 
-_DATAFORGE_NODE_PREFIX = "__dataforge_forge__:"
+# ── Tree item payloads (UserRole) ───────────────────────────────────────
+# {"type": "query", "id": <object id>, "name": <object name>[, "forge": name]}
+# {"type": "group", "group_id": <organizer group id>, "name": <group name>}
+# {"type": "forge", "name": <forge name>}
 
 
-def _dataforge_node_value(forge_name: str) -> str:
-    return f"{_DATAFORGE_NODE_PREFIX}{forge_name}"
+def _payload(item) -> dict:
+    if item is None:
+        return {}
+    data = item.data(0, Qt.ItemDataRole.UserRole)
+    return data if isinstance(data, dict) else {}
 
 
-def _dataforge_node_name(value) -> str:
-    if isinstance(value, str) and value.startswith(_DATAFORGE_NODE_PREFIX):
-        return value[len(_DATAFORGE_NODE_PREFIX):]
-    return ""
+class _OrganizerTree(QTreeWidget):
+    """The browser tree with bookmark-style drag-drop (design §8).
+
+    The widget only works out WHAT was dragged WHERE and hands that to the
+    window; the actual reorganization happens in QueryOrganizer and the tree
+    is rebuilt from it — the organizer stays the single source of truth.
+    """
+
+    def __init__(self, window):
+        super().__init__()
+        self._window = window
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+
+    def dropEvent(self, event):
+        dragged = self.currentItem()
+        target = self.itemAt(event.position().toPoint())
+        indicator = self.dropIndicatorPosition()
+        # Never let Qt restructure the tree itself; the organizer decides
+        # and the tree is rebuilt from it.
+        event.setDropAction(Qt.DropAction.IgnoreAction)
+        event.accept()
+        self._window._handle_tree_drop(dragged, target, indicator)
 
 
 def _kind_label(kind: str) -> str:
@@ -111,9 +143,24 @@ def _kind_label(kind: str) -> str:
 
 
 def _object_group_label(obj: QueryObject) -> str:
+    """Kind-based group label — no longer used by the browser tree (user
+    Query Groups replaced it, design §8) but still consumed by the DataForge
+    query picker until the field-picker consolidation pass (#5)."""
     if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
         return "File Sources"
     return _kind_label(obj.kind)
+
+
+def _object_group_order(label: str) -> tuple[int, str]:
+    """Sort order for the kind-based groups (picker-only; see above)."""
+    order = {
+        "Cyberlife Objects": 10,
+        "File Sources": 20,
+        "Manual SQL Objects": 30,
+        "Visual Queries": 40,
+        "Executable Queries": 50,
+    }
+    return order.get(label, 90), label.lower()
 
 
 def _dataforge_info(obj: QueryObject) -> tuple[str, str] | None:
@@ -178,17 +225,6 @@ def _display_dsn_for_definition(definition: dict) -> str:
     if source_design in {"csv", "excel", "fixed_width"} and metadata:
         return _file_source_type_label(source_design, metadata)
     return str(definition.get("dsn", "")).strip()
-
-
-def _object_group_order(label: str) -> tuple[int, str]:
-    order = {
-        "Cyberlife Objects": 10,
-        "File Sources": 20,
-        "Manual SQL Objects": 30,
-        "Visual Queries": 40,
-        "Executable Queries": 50,
-    }
-    return order.get(label, 90), label.lower()
 
 
 def _preview_dialect_for_object(obj: QueryObject) -> str:
@@ -272,7 +308,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         lbl_left.setStyleSheet("color: #1E5BA8;")
         left_lay.addWidget(lbl_left)
 
-        self.tree = QTreeWidget()
+        self.tree = _OrganizerTree(self)
         self.tree.setHeaderHidden(True)
         self.tree.setMinimumWidth(210)
         self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -514,66 +550,106 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._set_table_headers(self.tbl_fields, ["Field", "Type", "Role", "Source"])
 
     def refresh(self):
-        """Reload the object tree from disk."""
-        current_name = None
-        current = self.tree.currentItem()
-        if current is not None:
-            current_name = current.data(0, Qt.ItemDataRole.UserRole)
+        """Rebuild the tree from the organizer: groups, forges, loose queries.
+
+        Weight tells structure (query < Group < Forge), color tells origin
+        (build-mode chips/tints; DataForge orange) — design §8.
+        """
+        current_payload = _payload(self.tree.currentItem())
         self.tree.clear()
         self._ensure_dataforge_query_objects()
         objects = query_object_store.list_objects()
-        groups: dict[str, list[QueryObject]] = {}
-        dataforge_groups: dict[str, list[QueryObject]] = {}
+        by_id = {o.id: o for o in objects}
+
+        # Forge-owned Source copies render under their forge node.
+        forge_children: dict[str, list[QueryObject]] = {}
         for obj in objects:
-            dataforge_info = _dataforge_info(obj)
-            if dataforge_info is not None:
-                forge_name, _ = dataforge_info
-                dataforge_groups.setdefault(forge_name, []).append(obj)
-                continue
-            groups.setdefault(_object_group_label(obj), []).append(obj)
+            info = _dataforge_info(obj)
+            if info is not None:
+                forge_children.setdefault(info[0], []).append(obj)
+
+        from suiteview.audit.dataforge import dataforge_store
+        forge_names = [f.name for f in dataforge_store.list_forges()]
+        organizer = get_query_organizer()
+        if organizer.reconcile(objects, forge_names):
+            organizer.save()
 
         fallback_item = None
         selected_item = None
 
-        def _add_object_child(parent_item: QTreeWidgetItem, obj: QueryObject,
-                              label: str | None = None):
+        def _track(item: QTreeWidgetItem, payload: dict):
             nonlocal fallback_item, selected_item
-            child = QTreeWidgetItem([label or obj.name])
-            child.setFont(0, _FONT)
-            child.setData(0, Qt.ItemDataRole.UserRole, obj.name)
-            parent_item.addChild(child)
-            if fallback_item is None:
-                fallback_item = child
-            if current_name == obj.name:
-                selected_item = child
+            if fallback_item is None and payload.get("type") == "query":
+                fallback_item = item
+            if current_payload and payload.get("type") == current_payload.get("type"):
+                keys = {"query": ("id",), "group": ("group_id",),
+                        "forge": ("name",)}.get(payload.get("type"), ())
+                if keys and all(payload.get(k) == current_payload.get(k)
+                                for k in keys):
+                    selected_item = item
 
-        for group_label in sorted(groups, key=_object_group_order):
-            parent = QTreeWidgetItem([group_label])
-            parent.setFont(0, _FONT_BOLD)
-            parent.setForeground(0, QColor("#1E5BA8"))
-            parent.setData(0, Qt.ItemDataRole.UserRole, None)
-            self.tree.addTopLevelItem(parent)
-            for obj in groups[group_label]:
-                _add_object_child(parent, obj)
-            parent.setExpanded(True)
+        def _add_query_item(parent, obj: QueryObject, forge_name: str = ""):
+            style = mode_style(obj.kind)
+            dsn = _display_dsn_for_object(obj) or "?"
+            item = QTreeWidgetItem([f"{obj.name}  [{dsn}]"])
+            item.setFont(0, _FONT)
+            item.setForeground(0, QColor(style.color))
+            item.setBackground(0, QBrush(QColor(style.tint)))
+            item.setIcon(0, _mode_icon(style.color))
+            item.setToolTip(0, f"{style.label} — {dsn}")
+            payload = {"type": "query", "id": obj.id, "name": obj.name}
+            if forge_name:
+                payload["forge"] = forge_name
+            item.setData(0, Qt.ItemDataRole.UserRole, payload)
+            if parent is None:
+                self.tree.addTopLevelItem(item)
+            else:
+                parent.addChild(item)
+            _track(item, payload)
+            return item
 
-        if dataforge_groups:
-            dataforge_parent = QTreeWidgetItem(["DataForge"])
-            dataforge_parent.setFont(0, _FONT_BOLD)
-            dataforge_parent.setForeground(0, QColor("#C2410C"))
-            dataforge_parent.setData(0, Qt.ItemDataRole.UserRole, None)
-            self.tree.addTopLevelItem(dataforge_parent)
-            for forge_name in sorted(dataforge_groups, key=str.lower):
-                forge_node = QTreeWidgetItem([_dataforge_display_name(forge_name)])
-                forge_node.setFont(0, _FONT_BOLD)
-                forge_node.setForeground(0, QColor("#C2410C"))
-                forge_node.setData(0, Qt.ItemDataRole.UserRole, _dataforge_node_value(forge_name))
-                dataforge_parent.addChild(forge_node)
-                for obj in sorted(dataforge_groups[forge_name], key=lambda item: item.name.lower()):
-                    _, source_label = _dataforge_info(obj) or (forge_name, obj.name)
-                    _add_object_child(forge_node, obj, source_label)
-                forge_node.setExpanded(True)
-            dataforge_parent.setExpanded(True)
+        def _add_forge_item(forge_name: str):
+            item = QTreeWidgetItem([f"⚙ {_dataforge_display_name(forge_name)}"])
+            item.setFont(0, QFont("Segoe UI", 10, QFont.Weight.Bold))
+            item.setForeground(0, QColor(FORGE_STYLE.color))
+            item.setBackground(0, QBrush(QColor(FORGE_STYLE.tint)))
+            item.setSizeHint(0, QSize(0, 26))
+            payload = {"type": "forge", "name": forge_name}
+            item.setData(0, Qt.ItemDataRole.UserRole, payload)
+            self.tree.addTopLevelItem(item)
+            for obj in sorted(forge_children.get(forge_name, []),
+                              key=lambda o: o.name.lower()):
+                _add_query_item(item, obj, forge_name=forge_name)
+            item.setExpanded(True)
+            _track(item, payload)
+
+        def _add_group_item(group: dict):
+            item = QTreeWidgetItem([group["name"]])
+            item.setFont(0, QFont("Segoe UI", 9, QFont.Weight.Bold))
+            item.setForeground(0, QColor(GROUP_STYLE.color))
+            item.setBackground(0, QBrush(QColor(GROUP_STYLE.tint)))
+            item.setSizeHint(0, QSize(0, 24))
+            payload = {"type": "group", "group_id": group["id"],
+                       "name": group["name"]}
+            item.setData(0, Qt.ItemDataRole.UserRole, payload)
+            self.tree.addTopLevelItem(item)
+            for child in group.get("items", []):
+                obj = by_id.get(child.get("query_id"))
+                if obj is not None:
+                    _add_query_item(item, obj)
+            item.setExpanded(True)
+            _track(item, payload)
+
+        for entry in organizer.items:
+            kind = entry.get("type")
+            if kind == "query":
+                obj = by_id.get(entry.get("query_id"))
+                if obj is not None:
+                    _add_query_item(None, obj)
+            elif kind == "group":
+                _add_group_item(entry)
+            elif kind == "forge":
+                _add_forge_item(entry.get("name", ""))
 
         item_to_select = selected_item or fallback_item
         if item_to_select is not None:
@@ -617,8 +693,10 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def select_object(self, name: str):
         """Refresh and select a Query Object by name if it exists."""
         self.refresh()
+
         def _select_under(item: QTreeWidgetItem) -> bool:
-            if item.data(0, Qt.ItemDataRole.UserRole) == name:
+            payload = _payload(item)
+            if payload.get("type") == "query" and payload.get("name") == name:
                 self.tree.setCurrentItem(item)
                 return True
             for index in range(item.childCount()):
@@ -634,81 +712,380 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.select_object(name)
 
     def _on_tree_selection(self, current, previous):
-        if current is None:
-            self._clear_detail()
+        payload = _payload(current)
+        if payload.get("type") == "forge":
+            self._show_forge_detail(payload.get("name", ""))
             return
-        name = current.data(0, Qt.ItemDataRole.UserRole)
-        forge_name = _dataforge_node_name(name)
-        if forge_name:
-            self._show_forge_detail(forge_name)
-            return
-        if not name:
-            self._clear_detail()
-            return
-        obj = query_object_store.load_object(name)
-        if obj is None:
-            self._clear_detail()
-            return
-        self._show_detail(obj)
+        if payload.get("type") == "query":
+            obj = query_object_store.load_object_by_id(payload.get("id", ""))
+            if obj is not None:
+                self._show_detail(obj)
+                return
+        self._clear_detail()
 
     def _on_tree_double_clicked(self, item, column):
-        name = item.data(0, Qt.ItemDataRole.UserRole)
-        forge_name = _dataforge_node_name(name)
-        if forge_name:
-            self._open_dataforge_builder(forge_name)
+        payload = _payload(item)
+        if payload.get("type") == "forge":
+            self._open_dataforge_builder(payload.get("name", ""))
+            return
+        if payload.get("type") == "query" and payload.get("forge"):
+            self._open_dataforge_builder(payload["forge"])
             return
         if self._current is not None and self._can_open_in_builder(self._current):
             self._on_open_builder()
 
     def _show_tree_context_menu(self, pos):
         item = self.tree.itemAt(pos)
-        if item is None:
-            return
-        name = item.data(0, Qt.ItemDataRole.UserRole)
-        forge_name = _dataforge_node_name(name)
-        if forge_name:
-            self.tree.setCurrentItem(item)
+        payload = _payload(item)
+        global_pos = self.tree.viewport().mapToGlobal(pos)
+
+        # Background: organizer-level actions.
+        if item is None or not payload:
             menu = QMenu(self)
-            open_forge = menu.addAction("Open DataForge in Builder")
-            delete_forge = menu.addAction("Delete DataForge")
-            chosen = menu.exec(self.tree.viewport().mapToGlobal(pos))
-            if chosen == open_forge:
-                self._open_dataforge_builder(forge_name)
-            elif chosen == delete_forge:
-                self._delete_dataforge(forge_name)
+            new_group = menu.addAction("New Query Group...")
+            if menu.exec(global_pos) == new_group:
+                self._on_new_group()
             return
-        if not name:
-            return
-        obj = query_object_store.load_object(name)
+
+        self.tree.setCurrentItem(item)
+
+        if payload["type"] == "group":
+            self._group_context_menu(payload, global_pos)
+        elif payload["type"] == "forge":
+            self._forge_context_menu(payload, global_pos)
+        elif payload.get("forge"):
+            self._forge_query_context_menu(payload, global_pos)
+        else:
+            self._query_context_menu(payload, global_pos)
+
+    def _group_context_menu(self, payload: dict, global_pos):
+        group_id = payload["group_id"]
+        menu = QMenu(self)
+        rename = menu.addAction("Rename Group...")
+        clone = menu.addAction("Clone Group (with queries)")
+        menu.addSeparator()
+        new_group = menu.addAction("New Query Group...")
+        menu.addSeparator()
+        delete = menu.addAction("Delete Group (keep queries)")
+
+        chosen = menu.exec(global_pos)
+        organizer = get_query_organizer()
+        if chosen == rename:
+            new_name, ok = QInputDialog.getText(
+                self, "Rename Group", "Group name:", text=payload["name"])
+            if ok and new_name.strip():
+                organizer.rename_group(group_id, new_name)
+                organizer.save()
+                self.refresh()
+        elif chosen == clone:
+            organizer.clone_group(group_id)
+            organizer.save()
+            self.refresh()
+        elif chosen == new_group:
+            self._on_new_group()
+        elif chosen == delete:
+            reply = QMessageBox.question(
+                self, "Delete Group",
+                f"Delete group \"{payload['name']}\"?\n\n"
+                "The queries inside move back to the top level.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                organizer.delete_group(group_id, keep_queries=True)
+                organizer.save()
+                self.refresh()
+
+    def _forge_context_menu(self, payload: dict, global_pos):
+        forge_name = payload["name"]
+        menu = QMenu(self)
+        open_forge = menu.addAction("Open DataForge in Builder")
+        clone = menu.addAction("Clone DataForge (with Sources + Snapshots)")
+        menu.addSeparator()
+        delete_forge = menu.addAction("Delete DataForge")
+
+        chosen = menu.exec(global_pos)
+        if chosen == open_forge:
+            self._open_dataforge_builder(forge_name)
+        elif chosen == clone:
+            organizer = get_query_organizer()
+            clone_name = organizer.clone_forge(forge_name)
+            organizer.save()
+            self._notify_forge_list_changed()
+            self.refresh()
+            if clone_name:
+                QMessageBox.information(
+                    self, "DataForge Cloned",
+                    f"Created \"{clone_name}\" — Sources and Snapshots "
+                    f"included, ready to run.")
+        elif chosen == delete_forge:
+            self._delete_dataforge(forge_name)
+
+    def _query_context_menu(self, payload: dict, global_pos):
+        obj = query_object_store.load_object_by_id(payload["id"])
         if obj is None:
             return
-        self.tree.setCurrentItem(item)
+        organizer = get_query_organizer()
 
         menu = QMenu(self)
         open_builder = menu.addAction("Open in Builder")
         open_builder.setEnabled(self._can_open_in_builder(obj))
         preview = menu.addAction("Preview Data")
         preview.setEnabled(self._can_preview_object(obj))
-        copy_object = menu.addAction("Make Copy...")
+        menu.addSeparator()
+        copy_here = menu.addAction("Make Copy")
+        move_menu = menu.addMenu("Move to")
+        copy_menu = menu.addMenu("Copy to")
+        targets = self._container_targets(organizer)
+        move_actions = {move_menu.addAction(label): target
+                        for label, target in targets}
+        copy_actions = {copy_menu.addAction(label): target
+                        for label, target in targets}
         register_source = None
         if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
+            menu.addSeparator()
             register_source = menu.addAction("Register Source")
         menu.addSeparator()
         delete = menu.addAction("Delete")
 
-        chosen = menu.exec(self.tree.viewport().mapToGlobal(pos))
+        chosen = menu.exec(global_pos)
         if chosen is None:
             return
         if chosen == open_builder:
             self._on_open_builder()
         elif chosen == preview:
             self._on_preview_file()
-        elif chosen == copy_object:
-            self._on_make_copy(obj.name)
+        elif chosen == copy_here:
+            organizer.copy_query(obj.id, organizer.query_location(obj.id))
+            organizer.save()
+            self.refresh()
+        elif chosen in move_actions:
+            self._send_query_to(obj, move_actions[chosen], move=True)
+        elif chosen in copy_actions:
+            self._send_query_to(obj, copy_actions[chosen], move=False)
         elif register_source is not None and chosen == register_source:
             self._on_promote()
         elif chosen == delete:
             self._on_delete()
+
+    def _forge_query_context_menu(self, payload: dict, global_pos):
+        """Context menu for a Source copy inside a DataForge node."""
+        forge_name = payload["forge"]
+        obj = query_object_store.load_object_by_id(payload["id"])
+        if obj is None:
+            return
+        menu = QMenu(self)
+        open_forge = menu.addAction("Open DataForge in Builder")
+        menu.addSeparator()
+        copy_out = menu.addAction("Copy out to Browser")
+        move_out = menu.addAction("Move out to Browser")
+        menu.addSeparator()
+        remove = menu.addAction("Remove from DataForge")
+
+        chosen = menu.exec(global_pos)
+        organizer = get_query_organizer()
+        if chosen == open_forge:
+            self._open_dataforge_builder(forge_name)
+        elif chosen in (copy_out, move_out):
+            out = organizer.extract_query_from_forge(
+                forge_name, obj.name, remove_source=(chosen == move_out))
+            if out is None:
+                QMessageBox.warning(
+                    self, "Extract Failed",
+                    f"Could not find Source \"{obj.name}\" in "
+                    f"\"{forge_name}\".")
+                return
+            if chosen == move_out:
+                self._delete_forge_source_records(forge_name, obj)
+            organizer.save()
+            self.refresh()
+        elif chosen == remove:
+            reply = QMessageBox.question(
+                self, "Remove from DataForge",
+                f"Remove Source \"{obj.name}\" from \"{forge_name}\"?\n\n"
+                "Its Snapshot and Forge-local copy are deleted.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                self._remove_source_from_forge(forge_name, obj)
+                self.refresh()
+
+    # ── Organizer actions ─────────────────────────────────────────────
+
+    def _container_targets(self, organizer) -> list[tuple[str, dict]]:
+        """(label, target) pairs for the Move to / Copy to submenus."""
+        from suiteview.audit.dataforge import dataforge_store
+
+        targets: list[tuple[str, dict]] = [("Top level", {"root": True})]
+        for entry in organizer.items:
+            if entry.get("type") == "group":
+                targets.append((f"Group: {entry['name']}",
+                                {"group_id": entry["id"]}))
+        for forge in dataforge_store.list_forges():
+            targets.append((f"⚙ Forge: {forge.name}", {"forge": forge.name}))
+        return targets
+
+    def _send_query_to(self, obj: QueryObject, target: dict, *, move: bool):
+        organizer = get_query_organizer()
+        if target.get("forge"):
+            ok = organizer.send_query_to_forge(obj.id, target["forge"],
+                                               move=move)
+            if not ok:
+                QMessageBox.warning(self, "Add to DataForge Failed",
+                                    f"Could not add \"{obj.name}\" to "
+                                    f"\"{target['forge']}\".")
+                return
+            self._notify_forge_list_changed()
+        elif move:
+            organizer.move_query(obj.id, target.get("group_id"))
+        else:
+            organizer.copy_query(obj.id, target.get("group_id"))
+        organizer.save()
+        self.refresh()
+
+    def _on_new_group(self):
+        name, ok = QInputDialog.getText(self, "New Query Group", "Group name:")
+        if not ok or not name.strip():
+            return
+        organizer = get_query_organizer()
+        organizer.create_group(name)
+        organizer.save()
+        self.refresh()
+
+    def _notify_forge_list_changed(self):
+        parent = self._audit_parent or self.parent() or self._find_audit_window()
+        refresher = getattr(parent, "_refresh_picker_forge_list", None)
+        if callable(refresher):
+            refresher()
+
+    def _remove_source_from_forge(self, forge_name: str, obj: QueryObject):
+        """Delete one Source (and its Snapshot + Forge-local copy records)."""
+        from suiteview.audit.dataforge import dataforge_store
+
+        forge = dataforge_store.load_forge(forge_name)
+        if forge is not None:
+            source = forge.source_by_alias(obj.name)
+            if source is not None:
+                forge.sources.remove(source)
+                dataforge_store.save_forge(forge)
+            dataforge_store.delete_source_snapshot(forge_name, obj.name)
+        self._delete_forge_source_records(forge_name, obj)
+
+    @staticmethod
+    def _delete_forge_source_records(forge_name: str, obj: QueryObject):
+        from suiteview.audit import qdef_store
+
+        try:
+            qdef_store.delete_qdef(obj.name, forge_name=forge_name)
+        except Exception:
+            logger.exception("Failed to delete DataForge QDefinition: %s",
+                             obj.name)
+        query_object_store.delete_object_by_id(obj.id)
+
+    # ── Drag & drop (from _OrganizerTree) ─────────────────────────────
+
+    def _handle_tree_drop(self, dragged, target, indicator):
+        """Apply a tree drag-drop to the organizer, then rebuild."""
+        src = _payload(dragged)
+        dst = _payload(target)
+        if not src or dragged is target:
+            return
+        on_item = indicator == QAbstractItemView.DropIndicatorPosition.OnItem
+        organizer = get_query_organizer()
+
+        if src["type"] == "query" and not src.get("forge"):
+            obj = query_object_store.load_object_by_id(src["id"])
+            if obj is None:
+                return
+            if on_item and dst.get("type") == "forge":
+                self._drop_query_on_forge(obj, dst["name"])
+            elif on_item and dst.get("type") == "group":
+                organizer.move_query(obj.id, dst["group_id"])
+            elif on_item and dst.get("type") == "query" and dst.get("forge"):
+                self._drop_query_on_forge(obj, dst["forge"])
+            else:
+                group_id, index = self._drop_position(target, indicator)
+                organizer.move_query(obj.id, group_id, index)
+            organizer.save()
+            self.refresh()
+            return
+
+        if src["type"] == "query" and src.get("forge"):
+            # Dragging a Source out of a Forge: ask copy vs move.
+            obj = query_object_store.load_object_by_id(src["id"])
+            if obj is None:
+                return
+            box = QMessageBox(self)
+            box.setWindowTitle("Out of DataForge")
+            box.setText(f"Take \"{obj.name}\" out of \"{src['forge']}\"?")
+            copy_btn = box.addButton("Copy out", QMessageBox.ButtonRole.AcceptRole)
+            move_btn = box.addButton("Move out", QMessageBox.ButtonRole.DestructiveRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.exec()
+            if box.clickedButton() not in (copy_btn, move_btn):
+                return
+            group_id = dst.get("group_id") if dst.get("type") == "group" else None
+            out = organizer.extract_query_from_forge(
+                src["forge"], obj.name, group_id,
+                remove_source=(box.clickedButton() is move_btn))
+            if out is not None and box.clickedButton() is move_btn:
+                self._delete_forge_source_records(src["forge"], obj)
+            organizer.save()
+            self.refresh()
+            return
+
+        if src["type"] in ("group", "forge"):
+            # Root-level reordering only.
+            entry = (organizer.find_group(src.get("group_id"))
+                     if src["type"] == "group"
+                     else organizer.forge_ref(src.get("name", "")))
+            if entry is None:
+                return
+            _, index = self._drop_position(target, indicator, root_only=True)
+            organizer.move_root_item(entry, index)
+            organizer.save()
+            self.refresh()
+
+    def _drop_query_on_forge(self, obj: QueryObject, forge_name: str):
+        """A query dropped onto a Forge: ask whether to move or copy it in."""
+        box = QMessageBox(self)
+        box.setWindowTitle("Add to DataForge")
+        box.setText(
+            f"Add \"{obj.name}\" to DataForge \"{forge_name}\"?\n\n"
+            "It becomes a Forge-local Source copy (Refresh it there to pull "
+            "data). Move also removes the standalone query.")
+        copy_btn = box.addButton("Copy in", QMessageBox.ButtonRole.AcceptRole)
+        move_btn = box.addButton("Move in", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        if box.clickedButton() not in (copy_btn, move_btn):
+            return
+        organizer = get_query_organizer()
+        organizer.send_query_to_forge(obj.id, forge_name,
+                                      move=box.clickedButton() is move_btn)
+        self._notify_forge_list_changed()
+
+    def _drop_position(self, target, indicator,
+                       root_only: bool = False) -> tuple[int | None, int | None]:
+        """Resolve a drop to (group_id or None=root, index or None=append)."""
+        below = indicator == QAbstractItemView.DropIndicatorPosition.BelowItem
+        if target is None:
+            return None, None
+        parent = target.parent()
+        if parent is None:
+            index = self.tree.indexOfTopLevelItem(target) + (1 if below else 0)
+            dst = _payload(target)
+            if (not root_only and indicator
+                    == QAbstractItemView.DropIndicatorPosition.OnItem
+                    and dst.get("type") == "group"):
+                return dst["group_id"], None
+            return None, index
+        if root_only:
+            return None, None
+        parent_payload = _payload(parent)
+        if parent_payload.get("type") == "group":
+            index = parent.indexOfChild(target) + (1 if below else 0)
+            return parent_payload["group_id"], index
+        return None, None
 
     def _clear_detail(self):
         self._current = None
@@ -1007,11 +1384,15 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         if not new_name:
             QMessageBox.warning(self, "Name Required", "Object name cannot be blank.")
             return
-        if new_name != old_name and query_object_store.object_exists(new_name):
+        # Duplicate names are legal now (ids disambiguate) — except visual
+        # queries, whose designer snapshots are still name-keyed.
+        if (new_name != old_name
+                and self._current.kind == OBJECT_KIND_VISUAL
+                and query_object_store.object_exists(new_name)):
             QMessageBox.warning(
                 self,
                 "Name Already Exists",
-                f"A Query Object named \"{new_name}\" already exists.",
+                f"A visual Query Object named \"{new_name}\" already exists.",
             )
             return
 
@@ -1039,9 +1420,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._current.fields = updated_fields
         self._current.updated_at = datetime.now()
 
+        # The id-keyed store moves the file itself on rename; no old-name
+        # cleanup is needed (and with duplicate names it would be wrong).
         query_object_store.save_object(self._current)
-        if new_name != old_name:
-            query_object_store.delete_object(old_name)
         self.refresh()
         QMessageBox.information(self, "Query Object Saved", f"Saved \"{new_name}\".")
 
@@ -1155,43 +1536,6 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         }
         return aliases.get(normalized, "")
 
-    def _on_make_copy(self, source_name: str | None = None):
-        if source_name is None:
-            if self._current is None:
-                return
-            source_name = self._current.name
-        default_name = self._default_copy_name(source_name)
-        new_name, ok = QInputDialog.getText(
-            self,
-            "Copy Query Object",
-            "New object name:",
-            text=default_name,
-        )
-        if not ok or not new_name.strip():
-            return
-        try:
-            copied = query_object_store.copy_object(source_name, new_name.strip())
-        except Exception as exc:
-            QMessageBox.warning(self, "Copy Failed", str(exc))
-            return
-        self.refresh()
-        self._select_object(copied.name)
-        QMessageBox.information(
-            self,
-            "Query Object Copied",
-            f"Created \"{copied.name}\" from \"{source_name}\".",
-        )
-
-    @staticmethod
-    def _default_copy_name(source_name: str) -> str:
-        base = f"{source_name} Copy"
-        if not query_object_store.object_exists(base):
-            return base
-        suffix = 2
-        while query_object_store.object_exists(f"{base} {suffix}"):
-            suffix += 1
-        return f"{base} {suffix}"
-
     def _on_delete(self):
         if self._current_forge_name:
             self._delete_dataforge(self._current_forge_name)
@@ -1208,7 +1552,10 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        query_object_store.delete_object(name)
+        query_object_store.delete_object_by_id(self._current.id)
+        organizer = get_query_organizer()
+        organizer.remove_query(self._current.id)
+        organizer.save()
         self.refresh()
         self._clear_detail()
 

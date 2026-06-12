@@ -78,6 +78,21 @@ def forge_exists(name: str) -> bool:
     return (_FORGES_DIR / f"{_safe_filename(name)}.json").exists()
 
 
+def copy_forge_snapshots(source_name: str, target_name: str) -> None:
+    """Copy every Source Snapshot from one Forge's dir to another's.
+
+    Used when cloning a Forge so the clone is immediately runnable without
+    a Refresh (a clone is self-contained, like its original).
+    """
+    src = _forge_snapshot_dir(source_name)
+    if not src.is_dir():
+        return
+    dst = _forge_snapshot_dir(target_name)
+    dst.mkdir(parents=True, exist_ok=True)
+    for f in src.glob("*.parquet"):
+        shutil.copy2(f, dst / f.name)
+
+
 # ── Per-Source Snapshot I/O ─────────────────────────────────────────────
 
 def _forge_snapshot_dir(forge_name: str) -> Path:
