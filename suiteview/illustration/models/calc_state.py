@@ -242,3 +242,7 @@ class MonthlyState:
 
     # ── Status ────────────────────────────────
     lapsed: bool = False
+
+    @property
+    def premium_outlay(self) -> float:
+        return self.gross_premium + self.gp_exception_prem

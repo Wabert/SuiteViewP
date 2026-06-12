@@ -1305,7 +1305,7 @@ class _PolicyChangeOutcome:
     """What one applied policy change did to the projection month."""
 
     av_adjustment: float = 0.0       # AV movement this month (negative = charge)
-    coverage_changed: bool = False   # SA moved -> targets + guideline recompute fired
+    coverage_changed: bool = False   # Coverage/rider/benefit basis changed -> recompute fired
     material_change: bool = False    # face increase / B->A -> new 7-pay period (KZ)
     # Display detail keyed by RERUN column names (BW..CU / CW..DO).
     dbo_detail: Dict[str, object] = dataclass_field(default_factory=dict)
@@ -1622,7 +1622,10 @@ def _apply_policy_change(
     md = change.metadata or {}
     fully_injected = {"new_glp", "new_gsp", "new_7pay"} <= md.keys()
     before = None
-    if _will_alter_coverage(policy, change, face_before, av) and not fully_injected:
+    if (
+        _will_alter_coverage(policy, change, face_before, av)
+        or _will_alter_guideline_charge_basis(policy, change)
+    ) and not fully_injected:
         before = _solve_guideline_state(
             policy, config, attained_age, change_date, options)
 
@@ -1785,6 +1788,27 @@ def _will_alter_coverage(policy, change, face_before: float, av: float) -> bool:
         old = str(policy.db_option or "").upper()
         new = str(change.value or "").upper()
         return bool(new) and new != old
+    return False
+
+
+def _will_alter_guideline_charge_basis(policy, change) -> bool:
+    if change.kind != PolicyChangeKind.RIDER_DROP or not policy.is_gpt:
+        return False
+    target = str((change.metadata or {}).get("target", ""))
+    new_amount = float(change.value or 0.0)
+    if target.startswith("cov:"):
+        phase = int(target.split(":", 1)[1])
+        for rider in policy.riders:
+            if rider.coverage_phase == phase and rider.is_active:
+                return new_amount <= 0.0 or abs(float(rider.face_amount) - new_amount) > 1e-6
+    if target.startswith("ben:"):
+        parts = target.split(":")
+        ben_key = parts[1] if len(parts) > 1 else ""
+        phase = int(parts[2]) if len(parts) > 2 else 0
+        for ben in policy.benefits:
+            key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+            if key == ben_key and (phase == 0 or ben.coverage_phase == phase) and ben.is_active:
+                return new_amount <= 0.0 or abs(float(ben.benefit_amount) - new_amount) > 1e-6
     return False
 
 

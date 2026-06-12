@@ -2,7 +2,7 @@
 
 Sets SUITEVIEW_LOCAL_DATA=1 so policy lookups read the bundled SQLite fixtures
 (bundled_data/dev/policy_records.sqlite + rates.sqlite) instead of live
-DB2/UL_Rates. Local policies: U0688012, U0492070, U0656998.
+DB2/UL_Rates. Local policies: UE000576, U0688012, U0492070, U0656998.
 
 Usage:
     venv\\Scripts\\python.exe scripts/run_illustration_local.py [policy_number]

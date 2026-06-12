@@ -71,7 +71,7 @@ already in the file, pass multiple policy numbers with `--append`:
 
 ```powershell
 venv\Scripts\python.exe tools\export_local_policy_data.py `
-  U0688012 U0492070 U0656998 `
+  UE000576 U0688012 U0492070 U0656998 `
   --region CKPR `
   --append
 ```
@@ -80,7 +80,7 @@ Validate those local policies through the same policy-loading path the app uses:
 
 ```powershell
 venv\Scripts\python.exe tools\check_local_dev_data.py `
-  U0688012 U0492070 U0656998 `
+  UE000576 U0688012 U0492070 U0656998 `
   --region CKPR `
   --policy-only
 ```

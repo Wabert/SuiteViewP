@@ -82,7 +82,7 @@ def test_year_age_sync_and_bounds():
     assert row.for_years_edit.value() == 10    # ages 56 -> 66
 
 
-def test_overlap_blocks_export_and_gap_emits_zero_schedule():
+def test_premium_overlap_auto_adjusts_prior_span_and_gap_emits_zero_schedule():
     panel = _panel()
     section = panel.premium_section
     first = section.rows()[0]
@@ -94,8 +94,10 @@ def test_overlap_blocks_export_and_gap_emits_zero_schedule():
     second.year_edit.setText("9")              # overlaps year 9
     second._year_edited()
     second.amount_edit.setText("500")
-    assert section.has_overlap()
-    assert section.entries() == []
+    assert not section.has_overlap()
+    assert first.end_year() == 8
+    assert first.for_years_edit.value() == 2
+    assert first.to_age_edit.value() == 58
 
     second.year_edit.setText("12")             # gap: years 10-11 unpaid
     second._year_edited()
@@ -113,9 +115,25 @@ def test_overlap_blocks_export_and_gap_emits_zero_schedule():
     dated = [t for t in input_set.dated_transactions if t.kind == TransactionKind.PREMIUM]
     assert dated and min(t.effective_date for t in dated) == date(2026, 6, 9)
     assert by_year[8] > 0                      # the rest of the first span schedules
-    assert by_year[10] == 0.0                  # gap zero
+    assert by_year[9] == 0.0                   # gap zero
     assert by_year[12] == 500.0
     assert by_year[14] == 0.0                  # termination zero after year 13
+
+
+def test_premium_age_auto_adjusts_prior_span():
+    panel = _panel()
+    section = panel.premium_section
+    first = section.rows()[0]
+    second = section.add_row()
+
+    second.age_edit.setText("65")
+    second._age_edited()
+
+    assert second.year() == 16
+    assert not section.has_overlap()
+    assert first.end_year() == 15
+    assert first.for_years_edit.value() == 9
+    assert first.to_age_edit.value() == 65
 
 
 def test_withdrawals_expand_to_monthliversary_dates():

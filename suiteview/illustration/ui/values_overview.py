@@ -463,7 +463,7 @@ class ValuesOverview(QWidget):
             self.kpi_lapse.set("None")
         room = final.guideline_limit - (final.premiums_to_date - final.withdrawals_to_date)
         self.kpi_room.set(_fmt_money(room), alert=room < 0)
-        self.kpi_premium.set(_fmt_money(final.premiums_to_date - results[0].premiums_to_date))
+        self.kpi_premium.set(_fmt_money(sum(s.premium_outlay for s in projected)))
 
         # ── ledger: annual rows with monthly children ──
         # Each entry keeps its index into ``results`` so selection and
@@ -479,7 +479,7 @@ class ValuesOverview(QWidget):
             month_entries = by_year[year]
             months = [state for _, state in month_entries]
             eoy_index, eoy = month_entries[-1]
-            premium = sum(s.gross_premium for s in months)
+            premium = sum(s.premium_outlay for s in months)
             interest = sum(s.interest_credited for s in months)
             charges = sum(s.total_deduction for s in months)
             withdrawals = eoy.withdrawals_to_date - prior_wd
@@ -514,7 +514,7 @@ class ValuesOverview(QWidget):
                 child = QTreeWidgetItem([
                     f"{state.date:%m/%d/%Y}" if state.date else f"m{state.policy_month}",
                     str(state.attained_age),
-                    _fmt_money(state.gross_premium, 2), _fmt_money(month_wd, 2),
+                    _fmt_money(state.premium_outlay, 2), _fmt_money(month_wd, 2),
                     _fmt_money(state.interest_credited, 2), _fmt_money(state.total_deduction, 2),
                     _fmt_money(state.av_end_of_month, 2), _fmt_money(state.surrender_value, 2),
                     _fmt_money(state.ending_db or state.gross_db, 0),
@@ -546,11 +546,17 @@ def build_chart_series(projected: list) -> list[ChartSeries]:
     def xs(state):
         return state.policy_year + (state.policy_month - 1) / 12.0
 
+    cumulative_exception_premium = 0.0
+    premium_points = []
+    for state in projected:
+        cumulative_exception_premium += state.premium_outlay - state.gross_premium
+        premium_points.append((xs(state), state.premiums_to_date + cumulative_exception_premium))
+
     series = [
         ChartSeries("Account Value", [(xs(s), s.av_end_of_month) for s in projected]),
         ChartSeries("Surrender Value", [(xs(s), s.surrender_value) for s in projected]),
         ChartSeries("Death Benefit", [(xs(s), s.ending_db or s.gross_db) for s in projected]),
-        ChartSeries("Cum Premium", [(xs(s), s.premiums_to_date) for s in projected]),
+        ChartSeries("Cum Premium", premium_points),
         ChartSeries("Guideline Limit", [(xs(s), s.guideline_limit) for s in projected]),
     ]
     # Accumulated 7-pay contributions, only while a 7-pay window is running
@@ -580,7 +586,12 @@ _CHARGE_BAND_PALETTE = [
     QColor("#5C0A14"),
 ]
 
-_CHARGE_LABELS = {"39": "Premium Waiver", "3#": "Stip Premium Waiver", "76": "GIO"}
+_BENEFIT_CHARGE_LABELS = {"39": "Premium Waiver", "3#": "Stip Premium Waiver", "76": "GIO"}
+_RIDER_CHARGE_LABELS = {
+    "1U536": "LTR",
+    "1U538": "CTR",
+    "1U539": "STR",
+}
 
 
 @dataclass
@@ -588,6 +599,27 @@ class ChargeBand:
     name: str
     points: list = field(default_factory=list)   # [(policy_year_float, cumulative $)]
     visible: bool = True
+
+
+def _benefit_charge_label(key: str) -> str:
+    return _BENEFIT_CHARGE_LABELS.get(key, f"Benefit {key}")
+
+
+def _rider_charge_label(key: str) -> str:
+    plancode = key.split("_", 1)[0]
+    for prefix, label in _RIDER_CHARGE_LABELS.items():
+        if plancode.startswith(prefix):
+            return label
+    return f"Rider {plancode}"
+
+
+def _base_coi_charge(state) -> float:
+    if state.total_coi_charge > 0:
+        return state.total_coi_charge
+    detailed_charge = sum(state.coi_charges_by_coverage.values()) + state.coi_charge_corr
+    if detailed_charge > 0:
+        return detailed_charge
+    return state.coi_charge
 
 
 def build_charge_bands(projected: list) -> list[ChargeBand]:
@@ -618,14 +650,14 @@ def build_charge_bands(projected: list) -> list[ChargeBand]:
     if has_av_charge:
         bands.append(ChargeBand("AV Charge"))
     for key in benefit_keys:
-        bands.append(ChargeBand(_CHARGE_LABELS.get(key, f"Benefit {key}")))
+        bands.append(ChargeBand(_benefit_charge_label(key)))
     for key in rider_keys:
-        bands.append(ChargeBand(f"Rider {key.split('_')[0]}" if "_" in key else f"Rider {key}"))
+        bands.append(ChargeBand(_rider_charge_label(key)))
 
     totals = [0.0] * len(bands)
     for state in projected:
         x = xs(state)
-        values = [state.coi_charge, state.epu_charge, state.mfee_charge]
+        values = [_base_coi_charge(state), state.epu_charge, state.mfee_charge]
         if has_av_charge:
             values.append(state.av_charge)
         values.extend(state.benefit_charge_detail.get(key, 0.0) for key in benefit_keys)

@@ -423,6 +423,14 @@ class InputRow(QWidget):
         if self.to_age_edit is not None:
             self.to_age_edit.set_invalid(overlapping, "Overlaps another row — adjust the years.")
 
+    def set_end_year(self, end_year: int):
+        if self.for_years_edit is None or self._ctx is None:
+            return
+        year = self.year()
+        if year is None or end_year < year:
+            return
+        self._set_span_from_years(year, end_year - year + 1)
+
 
 @dataclass
 class SectionSpec:
@@ -432,6 +440,7 @@ class SectionSpec:
     value_width: int = 84
     value_options: Optional[list] = None       # [(code, label)] -> combo instead of amount
     default_first_row: bool = False            # premium defaults from the policy
+    auto_adjust_prior_span: bool = False
 
 
 class DynamicSection(QGroupBox):
@@ -538,6 +547,7 @@ class DynamicSection(QGroupBox):
 
     def _validate(self):
         """Overlap check: sort filled rows; ranges may gap but not intersect."""
+        self._auto_adjust_prior_spans()
         filled = [(row.year(), row.end_year(), row) for row in self._rows if row.year() is not None]
         filled.sort(key=lambda entry: entry[0])
         overlapped: set = set()
@@ -550,6 +560,15 @@ class DynamicSection(QGroupBox):
         self._has_overlap = bool(overlapped)
         self.warning.setVisible(self._has_overlap)
         self.changed.emit()
+
+    def _auto_adjust_prior_spans(self):
+        if not self.spec.auto_adjust_prior_span:
+            return
+        filled = [(row.year(), row.end_year(), row) for row in self._rows if row.year() is not None]
+        filled.sort(key=lambda entry: entry[0])
+        for (start_a, end_a, row_a), (start_b, _end_b, _row_b) in zip(filled, filled[1:]):
+            if end_a is not None and start_b is not None and start_a < start_b <= end_a:
+                row_a.set_end_year(start_b - 1)
 
     def has_overlap(self) -> bool:
         return self._has_overlap
@@ -941,7 +960,7 @@ class DynamicInputsPanel(QWidget):
         left = QVBoxLayout()
         left.setSpacing(8)
         self.premium_section = DynamicSection(SectionSpec(
-            "Premiums", default_first_row=True))
+            "Premiums", default_first_row=True, auto_adjust_prior_span=True))
         self.loan_section = DynamicSection(SectionSpec("Loans"))
         self.withdrawal_section = DynamicSection(SectionSpec("Withdrawals"))
         self.repayment_section = DynamicSection(SectionSpec("Loan Repayments"))

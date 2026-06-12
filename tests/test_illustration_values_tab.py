@@ -1,4 +1,5 @@
 import os
+from dataclasses import replace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -7,6 +8,7 @@ from PyQt6.QtWidgets import QApplication
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
 from suiteview.illustration.ui.values_tab import IllustrationValuesTab
+from suiteview.illustration.ui.values_overview import ValuesOverview, build_charge_bands, build_chart_series
 
 
 _QT_APP = None
@@ -170,6 +172,85 @@ def test_summary_tab_columns_and_relabels():
     assert header("EA") == "EAV"
     assert "Loan Int" in columns
     assert "New Loan" in columns
+
+
+def test_premium_outlay_includes_exception_premium_in_ending_values():
+    _app()
+    tab = IllustrationValuesTab()
+    state = _state()
+    state.gross_premium = 100.0
+    state.gp_exception_prem = 25.0
+
+    tab.display_projection(_policy(), [state])
+
+    ending = tab._tab_grids["Ending Values"].df
+    assert ending.iloc[0]["PremiumOutlay"] == 125.0
+
+
+def test_chart_cumulative_premium_uses_premium_outlay():
+    first = MonthlyState(policy_year=1, policy_month=1, gross_premium=100.0,
+                         gp_exception_prem=25.0, premiums_to_date=10_000.0)
+    second = MonthlyState(policy_year=1, policy_month=2, gross_premium=10.0,
+                          gp_exception_prem=5.0, premiums_to_date=20_000.0)
+
+    series = build_chart_series([first, second])
+    cum_premium = next(entry for entry in series if entry.name == "Cum Premium")
+
+    assert cum_premium.points == [(1.0, 10_025.0), (1 + 1 / 12, 20_030.0)]
+
+
+def test_charge_chart_separates_base_coi_from_riders_and_benefits():
+    state = MonthlyState(
+        policy_year=1,
+        policy_month=1,
+        coi_charge=999.0,
+        total_coi_charge=20.0,
+        epu_charge=5.0,
+        mfee_charge=3.0,
+        pw_charge=4.0,
+        benefit_charges=10.0,
+        benefit_charge_detail={"39": 4.0, "76": 6.0},
+        rider_charges=7.0,
+        rider_charge_detail={"1U536C00_1": 7.0},
+        total_deduction=45.0,
+    )
+
+    bands = build_charge_bands([state])
+    by_name = {band.name: band.points[-1][1] for band in bands}
+
+    assert by_name["Base COI"] == 20.0
+    assert by_name["Expense / Unit"] == 5.0
+    assert by_name["Monthly Fee"] == 3.0
+    assert by_name["Premium Waiver"] == 4.0
+    assert by_name["GIO"] == 6.0
+    assert by_name["LTR"] == 7.0
+    assert 999.0 not in by_name.values()
+
+
+def test_charge_chart_uses_legacy_coi_when_no_base_breakout_exists():
+    state = MonthlyState(policy_year=1, policy_month=1, coi_charge=12.5)
+
+    bands = build_charge_bands([state])
+
+    assert [(band.name, band.points[-1][1]) for band in bands] == [("Base COI", 12.5)]
+
+
+def test_overview_premium_column_uses_premium_outlay():
+    _app()
+    overview = ValuesOverview()
+    inforce = MonthlyState(policy_year=0, policy_month=0, attained_age=44,
+                           premiums_to_date=10_000.0)
+    first = replace(_state(), policy_year=1, policy_month=1, gross_premium=100.0,
+                    gp_exception_prem=25.0, premiums_to_date=20_000.0)
+    second = replace(_state(), policy_year=1, policy_month=2, gross_premium=10.0,
+                     gp_exception_prem=5.0, premiums_to_date=30_000.0)
+
+    overview.display(_policy(), [inforce, first, second])
+
+    year_item = overview.ledger.topLevelItem(0)
+    assert year_item.text(2) == "140.00"
+    assert year_item.child(0).text(2) == "125.00"
+    assert year_item.child(1).text(2) == "15.00"
 
 
 def test_testing_tab_columns_and_relabels():
