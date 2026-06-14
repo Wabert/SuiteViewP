@@ -127,7 +127,8 @@ _BTN_DANGER_STYLE = (
 
 _LEFT_PANEL_DEFAULT_WIDTH = 280
 _LEFT_PANEL_MIN_WIDTH = 220
-_LEFT_PANEL_MAX_WIDTH = 520
+_LEFT_PANEL_MAX_WIDTH = 720
+_RIGHT_PANEL_MIN_WIDTH = 220
 _FILE_SOURCE_TYPES = {"csv", "excel", "fixed_width"}
 _SENSITIVE_ODBC_KEYS = {
     "password",
@@ -542,7 +543,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         left = QWidget()
         left.setMinimumWidth(_LEFT_PANEL_MIN_WIDTH)
         left.setMaximumWidth(_LEFT_PANEL_MAX_WIDTH)
-        left.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        left.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         left_lay = QVBoxLayout(left)
         left_lay.setContentsMargins(0, 0, 0, 0)
         left_lay.setSpacing(0)
@@ -572,37 +573,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         search_lay.setContentsMargins(0, 0, 0, 0)
         search_lay.setSpacing(4)
 
-        self.edit_search = QLineEdit()
-        self.edit_search.setFont(_FONT)
-        self.edit_search.setFixedHeight(24)
-        self.edit_search.setPlaceholderText("Search query objects...")
-        self.edit_search.setClearButtonEnabled(True)
-        self.edit_search.setStyleSheet(
-            "QLineEdit { background: white; border: 1px solid #1E5BA8;"
-            " border-radius: 3px; padding: 2px 6px; }"
-        )
+        self.edit_search = self._make_search_edit("Search query objects...")
         self.edit_search.textChanged.connect(lambda _text: self.refresh())
         search_lay.addWidget(self.edit_search, 1)
-
-        self.btn_expand_all = QPushButton("Expand")
-        self.btn_expand_all.setFont(_FONT_BOLD)
-        self.btn_expand_all.setFixedSize(54, 24)
-        self.btn_expand_all.setToolTip("Expand all Query Groups and DataForges")
-        self.btn_expand_all.setStyleSheet(
-            "QPushButton { background: #E8F0FB; border: 1px solid #1E5BA8;"
-            " border-radius: 3px; padding: 2px 6px; color: #0D3A7A; }"
-            "QPushButton:hover { background: #D7E6F8; }"
-        )
-        self.btn_expand_all.clicked.connect(lambda: self._set_all_containers_expanded(True))
-        search_lay.addWidget(self.btn_expand_all)
-
-        self.btn_collapse_all = QPushButton("Collapse")
-        self.btn_collapse_all.setFont(_FONT_BOLD)
-        self.btn_collapse_all.setFixedSize(64, 24)
-        self.btn_collapse_all.setToolTip("Collapse all Query Groups and DataForges")
-        self.btn_collapse_all.setStyleSheet(self.btn_expand_all.styleSheet())
-        self.btn_collapse_all.clicked.connect(lambda: self._set_all_containers_expanded(False))
-        search_lay.addWidget(self.btn_collapse_all)
         queried_lay.addWidget(search_row)
 
         self.tree = _OrganizerTree(self)
@@ -641,7 +614,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         splitter.addWidget(left)
 
         right = QWidget()
-        right.setMinimumWidth(260)
+        right.setMinimumWidth(_RIGHT_PANEL_MIN_WIDTH)
         right.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         right_lay = QVBoxLayout(right)
         right_lay.setContentsMargins(0, 0, 0, 0)
@@ -810,10 +783,31 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._browser_canvas_stack.addWidget(self._tables_canvas_host)
         self._browser_canvas_stack.addWidget(self._registry_canvas_host)
 
-        splitter.addWidget(self._browser_canvas_stack)
+        canvas_shell = QWidget()
+        canvas_shell.setMinimumWidth(_RIGHT_PANEL_MIN_WIDTH)
+        canvas_shell.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        canvas_lay = QVBoxLayout(canvas_shell)
+        canvas_lay.setContentsMargins(0, 0, 0, 0)
+        canvas_lay.setSpacing(4)
+
+        self.lbl_canvas_title = QLabel("Object Browser")
+        self.lbl_canvas_title.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.lbl_canvas_title.setMinimumHeight(28)
+        self.lbl_canvas_title.setStyleSheet(
+            "QLabel { background: #2A6BC4; color: white;"
+            " border: 1px solid #14407A; padding: 4px 8px; }"
+        )
+        self.lbl_canvas_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        canvas_lay.addWidget(self.lbl_canvas_title)
+        canvas_lay.addWidget(self._browser_canvas_stack, 1)
+
+        splitter.addWidget(canvas_shell)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([self._left_panel_width, 1120 - self._left_panel_width])
+        splitter.setSizes([
+            self._left_panel_width,
+            max(_RIGHT_PANEL_MIN_WIDTH, 1120 - self._left_panel_width),
+        ])
 
         root.addWidget(splitter, 1)
 
@@ -833,6 +827,30 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             " padding: 2px 4px; }"
         )
         return edit
+
+    @staticmethod
+    def _make_search_edit(placeholder: str) -> QLineEdit:
+        edit = QLineEdit()
+        edit.setFont(_FONT)
+        edit.setFixedHeight(24)
+        edit.setPlaceholderText(placeholder)
+        edit.setClearButtonEnabled(True)
+        edit.setStyleSheet(
+            "QLineEdit { background: white; border: 1px solid #1E5BA8;"
+            " border-radius: 3px; padding: 2px 6px; }"
+        )
+        return edit
+
+    @staticmethod
+    def _install_nav_search(panel: QWidget, search_edit: QLineEdit) -> None:
+        layout = panel.layout()
+        if layout is None:
+            return
+        layout.insertWidget(min(1, layout.count()), search_edit)
+
+    def _set_canvas_title(self, title: str) -> None:
+        if hasattr(self, "lbl_canvas_title"):
+            self.lbl_canvas_title.setText(title or "Object Browser")
 
     def _make_embedded_host(self) -> QWidget:
         host = QWidget()
@@ -862,14 +880,19 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         if label == "Tables":
             self._ensure_tables_embedded()
             self._browser_canvas_stack.setCurrentWidget(self._tables_canvas_host)
+            self._update_common_tables_canvas_title()
             return
         if label == "Registry":
             self._ensure_registry_embedded()
             self._browser_canvas_stack.setCurrentWidget(self._registry_canvas_host)
+            self._update_registry_canvas_title()
             return
         self._browser_canvas_stack.setCurrentWidget(self._detail_canvas)
         if label == "Data Sources":
             self._refresh_source_tree()
+            self._update_data_sources_canvas_title()
+        else:
+            self._update_queried_canvas_title()
 
     def _ensure_tables_embedded(self) -> None:
         if self._embedded_common_tables is not None:
@@ -881,6 +904,13 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 self._tables_left_host, self._embedded_common_tables._nav_panel)
             self._replace_host_content(
                 self._tables_canvas_host, self._embedded_common_tables._canvas_panel)
+            self.edit_table_search = self._make_search_edit("Search common tables...")
+            self.edit_table_search.textChanged.connect(self._filter_common_table_list)
+            self._install_nav_search(
+                self._embedded_common_tables._nav_panel, self.edit_table_search)
+            self._embedded_common_tables.lst_tables.currentTextChanged.connect(
+                lambda _name: self._update_common_tables_canvas_title())
+            self._filter_common_table_list(self.edit_table_search.text())
         except Exception as exc:
             logger.exception("Failed to embed Common Tables in Object Browser")
             QMessageBox.warning(self, "Common Tables Error", str(exc))
@@ -895,6 +925,13 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 self._registry_left_host, self._embedded_registry._nav_panel)
             self._replace_host_content(
                 self._registry_canvas_host, self._embedded_registry._canvas_panel)
+            self.edit_registry_search = self._make_search_edit("Search registry fields...")
+            self.edit_registry_search.textChanged.connect(self._filter_registry_tree)
+            self._install_nav_search(
+                self._embedded_registry._nav_panel, self.edit_registry_search)
+            self._embedded_registry.tree.currentItemChanged.connect(
+                lambda current, _previous: self._update_registry_canvas_title(current))
+            self._filter_registry_tree(self.edit_registry_search.text())
         except Exception as exc:
             logger.exception("Failed to embed Registry in Object Browser")
             QMessageBox.warning(self, "Registry Error", str(exc))
@@ -911,6 +948,106 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def _open_registry(self):
         self._select_left_tab("Registry")
 
+    def _update_queried_canvas_title(self) -> None:
+        self._set_canvas_title(self._query_canvas_title())
+
+    def _update_data_sources_canvas_title(self) -> None:
+        self._set_canvas_title(self._data_source_canvas_title())
+
+    def _update_common_tables_canvas_title(self) -> None:
+        table_name = ""
+        if self._embedded_common_tables is not None:
+            current = self._embedded_common_tables.lst_tables.currentItem()
+            table_name = current.text() if current is not None else ""
+        self._set_canvas_title(f"Common Tables: {table_name}" if table_name else "Common Tables")
+
+    def _update_registry_canvas_title(self, item: QTreeWidgetItem | None = None) -> None:
+        if self._embedded_registry is None:
+            self._set_canvas_title("Registry")
+            return
+        current = item or self._embedded_registry.tree.currentItem()
+        if current is None:
+            self._set_canvas_title("Registry")
+            return
+        parent = current.parent()
+        grandparent = parent.parent() if parent is not None else None
+        if grandparent is not None:
+            self._set_canvas_title(f"Registry: {parent.text(0)}.{current.text(0)}")
+        else:
+            self._set_canvas_title(f"Registry: {current.text(0)}")
+
+    def _query_canvas_title(self) -> str:
+        payload = _payload(self.tree.currentItem()) if hasattr(self, "tree") else {}
+        payload_type = payload.get("type")
+        if payload_type == "query":
+            obj = query_object_store.load_object_by_id(payload.get("id", ""))
+            if obj is not None:
+                return f"{_kind_label(obj.kind)}: {obj.name}"
+            name = str(payload.get("name", "")).strip()
+            return f"Queried Objects: {name}" if name else "Queried Objects"
+        if payload_type == "group":
+            name = str(payload.get("name", "")).strip()
+            return f"Query Groups: {name}" if name else "Query Groups"
+        if payload_type == "forge":
+            name = str(payload.get("name", "")).strip()
+            display_name = _dataforge_display_name(name) if name else ""
+            return f"DataForge: {display_name}" if display_name else "DataForge"
+        return "Queried Objects"
+
+    def _data_source_canvas_title(self) -> str:
+        payload = _payload(self.source_tree.currentItem()) if hasattr(self, "source_tree") else {}
+        payload_type = payload.get("type")
+        if payload_type in {"query", "source_query"}:
+            obj = query_object_store.load_object_by_id(payload.get("id", ""))
+            name = obj.name if obj is not None else str(payload.get("name", "")).strip()
+            return f"Data Sources: {name}" if name else "Data Sources"
+        if payload_type == "odbc_source":
+            dsn = str(payload.get("dsn", "")).strip()
+            return f"Data Sources: {dsn}" if dsn else "Data Sources"
+        if payload_type == "file_source":
+            label = str(payload.get("label", "")).strip()
+            return f"Data Sources: {label}" if label else "Data Sources"
+        if payload_type == "source_group":
+            group = str(payload.get("group", "")).strip().title()
+            return f"Data Sources: {group}" if group else "Data Sources"
+        return "Data Sources"
+
+    def _filter_common_table_list(self, search_text: str) -> None:
+        if self._embedded_common_tables is None:
+            return
+        table_list = self._embedded_common_tables.lst_tables
+        for row in range(table_list.count()):
+            item = table_list.item(row)
+            item.setHidden(not self._text_matches_search(search_text, [item.text()]))
+        self._update_common_tables_canvas_title()
+
+    def _filter_registry_tree(self, search_text: str) -> None:
+        if self._embedded_registry is None:
+            return
+        tree = self._embedded_registry.tree
+        search_active = bool(search_text.strip())
+
+        def _matches(item: QTreeWidgetItem) -> bool:
+            return self._text_matches_search(
+                search_text, [item.text(column) for column in range(tree.columnCount())])
+
+        def _filter_item(item: QTreeWidgetItem, ancestor_matches: bool = False) -> bool:
+            own_matches = _matches(item)
+            descendant_matches = False
+            for child_index in range(item.childCount()):
+                child = item.child(child_index)
+                descendant_matches = _filter_item(child, ancestor_matches or own_matches) or descendant_matches
+            visible = not search_active or ancestor_matches or own_matches or descendant_matches
+            item.setHidden(not visible)
+            if search_active and visible and item.childCount():
+                item.setExpanded(True)
+            return visible
+
+        root = tree.invisibleRootItem()
+        for index in range(root.childCount()):
+            _filter_item(root.child(index))
+        self._update_registry_canvas_title()
+
     def _build_data_source_panel(self) -> QWidget:
         panel = QWidget()
         panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -923,15 +1060,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         lbl.setStyleSheet("color: #1E5BA8;")
         panel_lay.addWidget(lbl)
 
-        self.edit_source_search = QLineEdit()
-        self.edit_source_search.setFont(_FONT)
-        self.edit_source_search.setFixedHeight(24)
-        self.edit_source_search.setPlaceholderText("Search data sources...")
-        self.edit_source_search.setClearButtonEnabled(True)
-        self.edit_source_search.setStyleSheet(
-            "QLineEdit { background: white; border: 1px solid #1E5BA8;"
-            " border-radius: 3px; padding: 2px 6px; }"
-        )
+        self.edit_source_search = self._make_search_edit("Search data sources...")
         self.edit_source_search.textChanged.connect(lambda _text: self._refresh_source_tree())
         panel_lay.addWidget(self.edit_source_search)
 
@@ -1396,6 +1525,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return
         if payload_type == "file_source":
             self._show_file_source_detail(payload)
+            return
+        self._update_data_sources_canvas_title()
 
     def _on_source_tree_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         payload = _payload(item)
@@ -1484,7 +1615,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         width = max(_LEFT_PANEL_MIN_WIDTH, min(self._left_panel_width, _LEFT_PANEL_MAX_WIDTH))
         self._restoring_left_width = True
         try:
-            splitter.setSizes([width, max(400, total - width)])
+            splitter.setSizes([width, max(_RIGHT_PANEL_MIN_WIDTH, total - width)])
         finally:
             self._restoring_left_width = False
 
@@ -2213,6 +2344,11 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.btn_promote.setVisible(False)
         self.btn_delete.setEnabled(False)
         self.btn_save.setEnabled(False)
+        if hasattr(self, "left_tabs"):
+            if self.left_tabs.tabText(self.left_tabs.currentIndex()) == "Data Sources":
+                self._update_data_sources_canvas_title()
+            else:
+                self._update_queried_canvas_title()
 
     def _show_detail(self, obj: QueryObject):
         self._loading_detail = True
@@ -2221,6 +2357,10 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._current_source_path = ""
         self._set_editor_read_only(False)
         self._configure_object_tables()
+        if hasattr(self, "left_tabs") and self.left_tabs.tabText(self.left_tabs.currentIndex()) == "Data Sources":
+            self._set_canvas_title(f"Data Sources: {obj.name}")
+        else:
+            self._set_canvas_title(f"{_kind_label(obj.kind)}: {obj.name}")
         self.lbl_name.setText(obj.name)
         self.lbl_kind.setText(_kind_label(obj.kind))
         self.lbl_status.setText(f"Status: {obj.metadata_status}    DSN: {_display_dsn_for_object(obj) or '-'}")
@@ -2287,6 +2427,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         forge_objects = self._query_objects_for_forge(forge_name)
         display_name = _dataforge_display_name(forge_name)
 
+        self._set_canvas_title(f"DataForge: {display_name}")
         self.lbl_name.setText(f"Forge: {display_name}")
         self.lbl_kind.setText("DataForge")
         saved_text = "Saved" if forge is not None else "Query copies only"
@@ -2337,6 +2478,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._set_editor_read_only(True)
         self._configure_data_source_tables()
 
+        self._set_canvas_title(f"Data Sources: {dsn}" if dsn else "Data Sources")
         self.lbl_name.setText(f"ODBC: {dsn}")
         self.lbl_kind.setText("Data Source")
         self.lbl_status.setText(f"Query Objects: {len(objects)}")
@@ -2378,6 +2520,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._set_editor_read_only(True)
         self._configure_data_source_tables()
 
+        self._set_canvas_title(f"Data Sources: {label}" if label else "Data Sources")
         self.lbl_name.setText(f"File: {label}")
         self.lbl_kind.setText("Data Source")
         self.lbl_status.setText(f"Query Objects: {len(objects)}")

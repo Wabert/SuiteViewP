@@ -167,7 +167,7 @@ class AuditWindow(FramelessWindowBase):
         self._selected_build_mode = "cyberlife"
         self._cyberlife_saved_object_name = ""
         self._manual_sql_started = False
-        # Registry and +Group buttons — placed in the window header bar
+        # Object/build controls — placed in the window header bar
         # Gold trim style for all header buttons
         _GOLD = "#D4A017"
         _GOLD_BTN_BASE = (
@@ -179,12 +179,6 @@ class AuditWindow(FramelessWindowBase):
             + _GOLD_BTN_BASE + " }"
             "QPushButton:hover { background-color: rgba(255,255,255,0.25); }"
         )
-        self.btn_registry = QPushButton("Registry")
-        self.btn_registry.setFont(QFont("Segoe UI", 8))
-        self.btn_registry.setFixedHeight(24)
-        self.btn_registry.setStyleSheet(_HEADER_BTN_STYLE)
-        self.btn_registry.setToolTip("Open the Unique Value Registry viewer")
-        self.btn_registry.clicked.connect(self._open_registry)
         self.btn_objects = QPushButton("Objects")
         self.btn_objects.setFont(QFont("Segoe UI", 8))
         self.btn_objects.setFixedHeight(24)
@@ -303,26 +297,17 @@ class AuditWindow(FramelessWindowBase):
         self.btn_new_cyberlife.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
         self.btn_new_cyberlife.setToolTip("Start a new Cyberlife Query Object")
         self.btn_new_cyberlife.clicked.connect(self._new_cyberlife_query_object)
-        # Common Tables manager button
-        self.btn_common_tables = QPushButton("Common Tables")
-        self.btn_common_tables.setFont(QFont("Segoe UI", 8))
-        self.btn_common_tables.setFixedHeight(24)
-        self.btn_common_tables.setStyleSheet(_HEADER_BTN_STYLE)
-        self.btn_common_tables.setToolTip("Manage user-defined lookup / translation tables")
-        self.btn_common_tables.clicked.connect(self._open_common_tables)
         # Insert into header bar layout before window control buttons
         # Group 1: object tools — then spacer — Build Mode selector
         from PyQt6.QtWidgets import QSpacerItem, QSizePolicy
         header_layout = self.header_bar.layout()
         insert_pos = header_layout.count() - 3  # before min/max/close
         header_layout.insertWidget(insert_pos, self.btn_objects)
-        header_layout.insertWidget(insert_pos + 1, self.btn_registry)
-        header_layout.insertWidget(insert_pos + 2, self.btn_common_tables)
-        header_layout.insertItem(insert_pos + 3,
+        header_layout.insertItem(insert_pos + 1,
             QSpacerItem(20, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum))
-        header_layout.insertWidget(insert_pos + 4, self.lbl_build_mode)
-        header_layout.insertWidget(insert_pos + 5, self.btn_build_mode)
-        header_layout.insertWidget(insert_pos + 6, self.btn_dataforge)
+        header_layout.insertWidget(insert_pos + 2, self.lbl_build_mode)
+        header_layout.insertWidget(insert_pos + 3, self.btn_build_mode)
+        header_layout.insertWidget(insert_pos + 4, self.btn_dataforge)
         # Dynamic query storage
         self._dynamic_queries: dict[str, DynamicQuery] = {}
         # Track which unpinned query is currently active
@@ -1148,15 +1133,6 @@ class AuditWindow(FramelessWindowBase):
         else:
             ui["picker_width"] = self._picker_width
         save_ui_settings(ui)
-    # ── Unique Value Registry ────────────────────────────────────────
-    def _open_registry(self):
-        """Open the Unique Value Registry viewer window."""
-        try:
-            from .unique_value_registry_window import UniqueValueRegistryWindow
-            UniqueValueRegistryWindow.show_instance(parent=None)
-        except Exception as exc:
-            logger.exception("Failed to open registry window")
-            QMessageBox.warning(self, "Registry Error", str(exc))
     # ── QDefinition Viewer ───────────────────────────────────────────
     def _open_qdef_viewer(self):
         """Open the QDefinition viewer window."""
@@ -1477,18 +1453,6 @@ class AuditWindow(FramelessWindowBase):
             f"Imported \"{obj.name}\" with {len(obj.fields)} fields.",
         )
         self._open_query_object_viewer()
-    # ── Common Tables Manager ────────────────────────────────────────
-    def _open_common_tables(self):
-        """Open the Common Tables manager dialog."""
-        try:
-            from .common_table_dialog import CommonTableDialog
-            dlg = CommonTableDialog.show_instance(parent=None)
-            # Refresh the tab when tables change
-            dlg.tables_changed.connect(
-                self.cyb_common_tables_tab.refresh_available)
-        except Exception as exc:
-            logger.exception("Failed to open Common Tables dialog")
-            QMessageBox.warning(self, "Common Tables Error", str(exc))
     # ── Query building ───────────────────────────────────────────────
     def _build_sql(self) -> str:
         """Build the CyberLife audit SQL — delegates to cyberlife_query module."""

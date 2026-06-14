@@ -801,12 +801,18 @@ class QueryObjectTests(unittest.TestCase):
                     [window.left_tabs.tabText(index) for index in range(window.left_tabs.count())],
                     ["Queried", "Data Sources", "Tables", "Registry"],
                 )
+                self.assertTrue(hasattr(window, "edit_search"))
+                self.assertTrue(hasattr(window, "edit_source_search"))
+                self.assertFalse(hasattr(window, "btn_expand_all"))
+                self.assertFalse(hasattr(window, "btn_collapse_all"))
                 self.assertFalse(hasattr(window, "btn_group_new"))
                 self.assertFalse(hasattr(window, "btn_group_rename"))
                 self.assertFalse(hasattr(window, "btn_group_color"))
                 self.assertFalse(hasattr(window, "btn_group_delete"))
                 self.assertEqual(window.tree.currentItem().text(0),
                                  "Initial Viewer Object  [WORK_DSN]")
+                self.assertEqual(window.lbl_canvas_title.text(),
+                                 "Manual SQL Objects: Initial Viewer Object")
                 self.assertEqual(window.lbl_name.text(), "Initial Viewer Object")
                 self.assertEqual(window.source_tree.topLevelItem(0).text(0), "ODBC (1)")
                 odbc_item = window.source_tree.topLevelItem(0).child(0)
@@ -816,6 +822,18 @@ class QueryObjectTests(unittest.TestCase):
                 odbc_payload = odbc_query_item.data(0, Qt.ItemDataRole.UserRole)
                 self.assertEqual(odbc_payload["type"], "query")
                 self.assertTrue(odbc_payload["source_tree"])
+
+                window.left_tabs.setCurrentIndex(1)
+                app.processEvents()
+                odbc_item = window.source_tree.topLevelItem(0).child(0)
+                odbc_query_item = odbc_item.child(0)
+                window.source_tree.setCurrentItem(odbc_item)
+                app.processEvents()
+                self.assertEqual(window.lbl_canvas_title.text(), "Data Sources: WORK_DSN")
+                window.source_tree.setCurrentItem(odbc_query_item)
+                app.processEvents()
+                self.assertEqual(window.lbl_canvas_title.text(),
+                                 "Data Sources: Initial Viewer Object")
             finally:
                 window.close()
 
@@ -850,11 +868,19 @@ class QueryObjectTests(unittest.TestCase):
                 app.processEvents()
                 self.assertEqual(window._promote_slot.minimumWidth(), 112)
                 self.assertEqual(window._promote_slot.maximumWidth(), 112)
+                self.assertEqual(window.lbl_canvas_title.text(),
+                                 "File Sources: Claims File Source")
 
                 window._browser_splitter.setSizes([250, 870])
                 window._on_browser_splitter_moved(250, 1)
                 app.processEvents()
                 self.assertEqual(window._left_panel_width, 333)
+
+                window.resize(760, 620)
+                window._left_panel_width = 520
+                window._apply_left_panel_width()
+                app.processEvents()
+                self.assertLessEqual(window._browser_splitter.sizes()[1], 260)
 
                 def find_query_item(item):
                     payload = item.data(0, Qt.ItemDataRole.UserRole) or {}
@@ -888,6 +914,19 @@ class QueryObjectTests(unittest.TestCase):
                 self.assertEqual(source_payload["badge_fill"], "#B58900")
                 self.assertEqual(source_payload["badge_text_color"], "#FFFFFF")
 
+                window.left_tabs.setCurrentIndex(1)
+                app.processEvents()
+                files_item = window.source_tree.topLevelItem(1)
+                source_item = files_item.child(0)
+                source_query_item = source_item.child(0)
+                window.source_tree.setCurrentItem(source_item)
+                app.processEvents()
+                self.assertEqual(window.lbl_canvas_title.text(), "Data Sources: claims.csv")
+                window.source_tree.setCurrentItem(source_query_item)
+                app.processEvents()
+                self.assertEqual(window.lbl_canvas_title.text(),
+                                 "Data Sources: Claims File Source")
+
                 opened = []
                 window._on_open_builder = lambda: opened.append(window._current.name)
                 window._on_source_tree_double_clicked(source_query_item, 0)
@@ -896,7 +935,7 @@ class QueryObjectTests(unittest.TestCase):
                 window.tree.setCurrentItem(file_item)
                 app.processEvents()
 
-                self.assertEqual(window._left_panel_width, 333)
+                self.assertEqual(window._left_panel_width, 520)
             finally:
                 window.close()
 
