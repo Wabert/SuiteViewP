@@ -797,13 +797,25 @@ class QueryObjectTests(unittest.TestCase):
                 app.processEvents()
 
                 # Browser items show the datasource tag (design §8).
+                self.assertEqual(
+                    [window.left_tabs.tabText(index) for index in range(window.left_tabs.count())],
+                    ["Queried", "Data Sources", "Tables", "Registry"],
+                )
+                self.assertFalse(hasattr(window, "btn_group_new"))
+                self.assertFalse(hasattr(window, "btn_group_rename"))
+                self.assertFalse(hasattr(window, "btn_group_color"))
+                self.assertFalse(hasattr(window, "btn_group_delete"))
                 self.assertEqual(window.tree.currentItem().text(0),
                                  "Initial Viewer Object  [WORK_DSN]")
                 self.assertEqual(window.lbl_name.text(), "Initial Viewer Object")
                 self.assertEqual(window.source_tree.topLevelItem(0).text(0), "ODBC (1)")
                 odbc_item = window.source_tree.topLevelItem(0).child(0)
                 self.assertEqual(odbc_item.text(0), "WORK_DSN")
-                self.assertEqual(odbc_item.child(0).text(0), "Initial Viewer Object")
+                odbc_query_item = odbc_item.child(0)
+                self.assertEqual(odbc_query_item.text(0), "Initial Viewer Object  [WORK_DSN]")
+                odbc_payload = odbc_query_item.data(0, Qt.ItemDataRole.UserRole)
+                self.assertEqual(odbc_payload["type"], "query")
+                self.assertTrue(odbc_payload["source_tree"])
             finally:
                 window.close()
 
@@ -868,7 +880,18 @@ class QueryObjectTests(unittest.TestCase):
                 self.assertEqual(files_item.text(0), "Files (1)")
                 source_item = files_item.child(0)
                 self.assertEqual(source_item.text(0), "claims.csv")
-                self.assertEqual(source_item.child(0).text(0), "Claims File Source")
+                source_query_item = source_item.child(0)
+                self.assertIn("Claims File Source", source_query_item.text(0))
+                source_payload = source_query_item.data(0, Qt.ItemDataRole.UserRole)
+                self.assertEqual(source_payload["type"], "query")
+                self.assertTrue(source_payload["source_tree"])
+                self.assertEqual(source_payload["badge_fill"], "#B58900")
+                self.assertEqual(source_payload["badge_text_color"], "#FFFFFF")
+
+                opened = []
+                window._on_open_builder = lambda: opened.append(window._current.name)
+                window._on_source_tree_double_clicked(source_query_item, 0)
+                self.assertEqual(opened, ["Claims File Source"])
 
                 window.tree.setCurrentItem(file_item)
                 app.processEvents()

@@ -528,7 +528,10 @@ def test_append_prunes_joins_when_shared_fields_change():
 
 def test_append_specs_config_and_state_round_trip():
     m = _append_model()
-    m.add_append("All Claims", x=120, y=80)
+    append = m.add_append("All Claims", x=120, y=80)
+    append.width = 310
+    append.visible_rows = 5
+    append.scroll_offset = 2
     m.add_member("All Claims", "ca")
     m.add_member("All Claims", "cb")
     m.add_link("All Claims", "company_code", "pol", "company_code")
@@ -547,6 +550,9 @@ def test_append_specs_config_and_state_round_trip():
     ap = m2.get_append("All Claims")
     assert ap is not None and ap.members == ["ca", "cb"]
     assert ap.x == 120 and ap.y == 80
+    assert ap.width == 310
+    assert ap.visible_rows == 5
+    assert ap.scroll_offset == 2
     assert m2.member_of("ca") == "All Claims"
     assert len(m2.joins) == 1
 

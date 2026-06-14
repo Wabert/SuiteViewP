@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QStyle,
     QStyledItemDelegate,
     QTableWidget,
@@ -127,9 +128,6 @@ _BTN_DANGER_STYLE = (
 _LEFT_PANEL_DEFAULT_WIDTH = 280
 _LEFT_PANEL_MIN_WIDTH = 220
 _LEFT_PANEL_MAX_WIDTH = 520
-_SOURCE_PANEL_DEFAULT_WIDTH = 300
-_SOURCE_PANEL_MIN_WIDTH = 240
-_SOURCE_PANEL_MAX_WIDTH = 440
 _FILE_SOURCE_TYPES = {"csv", "excel", "fixed_width"}
 _SENSITIVE_ODBC_KEYS = {
     "password",
@@ -504,8 +502,10 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._dataforge_builder_windows: list[QDialog] = []
         self._audit_builder_windows: list[QWidget] = []
         self._file_nav_window = None
+        self._embedded_common_tables = None
+        self._embedded_registry = None
         super().__init__(
-            title="Query Object Browser",
+            title="Object Browser",
             default_size=(1120, 620),
             min_size=(760, 420),
             parent=None,
@@ -545,34 +545,27 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         left.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_lay = QVBoxLayout(left)
         left_lay.setContentsMargins(0, 0, 0, 0)
-        left_lay.setSpacing(4)
+        left_lay.setSpacing(0)
 
-        header_row = QWidget()
-        header_lay = QHBoxLayout(header_row)
-        header_lay.setContentsMargins(0, 0, 0, 0)
-        header_lay.setSpacing(3)
+        self.left_tabs = QTabWidget()
+        self.left_tabs.setFont(_FONT_SMALL)
+        self.left_tabs.setStyleSheet(
+            "QTabWidget::pane { border: 1px solid #1E5BA8; background: white; }"
+            "QTabBar::tab { background: #E8F0FB; color: #0D3A7A;"
+            " border: 1px solid #A0C4E8; border-bottom: none;"
+            " padding: 3px 5px; font-size: 8pt; }"
+            "QTabBar::tab:selected { background: white; color: #1E5BA8; font-weight: bold; }"
+        )
 
-        lbl_left = QLabel("Query Objects")
+        queried_panel = QWidget()
+        queried_lay = QVBoxLayout(queried_panel)
+        queried_lay.setContentsMargins(3, 3, 3, 3)
+        queried_lay.setSpacing(4)
+
+        lbl_left = QLabel("Queried Objects")
         lbl_left.setFont(_FONT_BOLD)
         lbl_left.setStyleSheet("color: #1E5BA8;")
-        header_lay.addWidget(lbl_left, 1)
-
-        self.btn_group_new = self._make_group_tool_button("+", "New Query Group")
-        self.btn_group_rename = self._make_group_tool_button("R", "Rename selected Query Group")
-        self.btn_group_color = self._make_group_tool_button("C", "Change selected Query Group color")
-        self.btn_group_delete = self._make_group_tool_button("X", "Delete selected Query Group and its queries")
-        self.btn_group_new.clicked.connect(self._on_new_group)
-        self.btn_group_rename.clicked.connect(self._on_rename_selected_group)
-        self.btn_group_color.clicked.connect(self._on_color_selected_group)
-        self.btn_group_delete.clicked.connect(self._on_delete_selected_group)
-        for button in (
-            self.btn_group_new,
-            self.btn_group_rename,
-            self.btn_group_color,
-            self.btn_group_delete,
-        ):
-            header_lay.addWidget(button)
-        left_lay.addWidget(header_row)
+        queried_lay.addWidget(lbl_left)
 
         search_row = QWidget()
         search_lay = QHBoxLayout(search_row)
@@ -591,9 +584,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.edit_search.textChanged.connect(lambda _text: self.refresh())
         search_lay.addWidget(self.edit_search, 1)
 
-        self.btn_expand_all = QPushButton("+")
+        self.btn_expand_all = QPushButton("Expand")
         self.btn_expand_all.setFont(_FONT_BOLD)
-        self.btn_expand_all.setFixedSize(24, 24)
+        self.btn_expand_all.setFixedSize(54, 24)
         self.btn_expand_all.setToolTip("Expand all Query Groups and DataForges")
         self.btn_expand_all.setStyleSheet(
             "QPushButton { background: #E8F0FB; border: 1px solid #1E5BA8;"
@@ -603,14 +596,14 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.btn_expand_all.clicked.connect(lambda: self._set_all_containers_expanded(True))
         search_lay.addWidget(self.btn_expand_all)
 
-        self.btn_collapse_all = QPushButton("-")
+        self.btn_collapse_all = QPushButton("Collapse")
         self.btn_collapse_all.setFont(_FONT_BOLD)
-        self.btn_collapse_all.setFixedSize(24, 24)
+        self.btn_collapse_all.setFixedSize(64, 24)
         self.btn_collapse_all.setToolTip("Collapse all Query Groups and DataForges")
         self.btn_collapse_all.setStyleSheet(self.btn_expand_all.styleSheet())
         self.btn_collapse_all.clicked.connect(lambda: self._set_all_containers_expanded(False))
         search_lay.addWidget(self.btn_collapse_all)
-        left_lay.addWidget(search_row)
+        queried_lay.addWidget(search_row)
 
         self.tree = _OrganizerTree(self)
         self.tree.setHeaderHidden(True)
@@ -634,16 +627,22 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.tree.itemCollapsed.connect(lambda item: self._on_tree_expansion_changed(item, False))
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_tree_context_menu)
-        left_lay.addWidget(self.tree, 1)
+        queried_lay.addWidget(self.tree, 1)
+
+        self.left_tabs.addTab(queried_panel, "Queried")
+        self.left_tabs.addTab(self._build_data_source_panel(), "Data Sources")
+        self._tables_left_host = self._make_embedded_host()
+        self._registry_left_host = self._make_embedded_host()
+        self.left_tabs.addTab(self._tables_left_host, "Tables")
+        self.left_tabs.addTab(self._registry_left_host, "Registry")
+        self.left_tabs.currentChanged.connect(self._on_left_tab_changed)
+        left_lay.addWidget(self.left_tabs, 1)
 
         splitter.addWidget(left)
 
-        source_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._source_splitter = source_splitter
-        source_splitter.setChildrenCollapsible(False)
-        source_splitter.setHandleWidth(4)
-
         right = QWidget()
+        right.setMinimumWidth(260)
+        right.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         right_lay = QVBoxLayout(right)
         right_lay.setContentsMargins(0, 0, 0, 0)
         right_lay.setSpacing(4)
@@ -802,13 +801,16 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.tabs.addTab(self.txt_config, "Config")
 
         right_lay.addWidget(self.tabs, 1)
-        source_splitter.addWidget(right)
-        source_splitter.addWidget(self._build_data_source_panel())
-        source_splitter.setStretchFactor(0, 1)
-        source_splitter.setStretchFactor(1, 0)
-        source_splitter.setSizes([820, _SOURCE_PANEL_DEFAULT_WIDTH])
 
-        splitter.addWidget(source_splitter)
+        self._detail_canvas = right
+        self._browser_canvas_stack = QStackedWidget()
+        self._browser_canvas_stack.addWidget(right)
+        self._tables_canvas_host = self._make_embedded_host()
+        self._registry_canvas_host = self._make_embedded_host()
+        self._browser_canvas_stack.addWidget(self._tables_canvas_host)
+        self._browser_canvas_stack.addWidget(self._registry_canvas_host)
+
+        splitter.addWidget(self._browser_canvas_stack)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([self._left_panel_width, 1120 - self._left_panel_width])
@@ -832,27 +834,88 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         )
         return edit
 
+    def _make_embedded_host(self) -> QWidget:
+        host = QWidget()
+        lay = QVBoxLayout(host)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        return host
+
     @staticmethod
-    def _make_group_tool_button(text: str, tooltip: str) -> QPushButton:
-        button = QPushButton(text)
-        button.setFont(_FONT_SMALL)
-        button.setFixedSize(22, 22)
-        button.setToolTip(tooltip)
-        button.setStyleSheet(
-            "QPushButton { background: #F8FAFC; border: 1px solid #8AAED8;"
-            " border-radius: 3px; color: #0D3A7A; padding: 0px; }"
-            "QPushButton:hover { background: #E8F0FB; border-color: #1E5BA8; }"
-            "QPushButton:disabled { color: #A0A0A0; border-color: #D0D0D0; }"
-        )
-        return button
+    def _replace_host_content(host: QWidget, child: QWidget) -> None:
+        layout = host.layout()
+        if layout is None:
+            layout = QVBoxLayout(host)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+        child.setParent(host)
+        child.setVisible(True)
+        layout.addWidget(child, 1)
+
+    def _on_left_tab_changed(self, index: int) -> None:
+        label = self.left_tabs.tabText(index)
+        if label == "Tables":
+            self._ensure_tables_embedded()
+            self._browser_canvas_stack.setCurrentWidget(self._tables_canvas_host)
+            return
+        if label == "Registry":
+            self._ensure_registry_embedded()
+            self._browser_canvas_stack.setCurrentWidget(self._registry_canvas_host)
+            return
+        self._browser_canvas_stack.setCurrentWidget(self._detail_canvas)
+        if label == "Data Sources":
+            self._refresh_source_tree()
+
+    def _ensure_tables_embedded(self) -> None:
+        if self._embedded_common_tables is not None:
+            return
+        try:
+            from suiteview.audit.common_table_dialog import CommonTableDialog
+            self._embedded_common_tables = CommonTableDialog(parent=self)
+            self._replace_host_content(
+                self._tables_left_host, self._embedded_common_tables._nav_panel)
+            self._replace_host_content(
+                self._tables_canvas_host, self._embedded_common_tables._canvas_panel)
+        except Exception as exc:
+            logger.exception("Failed to embed Common Tables in Object Browser")
+            QMessageBox.warning(self, "Common Tables Error", str(exc))
+
+    def _ensure_registry_embedded(self) -> None:
+        if self._embedded_registry is not None:
+            return
+        try:
+            from suiteview.audit.unique_value_registry_window import UniqueValueRegistryWindow
+            self._embedded_registry = UniqueValueRegistryWindow(parent=self)
+            self._replace_host_content(
+                self._registry_left_host, self._embedded_registry._nav_panel)
+            self._replace_host_content(
+                self._registry_canvas_host, self._embedded_registry._canvas_panel)
+        except Exception as exc:
+            logger.exception("Failed to embed Registry in Object Browser")
+            QMessageBox.warning(self, "Registry Error", str(exc))
+
+    def _select_left_tab(self, label: str) -> None:
+        for index in range(self.left_tabs.count()):
+            if self.left_tabs.tabText(index) == label:
+                self.left_tabs.setCurrentIndex(index)
+                return
+
+    def _open_common_tables(self):
+        self._select_left_tab("Tables")
+
+    def _open_registry(self):
+        self._select_left_tab("Registry")
 
     def _build_data_source_panel(self) -> QWidget:
         panel = QWidget()
-        panel.setMinimumWidth(_SOURCE_PANEL_MIN_WIDTH)
-        panel.setMaximumWidth(_SOURCE_PANEL_MAX_WIDTH)
-        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         panel_lay = QVBoxLayout(panel)
-        panel_lay.setContentsMargins(0, 0, 0, 0)
+        panel_lay.setContentsMargins(3, 3, 3, 3)
         panel_lay.setSpacing(4)
 
         lbl = QLabel("Data Sources")
@@ -879,7 +942,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.source_tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.source_tree.setRootIsDecorated(True)
         self.source_tree.setIndentation(14)
-        self.source_tree.setUniformRowHeights(True)
+        self.source_tree.setUniformRowHeights(False)
+        self.source_tree.setItemDelegate(_OrganizerPillDelegate(self.source_tree))
         self.source_tree.setFont(_FONT)
         self.source_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.source_tree.setStyleSheet(
@@ -889,6 +953,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         )
         self.source_tree.itemClicked.connect(self._on_source_tree_clicked)
         self.source_tree.currentItemChanged.connect(self._on_source_tree_selection)
+        self.source_tree.itemDoubleClicked.connect(self._on_source_tree_double_clicked)
         panel_lay.addWidget(self.source_tree, 1)
         return panel
 
@@ -1136,6 +1201,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             keys = {
                 "odbc_source": ("dsn",),
                 "file_source": ("key",),
+                "query": ("id", "source_key"),
                 "source_query": ("id", "source_key"),
                 "source_group": ("group",),
             }.get(payload.get("type"), ())
@@ -1143,11 +1209,24 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 selected_item = item
 
         def _add_query_leaf(parent: QTreeWidgetItem, obj: QueryObject, source_key: str) -> None:
-            item = QTreeWidgetItem([obj.name])
+            style = mode_style(obj.kind)
+            dsn = _display_dsn_for_object(obj) or obj.source_design or "?"
+            item = QTreeWidgetItem([f"{obj.name}  [{dsn}]"])
             item.setFont(0, _FONT)
-            item.setForeground(0, QColor("#333333"))
-            item.setToolTip(0, f"{_kind_label(obj.kind)} - {_display_dsn_for_object(obj) or obj.source_design}")
-            payload = {"type": "source_query", "id": obj.id, "name": obj.name, "source_key": source_key}
+            item.setForeground(0, QColor(style.color))
+            item.setBackground(0, QBrush(QColor(style.tint)))
+            item.setToolTip(0, f"{style.label} - {dsn}")
+            payload = {
+                "type": "query",
+                "id": obj.id,
+                "name": obj.name,
+                "source_key": source_key,
+                "source_tree": True,
+                "badge": _QUERY_BADGES.get(obj.kind, "Q"),
+                "badge_color": style.color,
+                "badge_fill": style.color,
+                "badge_text_color": "#FFFFFF",
+            }
             item.setData(0, Qt.ItemDataRole.UserRole, payload)
             parent.addChild(item)
             _track(item, payload)
@@ -1307,7 +1386,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return
         payload = _payload(current)
         payload_type = payload.get("type")
-        if payload_type == "source_query":
+        if payload_type in {"query", "source_query"}:
             obj = query_object_store.load_object_by_id(payload.get("id", ""))
             if obj is not None:
                 self._show_detail(obj)
@@ -1317,6 +1396,17 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return
         if payload_type == "file_source":
             self._show_file_source_detail(payload)
+
+    def _on_source_tree_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        payload = _payload(item)
+        if payload.get("type") not in {"query", "source_query"}:
+            return
+        obj = query_object_store.load_object_by_id(payload.get("id", ""))
+        if obj is None:
+            return
+        self._show_detail(obj)
+        if self._current is not None and self._can_open_in_builder(self._current):
+            self._on_open_builder()
 
     def _expanded_for_item(self, payload: dict, search_active: bool) -> bool:
         if search_active:
@@ -1505,9 +1595,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         return bool(payload and payload.get("group_id") != COMMONS_GROUP_ID)
 
     def _update_group_action_buttons(self) -> None:
-        editable = self._selected_group_is_editable()
-        for button in (self.btn_group_rename, self.btn_group_color, self.btn_group_delete):
-            button.setEnabled(editable)
+        return
 
     def _on_rename_selected_group(self) -> None:
         payload = self._selected_group_payload()

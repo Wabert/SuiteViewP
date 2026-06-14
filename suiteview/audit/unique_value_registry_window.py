@@ -226,7 +226,9 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         root.setSpacing(4)
 
         # ── Toolbar ──────────────────────────────────────────────────
-        toolbar = QHBoxLayout()
+        toolbar_widget = QWidget()
+        toolbar = QHBoxLayout(toolbar_widget)
+        toolbar.setContentsMargins(0, 0, 0, 0)
         toolbar.setSpacing(6)
 
         self.btn_refresh = QPushButton("Refresh All")
@@ -252,11 +254,12 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.lbl_summary.setStyleSheet("color: #666;")
         toolbar.addWidget(self.lbl_summary)
 
-        root.addLayout(toolbar)
+        self._toolbar_panel = toolbar_widget
 
         # ── Splitter: left nav tree + right value table ──────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(4)
+        self._splitter = splitter
 
         # LEFT: Navigation tree grouped by table
         left_panel = QWidget()
@@ -286,6 +289,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.tree.customContextMenuRequested.connect(self._on_tree_context_menu)
         left_lay.addWidget(self.tree)
 
+        self._nav_panel = left_panel
         splitter.addWidget(left_panel)
 
         # RIGHT: Value table + stats + buttons
@@ -399,7 +403,13 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             self._on_value_selection_changed)
         right_lay.addWidget(self.value_table)
 
-        splitter.addWidget(right_panel)
+        self._canvas_panel = QWidget()
+        canvas_lay = QVBoxLayout(self._canvas_panel)
+        canvas_lay.setContentsMargins(0, 0, 0, 0)
+        canvas_lay.setSpacing(4)
+        canvas_lay.addWidget(toolbar_widget)
+        canvas_lay.addWidget(right_panel, 1)
+        splitter.addWidget(self._canvas_panel)
 
         # Set initial splitter proportions (25% nav, 75% values)
         splitter.setSizes([220, 600])

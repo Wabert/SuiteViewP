@@ -1,6 +1,6 @@
 """
 Query organizer — the user's free-form arrangement of Queries, Query Groups,
-and DataForges shown by the Query Object browser (DATAFORGE_DESIGN §8).
+and DataForges shown by the Object Browser (DATAFORGE_DESIGN §8).
 
 Modeled on the File Nav BookmarkDataManager: one JSON document holding an
 ordered tree, persisted atomically. The organizer stores only *references*
@@ -84,7 +84,7 @@ def _is_forge_owned(obj: QueryObject) -> bool:
 
 
 class QueryOrganizer:
-    """Groups/order for the Query Object browser. All query refs are by id."""
+    """Groups/order for the Object Browser. All query refs are by id."""
 
     def __init__(self, path: Path | None = None):
         self._path = path or _organizer_path()

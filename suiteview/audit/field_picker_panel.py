@@ -36,6 +36,18 @@ _FONT_SMALL = QFont("Segoe UI", 8)
 FIELD_DRAG_MIME = "application/x-audit-field-drag"
 
 
+def _dedupe_tables(tables: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for table in tables:
+        clean = str(table or "").strip()
+        if not clean or clean in seen:
+            continue
+        result.append(clean)
+        seen.add(clean)
+    return result
+
+
 def _indexed_column_names(cursor, table: str, schema: str | None) -> set[str]:
     names: set[str] = set()
     for loader in (cursor.primaryKeys, cursor.statistics):
@@ -239,6 +251,7 @@ class FieldPickerPanel(QWidget):
 
         self._dsn: str = ""
         self._tables: list[str] = []
+        self._available_tables: list[str] = []
         self._display_names: dict[str, str] = {}
         self._current_table: str = ""
         self._loader: _FieldLoaderThread | None = None
@@ -320,12 +333,24 @@ class FieldPickerPanel(QWidget):
         self.list_tables.itemDoubleClicked.connect(self._on_table_double_clicked)
         tl.addWidget(self.list_tables)
 
-        self.btn_common_table = QPushButton("Common Table")
+        button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 0, 0, 0)
+        button_row.setSpacing(3)
+
+        self.btn_add_table = QPushButton("+Table")
+        self.btn_add_table.setFont(_FONT_BOLD)
+        self.btn_add_table.setFixedHeight(24)
+        self.btn_add_table.setStyleSheet(_NEW_BTN_STYLE)
+        self.btn_add_table.clicked.connect(self._on_add_table)
+        button_row.addWidget(self.btn_add_table)
+
+        self.btn_common_table = QPushButton("+Common Table")
         self.btn_common_table.setFont(_FONT_BOLD)
         self.btn_common_table.setFixedHeight(24)
         self.btn_common_table.setStyleSheet(_NEW_BTN_STYLE)
         self.btn_common_table.clicked.connect(self._show_common_table_dialog)
-        tl.addWidget(self.btn_common_table)
+        button_row.addWidget(self.btn_common_table)
+        tl.addLayout(button_row)
 
         splitter.addWidget(tables_frame)
 
@@ -424,9 +449,6 @@ class FieldPickerPanel(QWidget):
                 item.setHidden(False)
                 continue
             table = item.data(Qt.ItemDataRole.UserRole) or item.text()
-            if str(table) in self._pinned_tables or str(table) in self._common_table_cols:
-                item.setHidden(False)
-                continue
             item.setHidden(filt not in str(table).lower() if filt else False)
 
     # ── Public API ────────────────────────────────────────────────
@@ -462,9 +484,9 @@ class FieldPickerPanel(QWidget):
             self._dsn = dsn
             self._display_names = {}
             self._field_cache.clear()
-            self._common_table_cols.clear()
             self._current_table = ""
-            self._load_tables(dsn)
+            self._preferred_table = ""
+            self._rebuild_table_list()
 
     def current_connection(self) -> str:
         data = self.cmb_connection.currentData()
@@ -480,9 +502,13 @@ class FieldPickerPanel(QWidget):
         self._dsn = dsn
         self._display_names = {}
         self._field_cache.clear()
-        self._common_table_cols.clear()
         self._current_table = ""
-        self._load_tables(dsn)
+        self._preferred_table = ""
+        self._tables = []
+        self._pinned_tables.clear()
+        self._rebuild_table_list()
+        self.tables_changed.emit([])
+        self.pinned_tables_changed.emit([])
 
     def _load_tables(self, dsn: str):
         self.list_tables.clear()
@@ -494,7 +520,7 @@ class FieldPickerPanel(QWidget):
         self._table_loader.start()
 
     def _on_tables_loaded(self, tables: list[str]):
-        self._tables = list(tables)
+        self._available_tables = list(tables)
         self._rebuild_table_list()
         self.lbl_status.setText("")
         self._table_loader = None
@@ -515,18 +541,15 @@ class FieldPickerPanel(QWidget):
         self._dsn = dsn
         self._display_names = display_names
         self._preferred_table = preferred_table or (tables[0] if tables else "")
-        self._pinned_tables = set(pinned_tables or [])
+        selected_tables = _dedupe_tables(list(tables) + list(pinned_tables or []))
+        self._tables = selected_tables
+        self._pinned_tables = set(selected_tables)
         self.set_connection_options(self._connections, dsn)
 
         if dsn and dsn != previous_dsn:
             self._field_cache.clear()
             self._current_table = ""
-            self._load_tables(dsn)
-        elif not self._tables:
-            self._tables = list(tables)
-            self._rebuild_table_list()
-        else:
-            self._select_table(self._preferred_table)
+        self._rebuild_table_list()
 
     def set_common_tables(
         self, common_cols: dict[str, list[tuple[str, str]]]
@@ -551,37 +574,33 @@ class FieldPickerPanel(QWidget):
         self._rebuild_table_list()
 
     def _rebuild_table_list(self):
-        """Rebuild the table list widget with DB tables + common tables."""
+        """Rebuild the table list widget with selected DB tables + common tables."""
         preferred = self._preferred_table or self._current_table
         self.list_tables.clear()
         self.list_fields.clear()
         self.lbl_status.setText("")
 
         ct_names = sorted(self._common_table_cols.keys(), key=str.lower)
-        pinned_names = sorted(
-            (set(self._pinned_tables) | set(ct_names)) & (set(self._tables) | set(ct_names)),
-            key=str.lower,
-        )
-        regular_names = [t for t in self._tables if t not in pinned_names]
+        selected_names = _dedupe_tables([
+            table for table in self._tables
+            if table not in self._common_table_cols
+        ] + [
+            table for table in sorted(self._pinned_tables, key=str.lower)
+            if table not in self._common_table_cols
+        ])
 
-        for name in pinned_names:
-            self._add_table_item(name, pinned=True, common=name in self._common_table_cols)
+        for name in selected_names:
+            self._add_table_item(name, pinned=True, common=False)
 
-        if pinned_names and regular_names:
+        if selected_names and ct_names:
             sep = QListWidgetItem("────────────────────")
             sep.setFlags(Qt.ItemFlag.NoItemFlags)
             sep.setForeground(QBrush(QColor("#7A8CA5")))
             sep.setData(Qt.ItemDataRole.UserRole, "__separator__")
             self.list_tables.addItem(sep)
 
-        for t in regular_names:
-            self._add_table_item(t, pinned=False, common=False)
-
-        # Common tables already pinned above. Keep this for common tables that
-        # are not in the ODBC table list.
         for name in ct_names:
-            if name not in pinned_names:
-                self._add_table_item(name, pinned=True, common=True)
+            self._add_table_item(name, pinned=True, common=True)
 
         # Restore selection, prefer a used query table, or default to first
         if self._select_table(preferred):
@@ -619,6 +638,7 @@ class FieldPickerPanel(QWidget):
         """Clear the panel."""
         self._dsn = ""
         self._tables = []
+        self._available_tables = []
         self._display_names = {}
         self._field_cache.clear()
         self._common_table_cols.clear()
@@ -741,25 +761,27 @@ class FieldPickerPanel(QWidget):
         menu = QMenu(self)
         is_common = table in self._common_table_cols
         if not is_common:
-            act_pin = menu.addAction("Unpin Table" if table in self._pinned_tables else "Pin Table")
+            act_remove_table = menu.addAction("Remove Table")
             act_remove_common = None
             act_preview = menu.addAction("View Top 1000 Rows")
         else:
-            act_pin = None
+            act_remove_table = None
             act_remove_common = menu.addAction("Remove Common Table")
             act_preview = None
 
         chosen = menu.exec(self.list_tables.mapToGlobal(pos))
         if chosen is None:
             return
-        if act_pin is not None and chosen is act_pin:
-            if table in self._pinned_tables:
-                self._pinned_tables.remove(table)
-            else:
-                self._pinned_tables.add(table)
-            self._preferred_table = table
+        if act_remove_table is not None and chosen is act_remove_table:
+            self._tables = [item for item in self._tables if item != table]
+            self._pinned_tables.discard(table)
+            self._field_cache.pop(table, None)
+            if self._current_table == table:
+                self._current_table = ""
             self._rebuild_table_list()
-            self.pinned_tables_changed.emit(sorted(self._pinned_tables, key=str.lower))
+            selected = list(self._tables)
+            self.tables_changed.emit(selected)
+            self.pinned_tables_changed.emit(selected)
             return
         if act_remove_common is not None and chosen is act_remove_common:
             self.common_table_remove_requested.emit(table)
@@ -838,16 +860,23 @@ class FieldPickerPanel(QWidget):
         if not self._dsn:
             return
         from .dialogs.tables_dialog import _AddTableDialog
-        dlg = _AddTableDialog(self._dsn, self._tables, self)
-        from PyQt6.QtWidgets import QDialog
+        existing = _dedupe_tables(list(self._tables) + list(self._common_table_cols.keys()))
+        dlg = _AddTableDialog(self._dsn, existing, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             new_tables = dlg.get_selected()
+            first_new = ""
             for t in new_tables:
                 if t not in self._tables:
                     self._tables.append(t)
-            self.list_tables.clear()
-            self.list_tables.addItems(self._tables)
-            self.tables_changed.emit(self._tables)
+                    self._pinned_tables.add(t)
+                    first_new = first_new or t
+            if first_new:
+                self._preferred_table = first_new
+            self._tables = _dedupe_tables(self._tables)
+            self._rebuild_table_list()
+            selected = list(self._tables)
+            self.tables_changed.emit(selected)
+            self.pinned_tables_changed.emit(selected)
 
     def _on_view_table(self):
         """Preview first 1000 rows of the selected table."""

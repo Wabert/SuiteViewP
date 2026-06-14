@@ -384,6 +384,7 @@ class ManualSqlObjectEditor(QWidget):
         self.btn_new_query.clicked.connect(self._confirm_new_object)
         self.sql_assist.table_requested.connect(self._insert_sql_text)
         self.sql_assist.field_requested.connect(self._on_assist_field_requested)
+        self.sql_assist.tables_changed.connect(self._on_assist_tables_changed)
         self.sql_assist.pinned_tables_changed.connect(self._on_assist_pins_changed)
         self.sql_assist.common_table_requested.connect(self._on_common_table_requested)
         self.sql_assist.common_table_remove_requested.connect(self._on_common_table_remove_requested)
@@ -405,6 +406,7 @@ class ManualSqlObjectEditor(QWidget):
         self._original_name = ""
         self._pinned_tables = []
         self._common_table_names = []
+        self.sql_assist.set_group(self.current_connection(), [], {})
         self.sql_assist.set_common_tables({})
         self._update_object_heading()
         self.txt_name.clear()
@@ -429,7 +431,9 @@ class ManualSqlObjectEditor(QWidget):
         self._dsn = obj.dsn
         config = obj.config or {}
         assist_config = config.get("sql_assist", {})
-        self._pinned_tables = list(assist_config.get("pinned_tables", []))
+        self._pinned_tables = list(
+            assist_config.get("tables", assist_config.get("pinned_tables", []))
+        )
         self._common_table_names = list(assist_config.get("common_tables", []))
         self._refresh_common_tables()
         self._existing_fields = [replace(field) for field in obj.fields]
@@ -446,7 +450,7 @@ class ManualSqlObjectEditor(QWidget):
         selected = current or self.current_connection()
         self.sql_assist.set_connection_options(connections, selected)
         self.sql_assist.set_group(
-            self.sql_assist.current_connection(), [], {},
+            self.sql_assist.current_connection(), list(self._pinned_tables), {},
             pinned_tables=self._pinned_tables,
         )
         self._refresh_common_tables()
@@ -462,6 +466,9 @@ class ManualSqlObjectEditor(QWidget):
         self._insert_sql_text(column)
 
     def _on_assist_pins_changed(self, tables: list[str]):
+        self._pinned_tables = list(tables)
+
+    def _on_assist_tables_changed(self, tables: list[str]):
         self._pinned_tables = list(tables)
 
     def _on_common_table_requested(self, table_name: str):
@@ -762,6 +769,7 @@ class ManualSqlObjectEditor(QWidget):
             "column_types": dict(self._column_types),
             "existing_fields": [replace(field) for field in self._existing_fields],
             "sql_assist": {
+                "tables": list(self._pinned_tables),
                 "pinned_tables": list(self._pinned_tables),
                 "common_tables": list(self._common_table_names),
             },

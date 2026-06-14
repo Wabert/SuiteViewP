@@ -96,6 +96,8 @@ class CanvasAppend:
     y: float = 0.0
     width: float = 220.0
     collapsed: bool = False
+    visible_rows: int = 12
+    scroll_offset: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -105,6 +107,8 @@ class CanvasAppend:
             "y": self.y,
             "width": self.width,
             "collapsed": self.collapsed,
+            "visible_rows": self.visible_rows,
+            "scroll_offset": self.scroll_offset,
         }
 
     @staticmethod
@@ -116,6 +120,8 @@ class CanvasAppend:
             y=float(d.get("y", 0.0)),
             width=max(160.0, float(d.get("width", 220.0))),
             collapsed=bool(d.get("collapsed", False)),
+            visible_rows=max(3, int(d.get("visible_rows", 12))),
+            scroll_offset=max(0, int(d.get("scroll_offset", 0))),
         )
 
 

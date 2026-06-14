@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import QApplication
 
 from suiteview.audit.dynamic_query import DB2, SQL_SERVER, build_dynamic_sql, build_join_sql
 from suiteview.audit.dynamic_group import DynamicQuery
+from suiteview.audit.field_picker_panel import FieldPickerPanel
+from suiteview.audit.tabs.manual_sql_object_editor import ManualSqlObjectEditor
 
 
 class DynamicQuerySqlTests(unittest.TestCase):
@@ -57,6 +59,54 @@ class DynamicQuerySqlTests(unittest.TestCase):
 
 
 class DynamicQueryUiTests(unittest.TestCase):
+    def test_sql_assist_shows_only_explicit_selected_tables(self):
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+
+        picker = FieldPickerPanel()
+        try:
+            picker._load_fields = lambda table: None
+            picker.set_connection_options([("Work", "WORK_DSN")], "WORK_DSN")
+            picker.set_group(
+                "WORK_DSN",
+                ["dbo.policy"],
+                {},
+                pinned_tables=["dbo.coverage"],
+            )
+
+            visible_tables = [
+                picker.list_tables.item(row).data(0) or picker.list_tables.item(row).text()
+                for row in range(picker.list_tables.count())
+            ]
+
+            self.assertEqual(visible_tables, ["dbo.policy", "dbo.coverage"])
+        finally:
+            picker.close()
+
+    def test_manual_sql_save_persists_explicit_assist_tables(self):
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+
+        editor = ManualSqlObjectEditor()
+        emitted = []
+        editor.save_requested.connect(emitted.append)
+        try:
+            editor.set_connection_options([("Work", "WORK_DSN")], "WORK_DSN")
+            editor.txt_name.setText("Claims Manual")
+            editor.txt_sql.setPlainText("SELECT claim_id FROM dbo.claims")
+            editor._result_columns = ["claim_id"]
+            editor._column_types = {"claim_id": "INTEGER"}
+            editor._on_assist_tables_changed(["dbo.claims", "dbo.policy"])
+
+            editor._emit_save_request(save_as=False)
+
+            self.assertEqual(emitted[0]["sql_assist"]["tables"], ["dbo.claims", "dbo.policy"])
+            self.assertEqual(emitted[0]["sql_assist"]["pinned_tables"], ["dbo.claims", "dbo.policy"])
+        finally:
+            editor.close()
+
     def test_focus_initial_builder_state_uses_first_populated_tab(self):
         app = QApplication.instance()
         if app is None:

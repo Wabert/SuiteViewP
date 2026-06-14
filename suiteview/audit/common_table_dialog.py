@@ -6,16 +6,12 @@ Layout
 ------
 ┌─ Left ──────────────────┐  ┌─ Right ──────────────────────────────┐
 │ [table list]            │  │  Name: [__________]                  │
-│                         │  │  Description: [________________]     │
-│ [New] [Duplicate] [Del] │  │                                      │
-│                         │  │  ── Columns ──────────────────────── │
-│                         │  │  [column grid: Name | Type]          │
-│                         │  │  [+ Add Column] [- Remove Column]    │
-│                         │  │                                      │
+│                         │  │  Description:                       │
+│ [New] [More]            │  │  [______________________________]    │
 │                         │  │  ── Data ──────────────────────────  │
-│                         │  │  [data grid]                         │
-│                         │  │  [+ Add Row] [- Remove Row]          │
-│                         │  │  [Paste from Clipboard]              │
+│                         │  │  [frozen type + field header]        │
+│                         │  │  [scrollable data grid]              │
+│                         │  │  [Add Field] [Add Row] [Paste] [Export] │
 │                         │  │                                      │
 │                         │  │  [Save]                              │
 └─────────────────────────┘  └─────────────────────────────────────┘
@@ -27,22 +23,24 @@ import re
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QAction, QColor, QFont
 from PyQt6.QtWidgets import (
     QApplication,
-    QDialog,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QComboBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -50,51 +48,66 @@ from PyQt6.QtWidgets import (
 from suiteview.audit.common_table import COLUMN_TYPES, CommonTable
 from suiteview.audit import common_table_store
 from suiteview.audit.common_table_defaults import seed_defaults
+from suiteview.audit.tabs._styles import TightItemDelegate
+from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
 logger = logging.getLogger(__name__)
 
 _FONT = QFont("Segoe UI", 9)
+_FONT_SMALL = QFont("Segoe UI", 8)
 _FONT_BOLD = QFont("Segoe UI", 9, QFont.Weight.Bold)
+_HEADER_COLORS = ("#1E5BA8", "#0D3A7A", "#082B5C")
+_BORDER_COLOR = "#D4A017"
+_PANEL_BG = "#F2F5F8"
+_TYPE_ROW = 0
+_NAME_ROW = 1
+_TYPE_ROW_H = 22
+_NAME_ROW_H = 20
+_ROW_H = 16
+_BTN_H = 22
 
 _BTN_STYLE = (
     "QPushButton { background-color: #1E5BA8; color: white;"
     " border: 1px solid #14407A; border-radius: 3px;"
-    " padding: 4px 12px; font-size: 9pt; }"
+    " padding: 2px 9px; font-size: 8pt; }"
     "QPushButton:hover { background-color: #2A6BC4; }"
     "QPushButton:disabled { background-color: #A0A0A0; border: 1px solid #888; }"
 )
 
-_BTN_RED_STYLE = (
-    "QPushButton { background-color: #C00000; color: white;"
-    " border: 1px solid #900; border-radius: 3px;"
-    " padding: 4px 12px; font-size: 9pt; }"
-    "QPushButton:hover { background-color: #E00000; }"
-    "QPushButton:disabled { background-color: #A0A0A0; border: 1px solid #888; }"
+_TOOL_BTN_STYLE = (
+    "QToolButton { background-color: #F8FBFF; color: #0A1E5E;"
+    " border: 1px solid #1E5BA8; border-radius: 3px;"
+    " padding: 2px 8px; font-size: 8pt; }"
+    "QToolButton:hover { background-color: #E8F0FB; }"
+    "QToolButton::menu-indicator { image: none; width: 0px; }"
 )
 
 _BTN_GREEN_STYLE = (
     "QPushButton { background-color: #2E7D32; color: white;"
     " border: 1px solid #1B5E20; border-radius: 3px;"
-    " padding: 4px 16px; font-size: 9pt; }"
+    " padding: 2px 12px; font-size: 8pt; font-weight: bold; }"
     "QPushButton:hover { background-color: #388E3C; }"
     "QPushButton:disabled { background-color: #A0A0A0; border: 1px solid #888; }"
 )
 
 _LIST_STYLE = (
     "QListWidget { border: 1px solid #1E5BA8; background-color: white;"
-    " font-size: 9pt; outline: none; }"
+    " font-size: 8pt; outline: none; }"
+    "QListWidget::item { padding: 0px 5px; }"
     "QListWidget::item:selected { background-color: #A0C4E8; color: black; }"
     "QListWidget::item:hover { background-color: #D6E8FA; }"
 )
 
 _TABLE_STYLE = (
     "QTableWidget { border: 1px solid #1E5BA8; background-color: white;"
-    " gridline-color: #D0D8E0; font-size: 9pt; }"
+    " font-size: 8pt; selection-background-color: #D6E8FA;"
+    " selection-color: #0A1E5E; }"
+    "QTableWidget::item { padding: 0px 3px; border: none; }"
     "QTableWidget::item:selected { background-color: #D6E8FA; color: black; }"
+    "QHeaderView { background-color: #E8F0FB; border: none; }"
     "QHeaderView::section { background-color: #E8F0FB; color: #0A1E5E;"
-    " font-size: 8pt; font-weight: bold; padding: 3px;"
-    " border: none; border-bottom: 1px solid #1E5BA8;"
-    " border-right: 1px solid #D0D8E0; }"
+    " font-size: 8pt; font-weight: bold; padding: 1px 6px;"
+    " border: none; border-bottom: 1px solid #1E5BA8; }"
 )
 
 _INPUT_STYLE = (
@@ -102,8 +115,19 @@ _INPUT_STYLE = (
     " font-size: 9pt; }"
 )
 
+_DESC_STYLE = (
+    "QPlainTextEdit { border: 1px solid #1E5BA8; padding: 2px 4px;"
+    " font-size: 9pt; background-color: white; }"
+)
 
-class CommonTableDialog(QDialog):
+_TYPE_COMBO_STYLE = (
+    "QComboBox { background-color: #E8F0FB; color: #0A1E5E;"
+    " border: none; padding: 0px 4px; font-size: 8pt; }"
+    "QComboBox::drop-down { border: none; width: 14px; }"
+)
+
+
+class CommonTableDialog(FramelessWindowBase):
     """Manager dialog for Common Tables."""
 
     tables_changed = pyqtSignal()  # emitted when tables are saved/deleted
@@ -122,27 +146,36 @@ class CommonTableDialog(QDialog):
         return cls._instance
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Common Tables")
-        self.setMinimumSize(900, 600)
-        self.resize(1050, 650)
-        self.setFont(_FONT)
-        self.setStyleSheet("QWidget { background-color: #F0F0F0; }")
-
         self._current_name: str = ""  # name of table being edited
         self._dirty = False
 
         seed_defaults()  # create starter tables on first use
-        self._build_ui()
+
+        super().__init__(
+            title="Common Tables",
+            default_size=(1050, 650),
+            min_size=(900, 600),
+            parent=None,
+            header_colors=_HEADER_COLORS,
+            border_color=_BORDER_COLOR,
+        )
+        self.setWindowTitle("Common Tables")
+        self.setFont(_FONT)
         self._refresh_list()
 
     # ── UI construction ──────────────────────────────────────────
 
-    def _build_ui(self):
-        root = QHBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
+    def build_content(self) -> QWidget:
+        body = QWidget()
+        body.setStyleSheet(f"QWidget {{ background-color: {_PANEL_BG}; }}")
+        root = QHBoxLayout(body)
+        root.setContentsMargins(6, 5, 6, 7)
+        root.setSpacing(6)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(4)
+        self._splitter = splitter
         root.addWidget(splitter)
 
         # ── Left panel: table list ───────────────────────────────
@@ -153,115 +186,130 @@ class CommonTableDialog(QDialog):
 
         lbl = QLabel("Common Tables")
         lbl.setFont(_FONT_BOLD)
+        lbl.setStyleSheet("color: #0A1E5E;")
         left_lay.addWidget(lbl)
 
         self.lst_tables = QListWidget()
+        self.lst_tables.setFont(_FONT_SMALL)
+        self.lst_tables.setItemDelegate(TightItemDelegate(self.lst_tables))
+        self.lst_tables.setUniformItemSizes(True)
+        self.lst_tables.setSpacing(0)
         self.lst_tables.setStyleSheet(_LIST_STYLE)
         self.lst_tables.currentTextChanged.connect(self._on_table_selected)
         left_lay.addWidget(self.lst_tables)
 
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(4)
+        btn_row.setSpacing(5)
         self.btn_new = QPushButton("New")
+        self.btn_new.setFont(_FONT_SMALL)
+        self.btn_new.setFixedHeight(_BTN_H)
         self.btn_new.setStyleSheet(_BTN_STYLE)
         self.btn_new.clicked.connect(self._on_new)
         btn_row.addWidget(self.btn_new)
 
-        self.btn_dup = QPushButton("Duplicate")
-        self.btn_dup.setStyleSheet(_BTN_STYLE)
-        self.btn_dup.clicked.connect(self._on_duplicate)
-        btn_row.addWidget(self.btn_dup)
-
-        self.btn_del = QPushButton("Delete")
-        self.btn_del.setStyleSheet(_BTN_RED_STYLE)
-        self.btn_del.clicked.connect(self._on_delete)
-        btn_row.addWidget(self.btn_del)
-
+        self.btn_table_actions = self._make_menu_button(
+            "More",
+            [
+                ("Duplicate selected table", self._on_duplicate),
+                ("Delete selected table", self._on_delete),
+            ],
+        )
+        btn_row.addWidget(self.btn_table_actions)
         left_lay.addLayout(btn_row)
+        self._nav_panel = left
         splitter.addWidget(left)
 
         # ── Right panel: editor ──────────────────────────────────
         right = QWidget()
         right_lay = QVBoxLayout(right)
         right_lay.setContentsMargins(4, 0, 0, 0)
-        right_lay.setSpacing(6)
+        right_lay.setSpacing(5)
 
-        # Name + description
+        # Name
         name_row = QHBoxLayout()
+        name_row.setSpacing(6)
         name_row.addWidget(QLabel("Name:"))
         self.txt_name = QLineEdit()
         self.txt_name.setStyleSheet(_INPUT_STYLE)
         self.txt_name.setMaximumWidth(300)
+        self.txt_name.setFixedHeight(22)
+        self.txt_name.textEdited.connect(self._mark_dirty)
         name_row.addWidget(self.txt_name)
-        name_row.addSpacing(12)
-        name_row.addWidget(QLabel("Description:"))
-        self.txt_desc = QLineEdit()
-        self.txt_desc.setStyleSheet(_INPUT_STYLE)
-        name_row.addWidget(self.txt_desc)
+        name_row.addStretch()
         right_lay.addLayout(name_row)
 
-        # ── Columns section ──────────────────────────────────────
-        col_header = QLabel("Columns")
-        col_header.setFont(_FONT_BOLD)
-        right_lay.addWidget(col_header)
+        desc_label = QLabel("Description:")
+        desc_label.setFont(_FONT_SMALL)
+        desc_label.setStyleSheet("color: #0A1E5E;")
+        right_lay.addWidget(desc_label)
 
-        self.tbl_columns = QTableWidget(0, 2)
-        self.tbl_columns.setHorizontalHeaderLabels(["Column Name", "Type"])
-        self.tbl_columns.setStyleSheet(_TABLE_STYLE)
-        self.tbl_columns.horizontalHeader().setStretchLastSection(True)
-        self.tbl_columns.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch
-        )
-        self.tbl_columns.setMaximumHeight(150)
-        self.tbl_columns.verticalHeader().setDefaultSectionSize(22)
-        self.tbl_columns.verticalHeader().hide()
-        right_lay.addWidget(self.tbl_columns)
-
-        col_btn_row = QHBoxLayout()
-        col_btn_row.setSpacing(4)
-        btn_add_col = QPushButton("+ Add Column")
-        btn_add_col.setStyleSheet(_BTN_STYLE)
-        btn_add_col.clicked.connect(self._on_add_column)
-        col_btn_row.addWidget(btn_add_col)
-        btn_rem_col = QPushButton("- Remove Column")
-        btn_rem_col.setStyleSheet(_BTN_STYLE)
-        btn_rem_col.clicked.connect(self._on_remove_column)
-        col_btn_row.addWidget(btn_rem_col)
-        col_btn_row.addStretch()
-        right_lay.addLayout(col_btn_row)
+        self.txt_desc = QPlainTextEdit()
+        self.txt_desc.setStyleSheet(_DESC_STYLE)
+        self.txt_desc.setFixedHeight(48)
+        self.txt_desc.textChanged.connect(self._mark_dirty)
+        right_lay.addWidget(self.txt_desc)
 
         # ── Data section ─────────────────────────────────────────
         data_header = QLabel("Data")
         data_header.setFont(_FONT_BOLD)
+        data_header.setStyleSheet("color: #0A1E5E;")
         right_lay.addWidget(data_header)
 
+        self.tbl_header = QTableWidget(2, 0)
+        self._configure_header_grid(self.tbl_header)
+        self.tbl_header.itemChanged.connect(self._mark_dirty)
+        right_lay.addWidget(self.tbl_header)
+
         self.tbl_data = QTableWidget(0, 0)
-        self.tbl_data.setStyleSheet(_TABLE_STYLE)
-        self.tbl_data.horizontalHeader().setStretchLastSection(True)
-        self.tbl_data.verticalHeader().setDefaultSectionSize(22)
+        self._configure_grid(self.tbl_data)
+        data_header_view = self.tbl_data.horizontalHeader()
+        data_header_view.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        data_header_view.setStretchLastSection(False)
+        data_header_view.hide()
+        self.tbl_data.itemChanged.connect(self._mark_dirty)
         right_lay.addWidget(self.tbl_data)
+        self._sync_horizontal_scrollbars()
 
         data_btn_row = QHBoxLayout()
-        data_btn_row.setSpacing(4)
-        btn_add_row = QPushButton("+ Add Row")
+        data_btn_row.setSpacing(5)
+        btn_add_field = QPushButton("Add Field")
+        btn_add_field.setFont(_FONT_SMALL)
+        btn_add_field.setFixedHeight(_BTN_H)
+        btn_add_field.setStyleSheet(_BTN_STYLE)
+        btn_add_field.clicked.connect(self._on_add_column)
+        data_btn_row.addWidget(btn_add_field)
+
+        btn_add_row = QPushButton("Add Row")
+        btn_add_row.setFont(_FONT_SMALL)
+        btn_add_row.setFixedHeight(_BTN_H)
         btn_add_row.setStyleSheet(_BTN_STYLE)
         btn_add_row.clicked.connect(self._on_add_row)
         data_btn_row.addWidget(btn_add_row)
-        btn_rem_row = QPushButton("- Remove Row")
-        btn_rem_row.setStyleSheet(_BTN_STYLE)
-        btn_rem_row.clicked.connect(self._on_remove_row)
-        data_btn_row.addWidget(btn_rem_row)
 
-        btn_paste = QPushButton("Paste from\nClipboard")
+        btn_paste = QPushButton("Paste")
+        btn_paste.setFont(_FONT_SMALL)
+        btn_paste.setFixedHeight(_BTN_H)
         btn_paste.setStyleSheet(_BTN_STYLE)
-        btn_paste.setFixedSize(120, 40)
+        btn_paste.setToolTip("Paste rows from the clipboard")
         btn_paste.clicked.connect(self._on_paste)
         data_btn_row.addWidget(btn_paste)
 
-        btn_clear_data = QPushButton("Clear Data")
-        btn_clear_data.setStyleSheet(_BTN_RED_STYLE)
-        btn_clear_data.clicked.connect(self._on_clear_data)
-        data_btn_row.addWidget(btn_clear_data)
+        btn_export = QPushButton("Export")
+        btn_export.setFont(_FONT_SMALL)
+        btn_export.setFixedHeight(_BTN_H)
+        btn_export.setStyleSheet(_BTN_STYLE)
+        btn_export.setToolTip("Open this table in a new Excel workbook")
+        btn_export.clicked.connect(self._on_export_excel)
+        data_btn_row.addWidget(btn_export)
+
+        data_btn_row.addWidget(self._make_menu_button(
+            "More",
+            [
+                ("Remove selected field", self._on_remove_column),
+                ("Remove selected row", self._on_remove_row),
+                ("Clear all data rows", self._on_clear_data),
+            ],
+        ))
 
         data_btn_row.addStretch()
         right_lay.addLayout(data_btn_row)
@@ -274,14 +322,128 @@ class CommonTableDialog(QDialog):
         bottom_row.addStretch()
 
         self.btn_save = QPushButton("Save")
+        self.btn_save.setFont(_FONT_SMALL)
         self.btn_save.setStyleSheet(_BTN_GREEN_STYLE)
-        self.btn_save.setFixedSize(100, 32)
+        self.btn_save.setFixedSize(78, 24)
         self.btn_save.clicked.connect(self._on_save)
         bottom_row.addWidget(self.btn_save)
         right_lay.addLayout(bottom_row)
 
+        self._canvas_panel = right
         splitter.addWidget(right)
         splitter.setSizes([220, 780])
+        return body
+
+    def _make_menu_button(self, text: str, actions: list[tuple[str, object]]) -> QToolButton:
+        button = QToolButton()
+        button.setText(text)
+        button.setFont(_FONT_SMALL)
+        button.setFixedHeight(_BTN_H)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        button.setStyleSheet(_TOOL_BTN_STYLE)
+
+        menu = QMenu(button)
+        for label, slot in actions:
+            action = QAction(label, button)
+            action.triggered.connect(slot)
+            menu.addAction(action)
+        button.setMenu(menu)
+        return button
+
+    def _configure_grid(self, table: QTableWidget):
+        table.setStyleSheet(_TABLE_STYLE)
+        table.setShowGrid(False)
+        table.setAlternatingRowColors(False)
+        table.setWordWrap(False)
+        table.setCornerButtonEnabled(False)
+        table.verticalHeader().hide()
+        table.verticalHeader().setDefaultSectionSize(_ROW_H)
+        table.verticalHeader().setMinimumSectionSize(16)
+        table.horizontalHeader().setDefaultSectionSize(110)
+        table.horizontalHeader().setMinimumSectionSize(36)
+        table.horizontalHeader().setStretchLastSection(False)
+
+    def _configure_header_grid(self, table: QTableWidget):
+        self._configure_grid(table)
+        table.setFixedHeight(_TYPE_ROW_H + _NAME_ROW_H + 3)
+        table.setRowCount(2)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.horizontalHeader().hide()
+        table.verticalHeader().hide()
+        table.setRowHeight(_TYPE_ROW, _TYPE_ROW_H)
+        table.setRowHeight(_NAME_ROW, _NAME_ROW_H)
+
+    def _sync_horizontal_scrollbars(self):
+        header_bar = self.tbl_header.horizontalScrollBar()
+        data_bar = self.tbl_data.horizontalScrollBar()
+        data_bar.valueChanged.connect(header_bar.setValue)
+        header_bar.valueChanged.connect(data_bar.setValue)
+
+    def _current_column(self) -> int:
+        column = self.tbl_header.currentColumn()
+        if column >= 0:
+            return column
+        return self.tbl_data.currentColumn()
+
+    def _fit_grid_columns(self, table: QTableWidget | None = None, *, min_width: int = 72, max_width: int = 260):
+        if self.tbl_data.columnCount() == 0:
+            return
+        self.tbl_header.resizeColumnsToContents()
+        self.tbl_data.resizeColumnsToContents()
+        for column in range(self.tbl_data.columnCount()):
+            width = max(
+                self.tbl_header.columnWidth(column),
+                self.tbl_data.columnWidth(column),
+            ) + 10
+            width = max(min_width, min(width, max_width))
+            self.tbl_header.setColumnWidth(column, width)
+            self.tbl_data.setColumnWidth(column, width)
+
+    def _apply_data_row_heights(self):
+        self.tbl_header.setRowHeight(_TYPE_ROW, _TYPE_ROW_H)
+        self.tbl_header.setRowHeight(_NAME_ROW, _NAME_ROW_H)
+        for row in range(self.tbl_data.rowCount()):
+            self.tbl_data.setRowHeight(row, _ROW_H)
+
+    def _mark_dirty(self, *args):
+        self._dirty = True
+
+    def _make_type_combo(self, current_type: str = "TEXT") -> QComboBox:
+        combo = QComboBox()
+        combo.addItems(COLUMN_TYPES)
+        combo.setCurrentText(current_type if current_type in COLUMN_TYPES else "TEXT")
+        combo.setStyleSheet(_TYPE_COMBO_STYLE)
+        combo.currentTextChanged.connect(self._mark_dirty)
+        return combo
+
+    def _set_field_metadata(self, column: int, name: str, field_type: str = "TEXT"):
+        combo = self._make_type_combo(field_type)
+        self.tbl_header.setCellWidget(_TYPE_ROW, column, combo)
+        item = QTableWidgetItem(name)
+        item.setFont(_FONT_BOLD)
+        item.setBackground(QColor("#F8FBFF"))
+        item.setForeground(QColor("#0A1E5E"))
+        self.tbl_header.setItem(_NAME_ROW, column, item)
+
+    def _set_data_column_count(self, count: int):
+        self.tbl_header.setColumnCount(count)
+        self.tbl_data.setColumnCount(count)
+        for column in range(count):
+            if self.tbl_header.cellWidget(_TYPE_ROW, column) is None:
+                self._set_field_metadata(column, f"col{column + 1}", "TEXT")
+        self._fit_grid_columns(self.tbl_data)
+
+    def _clear_data_grid(self):
+        header_was_blocked = self.tbl_header.signalsBlocked()
+        was_blocked = self.tbl_data.signalsBlocked()
+        self.tbl_header.blockSignals(True)
+        self.tbl_data.blockSignals(True)
+        self.tbl_header.setColumnCount(0)
+        self.tbl_data.setRowCount(0)
+        self.tbl_data.setColumnCount(0)
+        self.tbl_header.blockSignals(header_was_blocked)
+        self.tbl_data.blockSignals(was_blocked)
 
     # ── List management ──────────────────────────────────────────
 
@@ -324,66 +486,62 @@ class CommonTableDialog(QDialog):
         self._current_name = ct.name
         self._dirty = False
         self.txt_name.setText(ct.name)
-        self.txt_desc.setText(ct.description)
+        self.txt_desc.setPlainText(ct.description)
 
-        # Populate columns grid
-        self.tbl_columns.setRowCount(len(ct.columns))
-        for i, col in enumerate(ct.columns):
-            self.tbl_columns.setItem(i, 0, QTableWidgetItem(col["name"]))
-            combo = QComboBox()
-            combo.addItems(COLUMN_TYPES)
-            combo.setCurrentText(col.get("type", "TEXT"))
-            self.tbl_columns.setCellWidget(i, 1, combo)
+        self.tbl_header.blockSignals(True)
+        self.tbl_data.blockSignals(True)
+        self._clear_data_grid()
+        self._set_data_column_count(len(ct.columns))
+        for column, col in enumerate(ct.columns):
+            self._set_field_metadata(column, col["name"], col.get("type", "TEXT"))
 
-        # Update data grid headers
-        self._sync_data_headers()
-
-        # Populate data grid
         self.tbl_data.setRowCount(len(ct.rows))
+        self._apply_data_row_heights()
         for r, row in enumerate(ct.rows):
             for c, val in enumerate(row):
                 if c < self.tbl_data.columnCount():
                     self.tbl_data.setItem(r, c, QTableWidgetItem(str(val)))
+        self.tbl_header.blockSignals(False)
+        self.tbl_data.blockSignals(False)
+        self._fit_grid_columns(self.tbl_data)
 
         info_parts = [f"{ct.row_count} rows"]
         info_parts.append(f"Created: {ct.created_at:%Y-%m-%d %H:%M}")
         if ct.updated_at != ct.created_at:
             info_parts.append(f"Updated: {ct.updated_at:%Y-%m-%d %H:%M}")
         self.lbl_info.setText("  |  ".join(info_parts))
-
-    def _sync_data_headers(self):
-        """Update data grid column headers from the columns grid."""
-        col_names = self._get_column_defs()
-        self.tbl_data.setColumnCount(len(col_names))
-        self.tbl_data.setHorizontalHeaderLabels(
-            [c["name"] for c in col_names]
-        )
+        self._dirty = False
 
     # ── Column actions ───────────────────────────────────────────
 
     def _on_add_column(self):
-        row = self.tbl_columns.rowCount()
-        self.tbl_columns.insertRow(row)
-        self.tbl_columns.setItem(row, 0, QTableWidgetItem(f"col{row + 1}"))
-        combo = QComboBox()
-        combo.addItems(COLUMN_TYPES)
-        self.tbl_columns.setCellWidget(row, 1, combo)
-        self._sync_data_headers()
+        column = self._current_column()
+        if column < 0:
+            column = self.tbl_data.columnCount() - 1
+        insert_at = column + 1
+        self.tbl_header.insertColumn(insert_at)
+        self.tbl_data.insertColumn(insert_at)
+        self._set_field_metadata(insert_at, f"col{insert_at + 1}", "TEXT")
+        self._fit_grid_columns(self.tbl_data)
         self._dirty = True
 
     def _on_remove_column(self):
-        row = self.tbl_columns.currentRow()
-        if row < 0:
+        column = self._current_column()
+        if column < 0:
             return
-        self.tbl_columns.removeRow(row)
-        self._sync_data_headers()
+        self.tbl_header.removeColumn(column)
+        self.tbl_data.removeColumn(column)
+        self._fit_grid_columns(self.tbl_data)
         self._dirty = True
 
     # ── Row actions ──────────────────────────────────────────────
 
     def _on_add_row(self):
+        if self.tbl_data.columnCount() == 0:
+            self._on_add_column()
         row = self.tbl_data.rowCount()
         self.tbl_data.insertRow(row)
+        self.tbl_data.setRowHeight(row, _ROW_H)
         self._dirty = True
 
     def _on_remove_row(self):
@@ -437,8 +595,11 @@ class CommonTableDialog(QDialog):
         if not raw_rows:
             return
 
-        # Auto-create columns if none defined yet
-        if self.tbl_columns.rowCount() == 0:
+        if self._paste_exported_table(raw_rows):
+            return
+
+        # Auto-create fields if none defined yet
+        if self.tbl_data.columnCount() == 0:
             first = raw_rows[0]
             # Heuristic: if every cell in first row looks non-numeric,
             # treat it as a header row
@@ -448,22 +609,13 @@ class CommonTableDialog(QDialog):
                 if cell
             )
             if is_header:
-                for cell in first:
-                    self._on_add_column()
-                    row = self.tbl_columns.rowCount() - 1
-                    # Clean the name: remove spaces, special chars
+                self._set_data_column_count(len(first))
+                for column, cell in enumerate(first):
                     clean = re.sub(r'[^A-Za-z0-9_]', '_', cell)
-                    self.tbl_columns.setItem(
-                        row, 0, QTableWidgetItem(clean or f"col{row + 1}")
-                    )
+                    self._set_field_metadata(column, clean or f"col{column + 1}", "TEXT")
                 raw_rows = raw_rows[1:]  # skip header row for data
-                self._sync_data_headers()
             else:
-                # Create generic columns
-                num_cols = len(first)
-                for i in range(num_cols):
-                    self._on_add_column()
-                self._sync_data_headers()
+                self._set_data_column_count(len(first))
 
         # Ensure column count matches
         num_cols = self.tbl_data.columnCount()
@@ -472,11 +624,129 @@ class CommonTableDialog(QDialog):
         for cells in raw_rows:
             row = self.tbl_data.rowCount()
             self.tbl_data.insertRow(row)
+            self.tbl_data.setRowHeight(row, _ROW_H)
             for c, val in enumerate(cells):
                 if c < num_cols:
                     self.tbl_data.setItem(row, c, QTableWidgetItem(val))
+        self._fit_grid_columns(self.tbl_data)
 
         self._dirty = True
+
+    def _paste_exported_table(self, raw_rows: list[list[str]]) -> bool:
+        if len(raw_rows) < 2:
+            return False
+        width = len(raw_rows[1])
+        if width == 0:
+            return False
+        type_row = [cell.strip().upper() for cell in raw_rows[0][:width]]
+        if len(type_row) != width or any(cell not in COLUMN_TYPES for cell in type_row):
+            return False
+
+        headers = []
+        for index, cell in enumerate(raw_rows[1][:width]):
+            clean = re.sub(r'[^A-Za-z0-9_]', '_', cell.strip())
+            headers.append(clean or f"col{index + 1}")
+
+        data_rows = [(row + [""] * width)[:width] for row in raw_rows[2:]]
+
+        self.tbl_header.blockSignals(True)
+        self.tbl_data.blockSignals(True)
+        self._clear_data_grid()
+        self._set_data_column_count(width)
+        for column, (header, field_type) in enumerate(zip(headers, type_row)):
+            self._set_field_metadata(column, header, field_type)
+        self.tbl_data.setRowCount(len(data_rows))
+        self._apply_data_row_heights()
+        for row_index, row in enumerate(data_rows):
+            for column, value in enumerate(row):
+                self.tbl_data.setItem(row_index, column, QTableWidgetItem(value))
+        self.tbl_header.blockSignals(False)
+        self.tbl_data.blockSignals(False)
+        self._fit_grid_columns(self.tbl_data)
+        self._dirty = True
+        return True
+
+    def _on_export_excel(self):
+        col_defs = self._get_column_defs()
+        if not col_defs:
+            QMessageBox.warning(self, "No Columns", "Please define at least one field before exporting.")
+            return
+
+        rows = self._get_data_rows()
+        type_row = [col["type"] for col in col_defs]
+        header_row = [col["name"] for col in col_defs]
+        text_col_indexes = [
+            index + 1
+            for index, col in enumerate(col_defs)
+            if col["type"].upper() == "TEXT"
+        ]
+        data_rows = [
+            [self._coerce_excel_value(row[index] if index < len(row) else "", col["type"])
+             for index, col in enumerate(col_defs)]
+            for row in rows
+        ]
+
+        try:
+            from suiteview.core.excel_export import ExcelExportError, open_excel
+
+            excel = open_excel(visible=True)
+            try:
+                excel.ScreenUpdating = False
+                workbook = excel.Workbooks.Add()
+                worksheet = workbook.ActiveSheet
+                worksheet.Name = self._excel_sheet_name()
+
+                for column_index in text_col_indexes:
+                    worksheet.Columns(column_index).NumberFormat = "@"
+
+                export_rows = [type_row, header_row] + data_rows
+                row_count = len(export_rows)
+                column_count = len(header_row)
+                rng = worksheet.Range(worksheet.Cells(1, 1), worksheet.Cells(row_count, column_count))
+                rng.Value = tuple(tuple(row) for row in export_rows)
+
+                worksheet.Range(worksheet.Cells(1, 1), worksheet.Cells(1, column_count)).Font.Bold = True
+                worksheet.Range(worksheet.Cells(2, 1), worksheet.Cells(2, column_count)).Font.Bold = True
+                if row_count > 2:
+                    worksheet.Range(worksheet.Cells(2, 1), worksheet.Cells(row_count, column_count)).AutoFilter()
+                worksheet.Range("A3").Select()
+                excel.ActiveWindow.FreezePanes = True
+                worksheet.Columns.AutoFit()
+                worksheet.Range("A1").Select()
+            finally:
+                try:
+                    excel.ScreenUpdating = True
+                except Exception:
+                    pass
+        except ExcelExportError as exc:
+            QMessageBox.warning(self, "Excel Error", str(exc))
+        except Exception as exc:
+            logger.exception("Common table Excel export failed")
+            QMessageBox.warning(self, "Excel Error", f"Could not export table:\n{exc}")
+
+    def _coerce_excel_value(self, value: str, field_type: str):
+        if value is None:
+            return ""
+        text = str(value)
+        if text == "":
+            return ""
+        field_type = field_type.upper()
+        if field_type == "TEXT":
+            return text
+        clean = text.replace(",", "").replace("$", "").strip()
+        try:
+            if field_type == "INTEGER":
+                return int(float(clean))
+            if field_type == "DECIMAL":
+                return float(clean)
+        except (TypeError, ValueError):
+            return text
+        return text
+
+    def _excel_sheet_name(self) -> str:
+        name = self.txt_name.text().strip() or self._current_name or "Common Table"
+        name = re.sub(r'[\\/*?:\[\]]', "_", name).strip()
+        return (name or "Common Table")[:31]
 
     # ── CRUD ─────────────────────────────────────────────────────
 
@@ -549,12 +819,11 @@ class CommonTableDialog(QDialog):
         self._dirty = False
         self.txt_name.clear()
         self.txt_desc.clear()
-        self.tbl_columns.setRowCount(0)
-        self.tbl_data.setRowCount(0)
-        self.tbl_data.setColumnCount(0)
+        self._clear_data_grid()
         self.lbl_info.clear()
         self._refresh_list()
         self.tables_changed.emit()
+        self._dirty = False
 
     def _on_save(self):
         name = self.txt_name.text().strip()
@@ -623,7 +892,7 @@ class CommonTableDialog(QDialog):
 
         ct = CommonTable(
             name=name,
-            description=self.txt_desc.text().strip(),
+            description=self.txt_desc.toPlainText().strip(),
             columns=col_defs,
             rows=rows,
             created_at=created,
@@ -645,12 +914,12 @@ class CommonTableDialog(QDialog):
     # ── Helpers ──────────────────────────────────────────────────
 
     def _get_column_defs(self) -> list[dict]:
-        """Read column definitions from the columns grid."""
+        """Read column definitions from the frozen header grid."""
         cols = []
-        for i in range(self.tbl_columns.rowCount()):
-            name_item = self.tbl_columns.item(i, 0)
+        for column in range(self.tbl_header.columnCount()):
+            name_item = self.tbl_header.item(_NAME_ROW, column)
             name = name_item.text().strip() if name_item else ""
-            combo = self.tbl_columns.cellWidget(i, 1)
+            combo = self.tbl_header.cellWidget(_TYPE_ROW, column)
             ctype = combo.currentText() if combo else "TEXT"
             if name:
                 cols.append({"name": name, "type": ctype})
