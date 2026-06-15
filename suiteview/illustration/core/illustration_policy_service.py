@@ -279,6 +279,7 @@ def build_illustration_data(
             premium_rate=float(rider.premium_rate) if rider.premium_rate else None,
             coi_rate=float(rider.coi_rate) if rider.coi_rate else None,
             is_active=True,
+            on_primary_insured=pi._covers_primary_insured(rider),
         ))
 
     # ── CCV / Shadow Account detection ───────────────────────

@@ -8,8 +8,10 @@ used to determine the Cash Continuation Value (CCV) benefit.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
+from suiteview.illustration.core.monthly_deduction import _charge_active
 from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
@@ -67,6 +69,7 @@ def calculate_shadow(
     policy_debt: float,
     is_inforce: bool = False,
     shadow_rider_charges: float = 0.0,
+    projection_date: date | None = None,
 ) -> ShadowResult:
     """Calculate one month of the shadow account.
 
@@ -163,10 +166,18 @@ def calculate_shadow(
     # ── Shadow COI rate (col XH/XI) ──────────────────────────
     shadow_coi_rate_raw = get_rate(rates, "shadow_coi", rate_year)
 
-    # Substandard adjustment: rate * (1 + table_factor * table) + flat extras
-    table_cov1 = seg.table_rating if seg else 0
+    # Substandard adjustment: rate * (1 + table_factor * table) + flat extras.
+    # Substandard ceases STRICTLY before its cease date — same rule as the regular
+    # COI (monthly_deduction._charge_active): not added on/after the cease
+    # anniversary.  Previously the shadow path applied table/flat unconditionally,
+    # so the flat never dropped off at the cease date.
+    table_active = bool(seg and seg.table_rating > 0
+                        and _charge_active(seg.table_cease_date, projection_date))
+    table_cov1 = seg.table_rating if table_active else 0
     table_factor = config.table_rating_factor
-    base_flat1 = (seg.flat_extra / 12.0) if seg and seg.flat_extra else 0.0
+    flat_active = bool(seg and seg.flat_extra and seg.flat_extra > 0
+                       and _charge_active(seg.flat_cease_date, projection_date))
+    base_flat1 = (seg.flat_extra / 12.0) if flat_active else 0.0
     base_flat1 = float(Decimal(str(base_flat1)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
     base_flat2 = 0.0  # Second flat extra — not yet implemented
 

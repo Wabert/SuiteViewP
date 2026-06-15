@@ -37,9 +37,16 @@ def _rate_from_schedule(schedule, index: int) -> float:
 
 
 def _charge_active(cease_date: date | None, projection_date: date | None) -> bool:
+    """Whether a substandard charge (table rating / flat extra) is still active.
+
+    STRICT: the charge ceases AT the cease-date anniversary, so it is NOT applied
+    on (or after) ``cease_date``.  Mirrors RERUN and the benefit-cease logic below
+    (``projection_date >= ben.cease_date`` stops the charge).  An inclusive ``<=``
+    here charged the flat extra/table rating for one extra anniversary month.
+    """
     if cease_date is None or projection_date is None:
         return True
-    return projection_date <= cease_date
+    return projection_date < cease_date
 
 
 def _adjusted_coi_rate(

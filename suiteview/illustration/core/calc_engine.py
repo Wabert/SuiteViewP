@@ -191,9 +191,12 @@ class IllustrationEngine:
             policy.variable_loan_charge_rate,
         )
 
-        # Shadow account for inforce month
+        # Shadow account for inforce month — seed from the policy's current
+        # shadow account value (RERUN injects sInput_CurrentShadowAV at the
+        # valuation date), mirroring how the regular AV is seeded from
+        # policy.account_value.  Was hardcoded 0.0.
         shd0 = calculate_shadow(
-            prev_shadow_eav=0.0,
+            prev_shadow_eav=policy.shadow_account_value,
             gross_premium=0.0,
             premiums_ytd=policy.premiums_ytd,
             policy=policy,
@@ -205,6 +208,7 @@ class IllustrationEngine:
             policy_debt=loan0.policy_debt,
             is_inforce=True,
             shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, ded0),
+            projection_date=month_date_inforce,
         )
 
         # Safety Net / Lapse Protection for inforce month
@@ -660,6 +664,7 @@ class IllustrationEngine:
             days_in_month=intr.days_in_month,
             policy_debt=accrual_loan.policy_debt,
             shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, ded),
+            projection_date=month_date,
         )
 
         # ── 18. Testing: SNET, shadow, exception, and lapse ───
@@ -689,7 +694,10 @@ class IllustrationEngine:
         elif policy.db_option == "C":
             edb_wo_corr += max(0.0, prem.premiums_to_date - withdrawals_to_date)
         edb_corr = max(0.0, av * ded.corridor_rate - edb_wo_corr) if ded.corridor_rate > 0 else 0.0
-        ending_db = edb_wo_corr + edb_corr - accrual_loan.policy_debt
+        # RERUN vIllustratedDB = base policy DB + face of riders on the primary
+        # insured (e.g. Signature Term Riders), each active until its maturity.
+        ending_db = (edb_wo_corr + edb_corr - accrual_loan.policy_debt
+                     + _primary_insured_rider_face(policy, month_date))
 
         positive_sv = config.lapse_value == "SV" and surrender_value > 0
         av_less_loans = av - accrual_loan.policy_debt
@@ -1429,7 +1437,9 @@ def _coverage_after_change_snapshot(policy, config, month_date, av_reduction, pr
     # segment; map it to Base Flat1 and leave Base Flat2 at 0.
     base_flat = 0.0
     if base and base.flat_extra and base.flat_extra > 0:
-        if base.flat_cease_date is None or month_date <= base.flat_cease_date:
+        # Strict: flat extra ceases AT the cease-date anniversary (matches
+        # _charge_active in monthly_deduction) — not charged on/after that date.
+        if base.flat_cease_date is None or month_date < base.flat_cease_date:
             base_flat = float(base.flat_extra)
     snap["Base Flat1"] = base_flat
     snap["Base Flat2"] = 0.0
@@ -1512,6 +1522,24 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
     policy.segments.append(new_seg)
     _load_segment_rates(rates, new_seg, policy.plancode)
     policy.face_amount = sum(s.face_amount for s in policy.segments)
+
+
+def _primary_insured_rider_face(policy, month_date) -> float:
+    """Face of riders on the primary insured that are active at ``month_date``.
+
+    RERUN's vIllustratedDB = base policy DB + the face of all riders covering the
+    primary insured (e.g. Signature Term Riders).  A term rider drops off at its
+    maturity, so it stops contributing on/after its maturity date.
+    """
+    total = 0.0
+    for rider in getattr(policy, "riders", None) or []:
+        if not getattr(rider, "on_primary_insured", False):
+            continue
+        mat = getattr(rider, "maturity_date", None)
+        if mat is not None and month_date is not None and month_date >= mat:
+            continue
+        total += float(rider.face_amount or 0.0)
+    return total
 
 
 def _process_withdrawal(
