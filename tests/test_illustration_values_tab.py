@@ -103,6 +103,7 @@ def test_values_tab_uses_one_content_page_per_group_each_leading_with_locators()
         "Ending Values",
         "Shadow Account",
         "Testing",
+        "Guideline Recalc",
     ]
     assert tab.findChildren(QTabWidget) == []
 

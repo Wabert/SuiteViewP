@@ -235,6 +235,101 @@ COMPACT_HEADER_LABELS = {
 }
 
 
+def _recalc_delta(detail: dict, key: str):
+    after = detail.get(f"{key}_after")
+    before = detail.get(f"{key}_before")
+    if after is None or before is None:
+        return None
+    return after - before
+
+
+class GuidelineRecalcView(QWidget):
+    """Calc detail for the first 7702 guideline re-solve in a projection.
+
+    When a policy change (or an SA-reducing withdrawal) recalculates the
+    guideline premiums, the engine records the before/after GLP & GSP solves on
+    that month's state. This panel explains that *first* recalc: the before /
+    after solve at the change's attained age, the resulting prior → new GLP and
+    GSP (``new = prior + (after − before)``), greyed with an italic note when
+    the projection has no recalc.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(f"background-color: {PURPLE_BG};")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        self.header = QLabel("", self)
+        self.header.setWordWrap(True)
+        self.header.setStyleSheet(
+            "background-color: #2A1458; color: #FFD54F; border: 1px solid #5E35A5;"
+            " border-radius: 4px; font-size: 11px; font-weight: bold; padding: 4px 8px;"
+        )
+        layout.addWidget(self.header)
+
+        self.empty_note = QLabel("", self)
+        self.empty_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_note.setStyleSheet(
+            "color: #6A5A8A; background: transparent; font-size: 12px; font-style: italic;"
+        )
+        layout.addWidget(self.empty_note)
+
+        self.grid = FilterTableView(self)
+        self.grid.set_search_visible(False)
+        self.grid.apply_ledger_style()
+        self.grid.set_sort_enabled(False)
+        layout.addWidget(self.grid, 1)
+        layout.addStretch(0)
+
+        self.clear()
+
+    def clear(self):
+        self.show_recalc(None)
+
+    def show_recalc(self, detail: dict | None):
+        if not detail:
+            self.header.setText("Guideline Recalc")
+            self.empty_note.setText("No guideline recalculation in this projection.")
+            self.empty_note.setVisible(True)
+            self.grid.setVisible(False)
+            self.grid.set_dataframe(pd.DataFrame(), limit_rows=False)
+            return
+
+        when = detail.get("change_date")
+        when_text = f"{when:%m/%d/%Y}" if when else "—"
+        self.header.setText(
+            f"Guideline recalculated {when_text}   ·   {detail.get('change_kind', '')}"
+            "   ·   new = prior + (after − before)")
+        self.empty_note.setVisible(False)
+
+        rows = [
+            {
+                "Premium": "GLP",
+                "Before Change": detail.get("glp_before"),
+                "After Change": detail.get("glp_after"),
+                "Δ (After − Before)": _recalc_delta(detail, "glp"),
+                "Prior Value": detail.get("glp_prior"),
+                "New Value": detail.get("glp_new"),
+            },
+            {
+                "Premium": "GSP",
+                "Before Change": detail.get("gsp_before"),
+                "After Change": detail.get("gsp_after"),
+                "Δ (After − Before)": _recalc_delta(detail, "gsp"),
+                "Prior Value": detail.get("gsp_prior"),
+                "New Value": detail.get("gsp_new"),
+            },
+        ]
+        self.grid.setVisible(True)
+        self.grid.set_dataframe(pd.DataFrame(rows), limit_rows=False)
+        self.grid.set_numeric_formatting(default_decimals=2)
+        if self.grid.model is not None:
+            self.grid.model._left_align_columns = {0}
+        self.grid.autofit_columns_to_data()
+
+
 class IllustrationValuesTab(QWidget):
     """Tab that displays monthly illustration values in a filterable grid.
 
@@ -552,6 +647,8 @@ class IllustrationValuesTab(QWidget):
         "TotalLoanReduction",
         "PolicyDebtDisplay",
     ]
+    # Event-based group (not a monthly grid): the first guideline re-solve.
+    GUIDELINE_RECALC_GROUP = "Guideline Recalc"
     TAB_ORDER = [
         SUMMARY_GROUP,
         WITHDRAWALS_GROUP,
@@ -682,6 +779,9 @@ class IllustrationValuesTab(QWidget):
             grid.set_frozen_column_count(len(self.LEAD_COLUMNS))
             self._tab_grids[title] = grid
             self._add_content_page(title, grid)
+        # Guideline Recalc trails the per-month grids: an event view, not a grid.
+        self.recalc_view = GuidelineRecalcView(self.content_stack)
+        self._add_content_page(self.GUIDELINE_RECALC_GROUP, self.recalc_view)
         self.body.addWidget(self.content_stack)
 
         # ── Month Inspector: the per-month waterfall ──
@@ -781,6 +881,10 @@ class IllustrationValuesTab(QWidget):
                 leaf.setData(0, Qt.ItemDataRole.UserRole, (title, column_name))
                 stage.addChild(leaf)
             self.nav_tree.addTopLevelItem(stage)
+        # Guideline Recalc trails the column groups as a leaf jump (no columns).
+        recalc = QTreeWidgetItem([self.GUIDELINE_RECALC_GROUP])
+        recalc.setData(0, Qt.ItemDataRole.UserRole, (self.GUIDELINE_RECALC_GROUP, None))
+        self.nav_tree.addTopLevelItem(recalc)
 
     def _filter_navigator(self, text: str):
         needle = text.strip().lower()
@@ -808,6 +912,9 @@ class IllustrationValuesTab(QWidget):
             return
         if title == "Charges":
             self.content_stack.setCurrentWidget(self.charges_chart)
+            return
+        if title == self.GUIDELINE_RECALC_GROUP:
+            self.content_stack.setCurrentWidget(self.recalc_view)
             return
         grid = self._tab_grids.get(title)
         if grid is None:
@@ -861,6 +968,7 @@ class IllustrationValuesTab(QWidget):
         self.chart.clear()
         self.charges_chart.clear()
         self.inspector.clear()
+        self.recalc_view.clear()
         self.nav_tree.clear()
         self._results = []
         self._inspected_row = None
@@ -930,6 +1038,11 @@ class IllustrationValuesTab(QWidget):
         self._results = result_list
         self._inspected_row = None
         self.inspector.clear()
+        first_recalc = next(
+            (state.guideline_recalc for state in result_list if state.guideline_recalc),
+            None,
+        )
+        self.recalc_view.show_recalc(first_recalc)
         self._rebuild_navigator(navigator_columns)
         self.overview.display(policy, result_list)
         self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)

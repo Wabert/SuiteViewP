@@ -490,6 +490,9 @@ class IllustrationEngine:
         policy_change_av_reduction = wd.gross_withdrawal
         dbo_change_detail: Dict[str, object] = {}
         face_change_detail: Dict[str, object] = {}
+        # First guideline re-solve this month: a SA-reducing withdrawal recalcs
+        # before the dated changes, so it wins ties on "first instance".
+        guideline_recalc: Dict[str, object] = dict(wd.guideline_recalc)
         if policy_changes:
             for change in policy_changes:
                 outcome = _apply_policy_change(
@@ -501,6 +504,8 @@ class IllustrationEngine:
                 tamra_reset = tamra_reset or outcome.material_change
                 dbo_change_detail.update(outcome.dbo_detail)
                 face_change_detail.update(outcome.face_detail)
+                if outcome.guideline_recalc and not guideline_recalc:
+                    guideline_recalc = outcome.guideline_recalc
 
         cov_after_change = _coverage_after_change_snapshot(
             policy, config, month_date, policy_change_av_reduction,
@@ -740,6 +745,7 @@ class IllustrationEngine:
             is_anniversary=is_anniversary,
             db_option=str(policy.db_option or "").upper(),
             coverage_after_change=cov_after_change,
+            guideline_recalc=guideline_recalc,
             # Withdrawal (AX..BU)
             **_withdrawal_state_fields(wd),
             # DBO / specified face change details (BW..CU / CW..DO)
@@ -1336,6 +1342,9 @@ class _PolicyChangeOutcome:
     # Display detail keyed by RERUN column names (BW..CU / CW..DO).
     dbo_detail: Dict[str, object] = dataclass_field(default_factory=dict)
     face_detail: Dict[str, object] = dataclass_field(default_factory=dict)
+    # Before/after GLP & GSP solves when this change re-solved the guideline
+    # premiums (see _recalc_guideline_on_change); empty otherwise.
+    guideline_recalc: Dict[str, object] = dataclass_field(default_factory=dict)
 
 
 @dataclass
@@ -1606,7 +1615,7 @@ def _process_withdrawal(
         targets = compute_target_premiums(policy, config, as_of=month_date)
         policy.mtp = targets.mtp_annual / 12.0
         policy.ctp = targets.ctp_annual
-        _recalc_guideline_on_change(
+        wd.guideline_recalc = _recalc_guideline_on_change(
             policy, config,
             PolicyChangeEvent(
                 kind=PolicyChangeKind.FACE_AMOUNT,
@@ -1814,7 +1823,7 @@ def _apply_policy_change(
         targets = compute_target_premiums(policy, config, as_of=change_date)
         policy.mtp = targets.mtp_annual / 12.0
         policy.ctp = targets.ctp_annual
-        _recalc_guideline_on_change(
+        outcome.guideline_recalc = _recalc_guideline_on_change(
             policy, config, change, attained_age,
             change_date=change_date,
             before=before,
@@ -1909,6 +1918,16 @@ def _solve_guideline_state(
     return solve_guideline_premiums(basis, starting_av=starting_av)
 
 
+# Friendly recalc labels for the Values-tab "Guideline Recalc" group.
+_CHANGE_KIND_LABELS = {
+    PolicyChangeKind.FACE_AMOUNT: "Specified Amount Change",
+    PolicyChangeKind.DB_OPTION: "Death Benefit Option Change",
+    PolicyChangeKind.RATE_CLASS: "Rate Class Change",
+    PolicyChangeKind.SUBSTANDARD: "Substandard Rating Change",
+    PolicyChangeKind.RIDER_DROP: "Rider / Benefit Change",
+}
+
+
 def _recalc_guideline_on_change(
     policy,
     config,
@@ -1920,7 +1939,7 @@ def _recalc_guideline_on_change(
     av: float,
     material_change: bool,
     options=None,
-) -> None:
+) -> Dict[str, object]:
     """Recalculate GLP/GSP/7-pay at a policy change.
 
     RERUN (Guideline_Premiums rows 5..10): the new guideline premiums are the
@@ -1950,16 +1969,38 @@ def _recalc_guideline_on_change(
         after = _solve_guideline_state(
             policy, config, attained_age, change_date, options)
 
+    # Prior (pre-recalc) values feed both the delta formula and the recalc
+    # detail; floored to a monthly-divisible cent like the new values.
+    glp_prior = floor_monthly_cent(policy.glp)
+    gsp_prior = floor_monthly_cent(policy.gsp)
+
     if new_glp is not None:
         policy.glp = floor_monthly_cent(float(new_glp))
     elif after is not None:
-        policy.glp = floor_monthly_cent(
-            floor_monthly_cent(policy.glp) + after.glp - before.glp)
+        policy.glp = floor_monthly_cent(glp_prior + after.glp - before.glp)
     if new_gsp is not None:
         policy.gsp = floor_monthly_cent(float(new_gsp))
     elif after is not None:
-        policy.gsp = floor_monthly_cent(
-            floor_monthly_cent(policy.gsp) + after.gsp - before.gsp)
+        policy.gsp = floor_monthly_cent(gsp_prior + after.gsp - before.gsp)
+
+    # Expose the before/after solve so the Values tab can explain the recalc.
+    # Only the genuine attained-age delta path (a before AND after solve) has
+    # calc detail to show; a fully-injected recalc has no before/after solve.
+    recalc_detail: Dict[str, object] = {}
+    if before is not None and after is not None:
+        recalc_detail = {
+            "change_kind": _CHANGE_KIND_LABELS.get(
+                change.kind, change.kind.name.replace("_", " ").title()),
+            "change_date": change_date,
+            "glp_before": before.glp,
+            "glp_after": after.glp,
+            "gsp_before": before.gsp,
+            "gsp_after": after.gsp,
+            "glp_prior": glp_prior,
+            "glp_new": policy.glp,
+            "gsp_prior": gsp_prior,
+            "gsp_new": policy.gsp,
+        }
 
     # The 7-pay LEVEL recalculates on ANY coverage change (KY fires on the
     # policy-change indicator), solved from the CURRENT 7-pay period start —
@@ -1979,6 +2020,8 @@ def _recalc_guideline_on_change(
             active_as_of=change_date,
         )
         policy.tamra_7pay_level = floor_monthly_cent(seven_solve.seven_pay)
+
+    return recalc_detail
 
 
 def _attained_age_at(policy, as_of) -> int:

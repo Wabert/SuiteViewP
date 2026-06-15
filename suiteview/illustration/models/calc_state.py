@@ -50,6 +50,13 @@ class MonthlyState:
     # by the RERUN display column name (e.g. "Cov 1 Active", "CurrentSA").
     coverage_after_change: Dict[str, object] = field(default_factory=dict)
 
+    # ── Guideline Recalc (7702 GLP/GSP re-solve at a policy change) ──
+    # Populated only on the month a policy change re-solved the guideline
+    # premiums by the attained-age delta method. Keys: change_kind, change_date,
+    # glp_before, glp_after, gsp_before, gsp_after, glp_prior, glp_new,
+    # gsp_prior, gsp_new. Empty in every month with no recalc.
+    guideline_recalc: Dict[str, object] = field(default_factory=dict)
+
     # ── MTP / CTP detail (CalcEngine HO..JG / JI..KQ) ──
     # Per-component target premium snapshots keyed by the RERUN display names;
     # recomputed at projection start and on any coverage change, carried

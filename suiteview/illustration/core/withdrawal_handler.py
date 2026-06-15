@@ -50,6 +50,10 @@ class WithdrawalResult:
     gross_withdrawal: float = 0.0        # BN
     av_post_withdrawal: float = 0.0      # BO
     face_decrease: float = 0.0           # BP
+    # Before/after GLP & GSP solves when the face decrease re-solved the
+    # guideline premiums (filled by the engine after the recalc); empty
+    # when the withdrawal did not move the specified amount.
+    guideline_recalc: Dict[str, object] = field(default_factory=dict)
 
 
 def compute_withdrawal(
