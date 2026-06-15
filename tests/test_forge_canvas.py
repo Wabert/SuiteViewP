@@ -311,6 +311,49 @@ def test_view_smoke():
     print("  view smoke (boxes/lines/specs/state/remove)  OK")
 
 
+def test_view_theme_is_instance_scoped():
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        print(f"  view theme SKIPPED (no PyQt6: {exc})")
+        return
+
+    from suiteview.audit.dataforge.forge_canvas_view import (
+        BLUE_JOIN_CANVAS_THEME, ForgeJoinCanvas, JoinLineItem,
+        ORANGE_JOIN_CANVAS_THEME, SourceBoxItem,
+    )
+
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    visual_canvas = ForgeJoinCanvas(source_label="Table", add_menu_label="Add Table")
+    forge_canvas = ForgeJoinCanvas(theme=ORANGE_JOIN_CANVAS_THEME)
+    for canvas in (visual_canvas, forge_canvas):
+        canvas.update_queries(["left", "right"], {"left": ["id"], "right": ["id"]})
+        assert canvas.add_query_table("left")
+        assert canvas.add_query_table("right")
+        assert canvas.scene.add_link("left", "id", "right", "id")
+
+    visual_box = next(it for it in visual_canvas.scene.items()
+                      if isinstance(it, SourceBoxItem) and it.alias == "left")
+    forge_box = next(it for it in forge_canvas.scene.items()
+                     if isinstance(it, SourceBoxItem) and it.alias == "left")
+    visual_line = next(it for it in visual_canvas.scene.items()
+                       if isinstance(it, JoinLineItem))
+    forge_line = next(it for it in forge_canvas.scene.items()
+                      if isinstance(it, JoinLineItem))
+
+    assert visual_canvas.theme is BLUE_JOIN_CANVAS_THEME
+    assert visual_box.theme is BLUE_JOIN_CANVAS_THEME
+    assert visual_line.theme is BLUE_JOIN_CANVAS_THEME
+    assert forge_canvas.theme is ORANGE_JOIN_CANVAS_THEME
+    assert forge_box.theme is ORANGE_JOIN_CANVAS_THEME
+    assert forge_line.theme is ORANGE_JOIN_CANVAS_THEME
+    assert visual_box.theme.source_accent.name().upper() == "#1E5BA8"
+    assert forge_box.theme.source_accent.name().upper() == "#C2410C"
+    print("  view theme is instance-scoped  OK")
+
+
 def test_view_explicit_add_and_removed_persist():
     """Regression: queries require explicit join-canvas add; removals persist."""
     try:

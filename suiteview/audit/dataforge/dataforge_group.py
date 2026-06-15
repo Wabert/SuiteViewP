@@ -53,6 +53,7 @@ from suiteview.audit.dataforge.query_field_picker import FORGE_FIELD_DRAG_MIME
 # previously-saved Forges still load. forge_joins_tab.py is kept for rollback.
 from suiteview.audit.dataforge.forge_canvas_view import (
     ForgeJoinCanvas as ForgeJoinsTab,
+    ORANGE_JOIN_CANVAS_THEME,
 )
 # Phase 3 Manual mode: the visual design compiles to one DuckDB statement
 # (shown on the SQL tab); Manual mode lets the user edit and run that SQL
@@ -1116,7 +1117,7 @@ class DataForgeGroup(QWidget):
         self._add_filter_tab("Filter")
 
         # Joins tab
-        self.joins_tab = ForgeJoinsTab()
+        self.joins_tab = ForgeJoinsTab(theme=ORANGE_JOIN_CANVAS_THEME)
         self.joins_tab.state_changed.connect(self._on_joins_state_changed)
         self.tab_widget.addTab(self.joins_tab, "Joins")
 

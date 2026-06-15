@@ -17,6 +17,7 @@ edits it, which keeps the heavy logic unit-testable without a display.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import (
@@ -45,20 +46,60 @@ _MIN_VISIBLE_ROWS = 3
 _DEFAULT_VISIBLE_ROWS = 12
 
 # Theme (royal blue/gold, matching the query builders)
-_FORGE = QColor("#1E5BA8")
-_FORGE_BG = QColor("#EDF3FA")
-_HEADER_BG = QColor("#1E5BA8")
-_HEADER_FG = QColor("#FFFFFF")
-_ROW_FG = QColor("#0F172A")
-_ROW_HOVER = QColor("#D9E8F7")
-_LINE_COLOR = QColor("#1E5BA8")
-_LINE_SEL = QColor("#D4AF37")
-_APPEND = QColor("#0A2A5C")
-_APPEND_BG = QColor("#F5F9FF")
-_APPEND_ROW_HOVER = QColor("#D9E8F7")
-_APPEND_MEMBER_BG = QColor("#E8F0FB")
-_APPEND_MEMBER_FG = QColor("#0A2A5C")
-_WARN = QColor("#B45309")
+@dataclass(frozen=True)
+class JoinCanvasTheme:
+    source_accent: QColor
+    source_tint: QColor
+    source_row_hover: QColor
+    source_scroll_track: QColor
+    line_color: QColor
+    line_selected: QColor
+    append_accent: QColor
+    append_tint: QColor
+    append_row_hover: QColor
+    append_scroll_track: QColor
+    append_member_bg: QColor
+    append_member_fg: QColor
+    header_fg: QColor
+    row_fg: QColor
+    warning: QColor
+
+
+BLUE_JOIN_CANVAS_THEME = JoinCanvasTheme(
+    source_accent=QColor("#1E5BA8"),
+    source_tint=QColor("#EDF3FA"),
+    source_row_hover=QColor("#D9E8F7"),
+    source_scroll_track=QColor("#BBD4EF"),
+    line_color=QColor("#1E5BA8"),
+    line_selected=QColor("#D4AF37"),
+    append_accent=QColor("#0A2A5C"),
+    append_tint=QColor("#F5F9FF"),
+    append_row_hover=QColor("#D9E8F7"),
+    append_scroll_track=QColor("#BBD4EF"),
+    append_member_bg=QColor("#E8F0FB"),
+    append_member_fg=QColor("#0A2A5C"),
+    header_fg=QColor("#FFFFFF"),
+    row_fg=QColor("#0F172A"),
+    warning=QColor("#B45309"),
+)
+
+ORANGE_JOIN_CANVAS_THEME = JoinCanvasTheme(
+    source_accent=QColor("#C2410C"),
+    source_tint=QColor("#FFEDD5"),
+    source_row_hover=QColor("#FED7AA"),
+    source_scroll_track=QColor("#FDBA74"),
+    line_color=QColor("#C2410C"),
+    line_selected=QColor("#7C2D12"),
+    append_accent=QColor("#7C2D12"),
+    append_tint=QColor("#FFF7ED"),
+    append_row_hover=QColor("#FED7AA"),
+    append_scroll_track=QColor("#FDBA74"),
+    append_member_bg=QColor("#FFEDD5"),
+    append_member_fg=QColor("#7C2D12"),
+    header_fg=QColor("#FFFFFF"),
+    row_fg=QColor("#0F172A"),
+    warning=QColor("#9A3412"),
+)
 _QUERY_DRAG_MIME = "application/x-dataforge-query-drag"
 _MEMBER_H = 18
 
@@ -79,10 +120,12 @@ class SourceBoxItem(QGraphicsObject):
     def __init__(self, alias: str, fields: list[str], collapsed: bool = False,
                  width: float = _BOX_W,
                  visible_rows: int = _DEFAULT_VISIBLE_ROWS,
-                 scroll_offset: int = 0):
+                 scroll_offset: int = 0,
+                 theme: JoinCanvasTheme = BLUE_JOIN_CANVAS_THEME):
         super().__init__()
         self.alias = alias
         self.fields = list(fields)
+        self.theme = theme
         self.width = max(_MIN_BOX_W, min(_MAX_BOX_W, float(width or _BOX_W)))
         self.collapsed = collapsed
         self.visible_rows = max(_MIN_VISIBLE_ROWS, int(visible_rows))
@@ -162,18 +205,18 @@ class SourceBoxItem(QGraphicsObject):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.boundingRect()
         # Body
-        painter.setBrush(QBrush(_FORGE_BG))
-        painter.setPen(QPen(_FORGE, 1))
+        painter.setBrush(QBrush(self.theme.source_tint))
+        painter.setPen(QPen(self.theme.source_accent, 1))
         painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
         # Header
         header = QRectF(0, 0, self.width, _HEADER_H)
-        painter.setBrush(QBrush(_HEADER_BG))
+        painter.setBrush(QBrush(self.theme.source_accent))
         painter.setPen(Qt.PenStyle.NoPen)
         path = QPainterPath()
         path.addRoundedRect(header, 4, 4)
         painter.drawPath(path)
-        painter.fillRect(QRectF(0, _HEADER_H - 6, self.width, 6), _HEADER_BG)
-        painter.setPen(QPen(_HEADER_FG))
+        painter.fillRect(QRectF(0, _HEADER_H - 6, self.width, 6), self.theme.source_accent)
+        painter.setPen(QPen(self.theme.header_fg))
         painter.setFont(_FONT_BOLD)
         painter.drawText(header.adjusted(_PAD, 0, -_PAD, 0),
                          Qt.AlignmentFlag.AlignVCenter
@@ -186,8 +229,8 @@ class SourceBoxItem(QGraphicsObject):
             for i, name in enumerate(visible_fields):
                 row = QRectF(1, _HEADER_H + i * _ROW_H, self.width - 2, _ROW_H)
                 if name == self._hover_field:
-                    painter.fillRect(row, _ROW_HOVER)
-                painter.setPen(QPen(_ROW_FG))
+                    painter.fillRect(row, self.theme.source_row_hover)
+                painter.setPen(QPen(self.theme.row_fg))
                 painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
                                  Qt.AlignmentFlag.AlignVCenter
                                  | Qt.AlignmentFlag.AlignLeft, name)
@@ -195,16 +238,16 @@ class SourceBoxItem(QGraphicsObject):
                 track = QRectF(self.width - 8, _HEADER_H + 2, 4,
                                self._body_rows() * _ROW_H - 4)
                 painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QBrush(QColor("#FDBA74")))
+                painter.setBrush(QBrush(self.theme.source_scroll_track))
                 painter.drawRoundedRect(track, 2, 2)
                 ratio = self.visible_rows / max(1, len(self.fields))
                 handle_h = max(18, track.height() * ratio)
                 travel = max(1, track.height() - handle_h)
                 handle_y = track.y() + travel * (self.scroll_offset / max(1, self._max_scroll_offset()))
-                painter.setBrush(QBrush(_FORGE))
+                painter.setBrush(QBrush(self.theme.source_accent))
                 painter.drawRoundedRect(QRectF(track.x(), handle_y, track.width(), handle_h), 2, 2)
             handle = self.resize_handle_rect()
-            painter.setPen(QPen(_FORGE, 1))
+            painter.setPen(QPen(self.theme.source_accent, 1))
             painter.drawLine(handle.bottomLeft() + QPointF(3, -2),
                      handle.topRight() + QPointF(-2, 3))
             painter.drawLine(handle.bottomLeft() + QPointF(7, -2),
@@ -310,11 +353,13 @@ class AppendBoxItem(QGraphicsObject):
                  type_conflicts: dict[str, list[tuple[str, str]]] | None = None,
                  collapsed: bool = False, width: float = 220.0,
                  visible_rows: int = _DEFAULT_VISIBLE_ROWS,
-                 scroll_offset: int = 0):
+                 scroll_offset: int = 0,
+                 theme: JoinCanvasTheme = BLUE_JOIN_CANVAS_THEME):
         super().__init__()
         self.alias = alias
         self.fields = list(fields)
         self.members = list(members)
+        self.theme = theme
         self.type_conflicts = type_conflicts or {}
         self.collapsed = collapsed
         self.width = max(170.0, min(_MAX_BOX_W, float(width or 220.0)))
@@ -412,18 +457,18 @@ class AppendBoxItem(QGraphicsObject):
     def paint(self, painter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.boundingRect()
-        painter.setBrush(QBrush(_APPEND_BG))
-        painter.setPen(QPen(_APPEND, 1.3))
+        painter.setBrush(QBrush(self.theme.append_tint))
+        painter.setPen(QPen(self.theme.append_accent, 1.3))
         painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
 
         header = QRectF(0, 0, self.width, _HEADER_H)
-        painter.setBrush(QBrush(_APPEND))
+        painter.setBrush(QBrush(self.theme.append_accent))
         painter.setPen(Qt.PenStyle.NoPen)
         path = QPainterPath()
         path.addRoundedRect(header, 4, 4)
         painter.drawPath(path)
-        painter.fillRect(QRectF(0, _HEADER_H - 6, self.width, 6), _APPEND)
-        painter.setPen(QPen(_HEADER_FG))
+        painter.fillRect(QRectF(0, _HEADER_H - 6, self.width, 6), self.theme.append_accent)
+        painter.setPen(QPen(self.theme.header_fg))
         painter.setFont(_FONT_BOLD)
         painter.drawText(header.adjusted(_PAD, 0, -_PAD, 0),
                          Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
@@ -436,14 +481,14 @@ class AppendBoxItem(QGraphicsObject):
         y = _HEADER_H
         if not self.members:
             row = QRectF(1, y, self.width - 2, _ROW_H)
-            painter.setPen(QPen(_APPEND_MEMBER_FG))
+            painter.setPen(QPen(self.theme.append_member_fg))
             painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
                              Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                              "Drop queries here")
             y += _ROW_H
         elif not self.fields:
             row = QRectF(1, y, self.width - 2, _ROW_H)
-            painter.setPen(QPen(_WARN))
+            painter.setPen(QPen(self.theme.warning))
             painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
                              Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                              "No shared fields")
@@ -454,8 +499,8 @@ class AppendBoxItem(QGraphicsObject):
             for name in visible_fields:
                 row = QRectF(1, y, self.width - 2, _ROW_H)
                 if name == self._hover_field:
-                    painter.fillRect(row, _APPEND_ROW_HOVER)
-                painter.setPen(QPen(_ROW_FG))
+                    painter.fillRect(row, self.theme.append_row_hover)
+                painter.setPen(QPen(self.theme.row_fg))
                 label = f"{name}  *" if name in self.type_conflicts else name
                 painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
                                  Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
@@ -465,17 +510,17 @@ class AppendBoxItem(QGraphicsObject):
                 track = QRectF(self.width - 8, _HEADER_H + 2, 4,
                                self._field_rows() * _ROW_H - 4)
                 painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QBrush(QColor("#BBD4EF")))
+                painter.setBrush(QBrush(self.theme.append_scroll_track))
                 painter.drawRoundedRect(track, 2, 2)
                 ratio = self.visible_rows / max(1, len(self.fields))
                 handle_h = max(18, track.height() * ratio)
                 travel = max(1, track.height() - handle_h)
                 handle_y = track.y() + travel * (self.scroll_offset / max(1, self._max_scroll_offset()))
-                painter.setBrush(QBrush(_APPEND))
+                painter.setBrush(QBrush(self.theme.append_accent))
                 painter.drawRoundedRect(QRectF(track.x(), handle_y, track.width(), handle_h), 2, 2)
             if self.type_conflicts:
                 row = QRectF(1, y, self.width - 2, _ROW_H)
-                painter.setPen(QPen(_WARN))
+                painter.setPen(QPen(self.theme.warning))
                 painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
                                  Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                                  "* Type coercion warning")
@@ -485,10 +530,10 @@ class AppendBoxItem(QGraphicsObject):
             y += _ROW_H
         for member in self.members:
             row = QRectF(1, y, self.width - 2, _MEMBER_H)
-            painter.fillRect(row, _APPEND_MEMBER_BG)
-            painter.setPen(QPen(_APPEND, 1))
+            painter.fillRect(row, self.theme.append_member_bg)
+            painter.setPen(QPen(self.theme.append_accent, 1))
             painter.drawLine(row.topLeft(), row.topRight())
-            painter.setPen(QPen(_APPEND_MEMBER_FG))
+            painter.setPen(QPen(self.theme.append_member_fg))
             painter.setFont(_FONT_BOLD)
             painter.drawText(row.adjusted(_PAD, 0, -_PAD, 0),
                              Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
@@ -496,7 +541,7 @@ class AppendBoxItem(QGraphicsObject):
             y += _MEMBER_H
 
         handle = self.resize_handle_rect()
-        painter.setPen(QPen(_APPEND, 1))
+        painter.setPen(QPen(self.theme.append_accent, 1))
         painter.drawLine(handle.bottomLeft() + QPointF(3, -2),
                          handle.topRight() + QPointF(-2, 3))
         painter.drawLine(handle.bottomLeft() + QPointF(7, -2),
@@ -614,16 +659,18 @@ class JoinLineItem(QGraphicsPathItem):
     """One field-to-field join line (one key) between two Source boxes."""
 
     def __init__(self, left_box: SourceBoxItem, left_field: str,
-                 right_box: SourceBoxItem, right_field: str, how: str):
+                 right_box: SourceBoxItem, right_field: str, how: str,
+                 theme: JoinCanvasTheme = BLUE_JOIN_CANVAS_THEME):
         super().__init__()
         self.left_box = left_box
         self.left_field = left_field
         self.right_box = right_box
         self.right_field = right_field
         self.how = how
+        self.theme = theme
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setZValue(0)
-        self.setPen(QPen(_LINE_COLOR, 2))
+        self.setPen(QPen(self.theme.line_color, 2))
         self.update_path()
 
     def update_path(self):
@@ -642,13 +689,14 @@ class JoinLineItem(QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         sel = self.isSelected()
-        pen = QPen(_LINE_SEL if sel else _LINE_COLOR, 3 if sel else 2)
+        pen = QPen(self.theme.line_selected if sel else self.theme.line_color,
+                   3 if sel else 2)
         self.setPen(pen)
         super().paint(painter, option, widget)
         # Join-type glyph at the midpoint.
         mid = self.path().pointAtPercent(0.5)
         painter.setFont(_FONT_BOLD)
-        painter.setPen(QPen(_LINE_SEL if sel else _LINE_COLOR))
+        painter.setPen(QPen(self.theme.line_selected if sel else self.theme.line_color))
         painter.drawText(QPointF(mid.x() - 6, mid.y() - 4),
                          _HOW_LABEL.get(self.how, "="))
 
@@ -669,9 +717,11 @@ class JoinCanvasScene(QGraphicsScene):
     warning_requested = pyqtSignal(str)
     query_dropped_on_append = pyqtSignal(str, str)
 
-    def __init__(self, model: JoinCanvasModel, parent=None):
+    def __init__(self, model: JoinCanvasModel, parent=None, *,
+                 theme: JoinCanvasTheme = BLUE_JOIN_CANVAS_THEME):
         super().__init__(parent)
         self.model = model
+        self.theme = theme
         self.box_items: dict[str, SourceBoxItem | AppendBoxItem] = {}
         self.append_items: dict[str, AppendBoxItem] = {}
         self.line_items: list[JoinLineItem] = []
@@ -715,7 +765,8 @@ class JoinCanvasScene(QGraphicsScene):
     def _add_box_item(self, alias, fields, collapsed, x, y, width=_BOX_W,
                       visible_rows=_DEFAULT_VISIBLE_ROWS,
                       scroll_offset=0) -> SourceBoxItem:
-        box = SourceBoxItem(alias, fields, collapsed, width, visible_rows, scroll_offset)
+        box = SourceBoxItem(alias, fields, collapsed, width, visible_rows,
+                    scroll_offset, self.theme)
         box.setPos(x, y)
         box.moved.connect(self._on_box_moved)
         box.released.connect(self._on_source_released)
@@ -726,7 +777,7 @@ class JoinCanvasScene(QGraphicsScene):
     def _add_append_item(self, alias, fields, members, type_conflicts,
                          collapsed, x, y, width, visible_rows, scroll_offset) -> AppendBoxItem:
         box = AppendBoxItem(alias, fields, members, type_conflicts, collapsed, width,
-                            visible_rows, scroll_offset)
+                            visible_rows, scroll_offset, self.theme)
         box.setPos(x, y)
         box.moved.connect(self._on_box_moved)
         box.query_dropped.connect(self.query_dropped_on_append.emit)
@@ -736,7 +787,7 @@ class JoinCanvasScene(QGraphicsScene):
         return box
 
     def _add_line_item(self, lbox, lfield, rbox, rfield, how) -> JoinLineItem:
-        line = JoinLineItem(lbox, lfield, rbox, rfield, how)
+        line = JoinLineItem(lbox, lfield, rbox, rfield, how, self.theme)
         self.addItem(line)
         self.line_items.append(line)
         return line
@@ -873,7 +924,7 @@ class JoinCanvasScene(QGraphicsScene):
     def _begin_link(self, box: SourceBoxItem, field: str, scene_pos):
         self._link_from = (box, field)
         self._temp_line = QGraphicsPathItem()
-        self._temp_line.setPen(QPen(_LINE_SEL, 2, Qt.PenStyle.DashLine))
+        self._temp_line.setPen(QPen(self.theme.line_selected, 2, Qt.PenStyle.DashLine))
         self._temp_line.setZValue(2)
         self.addItem(self._temp_line)
 
@@ -903,10 +954,12 @@ class ForgeJoinCanvas(QWidget):
     state_changed = pyqtSignal()
 
     def __init__(self, parent=None, *, source_label: str = "Source",
-                 add_menu_label: str = "Add Query Table"):
+                 add_menu_label: str = "Add Query Table",
+                 theme: JoinCanvasTheme = BLUE_JOIN_CANVAS_THEME):
         super().__init__(parent)
         self._source_label = source_label
         self._add_menu_label = add_menu_label
+        self.theme = theme
         self.model = JoinCanvasModel()
         self._available_query_names: list[str] = []
         self._available_query_columns: dict[str, list[str]] = {}
@@ -915,7 +968,7 @@ class ForgeJoinCanvas(QWidget):
         # Available queries are not shown until the user adds them from the join
         # canvas menu or by double-clicking the query list.
         self._removed_aliases: set[str] = set()
-        self.scene = JoinCanvasScene(self.model, self)
+        self.scene = JoinCanvasScene(self.model, self, theme=theme)
         self.scene.changed_model.connect(self.state_changed.emit)
         self.scene.warning_requested.connect(self._show_canvas_warning)
         self.scene.query_dropped_on_append.connect(self._add_query_to_append)
