@@ -55,6 +55,8 @@ def apply_inforce_overrides(
         policy.variable_loan_principal = overrides.variable_loan_principal
     if overrides.variable_loan_accrued is not None:
         policy.variable_loan_accrued = overrides.variable_loan_accrued
+    if overrides.current_interest_rate is not None:
+        policy.current_interest_rate = overrides.current_interest_rate
 
     if overrides.face_amount is not None:
         policy.face_amount = overrides.face_amount

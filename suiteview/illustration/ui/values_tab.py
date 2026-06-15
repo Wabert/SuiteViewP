@@ -9,7 +9,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QLabel,
-    QTabWidget,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -18,7 +18,7 @@ from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
-from .styles import PURPLE_BG, PURPLE_DARK, TAB_WIDGET_STYLE
+from .styles import PURPLE_BG, PURPLE_DARK
 from .values_inspector import MonthInspector
 from .values_overview import (
     AccumulatedChargesChart,
@@ -32,15 +32,43 @@ from .values_overview import (
 # Double-clicking an Overview ledger cell drills into the detail tab where
 # that value is calculated, pinned to the same month.
 LEDGER_DRILL_TABS = {
+    "GrossWD": "Withdrawals",
+    "DBO": "DB Option Change",
+    "TotalSA": "Cov After Change",
+    "PSC": "Increase/Decrease",
+    "MonthlyMTP": "MTP",
+    "Accum MTP": "MTP",
+    "GLP": "TEFRA and TAMRA",
+    "GSP": "TEFRA and TAMRA",
+    "AccumGLP": "TEFRA and TAMRA",
+    "Loan Int": "Accumulation",
+    "Loan Balance": "Loan Capitalize and Repay",
+    "Loan Repay": "Loan Capitalize and Repay",
     "Premium": "Apply Premium",
-    "Withdrawals": "Summary",
-    "Interest": "Accumulation",
-    "Charges": "Monthly Deduction",
+    "PremTD": "Apply Premium",
+    "Prem Load": "Apply Premium",
+    "mAV": "Monthly Deduction",
+    "NAAR": "Monthly Deduction",
+    "Base COI": "Monthly Deduction",
+    "Rider COI": "Monthly Deduction",
+    "Benefit COI": "Monthly Deduction",
+    "EPU": "Monthly Deduction",
+    "MFEE": "Monthly Deduction",
+    "MD": "Monthly Deduction",
+    "Exception Prem": "Exception Premiums",
     "AV": "Policy Values",
-    "SV": "Policy Values",
-    "Death Benefit": "Ending Values",
-    "GP Room": "TEFRA and TAMRA",
-    "Status": "Testing",
+    "New Loan": "Policy Values",
+    "Interest Rate": "Accumulation",
+    "Interest": "Accumulation",
+    "EAV": "Accumulation",
+    "SC": "Ending Values",
+    "ESV": "Ending Values",
+    "Var Loan": "Loan Capitalize and Repay",
+    "Pref Loan": "Loan Capitalize and Repay",
+    "Reg Loan": "Loan Capitalize and Repay",
+    "Ending LB": "Ending Values",
+    "IllustratedDB": "Ending Values",
+    "LN": "Summary",
 }
 
 
@@ -219,49 +247,45 @@ class IllustrationValuesTab(QWidget):
     LEAD_COLUMNS = ["Date", "Year", "Month", "Attained Age"]
     SUMMARY_GROUP = "Summary"
     SUMMARY_COLUMNS = [
-        "Monthly MTP",
+        "GrossWD",
+        "DBO",
+        "TotalSA",
+        "PSC",
+        "MonthlyMTP",
         "Accum MTP",
         "GLP",
         "GSP",
         "AccumGLP",
         "Loan Int",
-        "PolicyDebt",
+        "Loan Balance",
+        "Loan Repay",
         "Premium",
-        "Premium Load",
+        "PremTD",
+        "Prem Load",
         "mAV",
-        "Face Amount",
-        "Death Benefit",
-        "COI Charge",
-        "Rider Charge",
-        "Benefit Charges",
-        "EPU Fee",
-        "Monthly Fee",
-        "Monthly Deduction",
+        "NAAR",
+        "Base COI",
+        "Rider COI",
+        "Benefit COI",
+        "EPU",
+        "MFEE",
+        "MD",
+        "Exception Prem",
         "AV",
-        "vGP_Exception_Prem",
-        "FullSC",
-        "Surrender Value",
         "New Loan",
+        "Interest Rate",
         "Interest",
-        "EA",
-        "ES",
-        "ELN",
+        "EAV",
+        "SC",
+        "ESV",
+        "Var Loan",
+        "Pref Loan",
+        "Reg Loan",
+        "Ending LB",
+        "IllustratedDB",
     ]
     SUMMARY_HEADER_LABELS = {
-        "Monthly MTP": "MTP",
-        "Accum MTP": "AccumMTP",
-        "PolicyDebt": "Loan Balance",
-        "COI Charge": "Base COI",
-        "Rider Charge": "Rider COI",
-        "Benefit Charges": "Benefit COI",
-        "EPU Fee": "EPU",
-        "Monthly Fee": "MFEE",
-        "Monthly Deduction": "MD",
-        "vGP_Exception_Prem": "Exception Prem",
-        "FullSC": "SC",
-        "Surrender Value": "SV",
-        "EA": "EAV",
-        "ES": "ESV",
+        "Attained Age": "Age",
     }
     TESTING_GROUP = "Testing"
     TESTING_COLUMNS = [
@@ -565,6 +589,8 @@ class IllustrationValuesTab(QWidget):
         self._ctp_columns = self._ctp_column_names([1], False)
         self._cov_after_change_columns = self._cov_after_change_column_names([1], False)
         self._tab_grids: dict[str, FilterTableView] = {}
+        self._content_widgets_by_title: dict[str, QWidget] = {}
+        self._content_titles: list[str] = []
         self._results: list[MonthlyState] = []
         self._inspected_row: int | None = None
         self._setup_ui()
@@ -592,12 +618,6 @@ class IllustrationValuesTab(QWidget):
         )
         top_row.addWidget(self.status_label)
         top_row.addStretch(1)
-        self.nav_toggle = QPushButton("☰ Find Value")
-        self.nav_toggle.setCheckable(True)
-        self.nav_toggle.setStyleSheet(toggle_style)
-        self.nav_toggle.setToolTip("Search every column across the value tabs and jump to it.")
-        self.nav_toggle.toggled.connect(lambda on: self.navigator.setVisible(on))
-        top_row.addWidget(self.nav_toggle)
         self.inspector_toggle = QPushButton("Inspect Month")
         self.inspector_toggle.setCheckable(True)
         self.inspector_toggle.setStyleSheet(toggle_style)
@@ -616,6 +636,11 @@ class IllustrationValuesTab(QWidget):
         nav_layout = QVBoxLayout(self.navigator)
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(4)
+        self.nav_header = QLabel("Values Group", self.navigator)
+        self.nav_header.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;"
+        )
+        nav_layout.addWidget(self.nav_header)
         self.nav_search = QLineEdit(self.navigator)
         self.nav_search.setPlaceholderText("Find a value…")
         self.nav_search.setStyleSheet(
@@ -635,30 +660,29 @@ class IllustrationValuesTab(QWidget):
         )
         self.nav_tree.itemClicked.connect(self._on_navigator_clicked)
         nav_layout.addWidget(self.nav_tree, 1)
-        self.navigator.setVisible(False)
         self.body.addWidget(self.navigator)
 
-        self.tabs = QTabWidget(self)
-        self.tabs.setStyleSheet(TAB_WIDGET_STYLE)
-        self.overview = ValuesOverview(self.tabs)
+        self.content_stack = QStackedWidget(self)
+        self.overview = ValuesOverview(self.content_stack)
         self.overview.monthSelected.connect(self._inspect_month)
         self.overview.cellActivated.connect(self._drill_down)
-        self.tabs.addTab(self.overview, "Overview")
-        self.chart = PolicyValueChart(self.tabs)
+        self._add_content_page("Overview", self.overview)
+        self.chart = PolicyValueChart(self.content_stack)
         self.chart.yearClicked.connect(self._on_chart_year_clicked)
-        self.tabs.addTab(self.chart, "Chart")
-        self.charges_chart = AccumulatedChargesChart(self.tabs)
-        self.tabs.addTab(self.charges_chart, "Charges")
+        self._add_content_page("Chart", self.chart)
+        self.charges_chart = AccumulatedChargesChart(self.content_stack)
+        self._add_content_page("Charges", self.charges_chart)
         for title in self.TAB_ORDER:
-            grid = FilterTableView(self.tabs)
+            grid = FilterTableView(self.content_stack)
             grid.set_search_visible(False)
             grid.apply_ledger_style()
             # Chronological ledger — no sort toggle; reclaiming the icon zone
             # keeps the columns tight.
             grid.set_sort_enabled(False)
+            grid.set_frozen_column_count(len(self.LEAD_COLUMNS))
             self._tab_grids[title] = grid
-            self.tabs.addTab(grid, title)
-        self.body.addWidget(self.tabs)
+            self._add_content_page(title, grid)
+        self.body.addWidget(self.content_stack)
 
         # ── Month Inspector: the per-month waterfall ──
         self.inspector = MonthInspector(self)
@@ -671,9 +695,14 @@ class IllustrationValuesTab(QWidget):
         self.body.setSizes([180, 760, 270])
         layout.addWidget(self.body, 1)
 
+    def _add_content_page(self, title: str, widget: QWidget):
+        self._content_widgets_by_title[title] = widget
+        self._content_titles.append(title)
+        self.content_stack.addWidget(widget)
+
     def _on_chart_year_clicked(self, year: int):
         """Chart click-through: jump the Overview ledger to that policy year."""
-        self.tabs.setCurrentWidget(self.overview)
+        self.content_stack.setCurrentWidget(self.overview)
         self.overview.jump_to_year(year)
 
     # ── Drill-down plumbing ───────────────────────────────────
@@ -701,7 +730,7 @@ class IllustrationValuesTab(QWidget):
         grid = self._tab_grids.get(title)
         if grid is None:
             return
-        self.tabs.setCurrentWidget(grid)
+        self.content_stack.setCurrentWidget(grid)
         self._select_grid_row(grid, result_row)
         if not self.inspector_toggle.isChecked():
             self.inspector_toggle.setChecked(True)
@@ -772,18 +801,18 @@ class IllustrationValuesTab(QWidget):
             return
         title, column_name = data
         if title == "Overview":
-            self.tabs.setCurrentWidget(self.overview)
+            self.content_stack.setCurrentWidget(self.overview)
             return
         if title == "Chart":
-            self.tabs.setCurrentWidget(self.chart)
+            self.content_stack.setCurrentWidget(self.chart)
             return
         if title == "Charges":
-            self.tabs.setCurrentWidget(self.charges_chart)
+            self.content_stack.setCurrentWidget(self.charges_chart)
             return
         grid = self._tab_grids.get(title)
         if grid is None:
             return
-        self.tabs.setCurrentWidget(grid)
+        self.content_stack.setCurrentWidget(grid)
         if column_name is None or grid.model is None:
             return
         columns = list(grid.model.get_original_data().columns)
@@ -905,7 +934,7 @@ class IllustrationValuesTab(QWidget):
         self.overview.display(policy, result_list)
         self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)
         self.charges_chart.set_data(build_charge_bands(result_list[1:]), policy.issue_age)
-        self.tabs.setCurrentIndex(0)
+        self.content_stack.setCurrentIndex(0)
         self.status_label.setText(f"Showing valuation snapshot plus {months} projected months.")
 
     def _state_to_row(
@@ -994,14 +1023,77 @@ class IllustrationValuesTab(QWidget):
         row.update(loan_capitalize)
         row.update(self._surrender_values(state, coverage_keys))
         # Summary-tab composites derived from group columns above.
-        row["Loan Int"] = (
-            loan_capitalize["Advance - Rg Ln Int Accrued"]
-            + loan_capitalize["Advance - Pf Ln Int Accrued"]
-            + loan_capitalize["Advance - Var Ln Int Accrued"]
-        )
-        row["New Loan"] = policy_values["New Reg LN"] + policy_values["New Pref LN"]
+        row["Loan Int"] = state.reg_loan_charge + state.pref_loan_charge + state.vbl_loan_charge
+        row["New Loan"] = state.applied_new_loan
+        row.update(self._summary_values(policy, state))
         row.update(self._testing_values(state))
         return row
+
+    @classmethod
+    def _summary_values(cls, policy: IllustrationPolicyData, state: MonthlyState) -> dict:
+        return {
+            "GrossWD": state.gross_withdrawal,
+            "DBO": str(state.db_option or state.dbo_change_detail.get("DBO") or policy.db_option or "").upper(),
+            "TotalSA": cls._total_specified_amount(policy, state),
+            "PSC": cls._partial_surrender_charge(state),
+            "MonthlyMTP": state.monthly_mtp,
+            "Loan Balance": cls._beginning_loan_balance(state),
+            "Loan Repay": state.applied_loan_repayment,
+            "PremTD": state.premiums_to_date,
+            "Prem Load": state.total_premium_load,
+            "NAAR": state.total_nar or state.nar,
+            "Base COI": state.total_coi_charge or state.coi_charge,
+            "Rider COI": state.rider_charges,
+            "Benefit COI": state.benefit_charges,
+            "EPU": state.epu_charge,
+            "MFEE": state.mfee_charge,
+            "MD": state.total_deduction,
+            "Exception Prem": state.gp_exception_prem,
+            "Interest Rate": state.annual_interest_rate * 100.0,
+            "EAV": state.av_end_of_month,
+            "SC": state.surrender_charge,
+            "ESV": state.surrender_value,
+            "Var Loan": state.end_vbl_loan_princ + state.end_vbl_loan_accrued,
+            "Pref Loan": state.end_pf_loan_princ + state.end_pf_loan_accrued,
+            "Reg Loan": state.end_rg_loan_princ + state.end_rg_loan_accrued,
+            "Ending LB": state.policy_debt,
+            "IllustratedDB": state.ending_db or state.gross_db,
+        }
+
+    @staticmethod
+    def _beginning_loan_balance(state: MonthlyState) -> float:
+        return (
+            state.rg_loan_princ + state.rg_loan_accrued
+            + state.pf_loan_princ + state.pf_loan_accrued
+            + state.vbl_loan_princ + state.vbl_loan_accrued
+        )
+
+    @staticmethod
+    def _detail_float(mapping: dict, key: str) -> float:
+        value = mapping.get(key, 0.0)
+        try:
+            return float(value or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @classmethod
+    def _partial_surrender_charge(cls, state: MonthlyState) -> float:
+        return (
+            state.wd_partial_sc
+            + cls._detail_float(state.dbo_change_detail, "Total PSC DBO")
+            + cls._detail_float(state.face_change_detail, "Total PSC Spec Dec")
+        )
+
+    @staticmethod
+    def _total_specified_amount(policy: IllustrationPolicyData, state: MonthlyState) -> float:
+        for mapping in (state.coverage_after_change, state.face_change_detail, state.dbo_change_detail):
+            value = mapping.get("CurrentSA") if mapping is state.coverage_after_change else mapping.get("Total SA")
+            if value not in (None, ""):
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    pass
+        return float(policy.total_face or 0.0)
 
     @staticmethod
     def _testing_values(state: MonthlyState) -> dict:
@@ -1534,8 +1626,8 @@ class IllustrationValuesTab(QWidget):
             "Arrears - From Scheduled Prem": 0.0,
             "Arrears - LoanRepayFromForceout": 0.0,
             "Arrears - LoanRepayFromPremAndForceout": 0.0,
-            "Arrears - Requested Loan Repayment": 0.0,
-            "Arrears - Total Loan Repayment Attempted": 0.0,
+            "Arrears - Requested Loan Repayment": state.applied_loan_repayment,
+            "Arrears - Total Loan Repayment Attempted": state.applied_loan_repayment,
             "Advance - Adv Reg LN Repay": 0.0,
             "Advance - Adv Pref LN Repay": 0.0,
             "Advance - Adv Total Loan Repayment": 0.0,
@@ -1546,7 +1638,7 @@ class IllustrationValuesTab(QWidget):
             "Var Ln Princ": state.vbl_loan_princ,
             "Var Ln Int": state.vbl_loan_accrued,
             "LNRepayLeftOver": 0.0,
-            "TotalLoanReduction": 0.0,
+            "TotalLoanReduction": state.applied_loan_repayment,
             "PolicyDebtDisplay": (
                 state.rg_loan_princ
                 + state.rg_loan_accrued
@@ -1568,7 +1660,7 @@ class IllustrationValuesTab(QWidget):
             return 0.0
 
         return {
-            "AV": state.av_end_of_month,
+            "AV": cls._account_value_before_interest(state),
             "SCR Cov 1": coverage_value(state.scr_rates_by_coverage, 1),
             "SCR Cov 2": coverage_value(state.scr_rates_by_coverage, 2),
             "SCR Cov 3": coverage_value(state.scr_rates_by_coverage, 3),
@@ -1582,10 +1674,10 @@ class IllustrationValuesTab(QWidget):
             "Loan Mode Effective": False,
             "Scheduled Loan Amount": 0.0,
             "Remaining Distribution": 0.0,
-            "vAppliedLoan": 0.0,
+            "vAppliedLoan": state.applied_new_loan,
             "Gain": 0.0,
-            "New Reg LN": 0.0,
-            "New Pref LN": 0.0,
+            "New Reg LN": state.applied_regular_loan,
+            "New Pref LN": state.applied_preferred_loan,
             "AdvRegLNInt": state.reg_loan_charge,
             "PrefRegLNInt": state.pref_loan_charge,
             "Total Rg Ln Princ": state.end_rg_loan_princ,
@@ -1684,8 +1776,8 @@ class IllustrationValuesTab(QWidget):
             "IllustrationDB": state.ending_db,
             "PremiumOutlay": state.premium_outlay,
             "ForceOutDisplay": state.guideline_forceout,
-            "LoanRepayFromPremDisplay": 0.0,
-            "LoanRepayDisplay": 0.0,
+            "LoanRepayFromPremDisplay": state.applied_loan_repayment,
+            "LoanRepayDisplay": state.applied_loan_repayment,
             "DistributionFromPolicy": 0.0,
             "IllustrationGCO": 0.0,
         }
@@ -1713,6 +1805,10 @@ class IllustrationValuesTab(QWidget):
     @staticmethod
     def _av_before_md(state: MonthlyState) -> float:
         return state.md_check_av_before_deduction or state.av_after_premium
+
+    @staticmethod
+    def _account_value_before_interest(state: MonthlyState) -> float:
+        return state.av_after_exception if state.av_after_exception != 0.0 else state.av_after_deduction
 
     @staticmethod
     def _death_benefit(state: MonthlyState) -> float:

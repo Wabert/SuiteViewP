@@ -38,6 +38,7 @@ class MonthlyState:
     wd_sa_change_by_cov: Dict[int, float] = field(default_factory=dict)  # BI..BL
 
     # ── DB Option Change (CalcEngine BW..CU) ──
+    db_option: str = ""                  # Death-benefit option after any change
     # Keyed by the RERUN display column name (e.g. "Prev DBO", "Change Type").
     dbo_change_detail: Dict[str, object] = field(default_factory=dict)
 
@@ -64,6 +65,10 @@ class MonthlyState:
     pf_loan_accrued: float = 0.0
     vbl_loan_princ: float = 0.0
     vbl_loan_accrued: float = 0.0
+    applied_loan_repayment: float = 0.0
+    applied_regular_loan: float = 0.0
+    applied_preferred_loan: float = 0.0
+    applied_variable_loan: float = 0.0
 
     # ── 1. Apply Premium (cols 367-403) ───────
     gross_premium: float = 0.0
@@ -149,6 +154,7 @@ class MonthlyState:
     rider_charge_detail: Dict[str, float] = field(default_factory=dict)
     total_deduction: float = 0.0
     av_after_deduction: float = 0.0
+    av_after_exception: float = 0.0
 
     # ── 2b. Inforce Monthly Deduction Check ─────────────────
     system_coi_charge: float = 0.0
@@ -246,3 +252,7 @@ class MonthlyState:
     @property
     def premium_outlay(self) -> float:
         return self.gross_premium + self.gp_exception_prem
+
+    @property
+    def applied_new_loan(self) -> float:
+        return self.applied_regular_loan + self.applied_preferred_loan + self.applied_variable_loan

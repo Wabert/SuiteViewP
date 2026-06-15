@@ -2,6 +2,8 @@ from decimal import Decimal
 
 import pytest
 
+from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
+from suiteview.illustration.core.input_compiler import CompiledMonthInputs
 from suiteview.illustration.core.loan_handler import (
     LoanState,
     accrue_loan_interest,
@@ -104,6 +106,29 @@ def test_variable_loan_accrues_with_policy_rate_without_collateral_split():
     assert updated.vbl_loan_accrued == pytest.approx(10.0 + expected_variable_charge)
     assert updated.reg_loan_charge == pytest.approx(100.0 * 0.06 * 31 / 365.0)
     assert updated.pref_loan_charge == pytest.approx(200.0 * 0.05 * 31 / 365.0)
+
+
+def test_cash_flow_inputs_report_applied_variable_loan_and_repayment():
+    loan = LoanState(
+        rg_loan_princ=10.0,
+        rg_loan_accrued=1.0,
+        pf_loan_princ=20.0,
+        pf_loan_accrued=2.0,
+        vbl_loan_princ=30.0,
+        vbl_loan_accrued=3.0,
+    )
+    month_inputs = CompiledMonthInputs(variable_loan=7.0, loan_repayment=40.0)
+
+    applied = apply_cash_flow_inputs(1000.0, loan, month_inputs)
+
+    assert applied.applied_variable_loan == 7.0
+    assert applied.applied_loan_repayment == 40.0
+    assert applied.loan_state.rg_loan_accrued == 0.0
+    assert applied.loan_state.rg_loan_princ == 0.0
+    assert applied.loan_state.pf_loan_accrued == 0.0
+    assert applied.loan_state.pf_loan_princ == 0.0
+    assert applied.loan_state.vbl_loan_accrued == 0.0
+    assert applied.loan_state.vbl_loan_princ == 33.0
 
 
 def test_variable_loan_rate_comes_from_latest_fund_loan_monthiversary():

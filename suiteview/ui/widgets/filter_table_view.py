@@ -827,6 +827,8 @@ class FilterTableView(QWidget):
         self._pending_search_text = ""
         self._default_numeric_decimals: Optional[int] = None
         self._column_decimals: Dict[str, Optional[int]] = {}
+        self._frozen_column_count = 0
+        self._syncing_vertical_scroll = False
         
         self.init_ui()
 
@@ -869,6 +871,22 @@ class FilterTableView(QWidget):
         layout.addWidget(self.search_bar)
 
         # Table view
+        self.table_container = QWidget()
+        table_layout = QHBoxLayout(self.table_container)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.setSpacing(0)
+
+        self.frozen_table_view = QTableView()
+        self.frozen_table_view.setObjectName("filterTableView")
+        self.frozen_table_view.setAlternatingRowColors(True)
+        self.frozen_table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectItems)
+        self.frozen_table_view.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
+        self.frozen_table_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.frozen_table_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.frozen_table_view.verticalHeader().setDefaultSectionSize(18)
+        self.frozen_table_view.verticalHeader().setMinimumSectionSize(16)
+        self.frozen_table_view.hide()
+
         self.table_view = QTableView()
         self.table_view.setObjectName("filterTableView")  # Custom object name for styling
         self.table_view.setAlternatingRowColors(True)
@@ -936,6 +954,13 @@ class FilterTableView(QWidget):
         """)
 
         # Configure header - use custom header view
+        self.frozen_header = ClickableHeaderView(Qt.Orientation.Horizontal, self.frozen_table_view)
+        self.frozen_table_view.setHorizontalHeader(self.frozen_header)
+        self.frozen_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.frozen_header.setStretchLastSection(False)
+        self.frozen_header.sort_enabled = False
+        self.frozen_header.sectionResized.connect(lambda *_args: self._update_frozen_table_width())
+
         self.header = ClickableHeaderView(Qt.Orientation.Horizontal, self.table_view)
         self.table_view.setHorizontalHeader(self.header)
         
@@ -961,8 +986,13 @@ class FilterTableView(QWidget):
         # Set font
         font = QFont("Consolas", 9)
         self.table_view.setFont(font)
+        self.frozen_table_view.setFont(font)
 
-        layout.addWidget(self.table_view)
+        self.table_view.verticalScrollBar().valueChanged.connect(self._sync_frozen_vertical_scroll)
+        self.frozen_table_view.verticalScrollBar().valueChanged.connect(self._sync_main_vertical_scroll)
+        table_layout.addWidget(self.frozen_table_view)
+        table_layout.addWidget(self.table_view, 1)
+        layout.addWidget(self.table_container)
 
         # Info label at bottom
         self.info_label = QLabel("")
@@ -985,18 +1015,28 @@ class FilterTableView(QWidget):
         style is unchanged for existing users.
         """
         self.table_view.setAlternatingRowColors(False)
+        self.frozen_table_view.setAlternatingRowColors(False)
         self.table_view.setShowGrid(False)
+        self.frozen_table_view.setShowGrid(False)
         body_font = QFont()
         body_font.setPixelSize(11)
         self.table_view.setFont(body_font)  # set programmatically so font metrics match
+        self.frozen_table_view.setFont(body_font)
         self.table_view.verticalHeader().setVisible(False)  # no row numbers
+        self.frozen_table_view.verticalHeader().setVisible(False)
         self.table_view.verticalHeader().setDefaultSectionSize(17)
         self.table_view.verticalHeader().setMinimumSectionSize(15)
+        self.frozen_table_view.verticalHeader().setDefaultSectionSize(17)
+        self.frozen_table_view.verticalHeader().setMinimumSectionSize(15)
         # Wrapped multi-line headers painted by the header view itself.
         self.header.wrap_mode = True
         self.header.wrap_bg = QColor(header_bg)
         self.header.wrap_fg = QColor(header_fg)
         self.header.wrap_border = QColor(border)
+        self.frozen_header.wrap_mode = True
+        self.frozen_header.wrap_bg = QColor(header_bg)
+        self.frozen_header.wrap_fg = QColor(header_fg)
+        self.frozen_header.wrap_border = QColor(border)
         self.table_view.setStyleSheet(f"""
             QTableView#filterTableView {{
                 background-color: white;
@@ -1029,6 +1069,7 @@ class FilterTableView(QWidget):
                 background-color: white;
             }}
         """)
+        self.frozen_table_view.setStyleSheet(self.table_view.styleSheet())
 
     def set_sort_enabled(self, enabled: bool):
         """Show/hide the per-column sort toggle (▲/▼ icon zone).
@@ -1037,10 +1078,23 @@ class FilterTableView(QWidget):
         icon zone lets autofit make columns tighter. Call before autofit.
         """
         self.header.sort_enabled = enabled
+        self.frozen_header.sort_enabled = False
         if not enabled:
             self.sort_order = {}
             self.header.sort_order = {}
+            self.frozen_header.sort_order = {}
         self.header.viewport().update()
+        self.frozen_header.viewport().update()
+
+    def set_frozen_column_count(self, count: int):
+        """Keep the first ``count`` columns visible while horizontally scrolling.
+
+        Implemented as a narrow sibling table sharing the same model and
+        vertical scroll position. Opt-in so existing FilterTableView users keep
+        the normal single-table behavior.
+        """
+        self._frozen_column_count = max(0, int(count))
+        self._apply_frozen_columns()
 
     def autofit_columns_to_data(
         self,
@@ -1066,7 +1120,10 @@ class FilterTableView(QWidget):
         metrics = QFontMetrics(self.table_view.font())
         header_metrics = QFontMetrics(self.header.wrap_font())
         for column_index, column_name in enumerate(self.model.get_original_data().columns):
-            if self.table_view.isColumnHidden(column_index):
+            if (
+                self.table_view.isColumnHidden(column_index)
+                and self.frozen_table_view.isColumnHidden(column_index)
+            ):
                 continue
             widest = 0
             if column_name in df.columns:
@@ -1090,8 +1147,11 @@ class FilterTableView(QWidget):
                 target = max(target, longest_word + icon_allowance)
             self.table_view.setColumnWidth(
                 column_index, max(min_width, min(target, max_width)))
+            self.frozen_table_view.setColumnWidth(
+                column_index, max(min_width, min(target, max_width)))
 
         self._refresh_wrapped_header_height()
+        self._update_frozen_table_width()
 
     def _refresh_wrapped_header_height(self):
         """Fit the header band to the tallest wrapped label at current widths."""
@@ -1100,20 +1160,28 @@ class FilterTableView(QWidget):
         metrics = QFontMetrics(self.header.wrap_font())
         tallest = 18
         for column_index in range(len(self.model.get_original_data().columns)):
-            if self.table_view.isColumnHidden(column_index):
+            if (
+                self.table_view.isColumnHidden(column_index)
+                and self.frozen_table_view.isColumnHidden(column_index)
+            ):
                 continue
             value = self.model.headerData(
                 column_index, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole)
             label = "" if value is None else str(value)
             header_icon_allowance = (self.header.sort_icon_width + 8) if self.header.sort_enabled else 8
+            column_width = max(
+                self.table_view.columnWidth(column_index),
+                self.frozen_table_view.columnWidth(column_index),
+            )
             avail_width = max(
-                10, self.table_view.columnWidth(column_index) - header_icon_allowance)
+                10, column_width - header_icon_allowance)
             avail = QRect(0, 0, avail_width, 200)
             flags = self.header.wrap_flags(metrics, avail, label)
             needed = metrics.boundingRect(avail, flags, label).height() + 6
             if needed > tallest:
                 tallest = needed
         self.header.setFixedHeight(min(tallest, 56))
+        self.frozen_header.setFixedHeight(min(tallest, 56))
 
     def set_dataframe(self, df: pd.DataFrame, limit_rows: bool = True):
         """Set the DataFrame to display
@@ -1140,6 +1208,10 @@ class FilterTableView(QWidget):
         self.model = PandasTableModel(self.df)
         self.model.set_numeric_formatting(self._default_numeric_decimals, self._column_decimals)
         self.table_view.setModel(self.model)
+        self.frozen_table_view.setModel(self.model)
+        if self.table_view.selectionModel() is not None:
+            self.frozen_table_view.setSelectionModel(self.table_view.selectionModel())
+        self._apply_frozen_columns()
         
         # Reset filters and caches
         self.column_filters.clear()
@@ -1156,6 +1228,44 @@ class FilterTableView(QWidget):
         self.update_info_label()
         
         logger.info(f"FilterTableView loaded {len(df)} rows, {len(df.columns)} columns")
+
+    def _sync_frozen_vertical_scroll(self, value: int):
+        if self._syncing_vertical_scroll:
+            return
+        self._syncing_vertical_scroll = True
+        self.frozen_table_view.verticalScrollBar().setValue(value)
+        self._syncing_vertical_scroll = False
+
+    def _sync_main_vertical_scroll(self, value: int):
+        if self._syncing_vertical_scroll:
+            return
+        self._syncing_vertical_scroll = True
+        self.table_view.verticalScrollBar().setValue(value)
+        self._syncing_vertical_scroll = False
+
+    def _apply_frozen_columns(self):
+        if self.model is None:
+            self.frozen_table_view.setVisible(False)
+            return
+        column_count = self.model.columnCount()
+        frozen_count = min(self._frozen_column_count, column_count)
+        self.frozen_table_view.setVisible(frozen_count > 0)
+        for column_index in range(column_count):
+            frozen = column_index < frozen_count
+            self.frozen_table_view.setColumnHidden(column_index, not frozen)
+            self.table_view.setColumnHidden(column_index, frozen)
+        self._update_frozen_table_width()
+
+    def _update_frozen_table_width(self):
+        if self.model is None or self._frozen_column_count <= 0:
+            self.frozen_table_view.setFixedWidth(0)
+            return
+        frozen_count = min(self._frozen_column_count, self.model.columnCount())
+        width = 0
+        for column_index in range(frozen_count):
+            width += self.frozen_table_view.columnWidth(column_index)
+        frame_width = self.frozen_table_view.frameWidth() * 2
+        self.frozen_table_view.setFixedWidth(width + frame_width)
 
     def set_search_visible(self, visible: bool):
         self.search_bar.setVisible(visible)

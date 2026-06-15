@@ -328,10 +328,10 @@ class _KpiChip(QWidget):
 
 
 LEDGER_COLUMNS = [
-    "Year", "Age", "Premium", "Withdrawals", "Interest", "Charges",
-    "AV", "SV", "Death Benefit", "GP Room", "Status",
+    "Year", "Month", "Age", "Prem", "PremLoad", "Withdrawals", "ForceOuts",
+    "MD", "Interest", "EAV", "SC", "LN", "ESV", "Death Benefit", "Status",
 ]
-NUMERIC_LEDGER = set(range(2, 10))
+NUMERIC_LEDGER = set(range(len(LEDGER_COLUMNS) - 1))
 
 
 class ValuesOverview(QWidget):
@@ -480,18 +480,20 @@ class ValuesOverview(QWidget):
             months = [state for _, state in month_entries]
             eoy_index, eoy = month_entries[-1]
             premium = sum(s.premium_outlay for s in months)
+            premium_load = sum(s.total_premium_load for s in months)
+            forceouts = sum(s.guideline_forceout for s in months)
             interest = sum(s.interest_credited for s in months)
-            charges = sum(s.total_deduction for s in months)
+            monthly_deduction = sum(s.total_deduction for s in months)
             withdrawals = eoy.withdrawals_to_date - prior_wd
             prior_wd = eoy.withdrawals_to_date
-            room = eoy.guideline_limit - (eoy.premiums_to_date - eoy.withdrawals_to_date)
             item = QTreeWidgetItem([
-                str(year), str(eoy.attained_age),
-                _fmt_money(premium, 2), _fmt_money(withdrawals, 2),
-                _fmt_money(interest, 2), _fmt_money(charges, 2),
-                _fmt_money(eoy.av_end_of_month, 2), _fmt_money(eoy.surrender_value, 2),
-                _fmt_money(eoy.ending_db or eoy.gross_db, 0),
-                _fmt_money(room, 0), _status_text(eoy),
+                str(year), str(eoy.policy_month), str(eoy.attained_age),
+                _fmt_money(premium, 2), _fmt_money(premium_load, 2),
+                _fmt_money(withdrawals, 2), _fmt_money(forceouts, 2),
+                _fmt_money(monthly_deduction, 2), _fmt_money(interest, 2),
+                _fmt_money(eoy.av_end_of_month, 2), _fmt_money(eoy.surrender_charge, 2),
+                _fmt_money(eoy.policy_debt, 2), _fmt_money(eoy.surrender_value, 2),
+                _fmt_money(eoy.ending_db or eoy.gross_db, 0), _status_text(eoy),
             ])
             for column in range(len(LEDGER_COLUMNS)):
                 if column in NUMERIC_LEDGER or column < 2:
@@ -512,13 +514,13 @@ class ValuesOverview(QWidget):
                 month_wd = state.withdrawals_to_date - previous_wd
                 previous_wd = state.withdrawals_to_date
                 child = QTreeWidgetItem([
-                    f"{state.date:%m/%d/%Y}" if state.date else f"m{state.policy_month}",
-                    str(state.attained_age),
-                    _fmt_money(state.premium_outlay, 2), _fmt_money(month_wd, 2),
-                    _fmt_money(state.interest_credited, 2), _fmt_money(state.total_deduction, 2),
-                    _fmt_money(state.av_end_of_month, 2), _fmt_money(state.surrender_value, 2),
-                    _fmt_money(state.ending_db or state.gross_db, 0),
-                    "", _status_text(state),
+                    str(state.policy_year), str(state.policy_month), str(state.attained_age),
+                    _fmt_money(state.premium_outlay, 2), _fmt_money(state.total_premium_load, 2),
+                    _fmt_money(month_wd, 2), _fmt_money(state.guideline_forceout, 2),
+                    _fmt_money(state.total_deduction, 2), _fmt_money(state.interest_credited, 2),
+                    _fmt_money(state.av_end_of_month, 2), _fmt_money(state.surrender_charge, 2),
+                    _fmt_money(state.policy_debt, 2), _fmt_money(state.surrender_value, 2),
+                    _fmt_money(state.ending_db or state.gross_db, 0), _status_text(state),
                 ])
                 for column in range(len(LEDGER_COLUMNS)):
                     if column in NUMERIC_LEDGER or column < 2:

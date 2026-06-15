@@ -5,15 +5,19 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
+from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.models.input_set import (
+    InforceOverrideSet,
     IllustrationInputSet,
     PolicyChangeKind,
     TransactionKind,
 )
+from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.illustration.ui.inputs_dynamic import (
     DynamicInputsPanel,
     PolicyContext,
 )
+from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
 
 
 _QT_APP = None
@@ -37,6 +41,7 @@ class _FakePolicy:
     modal_premium = 153.56
     base_rate_class = "N"
     base_table_rating = 2
+    base_plancode = "1U135D00"
     status_code = "0"
 
     def get_coverages(self):
@@ -63,6 +68,35 @@ def test_premium_row_defaults_from_forecast_date():
     assert row.for_years_edit.value() == 65    # years 7..71
     assert row.to_age_edit.value() == 121
     assert abs(row.amount() - 153.56) < 0.005
+
+
+def test_input_tab_illustrated_rate_defaults_from_plancode_gint():
+    panel = _panel()
+
+    assert panel.illustrated_rate_edit.text() == "3.000"
+    assert panel.illustrated_rate() == 0.03
+
+
+def test_inputs_tab_exports_illustrated_rate_override_from_gint():
+    _app()
+    tab = IllustrationInputsTab()
+
+    tab.load_data_from_policy(_FakePolicy())
+    overrides = tab.export_inforce_overrides()
+
+    assert overrides.current_interest_rate == 0.03
+
+
+def test_scenario_builder_applies_current_interest_rate_override():
+    base_policy = IllustrationPolicyData(current_interest_rate=0.04)
+
+    scenario = build_illustration_scenario(
+        base_policy,
+        inforce_overrides=InforceOverrideSet(current_interest_rate=0.03),
+    )
+
+    assert scenario.base_policy.current_interest_rate == 0.04
+    assert scenario.projectable_policy.current_interest_rate == 0.03
 
 
 def test_year_age_sync_and_bounds():

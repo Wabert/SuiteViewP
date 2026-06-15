@@ -50,6 +50,7 @@ from suiteview.illustration.models.input_set import (
     ScheduledTransaction,
     TransactionKind,
 )
+from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.polview.ui.formatting import format_amount, format_date
 
 from .styles import GROUP_STYLE, PURPLE_DARK
@@ -96,6 +97,7 @@ class PolicyContext:
     modal_premium: float = 0.0
     rate_class: str = ""          # Cov 1
     table_rating: int = 0         # Cov 1
+    illustrated_rate: float = 0.0
     suspended: bool = False
     valuation_date: Optional[date] = None
 
@@ -167,6 +169,18 @@ def context_from_policy(policy) -> PolicyContext:
         table_rating = int(table_rating or 0)
     except (TypeError, ValueError):
         table_rating = 0
+    plancode = str(getattr(policy, "base_plancode", "") or getattr(policy, "plancode", "") or "")
+    illustrated_rate = 0.0
+    if plancode:
+        illustrated_rate = load_plancode(plancode).gint
+    if illustrated_rate == 0.0:
+        illustrated_rate = float(
+            getattr(policy, "current_interest_rate", None)
+            or getattr(policy, "guaranteed_interest_rate", 0.0)
+            or 0.0
+        )
+        if illustrated_rate > 1.0:
+            illustrated_rate /= 100.0
     return PolicyContext(
         issue_date=issue_date,
         issue_age=issue_age,
@@ -178,6 +192,7 @@ def context_from_policy(policy) -> PolicyContext:
         modal_premium=float(getattr(policy, "modal_premium", 0.0) or 0.0),
         rate_class=str(getattr(policy, "base_rate_class", "") or getattr(policy, "rate_class", "") or ""),
         table_rating=table_rating,
+        illustrated_rate=illustrated_rate,
         suspended=status_code == "2",
         valuation_date=valuation,
     )
@@ -218,6 +233,26 @@ class _Field(QLineEdit):
         self.setToolTip(reason if invalid else "")
         self.style().unpolish(self)
         self.style().polish(self)
+
+
+class _RateField(QLineEdit):
+    """Percent field that exports an annual rate as a decimal."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(_EDIT_STYLE)
+        self.setFixedWidth(58)
+        self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.setValidator(QDoubleValidator(0.0, 99.999, 3, self))
+
+    def set_rate(self, annual_rate: float):
+        self.setText(f"{annual_rate * 100.0:.3f}")
+
+    def rate(self) -> float:
+        try:
+            return float((self.text() or "").strip()) / 100.0
+        except ValueError:
+            return 0.0
 
 
 class InputRow(QWidget):
@@ -954,6 +989,19 @@ class DynamicInputsPanel(QWidget):
         self.suspended_banner.setVisible(False)
         outer.addWidget(self.suspended_banner)
 
+        rate_row = QHBoxLayout()
+        rate_row.setSpacing(4)
+        rate_label = QLabel("Illustrated Rate")
+        rate_label.setStyleSheet(_CAPTION_STYLE)
+        self.illustrated_rate_edit = _RateField(self)
+        rate_suffix = QLabel("%")
+        rate_suffix.setStyleSheet(_CAPTION_STYLE)
+        rate_row.addWidget(rate_label)
+        rate_row.addWidget(self.illustrated_rate_edit)
+        rate_row.addWidget(rate_suffix)
+        rate_row.addStretch(1)
+        outer.addLayout(rate_row)
+
         columns = QHBoxLayout()
         columns.setSpacing(10)
 
@@ -1016,6 +1064,7 @@ class DynamicInputsPanel(QWidget):
             f"Current rate class (Cov 1): {self._ctx.rate_class or '—'}")
         self.current_table_label.setText(
             f"Current table rating (Cov 1): {self._ctx.table_rating}")
+        self.illustrated_rate_edit.set_rate(self._ctx.illustrated_rate)
         self.riders_panel.set_policy(policy, self._ctx)
 
         if self._ctx.suspended and self._ctx.valuation_date is not None:
@@ -1030,6 +1079,9 @@ class DynamicInputsPanel(QWidget):
             self.suspended_banner.setVisible(True)
         else:
             self.suspended_banner.setVisible(False)
+
+    def illustrated_rate(self) -> float:
+        return self.illustrated_rate_edit.rate()
 
     # ── export ────────────────────────────────────────────────
 

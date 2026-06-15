@@ -246,6 +246,7 @@ class IllustrationEngine:
             policy_month=policy.policy_month,
             duration=policy.duration,
             attained_age=policy.attained_age,
+            db_option=str(policy.db_option or "").upper(),
             coverage_after_change=_coverage_after_change_snapshot(
                 policy, config, policy.valuation_date or policy.issue_date, 0.0, None,
             ),
@@ -304,6 +305,7 @@ class IllustrationEngine:
             rider_charge_detail=ded0.rider_charge_detail,
             total_deduction=ded0.total_deduction,
             av_after_deduction=policy.account_value,
+            av_after_exception=policy.account_value,
             system_coi_charge=policy.system_coi_charge,
             system_expense_charge=policy.system_expense_charge,
             system_other_charge=policy.system_other_charge,
@@ -632,6 +634,8 @@ class IllustrationEngine:
             withdrawals_to_date,
             max_loan=loan_cap,
         )
+        applied_regular_loan = max(0.0, fixed_loan_state.rg_loan_princ - cap_loan.rg_loan_princ)
+        applied_preferred_loan = max(0.0, fixed_loan_state.pf_loan_princ - cap_loan.pf_loan_princ)
 
         # ── 16. Accumulation: interest crediting ──────────────
         intr = credit_interest(
@@ -734,6 +738,7 @@ class IllustrationEngine:
             duration=duration,
             attained_age=attained_age,
             is_anniversary=is_anniversary,
+            db_option=str(policy.db_option or "").upper(),
             coverage_after_change=cov_after_change,
             # Withdrawal (AX..BU)
             **_withdrawal_state_fields(wd),
@@ -751,6 +756,10 @@ class IllustrationEngine:
             pf_loan_accrued=cap_loan.pf_loan_accrued,
             vbl_loan_princ=cap_loan.vbl_loan_princ,
             vbl_loan_accrued=cap_loan.vbl_loan_accrued,
+            applied_loan_repayment=cash_flows.applied_loan_repayment,
+            applied_regular_loan=applied_regular_loan,
+            applied_preferred_loan=applied_preferred_loan,
+            applied_variable_loan=cash_flows.applied_variable_loan,
             # Premium
             gross_premium=prem.gross_premium,
             prem_under_target=prem.prem_under_target,
@@ -821,6 +830,7 @@ class IllustrationEngine:
             rider_charge_detail=ded.rider_charge_detail,
             total_deduction=ded.total_deduction,
             av_after_deduction=ded.av_after_deduction,
+            av_after_exception=exception.av_after_exception,
             # Interest
             days_in_month=intr.days_in_month,
             annual_interest_rate=intr.annual_interest_rate,
@@ -1044,6 +1054,8 @@ class IllustrationEngine:
             withdrawals_to_date,
             max_loan=loan_cap,
         )
+        applied_regular_loan = max(0.0, fixed_loan_state.rg_loan_princ - cap_loan.rg_loan_princ)
+        applied_preferred_loan = max(0.0, fixed_loan_state.pf_loan_princ - cap_loan.pf_loan_princ)
         accrual_loan = accrue_loan_interest(
             fixed_loan_state,
             config,
@@ -1070,6 +1082,7 @@ class IllustrationEngine:
             duration=duration,
             attained_age=attained_age,
             is_anniversary=is_anniversary,
+            db_option=str(policy.db_option or "").upper(),
             coverage_after_change=_coverage_after_change_snapshot(
                 policy, config, month_date, wd.gross_withdrawal,
                 state.coverage_after_change,
@@ -1084,6 +1097,10 @@ class IllustrationEngine:
             pf_loan_accrued=cap_loan.pf_loan_accrued,
             vbl_loan_princ=cap_loan.vbl_loan_princ,
             vbl_loan_accrued=cap_loan.vbl_loan_accrued,
+            applied_loan_repayment=cash_flows.applied_loan_repayment,
+            applied_regular_loan=applied_regular_loan,
+            applied_preferred_loan=applied_preferred_loan,
+            applied_variable_loan=cash_flows.applied_variable_loan,
             gross_premium=prem.gross_premium,
             prem_under_target=prem.prem_under_target,
             prem_over_target=prem.prem_over_target,
@@ -1151,6 +1168,7 @@ class IllustrationEngine:
             rider_charge_detail=ded.rider_charge_detail,
             total_deduction=ded.total_deduction,
             av_after_deduction=ded.av_after_deduction,
+            av_after_exception=exception.av_after_exception,
             days_in_month=intr.days_in_month,
             annual_interest_rate=intr.annual_interest_rate,
             bonus_interest_rate=intr.bonus_interest_rate,

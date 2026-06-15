@@ -14,6 +14,7 @@ from typing import List, Optional
 
 _TABLE_PATH = Path(__file__).resolve().parent.parent / "plancodes" / "tRates_IntBonus.json"
 _CACHE: Optional[List[dict]] = None
+_CACHE_MTIME_NS: Optional[int] = None
 
 
 @dataclass
@@ -28,10 +29,12 @@ class BonusConfig:
 
 def _load_table() -> List[dict]:
     """Load and cache the tRates_IntBonus JSON table."""
-    global _CACHE
-    if _CACHE is None:
-        with open(_TABLE_PATH, "r") as f:
+    global _CACHE, _CACHE_MTIME_NS
+    mtime_ns = _TABLE_PATH.stat().st_mtime_ns
+    if _CACHE is None or _CACHE_MTIME_NS != mtime_ns:
+        with open(_TABLE_PATH, "r", encoding="utf-8") as f:
             _CACHE = json.load(f)
+        _CACHE_MTIME_NS = mtime_ns
     return _CACHE
 
 
@@ -49,9 +52,13 @@ def load_bonus_config(plancode: str, valuation_date: date) -> BonusConfig:
         BonusConfig with resolved rates. All zeros if no entry found.
     """
     table = _load_table()
+    normalized_plancode = str(plancode or "").strip().upper()
 
     # Filter for this plancode
-    entries = [row for row in table if row["Plancode"] == plancode]
+    entries = [
+        row for row in table
+        if str(row.get("Plancode", "")).strip().upper() == normalized_plancode
+    ]
     if not entries:
         return BonusConfig()
 

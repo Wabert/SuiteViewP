@@ -1,0 +1,1354 @@
+{
+  "Riders": [
+    {
+      "Plancode": "1A530400",
+      "AgeCalculationCode": 0,
+      "FormNumber": "AHLSTR-4",
+      "BandCode": 4,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1A530500",
+      "AgeCalculationCode": 0,
+      "FormNumber": "AHLSTR-5",
+      "BandCode": 11,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1A530600",
+      "AgeCalculationCode": 0,
+      "FormNumber": "AHLSTR-6",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1A530A85",
+      "AgeCalculationCode": 0,
+      "FormNumber": "AHLSTR",
+      "BandCode": 12,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1A530B8X",
+      "AgeCalculationCode": 0,
+      "FormNumber": "AHLSTR-2",
+      "BandCode": 12,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1A530C8Y",
+      "AgeCalculationCode": 0,
+      "FormNumber": "AHLSTR-3",
+      "BandCode": 12,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1A532000",
+      "AgeCalculationCode": 0,
+      "FormNumber": "CPCTR-3",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1A532A00",
+      "AgeCalculationCode": 0,
+      "FormNumber": "CPCTR-2",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1S532100",
+      "AgeCalculationCode": 0,
+      "FormNumber": "ALCTR",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1S532B62",
+      "AgeCalculationCode": 1,
+      "FormNumber": "MRCTR-2",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1S532Y00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ANL CTR",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1S533090",
+      "AgeCalculationCode": 0,
+      "FormNumber": "MRAI3-0",
+      "BandCode": 6,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1S533190",
+      "AgeCalculationCode": 0,
+      "FormNumber": "MRAI3",
+      "BandCode": 6,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1S533200",
+      "AgeCalculationCode": 0,
+      "FormNumber": "MRAI3-2",
+      "BandCode": 12,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1S533300",
+      "AgeCalculationCode": 1,
+      "FormNumber": "MRAI3-3",
+      "BandCode": 9,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1S533400",
+      "AgeCalculationCode": 0,
+      "FormNumber": "MRAI3-4",
+      "BandCode": 12,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1S533500",
+      "AgeCalculationCode": 1,
+      "FormNumber": "MRAI3-5",
+      "BandCode": 9,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1S533630",
+      "AgeCalculationCode": 1,
+      "FormNumber": "MRAI3-6",
+      "BandCode": 9,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1S533780",
+      "AgeCalculationCode": 1,
+      "FormNumber": "MRAI3-7",
+      "BandCode": 9,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1S533890",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S533990",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-2",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S534000",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-3",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S534190",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-13",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S534390",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-5",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S534400",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-6",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S534500",
+      "AgeCalculationCode": 1,
+      "FormNumber": "MRAIVP",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1S534600",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-7",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S534700",
+      "AgeCalculationCode": 1,
+      "FormNumber": "MRAI2",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1S534800",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-8",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S534900",
+      "AgeCalculationCode": 1,
+      "FormNumber": "MRAI3-8",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1S534C90",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-4",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S534D25",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-14",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S534Z25",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-15",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S535000",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-9",
+      "BandCode": 12,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S535100",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-10",
+      "BandCode": 12,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S535262",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-11",
+      "BandCode": 14,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S535362",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CMSTR-12",
+      "BandCode": 14,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S538725",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR-19",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S538825",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR-20",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1S538A25",
+      "AgeCalculationCode": 1,
+      "FormNumber": "MRCTR-3",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1S539000",
+      "AgeCalculationCode": 0,
+      "FormNumber": "ALSTR",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U534A95",
+      "AgeCalculationCode": 1,
+      "FormNumber": "LTR-3",
+      "BandCode": 4,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534B9X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "LTR-4",
+      "BandCode": 4,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534E00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULLT93",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534F0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "LTR-2",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534G00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "LTR88",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 70,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534H0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "LTR88",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534I00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "LTR88",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 70,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534J00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "LTR88",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534K00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "AIR-2",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534L00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULLT",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 70,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534M00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULAC",
+      "BandCode": 5,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534N0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR914",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U534P00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR-4",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U534Q0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR86",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U534R00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR86",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U534S00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULST93",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U534T00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULLT",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 70,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534W0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "LTR88(41-",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U534X00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULAC",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 76,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U534Y00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "LTR88(41-",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U535A00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULLTR",
+      "BandCode": 28,
+      "CovType": "LTR",
+      "CeaseAgeDur": 121,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U535A10",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULLTRU",
+      "BandCode": 28,
+      "CovType": "LTR",
+      "CeaseAgeDur": 121,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U535B00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULOIR",
+      "BandCode": 7,
+      "CovType": "LTR",
+      "CeaseAgeDur": 100,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U535B10",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULOIRU",
+      "BandCode": 7,
+      "CovType": "LTR",
+      "CeaseAgeDur": 100,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U536A00",
+      "AgeCalculationCode": 0,
+      "FormNumber": "ULLTR13",
+      "BandCode": 1,
+      "CovType": "SIGTERM",
+      "CeaseAgeDur": 10,
+      "CeaseUseCode": "Dur",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U536B00",
+      "AgeCalculationCode": 0,
+      "FormNumber": "ULLTR13",
+      "BandCode": 1,
+      "CovType": "SIGTERM",
+      "CeaseAgeDur": 15,
+      "CeaseUseCode": "Dur",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U536C00",
+      "AgeCalculationCode": 0,
+      "FormNumber": "ULLTR13",
+      "BandCode": 1,
+      "CovType": "SIGTERM",
+      "CeaseAgeDur": 20,
+      "CeaseUseCode": "Dur",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U538229",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CR4",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U538329",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR86",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538B00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULCTR83",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U538C00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CR1",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U538D0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CR6",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U538E0Y",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CR7",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U538F00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULCTR91",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U538G00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CR3",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U538H00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CR5",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U538I00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR93",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538J0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR912",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538K00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR-2",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 70,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538L0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR86",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538M00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR86",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 70,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538N00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR-11",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538P00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULST93",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538Q00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR-18",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538R0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR913",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538S00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR-3",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538T0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "STR86-2",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538U00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "STR86",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 70,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538V00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULST93",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538W00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "STR86-3",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U538Z0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR86",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U539100",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULSTR10",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U539200",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULCTR10",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U539300",
+      "AgeCalculationCode": 0,
+      "FormNumber": "ULCTR14",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U539400",
+      "AgeCalculationCode": 0,
+      "FormNumber": "ULCTR14",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U539500",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULCTR14",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U5CH600",
+      "AgeCalculationCode": 0,
+      "FormNumber": "40-43",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U5CH700",
+      "AgeCalculationCode": 0,
+      "FormNumber": "40-43",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U5CH800",
+      "AgeCalculationCode": 0,
+      "FormNumber": "40-43",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U5CH900",
+      "AgeCalculationCode": 0,
+      "FormNumber": "CHRFUL",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "B155W100",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 18,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "B155W200",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 18,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "B155W300",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 18,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "B155X100",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 18,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "B155X200",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 18,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "B155X300",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 18,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "B155Y100",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "B155Y200",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "B155Y300",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "B155Z100",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 18,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "B155Z200",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 18,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "B155Z300",
+      "AgeCalculationCode": 0,
+      "FormNumber": "LT 0205",
+      "BandCode": 18,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "CTRUL",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULCTR91",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "STRUL",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULST93",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "ULLTR",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULLT",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U539600",
+      "AgeCalculationCode": 0,
+      "FormNumber": "ULCTR14",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1X534A0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ANL LTR88",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1X534B00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ANL LTR88",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 80,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1X534C0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ANL LTR88",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1X534D00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ANL LTR88",
+      "BandCode": 0,
+      "CovType": "LTR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1X538200",
+      "AgeCalculationCode": 1,
+      "FormNumber": "XUCTR",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1X538X0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ANL STR88",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1X538Y00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ANL STR88",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 80,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1X539000",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ANL STR88",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": "",
+      "CeaseUseCode": "",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1X539A0X",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ANL STR88",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 95,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1G538900",
+      "AgeCalculationCode": 1,
+      "FormNumber": "GSSP",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1G538A00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "GSCTR",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "06582004",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CTR041-7",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "06582016",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CTR88",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "CTR",
+      "AgeCalculationCode": 1,
+      "FormNumber": "CTR88",
+      "BandCode": 0,
+      "CovType": "CTR",
+      "CeaseAgeDur": 65,
+      "CeaseUseCode": "Age",
+      "Description": "CHILDERNS TERM RIDER"
+    },
+    {
+      "Plancode": "1U144A00",
+      "AgeCalculationCode": 1,
+      "FormNumber": "ULAPBR08",
+      "BandCode": 6,
+      "CovType": "APB",
+      "CeaseAgeDur": 100,
+      "CeaseUseCode": "Age",
+      "Description": "ADDITIONAL PROTECTION RIDER"
+    },
+    {
+      "Plancode": "B15RE100",
+      "AgeCalculationCode": 0,
+      "FormNumber": "ARTR12",
+      "BandCode": 2,
+      "CovType": "LTR",
+      "CeaseAgeDur": 10,
+      "CeaseUseCode": "Dur",
+      "Description": "TERM RIDER"
+    },
+    {
+      "Plancode": "1U8FS100",
+      "AgeCalculationCode": 0,
+      "FormNumber": "40-02",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 70,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    },
+    {
+      "Plancode": "1U8FS200",
+      "AgeCalculationCode": 0,
+      "FormNumber": "40-42",
+      "BandCode": 0,
+      "CovType": "STR",
+      "CeaseAgeDur": 70,
+      "CeaseUseCode": "Age",
+      "Description": "SPOUSE TERM RIDER"
+    }
+  ]
+}

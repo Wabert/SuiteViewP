@@ -5,6 +5,7 @@ from typing import Optional
 
 from suiteview.core.policy_service import get_policy_info
 from suiteview.core.rates import Rates
+from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.policy_data import (
     BenefitInfo as IllBenefitInfo,
     CoverageSegment,
@@ -34,6 +35,7 @@ def build_illustration_data(
 
     # ── Basic identity / plan ─────────────────────────────────
     plancode = pi.base_plancode or ""
+    plancode_config = load_plancode(plancode)
     issue_date = pi.issue_date
     issue_age = pi.base_issue_age or 0
 
@@ -78,9 +80,8 @@ def build_illustration_data(
     maturity_age = pi.age_at_maturity or 121
 
     # ── Interest ──────────────────────────────────────────────
-    guar_raw = pi.guaranteed_interest_rate
-    guaranteed_rate = float(guar_raw) / 100.0 if guar_raw is not None else 0.0
-    current_rate = guaranteed_rate  # default to guar; override via what-if or plancode config
+    guaranteed_rate = plancode_config.gint
+    current_rate = plancode_config.gint
 
     # ── 7702 / Guideline ──────────────────────────────────────
     doli_code = str(pi.def_of_life_ins_code or "")

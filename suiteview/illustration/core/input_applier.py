@@ -10,6 +10,8 @@ from suiteview.illustration.core.loan_handler import LoanState
 class CashFlowApplication:
     av: float
     loan_state: LoanState
+    applied_loan_repayment: float = 0.0
+    applied_variable_loan: float = 0.0
 
 
 def apply_cash_flow_inputs(
@@ -36,7 +38,8 @@ def apply_cash_flow_inputs(
         vbl_loan_accrued=loan_state.vbl_loan_accrued,
     )
 
-    repayment_remaining = month_inputs.loan_repayment
+    requested_repayment = max(month_inputs.loan_repayment, 0.0)
+    repayment_remaining = requested_repayment
     if repayment_remaining > 0:
         new_loan_state.rg_loan_accrued, repayment_remaining = _reduce_bucket(new_loan_state.rg_loan_accrued, repayment_remaining)
         new_loan_state.rg_loan_princ, repayment_remaining = _reduce_bucket(new_loan_state.rg_loan_princ, repayment_remaining)
@@ -45,7 +48,12 @@ def apply_cash_flow_inputs(
         new_loan_state.vbl_loan_accrued, repayment_remaining = _reduce_bucket(new_loan_state.vbl_loan_accrued, repayment_remaining)
         new_loan_state.vbl_loan_princ, repayment_remaining = _reduce_bucket(new_loan_state.vbl_loan_princ, repayment_remaining)
 
-    return CashFlowApplication(av=av, loan_state=new_loan_state)
+    return CashFlowApplication(
+        av=av,
+        loan_state=new_loan_state,
+        applied_loan_repayment=requested_repayment - repayment_remaining,
+        applied_variable_loan=max(month_inputs.variable_loan, 0.0),
+    )
 
 
 def _reduce_bucket(balance: float, amount: float) -> tuple[float, float]:

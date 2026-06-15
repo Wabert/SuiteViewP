@@ -832,9 +832,10 @@ class IllustrationInputsTab(QWidget):
             return "to age 65"
         return f"for {int(value)} years"
 
-    @staticmethod
-    def export_inforce_overrides() -> InforceOverrideSet:
-        return InforceOverrideSet()
+    def export_inforce_overrides(self) -> InforceOverrideSet:
+        return InforceOverrideSet(
+            current_interest_rate=self.dynamic_panel.illustrated_rate(),
+        )
 
     @staticmethod
     def _maturity_date_from_policy(policy) -> date | None:

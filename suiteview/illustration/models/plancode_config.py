@@ -43,6 +43,7 @@ class PlancodeConfig:
     # Bonus interest
     bonus: str = "Table"                # "Table" or "0" (none)
     dbd: float = 0.0
+    gint: float = 0.0
 
     # Substandard
     table_rating_factor: float = 0.25
@@ -167,6 +168,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         poav_table=str(data.get("PoAV_Table", data.get("PoAV_Code", "0"))),
         bonus=data.get("Bonus", "Table"),
         dbd=float(data.get("DBD", 0)),
+        gint=float(data.get("GINT", data.get("DBD", 0))),
         table_rating_factor=float(data.get("TableRatingFactor", 0.25)),
         target_sa_basis=data.get("Target_SA_Basis", "CurrentSA"),
         target_band_lock=bool(data.get("Target_BandLock", False)),

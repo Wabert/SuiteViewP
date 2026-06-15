@@ -233,8 +233,7 @@ def calculate_deduction(
     corr_amount = gross_db - standard_db
 
     # ── 3.2.4 Discounted DB — per segment (cols 418-422) ────
-    guar_rate = policy.guaranteed_interest_rate
-    discount_factor = round((1.0 + guar_rate) ** (1.0 / 12.0), 7)
+    discount_factor = round((1.0 + config.dbd) ** (1.0 / 12.0), 7)
 
     segments = policy.segments or [policy.base_segment]
     segments = [segment for segment in segments if segment is not None]

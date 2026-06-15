@@ -69,6 +69,7 @@ class InforceOverrideSet:
     preferred_loan_accrued: Optional[float] = None
     variable_loan_principal: Optional[float] = None
     variable_loan_accrued: Optional[float] = None
+    current_interest_rate: Optional[float] = None
 
     def is_empty(self) -> bool:
         return all(value is None for value in self.__dict__.values())

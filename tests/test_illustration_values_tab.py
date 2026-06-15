@@ -1,9 +1,10 @@
 import os
 from dataclasses import replace
+from datetime import date
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QTabWidget
 
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
@@ -74,14 +75,13 @@ def _state() -> MonthlyState:
     )
 
 
-def test_values_tab_uses_one_tab_per_group_each_leading_with_locators():
+def test_values_tab_uses_one_content_page_per_group_each_leading_with_locators():
     _app()
     tab = IllustrationValuesTab()
 
     tab.display_projection(_policy(), [_state()])
 
-    titles = [tab.tabs.tabText(index) for index in range(tab.tabs.count())]
-    assert titles == [
+    assert tab._content_titles == [
         "Overview",
         "Chart",
         "Charges",
@@ -104,10 +104,38 @@ def test_values_tab_uses_one_tab_per_group_each_leading_with_locators():
         "Shadow Account",
         "Testing",
     ]
+    assert tab.findChildren(QTabWidget) == []
 
     for title, grid in tab._tab_grids.items():
         columns = list(grid.df.columns)
         assert columns[:4] == ["Date", "Year", "Month", "Attained Age"], title
+
+
+def test_values_group_grids_freeze_lead_locator_columns():
+    _app()
+    tab = IllustrationValuesTab()
+
+    tab.display_projection(_policy(), [_state()])
+
+    for title in ("Summary", "Monthly Deduction", "Ending Values"):
+        grid = tab._tab_grids[title]
+        assert grid._frozen_column_count == 4
+        assert not grid.frozen_table_view.isHidden(), title
+        for column_index in range(4):
+            assert grid.table_view.isColumnHidden(column_index), title
+            assert not grid.frozen_table_view.isColumnHidden(column_index), title
+            assert grid.frozen_table_view.columnWidth(column_index) < 100, title
+        assert not grid.table_view.isColumnHidden(4), title
+        assert grid.frozen_table_view.isColumnHidden(4), title
+
+
+def test_values_group_navigator_is_permanent():
+    _app()
+    tab = IllustrationValuesTab()
+
+    assert not hasattr(tab, "nav_toggle")
+    assert tab.nav_header.text() == "Values Group"
+    assert not tab.navigator.isHidden()
 
 
 def test_cov_slot_groups_show_only_active_coverages():
@@ -152,8 +180,11 @@ def test_cov_slot_groups_show_only_active_coverages():
 def test_summary_tab_columns_and_relabels():
     _app()
     tab = IllustrationValuesTab()
+    state = _state()
+    state.av_after_exception = 9_975.25
+    state.av_end_of_month = 9_990.00
 
-    tab.display_projection(_policy(), [_state()])
+    tab.display_projection(_policy(), [state])
 
     summary = tab._tab_grids["Summary"]
     columns = list(summary.df.columns)
@@ -167,11 +198,11 @@ def test_summary_tab_columns_and_relabels():
         index = model._original_df.columns.get_loc(name)
         return model.headerData(index, QtCore.Orientation.Horizontal, QtCore.ItemDataRole.DisplayRole)
 
-    assert header("PolicyDebt") == "Loan Balance"
-    assert header("Monthly Deduction") == "MD"
-    assert header("EA") == "EAV"
+    assert header("Attained Age") == "Age"
     assert "Loan Int" in columns
     assert "New Loan" in columns
+    assert summary.df.iloc[0]["AV"] == 9_975.25
+    assert summary.df.iloc[0]["EAV"] == 9_990.00
 
 
 def test_premium_outlay_includes_exception_premium_in_ending_values():
@@ -248,9 +279,207 @@ def test_overview_premium_column_uses_premium_outlay():
     overview.display(_policy(), [inforce, first, second])
 
     year_item = overview.ledger.topLevelItem(0)
-    assert year_item.text(2) == "140.00"
-    assert year_item.child(0).text(2) == "125.00"
-    assert year_item.child(1).text(2) == "15.00"
+    assert year_item.text(3) == "140.00"
+    assert year_item.child(0).text(3) == "125.00"
+    assert year_item.child(1).text(3) == "15.00"
+
+
+def test_summary_tab_uses_requested_illustration_values_order():
+    _app()
+    tab = IllustrationValuesTab()
+    first = MonthlyState(
+        date=date(2026, 1, 15),
+        policy_year=1,
+        policy_month=1,
+        attained_age=45,
+        gross_withdrawal=20.0,
+        wd_partial_sc=1.0,
+        dbo_change_detail={"Total PSC DBO": 2.0},
+        face_change_detail={"Total PSC Spec Dec": 3.0},
+        coverage_after_change={"CurrentSA": 150000.0},
+        db_option="B",
+        monthly_mtp=100.0,
+        accumulated_mtp=500.0,
+        glp=1000.0,
+        gsp=2000.0,
+        accumulated_glp=3000.0,
+        rg_loan_princ=10.0,
+        rg_loan_accrued=1.0,
+        pf_loan_princ=20.0,
+        pf_loan_accrued=2.0,
+        vbl_loan_princ=30.0,
+        vbl_loan_accrued=3.0,
+        applied_loan_repayment=12.0,
+        gross_premium=100.0,
+        gp_exception_prem=25.0,
+        premiums_to_date=20000.0,
+        total_premium_load=7.5,
+        av_after_premium=900.0,
+        total_nar=50000.0,
+        total_coi_charge=20.0,
+        rider_charges=2.0,
+        benefit_charges=4.0,
+        epu_charge=6.0,
+        mfee_charge=8.0,
+        total_deduction=11.0,
+        av_after_exception=950.0,
+        applied_regular_loan=1.0,
+        applied_preferred_loan=2.0,
+        applied_variable_loan=3.0,
+        annual_interest_rate=0.04,
+        interest_credited=4.0,
+        av_end_of_month=1000.0,
+        surrender_charge=90.0,
+        end_rg_loan_princ=11.0,
+        end_rg_loan_accrued=1.0,
+        end_pf_loan_princ=22.0,
+        end_pf_loan_accrued=2.0,
+        end_vbl_loan_princ=33.0,
+        end_vbl_loan_accrued=3.0,
+        reg_loan_charge=1.0,
+        pref_loan_charge=2.0,
+        vbl_loan_charge=3.0,
+        policy_debt=72.0,
+        surrender_value=900.0,
+        ending_db=150000.0,
+    )
+    second = MonthlyState(
+        date=date(2026, 2, 15),
+        policy_year=1,
+        policy_month=2,
+        attained_age=45,
+        gross_withdrawal=30.0,
+        wd_partial_sc=4.0,
+        coverage_after_change={"CurrentSA": 151000.0},
+        db_option="B",
+        monthly_mtp=101.0,
+        accumulated_mtp=601.0,
+        glp=1100.0,
+        gsp=2100.0,
+        accumulated_glp=3100.0,
+        rg_loan_princ=40.0,
+        rg_loan_accrued=4.0,
+        pf_loan_princ=50.0,
+        pf_loan_accrued=5.0,
+        vbl_loan_princ=60.0,
+        vbl_loan_accrued=6.0,
+        applied_loan_repayment=8.0,
+        gross_premium=10.0,
+        gp_exception_prem=5.0,
+        premiums_to_date=30000.0,
+        total_premium_load=1.5,
+        av_after_premium=1000.0,
+        total_nar=60000.0,
+        total_coi_charge=30.0,
+        rider_charges=3.0,
+        benefit_charges=5.0,
+        epu_charge=7.0,
+        mfee_charge=9.0,
+        total_deduction=12.0,
+        av_after_exception=1050.0,
+        applied_regular_loan=4.0,
+        applied_preferred_loan=5.0,
+        applied_variable_loan=6.0,
+        annual_interest_rate=0.045,
+        interest_credited=6.0,
+        av_end_of_month=1200.0,
+        surrender_charge=80.0,
+        end_rg_loan_princ=44.0,
+        end_rg_loan_accrued=5.0,
+        end_pf_loan_princ=55.0,
+        end_pf_loan_accrued=6.0,
+        end_vbl_loan_princ=63.0,
+        end_vbl_loan_accrued=7.0,
+        reg_loan_charge=4.0,
+        pref_loan_charge=5.0,
+        vbl_loan_charge=6.0,
+        policy_debt=180.0,
+        surrender_value=1100.0,
+        ending_db=151000.0,
+    )
+
+    tab.display_projection(_policy(), [first, second])
+
+    summary = tab._tab_grids["Summary"]
+    assert list(summary.df.columns) == ["Date", "Year", "Month", "Attained Age"] + [
+        "GrossWD", "DBO", "TotalSA", "PSC",
+        "MonthlyMTP", "Accum MTP", "GLP", "GSP", "AccumGLP", "Loan Int",
+        "Loan Balance", "Loan Repay", "Premium", "PremTD", "Prem Load", "mAV",
+        "NAAR", "Base COI", "Rider COI", "Benefit COI", "EPU", "MFEE", "MD",
+        "Exception Prem", "AV", "New Loan", "Interest Rate", "Interest", "EAV",
+        "SC", "ESV", "Var Loan", "Pref Loan", "Reg Loan", "Ending LB", "IllustratedDB",
+    ]
+
+    assert summary.df.iloc[0].to_dict() == {
+        "Date": date(2026, 1, 15), "Year": 1, "Month": 1, "Attained Age": 45,
+        "GrossWD": 20.0, "DBO": "B", "TotalSA": 150000.0, "PSC": 6.0,
+        "MonthlyMTP": 100.0, "Accum MTP": 500.0, "GLP": 1000.0, "GSP": 2000.0,
+        "AccumGLP": 3000.0, "Loan Int": 6.0, "Loan Balance": 66.0,
+        "Loan Repay": 12.0, "Premium": 100.0, "PremTD": 20000.0,
+        "Prem Load": 7.5, "mAV": 900.0, "NAAR": 50000.0, "Base COI": 20.0,
+        "Rider COI": 2.0, "Benefit COI": 4.0, "EPU": 6.0, "MFEE": 8.0,
+        "MD": 11.0, "Exception Prem": 25.0, "AV": 950.0, "New Loan": 6.0,
+        "Interest Rate": 4.0, "Interest": 4.0, "EAV": 1000.0, "SC": 90.0,
+        "ESV": 900.0, "Var Loan": 36.0, "Pref Loan": 24.0, "Reg Loan": 12.0,
+        "Ending LB": 72.0, "IllustratedDB": 150000.0,
+    }
+    assert summary.df.iloc[1]["AV"] == 1050.0
+    assert summary.df.iloc[1]["EAV"] == 1200.0
+
+
+def test_overview_ledger_restores_compact_values_order():
+    _app()
+    overview = ValuesOverview()
+    inforce = MonthlyState(policy_year=0, policy_month=0, attained_age=44)
+    first = MonthlyState(
+        policy_year=1,
+        policy_month=1,
+        attained_age=45,
+        gross_premium=100.0,
+        gp_exception_prem=25.0,
+        total_premium_load=7.5,
+        withdrawals_to_date=20.0,
+        guideline_forceout=3.0,
+        total_deduction=11.0,
+        interest_credited=4.0,
+        av_end_of_month=1000.0,
+        surrender_charge=90.0,
+        policy_debt=10.0,
+        surrender_value=900.0,
+        ending_db=150000.0,
+    )
+    second = MonthlyState(
+        policy_year=1,
+        policy_month=2,
+        attained_age=45,
+        gross_premium=10.0,
+        gp_exception_prem=5.0,
+        total_premium_load=1.5,
+        withdrawals_to_date=50.0,
+        guideline_forceout=2.0,
+        total_deduction=12.0,
+        interest_credited=6.0,
+        av_end_of_month=1200.0,
+        surrender_charge=80.0,
+        policy_debt=20.0,
+        surrender_value=1100.0,
+        ending_db=151000.0,
+        lapsed=True,
+    )
+
+    overview.display(_policy(), [inforce, first, second])
+
+    headers = [overview.ledger.headerItem().text(index) for index in range(overview.ledger.columnCount())]
+    assert headers == [
+        "Year", "Month", "Age", "Prem", "PremLoad", "Withdrawals", "ForceOuts",
+        "MD", "Interest", "EAV", "SC", "LN", "ESV", "Death Benefit", "Status",
+    ]
+    year_item = overview.ledger.topLevelItem(0)
+    assert [year_item.text(index) for index in range(overview.ledger.columnCount())] == [
+        "1", "2", "45", "140.00", "9.00", "50.00", "5.00",
+        "23.00", "10.00", "1,200.00", "80.00", "20.00", "1,100.00",
+        "151,000", "LAPSED",
+    ]
 
 
 def test_testing_tab_columns_and_relabels():
