@@ -5,7 +5,10 @@ import logging
 
 from PyQt6.QtCore import pyqtSignal
 
-from suiteview.audit.dataforge.forge_canvas_view import ForgeJoinCanvas
+from suiteview.audit.dataforge.join_canvas_view import (
+    BLUE_JOIN_CANVAS_THEME,
+    JoinCanvasView,
+)
 from suiteview.audit.field_picker_panel import _FieldLoaderThread
 
 logger = logging.getLogger(__name__)
@@ -23,7 +26,7 @@ def _join_key(left: str, right: str) -> tuple[str, str]:
     return tuple(sorted((left, right)))
 
 
-class VisualJoinsTab(ForgeJoinCanvas):
+class VisualJoinsTab(JoinCanvasView):
     """Canvas-based replacement for the Visual Query join-card tab.
 
     The SQL builder still consumes the old ``get_join_infos()`` shape, so this
@@ -38,6 +41,7 @@ class VisualJoinsTab(ForgeJoinCanvas):
             parent,
             source_label="Table",
             add_menu_label="Add Table",
+            theme=BLUE_JOIN_CANVAS_THEME,
         )
         self._tables = list(tables or [])
         self._dsn = dsn

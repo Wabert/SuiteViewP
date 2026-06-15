@@ -47,12 +47,12 @@ from suiteview.audit.query_runner import (
 from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.audit.dataforge.query_field_picker import FORGE_FIELD_DRAG_MIME
 # Phase 2 join UI: the MS-Access-style canvas (field-linked Source boxes with
-# drawn join lines) replaces the old card-based ForgeJoinsTab. ForgeJoinCanvas
+# drawn join lines) replaces the old card-based ForgeJoinsTab. JoinCanvasView
 # is API-compatible (update_queries / get_merge_ops / get_state / set_state /
 # state_changed) and its set_state migrates the old {"cards": [...]} format, so
 # previously-saved Forges still load. forge_joins_tab.py is kept for rollback.
-from suiteview.audit.dataforge.forge_canvas_view import (
-    ForgeJoinCanvas as ForgeJoinsTab,
+from suiteview.audit.dataforge.join_canvas_view import (
+    JoinCanvasView,
     ORANGE_JOIN_CANVAS_THEME,
 )
 # Phase 3 Manual mode: the visual design compiles to one DuckDB statement
@@ -1117,7 +1117,7 @@ class DataForgeGroup(QWidget):
         self._add_filter_tab("Filter")
 
         # Joins tab
-        self.joins_tab = ForgeJoinsTab(theme=ORANGE_JOIN_CANVAS_THEME)
+        self.joins_tab = JoinCanvasView(theme=ORANGE_JOIN_CANVAS_THEME)
         self.joins_tab.state_changed.connect(self._on_joins_state_changed)
         self.tab_widget.addTab(self.joins_tab, "Joins")
 

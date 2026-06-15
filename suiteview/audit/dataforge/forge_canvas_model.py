@@ -2,7 +2,7 @@
 Join-canvas model — the pure, Qt-free state behind the MS-Access-style join
 canvas (Phase 2).
 
-The visual layer (forge_canvas_view.py) renders and mutates an instance of
+The visual layer (join_canvas_view.py) renders and mutates an instance of
 :class:`JoinCanvasModel`; keeping the state here means the join logic
 (relationships, multi-key grouping, serialization, conversion to engine specs)
 is unit-testable without a display.

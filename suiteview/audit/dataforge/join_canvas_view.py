@@ -9,7 +9,7 @@ a multi-key relationship. This replaces the card metaphor in
 ``forge_joins_tab.py`` while keeping the same public API
 (``update_queries`` / ``get_merge_ops`` / ``get_state`` / ``set_state`` /
 ``state_changed``) so the designer swap is a one-line import change. It also
-adds :meth:`ForgeJoinCanvas.to_join_specs` for the DuckDB engine.
+adds :meth:`JoinCanvasView.to_join_specs` for the DuckDB engine.
 
 Built so the join logic lives in the (Qt-free) model; this file only renders and
 edits it, which keeps the heavy logic unit-testable without a display.
@@ -948,7 +948,7 @@ class JoinCanvasScene(QGraphicsScene):
 
 # ── Public widget ──────────────────────────────────────────────────────────
 
-class ForgeJoinCanvas(QWidget):
+class JoinCanvasView(QWidget):
     """Drop-in replacement for ForgeJoinsTab using an MS-Access-style canvas."""
 
     state_changed = pyqtSignal()

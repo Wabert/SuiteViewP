@@ -242,14 +242,14 @@ def test_view_smoke():
         print(f"  view smoke SKIPPED (no PyQt6: {exc})")
         return
 
-    from suiteview.audit.dataforge.forge_canvas_view import (
-        ForgeJoinCanvas, JoinLineItem, SourceBoxItem,
+    from suiteview.audit.dataforge.join_canvas_view import (
+        JoinCanvasView, JoinLineItem, SourceBoxItem,
     )
 
     app = QApplication.instance() or QApplication([])
     assert app is not None          # keep a reference alive for the test
 
-    canvas = ForgeJoinCanvas()
+    canvas = JoinCanvasView()
     canvas.update_queries(
         ["pol", "re"],
         {
@@ -288,7 +288,7 @@ def test_view_smoke():
     # State round-trips through a fresh canvas and rebuilds the same lines.
     state = canvas.get_state()
     assert next(s for s in state["sources"] if s["alias"] == "pol")["width"] == 260.0
-    canvas2 = ForgeJoinCanvas()
+    canvas2 = JoinCanvasView()
     canvas2.set_state(state)
     pol_box2 = next(it for it in canvas2.scene.items()
                     if isinstance(it, SourceBoxItem) and it.alias == "pol")
@@ -318,16 +318,16 @@ def test_view_theme_is_instance_scoped():
         print(f"  view theme SKIPPED (no PyQt6: {exc})")
         return
 
-    from suiteview.audit.dataforge.forge_canvas_view import (
-        BLUE_JOIN_CANVAS_THEME, ForgeJoinCanvas, JoinLineItem,
+    from suiteview.audit.dataforge.join_canvas_view import (
+        BLUE_JOIN_CANVAS_THEME, JoinCanvasView, JoinLineItem,
         ORANGE_JOIN_CANVAS_THEME, SourceBoxItem,
     )
 
     app = QApplication.instance() or QApplication([])
     assert app is not None
 
-    visual_canvas = ForgeJoinCanvas(source_label="Table", add_menu_label="Add Table")
-    forge_canvas = ForgeJoinCanvas(theme=ORANGE_JOIN_CANVAS_THEME)
+    visual_canvas = JoinCanvasView(source_label="Table", add_menu_label="Add Table")
+    forge_canvas = JoinCanvasView(theme=ORANGE_JOIN_CANVAS_THEME)
     for canvas in (visual_canvas, forge_canvas):
         canvas.update_queries(["left", "right"], {"left": ["id"], "right": ["id"]})
         assert canvas.add_query_table("left")
@@ -361,13 +361,13 @@ def test_view_explicit_add_and_removed_persist():
     except Exception as exc:  # pragma: no cover
         print(f"  autoadd/removed SKIPPED (no PyQt6: {exc})")
         return
-    from suiteview.audit.dataforge.forge_canvas_view import (
-        ForgeJoinCanvas, SourceBoxItem,
+    from suiteview.audit.dataforge.join_canvas_view import (
+        JoinCanvasView, SourceBoxItem,
     )
     app = QApplication.instance() or QApplication([])
     assert app is not None
 
-    canvas = ForgeJoinCanvas()
+    canvas = JoinCanvasView()
     canvas.update_queries(["a", "b"], {"a": ["x"], "b": ["y"]})
     assert canvas.model.sources == []
     assert canvas.add_query_table("a")
@@ -383,7 +383,7 @@ def test_view_explicit_add_and_removed_persist():
     # Removal persists through a save/restore round-trip.
     state = canvas.get_state()
     assert state.get("removed") == ["b"]
-    canvas2 = ForgeJoinCanvas()
+    canvas2 = JoinCanvasView()
     canvas2.set_state(state)
     canvas2.update_queries(["a", "b", "c"], {"a": ["x"], "b": ["y"], "c": ["z"]})
     assert {s.alias for s in canvas2.model.sources} == {"a"}
@@ -404,13 +404,13 @@ def test_view_append_table_workflow():
     except Exception as exc:  # pragma: no cover
         print(f"  append view SKIPPED (no PyQt6: {exc})")
         return
-    from suiteview.audit.dataforge.forge_canvas_view import (
-        AppendBoxItem, ForgeJoinCanvas, JoinLineItem, SourceBoxItem,
+    from suiteview.audit.dataforge.join_canvas_view import (
+        AppendBoxItem, JoinCanvasView, JoinLineItem, SourceBoxItem,
     )
     app = QApplication.instance() or QApplication([])
     assert app is not None
 
-    canvas = ForgeJoinCanvas()
+    canvas = JoinCanvasView()
     canvas.update_queries(
         ["ca", "cb", "pol"],
         {
