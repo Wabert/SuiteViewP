@@ -84,6 +84,7 @@ class RiderInfo:
     premium_rate: Optional[float] = None
     coi_rate: Optional[float] = None
     is_active: bool = True
+    on_primary_insured: bool = False  # covers the base insured → face adds to illustrated DB
 
     @property
     def export_key(self) -> str:

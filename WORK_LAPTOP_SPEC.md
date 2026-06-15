@@ -94,6 +94,25 @@ The minipc built/tested the logic cores; these need the app and/or live data:
 These are committed behavior changes that compiled clean but were never run
 against live data. Test each before relying on them.
 
+### 1.11 Audit query rename/copy fixes (2026-06-15, minipc) — VERIFY IN UI
+Fixes for "renames don't stick" + "a phantom copy shows up in the queries list."
+- New `query_object_store.rename_object()` renames a query across **all** stores
+  (QueryObject + visual SavedQuery + stale QDefinition files) so it can't revert.
+  Standalone Browser rename + editor Save now route through it. Both forge-source
+  rename paths now also move a visual Source's design.
+- `query_object_store.is_forge_owned()` is the one forge-owned predicate; forge
+  `"<q> [<forge>]"` copies are filtered out of the "add a query" selector and the
+  Queries dialog (they were appearing as phantom duplicates). Dead
+  `query_field_picker._list_query_sources` removed.
+- **Headless tests pass** (`tests/test_query_object.py`, `test_query_organizer.py`).
+- **Verify in UI:** rename a query in the Object Browser → name sticks after
+  reopen (no revert, no duplicate). Add a query to a DataForge → no extra copy in
+  the "Select queries…" list. Rename a visual query → reopen its designer (design
+  follows the rename).
+- **Follow-up (NOT done):** the three forge-rename paths still diverge — see
+  **[`docs/FORGE_RENAME_UNIFICATION.md`](docs/FORGE_RENAME_UNIFICATION.md)** for the
+  full scope + implementation/test plan. This is the laptop task.
+
 ### 1.1 `suiteview/core/rates.py` — parameterized SQL + error surfacing (Tier 1a)
 - Rate-lookup SQL now uses `?` placeholders for all values; `_fetch_rates` now
   **raises `RatesError`** on a pyodbc failure instead of returning `None`.
@@ -493,6 +512,16 @@ Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
 ---
 
 ## Changelog
+- **2026-06-15 (minipc)** — Audit query rename/copy fixes (added §1.11):
+  atomic cross-store `query_object_store.rename_object()` (object + visual
+  SavedQuery + stale qdef files) so renames stick; both forge-source rename paths
+  now move a visual Source's design too; one `is_forge_owned()` predicate filters
+  forge copies out of the "add a query" selector + Queries dialog (kills the
+  phantom duplicate); removed dead `query_field_picker._list_query_sources`;
+  consolidated `qdef_store.delete_qdef_files` / `saved_query_store.rename_query`
+  /`delete_query_file`. Headless suite green (261 passed; remaining failures are
+  the known live-DB2/illustration ones). Scoped the deferred forge-rename
+  unification into `docs/FORGE_RENAME_UNIFICATION.md` (laptop task, §1.11).
 - **2026-06-11 (minipc, evening)** — Query Browser reorganization + Append
   Tables backbone (added §1.10): QueryObject unique ids + id-keyed store with
   legacy migration; `query_organizer.py` (groups/forge refs/reconcile/seed/

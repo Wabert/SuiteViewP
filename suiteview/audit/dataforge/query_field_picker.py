@@ -34,8 +34,6 @@ from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.audit.query_runner import execute_odbc_query
 from suiteview.audit.tabs._styles import TightItemDelegate
 from suiteview.audit.query_object_viewer_window import (
-    _dataforge_display_name,
-    _dataforge_info,
     _display_dsn_for_object,
     _file_source_type_label,
     _object_group_label,
@@ -129,19 +127,6 @@ def _load_query_source(name: str, forge_name: str = "") -> QDefinition | None:
     return None
 
 
-def _list_query_sources() -> list[QDefinition]:
-    """Return QDefinition-shaped sources from QDefs plus object-only QueryObjects."""
-    sources: dict[str, QDefinition] = {qd.name: qd for qd in qdef_store.list_qdefs()}
-    for obj in query_object_store.list_objects():
-        if obj.name not in sources:
-            sources[obj.name] = qdefinition_from_query_object(obj)
-    for saved_query in saved_query_store.list_queries():
-        if saved_query.name not in sources:
-            sources[saved_query.name] = qdefinition_from_query_object(
-                object_from_saved_query(saved_query))
-    return sorted(sources.values(), key=lambda qd: qd.name.lower())
-
-
 def _source_kind_label(source: QDefinition) -> str:
     kind = getattr(source, "query_object_kind", "")
     labels = {
@@ -196,18 +181,20 @@ def _copy_source_name(query_object_name: str, forge_name: str) -> str:
     return f"{query_object_name} [{label}]"
 
 
-def _group_query_objects_for_selector(query_objects: list[QueryObject]) -> tuple[
-        dict[str, list[QueryObject]], dict[str, list[QueryObject]]]:
+def _group_query_objects_for_selector(
+        query_objects: list[QueryObject]) -> dict[str, list[QueryObject]]:
+    """Group standalone query objects by kind for the 'add a query' selector.
+
+    Forge-local Source copies (``config["dataforge"]``) are excluded — they
+    belong to their Forge and must never appear here as addable standalone
+    queries (that phantom copy was the reported bug).
+    """
     groups: dict[str, list[QueryObject]] = {}
-    dataforge_groups: dict[str, list[QueryObject]] = {}
     for obj in query_objects:
-        dataforge_info = _dataforge_info(obj)
-        if dataforge_info is not None:
-            forge_name, _ = dataforge_info
-            dataforge_groups.setdefault(forge_name, []).append(obj)
+        if query_object_store.is_forge_owned(obj):
             continue
         groups.setdefault(_object_group_label(obj), []).append(obj)
-    return groups, dataforge_groups
+    return groups
 
 
 _FONT = QFont("Segoe UI", 9)
@@ -681,8 +668,11 @@ class QueryFieldPicker(QWidget):
         tree.setItemDelegate(TightItemDelegate(tree))
         tree.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
 
-        query_objects = query_object_store.list_objects()
-        groups, dataforge_groups = _group_query_objects_for_selector(query_objects)
+        # Forge-local Source copies are excluded — you add standalone queries to
+        # a Forge; the Forge makes its own copy. Showing those copies here was
+        # the "phantom duplicate" in the queries list.
+        groups = _group_query_objects_for_selector(query_object_store.list_objects())
+        shown = sum(len(members) for members in groups.values())
 
         def _add_object_child(parent: QTreeWidgetItem, obj: QueryObject,
                               label: str | None = None):
@@ -704,29 +694,9 @@ class QueryFieldPicker(QWidget):
             for obj in sorted(groups[group_label], key=lambda item: item.name.lower()):
                 _add_object_child(parent, obj)
             parent.setExpanded(True)
-
-        if dataforge_groups:
-            dataforge_parent = QTreeWidgetItem(["DataForge"])
-            dataforge_parent.setFont(0, _FONT_BOLD)
-            dataforge_parent.setForeground(0, QColor(_FORGE_DARK))
-            dataforge_parent.setData(0, Qt.ItemDataRole.UserRole, None)
-            dataforge_parent.setFlags(dataforge_parent.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            tree.addTopLevelItem(dataforge_parent)
-            for forge_name in sorted(dataforge_groups, key=str.lower):
-                forge_node = QTreeWidgetItem([_dataforge_display_name(forge_name)])
-                forge_node.setFont(0, _FONT_BOLD)
-                forge_node.setForeground(0, QColor(_FORGE_DARK))
-                forge_node.setData(0, Qt.ItemDataRole.UserRole, None)
-                forge_node.setFlags(forge_node.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                dataforge_parent.addChild(forge_node)
-                for obj in sorted(dataforge_groups[forge_name], key=lambda item: item.name.lower()):
-                    _, source_label = _dataforge_info(obj) or (forge_name, obj.name)
-                    _add_object_child(forge_node, obj, source_label)
-                forge_node.setExpanded(True)
-            dataforge_parent.setExpanded(True)
         lay.addWidget(tree, 1)
 
-        lbl_status = QLabel(f"{len(query_objects)} query objects")
+        lbl_status = QLabel(f"{shown} query objects")
         lbl_status.setFont(_FONT_SMALL)
         lbl_status.setStyleSheet(f"color: {_FORGE_DARK};")
         lay.addWidget(lbl_status)
@@ -1144,6 +1114,10 @@ class QueryFieldPicker(QWidget):
                     field.source = new_storage_name
             obj.updated_at = datetime.now()
             query_object_store.save_object(obj)
+
+        # Move a visual Source's name-keyed design too (no-op if none) so the
+        # rename sticks and no stale old-name design lingers to resurrect it.
+        saved_query_store.rename_query(old_storage_name, new_storage_name)
 
         if old_storage_name in self._sources:
             self._sources.pop(old_storage_name)

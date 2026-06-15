@@ -41,11 +41,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-def main() -> None:
-    if len(sys.argv) < 2:
-        print(json.dumps({"error": "missing JSON arg"}))
-        sys.exit(1)
-    cmd = json.loads(sys.argv[1])
+def run_engine_case(cmd: dict) -> dict:
+    """Run the engine for one case; return {"summary", "fields", "rows"}.
+
+    Sets SUITEVIEW_LOCAL_DATA=1 before importing engine modules so the local
+    SQLite path is used.  Callers (e.g. tools/compare_rerun_vs_app.py) import and
+    call this directly; main() wraps it for the CLI + CSV output.
+    """
     os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
 
     import datetime
@@ -125,6 +127,12 @@ def main() -> None:
 
     clear_cache()
     policy_data = build_illustration_data(policy, region=region, company_code=company)
+    # Optional shadow seed override: the current shadow account value at the
+    # valuation date.  Locally the DB2 source is unconfirmed (gav is null), so the
+    # comparison feeds RERUN's sInput_CurrentShadowAV here so both sides start from
+    # the same value.  In production this comes from policy_data.shadow_account_value.
+    if cmd.get("shadow_av") is not None:
+        policy_data.shadow_account_value = float(cmd["shadow_av"])
     states = IllustrationEngine().project(
         policy_data, months=months, options=options, future_inputs=future_inputs)
 
@@ -163,6 +171,15 @@ def main() -> None:
         "issue_date": str(policy_data.issue_date),
         "attained_age": policy_data.attained_age,
         "account_value_start": policy_data.account_value,
+        "has_shadow_account": policy_data.has_shadow_account,
+        "shadow_account_value": policy_data.shadow_account_value,
+        "base_total_face": policy_data.total_face,
+        "riders": [
+            {"plancode": r.plancode, "face": r.face_amount, "issue_age": r.issue_age,
+             "sex": r.rate_sex, "maturity": str(r.maturity_date), "status": r.status,
+             "cov_phase": r.coverage_phase}
+            for r in policy_data.riders
+        ],
         "states": len(states),
         "options": {
             "conform_to_tefra": options.conform_to_tefra,
@@ -172,6 +189,18 @@ def main() -> None:
         },
         "out_csv": out_csv,
     }
+
+    return {"summary": summary, "fields": fields, "rows": rows}
+
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        print(json.dumps({"error": "missing JSON arg"}))
+        sys.exit(1)
+    cmd = json.loads(sys.argv[1])
+    result = run_engine_case(cmd)
+    summary, fields, rows = result["summary"], result["fields"], result["rows"]
+    out_csv = cmd.get("out_csv")
 
     if out_csv:
         with open(out_csv, "w", newline="", encoding="utf-8") as fh:

@@ -1,9 +1,16 @@
 """
 SuiteView - Main Application Launcher
-The unified SuiteView experience with File Navigator, system tray, and access to all tools
+The unified SuiteView experience with File Navigator, system tray, and access to all tools.
+
+``main(local_data=False)`` launches the full taskbar.  When ``local_data=True`` it
+sets ``SUITEVIEW_LOCAL_DATA=1`` (offline SQLite fixtures) and uses a DISTINCT
+single-instance mutex + window title, so a LOCAL-DATA instance is independent of a
+live one and never silently refocuses it.  ``scripts/run_suiteview_local.py`` is the
+thin local-mode entry point.
 """
 
-if __name__ == '__main__':
+
+def main(local_data: bool = False):
     import sys
     from pathlib import Path
     import traceback
@@ -12,9 +19,20 @@ if __name__ == '__main__':
     _root = Path(__file__).parent.parent
     sys.path.insert(0, str(_root))
 
+    # Local-data mode must be enabled BEFORE any policy/DB lookup happens.
+    if local_data:
+        import os
+        os.environ["SUITEVIEW_LOCAL_DATA"] = "1"
+
+    # Distinct identity so a LOCAL instance never collides with / refocuses a live one.
+    app_title = "SuiteView (LOCAL DATA)" if local_data else "SuiteView"
+    mutex_name = ("SuiteView_Local_SingleInstance_Mutex" if local_data
+                  else "SuiteView_SingleInstance_Mutex")
+    appusermodel_id = "SuiteView.LocalData.1" if local_data else "SuiteView.FileExplorer.1"
+
     # Under pythonw.exe there is no console — redirect stderr to a crash log
     # so fatal errors are not silently swallowed.
-    _crash_log = _root / "suiteview_crash.log"
+    _crash_log = _root / ("suiteview_local_crash.log" if local_data else "suiteview_crash.log")
     if sys.executable.lower().endswith("pythonw.exe"):
         try:
             _crash_fh = open(_crash_log, "w", encoding="utf-8")
@@ -30,7 +48,7 @@ if __name__ == '__main__':
         sys.__excepthook__(exctype, value, tb)
 
     sys.excepthook = exception_hook
-    
+
     try:
         # --- Single-instance enforcement ---
         # Create a named mutex; if it already exists another instance is running.
@@ -39,9 +57,9 @@ if __name__ == '__main__':
         _kernel32 = _ctypes.WinDLL('kernel32', use_last_error=True)
         _kernel32.CreateMutexW.argtypes = [_wt.LPVOID, _wt.BOOL, _wt.LPCWSTR]
         _kernel32.CreateMutexW.restype = _wt.HANDLE
-        _mutex = _kernel32.CreateMutexW(None, True, "SuiteView_SingleInstance_Mutex")
+        _mutex = _kernel32.CreateMutexW(None, True, mutex_name)
         if _ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
-            hwnd = _ctypes.windll.user32.FindWindowW(None, "SuiteView")
+            hwnd = _ctypes.windll.user32.FindWindowW(None, app_title)
             if hwnd:
                 _ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                 _ctypes.windll.user32.SetForegroundWindow(hwnd)
@@ -65,19 +83,19 @@ if __name__ == '__main__':
             # Close the inherited mutex handle and re-acquire it cleanly
             _kernel32.CloseHandle(_mutex)
             import time; time.sleep(0.5)
-            _mutex = _kernel32.CreateMutexW(None, True, "SuiteView_SingleInstance_Mutex")
+            _mutex = _kernel32.CreateMutexW(None, True, mutex_name)
 
         # Set Windows AppUserModelID for proper taskbar icon display
         # This must be done before creating QApplication
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('SuiteView.FileExplorer.1')
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appusermodel_id)
         except:
             pass  # Not on Windows or failed
-        
+
         from PyQt6.QtWidgets import QApplication
         from PyQt6.QtCore import qInstallMessageHandler, QtMsgType
-        
+
         # Qt message handler (suppress non-critical warnings)
         def qt_message_handler(mode, context, message):
             if mode == QtMsgType.QtCriticalMsg:
@@ -85,33 +103,37 @@ if __name__ == '__main__':
             elif mode == QtMsgType.QtFatalMsg:
                 print(f"Qt Fatal: {message}")
             # Suppress warnings for cleaner output
-        
+
         qInstallMessageHandler(qt_message_handler)
-        
+
         from suiteview.taskbar_launcher.suiteview_taskbar import SuiteViewTaskbar
-        
+
         # Create application - don't quit when last window closes (we have tray)
         app = QApplication(sys.argv)
         app.setQuitOnLastWindowClosed(False)
-        
+
         # Create and show the main SuiteView window
         suiteview = SuiteViewTaskbar()
-        
+
         # Set application-level icon for taskbar
         app.setWindowIcon(suiteview._build_suiteview_icon(64))
-        
-        suiteview.setWindowTitle("SuiteView")
+
+        suiteview.setWindowTitle(app_title)
         # Window starts in compact mini-bar mode at bottom-right corner
         # (positioning is handled inside SuiteViewTaskbar.__init__)
-        
+
         suiteview.show()
         suiteview.raise_()
         suiteview.activateWindow()
-        
+
         sys.exit(app.exec())
-        
+
     except Exception as e:
         print(f"ERROR: {e}")
         traceback.print_exc()
         input("Press Enter to exit...")
         sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

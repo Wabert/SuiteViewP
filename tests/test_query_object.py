@@ -38,10 +38,12 @@ from suiteview.audit.query_object import (
 from suiteview.audit.query_object_store import (
     copy_object,
     delete_object,
+    is_forge_owned,
     list_objects,
     load_object,
     load_object_by_id,
     object_exists,
+    rename_object,
     restore_saved_visual_design,
     save_object,
 )
@@ -739,6 +741,111 @@ class QueryObjectTests(unittest.TestCase):
             self.assertEqual(restored.sql, obj.sql)
             self.assertEqual(loaded_object.description, "Keep object metadata")
 
+        saved_query_store._QUERIES_DIR = old_queries_dir
+        if old_obj_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
+    def test_is_forge_owned_predicate(self):
+        normal = manual_sql_query_object(
+            "Claims", sql="SELECT 1", dsn="D", result_columns=["a"])
+        forge_copy = manual_sql_query_object(
+            "Claims [F]", sql="SELECT 1", dsn="D", result_columns=["a"])
+        forge_copy.config["dataforge"] = {"forge_name": "F", "source_name": "Claims"}
+        self.assertFalse(is_forge_owned(normal))
+        self.assertTrue(is_forge_owned(forge_copy))
+        # An empty/blank forge_name is not ownership.
+        forge_copy.config["dataforge"] = {"forge_name": "", "source_name": "Claims"}
+        self.assertFalse(is_forge_owned(forge_copy))
+
+    def test_rename_object_manual_sql_sticks(self):
+        old_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_dir
+            obj = manual_sql_query_object(
+                "Old Manual", sql="SELECT 1", dsn="D", result_columns=["a"])
+            save_object(obj)
+            original_id = obj.id
+
+            rename_object(obj, "New Manual")
+
+            self.assertEqual(obj.id, original_id)  # id preserved, no fork
+            self.assertIsNone(load_object("Old Manual"))
+            renamed = load_object("New Manual")
+            self.assertIsNotNone(renamed)
+            self.assertEqual(renamed.id, original_id)
+            self.assertEqual(len(list_objects()), 1)
+        if old_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_dir
+
+    def test_rename_object_visual_sticks_after_design_resave(self):
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_queries_dir = saved_query_store._QUERIES_DIR
+        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_queries:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+            saved_query_store._QUERIES_DIR = saved_query_store.Path(tmp_queries)
+            saved_query_store.save_query(SavedQuery(
+                name="Old Visual",
+                source_group="G",
+                dsn="CKPR_DSN",
+                tables=["DB2TAB.LH_BAS_POL"],
+                sql="SELECT TCH_POL_ID FROM DB2TAB.LH_BAS_POL",
+                result_columns=["TCH_POL_ID"],
+            ))
+            obj = load_object("Old Visual")
+            original_id = obj.id
+
+            rename_object(obj, "New Visual")
+
+            # Object moved, id stable, old name gone.
+            self.assertEqual(obj.id, original_id)
+            self.assertIsNone(load_object("Old Visual"))
+            self.assertEqual(load_object("New Visual").id, original_id)
+            # Design snapshot moved; old-name design file is gone.
+            self.assertFalse(saved_query_store.query_exists("Old Visual"))
+            self.assertTrue(saved_query_store.query_exists("New Visual"))
+
+            # The bug: re-saving the (now new-name) design must NOT resurrect the
+            # old name. Saving the design republishes a QueryObject — it should
+            # collapse into the one renamed object, not fork a stale "Old Visual".
+            saved_query_store.save_query(saved_query_store.load_query("New Visual"))
+            self.assertIsNone(load_object("Old Visual"))
+            names = sorted(o.name for o in list_objects())
+            self.assertEqual(names, ["New Visual"])
+
+        saved_query_store._QUERIES_DIR = old_queries_dir
+        if old_obj_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
+    def test_queries_dialog_excludes_forge_owned_copies(self):
+        from suiteview.audit.dataforge.queries_dialog import _list_query_sources
+
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_qdefs_dir = qdef_store._QDEFS_DIR
+        old_queries_dir = saved_query_store._QUERIES_DIR
+        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs, tempfile.TemporaryDirectory() as tmp_queries:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
+            saved_query_store._QUERIES_DIR = saved_query_store.Path(tmp_queries)
+
+            standalone = manual_sql_query_object(
+                "Claims", sql="SELECT 1", dsn="D", result_columns=["a"])
+            forge_copy = manual_sql_query_object(
+                "Claims [F]", sql="SELECT 1", dsn="D", result_columns=["a"])
+            forge_copy.config["dataforge"] = {"forge_name": "F", "source_name": "Claims"}
+            save_object(standalone)
+            save_object(forge_copy)
+
+            names = {qd.name for qd in _list_query_sources(forge_name="F")}
+            self.assertIn("Claims", names)
+            self.assertNotIn("Claims [F]", names)
+
+        qdef_store._QDEFS_DIR = old_qdefs_dir
         saved_query_store._QUERIES_DIR = old_queries_dir
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
@@ -1678,7 +1785,9 @@ class QueryObjectTests(unittest.TestCase):
             else:
                 os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
 
-    def test_forge_assist_selector_groups_dataforge_like_browser(self):
+    def test_forge_assist_selector_excludes_forge_owned_copies(self):
+        # The "add a query" selector must show only standalone queries — a
+        # Forge's own Source copy showing up here was the phantom duplicate.
         normal = manual_sql_query_object(
             "Claims", sql="SELECT * FROM CLAIMS", dsn="FAKE_DSN",
             result_columns=["claim_id"])
@@ -1691,16 +1800,11 @@ class QueryObjectTests(unittest.TestCase):
             "source_name": "Claims",
         }
 
-        groups, dataforge_groups = _group_query_objects_for_selector(
-            [normal, forge_copy])
+        groups = _group_query_objects_for_selector([normal, forge_copy])
 
         self.assertIn("Manual SQL Objects", groups)
-        self.assertEqual(groups["Manual SQL Objects"][0].name, "Claims")
-        self.assertIn("RGA - EXECUL and Claims", dataforge_groups)
-        self.assertEqual(
-            dataforge_groups["RGA - EXECUL and Claims"][0].name,
-            "Claims [RGA - EXECUL and Claims]",
-        )
+        names = {obj.name for members in groups.values() for obj in members}
+        self.assertEqual(names, {"Claims"})  # forge copy excluded
 
     def test_query_object_browser_delete_dataforge_records_keeps_original(self):
         old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")

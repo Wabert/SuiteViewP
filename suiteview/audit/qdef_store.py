@@ -149,39 +149,36 @@ def save_qdef(qd: QDefinition) -> None:
         logger.exception("Failed to publish query object for QDefinition: %s", qd.name)
 
 
-def delete_qdef(name: str, forge_name: str = "") -> None:
-    """Delete a QDefinition file and its snapshot if present."""
+def delete_qdef_files(name: str, forge_name: str = "") -> None:
+    """Delete a QDefinition's json + parquet files (no QueryObject cascade).
+
+    With ``forge_name`` empty this removes the named definition from EVERY forge
+    folder — used by rename to clear stale old-name definitions without firing
+    the name-keyed ``delete_object`` cascade (which could drop a just-renamed
+    object).
+    """
     safe = _safe_filename(name)
+    if not _QDEFS_DIR.exists():
+        return
     if forge_name:
-        d = _forge_dir(forge_name)
-        json_path = d / f"{safe}.json"
-        parquet_path = d / f"{safe}.parquet"
-        if json_path.exists():
-            json_path.unlink()
-        if parquet_path.exists():
-            parquet_path.unlink()
-        try:
-            from suiteview.audit import query_object_store
-            query_object_store.delete_object(name)
-        except Exception:
-            logger.exception("Failed to delete query object for QDefinition: %s", name)
+        dirs = [_forge_dir(forge_name)]
     else:
-        # Search all forges
-        for d in _QDEFS_DIR.iterdir():
-            if not d.is_dir():
-                continue
-            json_path = d / f"{safe}.json"
-            parquet_path = d / f"{safe}.parquet"
-            if json_path.exists():
-                json_path.unlink()
-            if parquet_path.exists():
-                parquet_path.unlink()
-                break
-        try:
-            from suiteview.audit import query_object_store
-            query_object_store.delete_object(name)
-        except Exception:
-            logger.exception("Failed to delete query object for QDefinition: %s", name)
+        dirs = [d for d in _QDEFS_DIR.iterdir() if d.is_dir()]
+    for d in dirs:
+        for suffix in (".json", ".parquet"):
+            path = d / f"{safe}{suffix}"
+            if path.exists():
+                path.unlink()
+
+
+def delete_qdef(name: str, forge_name: str = "") -> None:
+    """Delete a QDefinition file, its snapshot, and its published QueryObject."""
+    delete_qdef_files(name, forge_name)
+    try:
+        from suiteview.audit import query_object_store
+        query_object_store.delete_object(name)
+    except Exception:
+        logger.exception("Failed to delete query object for QDefinition: %s", name)
 
 
 def qdef_exists(name: str, forge_name: str = "") -> bool:
