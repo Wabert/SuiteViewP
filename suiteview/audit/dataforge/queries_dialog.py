@@ -39,11 +39,20 @@ logger = logging.getLogger(__name__)
 
 
 def _list_query_sources(forge_name: str = "") -> list[QDefinition]:
-    """Return QDefinition-shaped sources from QDefs plus object-only QueryObjects."""
-    sources: dict[str, QDefinition] = {
-        qd.name: qd for qd in qdef_store.list_qdefs(forge_name=forge_name)
-    }
+    """Standalone query sources addable to a DataForge.
+
+    Forge-local Source copies are excluded — a Forge's own copies belong to that
+    Forge and would otherwise appear here as phantom duplicates. We keep _commons
+    QDefs (genuinely standalone) and non-forge-owned QueryObjects/SavedQueries.
+    """
+    sources: dict[str, QDefinition] = {}
+    for qd in qdef_store.list_qdefs(forge_name=forge_name):
+        if qd.forge_name and qd.forge_name != qdef_store.COMMONS_NAME:
+            continue  # a Forge's own Source copy, not a standalone query
+        sources[qd.name] = qd
     for obj in query_object_store.list_objects():
+        if query_object_store.is_forge_owned(obj):
+            continue
         if obj.name not in sources:
             sources[obj.name] = qdefinition_from_query_object(obj)
     for saved_query in saved_query_store.list_queries():

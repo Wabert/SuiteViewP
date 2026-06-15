@@ -1945,9 +1945,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 f"A visual Query Object named \"{new_name.strip()}\" already exists.",
             )
             return
-        obj.name = new_name.strip()
-        obj.updated_at = datetime.now()
-        query_object_store.save_object(obj)
+        query_object_store.rename_object(obj, new_name.strip())
         self.refresh()
 
     def _delete_query_object(self, obj: QueryObject) -> None:
@@ -2042,7 +2040,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         if new_name == old_name:
             return obj
 
-        from suiteview.audit import qdef_store
+        from suiteview.audit import qdef_store, saved_query_store
         from suiteview.audit.dataforge import dataforge_store
 
         forge = dataforge_store.load_forge(forge_name)
@@ -2080,6 +2078,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         dataforge_config.setdefault("source_name", old_name)
         obj.config["dataforge"] = dataforge_config
         query_object_store.save_object(obj)
+        # Move a visual Source's name-keyed design too (no-op if none).
+        saved_query_store.rename_query(old_name, new_name)
 
         QueryObjectViewerWindow._delete_forge_qdef_file_only(forge_name, old_name)
         qd = qdefinition_from_query_object(obj)
@@ -2105,12 +2105,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def _delete_forge_qdef_file_only(forge_name: str, qdef_name: str) -> None:
         from suiteview.audit import qdef_store
 
-        safe = qdef_store._safe_filename(qdef_name)
-        directory = qdef_store._forge_dir(forge_name)
-        for suffix in (".json", ".parquet"):
-            path = directory / f"{safe}{suffix}"
-            if path.exists():
-                path.unlink()
+        qdef_store.delete_qdef_files(qdef_name, forge_name=forge_name)
 
     @staticmethod
     def _rename_forge_source_snapshot(forge_name: str, old_alias: str, new_alias: str) -> None:
@@ -2996,7 +2991,6 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             field.source = self._table_text(self.tbl_fields, row, 4)
             updated_fields.append(field)
 
-        self._current.name = new_name
         self._current.description = self.edit_description.text().strip()
         self._current.tags = [tag.strip() for tag in self.edit_tags.text().split(",") if tag.strip()]
         self._current.source_design = self.edit_origin.text().strip()
@@ -3004,9 +2998,12 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._current.fields = updated_fields
         self._current.updated_at = datetime.now()
 
-        # The id-keyed store moves the file itself on rename; no old-name
-        # cleanup is needed (and with duplicate names it would be wrong).
-        query_object_store.save_object(self._current)
+        if new_name != old_name:
+            # Rename across every store so it sticks (the SavedQuery design and
+            # any old-name QDefinition would otherwise resurrect the old name).
+            query_object_store.rename_object(self._current, new_name)
+        else:
+            query_object_store.save_object(self._current)
         self.refresh()
         QMessageBox.information(self, "Query Object Saved", f"Saved \"{new_name}\".")
 

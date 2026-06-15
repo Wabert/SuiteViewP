@@ -56,6 +56,19 @@ def object_path(query_object: QueryObject) -> Path:
             / f"{_safe_filename(query_object.name)}__{query_object.id[:8]}.json")
 
 
+def is_forge_owned(query_object: QueryObject) -> bool:
+    """Whether this object is a DataForge-local Source copy (owned by a forge).
+
+    Forge Sources are independent editable copies tagged with
+    ``config["dataforge"]["forge_name"]``. They render under their Forge — never
+    in the global "all queries" / "add a query" lists. This is the single
+    predicate those lists filter on (the organizer delegates to it too).
+    """
+    config = getattr(query_object, "config", None) or {}
+    dataforge = config.get("dataforge", {})
+    return bool(isinstance(dataforge, dict) and dataforge.get("forge_name"))
+
+
 def _is_legacy_path(path: Path) -> bool:
     return not _ID_SUFFIX_RE.search(path.stem)
 
@@ -322,6 +335,55 @@ def restore_saved_visual_design(query_object: QueryObject):
     except Exception:
         logger.exception("Failed to restore saved visual design for query object: %s", query_object.name)
         raise
+
+
+def rename_object(query_object: QueryObject, new_name: str) -> QueryObject:
+    """Rename a query object across EVERY store, leaving no stale old-name record.
+
+    The id-keyed QueryObject file moves on save (the easy part). The reason a
+    plain ``save_object`` rename "doesn't stick" is the *other* stores: a visual
+    query's name-keyed SavedQuery design and any name-keyed QDefinition survive
+    under the old name, and because saving those republishes a QueryObject (and
+    ``save_object`` adopts an existing id by NAME), the old name later comes back.
+    This relocates the SavedQuery design and clears stale QDefinition files so
+    nothing can resurrect the old name.
+
+    Forge-local Source copies are renamed via the browser's dedicated forge path
+    (it also fixes the Forge config + snapshot); use this for standalone queries.
+    """
+    new_name = new_name.strip()
+    old_name = query_object.name
+    if not new_name:
+        raise ValueError("Query object name cannot be blank.")
+    if new_name == old_name:
+        return query_object
+
+    # 1. Move the QueryObject. Its id is on disk, so save_object skips name
+    #    adoption, moves the file, and cleans same-id stragglers — no fork.
+    query_object.name = new_name
+    query_object.updated_at = datetime.now()
+    save_object(query_object)
+
+    # 2. Visual designs are name-keyed: move the snapshot so re-opening the
+    #    designer finds it and no old-name design lingers to republish.
+    if query_object.kind == OBJECT_KIND_VISUAL:
+        try:
+            from suiteview.audit import saved_query_store
+            saved_query_store.rename_query(old_name, new_name)
+        except Exception:
+            logger.exception(
+                "Failed to rename saved visual design %s -> %s",
+                old_name, new_name)
+
+    # 3. Drop stale QDefinition files keyed by the old name (file-only, all
+    #    forges) — the cascade-free deleter avoids removing the renamed object.
+    try:
+        from suiteview.audit import qdef_store
+        qdef_store.delete_qdef_files(old_name)
+    except Exception:
+        logger.exception("Failed to clear stale QDefinitions for: %s", old_name)
+
+    return query_object
 
 
 def delete_object_by_id(object_id: str) -> None:

@@ -79,8 +79,7 @@ def _organizer_path() -> Path:
 
 def _is_forge_owned(obj: QueryObject) -> bool:
     """Forge-local Source copies are owned by their Forge, not the organizer."""
-    dataforge = (obj.config or {}).get("dataforge", {})
-    return bool(isinstance(dataforge, dict) and dataforge.get("forge_name"))
+    return query_object_store.is_forge_owned(obj)
 
 
 class QueryOrganizer:

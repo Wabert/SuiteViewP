@@ -68,11 +68,36 @@ def save_query(sq: SavedQuery) -> None:
         logger.exception("Failed to publish query object for saved query: %s", sq.name)
 
 
-def delete_query(name: str) -> None:
-    """Delete a saved query file."""
+def rename_query(old_name: str, new_name: str) -> None:
+    """Move a saved visual design file from old_name to new_name in place.
+
+    Cascade-free on purpose: the QueryObject is renamed separately (id-keyed),
+    so this only relocates the name-keyed design snapshot. Using ``save_query`` +
+    ``delete_query`` here would fire the name-keyed QueryObject publish/delete
+    cascade and could resurrect or drop the wrong object — see ``rename_object``
+    in query_object_store.
+    """
+    if old_name == new_name:
+        return
+    saved = load_query(old_name)
+    if saved is None:
+        return
+    saved.name = new_name
+    _ensure_dir()
+    write_json(_QUERIES_DIR / f"{_safe_filename(new_name)}.json", saved.to_dict())
+    delete_query_file(old_name)
+
+
+def delete_query_file(name: str) -> None:
+    """Delete only the saved-query design file (no QueryObject cascade)."""
     path = _QUERIES_DIR / f"{_safe_filename(name)}.json"
     if path.exists():
         path.unlink()
+
+
+def delete_query(name: str) -> None:
+    """Delete a saved query file and its published QueryObject (by name)."""
+    delete_query_file(name)
     try:
         from suiteview.audit import query_object_store
         query_object_store.delete_object(name)

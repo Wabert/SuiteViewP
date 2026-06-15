@@ -189,20 +189,19 @@ def test_send_query_to_forge_persists_builder_source_copy(tmp_home):
     copied = query_object_store.load_object(copy_name)
     assert copied is not None
     assert copied.id != src.id
-    assert copied.config["dataforge"] == {
-        "forge_name": "Builder Forge",
-        "source_name": "Policies",
-    }
+    # The dataforge tag also carries query_object_id (for id resolution on the
+    # qdef round-trip), so assert the forge/source linkage rather than exact eq.
+    assert copied.config["dataforge"]["forge_name"] == "Builder Forge"
+    assert copied.config["dataforge"]["source_name"] == "Policies"
     assert qdef_store.qdef_exists(copy_name, forge_name="Builder Forge")
 
     reloaded = dataforge_store.load_forge("Builder Forge")
     assert reloaded is not None
     assert reloaded.config["sources"] == [copy_name]
     assert [source.query_name for source in reloaded.sources] == [copy_name]
-    assert reloaded.sources[0].definition["config"]["dataforge"] == {
-        "forge_name": "Builder Forge",
-        "source_name": "Policies",
-    }
+    source_tag = reloaded.sources[0].definition["config"]["dataforge"]
+    assert source_tag["forge_name"] == "Builder Forge"
+    assert source_tag["source_name"] == "Policies"
     print("  send query to forge persists builder source copy  OK")
 
 
