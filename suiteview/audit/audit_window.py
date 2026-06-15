@@ -10,7 +10,7 @@ import logging
 import time
 import pandas as pd
 import pyodbc
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
@@ -127,6 +127,8 @@ class QueryObjectModeDialog(QDialog):
 
 class AuditWindow(FramelessWindowBase):
     """Top-level audit window, replicating VBA frmAudit layout."""
+    query_object_saved = pyqtSignal(str)
+
     def __init__(self, region: str = DEFAULT_REGION, parent=None):
         self._region = region
         super().__init__(
@@ -950,9 +952,22 @@ class AuditWindow(FramelessWindowBase):
         group = self._dataforge_groups.get(self._current_mode)
         if group is None or qd is None:
             return
-        if old_name != qd.name:
+        old_key = old_name
+        object_id = group._query_object_id_from_qdefinition(qd)
+        if object_id:
+            for key, source in group._sources.items():
+                if group._query_object_id_from_qdefinition(source) == object_id:
+                    old_key = key
+                    break
+        if old_key != qd.name:
+            group._sources.pop(old_key, None)
             group._sources.pop(old_name, None)
+            mapping = {old_key: qd.name}
+            group._rename_join_sources(mapping)
+            group._rename_filter_sources(mapping)
+            group._rename_display_sources(mapping)
         group._sources[qd.name] = qd
+        group._datasets.pop(old_key, None)
         group._datasets.pop(old_name, None)
         group._datasets.pop(qd.name, None)
         group.joins_tab.update_queries(
@@ -961,6 +976,7 @@ class AuditWindow(FramelessWindowBase):
             group._query_column_types_map(),
         )
         group._schedule_save()
+        group._persist_source_roster_if_saved()
         self._set_forge_picker_sources(group)
         self._forge_field_picker.add_source(qd.name)
         self._refresh_query_object_browser_if_open()
@@ -1028,10 +1044,17 @@ class AuditWindow(FramelessWindowBase):
         group.setVisible(False)
         self._dynamic_queries[name] = group
         self._dynamic_query_container.addWidget(group)
-        group.query_saved.connect(lambda _: self._refresh_picker_query_list())
+        group.query_saved.connect(self._on_dynamic_query_saved)
         group.query_deleted.connect(self._on_query_deleted_from_group)
         group.common_tables_changed.connect(self._on_common_tables_changed)
         group.new_query_requested.connect(self._start_visual_query_object)
+
+    def _on_dynamic_query_saved(self, saved_query):
+        self._refresh_picker_query_list()
+        name = getattr(saved_query, "name", "")
+        if name:
+            self.query_object_saved.emit(name)
+
     def _close_group(self, name: str):
         """Close a query group — removes from UI."""
         self._remove_query(name)
@@ -1563,6 +1586,7 @@ class AuditWindow(FramelessWindowBase):
             logger.exception("Failed to build Cyberlife SQL for QueryObject")
             QMessageBox.warning(self, "SQL Build Error", str(exc))
             return
+        self.sql_tab.set_sql(sql)
 
         name = object_name.strip()
         if not name:
@@ -1608,15 +1632,21 @@ class AuditWindow(FramelessWindowBase):
             column_types=column_types,
         )
         if existing is not None:
+            qo.id = existing.id
             qo.created_at = existing.created_at
             qo.description = existing.description
             qo.tags = list(existing.tags)
             existing_config = dict(existing.config or {})
-            if "dataforge" in existing_config:
-                qo.config["dataforge"] = existing_config["dataforge"]
+            dataforge_config = existing_config.get("dataforge")
+            if isinstance(dataforge_config, dict):
+                dataforge_config = dict(dataforge_config)
+                dataforge_config["query_object_id"] = qo.id
+                qo.config["query_object_id"] = qo.id
+                qo.config["dataforge"] = dataforge_config
         query_object_store.save_object(qo)
         self._cyberlife_saved_object_name = name
         self.btn_save_cyberlife.setVisible(True)
+        self.query_object_saved.emit(name)
         QMessageBox.information(
             self, "Query Object Saved",
             f"Cyberlife query object \"{name}\" saved successfully.")
@@ -1784,7 +1814,7 @@ class AuditWindow(FramelessWindowBase):
         group.setVisible(False)
         self._dynamic_queries[name] = group
         self._dynamic_query_container.addWidget(group)
-        group.query_saved.connect(lambda _: self._refresh_picker_query_list())
+        group.query_saved.connect(self._on_dynamic_query_saved)
         group.query_deleted.connect(self._on_query_deleted_from_group)
         group.common_tables_changed.connect(self._on_common_tables_changed)
         group.new_query_requested.connect(self._start_visual_query_object)
@@ -1846,6 +1876,12 @@ class AuditWindow(FramelessWindowBase):
         from suiteview.audit.qdefinition import QDefinition
 
         qd = None
+        if getattr(src, "query_object_id", ""):
+            obj = query_object_store.load_object_by_id(src.query_object_id)
+            if obj is not None:
+                qd = qdefinition_from_query_object(obj)
+                qd.forge_name = forge_name
+                return qd
         if src.definition:
             try:
                 if "kind" in src.definition:
@@ -1854,6 +1890,14 @@ class AuditWindow(FramelessWindowBase):
                 else:
                     qd = QDefinition.from_dict(src.definition)
                 qd.forge_name = forge_name
+                if getattr(src, "query_object_id", ""):
+                    config = dict(getattr(qd, "query_object_config", {}) or {})
+                    dataforge = config.get("dataforge", {}) if isinstance(config.get("dataforge", {}), dict) else {}
+                    dataforge = dict(dataforge)
+                    config["query_object_id"] = src.query_object_id
+                    dataforge["query_object_id"] = src.query_object_id
+                    config["dataforge"] = dataforge
+                    qd.query_object_config = config
                 return qd
             except Exception:
                 logger.exception(

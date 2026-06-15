@@ -15,13 +15,14 @@ from PyQt6.QtCore import Qt, QMimeData, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QDrag, QColor, QBrush
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QAbstractItemView, QSplitter, QPushButton, QMenu,
+    QListWidget, QAbstractItemView, QSplitter, QPushButton,
     QComboBox,
     QListWidgetItem,
     QDialog,
 )
 
 from .dialogs.tables_dialog import _clean_odbc_identifier
+from .query_builder_menu import query_builder_menu
 from .tabs._styles import TightItemDelegate
 
 if TYPE_CHECKING:
@@ -758,7 +759,7 @@ class FieldPickerPanel(QWidget):
         if table == "__separator__":
             return
 
-        menu = QMenu(self)
+        menu = query_builder_menu(self)
         is_common = table in self._common_table_cols
         if not is_common:
             act_remove_table = menu.addAction("Remove Table")

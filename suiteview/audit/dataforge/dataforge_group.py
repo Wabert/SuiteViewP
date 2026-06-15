@@ -14,12 +14,12 @@ import time
 from copy import deepcopy
 
 import pandas as pd
-from PyQt6.QtCore import QMimeData, QPoint, Qt, pyqtSignal
+from PyQt6.QtCore import QMimeData, QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QDrag, QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QLabel, QPushButton, QMessageBox, QApplication, QInputDialog, QTextEdit, QScrollArea,
-    QFrame, QMenu, QCheckBox,
+    QFrame, QCheckBox,
 )
 
 from suiteview.audit.qdefinition import QDefinition
@@ -44,6 +44,7 @@ from suiteview.audit.query_runner import (
     run_query_async,
     format_query_error,
 )
+from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.audit.dataforge.query_field_picker import FORGE_FIELD_DRAG_MIME
 # Phase 2 join UI: the MS-Access-style canvas (field-linked Source boxes with
 # drawn join lines) replaces the old card-based ForgeJoinsTab. ForgeJoinCanvas
@@ -124,6 +125,18 @@ _DISPLAY_TOGGLE_STYLE = (
     f" background-color: {_FORGE_LIGHT}; color: {_FORGE_DEEP};"
     " min-width: 48px; max-width: 60px; }}"
     f"QPushButton:hover {{ background-color: {_FORGE_HOVER}; }}"
+)
+
+_DISPLAY_ROW_STYLE = (
+    "ForgeDisplayFieldRow { border: 1px solid #FDBA74;"
+    " border-radius: 2px; background-color: #FFF7ED; }"
+    "ForgeDisplayFieldRow:hover { background-color: #FED7AA; }"
+)
+
+_DISPLAY_ROW_SELECTED_STYLE = (
+    "ForgeDisplayFieldRow { border: 1px solid #D4AF37;"
+    " border-radius: 2px; background-color: #C7DCF4; }"
+    "ForgeDisplayFieldRow:hover { background-color: #BCD3EE; }"
 )
 
 
@@ -556,6 +569,7 @@ class ForgeCodeTab(QWidget):
 class ForgeDisplayFieldRow(QFrame):
     """One DataForge display field row with aggregate toggle + reorder drag."""
     state_changed = pyqtSignal()
+    row_clicked = pyqtSignal(object, bool)
 
     def __init__(self, field_key: str, display_name: str,
                  parent: QWidget | None = None):
@@ -564,15 +578,12 @@ class ForgeDisplayFieldRow(QFrame):
         self._display_name = display_name
         self._agg_idx = 0
         self._drag_start_pos: QPoint | None = None
+        self._selected = False
 
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setFixedHeight(26)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setStyleSheet(
-            "ForgeDisplayFieldRow { border: 1px solid #FDBA74;"
-            " border-radius: 2px; background-color: #FFF7ED; }"
-            "ForgeDisplayFieldRow:hover { background-color: #FED7AA; }"
-        )
+        self.setStyleSheet(_DISPLAY_ROW_STYLE)
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(4, 2, 4, 2)
@@ -622,7 +633,7 @@ class ForgeDisplayFieldRow(QFrame):
         self.state_changed.emit()
 
     def _show_agg_menu(self, pos):
-        menu = QMenu(self)
+        menu = query_builder_menu(self)
         actions = []
         for idx, name in enumerate(_DISPLAY_AGGREGATES):
             act = menu.addAction(name)
@@ -655,9 +666,15 @@ class ForgeDisplayFieldRow(QFrame):
             self._display_name = display_name
             self.lbl_name.setText(display_name)
 
+    def set_selected(self, selected: bool):
+        self._selected = selected
+        self.setStyleSheet(_DISPLAY_ROW_SELECTED_STYLE if selected else _DISPLAY_ROW_STYLE)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_start_pos = event.pos()
+            ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            self.row_clicked.emit(self, ctrl)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -726,6 +743,23 @@ class ForgeDisplayTab(QScrollArea):
         self._layout.addStretch()
         self._rows: list[ForgeDisplayFieldRow] = []
         self._field_set: set[str] = set()
+        self._selection: list[ForgeDisplayFieldRow] = []
+        self._rubber_origin: QPoint | None = None
+
+        self._rubber = QFrame(self._container)
+        self._rubber.setStyleSheet(
+            "background-color: rgba(30, 91, 168, 25);"
+            " border: 1px dashed #1E5BA8;")
+        self._rubber.hide()
+        self._rubber.raise_()
+
+        self._container.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self._container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._container.customContextMenuRequested.connect(
+            lambda pos: self._show_selection_menu(None, pos))
+        self._container.mousePressEvent = self._container_mousePressEvent
+        self._container.mouseMoveEvent = self._container_mouseMoveEvent
+        self._container.mouseReleaseEvent = self._container_mouseReleaseEvent
 
         self._drop_indicator = QFrame(self._container)
         self._drop_indicator.setFixedHeight(3)
@@ -750,6 +784,10 @@ class ForgeDisplayTab(QScrollArea):
         display_name = display_name or field_key.split(".")[-1]
         row = ForgeDisplayFieldRow(field_key, display_name, self._container)
         row.btn_remove.clicked.connect(lambda: self._remove_row(row))
+        row.row_clicked.connect(self._on_row_clicked)
+        row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        row.customContextMenuRequested.connect(
+            lambda pos, r=row: self._show_selection_menu(r, r.mapTo(self._container, pos)))
         row.state_changed.connect(self.state_changed)
         self._rows.append(row)
         self._field_set.add(field_key)
@@ -764,6 +802,8 @@ class ForgeDisplayTab(QScrollArea):
     def _remove_row(self, row: ForgeDisplayFieldRow):
         if row not in self._rows:
             return
+        if row in self._selection:
+            self._selection.remove(row)
         self._rows.remove(row)
         self._field_set.discard(row.field_key)
         self._layout.removeWidget(row)
@@ -774,6 +814,86 @@ class ForgeDisplayTab(QScrollArea):
 
     def _update_hint_visibility(self):
         self._hint.setVisible(len(self._rows) == 0)
+
+    def _clear_selection(self):
+        for row in self._selection:
+            row.set_selected(False)
+        self._selection.clear()
+
+    def _select_row(self, row: ForgeDisplayFieldRow, *, additive: bool = False):
+        if not additive:
+            self._clear_selection()
+        if row not in self._selection:
+            self._selection.append(row)
+            row.set_selected(True)
+
+    def _on_row_clicked(self, row: ForgeDisplayFieldRow, ctrl: bool):
+        if ctrl and row in self._selection:
+            self._selection.remove(row)
+            row.set_selected(False)
+            return
+        self._select_row(row, additive=ctrl)
+
+    def _remove_selected_rows(self):
+        for row in list(self._selection):
+            self._remove_row(row)
+        self._selection.clear()
+
+    def _show_selection_menu(self, clicked_row: ForgeDisplayFieldRow | None, container_pos: QPoint):
+        if clicked_row is not None and clicked_row not in self._selection:
+            self._select_row(clicked_row)
+        if not self._selection:
+            return
+
+        count = len(self._selection)
+        menu = query_builder_menu(self._container)
+        if count > 1:
+            header = menu.addAction(f"{count} fields selected")
+            header.setEnabled(False)
+            menu.addSeparator()
+            act_delete = menu.addAction(f"Delete {count} Fields")
+        else:
+            act_delete = menu.addAction("Delete Field")
+
+        chosen = menu.exec(self._container.mapToGlobal(container_pos))
+        if chosen is act_delete:
+            self._remove_selected_rows()
+
+    def _container_mousePressEvent(self, event):
+        self._container.setFocus()
+        if event.button() == Qt.MouseButton.LeftButton:
+            if not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self._clear_selection()
+            self._rubber_origin = event.pos()
+            self._rubber.setGeometry(QRect(event.pos(), event.pos()).normalized())
+            self._rubber.show()
+            self._rubber.raise_()
+            event.accept()
+            return
+        QWidget.mousePressEvent(self._container, event)
+
+    def _container_mouseMoveEvent(self, event):
+        if self._rubber_origin is not None:
+            rect = QRect(self._rubber_origin, event.pos()).normalized()
+            self._rubber.setGeometry(rect)
+            event.accept()
+            return
+        QWidget.mouseMoveEvent(self._container, event)
+
+    def _container_mouseReleaseEvent(self, event):
+        if self._rubber_origin is not None and event.button() == Qt.MouseButton.LeftButton:
+            rect = QRect(self._rubber_origin, event.pos()).normalized()
+            self._rubber.hide()
+            self._rubber_origin = None
+            if rect.width() >= 4 or rect.height() >= 4:
+                if not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    self._clear_selection()
+                for row in self._rows:
+                    if row.geometry().intersects(rect):
+                        self._select_row(row, additive=True)
+            event.accept()
+            return
+        QWidget.mouseReleaseEvent(self._container, event)
 
     def get_selected_columns(self) -> list[str]:
         if self.display_all:
@@ -1225,6 +1345,30 @@ class DataForgeGroup(QWidget):
                 new_name,
             )
             return None
+
+    @staticmethod
+    def _query_object_id_from_qdefinition(qd: QDefinition | None) -> str:
+        if qd is None:
+            return ""
+        config = getattr(qd, "query_object_config", {}) or {}
+        object_id = str(config.get("query_object_id", "")).strip()
+        if object_id:
+            return object_id
+        dataforge = config.get("dataforge", {}) if isinstance(config, dict) else {}
+        if isinstance(dataforge, dict):
+            return str(dataforge.get("query_object_id", "")).strip()
+        return ""
+
+    @staticmethod
+    def _query_object_for_qdefinition(qd: QDefinition | None):
+        object_id = DataForgeGroup._query_object_id_from_qdefinition(qd)
+        if object_id:
+            obj = query_object_store.load_object_by_id(object_id)
+            if obj is not None:
+                return obj
+        if qd is not None:
+            return query_object_store.load_object(qd.name)
+        return None
 
     @staticmethod
     def _replace_source_prefix(value: str, mapping: dict[str, str]) -> str:
@@ -2403,27 +2547,31 @@ class DataForgeGroup(QWidget):
         """Persist source definitions and return DataForge source records."""
         sources: list[DataForgeSource] = []
         for source_name, qd in list(self._sources.items()):
-            obj = query_object_store.load_object(qd.name)
+            obj = self._query_object_for_qdefinition(qd)
             if obj is not None:
                 qd = qdefinition_from_query_object(obj)
                 self._sources[source_name] = qd
             qd.forge_name = forge_name
             source_label = self._source_label_for_browser(qd, source_name)
             qd_config = dict(getattr(qd, "query_object_config", {}) or {})
+            if obj is None:
+                obj = object_from_qdefinition(qd)
+            qd_config["query_object_id"] = obj.id
             qd_config["dataforge"] = {
                 "forge_name": forge_name,
                 "source_name": source_label,
+                "query_object_id": obj.id,
             }
             qd.query_object_config = qd_config
             qdef_store.save_qdef(qd)
-            if obj is None:
-                obj = object_from_qdefinition(qd)
+            obj.id = qd_config["query_object_id"]
             obj.config = dict(qd_config)
             obj.source_design = obj.source_design or source_label
             query_object_store.save_object(obj)
             definition = obj.to_dict()
             sources.append(DataForgeSource(
                 query_name=qd.name or source_name,
+                query_object_id=obj.id,
                 alias="",
                 definition=definition,
             ))
@@ -2471,6 +2619,12 @@ class DataForgeGroup(QWidget):
         return {
             "name": self.forge_name,
             "sources": list(self._sources.keys()),
+            "source_ids": [
+                object_id for object_id in (
+                    self._query_object_id_from_qdefinition(qd)
+                    for qd in self._sources.values()
+                ) if object_id
+            ],
             "max_count": self.txt_max_count.text(),
             "filter_tabs": [t.get_state() for t in self._filter_tabs],
             "joins_tab": self.joins_tab.get_state(),
@@ -2493,7 +2647,29 @@ class DataForgeGroup(QWidget):
             self.txt_max_count.setText(config.get("max_count", "25"))
 
             # Restore sources
-            for name in config.get("sources", []):
+            source_names = [str(name) for name in config.get("sources", [])]
+            source_ids = [str(object_id) for object_id in config.get("source_ids", [])]
+            source_rename_mapping: dict[str, str] = {}
+            loaded_ids = {
+                object_id for object_id in (
+                    self._query_object_id_from_qdefinition(qd)
+                    for qd in self._sources.values()
+                ) if object_id
+            }
+            for index, object_id in enumerate(source_ids):
+                obj = query_object_store.load_object_by_id(object_id)
+                if obj is None:
+                    continue
+                sq = qdefinition_from_query_object(obj)
+                sq.forge_name = self._saved_forge_name
+                self._sources[sq.name] = sq
+                loaded_ids.add(obj.id)
+                old_name = source_names[index] if index < len(source_names) else ""
+                if old_name and old_name != sq.name:
+                    source_rename_mapping[old_name] = sq.name
+            for name in source_names:
+                if name in source_rename_mapping:
+                    continue
                 sq = qdef_store.load_qdef(name, forge_name=self._saved_forge_name)
                 if not sq:
                     sq = qdef_store.load_qdef(name)  # fallback: search all
@@ -2502,7 +2678,12 @@ class DataForgeGroup(QWidget):
                     if obj:
                         sq = qdefinition_from_query_object(obj)
                 if sq:
+                    object_id = self._query_object_id_from_qdefinition(sq)
+                    if object_id and object_id in loaded_ids:
+                        continue
                     self._sources[name] = sq
+                    if object_id:
+                        loaded_ids.add(object_id)
             self.joins_tab.update_queries(list(self._sources.keys()),
                                          self._query_columns_map(),
                                          self._query_column_types_map())
@@ -2535,6 +2716,14 @@ class DataForgeGroup(QWidget):
             display_state = config.get("display_tab", {})
             if display_state:
                 self.display_tab.set_state(display_state)
+
+            if source_rename_mapping:
+                self._rename_join_sources(source_rename_mapping)
+                self._rename_filter_sources(source_rename_mapping)
+                self._rename_display_sources(source_rename_mapping)
+                self.joins_tab.update_queries(list(self._sources.keys()),
+                                             self._query_columns_map(),
+                                             self._query_column_types_map())
 
             # Restore Manual mode (after sources/joins so a compile works)
             self.sql_tab.set_manual_state(

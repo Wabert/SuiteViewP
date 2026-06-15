@@ -53,6 +53,7 @@ def add_object_as_source(forge: DataForge, obj: QueryObject,
     """
     source = DataForgeSource(
         query_name=obj.name,
+        query_object_id=obj.id,
         alias=alias or obj.name,
         definition=obj.to_dict(),
         filters=[],
@@ -78,7 +79,9 @@ def resync_source(source: DataForgeSource) -> bool:
     Returns True if the definition changed. Marks the Snapshot stale on change
     (the data was pulled under the old definition).
     """
-    obj = query_object_store.load_object(source.query_name)
+    obj = query_object_store.load_object_by_id(source.query_object_id)
+    if obj is None:
+        obj = query_object_store.load_object(source.query_name)
     if obj is None:
         raise ValueError(f"Shared Query no longer exists: {source.query_name}")
     new_def = obj.to_dict()

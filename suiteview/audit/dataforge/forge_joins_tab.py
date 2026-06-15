@@ -15,8 +15,10 @@ from PyQt6.QtCore import Qt, QPoint, QSize, pyqtSignal, QMimeData
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QDrag, QMouseEvent, QPolygon
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QComboBox,
-    QLabel, QPushButton, QFrame, QSizePolicy, QToolButton, QMenu,
+    QLabel, QPushButton, QFrame, QSizePolicy, QToolButton,
 )
+
+from suiteview.audit.query_builder_menu import query_builder_menu
 
 logger = logging.getLogger(__name__)
 
@@ -440,10 +442,7 @@ class ForgeJoinCard(QWidget):
     # ── Context menu ─────────────────────────────────────────────
 
     def contextMenuEvent(self, event):
-        menu = QMenu(self)
-        menu.setStyleSheet(
-            "QMenu { font-size: 8pt; }"
-            "QMenu::item:selected { background: #E6F5F3; }")
+        menu = query_builder_menu(self)
         act_collapse = menu.addAction(
             "Expand" if self._collapsed else "Collapse")
         act_collapse.triggered.connect(self._toggle_collapse)

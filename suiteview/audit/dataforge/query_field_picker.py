@@ -7,13 +7,14 @@ Forge heat-themed to match the DataForge identity.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from PyQt6.QtCore import Qt, QMimeData, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QDrag
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QAbstractItemView, QSplitter, QPushButton,
-    QDialog, QMenu, QTreeWidget, QTreeWidgetItem, QApplication, QMessageBox,
+    QDialog, QTreeWidget, QTreeWidgetItem, QApplication, QMessageBox,
 )
 
 from suiteview.audit.qdefinition import QDefinition
@@ -29,6 +30,7 @@ from suiteview.audit.query_object import (
 from suiteview.audit import query_object_store
 from suiteview.audit import saved_query_store
 from suiteview.audit.adhoc_source_intake import dataframe_from_adhoc_metadata
+from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.audit.query_runner import execute_odbc_query
 from suiteview.audit.tabs._styles import TightItemDelegate
 from suiteview.audit.query_object_viewer_window import (
@@ -601,6 +603,46 @@ class QueryFieldPicker(QWidget):
         source_name = str(dataforge.get("source_name", "")).strip()
         return source_name or source.name
 
+    @staticmethod
+    def _storage_name_for_source_label(label: str, old_name: str, forge_name: str) -> str:
+        clean = label.strip()
+        forge = forge_name.strip()
+        if not forge:
+            return clean
+        suffix = f" [{forge}]"
+        if clean.endswith(suffix):
+            return clean
+        if old_name.endswith(suffix):
+            return f"{clean}{suffix}"
+        return clean
+
+    @staticmethod
+    def _query_object_id_from_qdefinition(source: QDefinition | None) -> str:
+        if source is None:
+            return ""
+        config = getattr(source, "query_object_config", {}) or {}
+        if not isinstance(config, dict):
+            return ""
+        object_id = str(config.get("query_object_id", "")).strip()
+        if object_id:
+            return object_id
+        dataforge = config.get("dataforge", {})
+        if isinstance(dataforge, dict):
+            return str(dataforge.get("query_object_id", "")).strip()
+        return ""
+
+    @staticmethod
+    def _qdefinition_matches_object_id(source: QDefinition | None, object_id: str) -> bool:
+        clean_id = str(object_id or "").strip()
+        if not clean_id:
+            return False
+        source_id = QueryFieldPicker._query_object_id_from_qdefinition(source)
+        if source_id:
+            return source_id == clean_id
+        source_name = str(getattr(source, "name", "")).strip() if source is not None else ""
+        obj = query_object_store.load_object(source_name) if source_name else None
+        return bool(obj is not None and obj.id == clean_id)
+
     def _real_source_names(self) -> list[str]:
         return [name for name, source in self._sources.items()
                 if not _is_append_source(source)]
@@ -789,13 +831,13 @@ class QueryFieldPicker(QWidget):
         if not query_name:
             return
         if _is_append_source(self._sources.get(query_name)):
-            menu = QMenu(self)
+            menu = query_builder_menu(self)
             act = menu.addAction("Append Table fields are managed on the Joins tab")
             act.setEnabled(False)
             menu.exec(self.list_queries.viewport().mapToGlobal(pos))
             return
 
-        menu = QMenu(self)
+        menu = query_builder_menu(self)
         act_preview = menu.addAction("Preview Data")
         act_open_builder = menu.addAction("Open in Builder")
         act_refresh = menu.addAction("Refresh / Requery")
@@ -869,6 +911,9 @@ class QueryFieldPicker(QWidget):
             logger.exception("Failed to create AuditWindow for source builder: %s", query_name)
             return None
         self._builder_windows.append(window)
+        saved_signal = getattr(window, "query_object_saved", None)
+        if saved_signal is not None:
+            saved_signal.connect(lambda saved_name, old=query_name: self._refresh_query_source(old, saved_name))
         window.destroyed.connect(lambda _=None, win=window: self._forget_builder_window(win))
         return window
 
@@ -1010,37 +1055,105 @@ class QueryFieldPicker(QWidget):
 
     def _rename_qdef(self, old_name: str):
         from PyQt6.QtWidgets import QInputDialog, QMessageBox
-        new_name, ok = QInputDialog.getText(
-            self, "Rename QDefinition", "New name:", text=old_name)
-        if not ok or not new_name.strip() or new_name.strip() == old_name:
+        qd = self._sources.get(old_name)
+        if qd is None:
+            qd = qdef_store.load_qdef(old_name, forge_name=self._current_forge_name)
+        if qd is None:
+            qd = qdef_store.load_qdef(old_name)
+        if qd is None:
+            QMessageBox.warning(
+                self, "Rename Failed",
+                f"Could not find query object '{old_name}'.")
             return
-        new_name = new_name.strip()
 
-        forge = self._current_forge_name
-        if qdef_store.qdef_exists(new_name, forge_name=forge):
+        old_storage_name = qd.name or old_name
+        old_display_name = self._source_display_name(qd)
+        config = dict(getattr(qd, "query_object_config", {}) or {})
+        dataforge = config.get("dataforge", {}) if isinstance(config.get("dataforge", {}), dict) else {}
+        forge = (self._current_forge_name or getattr(qd, "forge_name", "")
+                 or str(dataforge.get("forge_name", "")).strip())
+        new_name, ok = QInputDialog.getText(
+            self, "Rename Query", "Query name:", text=old_display_name)
+        if not ok or not new_name.strip():
+            return
+        new_display_name = _forge_copy_source_name(new_name.strip(), forge) or new_name.strip()
+        new_storage_name = self._storage_name_for_source_label(
+            new_display_name, old_storage_name, forge)
+        if new_storage_name == old_storage_name and new_display_name == old_display_name:
+            return
+
+        object_id = str(config.get("query_object_id", "")).strip() or str(dataforge.get("query_object_id", "")).strip()
+        obj = query_object_store.load_object_by_id(object_id) if object_id else None
+        if obj is None:
+            obj = query_object_store.load_object(old_name)
+        if obj is not None:
+            object_id = obj.id
+
+        conflicting_source = self._sources.get(new_storage_name)
+        conflicting_qdef = qdef_store.load_qdef(new_storage_name, forge_name=forge) if new_storage_name != old_storage_name else None
+        if (new_storage_name != old_storage_name
+                and ((conflicting_source is not None
+                      and not self._qdefinition_matches_object_id(conflicting_source, object_id))
+                     or (conflicting_qdef is not None
+                         and not self._qdefinition_matches_object_id(conflicting_qdef, object_id)))):
             QMessageBox.warning(
                 self, "Name Exists",
-                f"A query object named '{new_name}' already exists.")
+                f"A query object named '{new_display_name}' already exists.")
             return
 
-        qd = qdef_store.load_qdef(old_name, forge_name=forge)
-        if not qd:
-            return
+        if object_id:
+            config["query_object_id"] = object_id
+        dataforge = dict(dataforge)
+        if forge:
+            dataforge["forge_name"] = forge
+        dataforge["source_name"] = new_display_name
+        if object_id:
+            dataforge["query_object_id"] = object_id
+        config["dataforge"] = dataforge
 
-        qd.name = new_name
+        old_qdef_path = None
+        new_qdef_path = None
+        if forge:
+            forge_dir = qdef_store._forge_dir(forge)
+            old_qdef_path = forge_dir / f"{qdef_store._safe_filename(old_storage_name)}.json"
+            new_qdef_path = forge_dir / f"{qdef_store._safe_filename(new_storage_name)}.json"
+
+        qd.name = new_storage_name
+        qd.forge_name = forge
+        qd.query_object_config = config
         qdef_store.save_qdef(qd)
-        old_snap = qdef_store.snapshot_path(old_name, forge_name=forge)
+        old_snap = qdef_store.snapshot_path(old_storage_name, forge_name=forge)
         if old_snap.exists():
-            old_snap.rename(qdef_store.snapshot_path(new_name, forge_name=forge))
-        qdef_store.delete_qdef(old_name, forge_name=forge)
+            new_snap = qdef_store.snapshot_path(new_storage_name, forge_name=forge)
+            if not new_snap.exists():
+                old_snap.rename(new_snap)
+        if old_qdef_path is not None and old_qdef_path != new_qdef_path:
+            old_qdef_path.unlink(missing_ok=True)
+        else:
+            qdef_store.delete_qdef(old_storage_name, forge_name=forge)
 
-        if old_name in self._sources:
-            self._sources[new_name] = self._sources.pop(old_name)
-            self._sources[new_name].name = new_name
+        if obj is not None:
+            obj.name = new_storage_name
+            obj.config = dict(obj.config or {})
+            obj_dataforge = obj.config.get("dataforge", {})
+            obj_dataforge = dict(obj_dataforge) if isinstance(obj_dataforge, dict) else {}
+            obj_dataforge.update(dataforge)
+            obj.config["dataforge"] = obj_dataforge
+            for field in obj.fields:
+                if field.source in {old_storage_name, old_display_name}:
+                    field.source = new_storage_name
+            obj.updated_at = datetime.now()
+            query_object_store.save_object(obj)
 
-        self._rebuild_query_list(select_name=new_name)
+        if old_storage_name in self._sources:
+            self._sources.pop(old_storage_name)
+        self._sources[new_storage_name] = qd
+        if self._current_query == old_storage_name:
+            self._current_query = new_storage_name
+
+        self._rebuild_query_list(select_name=new_storage_name)
         self._update_query_object_button()
-        self.sources_changed.emit(self._real_source_names())
+        self.source_refreshed.emit(old_storage_name, qd)
 
     def _preview_query_data(self, query_name: str):
         sq = self._sources.get(query_name)

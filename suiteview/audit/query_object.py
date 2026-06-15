@@ -303,6 +303,11 @@ def object_from_qdefinition(qdefinition) -> QueryObject:
     """Convert an existing QDefinition into a QueryObject."""
     query_object_kind = getattr(qdefinition, "query_object_kind", "")
     query_object_config = dict(getattr(qdefinition, "query_object_config", {}) or {})
+    query_object_id = str(query_object_config.get("query_object_id", "")).strip()
+    if not query_object_id:
+        dataforge = query_object_config.get("dataforge", {})
+        if isinstance(dataforge, dict):
+            query_object_id = str(dataforge.get("query_object_id", "")).strip()
     if query_object_kind == OBJECT_KIND_ADHOC_SOURCE:
         metadata = dict(getattr(qdefinition, "query_object_source_metadata", {}) or {})
         obj = adhoc_source_object(
@@ -316,6 +321,8 @@ def object_from_qdefinition(qdefinition) -> QueryObject:
         obj.config.setdefault("source_metadata", metadata)
         obj.created_at = qdefinition.created_at
         obj.updated_at = datetime.now()
+        if query_object_id:
+            obj.id = query_object_id
         return obj
 
     sources = [
@@ -340,7 +347,7 @@ def object_from_qdefinition(qdefinition) -> QueryObject:
             "source_name": qdefinition.name,
         }
     config.update(query_object_config)
-    return QueryObject(
+    obj = QueryObject(
         name=qdefinition.name,
         kind=query_object_kind or OBJECT_KIND_EXECUTABLE,
         dsn=qdefinition.dsn,
@@ -352,6 +359,9 @@ def object_from_qdefinition(qdefinition) -> QueryObject:
         created_at=qdefinition.created_at,
         updated_at=now,
     )
+    if query_object_id:
+        obj.id = query_object_id
+    return obj
 
 
 def qdefinition_from_query_object(query_object: QueryObject):
@@ -375,7 +385,14 @@ def qdefinition_from_query_object(query_object: QueryObject):
         created_at=query_object.created_at,
     )
     qdefinition.query_object_kind = query_object.kind
-    qdefinition.query_object_config = query_object.config
+    config = dict(query_object.config or {})
+    config["query_object_id"] = query_object.id
+    dataforge = config.get("dataforge")
+    if isinstance(dataforge, dict):
+        dataforge = dict(dataforge)
+        dataforge["query_object_id"] = query_object.id
+        config["dataforge"] = dataforge
+    qdefinition.query_object_config = config
     if query_object.sources:
         qdefinition.query_object_source_metadata = query_object.sources[0].metadata
     return qdefinition

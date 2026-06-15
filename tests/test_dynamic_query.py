@@ -1,7 +1,11 @@
+import os
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from PyQt6.QtWidgets import QApplication
 
+from suiteview.audit import saved_query_store
 from suiteview.audit.dynamic_query import DB2, SQL_SERVER, build_dynamic_sql, build_join_sql
 from suiteview.audit.dynamic_group import DynamicQuery
 from suiteview.audit.field_picker_panel import FieldPickerPanel
@@ -132,6 +136,63 @@ class DynamicQueryUiTests(unittest.TestCase):
             self.assertEqual(group.preferred_picker_table(), "DB2TAB.LH_COV_PHA")
         finally:
             group.close()
+
+    def test_visual_query_save_paths_build_sql_before_persisting(self):
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+
+        old_queries_dir = saved_query_store._QUERIES_DIR
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        groups = []
+        try:
+            with tempfile.TemporaryDirectory() as tmp_queries, tempfile.TemporaryDirectory() as tmp_objects:
+                saved_query_store._QUERIES_DIR = saved_query_store.Path(tmp_queries)
+                os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+
+                save_as_sql = "SELECT policy_number FROM dbo.policy WHERE state = 'TX'"
+                save_as_group = DynamicQuery("Visual Query", "WORK_DSN", ["dbo.policy"])
+                groups.append(save_as_group)
+                save_as_group.sql_tab.set_sql("SELECT stale")
+                save_as_group._build_sql = lambda: save_as_sql
+
+                with patch(
+                    "suiteview.audit.dynamic_group.QInputDialog.getText",
+                    return_value=("TX Policies", True),
+                ), patch("suiteview.audit.dynamic_group.QMessageBox.information"):
+                    save_as_group._save_query()
+
+                saved = saved_query_store.load_query("TX Policies")
+                self.assertIsNotNone(saved)
+                self.assertEqual(saved.sql, save_as_sql)
+                self.assertNotEqual(save_as_group.sql_tab.txt_sql.toPlainText().strip(), "SELECT stale")
+
+                update_sql = "SELECT policy_number FROM dbo.policy WHERE state = 'CA'"
+                update_group = DynamicQuery(
+                    "▸ TX Policies",
+                    "WORK_DSN",
+                    ["dbo.policy"],
+                    saved_query_name="TX Policies",
+                )
+                groups.append(update_group)
+                update_group.sql_tab.set_sql(save_as_sql)
+                update_group._build_sql = lambda: update_sql
+
+                with patch("suiteview.audit.dynamic_group.QMessageBox.information"):
+                    update_group._save_query_update()
+
+                updated = saved_query_store.load_query("TX Policies")
+                self.assertIsNotNone(updated)
+                self.assertEqual(updated.sql, update_sql)
+                self.assertNotEqual(update_group.sql_tab.txt_sql.toPlainText().strip(), save_as_sql)
+        finally:
+            for group in groups:
+                group.close()
+            saved_query_store._QUERIES_DIR = old_queries_dir
+            if old_obj_dir is None:
+                os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+            else:
+                os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
 
     def test_visual_join_canvas_feeds_existing_join_sql_shape(self):
         app = QApplication.instance()

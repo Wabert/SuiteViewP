@@ -192,10 +192,10 @@ def test_dataforge_group_save_publishes_query_object_metadata(tmp_home):
     assert len(sources) == 1
     obj = query_object_store.load_object("Policies [DataForge]")
     assert obj is not None
-    assert obj.config["dataforge"] == {
-        "forge_name": "RGA - EXECUL and Claims",
-        "source_name": "Policies",
-    }
+    dataforge_config = obj.config["dataforge"]
+    assert dataforge_config["forge_name"] == "RGA - EXECUL and Claims"
+    assert dataforge_config["source_name"] == "Policies"
+    assert dataforge_config["query_object_id"] == obj.id
     assert sources[0].definition["config"]["dataforge"]["forge_name"] == "RGA - EXECUL and Claims"
     print("  group save publishes DataForge QueryObject metadata  OK")
 
@@ -460,10 +460,10 @@ def test_dataforge_save_embeds_modified_source_copy_not_original(tmp_home):
     assert reloaded_copy.config["criteria"] == {"max_count": "100"}
     assert sources[0].definition["sql"] == "SELECT NEW_COL FROM DB2TAB.LH_BAS_POL"
     assert sources[0].definition["config"]["criteria"] == {"max_count": "100"}
-    assert sources[0].definition["config"]["dataforge"] == {
-        "forge_name": forge_name,
-        "source_name": "Cyberlife Trad CV",
-    }
+    dataforge_config = sources[0].definition["config"]["dataforge"]
+    assert dataforge_config["forge_name"] == forge_name
+    assert dataforge_config["source_name"] == "Cyberlife Trad CV"
+    assert dataforge_config["query_object_id"]
     print("  DataForge save embeds modified private source copy  OK")
 
 
@@ -533,10 +533,10 @@ def test_new_dataforge_saves_visual_query_source_from_ul_rates(tmp_home):
     assert restored_qd.result_columns == ["rate_id", "duration"]
     saved_qd = qdef_store.load_qdef("UL Rates Visual [UL Rates Forge]", forge_name=forge_name)
     assert saved_qd is not None
-    assert saved_qd.query_object_config["dataforge"] == {
-        "forge_name": forge_name,
-        "source_name": "UL Rates Visual",
-    }
+    dataforge_config = saved_qd.query_object_config["dataforge"]
+    assert dataforge_config["forge_name"] == forge_name
+    assert dataforge_config["source_name"] == "UL Rates Visual"
+    assert dataforge_config["query_object_id"]
     print("  new DataForge saves/reloads UL_Rates visual source  OK")
 
 

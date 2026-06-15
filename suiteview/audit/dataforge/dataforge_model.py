@@ -66,6 +66,7 @@ class DataForgeSource:
     this one dataset before it joins. ``snapshot`` tracks the cached parquet.
     """
     query_name: str                       # original shared Query (for Re-sync)
+    query_object_id: str = ""              # permanent id of the Forge-local QueryObject
     alias: str = ""                        # short handle used in joins/filters
     definition: dict[str, Any] = field(default_factory=dict)
     filters: list[dict[str, Any]] = field(default_factory=list)
@@ -79,6 +80,7 @@ class DataForgeSource:
     def to_dict(self) -> dict:
         return {
             "query_name": self.query_name,
+            "query_object_id": self.query_object_id,
             "alias": self.alias,
             "definition": self.definition,
             "filters": self.filters,
@@ -90,6 +92,7 @@ class DataForgeSource:
     def from_dict(data: dict) -> DataForgeSource:
         return DataForgeSource(
             query_name=data["query_name"],
+            query_object_id=data.get("query_object_id", ""),
             alias=data.get("alias", ""),
             definition=data.get("definition", {}) or {},
             filters=list(data.get("filters", [])),

@@ -20,8 +20,10 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QComboBox,
     QLabel, QLineEdit, QPushButton, QCheckBox, QFrame, QSizePolicy,
-    QToolButton, QMenu, QMessageBox,
+    QToolButton, QMessageBox,
 )
+
+from suiteview.audit.query_builder_menu import query_builder_menu
 
 if TYPE_CHECKING:
     pass
@@ -670,10 +672,7 @@ class JoinCard(QWidget):
     # ── Right-click context menu ─────────────────────────────────
 
     def contextMenuEvent(self, event):
-        menu = QMenu(self)
-        menu.setStyleSheet(
-            "QMenu { font-size: 8pt; }"
-            "QMenu::item:selected { background: #E8F0FB; }")
+        menu = query_builder_menu(self)
         act_collapse = menu.addAction(
             "Expand" if self._collapsed else "Collapse")
         act_collapse.triggered.connect(self._toggle_collapse)

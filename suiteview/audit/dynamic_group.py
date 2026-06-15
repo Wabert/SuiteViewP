@@ -16,7 +16,7 @@ import pandas as pd
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QTabWidget, QLabel, QPushButton, QMessageBox, QMenu,
+    QWidget, QVBoxLayout, QTabWidget, QLabel, QPushButton, QMessageBox,
     QInputDialog, QScrollArea,
 )
 
@@ -29,6 +29,7 @@ from .tabs.common_tables_tab import CommonTablesTab
 from .tabs.build_sql_tab import BuildSqlTab
 from .tabs.build_sql_results_tab import BuildSqlResultsTab
 from .tabs._styles import _FONT
+from .query_builder_menu import query_builder_menu
 from .sql_helpers import fmt_time
 from .dynamic_query import build_dynamic_sql, build_join_sql, build_common_table_cte
 from .dialogs.tables_dialog import TablesDialog, FIELD_DRAG_MIME
@@ -432,13 +433,7 @@ class DynamicQuery(QWidget):
         tab_bar = self.tab_widget.tabBar()
         tab_index = tab_bar.tabAt(pos)
 
-        menu = QMenu(self)
-        menu.setStyleSheet(
-            "QMenu { background-color: white; border: 1px solid #1E5BA8;"
-            " font-size: 9pt; }"
-            "QMenu::item { padding: 3px 16px; }"
-            "QMenu::item:selected { background-color: #A0C4E8; color: black; }"
-        )
+        menu = query_builder_menu(self)
 
         act_add = menu.addAction("Add Tab")
 
@@ -832,7 +827,10 @@ class DynamicQuery(QWidget):
         if not name:
             return
 
-        sql = self.sql_tab.txt_sql.toPlainText().strip()
+        sql = self._build_sql()
+        if not sql:
+            return
+        self.sql_tab.set_sql(sql)
         config = self.get_config()
         result_columns, column_types = self._last_result_schema()
 
@@ -886,7 +884,10 @@ class DynamicQuery(QWidget):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        sql = self.sql_tab.txt_sql.toPlainText().strip()
+        sql = self._build_sql()
+        if not sql:
+            return
+        self.sql_tab.set_sql(sql)
         config = self.get_config()
         result_columns, column_types = self._last_result_schema()
 

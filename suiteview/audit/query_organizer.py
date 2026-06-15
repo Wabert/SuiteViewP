@@ -530,7 +530,9 @@ class QueryOrganizer:
         copied.config["dataforge"] = {
             "forge_name": forge.name,
             "source_name": original_name,
+            "query_object_id": copied.id,
         }
+        copied.config["query_object_id"] = copied.id
         copied.source_design = copied.source_design or original_name
         query_object_store.save_object(copied)
 
@@ -546,6 +548,7 @@ class QueryOrganizer:
         ]
         forge.sources.append(DataForgeSource(
             query_name=copy_name,
+            query_object_id=copied.id,
             alias="",
             definition=copied.to_dict(),
         ))
@@ -553,6 +556,9 @@ class QueryOrganizer:
         sources = [name for name in config.get("sources", []) if name != copy_name]
         sources.append(copy_name)
         config["sources"] = sources
+        source_ids = [sid for sid in config.get("source_ids", []) if sid != copied.id]
+        source_ids.append(copied.id)
+        config["source_ids"] = source_ids
         forge.config = config
         dataforge_store.save_forge(forge)
         if move:

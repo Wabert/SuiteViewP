@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt, QMimeData, pyqtSignal, QPoint
+from PyQt6.QtCore import Qt, QMimeData, pyqtSignal, QPoint, QRect
 from PyQt6.QtGui import QFont, QDrag
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QMenu, QFrame, QApplication,
+    QScrollArea, QFrame, QApplication,
 )
+
+from suiteview.audit.query_builder_menu import query_builder_menu
 
 from ._styles import make_checkbox
 
@@ -35,8 +37,16 @@ _TOGGLE_STYLE = (
     "QPushButton:hover { background-color: #C5D8F5; }"
 )
 
-_ROW_STYLE_NORMAL = "background-color: #f0f0f0;"
-_ROW_STYLE_HOVER = "background-color: #E0E8F4;"
+_ROW_STYLE_NORMAL = (
+    "SelectFieldRow { border: 1px solid #C0C0C0;"
+    " border-radius: 2px; background-color: #f0f0f0; }"
+    "SelectFieldRow:hover { background-color: #E0E8F4; }"
+)
+_ROW_STYLE_SELECTED = (
+    "SelectFieldRow { border: 1px solid #D4AF37;"
+    " border-radius: 2px; background-color: #C7DCF4; }"
+    "SelectFieldRow:hover { background-color: #BCD3EE; }"
+)
 
 # MIME type — same as tables_dialog
 FIELD_DRAG_MIME = "application/x-audit-field-drag"
@@ -46,6 +56,7 @@ REORDER_MIME = "application/x-select-row-reorder"
 class SelectFieldRow(QFrame):
     """A single select-field entry: [toggle] DisplayName  (Table.Field)"""
     state_changed = pyqtSignal()
+    row_clicked = pyqtSignal(object, bool)
 
     def __init__(self, field_key: str, display_name: str,
                  parent: QWidget | None = None):
@@ -54,15 +65,12 @@ class SelectFieldRow(QFrame):
         self._display_name = display_name
         self._agg_idx = 0                # index into _AGGREGATES
         self._drag_start_pos: QPoint | None = None
+        self._selected = False
 
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setFixedHeight(26)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setStyleSheet(
-            "SelectFieldRow { border: 1px solid #C0C0C0;"
-            " border-radius: 2px; background-color: #f0f0f0; }"
-            "SelectFieldRow:hover { background-color: #E0E8F4; }"
-        )
+        self.setStyleSheet(_ROW_STYLE_NORMAL)
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(4, 2, 4, 2)
@@ -118,13 +126,7 @@ class SelectFieldRow(QFrame):
         self.state_changed.emit()
 
     def _show_agg_menu(self, pos):
-        menu = QMenu(self)
-        menu.setStyleSheet(
-            "QMenu { background-color: white; border: 1px solid #1E5BA8;"
-            " font-size: 9pt; }"
-            "QMenu::item { padding: 3px 16px; }"
-            "QMenu::item:selected { background-color: #A0C4E8; color: black; }"
-        )
+        menu = query_builder_menu(self)
         actions = []
         for i, name in enumerate(_AGGREGATES):
             act = menu.addAction(name)
@@ -157,11 +159,17 @@ class SelectFieldRow(QFrame):
             self._display_name = dn
             self.lbl_name.setText(dn)
 
+    def set_selected(self, selected: bool):
+        self._selected = selected
+        self.setStyleSheet(_ROW_STYLE_SELECTED if selected else _ROW_STYLE_NORMAL)
+
     # ── Drag support (reorder) ───────────────────────────────────────
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_start_pos = event.pos()
+            ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            self.row_clicked.emit(self, ctrl)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -241,6 +249,23 @@ class SelectTab(QScrollArea):
 
         self._rows: list[SelectFieldRow] = []
         self._field_set: set[str] = set()  # quick lookup of existing keys
+        self._selection: list[SelectFieldRow] = []
+        self._rubber_origin: QPoint | None = None
+
+        self._rubber = QFrame(self._container)
+        self._rubber.setStyleSheet(
+            "background-color: rgba(30, 91, 168, 25);"
+            " border: 1px dashed #1E5BA8;")
+        self._rubber.hide()
+        self._rubber.raise_()
+
+        self._container.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self._container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._container.customContextMenuRequested.connect(
+            lambda pos: self._show_selection_menu(None, pos))
+        self._container.mousePressEvent = self._container_mousePressEvent
+        self._container.mouseMoveEvent = self._container_mouseMoveEvent
+        self._container.mouseReleaseEvent = self._container_mouseReleaseEvent
 
         # Drop indicator (landing bar)
         self._drop_indicator = QFrame(self._container)
@@ -263,6 +288,10 @@ class SelectTab(QScrollArea):
             return
         row = SelectFieldRow(field_key, display_name, self._container)
         row.btn_remove.clicked.connect(lambda: self._remove_row(row))
+        row.row_clicked.connect(self._on_row_clicked)
+        row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        row.customContextMenuRequested.connect(
+            lambda pos, r=row: self._show_selection_menu(r, r.mapTo(self._container, pos)))
         row.state_changed.connect(self.state_changed)
         self._rows.append(row)
         self._field_set.add(field_key)
@@ -273,6 +302,10 @@ class SelectTab(QScrollArea):
         self.state_changed.emit()
 
     def _remove_row(self, row: SelectFieldRow):
+        if row not in self._rows:
+            return
+        if row in self._selection:
+            self._selection.remove(row)
         self._rows.remove(row)
         self._field_set.discard(row.field_key)
         self._layout.removeWidget(row)
@@ -280,6 +313,86 @@ class SelectTab(QScrollArea):
         row.deleteLater()
         self._update_hint_visibility()
         self.state_changed.emit()
+
+    def _clear_selection(self):
+        for row in self._selection:
+            row.set_selected(False)
+        self._selection.clear()
+
+    def _select_row(self, row: SelectFieldRow, *, additive: bool = False):
+        if not additive:
+            self._clear_selection()
+        if row not in self._selection:
+            self._selection.append(row)
+            row.set_selected(True)
+
+    def _on_row_clicked(self, row: SelectFieldRow, ctrl: bool):
+        if ctrl and row in self._selection:
+            self._selection.remove(row)
+            row.set_selected(False)
+            return
+        self._select_row(row, additive=ctrl)
+
+    def _remove_selected_rows(self):
+        for row in list(self._selection):
+            self._remove_row(row)
+        self._selection.clear()
+
+    def _show_selection_menu(self, clicked_row: SelectFieldRow | None, container_pos: QPoint):
+        if clicked_row is not None and clicked_row not in self._selection:
+            self._select_row(clicked_row)
+        if not self._selection:
+            return
+
+        count = len(self._selection)
+        menu = query_builder_menu(self._container)
+        if count > 1:
+            header = menu.addAction(f"{count} fields selected")
+            header.setEnabled(False)
+            menu.addSeparator()
+            act_delete = menu.addAction(f"Delete {count} Fields")
+        else:
+            act_delete = menu.addAction("Delete Field")
+
+        chosen = menu.exec(self._container.mapToGlobal(container_pos))
+        if chosen is act_delete:
+            self._remove_selected_rows()
+
+    def _container_mousePressEvent(self, event):
+        self._container.setFocus()
+        if event.button() == Qt.MouseButton.LeftButton:
+            if not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self._clear_selection()
+            self._rubber_origin = event.pos()
+            self._rubber.setGeometry(QRect(event.pos(), event.pos()).normalized())
+            self._rubber.show()
+            self._rubber.raise_()
+            event.accept()
+            return
+        QWidget.mousePressEvent(self._container, event)
+
+    def _container_mouseMoveEvent(self, event):
+        if self._rubber_origin is not None:
+            rect = QRect(self._rubber_origin, event.pos()).normalized()
+            self._rubber.setGeometry(rect)
+            event.accept()
+            return
+        QWidget.mouseMoveEvent(self._container, event)
+
+    def _container_mouseReleaseEvent(self, event):
+        if self._rubber_origin is not None and event.button() == Qt.MouseButton.LeftButton:
+            rect = QRect(self._rubber_origin, event.pos()).normalized()
+            self._rubber.hide()
+            self._rubber_origin = None
+            if rect.width() >= 4 or rect.height() >= 4:
+                if not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    self._clear_selection()
+                for row in self._rows:
+                    if row.geometry().intersects(rect):
+                        self._select_row(row, additive=True)
+            event.accept()
+            return
+        QWidget.mouseReleaseEvent(self._container, event)
 
     def _update_hint_visibility(self):
         self._hint.setVisible(len(self._rows) == 0)

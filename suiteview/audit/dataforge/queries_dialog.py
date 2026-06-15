@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QAbstractItemView, QPushButton, QMessageBox,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QSplitter,
-    QGroupBox, QMenu, QWidget, QStackedWidget,
+    QGroupBox, QWidget, QStackedWidget,
     QTextEdit,
 )
 
@@ -29,6 +29,7 @@ from suiteview.audit import qdef_store
 from suiteview.audit.query_object import object_from_saved_query, qdefinition_from_query_object
 from suiteview.audit import query_object_store
 from suiteview.audit import saved_query_store
+from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.audit.tabs._styles import TightItemDelegate
 
 if TYPE_CHECKING:
@@ -501,7 +502,7 @@ class QueriesFieldsDialog(QDialog):
         if item is None:
             return
         query_name = item.text()
-        menu = QMenu(self)
+        menu = query_builder_menu(self)
         act_inspect = menu.addAction("Inspect")
 
         # Run Query — load data into memory
@@ -702,7 +703,7 @@ class QueriesFieldsDialog(QDialog):
         item = self.tree_fields.itemAt(pos)
         if item is None:
             return
-        menu = QMenu(self)
+        menu = query_builder_menu(self)
         act_place = menu.addAction("Place on Filter")
         chosen = menu.exec(self.tree_fields.viewport().mapToGlobal(pos))
         if chosen is act_place:

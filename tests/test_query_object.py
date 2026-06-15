@@ -5,7 +5,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 import pandas as pd
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QListWidgetItem, QMessageBox, QPushButton, QWidget
 
 from suiteview.audit.qdefinition import QDefinition
@@ -799,7 +799,7 @@ class QueryObjectTests(unittest.TestCase):
                 # Browser items show the datasource tag (design §8).
                 self.assertEqual(
                     [window.left_tabs.tabText(index) for index in range(window.left_tabs.count())],
-                    ["Queried", "Data Sources", "Tables", "Registry"],
+                    ["Queries", "Data Sources", "Tables", "Registry"],
                 )
                 self.assertTrue(hasattr(window, "edit_search"))
                 self.assertTrue(hasattr(window, "edit_source_search"))
@@ -1294,6 +1294,14 @@ class QueryObjectTests(unittest.TestCase):
                 def setVisible(self, visible):
                     return None
 
+            class SqlTab:
+                def set_sql(self, sql):
+                    self.sql = sql
+
+            class Signal:
+                def emit(self, name):
+                    self.name = name
+
             class DummyAudit:
                 _current_mode = "cyberlife"
                 _cyberlife_saved_object_name = "Cyberlife Trad CV [Forge]"
@@ -1301,6 +1309,8 @@ class QueryObjectTests(unittest.TestCase):
                 cmb_system = Combo("I")
                 results_tab = object()
                 btn_save_cyberlife = Button()
+                sql_tab = SqlTab()
+                query_object_saved = Signal()
 
                 def _build_sql(self):
                     return "SELECT NEW_COL FROM DB2TAB.LH_BAS_POL"
@@ -1316,10 +1326,9 @@ class QueryObjectTests(unittest.TestCase):
             self.assertIsNotNone(saved)
             self.assertEqual(saved.sql, "SELECT NEW_COL FROM DB2TAB.LH_BAS_POL")
             self.assertEqual(saved.config["criteria"], {"new": True})
-            self.assertEqual(saved.config["dataforge"], {
-                "forge_name": "Forge",
-                "source_name": "Cyberlife Trad CV",
-            })
+            self.assertEqual(saved.config["dataforge"]["forge_name"], "Forge")
+            self.assertEqual(saved.config["dataforge"]["source_name"], "Cyberlife Trad CV")
+            self.assertEqual(saved.config["dataforge"]["query_object_id"], saved.id)
 
         if old_obj_dir is None:
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
@@ -1349,6 +1358,61 @@ class QueryObjectTests(unittest.TestCase):
         picker._open_query_builder("Claims [Forge]")
 
         self.assertEqual(calls, ["Claims [Forge]"])
+
+    def test_forge_assist_builder_save_signal_refreshes_private_source_sql(self):
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_qdefs_dir = qdef_store._QDEFS_DIR
+        with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+            qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
+
+            obj = cyberlife_query_object(
+                "Cyberlife Trad CV [Forge]",
+                sql="SELECT TCH_POL_ID FROM DB2TAB.LH_BAS_POL FETCH FIRST 25 ROWS ONLY",
+                dsn="CKPR_DSN",
+                region="CKPR",
+                system_code="I",
+                criteria={"max_count": "25"},
+                result_columns=["TCH_POL_ID"],
+            )
+            obj.config["dataforge"] = {
+                "forge_name": "Forge",
+                "source_name": "Cyberlife Trad CV",
+            }
+            save_object(obj)
+
+            picker = QueryFieldPicker()
+            picker.set_sources([obj.name], forge_name="Forge")
+            refreshed = []
+            picker.source_refreshed.connect(lambda old, qd: refreshed.append((old, qd)))
+
+            class FakeAuditWindow(QObject):
+                query_object_saved = pyqtSignal(str)
+
+            window = FakeAuditWindow()
+            with patch("suiteview.audit.main.create_audit_window", return_value=window):
+                self.assertIs(picker._new_audit_window_for_builder(obj.name), window)
+
+            obj.sql = "SELECT TCH_POL_ID FROM DB2TAB.LH_BAS_POL"
+            obj.config["criteria"] = {"max_count": ""}
+            save_object(obj)
+
+            window.query_object_saved.emit(obj.name)
+
+            self.assertEqual(len(refreshed), 1)
+            self.assertNotIn("FETCH FIRST 25 ROWS ONLY", picker._sources[obj.name].sql)
+            self.assertEqual(
+                picker._sources[obj.name].query_object_config["criteria"],
+                {"max_count": ""},
+            )
+
+        qdef_store._QDEFS_DIR = old_qdefs_dir
+        if old_obj_dir is None:
+            os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+        else:
+            os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
 
     def test_forge_assist_query_double_click_requests_join_table(self):
         app = QApplication.instance() or QApplication([])
@@ -1468,6 +1532,151 @@ class QueryObjectTests(unittest.TestCase):
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
+    def test_forge_assist_rename_updates_display_label_and_private_copy(self):
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_qdefs_dir = qdef_store._QDEFS_DIR
+        picker = None
+        try:
+            with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs:
+                os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+                qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
+
+                forge_name = "Forge"
+                old_name = "Claims [Forge]"
+                new_name = "Claims Latest [Forge]"
+                forge_copy = manual_sql_query_object(
+                    old_name,
+                    sql="SELECT claim_id, amount FROM CLAIMS",
+                    dsn="FAKE_DSN",
+                    result_columns=["claim_id", "amount"],
+                )
+                forge_copy.config["dataforge"] = {
+                    "forge_name": forge_name,
+                    "source_name": "Claims",
+                }
+                save_object(forge_copy)
+                qd = qdefinition_from_query_object(forge_copy)
+                qd.forge_name = forge_name
+                qdef_store.save_qdef(qd)
+
+                picker = QueryFieldPicker()
+                picker.set_sources(
+                    [old_name],
+                    forge_name=forge_name,
+                    source_definitions={old_name: qd},
+                )
+                emitted = []
+                picker.source_refreshed.connect(
+                    lambda old, refreshed: emitted.append((old, refreshed.name)))
+
+                with patch(
+                    "PyQt6.QtWidgets.QInputDialog.getText",
+                    return_value=("Claims Latest", True),
+                ):
+                    picker._rename_qdef(old_name)
+
+                self.assertNotIn(old_name, picker._sources)
+                self.assertIn(new_name, picker._sources)
+                self.assertEqual(
+                    QueryFieldPicker._source_display_name(picker._sources[new_name]),
+                    "Claims Latest",
+                )
+                renamed = load_object_by_id(forge_copy.id)
+                self.assertIsNotNone(renamed)
+                self.assertEqual(renamed.name, new_name)
+                self.assertEqual(
+                    renamed.config["dataforge"],
+                    {
+                        "forge_name": forge_name,
+                        "source_name": "Claims Latest",
+                        "query_object_id": forge_copy.id,
+                    },
+                )
+                self.assertIsNone(qdef_store.load_qdef(old_name, forge_name=forge_name))
+                self.assertIsNotNone(qdef_store.load_qdef(new_name, forge_name=forge_name))
+                self.assertEqual(emitted, [(old_name, new_name)])
+        finally:
+            if picker is not None:
+                picker.close()
+            qdef_store._QDEFS_DIR = old_qdefs_dir
+            if old_obj_dir is None:
+                os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+            else:
+                os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
+
+    def test_forge_assist_rename_allows_stale_target_for_same_source_id(self):
+        app = QApplication.instance() or QApplication([])
+        self.assertIsNotNone(app)
+        old_obj_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_qdefs_dir = qdef_store._QDEFS_DIR
+        picker = None
+        try:
+            with tempfile.TemporaryDirectory() as tmp_objects, tempfile.TemporaryDirectory() as tmp_qdefs:
+                os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_objects
+                qdef_store._QDEFS_DIR = qdef_store.Path(tmp_qdefs)
+
+                forge_name = "Forge"
+                old_name = "Claims [Forge]"
+                new_name = "CL LTGUL [Forge]"
+                forge_copy = manual_sql_query_object(
+                    old_name,
+                    sql="SELECT claim_id, amount FROM CLAIMS",
+                    dsn="FAKE_DSN",
+                    result_columns=["claim_id", "amount"],
+                )
+                forge_copy.config["dataforge"] = {
+                    "forge_name": forge_name,
+                    "source_name": "Claims",
+                }
+                save_object(forge_copy)
+                old_qd = qdefinition_from_query_object(forge_copy)
+                old_qd.forge_name = forge_name
+                qdef_store.save_qdef(old_qd)
+
+                stale_target = qdefinition_from_query_object(forge_copy)
+                stale_target.name = new_name
+                stale_target.forge_name = forge_name
+                stale_config = dict(stale_target.query_object_config or {})
+                stale_dataforge = dict(stale_config.get("dataforge", {}) or {})
+                stale_dataforge["source_name"] = "CL LTGUL"
+                stale_config["dataforge"] = stale_dataforge
+                stale_target.query_object_config = stale_config
+                qdef_store.save_qdef(stale_target)
+
+                picker = QueryFieldPicker()
+                picker.set_sources(
+                    [old_name],
+                    forge_name=forge_name,
+                    source_definitions={old_name: old_qd},
+                )
+
+                with patch(
+                    "PyQt6.QtWidgets.QInputDialog.getText",
+                    return_value=("CL LTGUL", True),
+                ), patch("PyQt6.QtWidgets.QMessageBox.warning") as warning:
+                    picker._rename_qdef(old_name)
+
+                warning.assert_not_called()
+                self.assertNotIn(old_name, picker._sources)
+                self.assertIn(new_name, picker._sources)
+                self.assertEqual(
+                    QueryFieldPicker._source_display_name(picker._sources[new_name]),
+                    "CL LTGUL",
+                )
+                self.assertIsNone(qdef_store.load_qdef(old_name, forge_name=forge_name))
+                self.assertIsNotNone(qdef_store.load_qdef(new_name, forge_name=forge_name))
+                self.assertEqual(load_object_by_id(forge_copy.id).name, new_name)
+        finally:
+            if picker is not None:
+                picker.close()
+            qdef_store._QDEFS_DIR = old_qdefs_dir
+            if old_obj_dir is None:
+                os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
+            else:
+                os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_obj_dir
 
     def test_forge_assist_selector_groups_dataforge_like_browser(self):
         normal = manual_sql_query_object(

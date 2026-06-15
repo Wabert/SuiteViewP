@@ -563,7 +563,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         queried_lay.setContentsMargins(3, 3, 3, 3)
         queried_lay.setSpacing(4)
 
-        lbl_left = QLabel("Queried Objects")
+        lbl_left = QLabel("Queries")
         lbl_left.setFont(_FONT_BOLD)
         lbl_left.setStyleSheet("color: #1E5BA8;")
         queried_lay.addWidget(lbl_left)
@@ -602,7 +602,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.tree.customContextMenuRequested.connect(self._show_tree_context_menu)
         queried_lay.addWidget(self.tree, 1)
 
-        self.left_tabs.addTab(queried_panel, "Queried")
+        self.left_tabs.addTab(queried_panel, "Queries")
         self.left_tabs.addTab(self._build_data_source_panel(), "Data Sources")
         self._tables_left_host = self._make_embedded_host()
         self._registry_left_host = self._make_embedded_host()
@@ -984,7 +984,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             if obj is not None:
                 return f"{_kind_label(obj.kind)}: {obj.name}"
             name = str(payload.get("name", "")).strip()
-            return f"Queried Objects: {name}" if name else "Queried Objects"
+            return f"Queries: {name}" if name else "Queries"
         if payload_type == "group":
             name = str(payload.get("name", "")).strip()
             return f"Query Groups: {name}" if name else "Query Groups"
@@ -992,7 +992,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             name = str(payload.get("name", "")).strip()
             display_name = _dataforge_display_name(name) if name else ""
             return f"DataForge: {display_name}" if display_name else "DataForge"
-        return "Queried Objects"
+        return "Queries"
 
     def _data_source_canvas_title(self) -> str:
         payload = _payload(self.source_tree.currentItem()) if hasattr(self, "source_tree") else {}
@@ -1751,8 +1751,10 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         if payload.get("type") == "forge":
             self._open_dataforge_builder(payload.get("name", ""))
             return
-        if payload.get("type") == "query" and payload.get("forge"):
-            self._open_dataforge_builder(payload["forge"])
+        if payload.get("type") == "query":
+            obj = query_object_store.load_object_by_id(payload.get("id", ""))
+            if obj is not None and self._can_open_in_builder(obj):
+                self._open_query_object_builder(obj.name)
             return
         if self._current is not None and self._can_open_in_builder(self._current):
             self._on_open_builder()
@@ -1765,8 +1767,13 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         # Background: organizer-level actions.
         if item is None or not payload:
             menu = QMenu(self)
+            new_query, new_forge = self._add_creation_actions(menu)
+            menu.addSeparator()
             new_group = menu.addAction("New Query Group...")
-            if menu.exec(global_pos) == new_group:
+            chosen = menu.exec(global_pos)
+            if self._handle_creation_action(chosen, new_query, new_forge):
+                return
+            if chosen == new_group:
                 self._on_new_group()
             return
 
@@ -1792,6 +1799,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         clone = menu.addAction("Clone Group (with queries)")
         clone.setEnabled(not is_commons)
         menu.addSeparator()
+        new_query, new_forge = self._add_creation_actions(menu)
         new_group = menu.addAction("New Query Group...")
         menu.addSeparator()
         delete = menu.addAction("Delete Group and Queries")
@@ -1807,6 +1815,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             organizer.clone_group(group_id)
             organizer.save()
             self.refresh()
+        elif self._handle_creation_action(chosen, new_query, new_forge):
+            return
         elif chosen == new_group:
             self._on_new_group()
         elif chosen == delete:
@@ -1874,6 +1884,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         clone = menu.addAction("Clone DataForge (with Sources + Snapshots)")
         menu.addSeparator()
         delete_forge = menu.addAction("Delete DataForge")
+        menu.addSeparator()
+        new_query, new_forge = self._add_creation_actions(menu)
 
         chosen = menu.exec(global_pos)
         if chosen == open_forge:
@@ -1891,6 +1903,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                     f"included, ready to run.")
         elif chosen == delete_forge:
             self._delete_dataforge(forge_name)
+        elif self._handle_creation_action(chosen, new_query, new_forge):
+            return
 
     def _query_context_menu(self, payload: dict, global_pos):
         obj = query_object_store.load_object_by_id(payload["id"])
@@ -1902,8 +1916,12 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         rename = menu.addAction("Rename")
         copy_here = menu.addAction("Copy")
         delete = menu.addAction("Delete")
+        menu.addSeparator()
+        new_query, new_forge = self._add_creation_actions(menu)
 
         chosen = menu.exec(global_pos)
+        if self._handle_creation_action(chosen, new_query, new_forge):
+            return
         if chosen is None:
             return
         if chosen == rename:
@@ -1964,9 +1982,13 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         move_out = menu.addAction("Move out to Browser")
         menu.addSeparator()
         remove = menu.addAction("Remove from DataForge")
+        menu.addSeparator()
+        new_query, new_forge = self._add_creation_actions(menu)
 
         chosen = menu.exec(global_pos)
         organizer = get_query_organizer()
+        if self._handle_creation_action(chosen, new_query, new_forge):
+            return
         if chosen == rename:
             self._rename_forge_query_object(forge_name, obj)
         elif chosen == open_forge:
@@ -2160,6 +2182,35 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             organizer.copy_query(obj.id, target.get("group_id"))
         organizer.save()
         self.refresh()
+
+    def _add_creation_actions(self, menu: QMenu):
+        new_query = menu.addAction("New Query")
+        new_forge = menu.addAction("New Forge")
+        return new_query, new_forge
+
+    def _handle_creation_action(self, chosen, new_query, new_forge) -> bool:
+        if chosen == new_query:
+            self._on_new_query()
+            return True
+        if chosen == new_forge:
+            self._on_new_forge()
+            return True
+        return False
+
+    def _on_new_query(self):
+        parent = self._audit_window_for_builder()
+        opener = getattr(parent, "_show_new_object_menu", None)
+        if opener is None:
+            QMessageBox.information(
+                self,
+                "Builder Unavailable",
+                "Could not open the Query builder chooser.",
+            )
+            return
+        opener()
+
+    def _on_new_forge(self):
+        self._open_dataforge_builder("")
 
     def _on_new_group(self):
         name, ok = QInputDialog.getText(self, "New Query Group", "Group name:")
@@ -2965,6 +3016,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return
         if self._current is None:
             return
+        self._open_query_object_builder(self._current.name)
+
+    def _open_query_object_builder(self, object_name: str):
         parent = self._audit_window_for_builder()
         opener = getattr(parent, "open_query_object_in_builder", None)
         if opener is None:
@@ -2974,7 +3028,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 "Could not open the Audit builder for this Query Object.",
             )
             return
-        opener(self._current.name)
+        opener(object_name)
 
     def _open_dataforge_builder(self, forge_name: str):
         parent = self._audit_window_for_builder()
