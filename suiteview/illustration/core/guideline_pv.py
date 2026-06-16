@@ -44,6 +44,7 @@ from typing import List, Optional, Tuple
 
 from suiteview.illustration.core.monthly_guideline import (
     GLP_RATE_FLOOR,
+    GSP_RATE_SPREAD,
     GuidelineBasis,
     _anniversary_months,
 )
@@ -115,6 +116,7 @@ def guideline_pv_rows(
             pv_ann_cum += pv_ann
             pv_load = (gm.tpp - gm.epp) * basis.ctp * tp * disc
             pv_load_cum += pv_load
+        target_load_diff = (gm.tpp - gm.epp) * basis.ctp if pv_ann else 0.0
 
         row = {
             "Policy Month": m + 1,
@@ -136,6 +138,8 @@ def guideline_pv_rows(
         row["PVDB"] = round(pv_db, 4)
         row["PV Charges"] = round(pv_chg, 4)
         row["PV Annuity"] = round(pv_ann, 8) if is_prem else 0.0
+        row["Target Load Diff"] = round(target_load_diff, 2)
+        row["PV Target Load Diff"] = round(pv_load, 4)
         rows.append(row)
 
         # Advance survival and discount to the next month start.
@@ -162,6 +166,8 @@ def guideline_pv_rows(
         "PVDB": round(pv_endow, 4),
         "PV Charges": 0.0,
         "PV Annuity": 0.0,
+        "Target Load Diff": 0.0,
+        "PV Target Load Diff": 0.0,
         "_endowment": True,
     })
 
@@ -194,6 +200,26 @@ def guideline_pv_rows(
     return rows, rollup
 
 
+def _guideline_premium_detail(
+    basis: GuidelineBasis,
+    *,
+    premium_label: str,
+    annual_rate: float,
+    premium_months: set[int],
+    db_option: str | None = None,
+) -> dict:
+    rows, rollup = guideline_pv_rows(basis, annual_rate, premium_months)
+    return {
+        "premium_label": premium_label,
+        "attained_age": basis.months[0].attained_age if basis.months else 0,
+        "specified_amount": basis.total_sa,
+        "db_option": db_option or basis.db_option,
+        "glp_rate": annual_rate,
+        "glp_rows": rows,
+        "glp_rollup": rollup,
+    }
+
+
 def guideline_glp_detail(basis: GuidelineBasis) -> dict:
     """Monthly-PV GLP vectors + roll-up for the Values-tab drill-down.
 
@@ -203,12 +229,25 @@ def guideline_glp_detail(basis: GuidelineBasis) -> dict:
     4%).
     """
     glp_rate = max(basis.guaranteed_rate, GLP_RATE_FLOOR)
-    rows, rollup = guideline_pv_rows(basis, glp_rate, _anniversary_months(basis))
-    return {
-        "attained_age": basis.months[0].attained_age if basis.months else 0,
-        "specified_amount": basis.total_sa,
-        "db_option": basis.db_option,
-        "glp_rate": glp_rate,
-        "glp_rows": rows,
-        "glp_rollup": rollup,
-    }
+    return _guideline_premium_detail(
+        basis,
+        premium_label="GLP",
+        annual_rate=glp_rate,
+        premium_months=_anniversary_months(basis),
+    )
+
+
+def guideline_gsp_detail(basis: GuidelineBasis) -> dict:
+    """Monthly-PV GSP vectors + roll-up for the Values-tab drill-down.
+
+    The GSP is the single premium paid at the calculation month, at max
+    (guaranteed, 6%), and follows the same level-DB mechanics as the solver.
+    """
+    gsp_rate = max(basis.guaranteed_rate, GLP_RATE_FLOOR + GSP_RATE_SPREAD)
+    return _guideline_premium_detail(
+        basis,
+        premium_label="GSP",
+        annual_rate=gsp_rate,
+        premium_months={0},
+        db_option="A",
+    )

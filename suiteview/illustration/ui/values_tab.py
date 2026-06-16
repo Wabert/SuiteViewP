@@ -8,11 +8,11 @@ import pandas as pd
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QLabel,
-    QSplitter,
     QStackedWidget,
+    QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -247,46 +247,12 @@ def _recalc_delta(detail: dict, key: str):
     return after - before
 
 
-def _rollup_dataframe(rollup: dict) -> pd.DataFrame:
-    """Two-column Metric/Value frame for a commutation roll-up, money- and
-    rate-formatted so a single column reads cleanly."""
-    money_keys = {
-        "PV benefit (SA*A)", "PV expense (fee*a)", "PV additional charges",
-        "load $ term", "numerator", "premium",
-    }
-    rows = []
-    for key, value in rollup.items():
-        if isinstance(value, (int, float)) and key in money_keys:
-            text = f"{value:,.2f}"
-        elif isinstance(value, float):
-            text = f"{value:,.6f}"
-        else:
-            text = str(value)
-        rows.append({"Metric": key, "Value": text})
-    return pd.DataFrame(rows)
-
-
 class GuidelineRecalcView(QWidget):
-    """Calc detail for the first 7702 guideline re-solve in a projection.
-
-    When a policy change (or an SA-reducing withdrawal) recalculates the
-    guideline premiums, the engine records the before/after GLP & GSP solves on
-    that month's state plus the closed-form commutation basis for each. This
-    panel explains that *first* recalc:
-
-    * a summary table — before/after GLP & GSP and the resulting prior → new
-      (``new = prior + (after − before)``); and
-    * a commutation drill-down — pick Before/After × GLP/GSP and see every
-      vector (qx, lx, dx, Dx, Cx, Mx, Nx) and the present-value roll-up that
-      builds the closed-form premium.
-
-    Greyed with an italic note when the projection has no recalc.
-    """
+    """Calc detail for the first 7702 guideline re-solve in a projection."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
-        self._commutation: dict | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -306,72 +272,37 @@ class GuidelineRecalcView(QWidget):
         )
         layout.addWidget(self.empty_note)
 
-        self.summary_grid = FilterTableView(self)
+        self.tabs = QTabWidget(self)
+        self.tabs.setStyleSheet(
+            "QTabWidget::pane { border: 1px solid #B79CDE; background: #F6F1FB; }"
+            "QTabBar::tab { background: #E8DDF8; color: #2A1458; border: 1px solid #B79CDE;"
+            " border-bottom: none; padding: 4px 10px; font-size: 11px; font-weight: bold; }"
+            "QTabBar::tab:selected { background: #5E35A5; color: #FFD54F; }"
+        )
+
+        summary_page = QWidget(self.tabs)
+        summary_layout = QVBoxLayout(summary_page)
+        summary_layout.setContentsMargins(4, 4, 4, 4)
+        summary_layout.setSpacing(4)
+        self.summary_grid = FilterTableView(summary_page)
         self.summary_grid.set_search_visible(False)
         self.summary_grid.apply_ledger_style()
         self.summary_grid.set_sort_enabled(False)
-        self.summary_grid.setMaximumHeight(96)
-        layout.addWidget(self.summary_grid, 0)
+        summary_layout.addWidget(self.summary_grid, 1)
+        self.tabs.addTab(summary_page, "Summary")
 
-        # ── Closed-form commutation drill-down ──
-        self.comm_section = QWidget(self)
-        comm_layout = QVBoxLayout(self.comm_section)
-        comm_layout.setContentsMargins(0, 0, 0, 0)
-        comm_layout.setSpacing(4)
+        self.pv_views: dict[tuple[str, str], GuidelinePvDetailView] = {}
+        for key, title in (
+            (("glp", "before"), "GLP Before"),
+            (("glp", "after"), "GLP After"),
+            (("gsp", "before"), "GSP Before"),
+            (("gsp", "after"), "GSP After"),
+        ):
+            view = GuidelinePvDetailView(self.tabs, search_visible=False)
+            self.pv_views[key] = view
+            self.tabs.addTab(view, title)
 
-        controls = QHBoxLayout()
-        controls.setSpacing(6)
-        label_css = f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;"
-        combo_css = (
-            "QComboBox { background: white; border: 1px solid #B79CDE; border-radius: 4px;"
-            " padding: 1px 6px; font-size: 11px; color: #2A1458; min-height: 18px; }"
-        )
-        comm_title = QLabel("Closed-form commutation", self.comm_section)
-        comm_title.setStyleSheet(label_css)
-        controls.addWidget(comm_title)
-        controls.addSpacing(10)
-        state_label = QLabel("State:", self.comm_section)
-        state_label.setStyleSheet(label_css)
-        controls.addWidget(state_label)
-        self.state_combo = QComboBox(self.comm_section)
-        self.state_combo.addItems(["After change", "Before change"])
-        self.state_combo.setStyleSheet(combo_css)
-        controls.addWidget(self.state_combo)
-        controls.addSpacing(8)
-        basis_label = QLabel("Basis:", self.comm_section)
-        basis_label.setStyleSheet(label_css)
-        controls.addWidget(basis_label)
-        self.basis_combo = QComboBox(self.comm_section)
-        self.basis_combo.addItems(["GLP (4%)", "GSP (6%)"])
-        self.basis_combo.setStyleSheet(combo_css)
-        controls.addWidget(self.basis_combo)
-        controls.addStretch(1)
-        self.rollup_summary = QLabel("", self.comm_section)
-        self.rollup_summary.setStyleSheet(
-            f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;")
-        controls.addWidget(self.rollup_summary)
-        comm_layout.addLayout(controls)
-
-        split = QSplitter(Qt.Orientation.Horizontal, self.comm_section)
-        split.setHandleWidth(4)
-        self.vectors_grid = FilterTableView(split)
-        self.vectors_grid.set_search_visible(False)
-        self.vectors_grid.apply_ledger_style()
-        self.vectors_grid.set_sort_enabled(False)
-        split.addWidget(self.vectors_grid)
-        self.rollup_grid = FilterTableView(split)
-        self.rollup_grid.set_search_visible(False)
-        self.rollup_grid.apply_ledger_style()
-        self.rollup_grid.set_sort_enabled(False)
-        split.addWidget(self.rollup_grid)
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 0)
-        split.setSizes([760, 230])
-        comm_layout.addWidget(split, 1)
-        layout.addWidget(self.comm_section, 1)
-
-        self.state_combo.currentIndexChanged.connect(self._refresh_commutation)
-        self.basis_combo.currentIndexChanged.connect(self._refresh_commutation)
+        layout.addWidget(self.tabs, 1)
 
         self.clear()
 
@@ -383,10 +314,10 @@ class GuidelineRecalcView(QWidget):
             self.header.setText("Guideline Recalc")
             self.empty_note.setText("No guideline recalculation in this projection.")
             self.empty_note.setVisible(True)
-            self.summary_grid.setVisible(False)
             self.summary_grid.set_dataframe(pd.DataFrame(), limit_rows=False)
-            self.comm_section.setVisible(False)
-            self._commutation = None
+            for view in self.pv_views.values():
+                view.clear()
+            self.tabs.setVisible(False)
             return
 
         when = detail.get("change_date")
@@ -395,71 +326,36 @@ class GuidelineRecalcView(QWidget):
             f"Guideline recalculated {when_text}   ·   {detail.get('change_kind', '')}"
             "   ·   new = prior + (after − before)")
         self.empty_note.setVisible(False)
+        self.tabs.setVisible(True)
 
         rows = [
             {
                 "Premium": "GLP",
+                "Prior Prem": detail.get("glp_prior"),
                 "Before Change": detail.get("glp_before"),
                 "After Change": detail.get("glp_after"),
                 "Δ (After − Before)": _recalc_delta(detail, "glp"),
-                "Prior Value": detail.get("glp_prior"),
-                "New Value": detail.get("glp_new"),
+                "New Prem": detail.get("glp_new"),
             },
             {
                 "Premium": "GSP",
+                "Prior Prem": detail.get("gsp_prior"),
                 "Before Change": detail.get("gsp_before"),
                 "After Change": detail.get("gsp_after"),
                 "Δ (After − Before)": _recalc_delta(detail, "gsp"),
-                "Prior Value": detail.get("gsp_prior"),
-                "New Value": detail.get("gsp_new"),
+                "New Prem": detail.get("gsp_new"),
             },
         ]
-        self.summary_grid.setVisible(True)
         self.summary_grid.set_dataframe(pd.DataFrame(rows), limit_rows=False)
         self.summary_grid.set_numeric_formatting(default_decimals=2)
         if self.summary_grid.model is not None:
             self.summary_grid.model._left_align_columns = {0}
         self.summary_grid.autofit_columns_to_data()
 
-        commutation = detail.get("commutation") or {}
-        has_comm = bool(commutation.get("before") or commutation.get("after"))
-        self._commutation = commutation if has_comm else None
-        self.comm_section.setVisible(has_comm)
-        if has_comm:
-            self._refresh_commutation()
-
-    def _refresh_commutation(self):
-        if not self._commutation:
-            return
-        side = "before" if self.state_combo.currentIndex() == 1 else "after"
-        basis = "gsp" if self.basis_combo.currentIndex() == 1 else "glp"
-        detail = self._commutation.get(side) or {}
-        # Fall back to whichever side exists (a fully-injected recalc may have
-        # only one) so the grid never blanks out unexpectedly.
-        if not detail:
-            detail = self._commutation.get("after") or self._commutation.get("before") or {}
-        rows = detail.get(f"{basis}_rows") or []
-        rollup = detail.get(f"{basis}_rollup") or {}
-
-        self.vectors_grid.set_dataframe(
-            pd.DataFrame(rows) if rows else pd.DataFrame(), limit_rows=False)
-        if rows and self.vectors_grid.model is not None:
-            self.vectors_grid.model._left_align_columns = {0, 1}
-        self.vectors_grid.autofit_columns_to_data()
-
-        self.rollup_grid.set_dataframe(_rollup_dataframe(rollup), limit_rows=False)
-        if rollup and self.rollup_grid.model is not None:
-            self.rollup_grid.model._left_align_columns = {0}
-        self.rollup_grid.autofit_columns_to_data()
-
-        premium = rollup.get("premium")
-        sa = detail.get("specified_amount")
-        bits = []
-        if sa is not None:
-            bits.append(f"SA {sa:,.0f}")
-        if premium is not None:
-            bits.append(f"{basis.upper()} = {premium:,.2f}")
-        self.rollup_summary.setText("   ·   ".join(bits))
+        pv = detail.get("monthly_pv_recalc") or {}
+        for (basis, side), view in self.pv_views.items():
+            view.show_detail(((pv.get(side) or {}).get(basis)) or None)
+        self.tabs.setCurrentIndex(0)
 
 
 class IllustrationValuesTab(QWidget):
@@ -781,8 +677,6 @@ class IllustrationValuesTab(QWidget):
     ]
     # Event-based group (not a monthly grid): the first guideline re-solve.
     GUIDELINE_RECALC_GROUP = "Guideline Recalc"
-    # Month-by-month present-value breakdown of that re-solve's GLP.
-    GUIDELINE_PV_GROUP = "Guideline PV Detail"
     TAB_ORDER = [
         SUMMARY_GROUP,
         WITHDRAWALS_GROUP,
@@ -916,9 +810,6 @@ class IllustrationValuesTab(QWidget):
         # Guideline Recalc trails the per-month grids: an event view, not a grid.
         self.recalc_view = GuidelineRecalcView(self.content_stack)
         self._add_content_page(self.GUIDELINE_RECALC_GROUP, self.recalc_view)
-        # Guideline PV Detail: the month-by-month present value behind that GLP.
-        self.pv_view = GuidelinePvDetailView(self.content_stack)
-        self._add_content_page(self.GUIDELINE_PV_GROUP, self.pv_view)
         self.body.addWidget(self.content_stack)
 
         # ── Month Inspector: the per-month waterfall ──
@@ -1018,13 +909,10 @@ class IllustrationValuesTab(QWidget):
                 leaf.setData(0, Qt.ItemDataRole.UserRole, (title, column_name))
                 stage.addChild(leaf)
             self.nav_tree.addTopLevelItem(stage)
-        # Guideline Recalc + PV Detail trail the column groups as leaf jumps.
+        # Guideline Recalc trails the column groups as a leaf jump.
         recalc = QTreeWidgetItem([self.GUIDELINE_RECALC_GROUP])
         recalc.setData(0, Qt.ItemDataRole.UserRole, (self.GUIDELINE_RECALC_GROUP, None))
         self.nav_tree.addTopLevelItem(recalc)
-        pv_detail = QTreeWidgetItem([self.GUIDELINE_PV_GROUP])
-        pv_detail.setData(0, Qt.ItemDataRole.UserRole, (self.GUIDELINE_PV_GROUP, None))
-        self.nav_tree.addTopLevelItem(pv_detail)
 
     def _filter_navigator(self, text: str):
         needle = text.strip().lower()
@@ -1055,9 +943,6 @@ class IllustrationValuesTab(QWidget):
             return
         if title == self.GUIDELINE_RECALC_GROUP:
             self.content_stack.setCurrentWidget(self.recalc_view)
-            return
-        if title == self.GUIDELINE_PV_GROUP:
-            self.content_stack.setCurrentWidget(self.pv_view)
             return
         grid = self._tab_grids.get(title)
         if grid is None:
@@ -1112,7 +997,6 @@ class IllustrationValuesTab(QWidget):
         self.charges_chart.clear()
         self.inspector.clear()
         self.recalc_view.clear()
-        self.pv_view.clear()
         self.nav_tree.clear()
         self._results = []
         self._inspected_row = None
@@ -1187,7 +1071,6 @@ class IllustrationValuesTab(QWidget):
             None,
         )
         self.recalc_view.show_recalc(first_recalc)
-        self.pv_view.show_detail((first_recalc or {}).get("monthly_pv"))
         self._rebuild_navigator(navigator_columns)
         self.overview.display(policy, result_list)
         self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)

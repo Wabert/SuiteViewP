@@ -104,9 +104,16 @@ def test_values_tab_uses_one_content_page_per_group_each_leading_with_locators()
         "Shadow Account",
         "Testing",
         "Guideline Recalc",
-        "Guideline PV Detail",
     ]
-    assert tab.findChildren(QTabWidget) == []
+    recalc_tabs = tab.recalc_view.tabs
+    assert tab.findChildren(QTabWidget) == [recalc_tabs]
+    assert [recalc_tabs.tabText(index) for index in range(recalc_tabs.count())] == [
+        "Summary",
+        "GLP Before",
+        "GLP After",
+        "GSP Before",
+        "GSP After",
+    ]
 
     for title, grid in tab._tab_grids.items():
         columns = list(grid.df.columns)
@@ -138,6 +145,74 @@ def test_values_group_navigator_is_permanent():
     assert not hasattr(tab, "nav_toggle")
     assert tab.nav_header.text() == "Values Group"
     assert not tab.navigator.isHidden()
+
+
+def test_guideline_recalc_group_renders_summary_and_pv_tabs():
+    _app()
+    tab = IllustrationValuesTab()
+
+    def detail(label, premium):
+        return {
+            "premium_label": label,
+            "attained_age": 45,
+            "specified_amount": 100000.0,
+            "db_option": "A",
+            "glp_rate": 0.04 if label == "GLP" else 0.06,
+            "glp_rows": [
+                {"Policy Month": 1, "Age": 45, "q'x": 0.001, "p'x": 0.999,
+                 "tp'x": 1.0, "v^t": 1.0, "v^(t+1)": 0.9967,
+                 "Death Benefit": 100000.0, "Charges": 12.0,
+                 "PVDB": 99.67, "PV Charges": 11.96, "PV Annuity": 1.0},
+            ],
+            "glp_rollup": {
+                "PV death benefit": 99.67,
+                "PV maturity endowment": 1000.0,
+                "PVDB (= SA endowment)": 1099.67,
+                "PV Charges": 11.96,
+                "load $ term": 0.0,
+                "PV Annuity (gross)": 1.0,
+                "load %": 0.0,
+                "PV Annuity (net of load)": 1.0,
+                "numerator": premium,
+                "denominator": 1.0,
+                "premium": premium,
+            },
+        }
+
+    state = _state()
+    state.guideline_recalc = {
+        "change_kind": "Specified Amount Change",
+        "change_date": date(2026, 5, 15),
+        "glp_before": 100.0,
+        "glp_after": 125.0,
+        "gsp_before": 1000.0,
+        "gsp_after": 950.0,
+        "glp_prior": 90.0,
+        "glp_new": 115.0,
+        "gsp_prior": 1100.0,
+        "gsp_new": 1050.0,
+        "monthly_pv_recalc": {
+            "before": {"glp": detail("GLP", 100.0), "gsp": detail("GSP", 1000.0)},
+            "after": {"glp": detail("GLP", 125.0), "gsp": detail("GSP", 950.0)},
+        },
+        "monthly_pv": detail("GLP", 125.0),
+    }
+
+    tab.display_projection(_policy(), [state])
+
+    summary = tab.recalc_view.summary_grid.df
+    assert list(summary.columns) == [
+        "Premium", "Prior Prem", "Before Change", "After Change",
+        "Δ (After − Before)", "New Prem",
+    ]
+    assert summary.iloc[0].to_dict() == {
+        "Premium": "GLP", "Prior Prem": 90.0, "Before Change": 100.0,
+        "After Change": 125.0, "Δ (After − Before)": 25.0, "New Prem": 115.0,
+    }
+    assert tab.recalc_view.pv_views[("glp", "before")]._detail["premium_label"] == "GLP"
+    assert tab.recalc_view.pv_views[("gsp", "after")]._detail["premium_label"] == "GSP"
+    assert "GSP =" in tab.recalc_view.pv_views[("gsp", "after")].header.text()
+    assert not tab.recalc_view.pv_views[("gsp", "after")].grid.search_bar.isVisible()
 
 
 def test_cov_slot_groups_show_only_active_coverages():

@@ -7,6 +7,7 @@ hand-built bases (no DB), plus the structural shape of the rows.
 """
 from suiteview.illustration.core.guideline_pv import (
     guideline_glp_detail,
+    guideline_gsp_detail,
     guideline_pv_rows,
 )
 from suiteview.illustration.core.monthly_guideline import (
@@ -94,11 +95,29 @@ def test_rows_carry_pv_columns_and_maturity_endowment():
 
     first = rows[0]
     for col in ("q'x", "p'x", "tp'x", "v^t", "v^(t+1)", "Death Benefit",
-                "EPU", "MFEE", "Charges", "PVDB", "PV Charges", "PV Annuity"):
+                "EPU", "MFEE", "Charges", "PVDB", "PV Charges", "PV Annuity",
+                "Target Load Diff", "PV Target Load Diff"):
         assert col in first, f"missing column {col}"
+    assert list(first).index("Target Load Diff") == list(first).index("PV Annuity") + 1
+    assert list(first).index("PV Target Load Diff") == list(first).index("Target Load Diff") + 1
     # tp'x starts at full survival; p'x = 1 - q'x.
     assert first["tp'x"] == 1.0
     assert abs((first["p'x"] + first["q'x"]) - 1.0) < 1e-9
+
+
+def test_rows_show_target_excess_load_per_premium_month():
+    months = _level_months(24)
+    for gm in months:
+        gm.tpp, gm.epp = 0.10, 0.04
+    basis = _basis(months, ctp=2_000.0)
+
+    rows, rollup = guideline_pv_rows(basis, 0.04, _anniversaries(months))
+
+    assert rows[0]["Target Load Diff"] == 120.0
+    assert rows[0]["PV Target Load Diff"] == 120.0
+    assert rows[1]["Target Load Diff"] == 0.0
+    assert rows[1]["PV Target Load Diff"] == 0.0
+    assert round(sum(row["PV Target Load Diff"] for row in rows), 2) == rollup["load $ term"]
 
 
 def test_benefit_detail_becomes_its_own_column():
@@ -121,6 +140,18 @@ def test_glp_detail_shape():
                            "glp_rate", "glp_rows", "glp_rollup"}
     assert detail["glp_rate"] == 0.04
     assert detail["glp_rollup"]["premium"] > 0.0
+
+
+def test_gsp_detail_reconciles_to_solver_single_premium():
+    months = _level_months(60)
+    basis = _basis(months)
+
+    detail = guideline_gsp_detail(basis)
+    solver = solve_endowment_premium(basis, 0.06, {0}, db_option="A")
+
+    assert detail["premium_label"] == "GSP"
+    assert detail["glp_rate"] == 0.06
+    assert abs(detail["glp_rollup"]["premium"] - solver) < 0.01
 
 
 def test_pv_detail_view_renders_detail():

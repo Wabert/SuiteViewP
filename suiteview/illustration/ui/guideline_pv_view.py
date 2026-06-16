@@ -22,7 +22,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -37,7 +36,7 @@ logger = logging.getLogger(__name__)
 class GuidelinePvDetailView(QWidget):
     """Inline group: the GLP as a month-by-month present value."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, search_visible: bool = True):
         super().__init__(parent)
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
         self._detail: dict | None = None
@@ -61,28 +60,17 @@ class GuidelinePvDetailView(QWidget):
             "color: #6A5A8A; background: transparent; font-size: 12px; font-style: italic;")
         layout.addWidget(self.empty_note)
 
-        # ── Body: monthly grid | roll-up (mirrors the Recalc drill-down) ──
+        # ── Body: monthly grid + worked-out equation ──
         self.body = QWidget(self)
         body_layout = QVBoxLayout(self.body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(4)
 
-        split = QSplitter(Qt.Orientation.Horizontal, self.body)
-        split.setHandleWidth(4)
-        self.grid = FilterTableView(split)
-        self.grid.set_search_visible(True)
+        self.grid = FilterTableView(self.body)
+        self.grid.set_search_visible(search_visible)
         self.grid.apply_ledger_style()
         self.grid.set_sort_enabled(False)
-        split.addWidget(self.grid)
-        self.rollup_grid = FilterTableView(split)
-        self.rollup_grid.set_search_visible(False)
-        self.rollup_grid.apply_ledger_style()
-        self.rollup_grid.set_sort_enabled(False)
-        split.addWidget(self.rollup_grid)
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 0)
-        split.setSizes([820, 250])
-        body_layout.addWidget(split, 1)
+        body_layout.addWidget(self.grid, 1)
 
         # ── Worked-out equation (symbolic, then with the actual values) ──
         self.equation = QLabel("", self.body)
@@ -120,7 +108,8 @@ class GuidelinePvDetailView(QWidget):
             # the Recalc group hides rather than clears for the same reason).
             self._detail = None
             self._grid_df = None
-            self.header.setText("Guideline PV Detail")
+            label = (detail or {}).get("premium_label") or "GLP"
+            self.header.setText(f"Guideline PV Detail ({label})")
             self.empty_note.setText(
                 "No guideline re-solve in this projection — nothing to break down.")
             self.empty_note.setVisible(True)
@@ -141,22 +130,18 @@ class GuidelinePvDetailView(QWidget):
             self.grid.model._left_align_columns = {0, 1}
         self.grid.autofit_columns_to_data()
 
-        self.rollup_grid.set_dataframe(self._rollup_dataframe(rollup), limit_rows=False)
-        if self.rollup_grid.model is not None:
-            self.rollup_grid.model._left_align_columns = {0}
-        self.rollup_grid.autofit_columns_to_data()
-
-        self.equation.setText(self._equation_text(rollup))
+        self.equation.setText(self._equation_text(rollup, detail.get("premium_label") or "GLP"))
 
     # ── Rendering helpers ──
     def _header_text(self, detail: dict, rollup: dict) -> str:
+        label = detail.get("premium_label") or "GLP"
         sa = detail.get("specified_amount")
         rate = detail.get("glp_rate")
         dbo = str(detail.get("db_option") or "A").upper()
         prem = rollup.get("premium")
         bits = []
         if prem is not None:
-            bits.append(f"GLP = {prem:,.2f}")
+            bits.append(f"{label} = {prem:,.2f}")
         if sa is not None:
             bits.append(f"SA {sa:,.0f}")
         if detail.get("attained_age"):
@@ -171,36 +156,7 @@ class GuidelinePvDetailView(QWidget):
         return f"{line}\n{note}"
 
     @staticmethod
-    def _rollup_dataframe(rollup: dict) -> pd.DataFrame:
-        load_pct = rollup.get("load %") or 0.0
-        order = [
-            ("PV death benefit", rollup.get("PV death benefit"), "money"),
-            ("PV maturity endowment", rollup.get("PV maturity endowment"), "money"),
-            ("Σ PVDB (= SA endowment)", rollup.get("PVDB (= SA endowment)"), "money"),
-            ("PV charges", rollup.get("PV Charges"), "money"),
-            ("target/excess load $", rollup.get("load $ term"), "money"),
-            ("Numerator", rollup.get("numerator"), "money"),
-            ("PV annuity (gross)", rollup.get("PV Annuity (gross)"), "num6"),
-            ("load %", load_pct, "pct"),
-            ("PV annuity (net of load)", rollup.get("PV Annuity (net of load)"), "num6"),
-            ("Denominator", rollup.get("denominator"), "num6"),
-            ("GLP", rollup.get("premium"), "money"),
-        ]
-        out = []
-        for name, val, kind in order:
-            if val is None:
-                text = "—"
-            elif kind == "money":
-                text = f"{val:,.2f}"
-            elif kind == "pct":
-                text = f"{val:.3%}"
-            else:
-                text = f"{val:,.6f}"
-            out.append({"Component": name, "Value": text})
-        return pd.DataFrame(out)
-
-    @staticmethod
-    def _equation_text(rollup: dict) -> str:
+    def _equation_text(rollup: dict, label: str = "GLP") -> str:
         db = rollup.get("PV death benefit") or 0.0
         endow = rollup.get("PV maturity endowment") or 0.0
         chg = rollup.get("PV Charges") or 0.0
@@ -214,7 +170,7 @@ class GuidelinePvDetailView(QWidget):
         load_piece = f" + {load_d:,.2f}" if abs(load_d) >= 0.005 else ""
         load_sym = "  +  Load $" if load_piece else ""
         return (
-            "GLP = (Σ PV Death Benefit + Σ PV Endowment + Σ PV Charges"
+            f"{label} = (Σ PV Death Benefit + Σ PV Endowment + Σ PV Charges"
             f"{load_sym})  ÷  ((1 − load%) × Σ PV Annuity)\n"
             f"    = ({db:,.2f} + {endow:,.2f} + {chg:,.2f}{load_piece})"
             f"  ÷  ((1 − {load_pct:.3%}) × {gross:,.6f})\n"
@@ -231,11 +187,12 @@ class GuidelinePvDetailView(QWidget):
         try:
             from suiteview.core.excel_export import ExcelExportError, dump_to_new_workbook
 
+            label = (self._detail or {}).get("premium_label") or "GLP"
             headers = list(df.columns)
             data = [tuple(rec) for rec in df.itertuples(index=False, name=None)]
             text_cols = [i for i, c in enumerate(headers) if c in ("Policy Month", "Age")]
             dump_to_new_workbook(
-                headers, data, sheet_name="Guideline PV (GLP)", text_col_indexes=text_cols)
+                headers, data, sheet_name=f"Guideline PV ({label})", text_col_indexes=text_cols)
         except ExcelExportError as e:
             QMessageBox.warning(self, "Export Error", f"Could not export to Excel:\n{e}")
         except Exception as e:  # pragma: no cover - UI guard
