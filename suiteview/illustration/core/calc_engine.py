@@ -1608,6 +1608,7 @@ def _process_withdrawal(
     if wd.face_decrease > 1e-9:
         before = _solve_guideline_state(
             policy, config, attained_age, month_date, options)
+        before_commutation = _safe_commutation_detail(policy, config, attained_age)
         _reduce_base_face(
             policy, wd.face_decrease, rates, month_date, rate_year,
             charge_scr=False)
@@ -1627,6 +1628,7 @@ def _process_withdrawal(
             av=wd.av_post_withdrawal,
             material_change=False,
             options=options,
+            before_commutation=before_commutation,
         )
     return wd
 
@@ -1677,12 +1679,15 @@ def _apply_policy_change(
     md = change.metadata or {}
     fully_injected = {"new_glp", "new_gsp", "new_7pay"} <= md.keys()
     before = None
+    before_commutation: Dict[str, object] = {}
     if (
         _will_alter_coverage(policy, change, face_before, av)
         or _will_alter_guideline_charge_basis(policy, change)
     ) and not fully_injected:
         before = _solve_guideline_state(
             policy, config, attained_age, change_date, options)
+        # Pre-mutation closed-form basis for the recalc drill-down.
+        before_commutation = _safe_commutation_detail(policy, config, attained_age)
 
     if change.kind == PolicyChangeKind.DB_OPTION:
         old = str(policy.db_option or "").upper()
@@ -1830,6 +1835,7 @@ def _apply_policy_change(
             av=av,
             material_change=outcome.material_change,
             options=options,
+            before_commutation=before_commutation,
         )
     return outcome
 
@@ -1918,6 +1924,26 @@ def _solve_guideline_state(
     return solve_guideline_premiums(basis, starting_av=starting_av)
 
 
+def _safe_commutation_detail(policy, config, attained_age: int) -> Dict[str, object]:
+    """Closed-form GLP/GSP commutation vectors + roll-up for the Values-tab
+    Guideline Recalc drill-down.
+
+    Supplementary display only: if the guaranteed-COI rates can't load, return
+    an empty dict rather than failing the projection.
+    """
+    try:
+        from suiteview.illustration.core.guideline_calc import (
+            commutation_detail,
+            policy_to_guideline_inputs,
+        )
+
+        gi = policy_to_guideline_inputs(policy, config, attained_age)
+        return commutation_detail(gi)
+    except Exception:
+        logger.debug("Guideline commutation detail unavailable", exc_info=True)
+        return {}
+
+
 # Friendly recalc labels for the Values-tab "Guideline Recalc" group.
 _CHANGE_KIND_LABELS = {
     PolicyChangeKind.FACE_AMOUNT: "Specified Amount Change",
@@ -1939,6 +1965,7 @@ def _recalc_guideline_on_change(
     av: float,
     material_change: bool,
     options=None,
+    before_commutation: Optional[Dict[str, object]] = None,
 ) -> Dict[str, object]:
     """Recalculate GLP/GSP/7-pay at a policy change.
 
@@ -2000,6 +2027,13 @@ def _recalc_guideline_on_change(
             "glp_new": policy.glp,
             "gsp_prior": gsp_prior,
             "gsp_new": policy.gsp,
+            # Closed-form commutation vectors for the before/after basis — the
+            # Values-tab drill-down. Before is solved on the pre-mutation policy
+            # at the call site; after is the current (mutated) state.
+            "commutation": {
+                "before": before_commutation or {},
+                "after": _safe_commutation_detail(policy, config, attained_age),
+            },
         }
 
     # The 7-pay LEVEL recalculates on ANY coverage change (KY fires on the

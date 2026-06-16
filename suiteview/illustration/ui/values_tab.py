@@ -8,7 +8,10 @@ import pandas as pd
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
     QLabel,
+    QSplitter,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -243,20 +246,46 @@ def _recalc_delta(detail: dict, key: str):
     return after - before
 
 
+def _rollup_dataframe(rollup: dict) -> pd.DataFrame:
+    """Two-column Metric/Value frame for a commutation roll-up, money- and
+    rate-formatted so a single column reads cleanly."""
+    money_keys = {
+        "PV benefit (SA*A)", "PV expense (fee*a)", "PV additional charges",
+        "load $ term", "numerator", "premium",
+    }
+    rows = []
+    for key, value in rollup.items():
+        if isinstance(value, (int, float)) and key in money_keys:
+            text = f"{value:,.2f}"
+        elif isinstance(value, float):
+            text = f"{value:,.6f}"
+        else:
+            text = str(value)
+        rows.append({"Metric": key, "Value": text})
+    return pd.DataFrame(rows)
+
+
 class GuidelineRecalcView(QWidget):
     """Calc detail for the first 7702 guideline re-solve in a projection.
 
     When a policy change (or an SA-reducing withdrawal) recalculates the
     guideline premiums, the engine records the before/after GLP & GSP solves on
-    that month's state. This panel explains that *first* recalc: the before /
-    after solve at the change's attained age, the resulting prior → new GLP and
-    GSP (``new = prior + (after − before)``), greyed with an italic note when
-    the projection has no recalc.
+    that month's state plus the closed-form commutation basis for each. This
+    panel explains that *first* recalc:
+
+    * a summary table — before/after GLP & GSP and the resulting prior → new
+      (``new = prior + (after − before)``); and
+    * a commutation drill-down — pick Before/After × GLP/GSP and see every
+      vector (qx, lx, dx, Dx, Cx, Mx, Nx) and the present-value roll-up that
+      builds the closed-form premium.
+
+    Greyed with an italic note when the projection has no recalc.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
+        self._commutation: dict | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -276,12 +305,72 @@ class GuidelineRecalcView(QWidget):
         )
         layout.addWidget(self.empty_note)
 
-        self.grid = FilterTableView(self)
-        self.grid.set_search_visible(False)
-        self.grid.apply_ledger_style()
-        self.grid.set_sort_enabled(False)
-        layout.addWidget(self.grid, 1)
-        layout.addStretch(0)
+        self.summary_grid = FilterTableView(self)
+        self.summary_grid.set_search_visible(False)
+        self.summary_grid.apply_ledger_style()
+        self.summary_grid.set_sort_enabled(False)
+        self.summary_grid.setMaximumHeight(96)
+        layout.addWidget(self.summary_grid, 0)
+
+        # ── Closed-form commutation drill-down ──
+        self.comm_section = QWidget(self)
+        comm_layout = QVBoxLayout(self.comm_section)
+        comm_layout.setContentsMargins(0, 0, 0, 0)
+        comm_layout.setSpacing(4)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(6)
+        label_css = f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;"
+        combo_css = (
+            "QComboBox { background: white; border: 1px solid #B79CDE; border-radius: 4px;"
+            " padding: 1px 6px; font-size: 11px; color: #2A1458; min-height: 18px; }"
+        )
+        comm_title = QLabel("Closed-form commutation", self.comm_section)
+        comm_title.setStyleSheet(label_css)
+        controls.addWidget(comm_title)
+        controls.addSpacing(10)
+        state_label = QLabel("State:", self.comm_section)
+        state_label.setStyleSheet(label_css)
+        controls.addWidget(state_label)
+        self.state_combo = QComboBox(self.comm_section)
+        self.state_combo.addItems(["After change", "Before change"])
+        self.state_combo.setStyleSheet(combo_css)
+        controls.addWidget(self.state_combo)
+        controls.addSpacing(8)
+        basis_label = QLabel("Basis:", self.comm_section)
+        basis_label.setStyleSheet(label_css)
+        controls.addWidget(basis_label)
+        self.basis_combo = QComboBox(self.comm_section)
+        self.basis_combo.addItems(["GLP (4%)", "GSP (6%)"])
+        self.basis_combo.setStyleSheet(combo_css)
+        controls.addWidget(self.basis_combo)
+        controls.addStretch(1)
+        self.rollup_summary = QLabel("", self.comm_section)
+        self.rollup_summary.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;")
+        controls.addWidget(self.rollup_summary)
+        comm_layout.addLayout(controls)
+
+        split = QSplitter(Qt.Orientation.Horizontal, self.comm_section)
+        split.setHandleWidth(4)
+        self.vectors_grid = FilterTableView(split)
+        self.vectors_grid.set_search_visible(False)
+        self.vectors_grid.apply_ledger_style()
+        self.vectors_grid.set_sort_enabled(False)
+        split.addWidget(self.vectors_grid)
+        self.rollup_grid = FilterTableView(split)
+        self.rollup_grid.set_search_visible(False)
+        self.rollup_grid.apply_ledger_style()
+        self.rollup_grid.set_sort_enabled(False)
+        split.addWidget(self.rollup_grid)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 0)
+        split.setSizes([760, 230])
+        comm_layout.addWidget(split, 1)
+        layout.addWidget(self.comm_section, 1)
+
+        self.state_combo.currentIndexChanged.connect(self._refresh_commutation)
+        self.basis_combo.currentIndexChanged.connect(self._refresh_commutation)
 
         self.clear()
 
@@ -293,8 +382,10 @@ class GuidelineRecalcView(QWidget):
             self.header.setText("Guideline Recalc")
             self.empty_note.setText("No guideline recalculation in this projection.")
             self.empty_note.setVisible(True)
-            self.grid.setVisible(False)
-            self.grid.set_dataframe(pd.DataFrame(), limit_rows=False)
+            self.summary_grid.setVisible(False)
+            self.summary_grid.set_dataframe(pd.DataFrame(), limit_rows=False)
+            self.comm_section.setVisible(False)
+            self._commutation = None
             return
 
         when = detail.get("change_date")
@@ -322,12 +413,52 @@ class GuidelineRecalcView(QWidget):
                 "New Value": detail.get("gsp_new"),
             },
         ]
-        self.grid.setVisible(True)
-        self.grid.set_dataframe(pd.DataFrame(rows), limit_rows=False)
-        self.grid.set_numeric_formatting(default_decimals=2)
-        if self.grid.model is not None:
-            self.grid.model._left_align_columns = {0}
-        self.grid.autofit_columns_to_data()
+        self.summary_grid.setVisible(True)
+        self.summary_grid.set_dataframe(pd.DataFrame(rows), limit_rows=False)
+        self.summary_grid.set_numeric_formatting(default_decimals=2)
+        if self.summary_grid.model is not None:
+            self.summary_grid.model._left_align_columns = {0}
+        self.summary_grid.autofit_columns_to_data()
+
+        commutation = detail.get("commutation") or {}
+        has_comm = bool(commutation.get("before") or commutation.get("after"))
+        self._commutation = commutation if has_comm else None
+        self.comm_section.setVisible(has_comm)
+        if has_comm:
+            self._refresh_commutation()
+
+    def _refresh_commutation(self):
+        if not self._commutation:
+            return
+        side = "before" if self.state_combo.currentIndex() == 1 else "after"
+        basis = "gsp" if self.basis_combo.currentIndex() == 1 else "glp"
+        detail = self._commutation.get(side) or {}
+        # Fall back to whichever side exists (a fully-injected recalc may have
+        # only one) so the grid never blanks out unexpectedly.
+        if not detail:
+            detail = self._commutation.get("after") or self._commutation.get("before") or {}
+        rows = detail.get(f"{basis}_rows") or []
+        rollup = detail.get(f"{basis}_rollup") or {}
+
+        self.vectors_grid.set_dataframe(
+            pd.DataFrame(rows) if rows else pd.DataFrame(), limit_rows=False)
+        if rows and self.vectors_grid.model is not None:
+            self.vectors_grid.model._left_align_columns = {0, 1}
+        self.vectors_grid.autofit_columns_to_data()
+
+        self.rollup_grid.set_dataframe(_rollup_dataframe(rollup), limit_rows=False)
+        if rollup and self.rollup_grid.model is not None:
+            self.rollup_grid.model._left_align_columns = {0}
+        self.rollup_grid.autofit_columns_to_data()
+
+        premium = rollup.get("premium")
+        sa = detail.get("specified_amount")
+        bits = []
+        if sa is not None:
+            bits.append(f"SA {sa:,.0f}")
+        if premium is not None:
+            bits.append(f"{basis.upper()} = {premium:,.2f}")
+        self.rollup_summary.setText("   ·   ".join(bits))
 
 
 class IllustrationValuesTab(QWidget):

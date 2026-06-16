@@ -98,12 +98,12 @@ def _render_recalc_page(policy_data, states, png_path: str) -> str:
 
     app = QApplication.instance() or QApplication([])
     tab = IllustrationValuesTab()
-    tab.resize(900, 320)
+    tab.resize(1240, 820)
     tab.display_projection(policy_data, states, months=len(states))
     # Switch the content stack to the new group, exactly like a navigator click.
-    tab._on_navigator_clicked  # noqa: B018 — ensure attribute exists
     tab.content_stack.setCurrentWidget(tab.recalc_view)
-    tab.recalc_view.adjustSize()
+    tab.recalc_view.resize(1240, 800)
+    app.processEvents()
     out = Path(png_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     tab.recalc_view.grab().save(str(out))
