@@ -104,6 +104,7 @@ def test_values_tab_uses_one_content_page_per_group_each_leading_with_locators()
         "Shadow Account",
         "Testing",
         "Guideline Recalc",
+        "Guideline PV Detail",
     ]
     assert tab.findChildren(QTabWidget) == []
 

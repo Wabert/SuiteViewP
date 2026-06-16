@@ -91,6 +91,10 @@ class GuidelineMonth:
     tpp: float = 0.0               # target premium load rate
     epp: float = 0.0               # excess premium load rate
     is_anniversary: bool = False   # True on policy-anniversary months
+    # Per-benefit charge breakdown ($ this month), keyed by a display label.
+    # Sums to ``benefit_charges``; carried only for the monthly-PV drill-down
+    # (the endowment solve uses the ``benefit_charges`` total and ignores this).
+    benefit_charge_detail: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -228,9 +232,11 @@ def build_guideline_basis(
             factor = ben.rating_factor if ben.rating_factor and ben.rating_factor > 0 else 1.0
             gross = rate * factor
             if ben_type == "3":
-                ben_total += _trunc2(gross * monthly_mtp)
+                charge = _trunc2(gross * monthly_mtp)
             else:
-                ben_total += (ben.units or 0.0) * gross
+                charge = (ben.units or 0.0) * gross
+            ben_total += charge
+            gm.benefit_charge_detail[_benefit_label(ben_type, ben.benefit_subtype)] = charge
         gm.benefit_charges = ben_total
 
         # QAB rider charge streams would add here; UL rider target/QAB data is
@@ -267,6 +273,18 @@ def _coverage_start_year_offset(policy: IllustrationPolicyData, seg) -> int:
     if seg.issue_date is None or policy.issue_date is None:
         return 0
     return max(0, seg.issue_date.year - policy.issue_date.year)
+
+
+_BENEFIT_TYPE_LABELS = {
+    "3": "PW (Waiver)",       # Premium Waiver — charged on the monthly MTP basis
+}
+
+
+def _benefit_label(ben_type: str, ben_subtype: Optional[str]) -> str:
+    """Readable column label for a benefit charge in the monthly-PV drill-down."""
+    base = _BENEFIT_TYPE_LABELS.get(ben_type, f"Benefit {ben_type}")
+    sub = (ben_subtype or "").strip()
+    return f"{base} {sub}".strip() if sub and ben_type not in _BENEFIT_TYPE_LABELS else base
 
 
 def _benefit_cease_year(policy: IllustrationPolicyData, ben) -> Optional[int]:

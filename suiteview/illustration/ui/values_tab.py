@@ -21,6 +21,7 @@ from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
+from .guideline_pv_view import GuidelinePvDetailView
 from .styles import PURPLE_BG, PURPLE_DARK
 from .values_inspector import MonthInspector
 from .values_overview import (
@@ -780,6 +781,8 @@ class IllustrationValuesTab(QWidget):
     ]
     # Event-based group (not a monthly grid): the first guideline re-solve.
     GUIDELINE_RECALC_GROUP = "Guideline Recalc"
+    # Month-by-month present-value breakdown of that re-solve's GLP.
+    GUIDELINE_PV_GROUP = "Guideline PV Detail"
     TAB_ORDER = [
         SUMMARY_GROUP,
         WITHDRAWALS_GROUP,
@@ -913,6 +916,9 @@ class IllustrationValuesTab(QWidget):
         # Guideline Recalc trails the per-month grids: an event view, not a grid.
         self.recalc_view = GuidelineRecalcView(self.content_stack)
         self._add_content_page(self.GUIDELINE_RECALC_GROUP, self.recalc_view)
+        # Guideline PV Detail: the month-by-month present value behind that GLP.
+        self.pv_view = GuidelinePvDetailView(self.content_stack)
+        self._add_content_page(self.GUIDELINE_PV_GROUP, self.pv_view)
         self.body.addWidget(self.content_stack)
 
         # ── Month Inspector: the per-month waterfall ──
@@ -1012,10 +1018,13 @@ class IllustrationValuesTab(QWidget):
                 leaf.setData(0, Qt.ItemDataRole.UserRole, (title, column_name))
                 stage.addChild(leaf)
             self.nav_tree.addTopLevelItem(stage)
-        # Guideline Recalc trails the column groups as a leaf jump (no columns).
+        # Guideline Recalc + PV Detail trail the column groups as leaf jumps.
         recalc = QTreeWidgetItem([self.GUIDELINE_RECALC_GROUP])
         recalc.setData(0, Qt.ItemDataRole.UserRole, (self.GUIDELINE_RECALC_GROUP, None))
         self.nav_tree.addTopLevelItem(recalc)
+        pv_detail = QTreeWidgetItem([self.GUIDELINE_PV_GROUP])
+        pv_detail.setData(0, Qt.ItemDataRole.UserRole, (self.GUIDELINE_PV_GROUP, None))
+        self.nav_tree.addTopLevelItem(pv_detail)
 
     def _filter_navigator(self, text: str):
         needle = text.strip().lower()
@@ -1046,6 +1055,9 @@ class IllustrationValuesTab(QWidget):
             return
         if title == self.GUIDELINE_RECALC_GROUP:
             self.content_stack.setCurrentWidget(self.recalc_view)
+            return
+        if title == self.GUIDELINE_PV_GROUP:
+            self.content_stack.setCurrentWidget(self.pv_view)
             return
         grid = self._tab_grids.get(title)
         if grid is None:
@@ -1100,6 +1112,7 @@ class IllustrationValuesTab(QWidget):
         self.charges_chart.clear()
         self.inspector.clear()
         self.recalc_view.clear()
+        self.pv_view.clear()
         self.nav_tree.clear()
         self._results = []
         self._inspected_row = None
@@ -1174,6 +1187,7 @@ class IllustrationValuesTab(QWidget):
             None,
         )
         self.recalc_view.show_recalc(first_recalc)
+        self.pv_view.show_detail((first_recalc or {}).get("monthly_pv"))
         self._rebuild_navigator(navigator_columns)
         self.overview.display(policy, result_list)
         self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)

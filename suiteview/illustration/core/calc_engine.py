@@ -1944,6 +1944,32 @@ def _safe_commutation_detail(policy, config, attained_age: int) -> Dict[str, obj
         return {}
 
 
+def _safe_guideline_pv_detail(
+    policy, config, attained_age: int, change_date, active_as_of=None,
+) -> Dict[str, object]:
+    """Month-by-month present-value GLP breakdown for the Values-tab drill-down.
+
+    Built on the SAME guaranteed-COI basis as the after-change ``_solve_guideline_state``
+    solve, so the roll-up GLP equals the summary's "after change" value. Supplementary
+    display only — returns an empty dict rather than failing the projection.
+    """
+    try:
+        from suiteview.illustration.core.guideline_pv import guideline_glp_detail
+        from suiteview.illustration.core.monthly_guideline import build_guideline_basis
+
+        guar = load_rates(policy, config, coi_scale=0)
+        basis = build_guideline_basis(
+            policy, config, guar,
+            attained_age=attained_age, as_of=change_date,
+            months_into_year=_months_into_policy_year(policy, change_date),
+            active_as_of=active_as_of,
+        )
+        return guideline_glp_detail(basis)
+    except Exception:
+        logger.debug("Guideline monthly-PV detail unavailable", exc_info=True)
+        return {}
+
+
 # Friendly recalc labels for the Values-tab "Guideline Recalc" group.
 _CHANGE_KIND_LABELS = {
     PolicyChangeKind.FACE_AMOUNT: "Specified Amount Change",
@@ -2034,6 +2060,11 @@ def _recalc_guideline_on_change(
                 "before": before_commutation or {},
                 "after": _safe_commutation_detail(policy, config, attained_age),
             },
+            # Month-by-month present-value GLP breakdown for the after-change
+            # basis (the same solve as ``glp_after``) — the followable
+            # alternative to the commutation drill-down.
+            "monthly_pv": _safe_guideline_pv_detail(
+                policy, config, attained_age, change_date),
         }
 
     # The 7-pay LEVEL recalculates on ANY coverage change (KY fires on the
