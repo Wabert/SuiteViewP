@@ -18,6 +18,13 @@ class IllustrationRates:
     # Duration-based arrays
     coi: List = field(default_factory=list)
     segment_coi: Dict[int, List] = field(default_factory=dict)
+
+    # Ratchet banding (RERUN CalcEngine PP-QX): the COI schedules for BOTH bands
+    # per base segment, plus the band-2 break amount. Populated only when the
+    # plancode is ratchet-banded (config.rachet_banding); empty otherwise.
+    segment_coi_band1: Dict[int, List] = field(default_factory=dict)
+    segment_coi_band2: Dict[int, List] = field(default_factory=dict)
+    band_break: float = 0.0
     epu: List = field(default_factory=list)
     segment_epu: Dict[int, List] = field(default_factory=dict)
     scr: List = field(default_factory=list)
@@ -152,6 +159,22 @@ def load_rates(
             seg.rate_class, seg.band,
         ) or 0.0,
     )
+
+    # Ratchet banding (RERUN PP-QX): load band-1 AND band-2 COI schedules for
+    # each base segment. The regular path loads only the segment's own band; the
+    # ratchet calc charges NAR up to the band break at band 1 and the excess at
+    # band 2, so it needs both. The band break comes from BANDSPECS.
+    if config.rachet_banding:
+        for base_seg in policy.segments:
+            result.segment_coi_band1[base_seg.coverage_phase] = rates_db.get_rates(
+                "COI", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
+                base_seg.rate_class, scale=coi_scale, band=1,
+            ) or []
+            result.segment_coi_band2[base_seg.coverage_phase] = rates_db.get_rates(
+                "COI", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
+                base_seg.rate_class, scale=coi_scale, band=2,
+            ) or []
+        result.band_break = rates_db.get_band_break(policy.plancode, band=2) or 0.0
 
     # Load PoAV (percent of AV charge) if configured
     if config.poav_code == "Table":

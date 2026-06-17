@@ -1020,10 +1020,14 @@ class IllustrationValuesTab(QWidget):
         self._benefit_columns = self._benefit_column_names(benefit_keys)
         self._rider_columns = self._rider_column_names(rider_keys)
         self._rate_columns = self._rate_column_names(coverage_keys, benefit_keys, rider_keys)
+        # Ratchet-banded plancodes (e.g. 1U130N2X) split the base COI across two
+        # bands; swap the single per-coverage COI-rate column for the band detail.
+        ratchet = any(getattr(state, "ratchet_active", False) for state in result_list)
         self._monthly_deduction_columns = self._monthly_deduction_column_names(
             coverage_keys,
             benefit_keys,
             rider_keys,
+            ratchet,
         )
         cov_slots, show_apb = self._cov_slots(result_list)
         self._withdrawals_columns = self._withdrawals_column_names(cov_slots)
@@ -1041,6 +1045,8 @@ class IllustrationValuesTab(QWidget):
         column_decimals.update({column: 6 for column in self._rider_columns if " Rate " in column})
         column_decimals.update({f"SCR Cov {index}": 6 for index in (1, 2, 3)})
         column_decimals.update({column: 6 for column in ("Shadow COIR", "Shadow COIR + Sub", "Shadow DBD Rate", "Shadow EPUR")})
+        # Ratchet band COI rates render at 6 decimals like the regular COI rates.
+        column_decimals.update({column: 6 for column in self._monthly_deduction_columns if "COI Rate B" in column})
         injected = injected_first_row_columns or set()
         navigator_columns: dict[str, list[str]] = {}
         for title, grid in self._tab_grids.items():
@@ -1495,6 +1501,7 @@ class IllustrationValuesTab(QWidget):
         coverage_keys: list[str],
         benefit_keys: list[str],
         rider_keys: list[str],
+        ratchet: bool = False,
     ) -> list[str]:
         columns = [
             "mAV",
@@ -1505,7 +1512,7 @@ class IllustrationValuesTab(QWidget):
             "Death Benefit",
             "Corridor Amount",
         ]
-        columns.extend(cls._monthly_deduction_detail_column_names(coverage_keys))
+        columns.extend(cls._monthly_deduction_detail_column_names(coverage_keys, ratchet))
         columns.extend([
             "Monthly Fee",
             "AV Charge",
@@ -1522,7 +1529,9 @@ class IllustrationValuesTab(QWidget):
         return key.upper() if key else "UNSPECIFIED"
 
     @classmethod
-    def _monthly_deduction_detail_column_names(cls, coverage_keys: list[str]) -> list[str]:
+    def _monthly_deduction_detail_column_names(
+        cls, coverage_keys: list[str], ratchet: bool = False
+    ) -> list[str]:
         columns: list[str] = []
         columns.extend([f"DB {cls._coverage_label(key)}" for key in coverage_keys])
         columns.append("DB Corr")
@@ -1532,7 +1541,20 @@ class IllustrationValuesTab(QWidget):
         columns.extend([f"NAR {cls._coverage_label(key)}" for key in coverage_keys])
         columns.append("NAR Corr")
         columns.append("NAR")
-        columns.extend([f"COI Rate {cls._coverage_label(key)}" for key in coverage_keys])
+        if ratchet:
+            # Band split (RERUN PP-QX): NAR ≤ break at the band-1 rate, excess at
+            # the band-2 rate — swap the single COI-rate column per coverage.
+            columns.append("Band Break")
+            for key in coverage_keys:
+                label = cls._coverage_label(key)
+                columns.extend([
+                    f"NAR B1 {label}",
+                    f"COI Rate B1 {label}",
+                    f"NAR B2 {label}",
+                    f"COI Rate B2 {label}",
+                ])
+        else:
+            columns.extend([f"COI Rate {cls._coverage_label(key)}" for key in coverage_keys])
         columns.append("COI Rate Corr")
         columns.extend([f"COI Charge {cls._coverage_label(key)}" for key in coverage_keys])
         columns.append("COI Charge Corr")
@@ -1560,9 +1582,18 @@ class IllustrationValuesTab(QWidget):
             values[f"NAR {label}"] = state.nar_by_coverage.get(key, 0.0)
         values["NAR Corr"] = state.nar_corr
         values["NAR"] = state.total_nar or state.nar
-        for key in coverage_keys:
-            label = cls._coverage_label(key)
-            values[f"COI Rate {label}"] = state.coi_rates_by_coverage.get(key, 0.0)
+        if getattr(state, "ratchet_active", False):
+            values["Band Break"] = state.band_break
+            for key in coverage_keys:
+                label = cls._coverage_label(key)
+                values[f"NAR B1 {label}"] = state.coi_band1_nar_by_coverage.get(key, 0.0)
+                values[f"COI Rate B1 {label}"] = state.coi_band1_rates_by_coverage.get(key, 0.0)
+                values[f"NAR B2 {label}"] = state.coi_band2_nar_by_coverage.get(key, 0.0)
+                values[f"COI Rate B2 {label}"] = state.coi_band2_rates_by_coverage.get(key, 0.0)
+        else:
+            for key in coverage_keys:
+                label = cls._coverage_label(key)
+                values[f"COI Rate {label}"] = state.coi_rates_by_coverage.get(key, 0.0)
         values["COI Rate Corr"] = state.coi_rate
         for key in coverage_keys:
             label = cls._coverage_label(key)

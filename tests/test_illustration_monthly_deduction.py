@@ -153,3 +153,153 @@ def test_benefit_charge_stops_on_benefit_cease_date():
 
     assert before_cease.benefit_charges == pytest.approx(37.5)
     assert at_cease.benefit_charges == pytest.approx(0.0)
+
+
+# ── Ratchet banding (RERUN CalcEngine PP-QX) ─────────────────────────────────
+# NAR up to the band break is charged at the band-1 COI rate; the excess at the
+# band-2 rate (vs. the regular calc, where all NAR uses one band's rate). Only
+# the earliest UL plans (~1983, e.g. 1U130N2X) are coded this way.
+
+def _ratchet_config(*, rachet_banding=True):
+    # dbd=0 → monthly discount factor is exactly 1.0, so discounted DB == face
+    # and the NAR math stays clean and exact for assertions.
+    return PlancodeConfig(
+        plancode="1U130N2X",
+        dbd=0.0,
+        gint=0.0,
+        corridor_code=None,
+        epu_code="0",
+        mfee="0",
+        table_rating_factor=0.0,
+        rachet_banding=rachet_banding,
+    )
+
+
+def test_ratchet_single_segment_splits_nar_at_band_break():
+    # One segment, 100k NAR, break at 50k: 50k @ band-1 (10/1000) + 50k @ band-2
+    # (4/1000) = 500 + 200 = 700.
+    policy = IllustrationPolicyData(
+        plancode="1U130N2X",
+        db_option="A",
+        face_amount=100_000.0,
+        account_value=0.0,
+        segments=[CoverageSegment(coverage_phase=1, face_amount=100_000.0, units=100.0, band=2)],
+    )
+    config = _ratchet_config()
+    rates = IllustrationRates(
+        segment_coi_band1={1: [0.0, 10.0]},
+        segment_coi_band2={1: [0.0, 4.0]},
+        band_break=50_000.0,
+    )
+
+    result = calculate_deduction(
+        0.0, policy, config, rates,
+        rate_year=1, attained_age=45, premiums_to_date=0.0,
+    )
+
+    assert result.ratchet_active is True
+    assert result.band_break == 50_000.0
+    assert result.coi_band1_nar_by_coverage["cov1"] == pytest.approx(50_000.0)
+    assert result.coi_band2_nar_by_coverage["cov1"] == pytest.approx(50_000.0)
+    assert result.coi_band1_rates_by_coverage["cov1"] == pytest.approx(10.0)
+    assert result.coi_band2_rates_by_coverage["cov1"] == pytest.approx(4.0)
+    assert result.coi_charge == pytest.approx(700.0)
+    assert result.total_coi_charge == pytest.approx(700.0)
+
+
+def test_ratchet_fills_band1_across_segments_fifo():
+    # Three 30k segments (90k total NAR), break at 50k. Band-1 fills FIFO:
+    # seg1 30k (all band 1), seg2 20k band 1 / 10k band 2, seg3 30k (all band 2).
+    # Charges: 300 + (200+40) + 120 = 660.
+    segs = [
+        CoverageSegment(coverage_phase=i, face_amount=30_000.0, units=30.0, band=2)
+        for i in (1, 2, 3)
+    ]
+    policy = IllustrationPolicyData(
+        plancode="1U130N2X",
+        db_option="A",
+        face_amount=90_000.0,
+        account_value=0.0,
+        segments=segs,
+    )
+    config = _ratchet_config()
+    rates = IllustrationRates(
+        segment_coi_band1={1: [0.0, 10.0], 2: [0.0, 10.0], 3: [0.0, 10.0]},
+        segment_coi_band2={1: [0.0, 4.0], 2: [0.0, 4.0], 3: [0.0, 4.0]},
+        band_break=50_000.0,
+    )
+
+    result = calculate_deduction(
+        0.0, policy, config, rates,
+        rate_year=1, attained_age=45, premiums_to_date=0.0,
+    )
+
+    assert result.ratchet_active is True
+    assert result.coi_band1_nar_by_coverage == pytest.approx(
+        {"cov1": 30_000.0, "cov2": 20_000.0, "cov3": 0.0, "corr": 0.0}
+    )
+    assert result.coi_band2_nar_by_coverage == pytest.approx(
+        {"cov1": 0.0, "cov2": 10_000.0, "cov3": 30_000.0, "corr": 0.0}
+    )
+    assert result.coi_charges_by_coverage["cov1"] == pytest.approx(300.0)
+    assert result.coi_charges_by_coverage["cov2"] == pytest.approx(240.0)
+    assert result.coi_charges_by_coverage["cov3"] == pytest.approx(120.0)
+    assert result.coi_charge == pytest.approx(660.0)
+
+
+def test_ratchet_disabled_uses_regular_single_band_coi():
+    # Same 100k-NAR policy, but rachet_banding=False: the band schedules are
+    # ignored and the regular single-band COI (6/1000 on all 100k = 600) applies.
+    policy = IllustrationPolicyData(
+        plancode="1U130N2X",
+        db_option="A",
+        face_amount=100_000.0,
+        account_value=0.0,
+        segments=[CoverageSegment(coverage_phase=1, face_amount=100_000.0, units=100.0, band=2)],
+    )
+    config = _ratchet_config(rachet_banding=False)
+    rates = IllustrationRates(
+        coi=[0.0, 6.0],
+        segment_coi={1: [0.0, 6.0]},
+        # Band schedules present but must be ignored when the flag is off.
+        segment_coi_band1={1: [0.0, 10.0]},
+        segment_coi_band2={1: [0.0, 4.0]},
+        band_break=50_000.0,
+    )
+
+    result = calculate_deduction(
+        0.0, policy, config, rates,
+        rate_year=1, attained_age=45, premiums_to_date=0.0,
+    )
+
+    assert result.ratchet_active is False
+    assert result.coi_charge == pytest.approx(600.0)
+    assert result.coi_band1_nar_by_coverage == {}
+
+
+def test_ratchet_inactive_when_no_band_break():
+    # Flag on but BANDSPECS gave no band-2 break (band_break=0): fall back to the
+    # regular path rather than charging everything at band 1.
+    policy = IllustrationPolicyData(
+        plancode="1U130N2X",
+        db_option="A",
+        face_amount=100_000.0,
+        account_value=0.0,
+        segments=[CoverageSegment(coverage_phase=1, face_amount=100_000.0, units=100.0, band=1)],
+    )
+    config = _ratchet_config(rachet_banding=True)
+    rates = IllustrationRates(
+        coi=[0.0, 6.0],
+        segment_coi={1: [0.0, 6.0]},
+        segment_coi_band1={1: [0.0, 10.0]},
+        segment_coi_band2={1: [0.0, 4.0]},
+        band_break=0.0,
+    )
+
+    result = calculate_deduction(
+        0.0, policy, config, rates,
+        rate_year=1, attained_age=45, premiums_to_date=0.0,
+    )
+
+    assert result.ratchet_active is False
+    assert result.coi_charge == pytest.approx(600.0)

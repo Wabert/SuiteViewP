@@ -704,3 +704,65 @@ def test_monthly_deduction_tab_follows_rerun_order():
     ]
     start = columns.index("mAV")
     assert columns[start : start + len(expected_block)] == expected_block
+
+
+def _ratchet_state() -> MonthlyState:
+    # cov1 NAR (89,500) straddles the 50k break; cov2 NAR (49,750) all band 2.
+    return replace(
+        _state(),
+        ratchet_active=True,
+        band_break=50000.0,
+        coi_band1_nar_by_coverage={"cov1": 50000.0, "cov2": 0.0, "corr": 0.0},
+        coi_band1_rates_by_coverage={"cov1": 0.5, "cov2": 0.5, "corr": 0.4},
+        coi_band2_nar_by_coverage={"cov1": 39500.0, "cov2": 49750.0, "corr": 0.0},
+        coi_band2_rates_by_coverage={"cov1": 0.2, "cov2": 0.2, "corr": 0.15},
+    )
+
+
+def test_monthly_deduction_swaps_coi_rate_for_band_detail_when_ratchet():
+    _app()
+    tab = IllustrationValuesTab()
+
+    tab.display_projection(_policy(), [_ratchet_state()])
+
+    grid = tab._tab_grids["Monthly Deduction"]
+    columns = list(grid.df.columns)
+    # The single COI-rate column per coverage is swapped for the band split.
+    swapped_block = [
+        "NAR",
+        "Band Break",
+        "NAR B1 Cov1",
+        "COI Rate B1 Cov1",
+        "NAR B2 Cov1",
+        "COI Rate B2 Cov1",
+        "NAR B1 Cov2",
+        "COI Rate B1 Cov2",
+        "NAR B2 Cov2",
+        "COI Rate B2 Cov2",
+        "COI Rate Corr",
+        "COI Charge Cov1",
+    ]
+    start = columns.index("NAR", columns.index("NAR Corr"))
+    assert columns[start : start + len(swapped_block)] == swapped_block
+    assert "COI Rate Cov1" not in columns  # swapped out of the MD group
+
+    row = grid.df.iloc[0]
+    assert row["Band Break"] == 50000.0
+    assert row["NAR B1 Cov1"] == 50000.0
+    assert row["COI Rate B1 Cov1"] == 0.5
+    assert row["NAR B2 Cov1"] == 39500.0
+    assert row["COI Rate B2 Cov2"] == 0.2
+    # The combined per-coverage charge column is retained.
+    assert row["COI Charge Cov1"] == 8.95
+
+
+def test_monthly_deduction_keeps_single_coi_rate_when_not_ratchet():
+    _app()
+    tab = IllustrationValuesTab()
+
+    tab.display_projection(_policy(), [_state()])
+
+    columns = list(tab._tab_grids["Monthly Deduction"].df.columns)
+    assert "COI Rate Cov1" in columns
+    assert "Band Break" not in columns
+    assert "NAR B1 Cov1" not in columns

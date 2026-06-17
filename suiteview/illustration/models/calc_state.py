@@ -144,6 +144,16 @@ class MonthlyState:
     coi_charge: float = 0.0
     total_coi_charge: float = 0.0
 
+    # Ratchet banding (RERUN CalcEngine PP-QX) — populated only when the plancode
+    # is ratchet-banded. NAR up to band_break is charged at the band-1 rate, the
+    # excess at the band-2 rate. Keys mirror coi_charges_by_coverage plus "corr".
+    ratchet_active: bool = False
+    band_break: float = 0.0
+    coi_band1_nar_by_coverage: Dict[str, float] = field(default_factory=dict)
+    coi_band2_nar_by_coverage: Dict[str, float] = field(default_factory=dict)
+    coi_band1_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
+    coi_band2_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
+
     epu_rate: float = 0.0
     epu_charge: float = 0.0
     epu_rates_by_coverage: Dict[str, float] = field(default_factory=dict)

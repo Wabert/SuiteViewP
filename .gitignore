@@ -68,3 +68,6 @@ node_modules/
 *.mp4
 *.mov
 tmp_compare/
+
+# Office temp/lock files (e.g. ~$RERUN (v20.0).xlsm)
+~$*

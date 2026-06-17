@@ -366,9 +366,27 @@ class Rates:
             if specified_amount >= band_specs[band_count - 1][0]:
                 return int(band_specs[band_count - 1][1])
             band_count -= 1
-        
+
         return int(band_specs[0][1]) if band_specs else None
-    
+
+    def get_band_break(self, plancode: str, band: int = 2) -> Optional[float]:
+        """Get the face-amount threshold at which ``band`` begins.
+
+        Used by ratchet banding: net amount at risk up to this break is charged
+        at band 1's COI rate, and the excess at band 2's rate (RERUN CalcEngine
+        ``QG = Band 2 Amount``). Returns the ``SpecifiedAmount`` from BANDSPECS for
+        the requested band (e.g. 50000 for the 2-band plancode 1U130N2X), or
+        ``None`` if the plancode has no such band.
+        """
+        band_specs = self.get_rates("BANDSPECS", plancode)
+        if not band_specs:
+            return None
+        # band_specs is [[amount1, band1], [amount2, band2], ...]
+        for amount, spec_band in band_specs:
+            if int(spec_band) == int(band):
+                return float(amount)
+        return None
+
     # =========================================================================
     # CONVENIENCE METHODS FOR SPECIFIC RATE TYPES
     # =========================================================================

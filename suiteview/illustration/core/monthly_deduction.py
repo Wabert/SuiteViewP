@@ -124,6 +124,110 @@ def _benefit_rate_year(benefit, policy: IllustrationPolicyData, projection_date:
 
 
 @dataclass
+class RatchetCOIResult:
+    """Output of _ratchet_coi() — the ratchet-banded base COI override."""
+
+    charges_by_coverage: Dict[str, float] = field(default_factory=dict)
+    charge_corr: float = 0.0
+    total: float = 0.0
+    cov1_band1_rate: float = 0.0
+    band1_nar: Dict[str, float] = field(default_factory=dict)
+    band2_nar: Dict[str, float] = field(default_factory=dict)
+    band1_rates: Dict[str, float] = field(default_factory=dict)
+    band2_rates: Dict[str, float] = field(default_factory=dict)
+
+
+def _ratchet_coi(
+    segment_nars,
+    nar_corr: float,
+    rates: IllustrationRates,
+    config: PlancodeConfig,
+    policy: IllustrationPolicyData,
+    projection_date: date | None,
+    rate_year: int,
+    bln_round_charge: bool,
+) -> RatchetCOIResult:
+    """Ratchet-banding base COI charge (RERUN CalcEngine cols PP-QX).
+
+    Unlike the regular COI — where every dollar of a segment's NAR is charged at
+    that segment's single banded rate — ratchet banding splits the *total* NAR at
+    a single break point: all NAR up to ``rates.band_break`` (filled across
+    segments in FIFO order, corridor last) is charged at the band-1 rate, and the
+    excess at the band-2 rate. Only the earliest UL plans (~1983) are coded this
+    way; ``config.rachet_banding`` gates it.
+
+    Each base segment carries band-1 and band-2 COI schedules (loaded by
+    rate_loader). Per RERUN: charge = band1_NAR·band1_rate/1000 +
+    band2_NAR·band2_rate/1000 (QT-QV). The band rates are substandard-adjusted
+    like the regular block (OY-PA): per-segment table rating, ROUND(.,5) on cov 1.
+    The corridor (QW) uses the last active segment's substandard-adjusted band
+    rates against the band-1/band-2 corridor NAR (QO/QS).
+
+    Mirrors RERUN v20.0, in which the original PP-QX quirks were corrected so the
+    ratchet block matches the regular block: corridor uses the substandard rates
+    (PV-PX/PY-QA, not raw PP-PR/PS-PU) and the band-2 corridor NAR QS (not OS);
+    each segment uses its own table rating; cov-1 rate is rounded to 5 decimals
+    and a zero raw rate yields a zero adjusted rate.
+    """
+    band_break = rates.band_break
+    # Total NAR per slot, in FIFO fill order: base segments first, corridor last.
+    nar_slots = [nar for (_, nar) in segment_nars] + [nar_corr]
+
+    # Fill band 1 up to the break across slots (RERUN QL-QO); excess is band 2.
+    band1_slots = []
+    cumulative = 0.0
+    for nar in nar_slots:
+        room = max(0.0, band_break - cumulative)
+        band1_slots.append(min(nar, room))
+        cumulative += nar
+    band2_slots = [nar - b1 for nar, b1 in zip(nar_slots, band1_slots)]
+
+    result = RatchetCOIResult()
+    for index, (segment, _) in enumerate(segment_nars, start=1):
+        phase = segment.coverage_phase if segment is not None else None
+        seg_year = _coi_rate_year(segment, policy, projection_date, rate_year)
+        b1_raw = _rate_from_schedule(rates.segment_coi_band1.get(phase, []), seg_year)
+        b2_raw = _rate_from_schedule(rates.segment_coi_band2.get(phase, []), seg_year)
+        # ROUND(.,5) on cov 1 (RERUN PV/PY ≡ regular OY); zero raw rate → 0
+        # adjusted rate (RERUN IF(rate=0,0,...)), so a flat extra never rides on a
+        # zero base rate.
+        b1_rate = _adjusted_coi_rate(b1_raw, segment, config, projection_date, round_5=(index == 1)) if b1_raw else 0.0
+        b2_rate = _adjusted_coi_rate(b2_raw, segment, config, projection_date, round_5=(index == 1)) if b2_raw else 0.0
+        b1_nar = band1_slots[index - 1]
+        b2_nar = band2_slots[index - 1]
+        charge = (b1_nar / 1000.0) * b1_rate + (b2_nar / 1000.0) * b2_rate
+        if bln_round_charge:
+            charge = _round_near(charge, 2)
+        key = f"cov{index}"
+        result.charges_by_coverage[key] = charge
+        result.band1_nar[key] = b1_nar
+        result.band2_nar[key] = b2_nar
+        result.band1_rates[key] = b1_rate
+        result.band2_rates[key] = b2_rate
+
+    # Corridor (RERUN QW, corrected): the last active base segment's
+    # substandard-adjusted band rates against the band-1/band-2 corridor NAR.
+    # Reuse the rates already computed for that segment above.
+    last_key = f"cov{len(segment_nars)}" if segment_nars else None
+    corr_b1_rate = result.band1_rates.get(last_key, 0.0)
+    corr_b2_rate = result.band2_rates.get(last_key, 0.0)
+    corr_b1_nar = band1_slots[-1]
+    corr_b2_nar = band2_slots[-1]
+    charge_corr = (corr_b1_nar / 1000.0) * corr_b1_rate + (corr_b2_nar / 1000.0) * corr_b2_rate
+    if bln_round_charge:
+        charge_corr = _round_near(charge_corr, 2)
+
+    result.band1_nar["corr"] = corr_b1_nar
+    result.band2_nar["corr"] = corr_b2_nar
+    result.band1_rates["corr"] = corr_b1_rate
+    result.band2_rates["corr"] = corr_b2_rate
+    result.charge_corr = charge_corr
+    result.total = sum(result.charges_by_coverage.values()) + charge_corr
+    result.cov1_band1_rate = result.band1_rates.get("cov1", 0.0)
+    return result
+
+
+@dataclass
 class DeductionResult:
     """Intermediate output of calculate_deduction()."""
 
@@ -157,6 +261,16 @@ class DeductionResult:
     coi_charge_corr: float = 0.0
     coi_charge: float = 0.0
     total_coi_charge: float = 0.0
+
+    # Ratchet banding (RERUN CalcEngine PP-QX) — populated only when the plancode
+    # is ratchet-banded. NAR up to band_break is charged at the band-1 rate, the
+    # excess at the band-2 rate. Keys mirror coi_charges_by_coverage plus "corr".
+    ratchet_active: bool = False
+    band_break: float = 0.0
+    coi_band1_nar_by_coverage: Dict[str, float] = field(default_factory=dict)
+    coi_band2_nar_by_coverage: Dict[str, float] = field(default_factory=dict)
+    coi_band1_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
+    coi_band2_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
 
     epu_rate: float = 0.0
     epu_charge: float = 0.0
@@ -312,6 +426,34 @@ def calculate_deduction(
     coi_charge_cov1 = coi_charges_by_coverage.get("cov1", 0.0)
     coi_charge_corr = (nar_corr / 1000.0) * adjusted_coi
     coi_charge = sum(coi_charges_by_coverage.values()) + coi_charge_corr
+
+    # ── 3.2.6b Ratchet banding override (cols PP-QX) ─────────
+    # RERUN QZ: vTotalBaseCOI = IF(sRatchetBanding, QX, PO). When the plancode is
+    # ratchet-banded, replace the per-segment single-band COI above with the
+    # band-split charge (NAR ≤ break at band 1, excess at band 2).
+    ratchet_active = bool(config.rachet_banding and getattr(rates, "band_break", 0.0) > 0)
+    band_break = 0.0
+    coi_band1_nar_by_coverage: Dict[str, float] = {}
+    coi_band2_nar_by_coverage: Dict[str, float] = {}
+    coi_band1_rates_by_coverage: Dict[str, float] = {}
+    coi_band2_rates_by_coverage: Dict[str, float] = {}
+    if ratchet_active:
+        rc = _ratchet_coi(
+            segment_nars, nar_corr, rates, config, policy,
+            projection_date, rate_year, bln_round_charge,
+        )
+        coi_charges_by_coverage = rc.charges_by_coverage
+        coi_charge_corr = rc.charge_corr
+        coi_charge = rc.total
+        coi_charge_cov1 = rc.charges_by_coverage.get("cov1", 0.0)
+        # Representative single rate (display): band-1 rate covers the bulk.
+        adjusted_coi = rc.cov1_band1_rate
+        coi_rates_by_coverage = dict(rc.band1_rates)
+        band_break = rates.band_break
+        coi_band1_nar_by_coverage = rc.band1_nar
+        coi_band2_nar_by_coverage = rc.band2_nar
+        coi_band1_rates_by_coverage = rc.band1_rates
+        coi_band2_rates_by_coverage = rc.band2_rates
 
     # ── 3.2.7 EPU charge (col 496) ───────────────────────────
     epu_rate = 0.0
@@ -501,6 +643,12 @@ def calculate_deduction(
         coi_charge_corr=coi_charge_corr,
         coi_charge=coi_charge,
         total_coi_charge=coi_charge,
+        ratchet_active=ratchet_active,
+        band_break=band_break,
+        coi_band1_nar_by_coverage=coi_band1_nar_by_coverage,
+        coi_band2_nar_by_coverage=coi_band2_nar_by_coverage,
+        coi_band1_rates_by_coverage=coi_band1_rates_by_coverage,
+        coi_band2_rates_by_coverage=coi_band2_rates_by_coverage,
         epu_rate=epu_rate,
         epu_charge=epu_charge,
         epu_rates_by_coverage=epu_rates_by_coverage,
