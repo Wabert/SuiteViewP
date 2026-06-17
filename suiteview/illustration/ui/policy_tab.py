@@ -22,6 +22,19 @@ from suiteview.polview.ui.widgets import StyledInfoTableGroup
 from .styles import FUND_TABLE_STYLE, GROUP_STYLE, GRAY_DARK, PURPLE_BG, PURPLE_DARK, VALUE_BUTTON_STYLE
 
 
+RATE_WARNING_STYLE = """
+    QLabel {
+        background-color: #FFF0B3;
+        color: #5C2B00;
+        border: 2px solid #B85C00;
+        border-radius: 5px;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+"""
+
+
 class IllustrationPolicyTab(QWidget):
     """Initial Illustration Policy tab."""
 
@@ -30,6 +43,7 @@ class IllustrationPolicyTab(QWidget):
         self._policy = None
         self._coverages = []
         self._benefits = []
+        self.rate_warning_label = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -50,6 +64,13 @@ class IllustrationPolicyTab(QWidget):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(12, 8, 12, 12)
         layout.setSpacing(8)
+
+        self.rate_warning_label = QLabel("")
+        self.rate_warning_label.setStyleSheet(RATE_WARNING_STYLE)
+        self.rate_warning_label.setWordWrap(True)
+        self.rate_warning_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.rate_warning_label.setVisible(False)
+        layout.addWidget(self.rate_warning_label)
 
         self.policy_info = StyledInfoTableGroup("Policy Info", columns=4, show_table=False)
         self.policy_info.setStyleSheet(GROUP_STYLE)
@@ -182,11 +203,11 @@ class IllustrationPolicyTab(QWidget):
             ("Status", "status_label"),
             ("Table Rating", "table_rating"),
             ("DB Option", "db_option_label"),
-            ("spacer", "policy_info_spacer_3"),
+            ("Cyberlife MD", "cyberlife_md"),
             ("Suspense Code", "suspense_label"),
             ("Flat Extra", "flat_extra"),
             ("Total Death Benefit", "total_death_benefit_label"),
-            ("spacer", "policy_info_spacer_4"),
+            ("Calculated MD", "calculated_md"),
             ("Grace Indicator", "grace_label"),
             ("Flat Cease Date", "flat_cease_date"),
             ("Guaranteed Int Rate", "guar_int_rate_label"),
@@ -206,7 +227,7 @@ class IllustrationPolicyTab(QWidget):
             group.add_field(label, attr, 150, 105)
         return group
 
-    def load_data_from_policy(self, policy, policy_info: dict | None = None):
+    def load_data_from_policy(self, policy, policy_info: dict | None = None, md_check=None):
         self._policy = policy
         self._clear_all()
         if not policy or not policy.exists:
@@ -223,9 +244,24 @@ class IllustrationPolicyTab(QWidget):
         self._coverages = list(policy.get_coverages())
         self._benefits = list(policy.get_benefits())
         self._populate_policy_info(policy, policy_info)
+        self.set_monthly_deduction_check(md_check)
         self._populate_value_groups(policy)
         self._populate_fund_values(policy)
         self._populate_coverage_buttons()
+
+    def set_rate_warnings(self, warnings: list[str] | None):
+        text = "\n".join(warnings or [])
+        self.rate_warning_label.setText(text)
+        self.rate_warning_label.setVisible(bool(text))
+
+    def set_monthly_deduction_check(self, md_check):
+        if md_check is None:
+            return
+
+        cyberlife_md = getattr(md_check, "system_monthly_deduction", None)
+        calculated_md = getattr(md_check, "md_check_calculated_deduction", None)
+        self.policy_info.set_value("cyberlife_md", format_currency(cyberlife_md, "$"))
+        self.policy_info.set_value("calculated_md", format_currency(calculated_md, "$"))
 
     def _clear_all(self):
         for group in [
@@ -238,6 +274,7 @@ class IllustrationPolicyTab(QWidget):
             self.fund_values,
         ]:
             group.clear_info()
+        self.set_rate_warnings([])
         self.fund_table.setRowCount(0)
         self._clear_buttons()
 
@@ -258,6 +295,7 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info.set_value("att_age_label", policy.attained_age)
         self.policy_info.set_value("maturity_age", policy.age_at_maturity or "")
         self.policy_info.set_value("insured_dob", format_date(policy.primary_insured_birth_date))
+        self.policy_info.set_value("cyberlife_md", format_currency(self._policy_cyberlife_monthly_deduction(policy), "$"))
         self.policy_info.set_value("policy_debt_label", format_currency(policy.policy_debt, "$"))
         self.policy_info.set_value("total_face_label", format_amount(policy.base_total_face_amount))
         self.policy_info.set_value("total_death_benefit_label", format_amount(policy.total_death_benefit))
@@ -279,6 +317,17 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info.set_value("table_rating", base_cov.table_rating if base_cov.table_rating else "")
         self.policy_info.set_value("flat_extra", format_currency(base_cov.flat_extra, "$"))
         self.policy_info.set_value("flat_cease_date", format_date(base_cov.flat_cease_date) if base_cov.flat_extra else "")
+
+    @staticmethod
+    def _policy_cyberlife_monthly_deduction(policy):
+        if hasattr(policy, "mv_monthly_deduction"):
+            try:
+                return policy.mv_monthly_deduction(0)
+            except TypeError:
+                return policy.mv_monthly_deduction()
+            except Exception:
+                return None
+        return getattr(policy, "system_monthly_deduction", None)
 
     @staticmethod
     def _format_rate(rate) -> str:

@@ -1781,11 +1781,23 @@ class FilterTableView(QWidget):
         if self.model is None:
             return []
         names: List[str] = []
+        seen: Set[str] = set()
+        for visual_index in range(self.frozen_header.count()):
+            logical_index = self.frozen_header.logicalIndex(visual_index)
+            if self.frozen_table_view.isColumnHidden(logical_index):
+                continue
+            column_name = self.model.column_name(logical_index)
+            names.append(column_name)
+            seen.add(column_name)
         for visual_index in range(self.header.count()):
             logical_index = self.header.logicalIndex(visual_index)
             if self.table_view.isColumnHidden(logical_index):
                 continue
-            names.append(self.model.column_name(logical_index))
+            column_name = self.model.column_name(logical_index)
+            if column_name in seen:
+                continue
+            names.append(column_name)
+            seen.add(column_name)
         return names
 
     def _dataframe_to_clipboard_text(self, df_to_copy: pd.DataFrame) -> str:

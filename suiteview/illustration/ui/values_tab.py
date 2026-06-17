@@ -517,7 +517,9 @@ class IllustrationValuesTab(QWidget):
         "# of Days",
         "PolicyBonus",
         "Fixed Ln Prinicple",
+        "RegLn Credit Rt",
         "Reg Impaired Int",
+        "PrefLn Credit Rt",
         "Pref Impaired Int",
         "Declared Rate",
         "Declared Rate + Policy Bonus",
@@ -1058,7 +1060,10 @@ class IllustrationValuesTab(QWidget):
             )
             if grid.model is not None:
                 grid.model._left_align_columns = {0}
-            grid.autofit_columns_to_data()
+            if title == self.SUMMARY_GROUP:
+                grid.autofit_columns_to_data(padding=36, max_width=520)
+            else:
+                grid.autofit_columns_to_data()
             selection = grid.table_view.selectionModel()
             if selection is not None:
                 selection.currentChanged.connect(
@@ -1836,7 +1841,9 @@ class IllustrationValuesTab(QWidget):
             "# of Days": state.days_in_month,
             "PolicyBonus": state.bonus_interest_rate * 100.0,
             "Fixed Ln Prinicple": 0.0,
+            "RegLn Credit Rt": state.reg_loan_credit_rate * 100.0,
             "Reg Impaired Int": state.reg_impaired_int,
+            "PrefLn Credit Rt": state.pref_loan_credit_rate * 100.0,
             "Pref Impaired Int": state.pref_impaired_int,
             "Declared Rate": state.annual_interest_rate * 100.0,
             "Declared Rate + Policy Bonus": state.effective_annual_rate * 100.0,

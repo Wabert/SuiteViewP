@@ -1,0 +1,248 @@
+"""Run as-is (current billable premium) forecasts for workbook testbed policies.
+
+Writes column E (date EAV is negative) and column F (EAV). If EAV never goes
+negative, writes the maturity date and EAV at maturity instead. If present,
+writes the "Plancodes for Riders and Benefits" column with comma-delimited
+active rider plancodes and supplemental benefit codes, and writes "MD Diff" as
+CyberLife monthly deduction minus calculated monthly deduction on the valuation
+date.
+
+Usage:
+    venv\\Scripts\\python.exe tools/fill_testbed_eav.py --sheet TestBed2 --limit 10 --exact-days false
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from datetime import date, datetime, time
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import openpyxl
+from PyQt6.QtWidgets import QApplication
+
+from suiteview.core.policy_service import get_policy_info, clear_cache
+from suiteview.illustration.core.calc_engine import IllustrationEngine
+from suiteview.illustration.core.illustration_policy_service import build_illustration_data
+from suiteview.illustration.core.scenario_builder import build_illustration_scenario
+from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
+
+XLSX = ROOT / "docs" / "Illustration_UL" / "Test Matrix prior 2000.xlsx"
+SHEET = "TestBed"
+REGION = "CKPR"
+RIDERS_BENEFITS_HEADER = "Plancodes for Riders and Benefits"
+MD_DIFF_HEADER = "MD Diff"
+
+
+def _excel_scalar(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return datetime.combine(value, time())
+    return value
+
+
+def save_or_update_open_workbook(wb, path: Path, sheet_name: str, updates: list[tuple[int, int, Any, str | None]]) -> str:
+    try:
+        wb.save(path)
+        return "openpyxl"
+    except PermissionError:
+        import win32com.client  # type: ignore[import-not-found]
+
+        excel = win32com.client.GetActiveObject("Excel.Application")
+        target = str(path).lower()
+        for excel_wb in excel.Workbooks:
+            if str(excel_wb.FullName).lower() != target:
+                continue
+            excel_ws = excel_wb.Worksheets(sheet_name)
+            for row, col, value, number_format in updates:
+                cell = excel_ws.Cells(row, col)
+                cell.Value = _excel_scalar(value)
+                if number_format is not None:
+                    cell.NumberFormat = number_format
+            excel_wb.Save()
+            return "excel-com"
+        raise
+
+
+def _active_as_of(item, as_of_date):
+    cease_date = getattr(item, "cease_date", None) or getattr(item, "terminate_date", None)
+    return cease_date is None or cease_date >= as_of_date
+
+
+def rider_benefit_plancodes(pi) -> str:
+    """Return comma-delimited active rider plancodes and benefit codes."""
+    as_of_date = pi.valuation_date or pi.issue_date
+    codes: list[str] = []
+
+    try:
+        riders = pi.get_riders()
+    except Exception:
+        riders = []
+    for rider in riders:
+        if as_of_date is not None and not _active_as_of(rider, as_of_date):
+            continue
+        code = str(getattr(rider, "plancode", "") or "").strip()
+        if code:
+            codes.append(code)
+
+    try:
+        benefits = pi.get_benefits()
+    except Exception:
+        benefits = []
+    for benefit in benefits:
+        if as_of_date is not None and not _active_as_of(benefit, as_of_date):
+            continue
+        code = str(getattr(benefit, "benefit_code", "") or "").strip()
+        if code:
+            codes.append(code)
+
+    return ", ".join(codes)
+
+
+def find_header_column(ws, header: str) -> int | None:
+    for cell in ws[1]:
+        if str(cell.value or "").strip() == header:
+            return cell.column
+    return None
+
+
+def forecast_first_negative(policy_number: str, *, exact_days_interest: bool):
+    """Return (date, eav/status, rider_benefit_codes, md_diff, outcome)."""
+    clear_cache()
+    pi = get_policy_info(policy_number, REGION)
+    if pi is None or not getattr(pi, "exists", False):
+        return None, "NOT FOUND", "", None, "not_found"
+
+    rider_benefit_codes = rider_benefit_plancodes(pi)
+
+    policy_data = build_illustration_data(policy_number, region=REGION, company_code=pi.company_code)
+
+    tab = IllustrationInputsTab()
+    tab.load_data_from_policy(pi)
+    tab.exact_days_check.setChecked(exact_days_interest)
+
+    scenario = build_illustration_scenario(
+        policy_data,
+        inforce_overrides=tab.export_inforce_overrides(),
+        future_inputs=tab.export_input_set(),
+    )
+    months = tab._months_to_maturity(scenario.projectable_policy)
+
+    engine = IllustrationEngine()
+    options = tab.export_options()
+    results = engine.project(
+        scenario.projectable_policy,
+        months=months,
+        future_inputs=scenario.future_inputs,
+        options=options,
+        stop_on_lapse=False,
+    )
+    inforce = results[0]
+    md_diff = (
+        float(inforce.system_monthly_deduction or 0.0)
+        - float(inforce.md_check_calculated_deduction or 0.0)
+    )
+
+    for st in results[1:]:
+        if st.av_end_of_month < 0:
+            return st.date, round(st.av_end_of_month, 2), rider_benefit_codes, md_diff, "negative"
+    maturity = results[-1]
+    return maturity.date, round(maturity.av_end_of_month, 2), rider_benefit_codes, md_diff, "maturity"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Fill illustration testbed EAV results.")
+    parser.add_argument("--sheet", default=SHEET, help="Workbook sheet to fill")
+    parser.add_argument("--limit", type=int, default=None, help="Maximum policies to process")
+    parser.add_argument(
+        "--exact-days",
+        choices=("true", "false"),
+        default="false",
+        help="Use exact-days interest instead of monthly compounding",
+    )
+    args = parser.parse_args()
+
+    _app = QApplication.instance() or QApplication([])
+
+    wb = openpyxl.load_workbook(XLSX)
+    ws = wb[args.sheet]
+    rider_benefit_col = find_header_column(ws, RIDERS_BENEFITS_HEADER)
+    md_diff_col = find_header_column(ws, MD_DIFF_HEADER)
+    exact_days_interest = args.exact_days == "true"
+    processed = 0
+    updates: list[tuple[int, int, Any, str | None]] = []
+
+    for row in range(2, ws.max_row + 1):
+        if args.limit is not None and processed >= args.limit:
+            break
+        raw = ws.cell(row=row, column=1).value
+        if raw is None or not str(raw).strip():
+            continue
+        policy = str(raw).strip()
+        try:
+            d, val, rider_benefit_codes, md_diff, outcome = forecast_first_negative(
+                policy,
+                exact_days_interest=exact_days_interest,
+            )
+        except Exception as exc:  # noqa: BLE001 - record per-policy failure
+            ws.cell(row=row, column=5).value = "ERROR"
+            ws.cell(row=row, column=6).value = str(exc)[:120]
+            updates.extend([
+                (row, 5, "ERROR", None),
+                (row, 6, str(exc)[:120], None),
+            ])
+            if rider_benefit_col is not None:
+                ws.cell(row=row, column=rider_benefit_col).value = None
+                updates.append((row, rider_benefit_col, None, None))
+            if md_diff_col is not None:
+                ws.cell(row=row, column=md_diff_col).value = None
+                updates.append((row, md_diff_col, None, None))
+            print(f"{policy}: ERROR {exc}")
+            processed += 1
+            continue
+
+        if rider_benefit_col is not None:
+            ws.cell(row=row, column=rider_benefit_col).value = rider_benefit_codes or None
+            updates.append((row, rider_benefit_col, rider_benefit_codes or None, None))
+        if md_diff_col is not None:
+            ws.cell(row=row, column=md_diff_col).value = round(md_diff, 2) if md_diff is not None else None
+            if md_diff is not None:
+                ws.cell(row=row, column=md_diff_col).number_format = "#,##0.00"
+            updates.append((row, md_diff_col, round(md_diff, 2) if md_diff is not None else None, "#,##0.00" if md_diff is not None else None))
+
+        if outcome == "not_found":
+            ws.cell(row=row, column=5).value = val
+            ws.cell(row=row, column=6).value = None
+            updates.extend([
+                (row, 5, val, None),
+                (row, 6, None, None),
+            ])
+            print(f"{policy}: {val}  Riders/Benefits={rider_benefit_codes or '(blank)'}")
+        else:
+            ws.cell(row=row, column=5).value = d
+            ws.cell(row=row, column=5).number_format = "mm/dd/yyyy"
+            ws.cell(row=row, column=6).value = val
+            ws.cell(row=row, column=6).number_format = "#,##0.00"
+            updates.extend([
+                (row, 5, d, "mm/dd/yyyy"),
+                (row, 6, val, "#,##0.00"),
+            ])
+            label = "Maturity" if outcome == "maturity" else "Negative"
+            md_label = f"  MD Diff={md_diff:,.2f}" if md_diff is not None else ""
+            print(f"{policy}: {label} {d:%m/%d/%Y}  EAV={val:,.2f}{md_label}  Riders/Benefits={rider_benefit_codes or '(blank)'}")
+        processed += 1
+
+    save_method = save_or_update_open_workbook(wb, XLSX, args.sheet, updates)
+    print(f"\nSaved {processed} policy row(s) on {args.sheet} via {save_method} -> {XLSX}")
+
+
+if __name__ == "__main__":
+    main()

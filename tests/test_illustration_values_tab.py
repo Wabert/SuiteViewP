@@ -5,6 +5,7 @@ from datetime import date
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QTabWidget
+from PyQt6.QtGui import QFontMetrics
 
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
@@ -36,6 +37,8 @@ def _state() -> MonthlyState:
         policy_year=1,
         policy_month=2,
         attained_age=45,
+        days_in_month=365.0 / 12.0,
+        shadow_days=365.0 / 12.0,
         av_after_premium=10000,
         nar_av=10000,
         standard_db=150000,
@@ -71,6 +74,8 @@ def _state() -> MonthlyState:
         rider_charges=1.2,
         total_deduction=38.1,
         av_after_deduction=9961.9,
+        reg_loan_credit_rate=0.02,
+        pref_loan_credit_rate=0.04,
         av_end_of_month=9990,
     )
 
@@ -136,6 +141,66 @@ def test_values_group_grids_freeze_lead_locator_columns():
             assert grid.frozen_table_view.columnWidth(column_index) < 100, title
         assert not grid.table_view.isColumnHidden(4), title
         assert grid.frozen_table_view.isColumnHidden(4), title
+
+
+def test_values_group_copy_includes_frozen_locator_columns():
+    _app()
+    tab = IllustrationValuesTab()
+
+    tab.display_projection(_policy(), [_state()])
+
+    grid = tab._tab_grids["Monthly Deduction"]
+    copied_header = grid._dataframe_to_clipboard_text(grid.df).splitlines()[0].split("\t")
+    assert copied_header[:4] == ["Date", "Year", "Month", "Attained Age"]
+
+
+def test_accumulation_values_group_shows_loan_credit_rates_before_impaired_interest():
+    _app()
+    tab = IllustrationValuesTab()
+
+    tab.display_projection(_policy(), [_state()])
+
+    grid = tab._tab_grids["Accumulation"]
+    columns = list(grid.df.columns)
+    assert columns[columns.index("Reg Impaired Int") - 1] == "RegLn Credit Rt"
+    assert columns[columns.index("Pref Impaired Int") - 1] == "PrefLn Credit Rt"
+    assert grid.df.iloc[0]["RegLn Credit Rt"] == 2.0
+    assert grid.df.iloc[0]["PrefLn Credit Rt"] == 4.0
+
+
+def test_values_groups_show_average_days_when_exact_days_is_off():
+    _app()
+    tab = IllustrationValuesTab()
+
+    tab.display_projection(_policy(), [_state()])
+
+    assert tab._tab_grids["Accumulation"].df.iloc[0]["# of Days"] == 365.0 / 12.0
+    assert tab._tab_grids["Shadow Account"].df.iloc[0]["Shadow # of Days"] == 365.0 / 12.0
+
+
+def test_summary_values_group_allows_wider_autofit_for_long_values():
+    _app()
+    tab = IllustrationValuesTab()
+    state = replace(_state(), db_option="X" * 80)
+
+    tab.display_projection(_policy(), [state])
+
+    grid = tab._tab_grids["Summary"]
+    dbo_column = list(grid.df.columns).index("DBO")
+    assert grid.table_view.columnWidth(dbo_column) > 260
+
+
+def test_summary_values_group_autofit_leaves_room_for_gsp_decimals():
+    _app()
+    tab = IllustrationValuesTab()
+    state = replace(_state(), gsp=123456789.12)
+
+    tab.display_projection(_policy(), [state])
+
+    grid = tab._tab_grids["Summary"]
+    gsp_column = list(grid.df.columns).index("GSP")
+    metrics = QFontMetrics(grid.table_view.font())
+    assert grid.table_view.columnWidth(gsp_column) >= metrics.horizontalAdvance("123,456,789.12") + 36
 
 
 def test_values_group_navigator_is_permanent():

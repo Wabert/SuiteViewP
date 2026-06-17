@@ -311,7 +311,7 @@ class IllustrationInputsTab(QWidget):
         layout.setSpacing(6)
 
         self.exact_days_check = self._make_control_checkbox("Exact Days Interest")
-        self.exact_days_check.setToolTip("Checked forces exact-days interest; unchecked uses the plancode interest method.")
+        self.exact_days_check.setToolTip("Checked uses exact-days interest; unchecked uses monthly compounding.")
         layout.addWidget(self.exact_days_check)
 
         self.tefra_check = self._make_control_checkbox("Conform to TEFRA/DEFRA")
@@ -345,7 +345,7 @@ class IllustrationInputsTab(QWidget):
         self.stop_on_lapse_check.setToolTip("Stop projection rows once the lapse test fails.")
         layout.addWidget(self.stop_on_lapse_check)
 
-        note = QLabel("Unchecked Exact Days uses the plan default.")
+        note = QLabel("Unchecked Exact Days uses monthly compounding.")
         note.setStyleSheet(f"color: {PURPLE_DARK}; background: transparent; font-size: 10px; font-style: italic;")
         layout.addWidget(note)
 
@@ -795,7 +795,7 @@ class IllustrationInputsTab(QWidget):
             conform_to_tefra=self.tefra_check.isChecked(),
             conform_to_tamra=self.tamra_check.isChecked(),
             allow_exception_prems=self.exception_prem_check.isChecked(),
-            exact_days_interest=True if self.exact_days_check.isChecked() else None,
+            exact_days_interest=self.exact_days_check.isChecked(),
             cap_premiums_at_acceptance=self.cap_acceptance_check.isChecked(),
             guideline_by_search=self.gp_search_check.isChecked(),
         )

@@ -10,7 +10,10 @@ from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.odbc_utils import is_password_error
 from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.illustration_policy_service import build_illustration_data
+from suiteview.illustration.core.rate_loader import load_rates
+from suiteview.illustration.core.rate_validation import missing_required_rate_warnings
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
+from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.polview.models.policy_information import PolicyInformation
 from suiteview.polview.ui.widgets import PolicyLookupBar
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
@@ -239,13 +242,50 @@ class IllustrationWindow(FramelessWindowBase):
             region,
             is_pending=self._policy.system_code == "P",
         )
-        self.policy_tab.load_data_from_policy(self._policy, self._policy_info)
+        warnings, md_check = self._policy_load_checks(
+            policy_number=self._policy_info.get("PolicyNumber", self._policy.policy_number),
+            region=region,
+            company_code=company_code,
+        )
+        self.policy_tab.load_data_from_policy(self._policy, self._policy_info, md_check=md_check)
+        self.policy_tab.set_rate_warnings(warnings)
         self.inputs_tab.load_data_from_policy(self._policy)
         self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")
         self.report_tab.clear()
         self.run_values_btn.setEnabled(True)
         cache_note = " (cached)" if cached else ""
         self._show_status(f"Loaded policy {self._policy.policy_number} ({company_code}) - {self._policy.status_description}{cache_note}")
+
+    def _policy_load_checks(self, policy_number: str, region: str, company_code: str):
+        warnings: list[str] = []
+        try:
+            policy_data = build_illustration_data(policy_number, region=region, company_code=company_code)
+            config = load_plancode(policy_data.plancode)
+            rates = load_rates(policy_data, config)
+            warnings.extend(missing_required_rate_warnings(policy_data, rates))
+        except Exception as exc:
+            return [f"Unable to validate illustration rider/benefit rates: {exc}"], None
+
+        md_check = None
+        try:
+            md_check = IllustrationEngine().project(policy_data, months=0, rates_override=rates)[0]
+            warnings.extend(self._monthly_deduction_warnings(md_check))
+        except Exception as exc:
+            warnings.append(f"Unable to validate monthly deduction: {exc}")
+        return warnings, md_check
+
+    @staticmethod
+    def _monthly_deduction_warnings(md_check) -> list[str]:
+        cyberlife_md = float(getattr(md_check, "system_monthly_deduction", 0.0) or 0.0)
+        calculated_md = float(getattr(md_check, "md_check_calculated_deduction", 0.0) or 0.0)
+        variance = calculated_md - cyberlife_md
+        if abs(variance) < 0.005:
+            return []
+        return [
+            "Monthly deduction check mismatch: "
+            f"CyberLife MD ${cyberlife_md:,.2f} vs Calculated MD ${calculated_md:,.2f} "
+            f"(variance ${variance:,.2f})."
+        ]
 
     def _on_run_values(self):
         if not self._policy or not self._policy.exists:

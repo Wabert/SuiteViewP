@@ -187,7 +187,7 @@ class IllustrationEngine:
         loan0 = accrue_loan_interest(
             loan0,
             config,
-            intr0.days_in_month,
+            intr0.actual_days_in_month,
             policy.variable_loan_charge_rate,
         )
 
@@ -204,11 +204,12 @@ class IllustrationEngine:
             rates=rates,
             rate_year=rate_year_inforce,
             attained_age=policy.attained_age,
-            days_in_month=intr0.days_in_month,
+            days_in_month=intr0.actual_days_in_month,
             policy_debt=loan0.policy_debt,
             is_inforce=True,
             shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, ded0),
             projection_date=month_date_inforce,
+            display_days_in_month=intr0.days_in_month,
         )
 
         # Safety Net / Lapse Protection for inforce month
@@ -328,6 +329,8 @@ class IllustrationEngine:
             bonus_interest_rate=intr0.bonus_interest_rate,
             effective_annual_rate=intr0.effective_annual_rate,
             monthly_interest_rate=intr0.monthly_interest_rate,
+            reg_loan_credit_rate=intr0.reg_loan_credit_rate,
+            pref_loan_credit_rate=intr0.pref_loan_credit_rate,
             reg_impaired_int=intr0.reg_impaired_int,
             pref_impaired_int=intr0.pref_impaired_int,
             interest_credited=intr0.interest_credited,
@@ -656,7 +659,7 @@ class IllustrationEngine:
         accrual_loan = accrue_loan_interest(
             fixed_loan_state,
             config,
-            intr.days_in_month,
+            intr.actual_days_in_month,
             policy.variable_loan_charge_rate,
         )
 
@@ -670,10 +673,11 @@ class IllustrationEngine:
             rates=rates,
             rate_year=rate_year,
             attained_age=attained_age,
-            days_in_month=intr.days_in_month,
+            days_in_month=intr.actual_days_in_month,
             policy_debt=accrual_loan.policy_debt,
             shadow_rider_charges=_shadow_rider_charges_from_deduction(policy, ded),
             projection_date=month_date,
+            display_days_in_month=intr.days_in_month,
         )
 
         # ── 18. Testing: SNET, shadow, exception, and lapse ───
@@ -843,6 +847,8 @@ class IllustrationEngine:
             bonus_interest_rate=intr.bonus_interest_rate,
             effective_annual_rate=intr.effective_annual_rate,
             monthly_interest_rate=intr.monthly_interest_rate,
+            reg_loan_credit_rate=intr.reg_loan_credit_rate,
+            pref_loan_credit_rate=intr.pref_loan_credit_rate,
             reg_impaired_int=intr.reg_impaired_int,
             pref_impaired_int=intr.pref_impaired_int,
             interest_credited=intr.interest_credited,
@@ -1065,7 +1071,7 @@ class IllustrationEngine:
         accrual_loan = accrue_loan_interest(
             fixed_loan_state,
             config,
-            intr.days_in_month,
+            intr.actual_days_in_month,
             policy.variable_loan_charge_rate,
         )
         monthly_mtp = math.trunc(policy.mtp * 100) / 100
@@ -1180,6 +1186,8 @@ class IllustrationEngine:
             bonus_interest_rate=intr.bonus_interest_rate,
             effective_annual_rate=intr.effective_annual_rate,
             monthly_interest_rate=intr.monthly_interest_rate,
+            reg_loan_credit_rate=intr.reg_loan_credit_rate,
+            pref_loan_credit_rate=intr.pref_loan_credit_rate,
             reg_impaired_int=intr.reg_impaired_int,
             pref_impaired_int=intr.pref_impaired_int,
             interest_credited=intr.interest_credited,

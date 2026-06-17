@@ -87,6 +87,17 @@ def test_inputs_tab_exports_illustrated_rate_override_from_gint():
     assert overrides.current_interest_rate == 0.03
 
 
+def test_exact_days_unchecked_exports_monthly_compounding_override():
+    _app()
+    tab = IllustrationInputsTab()
+
+    assert tab.exact_days_check.isChecked() is False
+    assert tab.export_options().exact_days_interest is False
+
+    tab.exact_days_check.setChecked(True)
+    assert tab.export_options().exact_days_interest is True
+
+
 def test_scenario_builder_applies_current_interest_rate_override():
     base_policy = IllustrationPolicyData(current_interest_rate=0.04)
 
@@ -168,6 +179,31 @@ def test_premium_age_auto_adjusts_prior_span():
     assert first.end_year() == 15
     assert first.for_years_edit.value() == 9
     assert first.to_age_edit.value() == 65
+
+
+def test_annual_premium_current_year_not_applied_on_forecast_date():
+    """An annual premium whose anniversary already passed must NOT be
+    re-applied on the forecast date; the first payment is next year's
+    anniversary (handled by the year schedule, not a dated transaction)."""
+    panel = _panel()
+    row = panel.premium_section.rows()[0]
+    row.mode_combo.setCurrentText("A")         # annual mode
+
+    input_set = IllustrationInputSet()
+    panel.collect_into(input_set)
+
+    # No dated premium lands in the current policy year (year 7): the year-7
+    # anniversary (2025-11-09) is before the forecast date (2026-06-09) and
+    # the next annual due date (2026-11-09) belongs to year 8.
+    dated = [t for t in input_set.dated_transactions if t.kind == TransactionKind.PREMIUM]
+    assert dated == []
+
+    # The current year's schedule slot is the billing-silencing zero, and the
+    # premium resumes as a year schedule from year 8 (anniversary 2026-11-09).
+    premiums = [t for t in input_set.scheduled_transactions if t.kind == TransactionKind.PREMIUM]
+    by_year = {t.policy_year: t.amount for t in premiums}
+    assert by_year[7] == 0.0
+    assert by_year[8] > 0
 
 
 def test_withdrawals_expand_to_monthliversary_dates():

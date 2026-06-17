@@ -175,11 +175,13 @@ class MonthlyState:
     md_check_av_variance: float = 0.0
 
     # ── 3. Interest Credit (cols 548-585) ─────
-    days_in_month: int = 0
+    days_in_month: float = 0.0
     annual_interest_rate: float = 0.0
     bonus_interest_rate: float = 0.0
     effective_annual_rate: float = 0.0
     monthly_interest_rate: float = 0.0
+    reg_loan_credit_rate: float = 0.0
+    pref_loan_credit_rate: float = 0.0
     reg_impaired_int: float = 0.0       # Interest on AV backing regular loans
     pref_impaired_int: float = 0.0      # Interest on AV backing preferred loans
     interest_credited: float = 0.0

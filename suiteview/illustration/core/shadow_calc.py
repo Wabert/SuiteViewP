@@ -48,7 +48,7 @@ class ShadowResult:
     shadow_rider_charges: float = 0.0
     shadow_md: float = 0.0
     shadow_av: float = 0.0
-    shadow_days: int = 0
+    shadow_days: float = 0.0
     shadow_int_rate: float = 0.0
     shadow_eff_rate: float = 0.0
     shadow_interest: float = 0.0
@@ -70,6 +70,7 @@ def calculate_shadow(
     is_inforce: bool = False,
     shadow_rider_charges: float = 0.0,
     projection_date: date | None = None,
+    display_days_in_month: float | None = None,
 ) -> ShadowResult:
     """Calculate one month of the shadow account.
 
@@ -82,7 +83,7 @@ def calculate_shadow(
         rates: Pre-loaded rate arrays (includes shadow_coi).
         rate_year: Current policy year for rate lookups.
         attained_age: Current attained age.
-        days_in_month: Days in this month (from interest calc).
+        days_in_month: Actual calendar days in this month for shadow interest.
         policy_debt: Total loan debt (for EAV-less-debt).
         is_inforce: True for the inforce snapshot month.
         shadow_rider_charges: Regular-side rider and benefit charges, excluding CCV.
@@ -224,14 +225,14 @@ def calculate_shadow(
         shadow_av = shadow_nar_av - shadow_md
 
     # ── Interest (cols XS-XV) ─────────────────────────────────
-    shadow_days = days_in_month
+    shadow_days = float(display_days_in_month) if display_days_in_month is not None else float(days_in_month)
 
     if config.shadow_int_rate_code == "Table":
         shadow_int_rate = get_rate(rates, "shadow_int", rate_year)
     else:
         shadow_int_rate = float(config.shadow_int_rate_code)
 
-    shadow_eff_rate = (1.0 + shadow_int_rate) ** (shadow_days / 365.0) - 1.0
+    shadow_eff_rate = (1.0 + shadow_int_rate) ** (days_in_month / 365.0) - 1.0
     shadow_interest = max(0.0, shadow_eff_rate * shadow_av)
 
     # ── Shadow EAV (col XW) ──────────────────────────────────

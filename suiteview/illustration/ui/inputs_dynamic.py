@@ -1085,12 +1085,20 @@ class DynamicInputsPanel(QWidget):
 
     # ── export ────────────────────────────────────────────────
 
-    def _expand_dated(self, entries: list[dict], kind: TransactionKind) -> list[DatedTransaction]:
+    def _expand_dated(self, entries: list[dict], kind: TransactionKind,
+                      on_due_dates: bool = False) -> list[DatedTransaction]:
         """Year/mode rows -> dated monthliversary transactions (the compiler
         only schedules premiums and loans by year).
 
         Within the CURRENT policy year the grid starts at the forecast date —
         the year's anniversary is already behind us.
+
+        ``on_due_dates`` keeps transactions on their natural due dates
+        (anniversary plus each modal interval) and simply drops the ones that
+        fall before the forecast date, instead of clamping the first one onto
+        the forecast date. Premiums use this so an already-billed payment in
+        the current policy year (e.g. an annual premium due on a past
+        anniversary) is not re-applied on the forecast date.
         """
         ctx = self._ctx
         out: list[DatedTransaction] = []
@@ -1104,9 +1112,12 @@ class DynamicInputsPanel(QWidget):
                 if anniversary is None or next_anniversary is None:
                     continue
                 when = anniversary
-                if ctx.forecast_date is not None and when < ctx.forecast_date:
+                if not on_due_dates and ctx.forecast_date is not None and when < ctx.forecast_date:
                     when = ctx.forecast_date
                 while when < next_anniversary:
+                    if on_due_dates and ctx.forecast_date is not None and when < ctx.forecast_date:
+                        when = when + relativedelta(months=interval)
+                        continue
                     out.append(DatedTransaction(
                         kind=kind, effective_date=when, amount=float(entry["amount"])))
                     when = when + relativedelta(months=interval)
@@ -1168,7 +1179,7 @@ class DynamicInputsPanel(QWidget):
                 kind=TransactionKind.PREMIUM, policy_year=ctx.forecast_year,
                 amount=0.0, mode="A"))
         input_set.dated_transactions.extend(
-            self._expand_dated(dated_prem, TransactionKind.PREMIUM))
+            self._expand_dated(dated_prem, TransactionKind.PREMIUM, on_due_dates=True))
         input_set.scheduled_transactions.extend(
             self._scheduled(sched_prem, TransactionKind.PREMIUM))
 

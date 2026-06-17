@@ -391,6 +391,8 @@ def calculate_deduction(
     for rider in policy.riders:
         if not rider.is_active:
             continue
+        if rider.maturity_date is not None and projection_date is not None and projection_date >= rider.maturity_date:
+            continue
         rider_key = rider.export_key
         rider_rate_schedule = rates.rider_rates.get(rider_key, [])
         rider_rate = 0.0

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from suiteview.illustration.core.bonus_rates import BonusConfig
-from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
+from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
@@ -18,11 +18,14 @@ from suiteview.illustration.models.policy_data import IllustrationPolicyData
 class InterestResult:
     """Intermediate output of credit_interest()."""
 
-    days_in_month: int = 0
+    days_in_month: float = 0.0
+    actual_days_in_month: int = 0
     annual_interest_rate: float = 0.0
     bonus_interest_rate: float = 0.0
     effective_annual_rate: float = 0.0
     monthly_interest_rate: float = 0.0
+    reg_loan_credit_rate: float = 0.0
+    pref_loan_credit_rate: float = 0.0
     reg_impaired_int: float = 0.0    # Interest on AV backing regular loans
     pref_impaired_int: float = 0.0   # Interest on AV backing preferred loans
     interest_credited: float = 0.0
@@ -82,21 +85,28 @@ def credit_interest(
     effective_annual_rate = annual_rate + bonus_rate
 
     # ── 3.3.3 Monthly rate calculation ────────────────────────
-    days = _days_in_month(month_date)
+    actual_days = _days_in_month(month_date)
     use_exact_days = config.interest_method == "ExactDays" if exact_days_interest is None else exact_days_interest
+    display_days = float(actual_days) if use_exact_days else 365.0 / 12.0
 
     if use_exact_days:
         # Exact-days: credit interest on the ACTUAL calendar days in the month
         # (matches CyberLife / RERUN, and the shadow side, which already use
         # days/365). Previously this used a fixed 365/12 exponent and ignored the
         # real day count, drifting ~0.3/mo vs RERUN on 28/31-day months.
-        monthly_rate = (1.0 + effective_annual_rate) ** (days / 365.0) - 1.0
+        monthly_rate = (1.0 + effective_annual_rate) ** (actual_days / 365.0) - 1.0
     else:
         # Monthly compounding
         monthly_rate = (1.0 + effective_annual_rate) ** (1.0 / 12.0) - 1.0
 
     # ── 3.3.4 Interest on AV (split free / loaned) ─────────
     total_loaned = reg_loan_balance + pref_loan_balance
+    reg_credit_annual = config.loan_charge_rate_curr or config.loan_charge_rate_guar or policy.guaranteed_interest_rate
+    pref_credit_annual = (
+        config.pref_loan_charge_rate_curr
+        or config.pref_loan_charge_rate_guar
+        or policy.guaranteed_interest_rate
+    )
     reg_impaired_int = 0.0
     pref_impaired_int = 0.0
 
@@ -112,15 +122,9 @@ def credit_interest(
             reg_loaned_av = 0.0
             pref_loaned_av = 0.0
 
-        # Loan credit rates (from UL_Rates duration arrays — stored as whole %, divide by 100)
-        raw_reg = get_rate(rates, "rlncrg", rate_year)
-        reg_credit_annual = raw_reg / 100.0 if raw_reg else policy.guaranteed_interest_rate
-        raw_pref = get_rate(rates, "plncrg", rate_year)
-        pref_credit_annual = raw_pref / 100.0 if raw_pref else policy.guaranteed_interest_rate
-
         if use_exact_days:
-            reg_credit_monthly = (1.0 + reg_credit_annual) ** (days / 365.0) - 1.0
-            pref_credit_monthly = (1.0 + pref_credit_annual) ** (days / 365.0) - 1.0
+            reg_credit_monthly = (1.0 + reg_credit_annual) ** (actual_days / 365.0) - 1.0
+            pref_credit_monthly = (1.0 + pref_credit_annual) ** (actual_days / 365.0) - 1.0
         else:
             reg_credit_monthly = (1.0 + reg_credit_annual) ** (1.0 / 12.0) - 1.0
             pref_credit_monthly = (1.0 + pref_credit_annual) ** (1.0 / 12.0) - 1.0
@@ -138,11 +142,14 @@ def credit_interest(
     av_end = av_after_deduction + interest
 
     return InterestResult(
-        days_in_month=days,
+        days_in_month=display_days,
+        actual_days_in_month=actual_days,
         annual_interest_rate=annual_rate,
         bonus_interest_rate=bonus_rate,
         effective_annual_rate=effective_annual_rate,
         monthly_interest_rate=monthly_rate,
+        reg_loan_credit_rate=reg_credit_annual,
+        pref_loan_credit_rate=pref_credit_annual,
         reg_impaired_int=reg_impaired_int,
         pref_impaired_int=pref_impaired_int,
         interest_credited=interest,
