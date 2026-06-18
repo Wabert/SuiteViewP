@@ -270,7 +270,7 @@ class CoveragesTab(QWidget):
             self._set_item(row_idx, col, format_amount(cov.face_amount)); col += 1
             if is_ul_product:
                 self._set_item(row_idx, col, format_amount(getattr(cov, 'orig_amount', None))); col += 1
-            self._set_item(row_idx, col, cov.issue_age or ""); col += 1
+            self._set_item(row_idx, col, cov.issue_age if cov.issue_age is not None else ""); col += 1
             self._set_item(row_idx, col, (cov.sex_desc[:1] if cov.sex_desc else cov.sex_code)); col += 1
             # Rate class: prefer renewal rate record, fall back to LH_COV_PHA
             rate_class = cov.rate_class

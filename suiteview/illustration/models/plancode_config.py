@@ -63,7 +63,7 @@ class PlancodeConfig:
     min_face_after_wd: float = 25000.0
 
     # Corridor
-    corridor_code: int = 1              # 1 = GPT corridor, 2 = CVAT MDBR
+    corridor_code: int = 1              # CorridorCode key for tRates_CORR
 
     # Maturity
     premium_cease_age: int = 121

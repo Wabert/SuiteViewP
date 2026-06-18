@@ -1,11 +1,13 @@
 """Run as-is (current billable premium) forecasts for workbook testbed policies.
 
-Writes column E (date EAV is negative) and column F (EAV). If EAV never goes
-negative, writes the maturity date and EAV at maturity instead. If present,
-writes the "Plancodes for Riders and Benefits" column with comma-delimited
-active rider plancodes and supplemental benefit codes, and writes "MD Diff" as
-CyberLife monthly deduction minus calculated monthly deduction on the valuation
-date.
+Writes column E (Termination Date) and column F (EAV at termination). The
+termination date is the first projected lapsed state, using the same lapse flag
+as the illustration UI; for SV-lapse plans this is driven by surrender value
+after surrender charges and policy debt. If the policy never lapses, writes the
+maturity date and EAV at maturity. If present, writes the "Plancodes for Riders
+and Benefits" column with comma-delimited active rider plancodes and
+supplemental benefit codes, and writes "MD Diff" as CyberLife monthly deduction
+minus calculated monthly deduction on the valuation date.
 
 Usage:
     venv\\Scripts\\python.exe tools/fill_testbed_eav.py --sheet TestBed2 --limit 10 --exact-days false
@@ -37,6 +39,8 @@ from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
 XLSX = ROOT / "docs" / "Illustration_UL" / "Test Matrix prior 2000.xlsx"
 SHEET = "TestBed"
 REGION = "CKPR"
+TERMINATION_DATE_HEADER = "Termination Date"
+EAV_AT_TERMINATION_HEADER = "EAV at termination"
 RIDERS_BENEFITS_HEADER = "Plancodes for Riders and Benefits"
 MD_DIFF_HEADER = "MD Diff"
 
@@ -114,12 +118,12 @@ def find_header_column(ws, header: str) -> int | None:
     return None
 
 
-def forecast_first_negative(policy_number: str, *, exact_days_interest: bool):
-    """Return (date, eav/status, rider_benefit_codes, md_diff, outcome)."""
+def forecast_termination(policy_number: str, *, exact_days_interest: bool):
+    """Return (date, eav/status, esv, rider_benefit_codes, md_diff, outcome)."""
     clear_cache()
     pi = get_policy_info(policy_number, REGION)
     if pi is None or not getattr(pi, "exists", False):
-        return None, "NOT FOUND", "", None, "not_found"
+        return None, "NOT FOUND", None, "", None, "not_found"
 
     rider_benefit_codes = rider_benefit_plancodes(pi)
 
@@ -152,16 +156,17 @@ def forecast_first_negative(policy_number: str, *, exact_days_interest: bool):
     )
 
     for st in results[1:]:
-        if st.av_end_of_month < 0:
-            return st.date, round(st.av_end_of_month, 2), rider_benefit_codes, md_diff, "negative"
+        if st.lapsed:
+            return st.date, round(st.av_end_of_month, 2), round(st.surrender_value, 2), rider_benefit_codes, md_diff, "termination"
     maturity = results[-1]
-    return maturity.date, round(maturity.av_end_of_month, 2), rider_benefit_codes, md_diff, "maturity"
+    return maturity.date, round(maturity.av_end_of_month, 2), round(maturity.surrender_value, 2), rider_benefit_codes, md_diff, "maturity"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fill illustration testbed EAV results.")
     parser.add_argument("--sheet", default=SHEET, help="Workbook sheet to fill")
     parser.add_argument("--limit", type=int, default=None, help="Maximum policies to process")
+    parser.add_argument("--start-policy", default=None, help="Policy number to start processing from")
     parser.add_argument(
         "--exact-days",
         choices=("true", "false"),
@@ -178,17 +183,29 @@ def main() -> None:
     md_diff_col = find_header_column(ws, MD_DIFF_HEADER)
     exact_days_interest = args.exact_days == "true"
     processed = 0
+    found_start_policy = args.start_policy is None
     updates: list[tuple[int, int, Any, str | None]] = []
 
+    ws.cell(row=1, column=5).value = TERMINATION_DATE_HEADER
+    ws.cell(row=1, column=6).value = EAV_AT_TERMINATION_HEADER
+    updates.extend([
+        (1, 5, TERMINATION_DATE_HEADER, None),
+        (1, 6, EAV_AT_TERMINATION_HEADER, None),
+    ])
+
     for row in range(2, ws.max_row + 1):
-        if args.limit is not None and processed >= args.limit:
-            break
         raw = ws.cell(row=row, column=1).value
         if raw is None or not str(raw).strip():
             continue
         policy = str(raw).strip()
+        if not found_start_policy:
+            if policy.upper() != args.start_policy.upper():
+                continue
+            found_start_policy = True
+        if args.limit is not None and processed >= args.limit:
+            break
         try:
-            d, val, rider_benefit_codes, md_diff, outcome = forecast_first_negative(
+            d, val, esv, rider_benefit_codes, md_diff, outcome = forecast_termination(
                 policy,
                 exact_days_interest=exact_days_interest,
             )
@@ -235,10 +252,13 @@ def main() -> None:
                 (row, 5, d, "mm/dd/yyyy"),
                 (row, 6, val, "#,##0.00"),
             ])
-            label = "Maturity" if outcome == "maturity" else "Negative"
+            esv_label = f"  ESV={esv:,.2f}" if esv is not None else ""
             md_label = f"  MD Diff={md_diff:,.2f}" if md_diff is not None else ""
-            print(f"{policy}: {label} {d:%m/%d/%Y}  EAV={val:,.2f}{md_label}  Riders/Benefits={rider_benefit_codes or '(blank)'}")
+            print(f"{policy}: Termination Date={d:%m/%d/%Y}  EAV at termination={val:,.2f}{esv_label}{md_label}  Riders/Benefits={rider_benefit_codes or '(blank)'}")
         processed += 1
+
+    if not found_start_policy:
+        raise SystemExit(f"Start policy not found on {args.sheet}: {args.start_policy}")
 
     save_method = save_or_update_open_workbook(wb, XLSX, args.sheet, updates)
     print(f"\nSaved {processed} policy row(s) on {args.sheet} via {save_method} -> {XLSX}")

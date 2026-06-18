@@ -1789,12 +1789,12 @@ class IllustrationValuesTab(QWidget):
         # CalcEngine cols 336-341); the advance/arrears repayment detail columns
         # are not yet computed and render as placeholders.
         return {
-            "Advance - Rg Ln Princ/Total": 0.0,
-            "Advance - Rg Ln Int Accrued": 0.0,
-            "Advance - Pf Ln Princ/Total": 0.0,
-            "Advance - Pf Ln Int Accrued": 0.0,
-            "Advance - Var Ln Princ/Total": 0.0,
-            "Advance - Var Ln Int Accrued": 0.0,
+            "Advance - Rg Ln Princ/Total": state.rg_loan_princ,
+            "Advance - Rg Ln Int Accrued": state.rg_loan_accrued,
+            "Advance - Pf Ln Princ/Total": state.pf_loan_princ,
+            "Advance - Pf Ln Int Accrued": state.pf_loan_accrued,
+            "Advance - Var Ln Princ/Total": state.vbl_loan_princ,
+            "Advance - Var Ln Int Accrued": state.vbl_loan_accrued,
             "Advance - Adv Reg LN Payoff": 0.0,
             "Advance - Adv Pref LN Payoff": 0.0,
             "Advance - LoanPayoff": 0.0,
@@ -1883,12 +1883,12 @@ class IllustrationValuesTab(QWidget):
             "Blended Index Rate": 0.0,
             "BlendedCreditingRate": 0.0,
             "BlendInterest": 0.0,
-            "Reg Ln Princ": state.rg_loan_princ,
-            "Accrued Reg Ln Int": state.rg_loan_accrued,
-            "Pref Ln Princ": state.pf_loan_princ,
-            "Accrued Pref Ln Int": state.pf_loan_accrued,
-            "Vbl Ln Princ": state.vbl_loan_princ,
-            "Accured Vbl Ln Int": state.vbl_loan_accrued,
+            "Reg Ln Princ": state.end_rg_loan_princ,
+            "Accrued Reg Ln Int": state.end_rg_loan_accrued,
+            "Pref Ln Princ": state.end_pf_loan_princ,
+            "Accrued Pref Ln Int": state.end_pf_loan_accrued,
+            "Vbl Ln Princ": state.end_vbl_loan_princ,
+            "Accured Vbl Ln Int": state.end_vbl_loan_accrued,
         }
 
     @staticmethod
@@ -1951,7 +1951,7 @@ class IllustrationValuesTab(QWidget):
             "IllustrationAV": state.av_end_of_month,
             "IllustrationInterestRate": state.annual_interest_rate * 100.0,
             "IllustrationLN": state.policy_debt,
-            "IllustrationSV": state.surrender_value,
+            "IllustrationSV": max(state.surrender_value, 0.0),
             "IllustrationDB": state.ending_db,
             "PremiumOutlay": state.premium_outlay,
             "ForceOutDisplay": state.guideline_forceout,

@@ -575,7 +575,7 @@ def build_ul_report(
         ]
 
     # ── Regulatory limits (as of the valuation date) ──
-    if not policy.is_cvat:
+    if policy.is_gpt:
         report.regulatory_lines = [
             f"GUIDELINE SINGLE = {_money(inforce.gsp)}",
             f"LEVEL PREMIUM = {_money(inforce.glp)}",

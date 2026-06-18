@@ -153,7 +153,7 @@ class IllustrationPolicyData:
     maturity_age: int = 121
 
     # ── 7702 / Guideline ──────────────────────────────────────
-    def_of_life_ins: str = "GPT"   # "GPT" or "CVAT"
+    def_of_life_ins: str = "GPT"   # "GPT", "CVAT", or blank when not defined
     glp: float = 0.0
     gsp: float = 0.0
     accumulated_glp: float = 0.0
@@ -232,6 +232,10 @@ class IllustrationPolicyData:
     @property
     def is_cvat(self) -> bool:
         return self.def_of_life_ins == "CVAT"
+
+    @property
+    def has_defined_life_insurance(self) -> bool:
+        return bool((self.def_of_life_ins or "").strip())
 
     @property
     def has_loans(self) -> bool:

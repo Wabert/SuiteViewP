@@ -852,7 +852,7 @@ class PolicyInformation:
                     form_number=str(row.get("POL_FRM_NBR", "")).strip(),
                     issue_date=self._parse_date(row.get("ISSUE_DT")),
                     maturity_date=self._parse_date(row.get("COV_MT_EXP_DT")),
-                    issue_age=int(row.get("INS_ISS_AGE") or 0) or None,
+                    issue_age=self._parse_optional_int(row.get("INS_ISS_AGE")),
                     face_amount=face_amount,
                     orig_amount=orig_amount,
                     units=units,
@@ -1028,7 +1028,7 @@ class PolicyInformation:
                     units=units,
                     vpu=vpu,
                     benefit_amount=benefit_amount,
-                    issue_age=int(row["BNF_ISS_AGE"]) if row.get("BNF_ISS_AGE") else None,
+                    issue_age=self._parse_optional_int(row.get("BNF_ISS_AGE")),
                     rating_factor=Decimal(str(row["BNF_RT_FCT"])) if row.get("BNF_RT_FCT") else None,
                     renewal_indicator=str(row.get("RNL_RT_IND", "")).strip(),
                     coi_rate=Decimal(str(row["BNF_ANN_PPU_AMT"])) if row.get("BNF_ANN_PPU_AMT") else None,
@@ -2318,7 +2318,7 @@ class PolicyInformation:
                 joint_indicator=str(row.get("JT_INS_IND", "") or ""),
                 rate_class=str(row.get("RT_CLS_CD", "") or ""),
                 rate_class_desc=RATE_CLASS_CODES.get(str(row.get("RT_CLS_CD", "") or ""), ""),
-                issue_age=int(row["ISS_AGE"]) if row.get("ISS_AGE") else None,
+                issue_age=self._parse_optional_int(row.get("ISS_AGE")),
                 raw_data=row
             )
             rates.append(rate)
@@ -2341,7 +2341,7 @@ class PolicyInformation:
                 rate_type_desc=translate_renewal_rate_type_code(rate_type),
                 joint_indicator=str(row.get("JT_INS_IND", "") or ""),
                 rate_class=str(row.get("RT_CLS_CD", "") or ""),
-                issue_age=int(row["ISS_AGE"]) if row.get("ISS_AGE") else None,
+                issue_age=self._parse_optional_int(row.get("ISS_AGE")),
                 raw_data=row
             )
             rates.append(rate)
@@ -3733,6 +3733,15 @@ class PolicyInformation:
     def _parse_date(value) -> Optional[date]:
         """Parse a date value from DB2."""
         return _PolicyData.parse_date(value)
+
+    @staticmethod
+    def _parse_optional_int(value) -> Optional[int]:
+        """Parse an optional DB integer, preserving zero as a valid value."""
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        return int(value)
 
     @staticmethod
     def find_companies(policy_number: str, region: str = "CKPR",

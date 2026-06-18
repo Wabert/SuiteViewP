@@ -168,6 +168,44 @@ def test_accumulation_values_group_shows_loan_credit_rates_before_impaired_inter
     assert grid.df.iloc[0]["PrefLn Credit Rt"] == 4.0
 
 
+def test_loan_capitalize_and_accumulation_show_inforce_loan_buckets():
+    _app()
+    tab = IllustrationValuesTab()
+    state = replace(
+        _state(),
+        rg_loan_princ=4784.51,
+        rg_loan_accrued=32.48,
+        pf_loan_princ=123.45,
+        pf_loan_accrued=6.78,
+        vbl_loan_princ=98.76,
+        vbl_loan_accrued=5.43,
+        end_rg_loan_princ=4784.51,
+        end_rg_loan_accrued=64.38,
+        end_pf_loan_princ=123.45,
+        end_pf_loan_accrued=9.87,
+        end_vbl_loan_princ=98.76,
+        end_vbl_loan_accrued=7.65,
+    )
+
+    tab.display_projection(_policy(), [state])
+
+    loan_cap = tab._tab_grids["Loan Capitalize and Repay"].df.iloc[0]
+    assert loan_cap["Advance - Rg Ln Princ/Total"] == 4784.51
+    assert loan_cap["Advance - Rg Ln Int Accrued"] == 32.48
+    assert loan_cap["Advance - Pf Ln Princ/Total"] == 123.45
+    assert loan_cap["Advance - Pf Ln Int Accrued"] == 6.78
+    assert loan_cap["Advance - Var Ln Princ/Total"] == 98.76
+    assert loan_cap["Advance - Var Ln Int Accrued"] == 5.43
+
+    accumulation = tab._tab_grids["Accumulation"].df.iloc[0]
+    assert accumulation["Reg Ln Princ"] == 4784.51
+    assert accumulation["Accrued Reg Ln Int"] == 64.38
+    assert accumulation["Pref Ln Princ"] == 123.45
+    assert accumulation["Accrued Pref Ln Int"] == 9.87
+    assert accumulation["Vbl Ln Princ"] == 98.76
+    assert accumulation["Accured Vbl Ln Int"] == 7.65
+
+
 def test_values_groups_show_average_days_when_exact_days_is_off():
     _app()
     tab = IllustrationValuesTab()
@@ -622,6 +660,18 @@ def test_overview_ledger_restores_compact_values_order():
         "23.00", "10.00", "1,200.00", "80.00", "20.00", "1,100.00",
         "151,000", "LAPSED",
     ]
+
+
+def test_ending_values_floor_illustration_sv_but_not_esv():
+    row = IllustrationValuesTab._ending_values(MonthlyState(
+        av_end_of_month=50.0,
+        policy_debt=0.0,
+        surrender_value=-125.0,
+        ending_db=100_000.0,
+    ))
+
+    assert row["ES"] == -125.0
+    assert row["IllustrationSV"] == 0.0
 
 
 def test_testing_tab_columns_and_relabels():

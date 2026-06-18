@@ -1,9 +1,7 @@
 """Corridor factor loader — reads from tRates_CORR.json.
 
 7702 statutory corridor factors (GPT) keyed by CorridorCode and
-attained age.  There are only 3 sets — they share the same rate
-curve (ages 0-94) and differ only in tail behavior past age 94.
-They do NOT vary by sex or rate class.
+attained age.  They do NOT vary by sex or rate class.
 
 Separate from CVAT minimum-death-benefit ratios (MDBR) which are
 stored in tRates_MDBR.json and vary by plancode, sex, and rateclass.

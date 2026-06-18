@@ -34,11 +34,17 @@ class _FakePolicy:
 
     issue_date = date(2019, 11, 9)
     base_issue_age = 50
+    attained_age = 56
     valuation_date = date(2026, 5, 9)
     policy_year = 7
     maturity_age = 121
     billing_frequency = 1
     modal_premium = 153.56
+    def_of_life_ins = "GPT"
+    glp = 1200.0
+    accumulated_glp = 5000.0
+    premiums_paid_to_date = 10000.0
+    withdrawals_to_date = 1000.0
     base_rate_class = "N"
     base_table_rating = 2
     base_plancode = "1U135D00"
@@ -75,6 +81,57 @@ def test_input_tab_illustrated_rate_defaults_from_plancode_gint():
 
     assert panel.illustrated_rate_edit.text() == "3.000"
     assert panel.illustrated_rate() == 0.03
+
+
+def test_max_level_premium_defaults_and_changes_with_mode():
+    panel = _panel()
+    row = panel.premium_section.rows()[0]
+
+    assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == ["INPUT", "Max Level"]
+    assert panel.max_annual_level_edit.text() == "1,106.98"
+    assert not panel.max_annual_level_label.isHidden()
+
+    row.type_combo.setCurrentText("Max Level")
+    assert row.amount_edit.isReadOnly()
+    assert abs(row.amount() - 92.25) < 0.005
+
+    row.mode_combo.setCurrentText("Q")
+    assert abs(row.amount() - 276.74) < 0.005
+
+    input_set = IllustrationInputSet()
+    panel.collect_into(input_set)
+    premium_schedule = [t for t in input_set.scheduled_transactions if t.kind == TransactionKind.PREMIUM]
+    assert any(t.policy_year == 8 and abs(t.amount - 276.74) < 0.005 for t in premium_schedule)
+
+
+def test_max_level_premium_uses_attained_age_and_age_100_cap():
+    class UF002047Policy(_FakePolicy):
+        attained_age = 43
+        maturity_age = 95
+        glp = 2936.85
+        accumulated_glp = 55800.15
+        premiums_paid_to_date = 8720.0
+        withdrawals_to_date = 0.0
+
+    _app()
+    panel = DynamicInputsPanel()
+    panel.load_from_policy(UF002047Policy())
+
+    assert panel.max_annual_level_edit.text() == "3,859.99"
+
+
+def test_max_level_premium_hidden_for_cvat():
+    class CvatPolicy(_FakePolicy):
+        def_of_life_ins = "CVAT"
+
+    _app()
+    panel = DynamicInputsPanel()
+    panel.load_from_policy(CvatPolicy())
+    row = panel.premium_section.rows()[0]
+
+    assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == ["INPUT"]
+    assert panel.max_annual_level_label.isHidden()
+    assert panel.max_annual_level_edit.isHidden()
 
 
 def test_inputs_tab_exports_illustrated_rate_override_from_gint():

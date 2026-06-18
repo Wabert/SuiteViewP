@@ -187,7 +187,7 @@ class IllustrationEngine:
         loan0 = accrue_loan_interest(
             loan0,
             config,
-            intr0.actual_days_in_month,
+            intr0.days_in_month,
             policy.variable_loan_charge_rate,
         )
 
@@ -235,9 +235,7 @@ class IllustrationEngine:
         scr_rate_0, surrender_charge_0, scr_rates_by_coverage_0, surrender_charges_by_coverage_0 = _calculate_surrender_charge(
             policy, rates, rate_year_inforce, month_date_inforce
         )
-        surrender_value_0 = max(
-            intr0.av_end_of_month - surrender_charge_0 - loan0.policy_debt, 0.0
-        )
+        surrender_value_0 = intr0.av_end_of_month - surrender_charge_0 - loan0.policy_debt
         positive_sv_0 = config.lapse_value == "SV" and surrender_value_0 > 0
         av_less_loans_0 = intr0.av_end_of_month - loan0.policy_debt
 
@@ -573,7 +571,7 @@ class IllustrationEngine:
             withdrawals_to_date,
             av,
             enabled=options.force_out_enabled,
-            is_cvat=policy.is_cvat,
+            has_guideline_limit=policy.is_gpt,
             prior_exception_mode=prior_exception_mode,
         )
 
@@ -665,7 +663,7 @@ class IllustrationEngine:
         accrual_loan = accrue_loan_interest(
             fixed_loan_state,
             config,
-            intr.actual_days_in_month,
+            intr.days_in_month,
             policy.variable_loan_charge_rate,
         )
 
@@ -702,7 +700,7 @@ class IllustrationEngine:
         scr_rate, surrender_charge, scr_rates_by_coverage, surrender_charges_by_coverage = _calculate_surrender_charge(
             policy, rates, rate_year, month_date
         )
-        surrender_value = max(av - surrender_charge - accrual_loan.policy_debt, 0.0)
+        surrender_value = av - surrender_charge - accrual_loan.policy_debt
 
         # Ending death benefit (CalcEngine VY/VZ/WB): recomputed from the
         # END-of-month AV — DBO B adds EOM AV, the corridor tests EOM AV, and
@@ -1004,7 +1002,7 @@ class IllustrationEngine:
             wd.withdrawals_to_date,
             wd.av_post_withdrawal,
             enabled=options.force_out_enabled,
-            is_cvat=policy.is_cvat,
+            has_guideline_limit=policy.is_gpt,
             prior_exception_mode=prior_exception_mode,
         )
 
@@ -1083,7 +1081,7 @@ class IllustrationEngine:
         accrual_loan = accrue_loan_interest(
             fixed_loan_state,
             config,
-            intr.actual_days_in_month,
+            intr.days_in_month,
             policy.variable_loan_charge_rate,
         )
         monthly_mtp = math.trunc(policy.mtp * 100) / 100
@@ -2177,18 +2175,18 @@ def _apply_guideline_forceout(
     account_value_before_premium: float,
     *,
     enabled: bool,
-    is_cvat: bool,
+    has_guideline_limit: bool,
     prior_exception_mode: bool,
 ) -> tuple[float, float, float]:
     """Guideline force-out (CalcEngine KX).
 
     The limit is the GREATER of GSP and accumulated GLP. The force-out is the
     cumulative premium-net-of-withdrawals above that limit, capped by available
-    account value. It is disabled when TEFRA conformance is off, for CVAT
-    policies, or once exception mode is on (so the exception premium is not
-    immediately clawed back).
+    account value. It is disabled when TEFRA conformance is off, when the policy
+    has no guideline-premium limit, or once exception mode is on (so the
+    exception premium is not immediately clawed back).
     """
-    if (not enabled) or is_cvat or prior_exception_mode:
+    if (not enabled) or (not has_guideline_limit) or prior_exception_mode:
         return 0.0, withdrawals_to_date, account_value_before_premium
 
     guideline_limit = max(gsp, accumulated_glp)
@@ -2228,7 +2226,9 @@ def _guideline_premium_cap(
     Returns None when neither limit is enforced.
     """
     cap: Optional[float] = None
-    if options.guideline_cap_enabled and not policy.is_cvat:
+    if not policy.has_defined_life_insurance:
+        return None
+    if options.guideline_cap_enabled and policy.is_gpt:
         cap = max(0.0, guideline_limit - (premiums_to_date - withdrawals_to_date))
     if (
         options.tamra_cap_enabled
@@ -2249,7 +2249,7 @@ def _guideline_limit_reached(
     withdrawals_to_date: float,
 ) -> bool:
     """True when cumulative premium has consumed the guideline room (CalcEngine SX)."""
-    if not options.conform_to_tefra or policy.is_cvat:
+    if not options.conform_to_tefra or not policy.is_gpt:
         return False
     room = guideline_limit - (premiums_to_date - withdrawals_to_date)
     return room < 0.01

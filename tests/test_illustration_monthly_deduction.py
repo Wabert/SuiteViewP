@@ -3,7 +3,7 @@ from datetime import date
 
 from suiteview.illustration.core.monthly_deduction import calculate_deduction
 from suiteview.illustration.core.rate_loader import IllustrationRates
-from suiteview.illustration.models.plancode_config import PlancodeConfig
+from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
 from suiteview.illustration.models.policy_data import BenefitInfo, CoverageSegment, IllustrationPolicyData, RiderInfo
 
 
@@ -40,6 +40,44 @@ def test_death_benefit_discount_uses_plancode_dbd_not_policy_interest_rate():
     expected_discounted_db = 100_000.0 / expected_discount_factor
     assert result.discounted_db_cov1 == pytest.approx(expected_discounted_db)
     assert result.discounted_db_cov1 != pytest.approx(100_000.0 / round((1.0 + 0.03) ** (1.0 / 12.0), 7))
+
+
+def test_corridor_code_two_uses_alternate_corridor_curve():
+    policy = IllustrationPolicyData(
+        plancode="1U130N2X",
+        db_option="A",
+        face_amount=100_000.0,
+        account_value=100_000.0,
+        segments=[CoverageSegment(face_amount=100_000.0, units=100.0)],
+    )
+    config = PlancodeConfig(
+        plancode="1U130N2X",
+        dbd=0.0,
+        gint=0.0,
+        corridor_code=2,
+        epu_code="0",
+        mfee="0",
+    )
+
+    result = calculate_deduction(
+        100_000.0,
+        policy,
+        config,
+        IllustrationRates(),
+        rate_year=1,
+        attained_age=45,
+        premiums_to_date=0.0,
+    )
+
+    assert result.corridor_rate == pytest.approx(1.35)
+    assert result.gross_db == pytest.approx(135_000.0)
+    assert result.corr_amount == pytest.approx(35_000.0)
+
+
+def test_plancode_loader_reads_corridor_code_from_table():
+    config = load_plancode("1U130M29")
+
+    assert config.corridor_code == 2
 
 
 def _minimal_policy_with_riders_and_benefits(*, riders=None, benefits=None):

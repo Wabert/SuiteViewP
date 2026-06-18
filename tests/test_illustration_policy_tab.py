@@ -83,3 +83,27 @@ def test_monthly_deduction_warning_only_when_cent_values_differ():
     assert "Monthly deduction check mismatch" in warnings[0]
     assert "CyberLife MD $123.45" in warnings[0]
     assert "Calculated MD $123.46" in warnings[0]
+
+
+def test_blank_definition_of_life_warning_uses_policy_warning_area():
+    warnings = IllustrationWindow._definition_of_life_warnings(SimpleNamespace(
+        has_defined_life_insurance=False,
+    ))
+
+    assert warnings == [
+        "Definition of Life Insurance is not defined for this policy. "
+        "Check the issue date and issue state to confirm if this looks accurate."
+    ]
+
+    _app()
+    tab = IllustrationPolicyTab()
+    tab.set_rate_warnings(warnings)
+
+    assert not tab.rate_warning_label.isHidden()
+    assert warnings[0] in tab.rate_warning_label.text()
+
+
+def test_defined_life_insurance_has_no_definition_warning():
+    assert IllustrationWindow._definition_of_life_warnings(SimpleNamespace(
+        has_defined_life_insurance=True,
+    )) == []

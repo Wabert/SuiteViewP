@@ -1,7 +1,11 @@
 from decimal import Decimal
+from datetime import date
 
 import pytest
 
+from suiteview.illustration.core import calc_engine
+from suiteview.illustration.core.bonus_rates import BonusConfig
+from suiteview.illustration.core.calc_engine import IllustrationEngine
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import CompiledMonthInputs
 from suiteview.illustration.core.loan_handler import (
@@ -9,7 +13,10 @@ from suiteview.illustration.core.loan_handler import (
     accrue_loan_interest,
     apply_new_fixed_loan,
 )
+from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.plancode_config import PlancodeConfig
+from suiteview.illustration.models.input_set import IllustrationOptions
+from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
 from suiteview.polview.models.cl_polrec.CL_POLREC_20_77 import LoanRecords
 
 
@@ -106,6 +113,70 @@ def test_variable_loan_accrues_with_policy_rate_without_collateral_split():
     assert updated.vbl_loan_accrued == pytest.approx(10.0 + expected_variable_charge)
     assert updated.reg_loan_charge == pytest.approx(100.0 * 0.06 * 31 / 365.0)
     assert updated.pref_loan_charge == pytest.approx(200.0 * 0.05 * 31 / 365.0)
+
+
+def test_engine_loan_accrual_honors_exact_days_option(monkeypatch):
+    monkeypatch.setattr(
+        calc_engine,
+        "load_plancode",
+        lambda _plancode: PlancodeConfig(
+            plancode="TEST",
+            interest_method="ExactDays",
+            loan_type="Arrears",
+            loan_charge_rate_guar=0.12,
+            pref_loan_charge_rate_guar=0.12,
+            gint=0.0,
+            dbd=0.0,
+            premium_load="0",
+            prem_flat_load=0.0,
+            epu_code="0",
+            mfee="0",
+            poav_code="0",
+            bonus="0",
+            corridor_code=None,
+            snet_period=0,
+        ),
+    )
+    monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _plancode, _date: BonusConfig())
+    policy = IllustrationPolicyData(
+        plancode="TEST",
+        issue_date=date(2026, 1, 15),
+        valuation_date=date(2026, 1, 15),
+        issue_age=45,
+        attained_age=45,
+        maturity_age=46,
+        policy_year=1,
+        policy_month=1,
+        duration=1,
+        face_amount=100_000.0,
+        units=100.0,
+        db_option="A",
+        account_value=10_000.0,
+        regular_loan_principal=1_000.0,
+        current_interest_rate=0.0,
+        segments=[CoverageSegment(coverage_phase=1, issue_date=date(2026, 1, 15), face_amount=100_000.0, units=100.0)],
+    )
+    engine = IllustrationEngine()
+
+    monthly = engine.project(
+        policy,
+        months=0,
+        options=IllustrationOptions(exact_days_interest=False),
+        rates_override=IllustrationRates(),
+        bonus_override=BonusConfig(),
+    )[0]
+    exact = engine.project(
+        policy,
+        months=0,
+        options=IllustrationOptions(exact_days_interest=True),
+        rates_override=IllustrationRates(),
+        bonus_override=BonusConfig(),
+    )[0]
+
+    assert monthly.days_in_month == pytest.approx(365.0 / 12.0)
+    assert monthly.reg_loan_charge == pytest.approx(1_000.0 * 0.12 / 12.0)
+    assert exact.days_in_month == 31.0
+    assert exact.reg_loan_charge == pytest.approx(1_000.0 * 0.12 * 31.0 / 365.0)
 
 
 def test_cash_flow_inputs_report_applied_variable_loan_and_repayment():

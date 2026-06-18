@@ -37,7 +37,8 @@ def build_illustration_data(
     plancode = pi.base_plancode or ""
     plancode_config = load_plancode(plancode)
     issue_date = pi.issue_date
-    issue_age = pi.base_issue_age or 0
+    issue_age_raw = pi.base_issue_age
+    issue_age = issue_age_raw if issue_age_raw is not None else 0
 
     # ── Demographics ──────────────────────────────────────────
     rate_sex = _translate_sex(pi.base_sex_code)
@@ -198,7 +199,7 @@ def build_illustration_data(
             coverage_phase=cov.cov_pha_nbr,
             is_base=True,
             issue_date=cov.issue_date,
-            issue_age=cov.issue_age or issue_age,
+            issue_age=cov.issue_age if cov.issue_age is not None else issue_age,
             rate_sex=seg_rate_sex,
             rate_class=seg_rate_class,
             face_amount=seg_face,
@@ -235,7 +236,7 @@ def build_illustration_data(
             units=float(b.units) if b.units else 0.0,
             vpu=float(b.vpu) if b.vpu else 0.0,
             issue_date=b.issue_date,
-            issue_age=b.issue_age or 0,
+            issue_age=b.issue_age if b.issue_age is not None else 0,
             cease_date=b.cease_date,
             rating_factor=float(b.rating_factor) if b.rating_factor else 0.0,
             coi_rate=float(b.coi_rate) if b.coi_rate else None,
@@ -266,7 +267,7 @@ def build_illustration_data(
             occurrence=rider_counts[rider_plancode],
             plancode=rider_plancode,
             issue_date=rider.issue_date,
-            issue_age=rider.issue_age or 0,
+            issue_age=rider.issue_age if rider.issue_age is not None else 0,
             rate_sex=rider.sex_code or "",
             rate_class=rider.rate_class or "",
             face_amount=rider_face,
@@ -414,6 +415,8 @@ def _translate_dbo(code: str) -> str:
 def _translate_doli(code: str) -> str:
     """Translate def_of_life_ins_code: 1/2/4 -> GPT, 3/5 -> CVAT."""
     code = (code or "").strip()
+    if not code:
+        return ""
     if code in ("1", "2", "4"):
         return "GPT"
     if code in ("3", "5"):

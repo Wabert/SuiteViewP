@@ -64,6 +64,7 @@ _RATE_CLASSES = [
 _EDIT_STYLE = (
     "QLineEdit { background: white; color: #2A1458; border: 1px solid #B79CDE;"
     " border-radius: 3px; padding: 1px 4px; min-height: 18px; font-size: 11px; }"
+    "QLineEdit:read-only { background: #E8DDF8; color: #4B2383; }"
     "QLineEdit:disabled { background: #E8DDF8; color: #7A6B91; }"
     "QLineEdit[invalid=\"true\"] { border: 1px solid #C62828; background: #FDECEA; }"
 )
@@ -84,6 +85,14 @@ _CAPTION_STYLE = (
 )
 
 
+def _first_float(source, *names: str) -> float:
+    for name in names:
+        value = getattr(source, name, None)
+        if value is not None:
+            return float(value or 0.0)
+    return 0.0
+
+
 @dataclass
 class PolicyContext:
     """Everything the dynamic rows need to default and bound themselves."""
@@ -95,6 +104,9 @@ class PolicyContext:
     maturity_age: int = 121
     default_mode: str = "M"
     modal_premium: float = 0.0
+    max_level_premium_room: float = 0.0
+    max_level_years: int = 0
+    is_cvat: bool = False
     rate_class: str = ""          # Cov 1
     table_rating: int = 0         # Cov 1
     illustrated_rate: float = 0.0
@@ -134,6 +146,24 @@ class PolicyContext:
             return self.forecast_date
         return when
 
+    def payment_count(self, mode: str) -> int:
+        if self.max_level_years <= 0:
+            return 0
+        interval = _MODE_INTERVALS.get(mode, 12)
+        return self.max_level_years * (12 // interval)
+
+    def max_modal_level_premium(self, mode: str) -> float:
+        if self.is_cvat or self.max_level_premium_room <= 0.0:
+            return 0.0
+        count = self.payment_count(mode)
+        if count <= 0:
+            return 0.0
+        return self.max_level_premium_room / count
+
+    @property
+    def max_annual_level_premium(self) -> float:
+        return self.max_modal_level_premium("A")
+
 
 def context_from_policy(policy) -> PolicyContext:
     """Build the row context from a loaded PolicyInformation."""
@@ -150,6 +180,7 @@ def context_from_policy(policy) -> PolicyContext:
         forecast_year = int(getattr(policy, "policy_year", 1) or 1)
     maturity_age = int(getattr(policy, "maturity_age", None)
                        or getattr(policy, "age_at_maturity", None) or 121)
+    attained_age = int(getattr(policy, "attained_age", None) or (issue_age + forecast_year - 1) or 0)
     frequency = getattr(policy, "billing_frequency", 1)
     try:
         frequency = int(frequency)
@@ -181,6 +212,28 @@ def context_from_policy(policy) -> PolicyContext:
         )
         if illustrated_rate > 1.0:
             illustrated_rate /= 100.0
+    def_of_life_ins = str(
+        getattr(policy, "def_of_life_ins", "")
+        or getattr(policy, "def_of_life_insurance", "")
+        or getattr(policy, "definition_of_life_insurance", "")
+        or "GPT"
+    ).upper()
+    is_cvat = def_of_life_ins == "CVAT"
+    max_level_end_age = min(maturity_age, 100)
+    max_level_years = max(0, max_level_end_age - attained_age - 1)
+    glp = _first_float(policy, "glp")
+    accumulated_glp = _first_float(policy, "accumulated_glp", "accumulated_glp_target")
+    premiums_paid_to_date = _first_float(policy, "premiums_paid_to_date", "premium_td", "total_premiums_paid")
+    withdrawals_to_date = _first_float(policy, "withdrawals_to_date", "total_withdrawals")
+    total_accumulated_glp_at_limit_age = accumulated_glp + (max_level_years * glp)
+    premium_room = max(
+        0.0,
+        total_accumulated_glp_at_limit_age
+        - (
+            premiums_paid_to_date
+            - withdrawals_to_date
+        ),
+    )
     return PolicyContext(
         issue_date=issue_date,
         issue_age=issue_age,
@@ -190,6 +243,9 @@ def context_from_policy(policy) -> PolicyContext:
         maturity_age=maturity_age,
         default_mode=mode,
         modal_premium=float(getattr(policy, "modal_premium", 0.0) or 0.0),
+        max_level_premium_room=premium_room,
+        max_level_years=max_level_years,
+        is_cvat=is_cvat,
         rate_class=str(getattr(policy, "base_rate_class", "") or getattr(policy, "rate_class", "") or ""),
         table_rating=table_rating,
         illustrated_rate=illustrated_rate,
@@ -273,13 +329,10 @@ class InputRow(QWidget):
         layout.setSpacing(4)
 
         self.type_combo = QComboBox(self)
-        self.type_combo.addItems(["Input", "Solve"])
-        # Solve comes later — visible so users learn it exists, but disabled.
-        model_item = self.type_combo.model().item(1)
-        if model_item is not None:
-            model_item.setEnabled(False)
         self.type_combo.setStyleSheet(_COMBO_STYLE)
         self.type_combo.setFixedWidth(64)
+        self._sync_type_options()
+        self.type_combo.currentIndexChanged.connect(self._type_changed)
         layout.addWidget(self.type_combo)
 
         self.year_edit = _Field(46)
@@ -313,7 +366,7 @@ class InputRow(QWidget):
             self.mode_combo.addItems(["M", "Q", "S", "A"])
             self.mode_combo.setStyleSheet(_COMBO_STYLE)
             self.mode_combo.setFixedWidth(44)
-            self.mode_combo.currentIndexChanged.connect(lambda _i: self.changed.emit())
+            self.mode_combo.currentIndexChanged.connect(self._mode_changed)
             layout.addWidget(self.mode_combo)
 
             self.for_years_edit = _Field(52)
@@ -336,6 +389,54 @@ class InputRow(QWidget):
 
     def set_context(self, ctx: PolicyContext):
         self._ctx = ctx
+        self._sync_type_options()
+        self._refresh_max_level_amount()
+
+    def _sync_type_options(self):
+        current = self.type_combo.currentText()
+        self.type_combo.blockSignals(True)
+        self.type_combo.clear()
+        if self._section.spec.allow_max_level_premium:
+            options = ["INPUT"] if self._ctx is not None and self._ctx.is_cvat else ["INPUT", "Max Level"]
+            self.type_combo.addItems(options)
+            self.type_combo.setFixedWidth(76)
+            if current in options:
+                self.type_combo.setCurrentText(current)
+        else:
+            self.type_combo.addItems(["Input", "Solve"])
+            model_item = self.type_combo.model().item(1)
+            if model_item is not None:
+                model_item.setEnabled(False)
+            self.type_combo.setFixedWidth(64)
+            if current in {"Input", "Solve"}:
+                self.type_combo.setCurrentText(current)
+        self.type_combo.blockSignals(False)
+
+    def _type_changed(self, _index: int):
+        self._refresh_max_level_amount()
+        self.changed.emit()
+
+    def _mode_changed(self, _index: int):
+        self._refresh_max_level_amount()
+        self.changed.emit()
+
+    def _refresh_max_level_amount(self):
+        if self.amount_edit is None:
+            return
+        is_max_level = (
+            self._section.spec.allow_max_level_premium
+            and self._ctx is not None
+            and not self._ctx.is_cvat
+            and self.type_combo.currentText() == "Max Level"
+        )
+        self.amount_edit.setReadOnly(is_max_level)
+        if is_max_level:
+            self.amount_edit.set_value(self._ctx.max_modal_level_premium(self.mode()), decimals=2)
+            self.amount_edit.setToolTip(
+                "Calculated from remaining guideline premium room divided by the number of selected modal payments to maturity, capped at age 100."
+            )
+        else:
+            self.amount_edit.setToolTip("")
 
     def _clamp_year(self, year: float) -> int:
         ctx = self._ctx
@@ -476,6 +577,7 @@ class SectionSpec:
     value_options: Optional[list] = None       # [(code, label)] -> combo instead of amount
     default_first_row: bool = False            # premium defaults from the policy
     auto_adjust_prior_span: bool = False
+    allow_max_level_premium: bool = False
 
 
 class DynamicSection(QGroupBox):
@@ -568,6 +670,7 @@ class DynamicSection(QGroupBox):
             first.for_years_edit.setText("")
             first.to_age_edit.setText("")
         if self.spec.default_first_row:
+            first.type_combo.setCurrentIndex(0)
             first.year_edit.set_value(ctx.forecast_year)
             first.age_edit.set_value(ctx.forecast_age)
             if first.mode_combo is not None:
@@ -578,6 +681,7 @@ class DynamicSection(QGroupBox):
                 first.to_age_edit.set_value(ctx.maturity_age)
             if first.amount_edit is not None and ctx.modal_premium:
                 first.amount_edit.set_value(ctx.modal_premium, decimals=2)
+            first._refresh_max_level_amount()
         self._validate()
 
     def _validate(self):
@@ -996,9 +1100,22 @@ class DynamicInputsPanel(QWidget):
         self.illustrated_rate_edit = _RateField(self)
         rate_suffix = QLabel("%")
         rate_suffix.setStyleSheet(_CAPTION_STYLE)
+        self.max_annual_level_label = QLabel("Max Annual Level Premium")
+        self.max_annual_level_label.setStyleSheet(_CAPTION_STYLE)
+        self.max_annual_level_edit = _Field(96, decimals=2, parent=self)
+        self.max_annual_level_edit.setReadOnly(True)
+        max_annual_tip = (
+            "Maximum annual level premium to maturity: current accumulated GLP plus remaining GLP years "
+            "capped at age 100, minus premiums to date net of withdrawals, divided by annual payments remaining."
+        )
+        self.max_annual_level_label.setToolTip(max_annual_tip)
+        self.max_annual_level_edit.setToolTip(max_annual_tip)
         rate_row.addWidget(rate_label)
         rate_row.addWidget(self.illustrated_rate_edit)
         rate_row.addWidget(rate_suffix)
+        rate_row.addSpacing(16)
+        rate_row.addWidget(self.max_annual_level_label)
+        rate_row.addWidget(self.max_annual_level_edit)
         rate_row.addStretch(1)
         outer.addLayout(rate_row)
 
@@ -1008,7 +1125,8 @@ class DynamicInputsPanel(QWidget):
         left = QVBoxLayout()
         left.setSpacing(8)
         self.premium_section = DynamicSection(SectionSpec(
-            "Premiums", default_first_row=True, auto_adjust_prior_span=True))
+            "Premiums", default_first_row=True, auto_adjust_prior_span=True,
+            allow_max_level_premium=True))
         self.loan_section = DynamicSection(SectionSpec("Loans"))
         self.withdrawal_section = DynamicSection(SectionSpec("Withdrawals"))
         self.repayment_section = DynamicSection(SectionSpec("Loan Repayments"))
@@ -1065,6 +1183,10 @@ class DynamicInputsPanel(QWidget):
         self.current_table_label.setText(
             f"Current table rating (Cov 1): {self._ctx.table_rating}")
         self.illustrated_rate_edit.set_rate(self._ctx.illustrated_rate)
+        self.max_annual_level_edit.set_value(self._ctx.max_annual_level_premium, decimals=2)
+        show_max_level = not self._ctx.is_cvat
+        self.max_annual_level_label.setVisible(show_max_level)
+        self.max_annual_level_edit.setVisible(show_max_level)
         self.riders_panel.set_policy(policy, self._ctx)
 
         if self._ctx.suspended and self._ctx.valuation_date is not None:

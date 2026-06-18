@@ -260,6 +260,7 @@ class IllustrationWindow(FramelessWindowBase):
         warnings: list[str] = []
         try:
             policy_data = build_illustration_data(policy_number, region=region, company_code=company_code)
+            warnings.extend(self._definition_of_life_warnings(policy_data))
             config = load_plancode(policy_data.plancode)
             rates = load_rates(policy_data, config)
             warnings.extend(missing_required_rate_warnings(policy_data, rates))
@@ -285,6 +286,15 @@ class IllustrationWindow(FramelessWindowBase):
             "Monthly deduction check mismatch: "
             f"CyberLife MD ${cyberlife_md:,.2f} vs Calculated MD ${calculated_md:,.2f} "
             f"(variance ${variance:,.2f})."
+        ]
+
+    @staticmethod
+    def _definition_of_life_warnings(policy_data) -> list[str]:
+        if getattr(policy_data, "has_defined_life_insurance", False):
+            return []
+        return [
+            "Definition of Life Insurance is not defined for this policy. "
+            "Check the issue date and issue state to confirm if this looks accurate."
         ]
 
     def _on_run_values(self):
@@ -363,12 +373,24 @@ class IllustrationWindow(FramelessWindowBase):
             columns.add("Face Amount")
         if overrides.regular_loan_principal is not None or overrides.regular_loan_accrued is not None:
             columns.add("RegLn Total")
+            columns.add("Advance - Rg Ln Princ/Total")
+            columns.add("Advance - Rg Ln Int Accrued")
+            columns.add("Rg Ln Princ")
+            columns.add("Rg Ln Int")
             columns.add("PolicyDebt")
         if overrides.preferred_loan_principal is not None or overrides.preferred_loan_accrued is not None:
             columns.add("PrefLn Total")
+            columns.add("Advance - Pf Ln Princ/Total")
+            columns.add("Advance - Pf Ln Int Accrued")
+            columns.add("Pf Ln Princ")
+            columns.add("Pf Ln Int")
             columns.add("PolicyDebt")
         if overrides.variable_loan_principal is not None or overrides.variable_loan_accrued is not None:
             columns.add("Varln Total")
+            columns.add("Advance - Var Ln Princ/Total")
+            columns.add("Advance - Var Ln Int Accrued")
+            columns.add("Var Ln Princ")
+            columns.add("Var Ln Int")
             columns.add("PolicyDebt")
         return columns
 

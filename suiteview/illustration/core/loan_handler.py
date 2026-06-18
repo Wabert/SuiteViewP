@@ -90,7 +90,7 @@ def capitalize_loans(
 def accrue_loan_interest(
     loan: LoanState,
     config: PlancodeConfig,
-    days_in_month: int,
+    days_in_month: float,
     variable_loan_charge_rate: float | None = None,
 ) -> LoanState:
     """Accrue monthly loan interest charge (in-arrears).
@@ -101,7 +101,7 @@ def accrue_loan_interest(
     Args:
         loan: Current loan balances (after capitalization).
         config: Plancode config with loan charge rates.
-        days_in_month: Calendar days in the current month.
+        days_in_month: Option-aware day count for the current month.
 
     Returns:
         Updated LoanState with accrued interest added.
