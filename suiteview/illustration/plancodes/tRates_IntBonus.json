@@ -1,17 +1,125 @@
 [
+
     {
-        "Plancode": "1U143900",
+        "Plancode": "1U134200",
         "EffectiveDate": "1900-01-01",
         "BonusDurRate": 0.005,
         "BonusDurThreshold": 10,
-        "BonusAVRate": 0.0025,
-        "BonusAVThreshold": 100000
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
     },
     {
-        "Plancode": "1U143900",
-        "EffectiveDate": "2018-01-18",
-        "BonusDurRate": 0.0,
-        "BonusDurThreshold": 0,
+        "Plancode": "1U134200",
+        "EffectiveDate": "2015-04-01",
+        "BonusDurRate": 0.000,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+        {
+        "Plancode": "1U134300",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U134300",
+        "EffectiveDate": "2015-04-01",
+        "BonusDurRate": 0.000,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U134900",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U134900",
+        "EffectiveDate": "2015-04-01",
+        "BonusDurRate": 0.000,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+
+
+    {
+        "Plancode": "1U135000",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135000",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.01,
+        "BonusDurThreshold": 15,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135000",
+        "EffectiveDate": "2015-04-01",
+        "BonusDurRate": 0.000,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135000",
+        "EffectiveDate": "2015-04-01",
+        "BonusDurRate": 0.000,
+        "BonusDurThreshold": 15,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+
+    {
+        "Plancode": "1U135100",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135100",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.01,
+        "BonusDurThreshold": 15,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135100",
+        "EffectiveDate": "2015-04-01",
+        "BonusDurRate": 0.000,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135100",
+        "EffectiveDate": "2015-04-01",
+        "BonusDurRate": 0.000,
+        "BonusDurThreshold": 15,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135900",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
         "BonusAVRate": 0.0,
         "BonusAVThreshold": 0
     },
@@ -27,6 +135,54 @@
         "Plancode": "1U135D00",
         "EffectiveDate": "2018-01-01",
         "BonusDurRate": 0.0065,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135K00",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.009,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135K00",
+        "EffectiveDate": "2018-01-01",
+        "BonusDurRate": 0.0065,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135K00",
+        "EffectiveDate": "2021-06-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135K00",
+        "EffectiveDate": "2021-12-01",
+        "BonusDurRate": 0.0025,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135K00",
+        "EffectiveDate": "2022-11-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135K00",
+        "EffectiveDate": "2023-02-01",
+        "BonusDurRate": 0.009,
         "BonusDurThreshold": 10,
         "BonusAVRate": 0.0,
         "BonusAVThreshold": 0
@@ -62,5 +218,301 @@
         "BonusDurThreshold": 10,
         "BonusAVRate": 0.0,
         "BonusAVThreshold": 0
+    },
+
+    {
+        "Plancode": "1U135H00",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135H00",
+        "EffectiveDate": "2023-02-01",
+        "BonusDurRate": 0.009,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+
+
+
+
+
+    {
+        "Plancode": "1U135P00",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.009,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135P00",
+        "EffectiveDate": "2018-01-01",
+        "BonusDurRate": 0.0065,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135P00",
+        "EffectiveDate": "2021-06-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135P00",
+        "EffectiveDate": "2021-12-01",
+        "BonusDurRate": 0.0025,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U135P00",
+        "EffectiveDate": "2022-11-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+        {
+        "Plancode": "1U135Q00",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+
+    {
+        "Plancode": "1U143900",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U143900",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+
+
+        {
+        "Plancode": "1U144000",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U144000",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+
+
+        {
+        "Plancode": "1U144100",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U144100",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+
+
+        {
+        "Plancode": "1U144200",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U144200",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+
+
+    {
+        "Plancode": "1U144300",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U144300",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U144400",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U144400",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U144900",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U144900",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U145000",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U145000",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U145100",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U145100",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U145200",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U145200",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U145300",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U145300",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U145400",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.005,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0025,
+        "BonusAVThreshold": 100000
+    },
+    {
+        "Plancode": "1U145400",
+        "EffectiveDate": "2018-01-18",
+        "BonusDurRate": 0.0,
+        "BonusDurThreshold": 0,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U145800",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.01,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
+    },
+    {
+        "Plancode": "1U147800",
+        "EffectiveDate": "1900-01-01",
+        "BonusDurRate": 0.0025,
+        "BonusDurThreshold": 10,
+        "BonusAVRate": 0.0,
+        "BonusAVThreshold": 0
     }
+
+
+
+
+
+
+
+
+
 ]

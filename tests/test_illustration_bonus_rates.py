@@ -18,6 +18,15 @@ def test_int_bonus_table_resolves_1u135d00_latest_effective_rate():
     assert bonus.bonus_av_threshold == 0.0
 
 
+def test_int_bonus_table_resolves_1u135k00_latest_effective_rate():
+    bonus = load_bonus_config("1U135K00", date(2026, 5, 26))
+
+    assert bonus.bonus_dur_rate == 0.009
+    assert bonus.bonus_dur_threshold == 10
+    assert bonus.bonus_av_rate == 0.0
+    assert bonus.bonus_av_threshold == 0.0
+
+
 def test_credit_interest_uses_duration_bonus_after_threshold():
     policy = IllustrationPolicyData(current_interest_rate=0.03)
     config = load_plancode("1U135D00")
@@ -131,6 +140,7 @@ def test_credit_interest_uses_plancode_loan_collateral_credit_rates():
     assert result.pref_loan_credit_rate == 0.04
     assert result.reg_impaired_int == pytest.approx(20_000.0 * regular_monthly)
     assert result.pref_impaired_int == pytest.approx(10_000.0 * preferred_monthly)
+    assert result.unimpaired_int == pytest.approx(70_000.0 * free_monthly)
     assert result.interest_credited == pytest.approx(
         70_000.0 * free_monthly
         + 20_000.0 * regular_monthly

@@ -12,6 +12,7 @@ from suiteview.illustration.models.policy_data import (
     IllustrationPolicyData,
     RiderInfo,
 )
+from suiteview.illustration.models.rider_config import load_rider_config
 
 
 def build_illustration_data(
@@ -257,6 +258,7 @@ def build_illustration_data(
             continue
         if _coverage_is_terminated(rider, as_of_date):
             continue
+        rider_config = load_rider_config(rider_plancode)
         rider_counts[rider_plancode] = rider_counts.get(rider_plancode, 0) + 1
         rider_face = float(rider.face_amount) if rider.face_amount else 0.0
         rider_units = float(rider.units) if rider.units else rider_face / 1000.0
@@ -282,6 +284,9 @@ def build_illustration_data(
             coi_rate=float(rider.coi_rate) if rider.coi_rate else None,
             is_active=True,
             on_primary_insured=pi._covers_primary_insured(rider),
+            cov_type=rider_config.cov_type if rider_config is not None else "",
+            cease_age_dur=rider_config.cease_age_dur if rider_config is not None else None,
+            cease_use_code=rider_config.cease_use_code if rider_config is not None else "",
         ))
 
     # ── CCV / Shadow Account detection ───────────────────────

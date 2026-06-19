@@ -11,6 +11,7 @@ minus calculated monthly deduction on the valuation date.
 
 Usage:
     venv\\Scripts\\python.exe tools/fill_testbed_eav.py --sheet TestBed2 --limit 10 --exact-days false
+    venv\\Scripts\\python.exe tools/fill_testbed_eav.py --sheet FullTest2 --limit 50 --output "docs/Illustration_UL/Test Matrix prior 2000 - filled.xlsx"
 """
 from __future__ import annotations
 
@@ -60,9 +61,24 @@ def save_or_update_open_workbook(wb, path: Path, sheet_name: str, updates: list[
     except PermissionError:
         import win32com.client  # type: ignore[import-not-found]
 
+        try:
+            excel_wb = win32com.client.GetObject(str(path))
+            excel_ws = excel_wb.Worksheets(sheet_name)
+            for row, col, value, number_format in updates:
+                cell = excel_ws.Cells(row, col)
+                cell.Value = _excel_scalar(value)
+                if number_format is not None:
+                    cell.NumberFormat = number_format
+            excel_wb.Save()
+            return "excel-com-getobject"
+        except Exception:
+            pass
+
         excel = win32com.client.GetActiveObject("Excel.Application")
+        workbooks = excel.Workbooks
         target = str(path).lower()
-        for excel_wb in excel.Workbooks:
+        for index in range(1, workbooks.Count + 1):
+            excel_wb = workbooks.Item(index)
             if str(excel_wb.FullName).lower() != target:
                 continue
             excel_ws = excel_wb.Worksheets(sheet_name)
@@ -167,6 +183,7 @@ def main() -> None:
     parser.add_argument("--sheet", default=SHEET, help="Workbook sheet to fill")
     parser.add_argument("--limit", type=int, default=None, help="Maximum policies to process")
     parser.add_argument("--start-policy", default=None, help="Policy number to start processing from")
+    parser.add_argument("--output", default=None, help="Optional output workbook path; defaults to updating the source workbook")
     parser.add_argument(
         "--exact-days",
         choices=("true", "false"),
@@ -260,8 +277,13 @@ def main() -> None:
     if not found_start_policy:
         raise SystemExit(f"Start policy not found on {args.sheet}: {args.start_policy}")
 
-    save_method = save_or_update_open_workbook(wb, XLSX, args.sheet, updates)
-    print(f"\nSaved {processed} policy row(s) on {args.sheet} via {save_method} -> {XLSX}")
+    output_path = Path(args.output) if args.output else XLSX
+    if not output_path.is_absolute():
+        output_path = ROOT / output_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    save_method = save_or_update_open_workbook(wb, output_path, args.sheet, updates)
+    print(f"\nSaved {processed} policy row(s) on {args.sheet} via {save_method} -> {output_path}")
 
 
 if __name__ == "__main__":

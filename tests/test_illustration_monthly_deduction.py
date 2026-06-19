@@ -193,6 +193,42 @@ def test_benefit_charge_stops_on_benefit_cease_date():
     assert at_cease.benefit_charges == pytest.approx(0.0)
 
 
+def test_rider_and_benefit_charges_round_to_cents_by_default():
+    rider = RiderInfo(
+        plancode="LTR",
+        occurrence=1,
+        face_amount=3_000.0,
+        units=3.0,
+        premium_rate=11.111,
+        is_active=True,
+    )
+    benefit = BenefitInfo(
+        benefit_type="2",
+        benefit_subtype="1",
+        benefit_amount=3_000.0,
+        units=3.0,
+        coi_rate=7.777,
+        is_active=True,
+    )
+    policy = _minimal_policy_with_riders_and_benefits(riders=[rider], benefits=[benefit])
+    config, rates = _minimal_config_and_rates()
+
+    result = calculate_deduction(
+        10_000.0,
+        policy,
+        config,
+        rates,
+        rate_year=1,
+        attained_age=45,
+        premiums_to_date=0.0,
+    )
+
+    assert result.rider_charge_detail["LTR_1"] == pytest.approx(33.33)
+    assert result.rider_charges == pytest.approx(33.33)
+    assert result.benefit_charge_detail["21"] == pytest.approx(23.33)
+    assert result.benefit_charges == pytest.approx(23.33)
+
+
 # ── Ratchet banding (RERUN CalcEngine PP-QX) ─────────────────────────────────
 # NAR up to the band break is charged at the band-1 COI rate; the excess at the
 # band-2 rate (vs. the regular calc, where all NAR uses one band's rate). Only

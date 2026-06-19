@@ -206,7 +206,10 @@ class TotalRecords:
 
     @property
     def tamra_7pay_start_date(self) -> Optional[date]:
-        return parse_date(self._policy.data_item("LH_TAMRA_7_PY_PER", "SVPY_PER_STR_DT"))
+        dt = parse_date(self._policy.data_item("LH_TAMRA_7_PY_PER", "SVPY_PER_STR_DT"))
+        if dt and dt.year >= 9999:
+            return None
+        return dt
 
     @property
     def tamra_7pay_av(self) -> Optional[Decimal]:

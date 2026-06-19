@@ -305,7 +305,7 @@ def build_target_detail_snapshots(
 
 
 def floor_monthly_cent(value: float) -> float:
-    """RERUN's guideline floor: INT(x/12*100)*12/100 (KS/KT).
+    """RERUN's monthly-normalized annual floor: INT(x/12*100)*12/100.
 
     Floors an annual amount so the monthly twelfth is an exact cent amount.
     Decimal arithmetic — binary floats put already-exact values like 52004.28
@@ -315,3 +315,10 @@ def floor_monthly_cent(value: float) -> float:
         return value
     monthly_cents = (Decimal(f"{value:.10f}") * 100 / 12).to_integral_value(rounding=ROUND_DOWN)
     return float(monthly_cents * 12) / 100.0
+
+
+def floor_annual_cent(value: float) -> float:
+    """Floor an annual amount to cents without monthly normalization."""
+    if value <= 0.0:
+        return value
+    return float(Decimal(f"{value:.10f}").quantize(Decimal("0.01"), rounding=ROUND_DOWN))

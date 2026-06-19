@@ -194,6 +194,7 @@ class MonthlyState:
     pref_loan_credit_rate: float = 0.0
     reg_impaired_int: float = 0.0       # Interest on AV backing regular loans
     pref_impaired_int: float = 0.0      # Interest on AV backing preferred loans
+    unimpaired_int: float = 0.0         # Interest on AV not backing loans
     interest_credited: float = 0.0
     av_end_of_month: float = 0.0
 

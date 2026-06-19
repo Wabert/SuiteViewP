@@ -71,6 +71,60 @@ def _build_bill_mode_where(modes: list[str]) -> str:
     return " OR ".join(parts)
 
 
+def _build_custom_display(custom_display_tab, result_cov_alias: str,
+                          schema: str) -> tuple[list[str], list[str]]:
+    """Build SELECT column lines and JOIN lines for the Custom Display tab.
+
+    Returns ``(select_lines, join_lines)``.  Policy-level fields (LH_BAS_POL)
+    use the always-present POLICY1 alias and coverage-level fields (LH_COV_PHA)
+    use the result coverage alias.  The advanced tables (TH_BAS_POL /
+    TH_COV_PHA) get dedicated LEFT OUTER JOINs so the columns are available
+    regardless of which other filters are active.
+    """
+    if custom_display_tab is None:
+        return [], []
+    try:
+        selections = custom_display_tab.get_selected_fields()
+    except Exception:
+        return [], []
+    if not selections:
+        return [], []
+
+    alias_map = {
+        "LH_BAS_POL": "POLICY1",
+        "LH_COV_PHA": result_cov_alias,
+        "TH_BAS_POL": "CUSTOM_THBAS",
+        "TH_COV_PHA": "CUSTOM_THCOV",
+    }
+    select_lines: list[str] = []
+    used_tables: set[str] = set()
+    seen: set[tuple[str, str]] = set()
+    for table, field in selections:
+        alias = alias_map.get(table)
+        if not alias:
+            continue
+        key = (alias, field)
+        if key in seen:
+            continue
+        seen.add(key)
+        used_tables.add(table)
+        select_lines.append(f"  , {alias}.{field} {field}")
+
+    join_lines: list[str] = []
+    if "TH_BAS_POL" in used_tables:
+        join_lines.append(f"  LEFT OUTER JOIN {schema}.TH_BAS_POL CUSTOM_THBAS")
+        join_lines.append("    ON POLICY1.CK_SYS_CD = CUSTOM_THBAS.CK_SYS_CD")
+        join_lines.append("    AND POLICY1.CK_CMP_CD = CUSTOM_THBAS.CK_CMP_CD")
+        join_lines.append("    AND POLICY1.TCH_POL_ID = CUSTOM_THBAS.TCH_POL_ID")
+    if "TH_COV_PHA" in used_tables:
+        join_lines.append(f"  LEFT OUTER JOIN {schema}.TH_COV_PHA CUSTOM_THCOV")
+        join_lines.append(f"    ON {result_cov_alias}.CK_SYS_CD = CUSTOM_THCOV.CK_SYS_CD")
+        join_lines.append(f"    AND {result_cov_alias}.CK_CMP_CD = CUSTOM_THCOV.CK_CMP_CD")
+        join_lines.append(f"    AND {result_cov_alias}.TCH_POL_ID = CUSTOM_THCOV.TCH_POL_ID")
+        join_lines.append(f"    AND {result_cov_alias}.COV_PHA_NBR = CUSTOM_THCOV.COV_PHA_NBR")
+    return select_lines, join_lines
+
+
 def build_cyberlife_sql(
     schema: str,
     sys_code: str,
@@ -84,6 +138,7 @@ def build_cyberlife_sql(
     benefits_tab,
     transaction_tab=None,
     coverage_level: bool = False,
+    custom_display_tab=None,
 ) -> str:
     """Build the CyberLife audit SQL from all wired-up tab controls.
 
@@ -110,6 +165,11 @@ def build_cyberlife_sql(
     result_rnw_alias = "RESULTCOV_RENEWALS" if coverage_level else "COV1_RENEWALS"
     result_table_alias = "RESULTCOV_TABLE_RATING" if coverage_level else "TABLE_RATING1"
     result_flat_alias = "RESULTCOV_FLAT_EXTRA" if coverage_level else "FLAT_EXTRA1"
+
+    # ── Custom Display tab: extra SELECT columns + JOINs ─────────
+    custom_select_lines, custom_join_lines = _build_custom_display(
+        custom_display_tab, result_cov_alias, schema)
+
 
     # ── Check which range filters are active (for conditional SELECT columns) ──
     has_current_age = bool(pt.txt_current_age_lo.text().strip() or
@@ -1011,6 +1071,9 @@ def build_cyberlife_sql(
         sql_parts.append("  , COVERAGE1.ANN_PRM_UNT_AMT PremRate")
         sql_parts.append("  , POLICY1.POL_PRM_AMT PolPremium")
 
+    # ── Custom Display tab: user-selected SELECT columns ────────
+    sql_parts.extend(custom_select_lines)
+
     # ── FROM + JOINs ─────────────────────────────────────────────
     sql_parts.append(f"FROM {schema}.LH_BAS_POL POLICY1")
     sql_parts.append(f"  INNER JOIN {schema}.LH_COV_PHA COVSALL")
@@ -1615,6 +1678,9 @@ def build_cyberlife_sql(
                 fund_ids = [f.strip() for f in tr_fund_id.split(",") if f.strip()]
                 if fund_ids:
                     sql_parts.append(f"    AND TR1.FUND_ID IN ({in_list(fund_ids)})")
+
+    # ── Custom Display tab: user-selected table JOINs ───────────
+    sql_parts.extend(custom_join_lines)
 
     # ── WHERE ────────────────────────────────────────────────────
     wheres = []

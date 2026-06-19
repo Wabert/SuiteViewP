@@ -12,7 +12,7 @@ from typing import Dict
 from suiteview.illustration.core.corridor_rates import get_corridor_factor
 from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import IllustrationPolicyData
+from suiteview.illustration.models.policy_data import IllustrationPolicyData, rider_active_on
 
 
 def _round_near(value: float, decimals: int = 2) -> float:
@@ -47,6 +47,19 @@ def _charge_active(cease_date: date | None, projection_date: date | None) -> boo
     if cease_date is None or projection_date is None:
         return True
     return projection_date < cease_date
+
+
+def _at_or_after_policy_maturity(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    attained_age: int,
+) -> bool:
+    maturity_ages = [
+        age
+        for age in (policy.maturity_age, config.maturity_age)
+        if age is not None and age > 0
+    ]
+    return bool(maturity_ages and attained_age >= min(maturity_ages))
 
 
 def _adjusted_coi_rate(
@@ -397,6 +410,28 @@ def calculate_deduction(
     nar_corr = max(0.0, discounted_db_corr - remaining_av)
     nar = sum(nar_by_coverage.values()) + nar_corr
 
+    if _at_or_after_policy_maturity(policy, config, attained_age):
+        return DeductionResult(
+            nar_av=nar_av,
+            standard_db=standard_db,
+            corridor_rate=corr_rate,
+            gross_db=gross_db,
+            corr_amount=corr_amount,
+            db_by_coverage=db_by_coverage,
+            discounted_db_by_coverage=discounted_db_by_coverage,
+            discounted_db_cov1=discounted_db_cov1,
+            discounted_db_corr=discounted_db_corr,
+            discounted_db=discounted_db,
+            total_db=gross_db,
+            total_discounted_db=discounted_db,
+            nar_by_coverage=nar_by_coverage,
+            nar_cov1=nar_cov1,
+            nar_corr=nar_corr,
+            nar=nar,
+            total_nar=nar,
+            av_after_deduction=mAV,
+        )
+
     # ── 3.2.6 COI charge — per segment (col 427) ─────────────
     seg = policy.base_segment
     first_segment_coi_year = _coi_rate_year(seg, policy, projection_date, rate_year)
@@ -531,9 +566,7 @@ def calculate_deduction(
     base_deduction = coi_charge + epu_charge + mfee_charge + av_charge
 
     for rider in policy.riders:
-        if not rider.is_active:
-            continue
-        if rider.maturity_date is not None and projection_date is not None and projection_date >= rider.maturity_date:
+        if not rider_active_on(rider, policy, projection_date):
             continue
         rider_key = rider.export_key
         rider_rate_schedule = rates.rider_rates.get(rider_key, [])
@@ -559,8 +592,7 @@ def calculate_deduction(
 
         rider_amount = rider.face_amount
         rider_charge = rider.units * rider_rate
-        if bln_round_charge:
-            rider_charge = _round_near(rider_charge, 2)
+        rider_charge = _round_near(rider_charge, 2)
         rider_amounts[rider_key] = rider_amount
         rider_rates[rider_key] = rider_rate
         rider_charge_detail[rider_key] = rider_charge
@@ -600,10 +632,9 @@ def calculate_deduction(
             benefit_amount = ben.benefit_amount
             charge = ben.units * adjusted_rate
 
-        if bln_round_charge:
-            charge = _round_near(charge, 2)
-            if ben_type == "3":
-                pw_charge = charge
+        charge = _round_near(charge, 2)
+        if ben_type == "3":
+            pw_charge = charge
 
         benefit_amounts[ben_key] = benefit_amount
         benefit_rates[ben_key] = adjusted_rate

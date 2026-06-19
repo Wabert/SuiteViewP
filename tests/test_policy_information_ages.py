@@ -47,3 +47,10 @@ def test_optional_int_parser_preserves_zero():
     assert PolicyInformation._parse_optional_int("0") == 0
     assert PolicyInformation._parse_optional_int("") is None
     assert PolicyInformation._parse_optional_int(None) is None
+
+
+def test_tamra_7pay_start_date_treats_9999_sentinel_as_missing():
+    policy = object.__new__(PolicyInformation)
+    policy.data_item = lambda *_args: date(9999, 12, 31)
+
+    assert policy.tamra_7pay_start_date is None

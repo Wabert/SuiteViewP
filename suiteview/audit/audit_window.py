@@ -30,6 +30,7 @@ from .tabs.di_tab import DiTab
 from .tabs.benefits_tab import BenefitsTab
 from .tabs.transaction_tab import TransactionTab
 from .tabs.display_tab import DisplayTab
+from .tabs.custom_display_tab import CustomDisplayTab
 from .tabs.results_tab import ResultsTab
 from .tabs.sql_tab import SqlTab
 from .tabs.plancode_tab import PlancodeTab
@@ -355,6 +356,9 @@ class AuditWindow(FramelessWindowBase):
         # Display tab
         self.display_tab = DisplayTab()
         self.tabs.addTab(self.display_tab, "Display")
+        # Custom Display tab
+        self.custom_display_tab = CustomDisplayTab()
+        self.tabs.addTab(self.custom_display_tab, "Custom Display")
         # Results tab
         self.results_tab = ResultsTab()
         self.tabs.addTab(self.results_tab, "Results")
@@ -1488,6 +1492,7 @@ class AuditWindow(FramelessWindowBase):
             coverage_level=self.chk_coverage_level.isChecked(),
             policy_tab=self.policy_tab,
             display_tab=self.display_tab,
+            custom_display_tab=self.custom_display_tab,
             policy2_tab=self.policy2_tab,
             adv_tab=self.adv_tab,
             coverages_tab=self.coverages_tab,
@@ -1532,6 +1537,7 @@ class AuditWindow(FramelessWindowBase):
             ("benefits", self.benefits_tab),
             ("transaction", self.transaction_tab),
             ("display", self.display_tab),
+            ("custom_display", self.custom_display_tab),
             ("plancode", self.plancode_tab),
         ]
     def _cyberlife_query_object_state(self) -> dict:

@@ -28,6 +28,7 @@ class InterestResult:
     pref_loan_credit_rate: float = 0.0
     reg_impaired_int: float = 0.0    # Interest on AV backing regular loans
     pref_impaired_int: float = 0.0   # Interest on AV backing preferred loans
+    unimpaired_int: float = 0.0      # Interest on AV not backing loans
     interest_credited: float = 0.0
     av_end_of_month: float = 0.0
 
@@ -109,6 +110,7 @@ def credit_interest(
     )
     reg_impaired_int = 0.0
     pref_impaired_int = 0.0
+    free_interest = 0.0
 
     if total_loaned > 0.0 and av_after_deduction > 0.0:
         loaned_av = min(total_loaned, av_after_deduction)
@@ -134,9 +136,11 @@ def credit_interest(
         free_interest = free_av * monthly_rate
         interest = free_interest + reg_impaired_int + pref_impaired_int
     else:
-        interest = av_after_deduction * monthly_rate
+        free_interest = av_after_deduction * monthly_rate
+        interest = free_interest
 
     interest = max(interest, 0.0)
+    free_interest = max(free_interest, 0.0)
 
     # ── 3.3.5 End-of-month AV ────────────────────────────────
     av_end = av_after_deduction + interest
@@ -152,6 +156,7 @@ def credit_interest(
         pref_loan_credit_rate=pref_credit_annual,
         reg_impaired_int=reg_impaired_int,
         pref_impaired_int=pref_impaired_int,
+        unimpaired_int=free_interest,
         interest_credited=interest,
         av_end_of_month=av_end,
     )

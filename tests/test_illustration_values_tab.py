@@ -76,6 +76,7 @@ def _state() -> MonthlyState:
         av_after_deduction=9961.9,
         reg_loan_credit_rate=0.02,
         pref_loan_credit_rate=0.04,
+        unimpaired_int=17.5,
         av_end_of_month=9990,
     )
 
@@ -166,6 +167,15 @@ def test_accumulation_values_group_shows_loan_credit_rates_before_impaired_inter
     assert columns[columns.index("Pref Impaired Int") - 1] == "PrefLn Credit Rt"
     assert grid.df.iloc[0]["RegLn Credit Rt"] == 2.0
     assert grid.df.iloc[0]["PrefLn Credit Rt"] == 4.0
+
+
+def test_accumulation_values_group_shows_unimpaired_interest():
+    _app()
+    tab = IllustrationValuesTab()
+
+    tab.display_projection(_policy(), [_state()])
+
+    assert tab._tab_grids["Accumulation"].df.iloc[0]["Unimpaired Int"] == 17.5
 
 
 def test_loan_capitalize_and_accumulation_show_inforce_loan_buckets():
@@ -507,6 +517,8 @@ def test_summary_tab_uses_requested_illustration_values_order():
         applied_preferred_loan=2.0,
         applied_variable_loan=3.0,
         annual_interest_rate=0.04,
+        bonus_interest_rate=0.009,
+        effective_annual_rate=0.049,
         interest_credited=4.0,
         av_end_of_month=1000.0,
         surrender_charge=90.0,
@@ -561,6 +573,8 @@ def test_summary_tab_uses_requested_illustration_values_order():
         applied_preferred_loan=5.0,
         applied_variable_loan=6.0,
         annual_interest_rate=0.045,
+        bonus_interest_rate=0.005,
+        effective_annual_rate=0.05,
         interest_credited=6.0,
         av_end_of_month=1200.0,
         surrender_charge=80.0,
@@ -599,11 +613,12 @@ def test_summary_tab_uses_requested_illustration_values_order():
         "Prem Load": 7.5, "mAV": 900.0, "NAAR": 50000.0, "Base COI": 20.0,
         "Rider COI": 2.0, "Benefit COI": 4.0, "EPU": 6.0, "MFEE": 8.0,
         "MD": 11.0, "Exception Prem": 25.0, "AV": 950.0, "New Loan": 6.0,
-        "Interest Rate": 4.0, "Interest": 4.0, "EAV": 1000.0, "SC": 90.0,
+        "Interest Rate": 4.9, "Interest": 4.0, "EAV": 1000.0, "SC": 90.0,
         "ESV": 900.0, "Var Loan": 36.0, "Pref Loan": 24.0, "Reg Loan": 12.0,
         "Ending LB": 72.0, "IllustratedDB": 150000.0,
     }
     assert summary.df.iloc[1]["AV"] == 1050.0
+    assert summary.df.iloc[1]["Interest Rate"] == 5.0
     assert summary.df.iloc[1]["EAV"] == 1200.0
 
 

@@ -42,6 +42,7 @@ from suiteview.illustration.core.shadow_calc import calculate_shadow
 from suiteview.illustration.core.target_premium import (
     build_target_detail_snapshots,
     compute_target_premiums,
+    floor_annual_cent,
     floor_monthly_cent,
 )
 from suiteview.illustration.core.withdrawal_handler import (
@@ -56,7 +57,7 @@ from suiteview.illustration.models.input_set import (
     PolicyChangeKind,
     TransactionKind,
 )
-from suiteview.illustration.models.policy_data import CoverageSegment
+from suiteview.illustration.models.policy_data import CoverageSegment, rider_active_on
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
@@ -235,9 +236,10 @@ class IllustrationEngine:
         scr_rate_0, surrender_charge_0, scr_rates_by_coverage_0, surrender_charges_by_coverage_0 = _calculate_surrender_charge(
             policy, rates, rate_year_inforce, month_date_inforce
         )
-        surrender_value_0 = intr0.av_end_of_month - surrender_charge_0 - loan0.policy_debt
+        lapse_check_debt_0 = loan0.policy_debt
+        surrender_value_0 = policy.account_value - surrender_charge_0 - lapse_check_debt_0
         positive_sv_0 = config.lapse_value == "SV" and surrender_value_0 > 0
-        av_less_loans_0 = intr0.av_end_of_month - loan0.policy_debt
+        av_less_loans_0 = policy.account_value - lapse_check_debt_0
 
         inforce = MonthlyState(
             date=policy.valuation_date,
@@ -254,9 +256,9 @@ class IllustrationEngine:
             mtp_annual=policy.mtp * 12.0,
             av_after_premium=md_check_av_before_deduction,
             glp=floor_monthly_cent(policy.glp),
-            gsp=floor_monthly_cent(policy.gsp),
+            gsp=floor_annual_cent(policy.gsp),
             accumulated_glp=policy.accumulated_glp,
-            guideline_limit=max(floor_monthly_cent(policy.gsp), policy.accumulated_glp),
+            guideline_limit=max(floor_annual_cent(policy.gsp), policy.accumulated_glp),
             guideline_forceout=0.0,
             guideline_av_before_monthly_deduction=md_check_av_before_deduction,
             accumulated_7pay=sum(policy.tamra_7year_contributions or []),
@@ -337,6 +339,7 @@ class IllustrationEngine:
             pref_loan_credit_rate=intr0.pref_loan_credit_rate,
             reg_impaired_int=intr0.reg_impaired_int,
             pref_impaired_int=intr0.pref_impaired_int,
+            unimpaired_int=intr0.unimpaired_int,
             interest_credited=intr0.interest_credited,
             av_end_of_month=intr0.av_end_of_month,
             # Set 2: Loan accrual (end of month — after accrual)
@@ -407,6 +410,7 @@ class IllustrationEngine:
                 inforce,
                 av_after_deduction=policy.account_value,
                 av_end_of_month=policy.account_value,
+                unimpaired_int=0.0,
                 interest_credited=0.0,
                 cumulative_interest=0.0,
             )
@@ -553,9 +557,9 @@ class IllustrationEngine:
         # ── 9. Commission Target Premium (split handled in apply_premium) ─
 
         # ── 10. 7702 — GLP accumulation, guideline limit, force-out ─
-        # GSP/GLP are consumed floored to a monthly-divisible cent (KS/KT:
-        # INT(x/12*100)*12/100) — RERUN floors even the loaded inforce values.
-        gsp_floored = floor_monthly_cent(policy.gsp)
+        # GLP is normalized to a monthly-cent annual value. GSP is only floored
+        # to annual cents; it is not divided into monthly premium slices.
+        gsp_floored = floor_annual_cent(policy.gsp)
         accumulated_glp = _accumulate_guideline_premium(
             state, policy, is_anniversary, attained_age
         )
@@ -700,7 +704,9 @@ class IllustrationEngine:
         scr_rate, surrender_charge, scr_rates_by_coverage, surrender_charges_by_coverage = _calculate_surrender_charge(
             policy, rates, rate_year, month_date
         )
-        surrender_value = av - surrender_charge - accrual_loan.policy_debt
+        lapse_check_av = exception.av_after_exception
+        lapse_check_debt = cap_loan.policy_debt
+        surrender_value = lapse_check_av - surrender_charge - lapse_check_debt
 
         # Ending death benefit (CalcEngine VY/VZ/WB): recomputed from the
         # END-of-month AV — DBO B adds EOM AV, the corridor tests EOM AV, and
@@ -717,11 +723,11 @@ class IllustrationEngine:
                      + _primary_insured_rider_face(policy, month_date))
 
         positive_sv = config.lapse_value == "SV" and surrender_value > 0
-        av_less_loans = av - accrual_loan.policy_debt
+        av_less_loans = lapse_check_av - lapse_check_debt
         av_loans_test = config.lapse_value == "AV" and av_less_loans > 0
         exception_protection = (
             exception.mode
-            and (av - surrender_charge - accrual_loan.policy_debt) > -0.0001
+            and surrender_value > -0.0001
         )
         any_protection = (
             snet_active or shadow_protection or positive_sv
@@ -861,6 +867,7 @@ class IllustrationEngine:
             pref_loan_credit_rate=intr.pref_loan_credit_rate,
             reg_impaired_int=intr.reg_impaired_int,
             pref_impaired_int=intr.pref_impaired_int,
+            unimpaired_int=intr.unimpaired_int,
             interest_credited=intr.interest_credited,
             av_end_of_month=av,
             # Set 2: Loan accrual (end of month)
@@ -990,7 +997,7 @@ class IllustrationEngine:
         )
         cost_basis = wd.cost_basis_after_wd
 
-        gsp_floored = floor_monthly_cent(policy.gsp)
+        gsp_floored = floor_annual_cent(policy.gsp)
         accumulated_glp = _accumulate_guideline_premium(
             state, policy, is_anniversary, attained_age
         )
@@ -1206,6 +1213,7 @@ class IllustrationEngine:
             pref_loan_credit_rate=intr.pref_loan_credit_rate,
             reg_impaired_int=intr.reg_impaired_int,
             pref_impaired_int=intr.pref_impaired_int,
+            unimpaired_int=intr.unimpaired_int,
             interest_credited=intr.interest_credited,
             av_end_of_month=av_end,
             reg_loan_charge=accrual_loan.reg_loan_charge,
@@ -1586,8 +1594,7 @@ def _primary_insured_rider_face(policy, month_date) -> float:
     for rider in getattr(policy, "riders", None) or []:
         if not getattr(rider, "on_primary_insured", False):
             continue
-        mat = getattr(rider, "maturity_date", None)
-        if mat is not None and month_date is not None and month_date >= mat:
+        if not rider_active_on(rider, policy, month_date):
             continue
         total += float(rider.face_amount or 0.0)
     return total
@@ -2041,19 +2048,18 @@ def _recalc_guideline_on_change(
         after = _solve_guideline_state(
             policy, config, attained_age, change_date, options)
 
-    # Prior (pre-recalc) values feed both the delta formula and the recalc
-    # detail; floored to a monthly-divisible cent like the new values.
+    # Prior (pre-recalc) values feed both the delta formula and the recalc detail.
     glp_prior = floor_monthly_cent(policy.glp)
-    gsp_prior = floor_monthly_cent(policy.gsp)
+    gsp_prior = floor_annual_cent(policy.gsp)
 
     if new_glp is not None:
         policy.glp = floor_monthly_cent(float(new_glp))
     elif after is not None:
         policy.glp = floor_monthly_cent(glp_prior + after.glp - before.glp)
     if new_gsp is not None:
-        policy.gsp = floor_monthly_cent(float(new_gsp))
+        policy.gsp = floor_annual_cent(float(new_gsp))
     elif after is not None:
-        policy.gsp = floor_monthly_cent(gsp_prior + after.gsp - before.gsp)
+        policy.gsp = floor_annual_cent(gsp_prior + after.gsp - before.gsp)
 
     # Expose the before/after solve so the Values tab can explain the recalc.
     # Only the genuine attained-age delta path (a before AND after solve) has

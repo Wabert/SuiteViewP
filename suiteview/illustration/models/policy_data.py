@@ -85,6 +85,9 @@ class RiderInfo:
     coi_rate: Optional[float] = None
     is_active: bool = True
     on_primary_insured: bool = False  # covers the base insured → face adds to illustrated DB
+    cov_type: str = ""
+    cease_age_dur: Optional[int] = None
+    cease_use_code: str = ""
 
     @property
     def export_key(self) -> str:
@@ -253,3 +256,70 @@ class IllustrationPolicyData:
     @property
     def base_segment(self) -> Optional[CoverageSegment]:
         return self.segments[0] if self.segments else None
+
+
+def rider_effective_maturity_date(rider: RiderInfo, policy: IllustrationPolicyData) -> Optional[date]:
+    """Return the maturity date that should control rider activity."""
+    if _is_ctr_cease_rider(rider):
+        maturity_date = _ctr_cease_date(rider, policy)
+        if maturity_date is not None:
+            return maturity_date
+    return rider.maturity_date
+
+
+def rider_active_on(rider: RiderInfo, policy: IllustrationPolicyData, projection_date: Optional[date]) -> bool:
+    if not rider.is_active:
+        return False
+    maturity_date = rider_effective_maturity_date(rider, policy)
+    if maturity_date is not None and projection_date is not None and projection_date >= maturity_date:
+        return False
+    return True
+
+
+def _is_ctr_cease_rider(rider: RiderInfo) -> bool:
+    return (
+        (rider.cov_type or "").upper() == "CTR"
+        and (rider.cease_use_code or "").upper() in {"AGE", "DUR"}
+        and rider.cease_age_dur is not None
+    )
+
+
+def _ctr_cease_date(rider: RiderInfo, policy: IllustrationPolicyData) -> Optional[date]:
+    first = _first_coverage(policy)
+    issue_date = (first.issue_date if first is not None else None) or policy.issue_date
+    if issue_date is None:
+        return None
+
+    cease_use_code = (rider.cease_use_code or "").upper()
+    if cease_use_code == "AGE":
+        issue_age = _first_coverage_issue_age(policy, first)
+        years_to_cease = max(0, int(rider.cease_age_dur or 0) - issue_age)
+    else:
+        years_to_cease = max(0, int(rider.cease_age_dur or 0))
+    return _add_years(issue_date, years_to_cease)
+
+
+def _first_coverage(policy: IllustrationPolicyData) -> Optional[CoverageSegment]:
+    segments = list(policy.segments or [])
+    if not segments:
+        return None
+    return min(
+        segments,
+        key=lambda segment: (
+            segment.issue_date or policy.issue_date or date.max,
+            segment.coverage_phase,
+        ),
+    )
+
+
+def _first_coverage_issue_age(policy: IllustrationPolicyData, first: Optional[CoverageSegment]) -> int:
+    if first is not None and first.issue_age:
+        return int(first.issue_age)
+    return int(policy.issue_age or 0)
+
+
+def _add_years(value: date, years: int) -> date:
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:
+        return value.replace(year=value.year + years, day=28)

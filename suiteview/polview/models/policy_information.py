@@ -1864,7 +1864,10 @@ class PolicyInformation:
     @property
     def tamra_7pay_start_date(self) -> Optional[date]:
         """7-pay period start date."""
-        return self._parse_date(self.data_item("LH_TAMRA_7_PY_PER", "SVPY_PER_STR_DT"))
+        dt = self._parse_date(self.data_item("LH_TAMRA_7_PY_PER", "SVPY_PER_STR_DT"))
+        if dt and dt.year >= 9999:
+            return None
+        return dt
     
     @property
     def tamra_7pay_av(self) -> Optional[Decimal]:
