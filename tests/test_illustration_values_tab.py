@@ -610,7 +610,7 @@ def test_summary_tab_uses_requested_illustration_values_order():
     summary = tab._tab_grids["Summary"]
     assert list(summary.df.columns) == ["Date", "Year", "Month", "Attained Age"] + [
         "GrossWD", "DBO", "TotalSA", "PSC",
-        "MonthlyMTP", "Accum MTP", "GLP", "GSP", "AccumGLP", "Loan Int",
+        "MonthlyMTP", "Accum MTP", "GLP", "GSP", "AccumGLP", "ForceOut", "Loan Int",
         "Loan Balance", "Loan Repay", "Premium", "PremTD", "Prem Load", "mAV",
         "NAAR", "Base COI", "Rider COI", "Benefit COI", "EPU", "MFEE", "MD",
         "Exception Prem", "AV", "New Loan", "Interest Rate", "Interest", "EAV",
@@ -621,7 +621,7 @@ def test_summary_tab_uses_requested_illustration_values_order():
         "Date": date(2026, 1, 15), "Year": 1, "Month": 1, "Attained Age": 45,
         "GrossWD": 20.0, "DBO": "B", "TotalSA": 150000.0, "PSC": 6.0,
         "MonthlyMTP": 100.0, "Accum MTP": 500.0, "GLP": 1000.0, "GSP": 2000.0,
-        "AccumGLP": 3000.0, "Loan Int": 6.0, "Loan Balance": 66.0,
+        "AccumGLP": 3000.0, "ForceOut": 0.0, "Loan Int": 6.0, "Loan Balance": 66.0,
         "Loan Repay": 12.0, "Premium": 100.0, "PremTD": 20000.0,
         "Prem Load": 7.5, "mAV": 900.0, "NAAR": 50000.0, "Base COI": 20.0,
         "Rider COI": 2.0, "Benefit COI": 4.0, "EPU": 6.0, "MFEE": 8.0,
@@ -844,3 +844,16 @@ def test_monthly_deduction_keeps_single_coi_rate_when_not_ratchet():
     assert "COI Rate Cov1" in columns
     assert "Band Break" not in columns
     assert "NAR B1 Cov1" not in columns
+
+
+def test_summary_tab_shows_forceout_after_accum_glp():
+    _app()
+    tab = IllustrationValuesTab()
+    state = replace(_state(), accumulated_glp=9000.0, guideline_forceout=321.0)
+
+    tab.display_projection(_policy(), [state])
+
+    columns = list(tab._tab_grids["Summary"].df.columns)
+    assert "ForceOut" in columns
+    assert columns.index("ForceOut") == columns.index("AccumGLP") + 1
+    assert tab._tab_grids["Summary"].df.iloc[0]["ForceOut"] == 321.0
