@@ -1009,14 +1009,22 @@ class PolicyInformation:
                 type_cd = str(row.get("SPM_BNF_TYP_CD", "")).strip()
                 subtype_cd = str(row.get("SPM_BNF_SBY_CD", "")).strip()
                 benefit_code = type_cd + subtype_cd
-                
+                ben_cov_pha_nbr = int(row.get("COV_PHA_NBR", 0) or 0)
+
                 # Get units and VPU for amount calculation
                 units = Decimal(str(row["BNF_UNT_QTY"])) if row.get("BNF_UNT_QTY") else None
                 vpu = Decimal(str(row["BNF_VPU_AMT"])) if row.get("BNF_VPU_AMT") else None
                 benefit_amount = (units * vpu) if (units is not None and vpu is not None) else None
-                
+
+                # Renewal rate from the 67 segment (LH_BNF_INS_RNL_RT, type "B").
+                # The Record-04 BNF_ANN_PPU_AMT above is the issue rate; this is
+                # the renewal rate that applies once the benefit renews.
+                renewal_rate = self.benefit_renewal_rate(
+                    ben_cov_pha_nbr, type_cd, subtype_cd, "B"
+                )
+
                 ben = BenefitInfo(
-                    cov_pha_nbr=int(row.get("COV_PHA_NBR", 0)),
+                    cov_pha_nbr=ben_cov_pha_nbr,
                     benefit_code=benefit_code,
                     benefit_type_cd=type_cd,
                     benefit_subtype_cd=subtype_cd,
@@ -1032,6 +1040,7 @@ class PolicyInformation:
                     rating_factor=Decimal(str(row["BNF_RT_FCT"])) if row.get("BNF_RT_FCT") else None,
                     renewal_indicator=str(row.get("RNL_RT_IND", "")).strip(),
                     coi_rate=Decimal(str(row["BNF_ANN_PPU_AMT"])) if row.get("BNF_ANN_PPU_AMT") else None,
+                    renewal_rate=renewal_rate,
                     raw_data=row
                 )
                 self._benefits.append(ben)
@@ -2398,6 +2407,29 @@ class PolicyInformation:
         """Get renewal benefit issue age (0-based index)."""
         val = self.data_item("LH_BNF_INS_RNL_RT", "ISS_AGE", index)
         return int(val) if val else None
+
+    def benefit_renewal_rate(self, cov_pha_nbr: int, ben_type: str,
+                             ben_subtype: str, rate_type: str = "B") -> Optional[Decimal]:
+        """Renewal rate (RNL_RT) for a benefit, from LH_BNF_INS_RNL_RT (Record 67).
+
+        Matches the benefit by coverage phase, type, and subtype, restricted to
+        the renewal-premium rate row (PRM_RT_TYP_CD = "B").  The stored RNL_RT is
+        scaled, so it is divided by 100,000 to give a per-unit rate.  Returns None
+        when no matching row exists for the benefit (rate simply not present).
+        """
+        for row in self.fetch_table("LH_BNF_INS_RNL_RT"):
+            if (int(row.get("COV_PHA_NBR", 0) or 0) == cov_pha_nbr and
+                    str(row.get("SPM_BNF_TYP_CD", "") or "").strip() == ben_type and
+                    str(row.get("SPM_BNF_SBY_CD", "") or "").strip() == ben_subtype and
+                    str(row.get("PRM_RT_TYP_CD", "") or "").strip() == rate_type):
+                raw_rate = row.get("RNL_RT")
+                if raw_rate is None or str(raw_rate).strip() == "":
+                    return None
+                try:
+                    return Decimal(str(raw_rate)) / 100000
+                except Exception:
+                    return None
+        return None
 
     # =========================================================================
     # FUND VALUES (LH_POL_FND_VAL_TOT)

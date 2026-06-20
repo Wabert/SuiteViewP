@@ -321,7 +321,7 @@ class CoveragesTab(QWidget):
             self.bnf_table.setRowCount(0)
             return
 
-        columns = ["Code", "Phs", "Type", "Form", "IssueDate", "CeaseDate", "OrigCease", "Units", "VPU", "IssAge", "Rating", "Renew", "Rate"]
+        columns = ["Code", "Phs", "Type", "Form", "IssueDate", "CeaseDate", "OrigCease", "Units", "VPU", "IssAge", "Rating", "Renew", "Rate", "RenewRate"]
 
         self.bnf_table.setColumnCount(len(columns))
         self.bnf_table.setHorizontalHeaderLabels(columns)
@@ -349,7 +349,13 @@ class CoveragesTab(QWidget):
             except Exception:
                 rating_str = ""
             self._set_bnf_item(row_idx, 10, rating_str)
-            self._set_bnf_item(row_idx, 11, getattr(bnf, 'renewal_indicator', ""))
+            renew_ind = str(getattr(bnf, 'renewal_indicator', "") or "").strip()
+            self._set_bnf_item(row_idx, 11, renew_ind)
             self._set_bnf_item(row_idx, 12, getattr(bnf, 'coi_rate', "") or "")
+            # Renewal rate (67 segment) — only shown when the benefit renews
+            # (Renew indicator = 1) and a renewal rate exists; otherwise blank.
+            renewal_rate = getattr(bnf, 'renewal_rate', None)
+            renew_rate_str = str(renewal_rate) if (renew_ind == "1" and renewal_rate is not None) else ""
+            self._set_bnf_item(row_idx, 13, renew_rate_str)
 
         self.bnf_table.autoFitAllColumns()

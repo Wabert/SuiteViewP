@@ -181,7 +181,8 @@ class BenefitInfo:
     issue_age: Optional[int]            # BNF_ISS_AGE
     rating_factor: Optional[Decimal]    # BNF_RT_FCT
     renewal_indicator: str              # RNL_RT_IND
-    coi_rate: Optional[Decimal]         # BNF_ANN_PPU_AMT
+    coi_rate: Optional[Decimal]         # BNF_ANN_PPU_AMT (issue rate, Record 04)
+    renewal_rate: Optional[Decimal] = None  # LH_BNF_INS_RNL_RT.RNL_RT (Record 67, PRM_RT_TYP_CD="B")
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
 
