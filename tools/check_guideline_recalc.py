@@ -1,10 +1,11 @@
 """Drive a real local policy through a guideline recalc and verify the new
-Values-tab "Guideline Recalc" group end to end.
+Values-tab "TEFRA/TAMRA Recalc" group end to end.
 
 Uses local SQLite data (SUITEVIEW_LOCAL_DATA=1) so it runs offline. Applies a
 specified-amount change at a future date — which re-solves the 7702 guideline
 premiums — then (a) prints the captured before/after GLP & GSP detail and
-(b) renders the IllustrationValuesTab "Guideline Recalc" page to a PNG.
+(b) renders the IllustrationValuesTab "TEFRA/TAMRA Recalc" group to a PNG (the
+recalc summary, plus the first recalc's detail page when one exists).
 
 Usage (single JSON arg):
     venv\\Scripts\\python.exe tools/check_guideline_recalc.py '<json>'
@@ -92,7 +93,12 @@ def run(cmd: dict) -> dict:
 
 
 def _render_recalc_page(policy_data, states, png_path: str) -> str:
-    """Build the real Values tab headless and grab the Guideline Recalc page."""
+    """Build the real Values tab headless and grab the TEFRA/TAMRA Recalc group.
+
+    Saves the recalc summary to ``png_path``; when at least one recalc exists,
+    also saves the first recalc's before/after detail page alongside it
+    (``<png>`` → ``<png stem>_detail<suffix>``).
+    """
     from PyQt6.QtWidgets import QApplication
     from suiteview.illustration.ui.values_tab import IllustrationValuesTab
 
@@ -103,10 +109,17 @@ def _render_recalc_page(policy_data, states, png_path: str) -> str:
     # Switch the content stack to the new group, exactly like a navigator click.
     tab.content_stack.setCurrentWidget(tab.recalc_view)
     tab.recalc_view.resize(1240, 800)
-    app.processEvents()
+
     out = Path(png_path)
     out.parent.mkdir(parents=True, exist_ok=True)
+    tab.recalc_view.show_summary()
+    app.processEvents()
     tab.recalc_view.grab().save(str(out))
+    if tab.recalc_view.detail_views:
+        tab.recalc_view.show_date(0)
+        app.processEvents()
+        detail_out = out.with_name(f"{out.stem}_detail{out.suffix}")
+        tab.recalc_view.grab().save(str(detail_out))
     app.processEvents()
     return str(out)
 

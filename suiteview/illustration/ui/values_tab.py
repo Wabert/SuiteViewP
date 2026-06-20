@@ -101,12 +101,9 @@ COMPACT_HEADER_LABELS = {
     "NPT_Premium": "NPT Prem",
     # Requested Premium
     "1035_Amount": "1035 Amt",
+    "Lumpsum": "Unscheduled Prem",
     "PlannedPremium": "Planned Prem",
     "PlannedPremiumMode": "Planned Mode",
-    "Premium Frequency": "Prem Freq",
-    "Premium Period": "Prem Period",
-    "Scheduled Premium Due": "Sched Prem Due",
-    "Scheduled Premium": "Sched Prem",
     "Payment Count For Policy Year": "Pmt Cnt Policy Yr",
     "Payment Count for TAMRA Year": "Pmt Cnt TAMRA Yr",
     # Loan Capitalize and Repay
@@ -249,8 +246,14 @@ def _recalc_delta(detail: dict, key: str):
     return after - before
 
 
-class GuidelineRecalcView(QWidget):
-    """Calc detail for the first 7702 guideline re-solve in a projection."""
+def _fmt_recalc_date(value) -> str:
+    """Recalc dates render MM/DD/YYYY; a missing date renders blank."""
+    return f"{value:%m/%d/%Y}" if value else ""
+
+
+class GuidelineRecalcDetailView(QWidget):
+    """Calc detail for one 7702 guideline re-solve: the before/after GLP & GSP
+    summary plus the four present-value breakdown tabs."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -266,13 +269,6 @@ class GuidelineRecalcView(QWidget):
             " border-radius: 4px; font-size: 11px; font-weight: bold; padding: 4px 8px;"
         )
         layout.addWidget(self.header)
-
-        self.empty_note = QLabel("", self)
-        self.empty_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_note.setStyleSheet(
-            "color: #6A5A8A; background: transparent; font-size: 12px; font-style: italic;"
-        )
-        layout.addWidget(self.empty_note)
 
         self.tabs = QTabWidget(self)
         self.tabs.setStyleSheet(
@@ -308,29 +304,12 @@ class GuidelineRecalcView(QWidget):
 
         layout.addWidget(self.tabs, 1)
 
-        self.clear()
-
-    def clear(self):
-        self.show_recalc(None)
-
-    def show_recalc(self, detail: dict | None):
-        if not detail:
-            self.header.setText("Guideline Recalc")
-            self.empty_note.setText("No guideline recalculation in this projection.")
-            self.empty_note.setVisible(True)
-            self.summary_grid.set_dataframe(pd.DataFrame(), limit_rows=False)
-            for view in self.pv_views.values():
-                view.clear()
-            self.tabs.setVisible(False)
-            return
-
+    def show_recalc(self, detail: dict):
         when = detail.get("change_date")
-        when_text = f"{when:%m/%d/%Y}" if when else "—"
         self.header.setText(
-            f"Guideline recalculated {when_text}   ·   {detail.get('change_kind', '')}"
+            f"Guideline recalculated {_fmt_recalc_date(when) or '—'}"
+            f"   ·   {detail.get('change_kind', '')}"
             "   ·   new = prior + (after − before)")
-        self.empty_note.setVisible(False)
-        self.tabs.setVisible(True)
 
         rows = [
             {
@@ -360,6 +339,148 @@ class GuidelineRecalcView(QWidget):
         for (basis, side), view in self.pv_views.items():
             view.show_detail(((pv.get(side) or {}).get(basis)) or None)
         self.tabs.setCurrentIndex(0)
+
+
+class TefraTamraRecalcView(QWidget):
+    """TEFRA/TAMRA Recalc group: a one-row-per-recalc summary over every 7702
+    re-solve, plus a per-date detail page for each recalc.
+
+    The summary leads with the valuation baseline (only GLP/GSP/7-pay populated),
+    then a row per recalc carrying the before/after/Δ/new guideline premiums and
+    the recomputed 7-pay level. Each recalc date also gets its own detail page
+    (the before/after present-value breakdown), reached from the navigator."""
+
+    SUMMARY_COLUMNS = [
+        "Effective Date",
+        "GLPb", "GLPa", "GLP Delta", "GLP", "blank1",
+        "GSPb", "GSPa", "GSP Delta", "GSP", "blank2",
+        "7-Pay Start Date", "7-Pay Premium",
+    ]
+    # Each pair shares a display label (Delta / blank) while keeping distinct
+    # DataFrame keys so the frame's columns stay unique.
+    SUMMARY_HEADER_LABELS = {
+        "GLP Delta": "Delta",
+        "GSP Delta": "Delta",
+        "blank1": "",
+        "blank2": "",
+    }
+    _NUMERIC_COLUMNS = (
+        "GLPb", "GLPa", "GLP Delta", "GLP",
+        "GSPb", "GSPa", "GSP Delta", "GSP", "7-Pay Premium",
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(f"background-color: {PURPLE_BG};")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        self.stack = QStackedWidget(self)
+        layout.addWidget(self.stack, 1)
+
+        # Page 0: the summary over every recalc; per-date detail pages follow.
+        summary_page = QWidget(self.stack)
+        summary_layout = QVBoxLayout(summary_page)
+        summary_layout.setContentsMargins(0, 0, 0, 0)
+        summary_layout.setSpacing(6)
+        self.header = QLabel("TEFRA/TAMRA Recalc", summary_page)
+        self.header.setWordWrap(True)
+        self.header.setStyleSheet(
+            "background-color: #2A1458; color: #FFD54F; border: 1px solid #5E35A5;"
+            " border-radius: 4px; font-size: 11px; font-weight: bold; padding: 4px 8px;"
+        )
+        summary_layout.addWidget(self.header)
+        self.empty_note = QLabel("", summary_page)
+        self.empty_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_note.setStyleSheet(
+            "color: #6A5A8A; background: transparent; font-size: 12px; font-style: italic;")
+        summary_layout.addWidget(self.empty_note)
+        self.summary_grid = FilterTableView(summary_page)
+        self.summary_grid.set_search_visible(False)
+        self.summary_grid.apply_ledger_style()
+        self.summary_grid.set_sort_enabled(False)
+        self.summary_grid.set_filtering_enabled(False)
+        self.summary_grid.set_full_row_selection(True)
+        summary_layout.addWidget(self.summary_grid, 1)
+        self.stack.addWidget(summary_page)
+
+        self.detail_views: list[GuidelineRecalcDetailView] = []
+        self.recalc_dates: list = []
+        self.clear()
+
+    def clear(self):
+        self.show_recalcs(None, [])
+
+    def show_recalcs(self, baseline: dict | None, recalcs: list[dict]):
+        # Rebuild the per-date detail pages (keep the summary page at index 0).
+        while self.stack.count() > 1:
+            view = self.stack.widget(1)
+            self.stack.removeWidget(view)
+            view.deleteLater()
+        self.detail_views = []
+        self.recalc_dates = []
+
+        if not baseline and not recalcs:
+            self.empty_note.setText("No guideline recalculation in this projection.")
+            self.empty_note.setVisible(True)
+            self.summary_grid.set_dataframe(pd.DataFrame(), limit_rows=False)
+            self.stack.setCurrentIndex(0)
+            return
+        self.empty_note.setVisible(False)
+
+        rows: list[dict] = []
+        if baseline:
+            # Valuation baseline: only the in-force GLP/GSP/7-pay are known.
+            rows.append({
+                "Effective Date": _fmt_recalc_date(baseline.get("date")),
+                "GLPb": None, "GLPa": None, "GLP Delta": None,
+                "GLP": baseline.get("glp"), "blank1": "",
+                "GSPb": None, "GSPa": None, "GSP Delta": None,
+                "GSP": baseline.get("gsp"), "blank2": "",
+                "7-Pay Start Date": _fmt_recalc_date(baseline.get("seven_pay_start")),
+                "7-Pay Premium": baseline.get("seven_pay_level"),
+            })
+        for detail in recalcs:
+            when = detail.get("change_date")
+            self.recalc_dates.append(when)
+            rows.append({
+                "Effective Date": _fmt_recalc_date(when),
+                "GLPb": detail.get("glp_before"),
+                "GLPa": detail.get("glp_after"),
+                "GLP Delta": _recalc_delta(detail, "glp"),
+                "GLP": detail.get("glp_new"), "blank1": "",
+                "GSPb": detail.get("gsp_before"),
+                "GSPa": detail.get("gsp_after"),
+                "GSP Delta": _recalc_delta(detail, "gsp"),
+                "GSP": detail.get("gsp_new"), "blank2": "",
+                "7-Pay Start Date": _fmt_recalc_date(detail.get("seven_pay_start")),
+                "7-Pay Premium": detail.get("seven_pay_level"),
+            })
+            view = GuidelineRecalcDetailView(self.stack)
+            view.show_recalc(detail)
+            self.detail_views.append(view)
+            self.stack.addWidget(view)
+
+        frame = pd.DataFrame(rows, columns=self.SUMMARY_COLUMNS)
+        self.summary_grid.set_dataframe(frame, limit_rows=False)
+        self.summary_grid.set_header_labels(self.SUMMARY_HEADER_LABELS)
+        self.summary_grid.set_numeric_formatting(
+            default_decimals=2,
+            column_decimals={column: 2 for column in self._NUMERIC_COLUMNS},
+        )
+        if self.summary_grid.model is not None:
+            # Left-align the two date columns (Effective Date, 7-Pay Start Date).
+            self.summary_grid.model._left_align_columns = {0, 11}
+        self.summary_grid.autofit_columns_to_data()
+        self.stack.setCurrentIndex(0)
+
+    def show_summary(self):
+        self.stack.setCurrentIndex(0)
+
+    def show_date(self, index: int):
+        if 0 <= index < len(self.detail_views):
+            self.stack.setCurrentWidget(self.detail_views[index])
 
 
 class IllustrationValuesTab(QWidget):
@@ -627,9 +748,7 @@ class IllustrationValuesTab(QWidget):
         "Prem-WD",
         "ForceOut",
         "7PayPrem",
-        "New TAMRA Period",
         "7PayStartDate",
-        "TAMRAMonth",
         "TAMRA_MonthOfYear",
         "TAMRA_Year",
         "Amount In 7-Pay",
@@ -644,10 +763,6 @@ class IllustrationValuesTab(QWidget):
         "Lumpsum",
         "PlannedPremium",
         "PlannedPremiumMode",
-        "Premium Frequency",
-        "Premium Period",
-        "Scheduled Premium Due",
-        "Scheduled Premium",
         "Payment Count For Policy Year",
         "Payment Count for TAMRA Year",
     ]
@@ -682,8 +797,8 @@ class IllustrationValuesTab(QWidget):
         "TotalLoanReduction",
         "PolicyDebtDisplay",
     ]
-    # Event-based group (not a monthly grid): the first guideline re-solve.
-    GUIDELINE_RECALC_GROUP = "Guideline Recalc"
+    # Event-based group (not a monthly grid): every 7702 guideline re-solve.
+    TEFRA_TAMRA_RECALC_GROUP = "TEFRA/TAMRA Recalc"
     TAB_ORDER = [
         SUMMARY_GROUP,
         WITHDRAWALS_GROUP,
@@ -816,9 +931,9 @@ class IllustrationValuesTab(QWidget):
             grid.set_frozen_column_count(len(self.LEAD_COLUMNS))
             self._tab_grids[title] = grid
             self._add_content_page(title, grid)
-        # Guideline Recalc trails the per-month grids: an event view, not a grid.
-        self.recalc_view = GuidelineRecalcView(self.content_stack)
-        self._add_content_page(self.GUIDELINE_RECALC_GROUP, self.recalc_view)
+        # TEFRA/TAMRA Recalc trails the per-month grids: an event view, not a grid.
+        self.recalc_view = TefraTamraRecalcView(self.content_stack)
+        self._add_content_page(self.TEFRA_TAMRA_RECALC_GROUP, self.recalc_view)
         self.body.addWidget(self.content_stack)
 
         # ── Month Inspector: the per-month waterfall ──
@@ -918,10 +1033,17 @@ class IllustrationValuesTab(QWidget):
                 leaf.setData(0, Qt.ItemDataRole.UserRole, (title, column_name))
                 stage.addChild(leaf)
             self.nav_tree.addTopLevelItem(stage)
-        # Guideline Recalc trails the column groups as a leaf jump.
-        recalc = QTreeWidgetItem([self.GUIDELINE_RECALC_GROUP])
-        recalc.setData(0, Qt.ItemDataRole.UserRole, (self.GUIDELINE_RECALC_GROUP, None))
+        # TEFRA/TAMRA Recalc trails the column groups: the summary leads, with a
+        # child per recalc date jumping to that date's before/after detail.
+        recalc = QTreeWidgetItem([self.TEFRA_TAMRA_RECALC_GROUP])
+        recalc.setData(0, Qt.ItemDataRole.UserRole, (self.TEFRA_TAMRA_RECALC_GROUP, None))
+        for index, when in enumerate(self.recalc_view.recalc_dates):
+            label = f"Recalc {when:%m/%d/%Y}" if when else f"Recalc {index + 1}"
+            leaf = QTreeWidgetItem([label])
+            leaf.setData(0, Qt.ItemDataRole.UserRole, (self.TEFRA_TAMRA_RECALC_GROUP, index))
+            recalc.addChild(leaf)
         self.nav_tree.addTopLevelItem(recalc)
+        recalc.setExpanded(True)
 
     def _filter_navigator(self, text: str):
         needle = text.strip().lower()
@@ -950,8 +1072,13 @@ class IllustrationValuesTab(QWidget):
         if title == "Charges":
             self.content_stack.setCurrentWidget(self.charges_chart)
             return
-        if title == self.GUIDELINE_RECALC_GROUP:
+        if title == self.TEFRA_TAMRA_RECALC_GROUP:
             self.content_stack.setCurrentWidget(self.recalc_view)
+            # The parent jumps to the summary; a date child (int index) to detail.
+            if column_name is None:
+                self.recalc_view.show_summary()
+            else:
+                self.recalc_view.show_date(int(column_name))
             return
         grid = self._tab_grids.get(title)
         if grid is None:
@@ -1084,11 +1211,25 @@ class IllustrationValuesTab(QWidget):
         self._results = result_list
         self._inspected_row = None
         self.inspector.clear()
-        first_recalc = next(
-            (state.guideline_recalc for state in result_list if state.guideline_recalc),
-            None,
-        )
-        self.recalc_view.show_recalc(first_recalc)
+        seed = result_list[0] if result_list else None
+        baseline = None
+        if seed is not None:
+            baseline = {
+                "date": seed.date,
+                "glp": seed.glp,
+                "gsp": seed.gsp,
+                "seven_pay_start": seed.tamra_7pay_start_date,
+                "seven_pay_level": seed.tamra_7pay_level,
+            }
+        recalcs = []
+        for state in result_list:
+            if state.guideline_recalc:
+                # The 7-pay level/start live on the state, not the recalc detail.
+                detail = dict(state.guideline_recalc)
+                detail["seven_pay_start"] = state.tamra_7pay_start_date
+                detail["seven_pay_level"] = state.tamra_7pay_level
+                recalcs.append(detail)
+        self.recalc_view.show_recalcs(baseline, recalcs)
         self._rebuild_navigator(navigator_columns)
         self.overview.display(policy, result_list)
         self.chart.set_data(build_chart_series(result_list[1:]), policy.issue_age)
@@ -1639,10 +1780,10 @@ class IllustrationValuesTab(QWidget):
 
     @staticmethod
     def _apply_premium_values(state: MonthlyState) -> dict:
-        # The engine tracks the net-premium split and loads (CalcEngine cols
-        # 367-403); the per-year allowance/cap, levelized-premium, and 1035/
-        # lumpsum schedule columns are not yet computed and render as placeholders.
-        return {
+        # NC..NZ allowance chain computed by the engine (premium_allowance.py),
+        # keyed by the RERUN display names; empty on the inforce seed row, where
+        # these placeholders show instead.
+        row = {
             "GP_Allowance0": 0.0,
             "NPT Allowance0": 0.0,
             "TAMRA_Allowance0": 0.0,
@@ -1667,6 +1808,9 @@ class IllustrationValuesTab(QWidget):
             "Apply Levelized Premium": False,
             "Scheduled Premium less Loan Repay": 0.0,
             "AppliedScheduledPremium": 0.0,
+        }
+        row.update(state.premium_allowance_detail)
+        row.update({
             "AppliedTotalPremium": state.gross_premium,
             "PremTD": state.premiums_to_date,
             "PremYTD": state.premiums_ytd,
@@ -1681,7 +1825,8 @@ class IllustrationValuesTab(QWidget):
             "Flat Load": state.flat_load,
             "TotalPremLoad": state.total_premium_load,
             "NetPremium": state.net_premium,
-        }
+        })
+        return row
 
     @staticmethod
     def _tefra_tamra_values(state: MonthlyState) -> dict:
@@ -1690,18 +1835,15 @@ class IllustrationValuesTab(QWidget):
             "GLP": state.glp,
             "AccumGLP": state.accumulated_glp,
             "TEFRA_Limit": state.guideline_limit,
-            # Premiums-less-withdrawals and monthly 7-pay premium are not yet tracked.
-            "Prem-WD": 0.0,
+            "Prem-WD": state.prem_less_wd,
             "ForceOut": state.guideline_forceout,
-            "7PayPrem": 0.0,
-            "New TAMRA Period": False,
-            "7PayStartDate": None,
-            "TAMRAMonth": 0,
-            "TAMRA_MonthOfYear": 0,
+            "7PayPrem": state.tamra_7pay_level,
+            "7PayStartDate": state.tamra_7pay_start_date,
+            "TAMRA_MonthOfYear": state.tamra_month_of_year,
             "TAMRA_Year": state.tamra_year,
             "Amount In 7-Pay": state.accumulated_7pay,
-            # Lowest-7-year face and NPT (necessary premium test) are not yet computed.
-            "Lowest7YearFace": 0.0,
+            "Lowest7YearFace": state.lowest_7yr_face,
+            # NPT (necessary premium test) is not yet computed.
             "Value_for_NPT": 0.0,
             "NPT_NSP": 0.0,
             "NPT_Premium": 0.0,
@@ -1709,20 +1851,14 @@ class IllustrationValuesTab(QWidget):
 
     @staticmethod
     def _requested_premium_values(state: MonthlyState) -> dict:
-        # The engine projects from a single gross premium; the planned-premium
-        # schedule inputs (1035, lump sum, frequency, payment counts) are not
-        # yet surfaced per-month, so these render as placeholders for now.
+        # "Lumpsum" is repurposed to show the unscheduled (one-off) premium.
         return {
             "1035_Amount": 0.0,
-            "Lumpsum": 0.0,
+            "Lumpsum": state.unscheduled_premium,
             "PlannedPremium": state.requested_premium,
-            "PlannedPremiumMode": "",
-            "Premium Frequency": "",
-            "Premium Period": 0,
-            "Scheduled Premium Due": False,
-            "Scheduled Premium": 0.0,
-            "Payment Count For Policy Year": 0,
-            "Payment Count for TAMRA Year": 0,
+            "PlannedPremiumMode": state.planned_premium_mode,
+            "Payment Count For Policy Year": state.payment_count_policy_year,
+            "Payment Count for TAMRA Year": state.payment_count_tamra_year,
         }
 
     @staticmethod

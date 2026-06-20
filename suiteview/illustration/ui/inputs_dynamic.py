@@ -50,6 +50,7 @@ from suiteview.illustration.models.input_set import (
     ScheduledTransaction,
     TransactionKind,
 )
+from suiteview.illustration.core.illustration_policy_service import coverage_or_benefit_matured
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.polview.ui.formatting import format_amount, format_date
@@ -813,14 +814,24 @@ class RiderButtonsPanel(QGroupBox):
         "QPushButton:disabled {{ background: #EDE7F6; color: #A89BC0; border: 1px dashed #C9BBE2; }}"
         "QPushButton:hover:enabled {{ background: #E6DAF8; }}"
     )
+    # Matured / ceased riders wear the same greyed, dashed look as the disabled
+    # (non-premium-paying) buttons, but stay enabled so the user can still click
+    # through to view the rider's details. Italic marks "no longer in force."
+    _MATURED_BTN = (
+        "QPushButton { background: #EDE7F6; color: #A89BC0; border: 1px dashed #C9BBE2;"
+        " border-radius: 4px; padding: 3px 10px; font-size: 11px; font-weight: bold;"
+        " font-style: italic; }"
+        "QPushButton:hover { background: #E6DAF8; }"
+    )
 
     def __init__(self, parent=None):
         super().__init__("Riders && Benefits", parent)
         self.setStyleSheet(GROUP_STYLE)
         self._ctx: Optional[PolicyContext] = None
-        self._items: list[tuple] = []          # (key, label, detail_rows, premium_paying)
+        self._items: list[tuple] = []          # (key, label, detail_rows, premium_paying, amount, matured)
         self._adjustments: dict[str, RiderAdjustment] = {}
         self._buttons: dict[str, QPushButton] = {}
+        self._matured: set[str] = set()        # keys whose rider/benefit has already matured
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(8, 16, 8, 8)
         self._layout.setSpacing(6)
@@ -834,6 +845,8 @@ class RiderButtonsPanel(QGroupBox):
         self._ctx = ctx
         self._items = []
         self._adjustments = {}
+        self._matured = set()
+        as_of = ctx.valuation_date or ctx.forecast_date or date.today()
         for index in reversed(range(self._layout.count())):
             item = self._layout.takeAt(index)
             widget = item.widget()
@@ -867,7 +880,9 @@ class RiderButtonsPanel(QGroupBox):
                 ("Class:", cov.rate_class), ("Status:", cov.cov_status),
             ]
             amount = float(getattr(cov, "face_amount", 0.0) or 0.0)
-            self._items.append((f"cov:{cov.cov_pha_nbr}", label, rows, premium_paying, amount))
+            self._items.append(
+                (f"cov:{cov.cov_pha_nbr}", label, rows, premium_paying, amount,
+                 coverage_or_benefit_matured(cov, as_of)))
         for ben in benefits:
             label = ben.form_number or ben.benefit_code or f"Benefit {ben.cov_pha_nbr}"
             benefit_type = str(getattr(ben, "benefit_type_cd", "") or "")
@@ -880,28 +895,39 @@ class RiderButtonsPanel(QGroupBox):
             ]
             amount = float(getattr(ben, "benefit_amount", 0.0) or 0.0)
             key = f"ben:{benefit_type}{getattr(ben, 'benefit_subtype_cd', '') or ''}:{ben.cov_pha_nbr}"
-            self._items.append((key, label, rows, premium_paying, amount))
+            self._items.append(
+                (key, label, rows, premium_paying, amount, coverage_or_benefit_matured(ben, as_of)))
 
         if not self._items:
             note = QLabel("No riders or benefits on this policy.")
             note.setStyleSheet(
                 f"color: {PURPLE_DARK}; background: transparent; font-size: 10px; font-style: italic;")
             self._layout.addWidget(note)
-        for key, label, rows, premium_paying, amount in self._items:
+        for key, label, rows, premium_paying, amount, matured in self._items:
             self._adjustments[key] = RiderAdjustment()
+            if matured:
+                self._matured.add(key)
             btn = QPushButton(label)
-            btn.setEnabled(premium_paying)
-            btn.setToolTip(
-                "Keep / change / drop this rider" if premium_paying
-                else "Not premium-paying — no illustration adjustment")
-            self._style_button(btn, RiderAdjustment.KEEP)
+            # Matured riders stay clickable (view their details) but wear the
+            # de-emphasized look; non-premium-paying active ones are disabled.
+            btn.setEnabled(matured or premium_paying)
+            if matured:
+                btn.setToolTip("Already matured — view details (no illustration adjustment)")
+            elif premium_paying:
+                btn.setToolTip("Keep / change / drop this rider")
+            else:
+                btn.setToolTip("Not premium-paying — no illustration adjustment")
+            self._style_button(btn, RiderAdjustment.KEEP, matured=matured)
             btn.clicked.connect(
                 lambda checked=False, k=key, l=label, r=rows, a=amount: self._open_dialog(k, l, r, a))
             self._buttons[key] = btn
             self._layout.addWidget(btn)
         self._layout.addStretch(1)
 
-    def _style_button(self, btn: QPushButton, action: str):
+    def _style_button(self, btn: QPushButton, action: str, matured: bool = False):
+        if matured:
+            btn.setStyleSheet(self._MATURED_BTN)
+            return
         if action == RiderAdjustment.CHANGE:
             btn.setStyleSheet(self._BTN.format(bg="#FFF3D6", fg="#7B5E00", border="#D9B44A"))
         elif action == RiderAdjustment.DROP:
@@ -1097,13 +1123,17 @@ class RiderButtonsPanel(QGroupBox):
         chosen = date_edit.date().toPyDate()
         is_monthliversary = ctx.issue_date is not None and chosen.day == ctx.issue_date.day
         adj.effective_date = chosen if (by_date_btn.isChecked() and is_monthliversary) else None
-        self._style_button(self._buttons[key], adj.action)
+        self._style_button(self._buttons[key], adj.action, matured=key in self._matured)
         self.changed.emit()
 
     def collect_changes(self, ctx: PolicyContext) -> list[PolicyChangeEvent]:
         events: list[PolicyChangeEvent] = []
         for key, adj in self._adjustments.items():
             if adj.action == RiderAdjustment.KEEP:
+                continue
+            # A matured rider/benefit is already out of the engine's coverage
+            # set — any keep/change/drop the user clicks is view-only.
+            if key in self._matured:
                 continue
             when = adj.effective_date
             if when is None and adj.effective_year is not None:

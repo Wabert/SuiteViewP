@@ -24,18 +24,32 @@ def test_blank_definition_of_life_disables_guideline_and_tamra_caps():
         tamra_7pay_level=1_000.0,
     )
 
-    cap = calc_engine._guideline_premium_cap(
+    # Premiums far past the guideline limit and the 7-pay level, but with no
+    # defined life insurance neither the GP nor the TAMRA side may bind.
+    allowances = calc_engine._premium_allowances(
         IllustrationOptions(),
         policy,
         guideline_limit=0.0,
         premiums_to_date=5_000.0,
-        withdrawals_to_date=0.0,
-        accumulated_7pay=5_000.0,
+        withdrawals_before_forceout=0.0,
+        force_out=0.0,
+        amount_in_7pay=5_000.0,
         tamra_year=1,
+        tamra_month_of_year=1,
+        policy_month=1,
+        tamra_reset=False,
+        requested_scheduled=600.0,
+        requested_lumpsum=0.0,
+        payment_count_policy_year=12,
+        payment_count_tamra_year=12,
+        has_loan_balance=False,
+        beginning_of_year=True,
+        prior_scheduled_prem_cap=0.0,
     )
 
     assert policy.has_defined_life_insurance is False
-    assert cap is None
+    # No cap binds -> the full requested premium is accepted.
+    assert allowances.applied_total_premium == 600.0
     assert calc_engine._guideline_limit_reached(
         IllustrationOptions(), policy, 0.0, 5_000.0, 0.0
     ) is False

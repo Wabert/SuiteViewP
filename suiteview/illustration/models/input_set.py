@@ -111,6 +111,13 @@ class IllustrationOptions:
     # period to keep the policy alive once it is sitting at the guideline limit.
     allow_exception_prems: bool = False
 
+    # sINPUT_LevelizingPremium — when a premium cap binds, spread the allowed
+    # premium evenly across the year's modal payments instead of billing each
+    # payment in full until the annual room runs out mid-year. Off by default
+    # (matches the RERUN workbook default); ignored on a policy that carries a
+    # loan. See ``core/premium_allowance.py`` (CalcEngine NV..NZ).
+    levelizing_premium: bool = False
+
     # None keeps the plancode interest method. True/False force exact-days or
     # monthly compounding for what-if illustration runs.
     exact_days_interest: Optional[bool] = None

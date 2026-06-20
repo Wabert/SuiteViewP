@@ -94,6 +94,34 @@ The minipc built/tested the logic cores; these need the app and/or live data:
 These are committed behavior changes that compiled clean but were never run
 against live data. Test each before relying on them.
 
+### 1.12 Illustration — Apply Premium NC..NZ allowance chain (2026-06-20, minipc) — VALIDATE vs RERUN
+New `core/premium_allowance.py` (`compute_premium_allowances`) implements the full
+RERUN CalcEngine **NC..NZ** premium-acceptance chain, replacing the single-cap
+`_guideline_premium_cap`. Adds GP/NPT/TAMRA Alw 0/1/2, Annual Caps, lumpsum
+(unscheduled) handling, the per-mode **level allowances** (NR BOY / NS EOY / NT /
+NU), Scheduled Prem Cap (NV, locked at BOY), and **levelizing**
+(`IllustrationOptions.levelizing_premium`, default False = RERUN INPUT!B35) which
+spreads a capped premium level across the year's modal payments instead of
+dollar-for-dollar. TAMRA BOY/EOY handles a 7-pay anniversary mid-policy-year.
+- **Headless:** 12 pure unit tests pass (`tests/test_illustration_premium_allowance.py`);
+  `tools/test_guideline_helpers.py` updated to the new API (32 checks pass).
+  Proved (algebra + test) that with levelizing OFF the applied TOTAL premium is
+  identical to the prior behavior → the 11 validated scenarios are unchanged.
+- **VALIDATE on laptop:** run the `rerun_com → run_engine_case → compare_case`
+  loop. Pick/build a case with a **mid-year premium cap + monthly or quarterly
+  mode** so the levelized path (NV/NW/NX/NZ) actually exercises; confirm the
+  Values-tab "Apply Premium" columns match RERUN's NC..NZ row-for-row. Also spot
+  a case where the TAMRA anniversary falls mid-policy-year (NR vs NS).
+- **Stubbed (0):** 1035 exchange (Alw 1), loan-repay-from-premium (MH/MI/MJ),
+  CVAT `vNPT_Premium` (LI). Re-validate if a case needs any of those.
+- **UI (2026-06-20):** Run Controls now has a "Levelized capped premiums (off for
+  loans)" checkbox, **checked by default** (`inputs_tab.export_options` →
+  `IllustrationOptions.levelizing_premium`). The dataclass default stays **False**
+  (RERUN INPUT!B35) — so the **app UI default now diverges** from a bare
+  `IllustrationOptions()`. The `run_engine_case` harness must set
+  `levelizing_premium` explicitly to mirror each RERUN case's sINPUT flag, or it
+  inherits False. Confirm the checkbox renders + drives the Values tab in the UI.
+
 ### 1.11 Audit query rename/copy fixes (2026-06-15, minipc) — VERIFY IN UI
 Fixes for "renames don't stick" + "a phantom copy shows up in the queries list."
 - New `query_object_store.rename_object()` renames a query across **all** stores

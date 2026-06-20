@@ -14,6 +14,7 @@ class CompiledMonthInputs:
 
     scheduled_premium: float | None = None
     unscheduled_premium: float = 0.0
+    premium_mode: str = ""
     regular_loan: float = 0.0
     variable_loan: float = 0.0
     loan_repayment: float = 0.0
@@ -69,6 +70,7 @@ def _compile_scheduled_premiums(
         if schedule is None:
             continue
         compiled[duration].scheduled_premium = _scheduled_amount_for_month(schedule.amount, schedule.mode, policy_month)
+        compiled[duration].premium_mode = schedule.mode or ""
 
 
 def _compile_scheduled_loans(

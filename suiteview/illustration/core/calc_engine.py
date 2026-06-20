@@ -36,6 +36,10 @@ from suiteview.illustration.core.monthly_deduction import (
     _round_near,
     calculate_deduction,
 )
+from suiteview.illustration.core.premium_allowance import (
+    PremiumAllowances,
+    compute_premium_allowances,
+)
 from suiteview.illustration.core.premium_handler import apply_premium
 from suiteview.illustration.core.rate_loader import (
     IllustrationRates,
@@ -285,6 +289,13 @@ class IllustrationEngine:
             accumulated_7pay=sum(policy.tamra_7year_contributions or []),
             amount_in_7pay=sum(policy.tamra_7year_contributions or []),
             tamra_7pay_level=policy.tamra_7pay_level,
+            tamra_7pay_start_date=policy.tamra_7pay_start_date,
+            tamra_month_of_year=_tamra_month_of_year(policy, month_date_inforce),
+            lowest_7yr_face=(
+                float(getattr(policy, "tamra_7year_lowest_db", 0.0) or 0.0)
+                or float(policy.total_face)
+            ),
+            planned_premium_mode=_billing_mode(policy),
             # Deduction check
             nar_av=ded0.nar_av,
             standard_db=ded0.standard_db,
@@ -547,6 +558,11 @@ class IllustrationEngine:
                 if outcome.guideline_recalc and not guideline_recalc:
                     guideline_recalc = outcome.guideline_recalc
 
+        # A material change restarts the 7-pay period at the change date, so the
+        # TAMRA year/month and 7-pay accumulation count from here.
+        if tamra_reset:
+            policy.tamra_7pay_start_date = month_date
+
         cov_after_change = _coverage_after_change_snapshot(
             policy, config, month_date, policy_change_av_reduction,
             state.coverage_after_change,
@@ -596,7 +612,10 @@ class IllustrationEngine:
 
         # Force-out: limit is the GREATER of GSP and AccumGLP, capped by
         # available AV, gated by TEFRA conformance, disabled once exception
-        # mode is on (KX checks the prior month's exception flag).
+        # mode is on (KX checks the prior month's exception flag). KW (Prem−WD)
+        # uses the withdrawals-to-date BEFORE the force-out; the allowance chain
+        # then adds the force-out back as new guideline room.
+        withdrawals_before_forceout = withdrawals_to_date
         guideline_forceout, withdrawals_to_date, av = _apply_guideline_forceout(
             gsp_floored,
             accumulated_glp,
@@ -620,26 +639,43 @@ class IllustrationEngine:
         cap_loan = cash_flows.loan_state
         loan_cap_repay_detail = cash_flows.loan_cap_repay
 
-        # ── 12. Apply premium (capped by guideline / TAMRA) ───
+        # ── 12. Apply premium (CalcEngine NC..NZ acceptance chain) ───
         # A material change restarted the 7-pay period: the prior window's
         # contributions no longer count (LE = 0 in month 1 of a new period).
         accumulated_7pay_base = 0.0 if tamra_reset else state.accumulated_7pay
         tamra_year = _tamra_year(policy, month_date)
-        premium_cap = _guideline_premium_cap(
-            options, policy, guideline_limit,
-            premiums_to_date, withdrawals_to_date,
-            accumulated_7pay_base, tamra_year,
+        tamra_moy = _tamra_month_of_year(policy, month_date)
+        pc_policy, pc_tamra, _mode = _payment_counts(
+            state, policy, month_date, next_month, month_inputs
         )
-        # No premium is collected on the maturity date — the policy endows.
-        # Same maturity condition as the monthly deduction so both cease together.
-        gross_premium_override = month_inputs.total_premium if month_inputs is not None else None
-        if _at_or_after_policy_maturity(policy, config, attained_age):
-            gross_premium_override = 0.0
+        requested_scheduled, requested_lumpsum = _split_requested_premium(
+            policy, config, month_inputs, attained_age
+        )
+        beginning_of_year = is_anniversary or state.payment_count_policy_year == 0
+        allowances = _premium_allowances(
+            options, policy,
+            guideline_limit=guideline_limit,
+            premiums_to_date=premiums_to_date,
+            withdrawals_before_forceout=withdrawals_before_forceout,
+            force_out=guideline_forceout,
+            amount_in_7pay=accumulated_7pay_base,
+            tamra_year=tamra_year,
+            tamra_month_of_year=tamra_moy,
+            policy_month=next_month,
+            tamra_reset=tamra_reset,
+            requested_scheduled=requested_scheduled,
+            requested_lumpsum=requested_lumpsum,
+            payment_count_policy_year=pc_policy,
+            payment_count_tamra_year=pc_tamra,
+            has_loan_balance=_loan_balance_for_levelizing(cap_loan),
+            beginning_of_year=beginning_of_year,
+            prior_scheduled_prem_cap=state.scheduled_prem_cap,
+        )
         prem = apply_premium(
             av, policy, config, rates, rate_year,
             premiums_ytd, premiums_to_date, cost_basis,
-            gross_premium_override=gross_premium_override,
-            premium_cap=premium_cap,
+            gross_premium_override=allowances.applied_total_premium,
+            premium_cap=None,
         )
         av = prem.av_after_premium
         av_before_deduction = av
@@ -787,6 +823,8 @@ class IllustrationEngine:
         cumulative_interest = state.cumulative_interest + intr.interest_credited
         cumulative_charges = state.cumulative_charges + ded.total_deduction
 
+        tamra_disp = _tamra_premium_display(state, policy, month_date, next_month, month_inputs)
+
         return MonthlyState(
             # Counters
             date=month_date,
@@ -829,9 +867,8 @@ class IllustrationEngine:
             total_premium_load=prem.total_premium_load,
             net_premium=prem.net_premium,
             av_after_premium=prem.av_after_premium,
-            requested_premium=prem.requested_premium,
-            premium_cap=prem.premium_cap,
-            premium_capped=prem.premium_capped,
+            **_premium_state_fields(allowances, requested_scheduled + requested_lumpsum),
+            **tamra_disp,
             glp=floor_monthly_cent(policy.glp),
             gsp=gsp_floored,
             accumulated_glp=accumulated_glp,
@@ -1046,6 +1083,7 @@ class IllustrationEngine:
             state, policy, is_anniversary, attained_age
         )
         guideline_limit = max(gsp_floored, accumulated_glp)
+        withdrawals_before_forceout = wd.withdrawals_to_date
         guideline_forceout, withdrawals_to_date, av_after_guideline = _apply_guideline_forceout(
             gsp_floored,
             accumulated_glp,
@@ -1068,17 +1106,35 @@ class IllustrationEngine:
         cap_loan = cash_flows.loan_state
         loan_cap_repay_detail = cash_flows.loan_cap_repay
 
+        # ── Apply premium (CalcEngine NC..NZ acceptance chain) ──
         tamra_year = _tamra_year(policy, month_date)
-        premium_cap = _guideline_premium_cap(
-            options, policy, guideline_limit,
-            premiums_to_date, withdrawals_to_date,
-            state.accumulated_7pay, tamra_year,
+        tamra_moy = _tamra_month_of_year(policy, month_date)
+        pc_policy, pc_tamra, _mode = _payment_counts(
+            state, policy, month_date, next_month, month_inputs
         )
-        # No premium is collected on the maturity date — the policy endows.
-        # Same maturity condition as the monthly deduction so both cease together.
-        gross_premium_override = month_inputs.total_premium if month_inputs is not None else None
-        if _at_or_after_policy_maturity(policy, config, attained_age):
-            gross_premium_override = 0.0
+        requested_scheduled, requested_lumpsum = _split_requested_premium(
+            policy, config, month_inputs, attained_age
+        )
+        beginning_of_year = is_anniversary or state.payment_count_policy_year == 0
+        allowances = _premium_allowances(
+            options, policy,
+            guideline_limit=guideline_limit,
+            premiums_to_date=premiums_to_date,
+            withdrawals_before_forceout=withdrawals_before_forceout,
+            force_out=guideline_forceout,
+            amount_in_7pay=state.accumulated_7pay,
+            tamra_year=tamra_year,
+            tamra_month_of_year=tamra_moy,
+            policy_month=next_month,
+            tamra_reset=False,
+            requested_scheduled=requested_scheduled,
+            requested_lumpsum=requested_lumpsum,
+            payment_count_policy_year=pc_policy,
+            payment_count_tamra_year=pc_tamra,
+            has_loan_balance=_loan_balance_for_levelizing(cap_loan),
+            beginning_of_year=beginning_of_year,
+            prior_scheduled_prem_cap=state.scheduled_prem_cap,
+        )
         prem = apply_premium(
             cash_flows.av,
             policy,
@@ -1088,8 +1144,8 @@ class IllustrationEngine:
             premiums_ytd,
             premiums_to_date,
             cost_basis,
-            gross_premium_override=gross_premium_override,
-            premium_cap=premium_cap,
+            gross_premium_override=allowances.applied_total_premium,
+            premium_cap=None,
         )
         av_before_deduction = prem.av_after_premium
 
@@ -1157,6 +1213,8 @@ class IllustrationEngine:
         exception_protection = exception.mode and av_less_loans > -0.0001
         lapsed = state.lapsed or (av_end <= 0.0 and not exception.mode)
 
+        tamra_disp = _tamra_premium_display(state, policy, month_date, next_month, month_inputs)
+
         return MonthlyState(
             date=month_date,
             policy_year=next_year,
@@ -1193,9 +1251,8 @@ class IllustrationEngine:
             total_premium_load=prem.total_premium_load,
             net_premium=prem.net_premium,
             av_after_premium=prem.av_after_premium,
-            requested_premium=prem.requested_premium,
-            premium_cap=prem.premium_cap,
-            premium_capped=prem.premium_capped,
+            **_premium_state_fields(allowances, requested_scheduled + requested_lumpsum),
+            **tamra_disp,
             glp=floor_monthly_cent(policy.glp),
             gsp=gsp_floored,
             accumulated_glp=accumulated_glp,
@@ -1500,8 +1557,11 @@ def _coverage_after_change_snapshot(policy, config, month_date, av_reduction, pr
     last_active = 0
     for index in (1, 2, 3):
         seg = segments[index - 1] if index - 1 < len(segments) else None
+        # A base segment with positive face is active unless terminated. The
+        # status carries the raw CyberLife code ("0" = active), so test for the
+        # terminated marker rather than a literal "A".
         active = bool(
-            seg and seg.face_amount > 0 and str(seg.status or "A").upper() == "A"
+            seg and seg.face_amount > 0 and str(seg.status or "").strip().upper() != "T"
         )
         seg_issue = seg.issue_date if seg else None
         cov_months = (months_between(seg_issue, month_date) + 1) if active else 0
@@ -2293,36 +2353,198 @@ def _tamra_year(policy: IllustrationPolicyData, month_date) -> int:
     return (max(months, 0) // 12) + 1
 
 
-def _guideline_premium_cap(
+_MODE_INTERVALS = {"M": 1, "Q": 3, "S": 6, "A": 12}
+
+
+def _billing_mode(policy: IllustrationPolicyData) -> str:
+    """Map the policy's billing frequency (months between payments) to a mode."""
+    return {1: "M", 3: "Q", 6: "S", 12: "A"}.get(
+        int(getattr(policy, "billing_frequency", 12) or 12), "A")
+
+
+def _tamra_month_of_year(policy: IllustrationPolicyData, month_date) -> int:
+    """Month (1-12) within the current TAMRA year (CalcEngine LC); 0 if none."""
+    start = policy.tamra_7pay_start_date
+    if start is None or month_date is None:
+        return 0
+    months = (month_date.year - start.year) * 12 + (month_date.month - start.month)
+    if month_date.day < start.day:
+        months -= 1
+    return max(months, 0) % 12 + 1
+
+
+def _payment_counts(prior_state, policy, month_date, next_month, month_inputs) -> tuple[int, int, str]:
+    """Modal payment counts for the policy / TAMRA year (CalcEngine LT / LU).
+
+    INT((13 - month)/interval) computed at the start of each year and held
+    through it (the prior-state count carries on non-anniversary months). The
+    TAMRA count only applies inside an active 7-pay window (years 1..7).
+    Returns ``(payment_count_policy_year, payment_count_tamra_year, mode)``.
+    """
+    mode = (
+        month_inputs.premium_mode
+        if (month_inputs is not None and month_inputs.premium_mode)
+        else _billing_mode(policy)
+    )
+    interval = _MODE_INTERVALS.get(mode, 12)
+    tamra_moy = _tamra_month_of_year(policy, month_date)
+    in_period = _tamra_year(policy, month_date) <= 7
+
+    if next_month == 1 or prior_state.payment_count_policy_year == 0:
+        pc_policy = (13 - next_month) // interval
+    else:
+        pc_policy = prior_state.payment_count_policy_year
+
+    if not in_period:
+        pc_tamra = 0
+    elif tamra_moy == 1 or prior_state.payment_count_tamra_year == 0:
+        pc_tamra = (13 - tamra_moy) // interval
+    else:
+        pc_tamra = prior_state.payment_count_tamra_year
+
+    return pc_policy, pc_tamra, mode
+
+
+def _tamra_premium_display(prior_state, policy, month_date, next_month, month_inputs) -> dict:
+    """Display-only TEFRA/TAMRA and Requested-Premium fields for one month."""
+    unscheduled = float(month_inputs.unscheduled_premium) if month_inputs is not None else 0.0
+    pc_policy, pc_tamra, mode = _payment_counts(
+        prior_state, policy, month_date, next_month, month_inputs
+    )
+    tamra_year = _tamra_year(policy, month_date)
+    tamra_moy = _tamra_month_of_year(policy, month_date)
+    in_period = tamra_year <= 7
+
+    current_face = float(policy.total_face)
+    if not in_period:
+        lowest = float(getattr(policy, "tamra_7year_lowest_db", 0.0) or 0.0) or current_face
+    elif tamra_year == 1 and tamra_moy == 1:
+        lowest = current_face
+    else:
+        lowest = min(prior_state.lowest_7yr_face or current_face, current_face)
+
+    return {
+        "unscheduled_premium": unscheduled,
+        "planned_premium_mode": mode,
+        "payment_count_policy_year": pc_policy,
+        "payment_count_tamra_year": pc_tamra,
+        "tamra_month_of_year": tamra_moy,
+        "tamra_7pay_start_date": policy.tamra_7pay_start_date,
+        "lowest_7yr_face": lowest,
+    }
+
+
+def _split_requested_premium(policy, config, month_inputs, attained_age) -> tuple[float, float]:
+    """Requested scheduled (LS) and unscheduled/lumpsum (vLumpsum) premium.
+
+    With no premium schedule at all the modal premium bills every month (the
+    workbook's vPlannedPremium fallback); a schedule supplies the per-month
+    scheduled amount and dated deposits the lumpsum. No premium is collected on
+    or after the maturity date — the policy endows.
+    """
+    if _at_or_after_policy_maturity(policy, config, attained_age):
+        return 0.0, 0.0
+    total_override = month_inputs.total_premium if month_inputs is not None else None
+    if total_override is None:
+        return float(policy.modal_premium or 0.0), 0.0
+    requested_scheduled = float(month_inputs.scheduled_premium or 0.0)
+    requested_lumpsum = float(month_inputs.unscheduled_premium or 0.0)
+    return requested_scheduled, requested_lumpsum
+
+
+def _loan_balance_for_levelizing(loan_state) -> bool:
+    """True when the policy carries any loan (levelizing is off with a loan).
+
+    RERUN gates on SUM(LX:LY, MB:MC) (fixed + variable principal and accrued);
+    we include every loan bucket so any outstanding debt disables levelizing.
+    """
+    total = (
+        loan_state.rg_loan_princ + loan_state.rg_loan_accrued
+        + loan_state.pf_loan_princ + loan_state.pf_loan_accrued
+        + loan_state.vbl_loan_princ + loan_state.vbl_loan_accrued
+    )
+    return total > 1e-9
+
+
+def _premium_allowances(
     options: IllustrationOptions,
     policy: IllustrationPolicyData,
+    *,
     guideline_limit: float,
     premiums_to_date: float,
-    withdrawals_to_date: float,
-    accumulated_7pay: float,
+    withdrawals_before_forceout: float,
+    force_out: float,
+    amount_in_7pay: float,
     tamra_year: int,
-) -> Optional[float]:
-    """Acceptance cap on this month's premium (CalcEngine vAppliedScheduledPremium).
+    tamra_month_of_year: int,
+    policy_month: int,
+    tamra_reset: bool,
+    requested_scheduled: float,
+    requested_lumpsum: float,
+    payment_count_policy_year: int,
+    payment_count_tamra_year: int,
+    has_loan_balance: bool,
+    beginning_of_year: bool,
+    prior_scheduled_prem_cap: float,
+) -> PremiumAllowances:
+    """Build the NC..NZ "Apply Premium" allowance chain for one month.
 
-    The cap is the smaller of the remaining guideline room (cumulative premium
-    may not exceed the greater of GSP / AccumGLP) and the remaining 7-pay room
-    (cumulative 7-pay contributions may not exceed 7-pay level x TAMRA year).
-    Returns None when neither limit is enforced.
+    Maps the engine's option/policy state onto ``compute_premium_allowances``.
+    The TAMRA side is treated as un-forced when the policy has no defined life
+    insurance or no 7-pay level (mirrors the prior cap's defensive guards), so a
+    misconfigured policy never blocks all premium.
     """
-    cap: Optional[float] = None
-    if not policy.has_defined_life_insurance:
-        return None
-    if options.guideline_cap_enabled and policy.is_gpt:
-        cap = max(0.0, guideline_limit - (premiums_to_date - withdrawals_to_date))
-    if (
+    tamra_force = (
         options.tamra_cap_enabled
-        and not policy.is_mec
-        and tamra_year <= 7
+        and policy.has_defined_life_insurance
         and policy.tamra_7pay_level > 0
-    ):
-        tamra_room = max(0.0, policy.tamra_7pay_level * tamra_year - accumulated_7pay)
-        cap = tamra_room if cap is None else min(cap, tamra_room)
-    return cap
+    )
+    return compute_premium_allowances(
+        is_cvat=policy.is_cvat,
+        is_gpt=policy.is_gpt,
+        tefra_force=options.guideline_cap_enabled,
+        tamra_force=tamra_force,
+        mec_bypass=policy.is_mec,
+        guideline_limit=guideline_limit,
+        prem_less_wd=premiums_to_date - withdrawals_before_forceout,
+        force_out=force_out,
+        loan_repay_from_forceout=0.0,
+        seven_pay_level=policy.tamra_7pay_level,
+        tamra_year=tamra_year,
+        tamra_month_of_year=tamra_month_of_year,
+        policy_month=policy_month,
+        amount_in_7pay=amount_in_7pay,
+        npt_premium=0.0,   # vNPT_Premium (CVAT necessary-premium) not yet modeled
+        tamra_reset=tamra_reset,
+        requested_scheduled=requested_scheduled,
+        requested_lumpsum=requested_lumpsum,
+        payment_count_policy_year=payment_count_policy_year,
+        payment_count_tamra_year=payment_count_tamra_year,
+        loan_repay_from_lumpsum=0.0,
+        loan_repay_from_scheduled=0.0,
+        ln_repay_left_over=0.0,
+        has_loan_balance=has_loan_balance,
+        levelizing_premium=options.levelizing_premium,
+        beginning_of_year=beginning_of_year,
+        prior_scheduled_prem_cap=prior_scheduled_prem_cap,
+    )
+
+
+def _premium_state_fields(allowances: PremiumAllowances, requested_total: float) -> dict:
+    """MonthlyState fields for the premium-cap block, from an allowance chain."""
+    applied = allowances.applied_total_premium
+    return {
+        "requested_premium": requested_total,
+        "premium_cap": allowances.annual_cap_2,
+        "premium_capped": applied < requested_total - 1e-9,
+        "prem_less_wd": allowances.prem_less_wd,
+        "applied_lumpsum": allowances.applied_lumpsum,
+        "applied_scheduled_premium": allowances.applied_scheduled_premium,
+        "scheduled_prem_cap": allowances.scheduled_prem_cap,
+        "levelized_max_premium": allowances.levelized_max_premium,
+        "apply_levelized": allowances.apply_levelized,
+        "premium_allowance_detail": allowances.to_detail(),
+    }
 
 
 def _guideline_limit_reached(

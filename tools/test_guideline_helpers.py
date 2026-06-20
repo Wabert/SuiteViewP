@@ -10,7 +10,7 @@ from suiteview.illustration.core.calc_engine import (
     _apply_guideline_forceout,
     _compute_exception_premium,
     _guideline_limit_reached,
-    _guideline_premium_cap,
+    _premium_allowances,
     _tamra_year,
 )
 from suiteview.illustration.core.loan_handler import LoanState, apply_new_fixed_loan
@@ -51,7 +51,7 @@ check("stops at attained age 100", approx(_accumulate_guideline_premium(st, pol,
 
 # ── Force-out (KX): GSP floor, AV cap, gating ─────────────────────────
 print("Guideline force-out (KX)")
-opt = dict(enabled=True, is_cvat=False, prior_exception_mode=False)
+opt = dict(enabled=True, has_guideline_limit=True, prior_exception_mode=False)
 # Premium 13,000 > MAX(GSP, AccumGLP)=12,863.52 -> forceout 136.48, AV-capped fine
 fo, wd, av = _apply_guideline_forceout(GSP, GLP, 13000.0, 0.0, 5000.0, **opt)
 check("force-out = premium over MAX(GSP,AccumGLP)", approx(fo, 13000.0 - GSP))
@@ -65,29 +65,56 @@ fo3, _, av3 = _apply_guideline_forceout(GSP, GLP, 13000.0, 0.0, 50.0, **opt)
 check("force-out capped by available AV", approx(fo3, 50.0) and approx(av3, 0.0))
 # Gating
 fo4, _, _ = _apply_guideline_forceout(GSP, GLP, 13000.0, 0.0, 5000.0,
-                                      enabled=False, is_cvat=False, prior_exception_mode=False)
+                                      enabled=False, has_guideline_limit=True, prior_exception_mode=False)
 check("disabled when TEFRA off", approx(fo4, 0.0))
 fo5, _, _ = _apply_guideline_forceout(GSP, GLP, 13000.0, 0.0, 5000.0,
-                                      enabled=True, is_cvat=False, prior_exception_mode=True)
+                                      enabled=True, has_guideline_limit=True, prior_exception_mode=True)
 check("disabled once exception mode on", approx(fo5, 0.0))
 
-# ── Premium cap (vAppliedScheduledPremium) ────────────────────────────
-print("Guideline / TAMRA premium cap")
-mec_pol = IllustrationPolicyData(policy_number="T", plancode="1U143900", tamra_7pay_level=0.0)
-cap = _guideline_premium_cap(IllustrationOptions(), mec_pol, GSP, 12800.0, 0.0, 0.0, 999)
-check("guideline room = limit - (PremTD-WD)", approx(cap, GSP - 12800.0))
-tamra_pol = IllustrationPolicyData(policy_number="T", plancode="1U143900", tamra_7pay_level=300.0)
-cap2 = _guideline_premium_cap(IllustrationOptions(), tamra_pol, GSP, 0.0, 0.0, 0.0, 1)
-check("TAMRA binds when smaller (300 < guideline room)", approx(cap2, 300.0))
-cap3 = _guideline_premium_cap(
-    IllustrationOptions(conform_to_tefra=False), tamra_pol, GSP, 0.0, 0.0, 0.0, 1)
-check("TEFRA off -> only TAMRA cap", approx(cap3, 300.0))
-cap4 = _guideline_premium_cap(
-    IllustrationOptions(conform_to_tefra=False, conform_to_tamra=False),
-    tamra_pol, GSP, 0.0, 0.0, 0.0, 1)
-check("both off -> no cap", cap4 is None)
-cap5 = _guideline_premium_cap(IllustrationOptions(), tamra_pol, GSP, 0.0, 0.0, 0.0, 8)
-check("TAMRA cap skipped past year 7", approx(cap5, GSP))
+# ── Premium acceptance chain (vAppliedTotalPremium — NC..NZ) ──────────
+print("Guideline / TAMRA premium cap (NC..NZ)")
+
+
+def _applied(policy, opts=None, *, prem_td=0.0, amount_in_7pay=0.0, tamra_year=1,
+             requested=999_999.0):
+    a = _premium_allowances(
+        opts or IllustrationOptions(), policy,
+        guideline_limit=GSP,
+        premiums_to_date=prem_td,
+        withdrawals_before_forceout=0.0,
+        force_out=0.0,
+        amount_in_7pay=amount_in_7pay,
+        tamra_year=tamra_year,
+        tamra_month_of_year=1,
+        policy_month=1,
+        tamra_reset=False,
+        requested_scheduled=requested,
+        requested_lumpsum=0.0,
+        payment_count_policy_year=12,
+        payment_count_tamra_year=12,
+        has_loan_balance=False,
+        beginning_of_year=True,
+        prior_scheduled_prem_cap=0.0,
+    )
+    return a.applied_total_premium
+
+
+gpt_pol = IllustrationPolicyData(policy_number="T", plancode="1U143900",
+                                 def_of_life_ins="GPT", tamra_7pay_level=0.0)
+check("guideline room = limit - (PremTD-WD)",
+      approx(_applied(gpt_pol, prem_td=12800.0), GSP - 12800.0))
+tamra_pol = IllustrationPolicyData(policy_number="T", plancode="1U143900",
+                                   def_of_life_ins="GPT", tamra_7pay_level=300.0)
+check("TAMRA binds when smaller (300 < guideline room)",
+      approx(_applied(tamra_pol, tamra_year=1), 300.0))
+check("TEFRA off -> only TAMRA cap",
+      approx(_applied(tamra_pol, IllustrationOptions(conform_to_tefra=False), tamra_year=1), 300.0))
+check("both off -> full requested premium accepted",
+      approx(_applied(tamra_pol,
+                      IllustrationOptions(conform_to_tefra=False, conform_to_tamra=False),
+                      tamra_year=1), 999_999.0))
+check("TAMRA cap skipped past year 7",
+      approx(_applied(tamra_pol, tamra_year=8, requested=GSP), GSP))
 
 print("apply_premium honours the cap")
 prem_pol = IllustrationPolicyData(policy_number="T", plancode="1U143900",
@@ -102,11 +129,11 @@ check("zero cap -> pass-through", approx(r3.gross_premium, 0.0))
 # ── Guideline limit reached (SX) ──────────────────────────────────────
 print("Guideline limit reached (SX)")
 check("reached at the ceiling",
-      _guideline_limit_reached(IllustrationOptions(), mec_pol, GSP, GSP, 0.0))
+      _guideline_limit_reached(IllustrationOptions(), gpt_pol, GSP, GSP, 0.0))
 check("not reached below ceiling",
-      not _guideline_limit_reached(IllustrationOptions(), mec_pol, GSP, 12000.0, 0.0))
+      not _guideline_limit_reached(IllustrationOptions(), gpt_pol, GSP, 12000.0, 0.0))
 check("not reached when TEFRA off",
-      not _guideline_limit_reached(IllustrationOptions(conform_to_tefra=False), mec_pol, GSP, GSP, 0.0))
+      not _guideline_limit_reached(IllustrationOptions(conform_to_tefra=False), gpt_pol, GSP, GSP, 0.0))
 
 # ── GP exception premium (SY/SZ/TA/TB/TD) ─────────────────────────────
 print("GP exception premium")

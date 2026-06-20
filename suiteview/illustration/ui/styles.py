@@ -171,6 +171,29 @@ VALUE_BUTTON_STYLE = f"""
     }}
 """
 
+# A paler, de-emphasized version of VALUE_BUTTON_STYLE for riders/benefits that
+# have already matured. Still clickable (the detail dialog opens) — just muted so
+# it reads as "no longer in force."
+VALUE_BUTTON_MATURED_STYLE = """
+    QPushButton {
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #E7DDF7, stop:0.5 #CDBDEC, stop:1 #B9A6E0);
+        color: #6E5E92;
+        border: 2px solid #C9BBE2;
+        border-radius: 5px;
+        font-size: 10px;
+        font-weight: bold;
+        font-style: italic;
+        padding: 3px 12px;
+        min-height: 22px;
+    }
+    QPushButton:hover {
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #EFE8FA, stop:0.5 #D9CCF1, stop:1 #C7B7E8);
+        color: #4B2383;
+    }
+"""
+
 LIST_BUTTON_STYLE = f"""
     QPushButton {{
         background: transparent;

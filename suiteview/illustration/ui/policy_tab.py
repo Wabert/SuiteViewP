@@ -1,5 +1,6 @@
 """Policy tab for the Illustration app."""
 
+from datetime import date
 from decimal import Decimal
 
 from PyQt6.QtCore import Qt
@@ -16,10 +17,19 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from suiteview.illustration.core.illustration_policy_service import coverage_or_benefit_matured
 from suiteview.polview.ui.formatting import format_amount, format_currency, format_date
 from suiteview.polview.ui.widgets import FixedHeaderTableWidget, StyledInfoTableGroup
 
-from .styles import FUND_TABLE_STYLE, GROUP_STYLE, GRAY_DARK, PURPLE_BG, PURPLE_DARK, VALUE_BUTTON_STYLE
+from .styles import (
+    FUND_TABLE_STYLE,
+    GROUP_STYLE,
+    GRAY_DARK,
+    PURPLE_BG,
+    PURPLE_DARK,
+    VALUE_BUTTON_MATURED_STYLE,
+    VALUE_BUTTON_STYLE,
+)
 
 
 RATE_WARNING_STYLE = """
@@ -271,6 +281,7 @@ class IllustrationPolicyTab(QWidget):
 
         self._coverages = list(policy.get_coverages())
         self._benefits = list(policy.get_benefits())
+        self._as_of = getattr(policy, "valuation_date", None) or date.today()
         self._populate_policy_info(policy, policy_info)
         self.set_monthly_deduction_check(md_check)
         self._populate_value_groups(policy)
@@ -481,11 +492,14 @@ class IllustrationPolicyTab(QWidget):
             label = benefit.form_number or benefit.benefit_code or f"Benefit {benefit.cov_pha_nbr}"
             items.append((label, "benefit", benefit))
 
+        as_of = getattr(self, "_as_of", None)
         for label, kind, item in items:
+            matured = coverage_or_benefit_matured(item, as_of)
             btn = QPushButton(label)
-            btn.setStyleSheet(VALUE_BUTTON_STYLE)
+            # Matured coverages/benefits get a paler look but stay clickable.
+            btn.setStyleSheet(VALUE_BUTTON_MATURED_STYLE if matured else VALUE_BUTTON_STYLE)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setToolTip("Click for details")
+            btn.setToolTip("Already matured — click for details" if matured else "Click for details")
             btn.clicked.connect(lambda checked=False, k=kind, i=item: self._show_detail_dialog(k, i))
             self.coverage_buttons.addWidget(btn)
         self.coverage_buttons.addStretch(1)

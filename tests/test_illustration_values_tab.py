@@ -109,17 +109,11 @@ def test_values_tab_uses_one_content_page_per_group_each_leading_with_locators()
         "Ending Values",
         "Shadow Account",
         "Testing",
-        "Guideline Recalc",
+        "TEFRA/TAMRA Recalc",
     ]
-    recalc_tabs = tab.recalc_view.tabs
-    assert tab.findChildren(QTabWidget) == [recalc_tabs]
-    assert [recalc_tabs.tabText(index) for index in range(recalc_tabs.count())] == [
-        "Summary",
-        "GLP Before",
-        "GLP After",
-        "GSP Before",
-        "GSP After",
-    ]
+    # No recalc in this projection → no per-date detail pages (and no QTabWidget).
+    assert tab.recalc_view.detail_views == []
+    assert tab.findChildren(QTabWidget) == []
 
     for title, grid in tab._tab_grids.items():
         columns = list(grid.df.columns)
@@ -273,39 +267,40 @@ def test_values_group_navigator_is_permanent():
     assert not tab.navigator.isHidden()
 
 
-def test_guideline_recalc_group_renders_summary_and_pv_tabs():
-    _app()
-    tab = IllustrationValuesTab()
+def _recalc_pv_detail(label, premium):
+    return {
+        "premium_label": label,
+        "attained_age": 45,
+        "specified_amount": 100000.0,
+        "db_option": "A",
+        "glp_rate": 0.04 if label == "GLP" else 0.06,
+        "glp_rows": [
+            {"Policy Month": 1, "Age": 45, "q'x": 0.001, "p'x": 0.999,
+             "tp'x": 1.0, "v^t": 1.0, "v^(t+1)": 0.9967,
+             "Death Benefit": 100000.0, "Charges": 12.0,
+             "PVDB": 99.67, "PV Charges": 11.96, "PV Annuity": 1.0},
+        ],
+        "glp_rollup": {
+            "PV death benefit": 99.67,
+            "PV maturity endowment": 1000.0,
+            "PVDB (= SA endowment)": 1099.67,
+            "PV Charges": 11.96,
+            "load $ term": 0.0,
+            "PV Annuity (gross)": 1.0,
+            "load %": 0.0,
+            "PV Annuity (net of load)": 1.0,
+            "numerator": premium,
+            "denominator": 1.0,
+            "premium": premium,
+        },
+    }
 
-    def detail(label, premium):
-        return {
-            "premium_label": label,
-            "attained_age": 45,
-            "specified_amount": 100000.0,
-            "db_option": "A",
-            "glp_rate": 0.04 if label == "GLP" else 0.06,
-            "glp_rows": [
-                {"Policy Month": 1, "Age": 45, "q'x": 0.001, "p'x": 0.999,
-                 "tp'x": 1.0, "v^t": 1.0, "v^(t+1)": 0.9967,
-                 "Death Benefit": 100000.0, "Charges": 12.0,
-                 "PVDB": 99.67, "PV Charges": 11.96, "PV Annuity": 1.0},
-            ],
-            "glp_rollup": {
-                "PV death benefit": 99.67,
-                "PV maturity endowment": 1000.0,
-                "PVDB (= SA endowment)": 1099.67,
-                "PV Charges": 11.96,
-                "load $ term": 0.0,
-                "PV Annuity (gross)": 1.0,
-                "load %": 0.0,
-                "PV Annuity (net of load)": 1.0,
-                "numerator": premium,
-                "denominator": 1.0,
-                "premium": premium,
-            },
-        }
 
+def _recalc_state():
+    """A projection-month state carrying a full guideline re-solve."""
     state = _state()
+    state.tamra_7pay_start_date = date(2026, 5, 15)
+    state.tamra_7pay_level = 95.0
     state.guideline_recalc = {
         "change_kind": "Specified Amount Change",
         "change_date": date(2026, 5, 15),
@@ -318,15 +313,80 @@ def test_guideline_recalc_group_renders_summary_and_pv_tabs():
         "gsp_prior": 1100.0,
         "gsp_new": 1050.0,
         "monthly_pv_recalc": {
-            "before": {"glp": detail("GLP", 100.0), "gsp": detail("GSP", 1000.0)},
-            "after": {"glp": detail("GLP", 125.0), "gsp": detail("GSP", 950.0)},
+            "before": {"glp": _recalc_pv_detail("GLP", 100.0),
+                       "gsp": _recalc_pv_detail("GSP", 1000.0)},
+            "after": {"glp": _recalc_pv_detail("GLP", 125.0),
+                      "gsp": _recalc_pv_detail("GSP", 950.0)},
         },
-        "monthly_pv": detail("GLP", 125.0),
+        "monthly_pv": _recalc_pv_detail("GLP", 125.0),
     }
+    return state
 
-    tab.display_projection(_policy(), [state])
+
+def test_tefra_tamra_recalc_summary_table_leads_with_valuation_baseline():
+    import pandas as pd
+
+    _app()
+    tab = IllustrationValuesTab()
+
+    seed = _state()
+    seed.date = date(2026, 6, 1)
+    seed.glp = 90.0
+    seed.gsp = 1100.0
+    seed.tamra_7pay_start_date = date(2026, 1, 1)
+    seed.tamra_7pay_level = 80.0
+
+    tab.display_projection(_policy(), [seed, _recalc_state()])
 
     summary = tab.recalc_view.summary_grid.df
+    assert list(summary.columns) == [
+        "Effective Date",
+        "GLPb", "GLPa", "GLP Delta", "GLP", "blank1",
+        "GSPb", "GSPa", "GSP Delta", "GSP", "blank2",
+        "7-Pay Start Date", "7-Pay Premium",
+    ]
+    # Two columns each share a display label (Delta / blank) yet keep unique keys.
+    assert tab.recalc_view.summary_grid.model._header_labels == {
+        "GLP Delta": "Delta", "GSP Delta": "Delta", "blank1": "", "blank2": "",
+    }
+
+    # Row 0 is the valuation baseline: only GLP/GSP/7-pay are populated.
+    base = summary.iloc[0]
+    assert base["Effective Date"] == "06/01/2026"
+    assert base["GLP"] == 90.0 and base["GSP"] == 1100.0
+    assert base["7-Pay Start Date"] == "01/01/2026" and base["7-Pay Premium"] == 80.0
+    for blank in ("GLPb", "GLPa", "GLP Delta", "GSPb", "GSPa", "GSP Delta"):
+        assert pd.isna(base[blank]), blank
+
+    # Row 1 is the recalc: before/after/Δ/new for both premiums plus the 7-pay.
+    row = summary.iloc[1]
+    assert row["Effective Date"] == "05/15/2026"
+    assert (row["GLPb"], row["GLPa"], row["GLP Delta"], row["GLP"]) == (100.0, 125.0, 25.0, 115.0)
+    assert (row["GSPb"], row["GSPa"], row["GSP Delta"], row["GSP"]) == (1000.0, 950.0, -50.0, 1050.0)
+    assert row["7-Pay Start Date"] == "05/15/2026" and row["7-Pay Premium"] == 95.0
+
+    # The navigator gets a TEFRA/TAMRA Recalc parent with a child per recalc date.
+    assert tab.recalc_view.recalc_dates == [date(2026, 5, 15)]
+    recalc_item = next(
+        tab.nav_tree.topLevelItem(i)
+        for i in range(tab.nav_tree.topLevelItemCount())
+        if tab.nav_tree.topLevelItem(i).text(0) == "TEFRA/TAMRA Recalc"
+    )
+    assert [recalc_item.child(i).text(0) for i in range(recalc_item.childCount())] == [
+        "Recalc 05/15/2026",
+    ]
+
+
+def test_tefra_tamra_recalc_detail_page_renders_summary_and_pv_tabs():
+    _app()
+    tab = IllustrationValuesTab()
+
+    tab.display_projection(_policy(), [_state(), _recalc_state()])
+
+    assert len(tab.recalc_view.detail_views) == 1
+    detail_view = tab.recalc_view.detail_views[0]
+
+    summary = detail_view.summary_grid.df
     assert list(summary.columns) == [
         "Premium", "Prior Prem", "Before Change", "After Change",
         "Δ (After − Before)", "New Prem",
@@ -335,10 +395,15 @@ def test_guideline_recalc_group_renders_summary_and_pv_tabs():
         "Premium": "GLP", "Prior Prem": 90.0, "Before Change": 100.0,
         "After Change": 125.0, "Δ (After − Before)": 25.0, "New Prem": 115.0,
     }
-    assert tab.recalc_view.pv_views[("glp", "before")]._detail["premium_label"] == "GLP"
-    assert tab.recalc_view.pv_views[("gsp", "after")]._detail["premium_label"] == "GSP"
-    assert "GSP =" in tab.recalc_view.pv_views[("gsp", "after")].header.text()
-    assert not tab.recalc_view.pv_views[("gsp", "after")].grid.search_bar.isVisible()
+
+    recalc_tabs = detail_view.tabs
+    assert [recalc_tabs.tabText(index) for index in range(recalc_tabs.count())] == [
+        "Summary", "GLP Before", "GLP After", "GSP Before", "GSP After",
+    ]
+    assert detail_view.pv_views[("glp", "before")]._detail["premium_label"] == "GLP"
+    assert detail_view.pv_views[("gsp", "after")]._detail["premium_label"] == "GSP"
+    assert "GSP =" in detail_view.pv_views[("gsp", "after")].header.text()
+    assert not detail_view.pv_views[("gsp", "after")].grid.search_bar.isVisible()
 
 
 def test_cov_slot_groups_show_only_active_coverages():
@@ -844,6 +909,54 @@ def test_monthly_deduction_keeps_single_coi_rate_when_not_ratchet():
     assert "COI Rate Cov1" in columns
     assert "Band Break" not in columns
     assert "NAR B1 Cov1" not in columns
+
+
+def test_values_groups_cleanup_populate_and_drop_columns():
+    _app()
+    tab = IllustrationValuesTab()
+    state = replace(
+        _state(),
+        coverage_after_change={
+            "Cov 1 Active": True,
+            "Cov 1 Issue Date": date(1985, 7, 23),
+            "Cov 1 Months from Issue": 491,
+            "CurrentSA": 25000.0,
+        },
+        tamra_7pay_start_date=date(2026, 1, 15),
+        tamra_month_of_year=5,
+        tamra_year=1,
+        lowest_7yr_face=100000.0,
+        unscheduled_premium=250.0,
+        planned_premium_mode="Q",
+        payment_count_policy_year=4,
+        payment_count_tamra_year=3,
+        requested_premium=49.23,
+    )
+
+    tab.display_projection(_policy(), [state])
+
+    # Cov After Change: Cov 1 populates.
+    cov = tab._tab_grids["Cov After Change"]
+    assert "Cov 1 Active" in cov.df.columns
+    assert bool(cov.df.iloc[0]["Cov 1 Active"]) is True
+    assert cov.df.iloc[0]["Cov 1 Months from Issue"] == 491
+
+    # TEFRA and TAMRA: new fields populate; retired columns are gone.
+    tt = tab._tab_grids["TEFRA and TAMRA"]
+    assert tt.df.iloc[0]["7PayStartDate"] == date(2026, 1, 15)
+    assert tt.df.iloc[0]["TAMRA_MonthOfYear"] == 5
+    assert tt.df.iloc[0]["Lowest7YearFace"] == 100000.0
+    assert "New TAMRA Period" not in tt.df.columns
+    assert "TAMRAMonth" not in tt.df.columns
+
+    # Requested Premium: Lumpsum repurposed, mode + counts populate, columns dropped.
+    rp = tab._tab_grids["Requested Premium"]
+    assert rp.df.iloc[0]["Lumpsum"] == 250.0
+    assert rp.df.iloc[0]["PlannedPremiumMode"] == "Q"
+    assert rp.df.iloc[0]["Payment Count For Policy Year"] == 4
+    assert rp.df.iloc[0]["Payment Count for TAMRA Year"] == 3
+    for gone in ("Premium Frequency", "Premium Period", "Scheduled Premium Due", "Scheduled Premium"):
+        assert gone not in rp.df.columns
 
 
 def test_summary_tab_shows_forceout_after_accum_glp():

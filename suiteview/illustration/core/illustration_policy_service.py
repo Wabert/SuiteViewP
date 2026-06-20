@@ -399,6 +399,23 @@ def _completed_months(start: date, end: date) -> int:
     return max(months, 0)
 
 
+def coverage_or_benefit_matured(obj, as_of) -> bool:
+    """True when a coverage/benefit has matured or ceased by ``as_of``.
+
+    A presentation helper for the Policy / Inputs tabs to de-emphasize riders and
+    benefits no longer in force. Broader than the engine's exclusion: it keys off
+    any of cease / maturity / terminate dates, so a matured-but-not-terminated
+    rider is still flagged. A date in the FUTURE is in force, so not matured.
+    """
+    if as_of is None:
+        return False
+    for attr in ("cease_date", "maturity_date", "terminate_date"):
+        when = getattr(obj, attr, None)
+        if when is not None and when <= as_of:
+            return True
+    return False
+
+
 def _coverage_is_terminated(coverage, as_of_date: date) -> bool:
     status = str(
         getattr(coverage, "nxt_chg_typ_cd", "")

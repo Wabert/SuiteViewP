@@ -333,6 +333,15 @@ class IllustrationInputsTab(QWidget):
         self.cap_acceptance_check.setToolTip("Apply TEFRA/TAMRA room to scheduled and unscheduled premiums when they are accepted.")
         layout.addWidget(self.cap_acceptance_check)
 
+        self.levelizing_check = self._make_control_checkbox("Levelized capped premiums (off for loans)")
+        self.levelizing_check.setChecked(True)
+        self.levelizing_check.setToolTip(
+            "When a premium cap binds, spread the allowed premium evenly across the "
+            "year's modal payments instead of billing each in full until the annual "
+            "room runs out mid-year. Automatically disabled on a policy that carries a loan."
+        )
+        layout.addWidget(self.levelizing_check)
+
         self.gp_search_check = self._make_control_checkbox("Find GP/TAMRA by Search Routine")
         self.gp_search_check.setToolTip(
             "Solve GLP/GSP/7-pay by premium search on the calc engine (guaranteed COIs, "
@@ -797,6 +806,7 @@ class IllustrationInputsTab(QWidget):
             allow_exception_prems=self.exception_prem_check.isChecked(),
             exact_days_interest=self.exact_days_check.isChecked(),
             cap_premiums_at_acceptance=self.cap_acceptance_check.isChecked(),
+            levelizing_premium=self.levelizing_check.isChecked(),
             guideline_by_search=self.gp_search_check.isChecked(),
         )
 

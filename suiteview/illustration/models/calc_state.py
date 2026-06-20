@@ -102,12 +102,28 @@ class MonthlyState:
 
     # ── 1c. Premium capping (TEFRA / TAMRA) ──
     requested_premium: float = 0.0         # premium before guideline/TAMRA cap
-    premium_cap: float = 0.0               # applied cap (min of guideline/TAMRA room)
+    unscheduled_premium: float = 0.0       # unscheduled (one-off / lumpsum) premium this month
+    planned_premium_mode: str = ""         # mode of the planned premium (M/Q/S/A)
+    premium_cap: float = 0.0               # applied cap (Annual Cap2 — NQ)
     premium_capped: bool = False           # True when the cap reduced the premium
+    prem_less_wd: float = 0.0              # KW — PremTD − WithdrawalTD (before force-out)
+    applied_lumpsum: float = 0.0           # NM — accepted unscheduled premium
+    applied_scheduled_premium: float = 0.0  # NZ — accepted scheduled premium
+    scheduled_prem_cap: float = 0.0        # NV — per-payment level cap (carried all year)
+    levelized_max_premium: float = 0.0     # NW — MIN(Sched Prem Cap, scheduled)
+    apply_levelized: bool = False          # NX — levelizing active this month
+    # Full "Apply Premium" allowance chain (CalcEngine NC..NZ) keyed by the
+    # RERUN display names, for the Values tab; empty on the inforce seed row.
+    premium_allowance_detail: Dict[str, object] = field(default_factory=dict)
+    payment_count_policy_year: int = 0     # modal payments in the policy year (LT)
+    payment_count_tamra_year: int = 0      # modal payments in the TAMRA year (LU)
     accumulated_7pay: float = 0.0          # cumulative 7-pay contributions, end of month
     amount_in_7pay: float = 0.0            # begin-of-month cumulative (LE; 0 in a new period's month 1)
     tamra_year: int = 0                    # year within the 7-pay window (LD)
+    tamra_month_of_year: int = 0           # month within the current TAMRA year (LC)
+    tamra_7pay_start_date: Optional[date] = None  # start of the active 7-pay period
     tamra_7pay_level: float = 0.0          # 7-pay annual premium level (KY)
+    lowest_7yr_face: float = 0.0           # lowest specified amount over the 7-pay period
     guideline_limit_reached: bool = False  # SX — at guideline ceiling this year
 
     # ── 1d. GP Exception Premium (cols 519-524) ──

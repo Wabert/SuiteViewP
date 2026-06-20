@@ -60,6 +60,34 @@ def _project_to_maturity(maturity_age: int):
         rates_override=IllustrationRates(), bonus_override=BonusConfig())
 
 
+def test_payment_count_held_at_year_start_and_counts_current_year_modes():
+    from suiteview.illustration.core.calc_engine import _tamra_premium_display
+    from suiteview.illustration.models.calc_state import MonthlyState
+
+    policy = IllustrationPolicyData(
+        issue_date=date(2019, 11, 9), issue_age=50, maturity_age=121,
+        face_amount=100_000.0, billing_frequency=3,  # quarterly
+        tamra_7pay_start_date=None,
+        segments=[CoverageSegment(coverage_phase=1, face_amount=100_000.0)],
+    )
+    # Full policy year (anniversary, month 1): 12 / 3 = 4 quarterly payments.
+    full = _tamra_premium_display(MonthlyState(), policy, date(2027, 11, 9), 1, None)
+    assert full["planned_premium_mode"] == "Q"
+    assert full["payment_count_policy_year"] == 4
+    # No active 7-pay period -> no TAMRA-year count.
+    assert full["payment_count_tamra_year"] == 0
+
+    # Mid-year start (forecast month 8) with no prior count -> remaining modes:
+    # INT((13-8)/3) = 1 quarterly payment left this year.
+    partial = _tamra_premium_display(MonthlyState(), policy, date(2026, 6, 9), 8, None)
+    assert partial["payment_count_policy_year"] == 1
+
+    # Held: a later month in the same year carries the prior count, not recomputed.
+    prior = MonthlyState(payment_count_policy_year=4)
+    held = _tamra_premium_display(prior, policy, date(2027, 12, 9), 2, None)
+    assert held["payment_count_policy_year"] == 4
+
+
 def test_no_premium_on_maturity_date():
     states = _project_to_maturity(maturity_age=47)
     maturity = states[-1]
