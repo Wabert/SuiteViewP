@@ -6,10 +6,12 @@ Public API:
 """
 from __future__ import annotations
 
+import calendar
 import copy
 import logging
 import math
 from dataclasses import dataclass, field as dataclass_field, replace
+from datetime import date
 from enum import Enum
 from typing import Dict, List, Optional
 
@@ -25,6 +27,7 @@ from suiteview.illustration.core.loan_handler import (
     accrue_loan_interest,
     apply_new_fixed_loan,
     capitalize_loans,
+    repay_loan,
 )
 from suiteview.illustration.core.monthly_deduction import (
     _coverage_year,
@@ -192,6 +195,23 @@ class IllustrationEngine:
             policy.variable_loan_charge_rate,
         )
 
+        # Loan Capitalize and Repay display detail for the inforce row: the
+        # seeded loan with payoffs computed (no capitalization/repay at valuation).
+        inforce_days_to_next = _days_to_next_anniversary(policy.issue_date, month_date_inforce)
+        inforce_adv_reg_factor, inforce_adv_pref_factor = _advance_loan_factors(
+            config, inforce_days_to_next)
+        inforce_loan_cap_repay = repay_loan(
+            LoanState(
+                rg_loan_princ=policy.regular_loan_principal,
+                rg_loan_accrued=policy.regular_loan_accrued,
+                pf_loan_princ=policy.preferred_loan_principal,
+                pf_loan_accrued=policy.preferred_loan_accrued,
+                vbl_loan_princ=policy.variable_loan_principal,
+                vbl_loan_accrued=policy.variable_loan_accrued,
+            ),
+            0.0, config, inforce_adv_reg_factor, inforce_adv_pref_factor,
+        ).detail
+
         # Shadow account for inforce month — seed from the policy's current
         # shadow account value (RERUN injects sInput_CurrentShadowAV at the
         # valuation date), mirroring how the regular AV is seeded from
@@ -329,6 +349,7 @@ class IllustrationEngine:
             pf_loan_accrued=policy.preferred_loan_accrued,
             vbl_loan_princ=policy.variable_loan_principal,
             vbl_loan_accrued=policy.variable_loan_accrued,
+            loan_cap_repay=inforce_loan_cap_repay,
             # Interest
             days_in_month=intr0.days_in_month,
             annual_interest_rate=intr0.annual_interest_rate,
@@ -475,11 +496,18 @@ class IllustrationEngine:
         rate_year = next_year
 
         # ── 2b. Loan capitalization (within-bucket at anniversary) ─
+        # Advance loans gross the next year's prepaid interest onto the principal
+        # at the anniversary, and repayments are grossed up by the same factor.
+        days_to_next_anniv = _days_to_next_anniversary(policy.issue_date, month_date)
+        adv_reg_factor, adv_pref_factor = _advance_loan_factors(config, days_to_next_anniv)
         cap_loan = capitalize_loans(
             state.end_rg_loan_princ, state.end_rg_loan_accrued,
             state.end_pf_loan_princ, state.end_pf_loan_accrued,
             state.end_vbl_loan_princ, state.end_vbl_loan_accrued,
             is_anniversary,
+            config=config,
+            adv_reg_factor=adv_reg_factor,
+            adv_pref_factor=adv_pref_factor,
         )
 
         # ── 2c. Withdrawal (CalcEngine AX..BU — before the dated changes) ─
@@ -583,9 +611,13 @@ class IllustrationEngine:
             av,
             cap_loan,
             month_inputs,
+            config=config,
+            adv_reg_factor=adv_reg_factor,
+            adv_pref_factor=adv_pref_factor,
         )
         av = cash_flows.av
         cap_loan = cash_flows.loan_state
+        loan_cap_repay_detail = cash_flows.loan_cap_repay
 
         # ── 12. Apply premium (capped by guideline / TAMRA) ───
         # A material change restarted the 7-pay period: the prior window's
@@ -780,6 +812,7 @@ class IllustrationEngine:
             applied_regular_loan=applied_regular_loan,
             applied_preferred_loan=applied_preferred_loan,
             applied_variable_loan=cash_flows.applied_variable_loan,
+            loan_cap_repay=loan_cap_repay_detail,
             # Premium
             gross_premium=prem.gross_premium,
             prem_under_target=prem.prem_under_target,
@@ -967,11 +1000,16 @@ class IllustrationEngine:
         past_snet = not within_snet
         prior_exception_mode = state.exception_prem_mode
 
+        days_to_next_anniv = _days_to_next_anniversary(policy.issue_date, month_date)
+        adv_reg_factor, adv_pref_factor = _advance_loan_factors(config, days_to_next_anniv)
         cap_loan = capitalize_loans(
             state.end_rg_loan_princ, state.end_rg_loan_accrued,
             state.end_pf_loan_princ, state.end_pf_loan_accrued,
             state.end_vbl_loan_princ, state.end_vbl_loan_accrued,
             is_anniversary,
+            config=config,
+            adv_reg_factor=adv_reg_factor,
+            adv_pref_factor=adv_pref_factor,
         )
 
         intr = credit_interest(
@@ -1017,8 +1055,12 @@ class IllustrationEngine:
             av_after_guideline,
             cap_loan,
             month_inputs,
+            config=config,
+            adv_reg_factor=adv_reg_factor,
+            adv_pref_factor=adv_pref_factor,
         )
         cap_loan = cash_flows.loan_state
+        loan_cap_repay_detail = cash_flows.loan_cap_repay
 
         tamra_year = _tamra_year(policy, month_date)
         premium_cap = _guideline_premium_cap(
@@ -1130,6 +1172,7 @@ class IllustrationEngine:
             applied_regular_loan=applied_regular_loan,
             applied_preferred_loan=applied_preferred_loan,
             applied_variable_loan=cash_flows.applied_variable_loan,
+            loan_cap_repay=loan_cap_repay_detail,
             gross_premium=prem.gross_premium,
             prem_under_target=prem.prem_under_target,
             prem_over_target=prem.prem_over_target,
@@ -2118,6 +2161,30 @@ def _attained_age_at(policy, as_of) -> int:
     if (as_of.month, as_of.day) < (issue.month, issue.day):
         years -= 1
     return policy.issue_age + max(0, years)
+
+
+def _days_to_next_anniversary(issue_date: date, month_date: date) -> int:
+    """RERUN vDaysToNextAnnivesary (CalcEngine col Q = P − C).
+
+    Calendar days from the current monthliversary to the next policy
+    anniversary. ``P`` (col P) = the issue month/day in this calendar year if the
+    current month is before the issue month, otherwise next year — so at an
+    anniversary month the gap is a full year (365/366)."""
+    add_year = 0 if month_date.month < issue_date.month else 1
+    year = month_date.year + add_year
+    day = min(issue_date.day, calendar.monthrange(year, issue_date.month)[1])
+    next_anniversary = date(year, issue_date.month, day)
+    return (next_anniversary - month_date).days
+
+
+def _advance_loan_factors(config: PlancodeConfig, days_to_next_anniversary: int) -> tuple[float, float]:
+    """RERUN vAdvRegIntFactor (X) / vAdvPrefIntFactor (Y): the unearned-interest
+    fraction for the remaining days of the policy year (cols X/Y)."""
+    fraction = days_to_next_anniversary / 365.0
+    return (
+        config.loan_charge_rate_guar * fraction,
+        config.pref_loan_charge_rate_guar * fraction,
+    )
 
 
 def _advance_month(policy_year: int, policy_month: int) -> tuple[int, int]:

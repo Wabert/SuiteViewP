@@ -829,7 +829,8 @@ class FilterTableView(QWidget):
         self._column_decimals: Dict[str, Optional[int]] = {}
         self._frozen_column_count = 0
         self._syncing_vertical_scroll = False
-        
+        self._filtering_enabled = True
+
         self.init_ui()
 
     def init_ui(self):
@@ -885,7 +886,6 @@ class FilterTableView(QWidget):
         self.frozen_table_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.frozen_table_view.verticalHeader().setDefaultSectionSize(18)
         self.frozen_table_view.verticalHeader().setMinimumSectionSize(16)
-        self.frozen_table_view.hide()
 
         self.table_view = QTableView()
         self.table_view.setObjectName("filterTableView")  # Custom object name for styling
@@ -990,7 +990,25 @@ class FilterTableView(QWidget):
 
         self.table_view.verticalScrollBar().valueChanged.connect(self._sync_frozen_vertical_scroll)
         self.frozen_table_view.verticalScrollBar().valueChanged.connect(self._sync_main_vertical_scroll)
-        table_layout.addWidget(self.frozen_table_view)
+        # When the main view's horizontal scrollbar appears/disappears it steals a
+        # strip of viewport height; reserve the same strip under the frozen pane so
+        # the two panels' rows stay aligned (freeze-pane look).
+        self.table_view.horizontalScrollBar().rangeChanged.connect(
+            lambda *_args: self._sync_frozen_bottom_inset())
+        # The frozen pane sits in a column with a bottom spacer that reserves the
+        # height of the main view's horizontal scrollbar — a real layout widget
+        # Qt won't clobber (unlike viewport margins, which QAbstractScrollArea
+        # recomputes for its own headers/scrollbars). Keeps the rows aligned.
+        self.frozen_container = QWidget()
+        frozen_column = QVBoxLayout(self.frozen_container)
+        frozen_column.setContentsMargins(0, 0, 0, 0)
+        frozen_column.setSpacing(0)
+        frozen_column.addWidget(self.frozen_table_view, 1)
+        self.frozen_bottom_spacer = QWidget()
+        self.frozen_bottom_spacer.setFixedHeight(0)
+        frozen_column.addWidget(self.frozen_bottom_spacer)
+        self.frozen_container.setVisible(False)
+        table_layout.addWidget(self.frozen_container)
         table_layout.addWidget(self.table_view, 1)
         layout.addWidget(self.table_container)
 
@@ -1245,11 +1263,11 @@ class FilterTableView(QWidget):
 
     def _apply_frozen_columns(self):
         if self.model is None:
-            self.frozen_table_view.setVisible(False)
+            self.frozen_container.setVisible(False)
             return
         column_count = self.model.columnCount()
         frozen_count = min(self._frozen_column_count, column_count)
-        self.frozen_table_view.setVisible(frozen_count > 0)
+        self.frozen_container.setVisible(frozen_count > 0)
         for column_index in range(column_count):
             frozen = column_index < frozen_count
             self.frozen_table_view.setColumnHidden(column_index, not frozen)
@@ -1266,6 +1284,52 @@ class FilterTableView(QWidget):
             width += self.frozen_table_view.columnWidth(column_index)
         frame_width = self.frozen_table_view.frameWidth() * 2
         self.frozen_table_view.setFixedWidth(width + frame_width)
+        self._sync_frozen_bottom_inset()
+
+    def _sync_frozen_bottom_inset(self):
+        """Reserve, under the frozen pane, the height of the main view's
+        horizontal scrollbar so both panels' rows line up.
+
+        The scrolling table loses viewport height to its bottom scrollbar; the
+        frozen table has no horizontal scrollbar, so without this its rows render
+        lower and drift out of alignment at the bottom.
+        """
+        if self._frozen_column_count <= 0:
+            return
+        scrollbar = self.table_view.horizontalScrollBar()
+        needs_scrollbar = scrollbar.maximum() > scrollbar.minimum()
+        inset = scrollbar.height() if (needs_scrollbar and scrollbar.isVisible()) else 0
+        if inset == 0 and needs_scrollbar:
+            inset = scrollbar.sizeHint().height()
+        if inset != getattr(self, "_frozen_bottom_inset", None):
+            self._frozen_bottom_inset = inset
+            self.frozen_bottom_spacer.setFixedHeight(inset)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # A width change can add/remove the main horizontal scrollbar.
+        self._sync_frozen_bottom_inset()
+
+    def set_filtering_enabled(self, enabled: bool):
+        """Enable/disable the per-column filter popups (header click → checklist).
+
+        Read-only ledger views (e.g. the Illustration Values grids) turn it off so
+        clicking a header does nothing instead of opening a filter.
+        """
+        self._filtering_enabled = enabled
+
+    def set_full_row_selection(self, enabled: bool):
+        """Highlight the whole row on click instead of a single cell.
+
+        The frozen and scrolling panes share one selection model, so the row
+        lights up across both. Pass False to restore per-cell selection.
+        """
+        behavior = (
+            QTableView.SelectionBehavior.SelectRows if enabled
+            else QTableView.SelectionBehavior.SelectItems
+        )
+        self.table_view.setSelectionBehavior(behavior)
+        self.frozen_table_view.setSelectionBehavior(behavior)
 
     def set_search_visible(self, visible: bool):
         self.search_bar.setVisible(visible)
@@ -1382,7 +1446,10 @@ class FilterTableView(QWidget):
     def show_filter_popup(self, column_index: int):
         """Show filter popup for a column (triggered by clicking filter icon)"""
         start_time = time.perf_counter()
-        
+
+        if not self._filtering_enabled:
+            return
+
         logger.debug(f"show_filter_popup called for column {column_index}")
         if self.model is None:
             logger.debug("No model - returning")

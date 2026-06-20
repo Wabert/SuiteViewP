@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.polview.ui.formatting import format_amount, format_currency, format_date
-from suiteview.polview.ui.widgets import StyledInfoTableGroup
+from suiteview.polview.ui.widgets import FixedHeaderTableWidget, StyledInfoTableGroup
 
 from .styles import FUND_TABLE_STYLE, GROUP_STYLE, GRAY_DARK, PURPLE_BG, PURPLE_DARK, VALUE_BUTTON_STYLE
 
@@ -92,20 +92,27 @@ class IllustrationPolicyTab(QWidget):
         values_row = QHBoxLayout()
         values_row.setSpacing(8)
         # Fund Values leads the row: total AV, the shadow/sweep figures that
-        # used to live in Policy Values, the policy's guaranteed rate, and the
-        # per-fund breakdown table.
-        self.fund_values = StyledInfoTableGroup("Fund Values", columns=1, show_info=True, show_table=True)
+        # used to live in Policy Values, the policy's guaranteed rate, and — inside
+        # the same group — the per-fund breakdown split into Unimpaired (free) and
+        # Impaired (loan-collateralized) tables. The two together reconcile to AV.
+        self.fund_values = StyledInfoTableGroup("Fund Values", columns=1, show_info=True, show_table=False)
         self.fund_values.setStyleSheet(GROUP_STYLE)
         self.fund_values.add_field("Account Value", "fund_account_value", 120, 105)
         self.fund_values.add_field("Shadow Account Value", "shadow_account_value", 120, 105)
         self.fund_values.add_field("Sweep Account Min", "sweep_account_min", 120, 105)
         self.fund_values.add_field("Guaranteed Int Rate", "guaranteed_int_rate", 120, 105)
-        self.fund_table = self.fund_values.table
-        self.fund_table.setColumnCount(2)
-        self.fund_table.setHorizontalHeaderLabels(["Fund", "Fund Value"])
-        self.fund_table._data_table.horizontalHeader().setVisible(True)
-        self.fund_table._outer_frame.setStyleSheet(FUND_TABLE_STYLE)
-        self.fund_table._data_table.setStyleSheet(FUND_TABLE_STYLE)
+
+        unimpaired_block, self.unimpaired_table = self._make_fund_subtable("Unimpaired Funds")
+        impaired_block, self.impaired_table = self._make_fund_subtable("Impaired Funds")
+        fund_tables_row = QHBoxLayout()
+        fund_tables_row.setContentsMargins(0, 4, 0, 0)
+        fund_tables_row.setSpacing(8)
+        fund_tables_row.addWidget(unimpaired_block)
+        fund_tables_row.addWidget(impaired_block)
+        # Nest the tables inside the Fund Values group, just below the info fields
+        # (before the trailing stretch added when show_table=False).
+        self.fund_values.layout().insertLayout(1, fund_tables_row)
+
         self.premium_values = self._make_value_group("Premiums and Targets", [
             ("Premium YTD", "premium_ytd"),
             ("Premium TD", "premium_td"),
@@ -140,15 +147,15 @@ class IllustrationPolicyTab(QWidget):
             ("TAMRA Yr 1 Contribution", "tamra_y1"),
             ("Cost Basis", "cost_basis"),
             ("TAMRA Yr 2 Contribution", "tamra_y2"),
-            ("7-Pay Cash Value", "seven_pay_cash_value"),
+            ("7-Pay Start Date", "seven_pay_start_date"),
             ("TAMRA Yr 3 Contribution", "tamra_y3"),
-            ("7-Pay Premium", "seven_pay_premium"),
+            ("7-Pay Cash Value", "seven_pay_cash_value"),
             ("TAMRA Yr 4 Contribution", "tamra_y4"),
-            ("7-Pay Lowest DB", "seven_yr_lowest_db"),
+            ("7-Pay Premium", "seven_pay_premium"),
             ("TAMRA Yr 5 Contribution", "tamra_y5"),
-            ("spacer", "tamra_spacer_1"),
+            ("7-Pay Lowest DB", "seven_yr_lowest_db"),
             ("TAMRA Yr 6 Contribution", "tamra_y6"),
-            ("spacer", "tamra_spacer_2"),
+            ("spacer", "tamra_spacer_1"),
             ("TAMRA Yr 7 Contribution", "tamra_y7"),
         ]:
             if label == "spacer":
@@ -227,6 +234,27 @@ class IllustrationPolicyTab(QWidget):
             group.add_field(label, attr, 150, 105)
         return group
 
+    def _make_fund_subtable(self, title: str):
+        """A captioned, compact Fund ID / Fund Value table for nesting inside the
+        Fund Values group. Returns (container_widget, table)."""
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        box = QVBoxLayout(container)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(2)
+        caption = QLabel(title)
+        caption.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;")
+        box.addWidget(caption)
+        table = FixedHeaderTableWidget()
+        table.setColumnCount(2)
+        table.setHorizontalHeaderLabels(["Fund ID", "Fund Value"])
+        table._data_table.horizontalHeader().setVisible(True)
+        table._outer_frame.setStyleSheet(FUND_TABLE_STYLE)
+        table._data_table.setStyleSheet(FUND_TABLE_STYLE)
+        box.addWidget(table)
+        return container, table
+
     def load_data_from_policy(self, policy, policy_info: dict | None = None, md_check=None):
         self._policy = policy
         self._clear_all()
@@ -275,7 +303,8 @@ class IllustrationPolicyTab(QWidget):
         ]:
             group.clear_info()
         self.set_rate_warnings([])
-        self.fund_table.setRowCount(0)
+        self.unimpaired_table.setRowCount(0)
+        self.impaired_table.setRowCount(0)
         self._clear_buttons()
 
     def _populate_policy_info(self, policy, policy_info: dict):
@@ -380,6 +409,7 @@ class IllustrationPolicyTab(QWidget):
         self.loan_values.set_value("vbl_loan_rate", "")
 
         self.tax_values.set_value("cost_basis", format_currency(policy.cost_basis, "$"))
+        self.tax_values.set_value("seven_pay_start_date", format_date(policy.tamra_7pay_start_date))
         for year in range(1, 8):
             self.tax_values.set_value(f"tamra_y{year}", format_currency(policy.tamra_7pay_premium_paid(year), "$"))
         self.tax_values.set_value("seven_pay_cash_value", format_currency(policy.tamra_7pay_av, "$"))
@@ -395,13 +425,24 @@ class IllustrationPolicyTab(QWidget):
             self._set_group_field_visible(self.mec_values, attr, definition == "GP")
 
     def _populate_fund_values(self, policy):
-        fund_values = self._current_fund_values_by_fund(policy)
+        # Unimpaired = free fund value (CSV); Impaired = loan-collateralized
+        # portion. The two together reconcile to Account Value.
+        self._fill_fund_table(self.unimpaired_table, self._current_fund_values_by_fund(policy))
+        self._fill_fund_table(self.impaired_table, self._impaired_fund_values_by_fund(policy))
+
+    def _fill_fund_table(self, table, fund_values):
         rows = [(fund, value) for fund, value in sorted(fund_values.items()) if self._is_nonzero(value)]
-        self.fund_table.setRowCount(len(rows))
+        table.setRowCount(len(rows))
         for row, (fund, value) in enumerate(rows):
-            self._set_table_item(row, 0, fund)
-            self._set_table_item(row, 1, format_currency(value, "$"))
-        self.fund_table.autoFitAllColumns()
+            self._set_table_item(table, row, 0, fund)
+            self._set_table_item(table, row, 1, format_currency(value, "$"))
+        table.autoFitAllColumns()
+
+    def _impaired_fund_values_by_fund(self, policy):
+        try:
+            return policy.get_loan_values_dict()
+        except Exception:
+            return {}
 
     def _current_fund_values_by_fund(self, policy):
         fund_values = {}
@@ -536,11 +577,11 @@ class IllustrationPolicyTab(QWidget):
             ("Rate:", benefit.coi_rate if benefit.coi_rate else ""),
         ]
 
-    def _set_table_item(self, row: int, col: int, value):
+    def _set_table_item(self, table, row: int, col: int, value):
         item = QTableWidgetItem(str(value) if value is not None else "")
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.fund_table.setItem(row, col, item)
+        table.setItem(row, col, item)
 
     @staticmethod
     def _is_nonzero(value) -> bool:

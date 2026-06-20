@@ -183,12 +183,22 @@ def test_loan_capitalize_and_accumulation_show_inforce_loan_buckets():
     tab = IllustrationValuesTab()
     state = replace(
         _state(),
+        # MS..MX — post-repay beginning buckets.
         rg_loan_princ=4784.51,
         rg_loan_accrued=32.48,
         pf_loan_princ=123.45,
         pf_loan_accrued=6.78,
         vbl_loan_princ=98.76,
         vbl_loan_accrued=5.43,
+        # LX..MC — pre-repay capitalized buckets carried on loan_cap_repay.
+        loan_cap_repay={
+            "Advance - Rg Ln Princ/Total": 4784.51,
+            "Advance - Rg Ln Int Accrued": 32.48,
+            "Advance - Pf Ln Princ/Total": 123.45,
+            "Advance - Pf Ln Int Accrued": 6.78,
+            "Advance - Var Ln Princ/Total": 98.76,
+            "Advance - Var Ln Int Accrued": 5.43,
+        },
         end_rg_loan_princ=4784.51,
         end_rg_loan_accrued=64.38,
         end_pf_loan_princ=123.45,
@@ -206,6 +216,9 @@ def test_loan_capitalize_and_accumulation_show_inforce_loan_buckets():
     assert loan_cap["Advance - Pf Ln Int Accrued"] == 6.78
     assert loan_cap["Advance - Var Ln Princ/Total"] == 98.76
     assert loan_cap["Advance - Var Ln Int Accrued"] == 5.43
+    # Post-repay buckets (MS..MX) come from the loan fields directly.
+    assert loan_cap["Rg Ln Princ"] == 4784.51
+    assert loan_cap["Pf Ln Princ"] == 123.45
 
     accumulation = tab._tab_grids["Accumulation"].df.iloc[0]
     assert accumulation["Reg Ln Princ"] == 4784.51

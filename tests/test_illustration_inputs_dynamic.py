@@ -322,6 +322,31 @@ def test_current_year_change_lands_on_forecast_date():
     assert change.effective_date == date(2026, 6, 9)
 
 
+def test_riders_panel_excludes_base_coverages():
+    """Riders & Benefits should list riders only — never base coverage
+    segments (is_base, including base increases beyond phase 1)."""
+    from types import SimpleNamespace
+
+    def _cov(phase, is_base):
+        return SimpleNamespace(
+            cov_pha_nbr=phase, form_number=f"F{phase}", plancode="1U143900",
+            issue_date=date(2019, 11, 9), face_amount=10000.0, issue_age=50,
+            rate_class="N", cov_status="0", is_base=is_base, rate=0.5,
+            annual_premium=20.0)
+
+    class PolicyWithBaseAndRider(_FakePolicy):
+        def get_coverages(self):
+            # phase 1 base, phase 2 base increase, phase 3 rider
+            return [_cov(1, True), _cov(2, True), _cov(3, False)]
+
+    _app()
+    panel = DynamicInputsPanel()
+    panel.load_from_policy(PolicyWithBaseAndRider())
+
+    cov_keys = {k for k in panel.riders_panel._buttons if k.startswith("cov:")}
+    assert cov_keys == {"cov:3"}
+
+
 def test_suspended_banner():
     _app()
 

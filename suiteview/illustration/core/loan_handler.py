@@ -1,4 +1,4 @@
-"""Loan processing — Capitalization, Interest Accrual.
+"""Loan processing — Capitalization, Interest Accrual, Repayment.
 
 Pipeline positions (RERUN CalcEngine):
   - Loan Capitalize: Row 16 (before Apply Premium)
@@ -7,15 +7,37 @@ Pipeline positions (RERUN CalcEngine):
 In-Arrears formula:
     monthly_accrual = principal * charge_rate * days_in_month / 365
 
-Capitalization (at policy anniversary):
-    principal += accrued_interest
-    accrued_interest = 0
+Capitalization at policy anniversary:
+    Arrears:  principal += accrued_interest;  accrued_interest = 0
+    Advance:  principal += principal * X/(1-X);  accrued stays 0
+              where X = charge_rate * days_to_next_anniversary / 365 (≈ rate at
+              the anniversary). The advance loan total already carries a year of
+              prepaid interest, so each anniversary grosses the next year on.
+
+Interest-in-advance repayment (RERUN CalcEngine "Loan Capitalize and Repay",
+cols MD..MR): the loan total includes prepaid interest, so the *payoff* value of
+a loan is principal*(1-X) (cols MD/ME) — less than the total, because unearned
+interest is refunded. A cash repayment of R therefore extinguishes R/(1-X) of
+the loan total (col MR): paying $100 mid-year reduces the balance by 100 plus the
+interest on 100 for the remainder of the year.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 
 from suiteview.illustration.models.plancode_config import PlancodeConfig
+
+
+def _round2(value: float) -> float:
+    """Round half-up to cents (Excel ROUND semantics, not banker's)."""
+    return float(Decimal(f"{value:.12f}").quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _reduce_bucket(balance: float, amount: float) -> tuple[float, float]:
+    """Take as much of ``amount`` as ``balance`` allows; return (new_balance, leftover)."""
+    applied = min(balance, amount)
+    return balance - applied, amount - applied
 
 
 @dataclass
@@ -49,41 +71,63 @@ def capitalize_loans(
     vbl_princ: float,
     vbl_accrued: float,
     is_anniversary: bool,
+    *,
+    config: PlancodeConfig | None = None,
+    adv_reg_factor: float = 0.0,
+    adv_pref_factor: float = 0.0,
 ) -> LoanState:
-    """Capitalize accrued loan interest into principal at anniversary.
+    """Capitalize loan interest into principal at anniversary.
 
-    At each policy anniversary, accrued interest rolls into principal
-    and accrued resets to zero.  Outside anniversary months, balances
-    pass through unchanged.
+    Outside anniversary months, balances pass through unchanged.
+
+    At each policy anniversary:
+      - Arrears: accrued interest rolls into principal; accrued resets to zero.
+      - Advance: the next year's prepaid interest is grossed onto the principal
+        (RERUN CalcEngine AA/AC): ``princ += princ * X/(1-X)`` where ``X`` is the
+        advance interest factor (``charge_rate * days_to_next_anniversary/365``,
+        ≈ the annual rate at the anniversary). Accrued stays zero — advance loans
+        carry no accrued bucket.
 
     Args:
-        rg_princ: Regular loan principal (from previous month or policy data).
-        rg_accrued: Regular loan accrued interest.
-        pf_princ: Preferred loan principal.
-        pf_accrued: Preferred loan accrued interest.
-        vbl_princ: Variable loan principal.
-        vbl_accrued: Variable loan accrued interest.
+        rg_princ..vbl_accrued: Beginning loan buckets (prior month-end / policy).
         is_anniversary: True if this is the first month of a new policy year.
+        config: Plancode config; advance behavior applies when loan_type=="Advance".
+        adv_reg_factor: Regular advance interest factor X (anniversary value).
+        adv_pref_factor: Preferred advance interest factor Y (anniversary value).
 
     Returns:
-        LoanState with capitalized balances (no accrual yet).
+        LoanState with capitalized balances (no monthly accrual yet).
     """
-    if is_anniversary:
+    if not is_anniversary:
         return LoanState(
-            rg_loan_princ=rg_princ + rg_accrued,
+            rg_loan_princ=rg_princ,
+            rg_loan_accrued=rg_accrued,
+            pf_loan_princ=pf_princ,
+            pf_loan_accrued=pf_accrued,
+            vbl_loan_princ=vbl_princ,
+            vbl_loan_accrued=vbl_accrued,
+        )
+
+    if config is not None and config.loan_type == "Advance":
+        rg_adv = rg_princ * adv_reg_factor / (1.0 - adv_reg_factor) if adv_reg_factor < 1.0 else 0.0
+        pf_adv = pf_princ * adv_pref_factor / (1.0 - adv_pref_factor) if adv_pref_factor < 1.0 else 0.0
+        return LoanState(
+            rg_loan_princ=rg_princ + rg_adv,
             rg_loan_accrued=0.0,
-            pf_loan_princ=pf_princ + pf_accrued,
+            pf_loan_princ=pf_princ + pf_adv,
             pf_loan_accrued=0.0,
+            # Variable loans accrue in arrears even on advance plancodes.
             vbl_loan_princ=vbl_princ + vbl_accrued,
             vbl_loan_accrued=0.0,
         )
+
     return LoanState(
-        rg_loan_princ=rg_princ,
-        rg_loan_accrued=rg_accrued,
-        pf_loan_princ=pf_princ,
-        pf_loan_accrued=pf_accrued,
-        vbl_loan_princ=vbl_princ,
-        vbl_loan_accrued=vbl_accrued,
+        rg_loan_princ=rg_princ + rg_accrued,
+        rg_loan_accrued=0.0,
+        pf_loan_princ=pf_princ + pf_accrued,
+        pf_loan_accrued=0.0,
+        vbl_loan_princ=vbl_princ + vbl_accrued,
+        vbl_loan_accrued=0.0,
     )
 
 
@@ -175,3 +219,160 @@ def apply_new_fixed_loan(
         vbl_loan_princ=loan.vbl_loan_princ,
         vbl_loan_accrued=loan.vbl_loan_accrued,
     )
+
+
+@dataclass
+class LoanRepayResult:
+    """Outcome of the Loan Capitalize and Repay step.
+
+    ``loan_state`` is the post-repayment beginning-of-month loan (RERUN cols
+    MS..MX). ``applied_repayment`` is the cash actually applied to the loan.
+    ``detail`` is keyed by the RERUN "Loan Capitalize and Repay" display column
+    names (LX..MR, MY, MZ) for the Values tab.
+    """
+
+    loan_state: LoanState
+    applied_repayment: float = 0.0
+    detail: dict = None
+
+
+def repay_loan(
+    cap_loan: LoanState,
+    requested_repayment: float,
+    config: PlancodeConfig | None,
+    adv_reg_factor: float,
+    adv_pref_factor: float,
+) -> LoanRepayResult:
+    """Apply a loan repayment to the post-capitalization buckets.
+
+    Advance loans (RERUN cols MD/ME/MP/MQ/MR): the loan total carries prepaid
+    interest, so its payoff value is ``principal*(1-factor)`` (MD/ME). A cash
+    repayment is taken preferred-first (MQ) then regular (MP), each capped at its
+    payoff, and the loan *principal* is reduced by the grossed-up amount
+    ``repay/(1-factor)`` (MR) — i.e. the cash plus the unearned interest on it.
+
+    Arrears loans: the cash reduces the buckets directly (interest already lives
+    in the accrued buckets), preferred-first then regular then variable.
+
+    Returns a :class:`LoanRepayResult` (does not add new/variable loans — that
+    happens separately).
+    """
+    is_advance = config is not None and config.loan_type == "Advance"
+    requested = max(requested_repayment, 0.0)
+
+    if is_advance:
+        reg_payoff = _round2(cap_loan.rg_loan_princ * (1.0 - adv_reg_factor))   # MD
+        pref_payoff = _round2(cap_loan.pf_loan_princ * (1.0 - adv_pref_factor))  # ME
+        payoff = reg_payoff + pref_payoff                                        # MF
+        attempted = requested                                                    # MO (= MN)
+        pref_repay = min(pref_payoff, attempted)                                 # MQ
+        reg_repay = min(reg_payoff, max(0.0, attempted - pref_repay))            # MP
+        reg_reduction = _round2(reg_repay / (1.0 - adv_reg_factor)) if adv_reg_factor < 1.0 else reg_repay
+        pref_reduction = _round2(pref_repay / (1.0 - adv_pref_factor)) if adv_pref_factor < 1.0 else pref_repay
+        total_reduction = reg_reduction + pref_reduction                         # MR / MZ
+        new_loan = LoanState(
+            rg_loan_princ=max(0.0, cap_loan.rg_loan_princ - reg_reduction),
+            rg_loan_accrued=0.0,
+            pf_loan_princ=max(0.0, cap_loan.pf_loan_princ - pref_reduction),
+            pf_loan_accrued=0.0,
+            vbl_loan_princ=cap_loan.vbl_loan_princ,
+            vbl_loan_accrued=cap_loan.vbl_loan_accrued,
+        )
+        leftover = max(0.0, attempted - payoff)                                  # MY
+        applied = reg_repay + pref_repay
+        detail = _loan_cap_repay_detail(
+            cap_loan, advance=True,
+            reg_payoff=reg_payoff, pref_payoff=pref_payoff, payoff=payoff,
+            requested=requested, attempted=attempted,
+            reg_repay=reg_repay, pref_repay=pref_repay,
+            total_reduction=total_reduction, leftover=leftover,
+        )
+        return LoanRepayResult(loan_state=new_loan, applied_repayment=applied, detail=detail)
+
+    # Arrears: cash reduces the buckets directly (interest is in the accrued buckets).
+    payoff = (
+        cap_loan.rg_loan_princ + cap_loan.rg_loan_accrued
+        + cap_loan.pf_loan_princ + cap_loan.pf_loan_accrued
+        + cap_loan.vbl_loan_princ + cap_loan.vbl_loan_accrued
+    )                                                                            # MF = SUM(LX:MC)
+    remaining = requested
+    rg_accrued, remaining = _reduce_bucket(cap_loan.rg_loan_accrued, remaining)
+    rg_princ, remaining = _reduce_bucket(cap_loan.rg_loan_princ, remaining)
+    pf_accrued, remaining = _reduce_bucket(cap_loan.pf_loan_accrued, remaining)
+    pf_princ, remaining = _reduce_bucket(cap_loan.pf_loan_princ, remaining)
+    vbl_accrued, remaining = _reduce_bucket(cap_loan.vbl_loan_accrued, remaining)
+    vbl_princ, remaining = _reduce_bucket(cap_loan.vbl_loan_princ, remaining)
+    applied = requested - remaining
+    new_loan = LoanState(
+        rg_loan_princ=rg_princ, rg_loan_accrued=rg_accrued,
+        pf_loan_princ=pf_princ, pf_loan_accrued=pf_accrued,
+        vbl_loan_princ=vbl_princ, vbl_loan_accrued=vbl_accrued,
+    )
+    detail = _loan_cap_repay_detail(
+        cap_loan, advance=False,
+        reg_payoff=0.0, pref_payoff=0.0, payoff=payoff,
+        requested=requested, attempted=requested,
+        reg_repay=0.0, pref_repay=0.0,
+        total_reduction=applied, leftover=max(0.0, requested - payoff),
+    )
+    return LoanRepayResult(loan_state=new_loan, applied_repayment=applied, detail=detail)
+
+
+def empty_loan_cap_repay_detail() -> dict:
+    """Zero-valued Loan Capitalize and Repay detail (all display keys present)."""
+    return _loan_cap_repay_detail(
+        LoanState(), advance=False, reg_payoff=0.0, pref_payoff=0.0, payoff=0.0,
+        requested=0.0, attempted=0.0, reg_repay=0.0, pref_repay=0.0,
+        total_reduction=0.0, leftover=0.0,
+    )
+
+
+def _loan_cap_repay_detail(
+    cap_loan: LoanState,
+    *,
+    advance: bool,
+    reg_payoff: float,
+    pref_payoff: float,
+    payoff: float,
+    requested: float,
+    attempted: float,
+    reg_repay: float,
+    pref_repay: float,
+    total_reduction: float,
+    leftover: float,
+) -> dict:
+    """Build the RERUN "Loan Capitalize and Repay" display dict (cols LX..MZ).
+
+    Keys match :data:`suiteview.illustration.ui.values_tab` exactly. The
+    post-repay buckets (MS..MX) and policy debt (NA) come from the engine's
+    post-repay loan state, not from here.
+    """
+    return {
+        # Capitalized (pre-repay) buckets — LX..MC
+        "Advance - Rg Ln Princ/Total": cap_loan.rg_loan_princ,
+        "Advance - Rg Ln Int Accrued": cap_loan.rg_loan_accrued,
+        "Advance - Pf Ln Princ/Total": cap_loan.pf_loan_princ,
+        "Advance - Pf Ln Int Accrued": cap_loan.pf_loan_accrued,
+        "Advance - Var Ln Princ/Total": cap_loan.vbl_loan_princ,
+        "Advance - Var Ln Int Accrued": cap_loan.vbl_loan_accrued,
+        # Payoffs — MD, ME, MF (advance-only payoffs; MF = sum of buckets for arrears)
+        "Advance - Adv Reg LN Payoff": reg_payoff,
+        "Advance - Adv Pref LN Payoff": pref_payoff,
+        "Advance - LoanPayoff": payoff,
+        # Premium/force-out repayment sources — MG..MK (unused in this app)
+        "Arrears - PremToPayLoanInterest": 0.0,
+        "Arrears - From Lumpsum": 0.0,
+        "Arrears - From Scheduled Prem": 0.0,
+        "Arrears - LoanRepayFromForceout": 0.0,
+        "Arrears - LoanRepayFromPremAndForceout": 0.0,
+        # Requested / attempted — MN, MO
+        "Arrears - Requested Loan Repayment": requested,
+        "Arrears - Total Loan Repayment Attempted": attempted,
+        # Advance split + gross-up — MP, MQ, MR
+        "Advance - Adv Reg LN Repay": reg_repay,
+        "Advance - Adv Pref LN Repay": pref_repay,
+        "Advance - Adv Total Loan Repayment": (total_reduction if advance else 0.0),
+        # Leftover + total reduction — MY, MZ
+        "LNRepayLeftOver": leftover,
+        "TotalLoanReduction": total_reduction,
+    }

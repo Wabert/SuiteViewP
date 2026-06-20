@@ -61,6 +61,15 @@ _RATE_CLASSES = [
     ("N", "NS"), ("Q", "Pref S"), ("S", "Smoker"),
 ]
 
+# Shared editor/caption widths so the InputRow fields line up with the section
+# caption row. Year/Age only ever hold a 2–3 digit number, so they stay narrow;
+# the span (For Years/To Age) and Amount fields get the room instead.
+_W_TYPE = 64
+_W_YEAR = 36
+_W_AGE = 36
+_W_MODE = 48
+_W_SPAN = 64
+
 _EDIT_STYLE = (
     "QLineEdit { background: white; color: #2A1458; border: 1px solid #B79CDE;"
     " border-radius: 3px; padding: 1px 4px; min-height: 18px; font-size: 11px; }"
@@ -330,16 +339,16 @@ class InputRow(QWidget):
 
         self.type_combo = QComboBox(self)
         self.type_combo.setStyleSheet(_COMBO_STYLE)
-        self.type_combo.setFixedWidth(64)
+        self.type_combo.setFixedWidth(_W_TYPE)
         self._sync_type_options()
         self.type_combo.currentIndexChanged.connect(self._type_changed)
         layout.addWidget(self.type_combo)
 
-        self.year_edit = _Field(46)
+        self.year_edit = _Field(_W_YEAR)
         self.year_edit.editingFinished.connect(self._year_edited)
         layout.addWidget(self.year_edit)
 
-        self.age_edit = _Field(46)
+        self.age_edit = _Field(_W_AGE)
         self.age_edit.editingFinished.connect(self._age_edited)
         layout.addWidget(self.age_edit)
 
@@ -365,15 +374,15 @@ class InputRow(QWidget):
             self.mode_combo = QComboBox(self)
             self.mode_combo.addItems(["M", "Q", "S", "A"])
             self.mode_combo.setStyleSheet(_COMBO_STYLE)
-            self.mode_combo.setFixedWidth(44)
+            self.mode_combo.setFixedWidth(_W_MODE)
             self.mode_combo.currentIndexChanged.connect(self._mode_changed)
             layout.addWidget(self.mode_combo)
 
-            self.for_years_edit = _Field(52)
+            self.for_years_edit = _Field(_W_SPAN)
             self.for_years_edit.editingFinished.connect(self._for_years_edited)
             layout.addWidget(self.for_years_edit)
 
-            self.to_age_edit = _Field(52)
+            self.to_age_edit = _Field(_W_SPAN)
             self.to_age_edit.editingFinished.connect(self._to_age_edited)
             layout.addWidget(self.to_age_edit)
 
@@ -573,7 +582,7 @@ class SectionSpec:
     title: str
     has_span: bool = True
     value_caption: str = "Amount"
-    value_width: int = 84
+    value_width: int = 110
     value_options: Optional[list] = None       # [(code, label)] -> combo instead of amount
     default_first_row: bool = False            # premium defaults from the policy
     auto_adjust_prior_span: bool = False
@@ -600,10 +609,10 @@ class DynamicSection(QGroupBox):
         captions = QHBoxLayout()
         captions.setContentsMargins(0, 0, 0, 0)
         captions.setSpacing(4)
-        widths = [64, 46, 46, spec.value_width]
+        widths = [_W_TYPE, _W_YEAR, _W_AGE, spec.value_width]
         labels = ["Type", "Year", "Age", spec.value_caption]
         if spec.has_span:
-            widths += [44, 52, 52]
+            widths += [_W_MODE, _W_SPAN, _W_SPAN]
             labels += ["Mode", "For Years", "To Age"]
         for text, width in zip(labels, widths):
             caption = QLabel(text)
@@ -803,7 +812,12 @@ class RiderButtonsPanel(QGroupBox):
         coverages = []
         benefits = []
         try:
-            coverages = [c for c in (policy.get_coverages() or []) if c.cov_pha_nbr != 1]
+            # Riders only — base coverage segments (is_base, or phase 1 as a
+            # fallback) belong to the base policy, not the rider adjustments.
+            coverages = [
+                c for c in (policy.get_coverages() or [])
+                if not (getattr(c, "is_base", False) or c.cov_pha_nbr == 1)
+            ]
         except Exception:
             pass
         try:
@@ -1119,30 +1133,35 @@ class DynamicInputsPanel(QWidget):
         rate_row.addStretch(1)
         outer.addLayout(rate_row)
 
-        columns = QHBoxLayout()
-        columns.setSpacing(10)
-
-        left = QVBoxLayout()
-        left.setSpacing(8)
+        # Transactions: a 2×2 grid spanning the full width — Premiums next to
+        # Loans, Withdrawals next to Loan Repayments below — so each gets room
+        # for its entry fields.
         self.premium_section = DynamicSection(SectionSpec(
             "Premiums", default_first_row=True, auto_adjust_prior_span=True,
             allow_max_level_premium=True))
         self.loan_section = DynamicSection(SectionSpec("Loans"))
         self.withdrawal_section = DynamicSection(SectionSpec("Withdrawals"))
         self.repayment_section = DynamicSection(SectionSpec("Loan Repayments"))
-        for section in (self.premium_section, self.loan_section,
-                        self.withdrawal_section, self.repayment_section):
-            left.addWidget(section)
-        left.addStretch(1)
 
-        right = QVBoxLayout()
-        right.setSpacing(8)
+        transactions = QGridLayout()
+        transactions.setHorizontalSpacing(10)
+        transactions.setVerticalSpacing(8)
+        transactions.addWidget(self.premium_section, 0, 0)
+        transactions.addWidget(self.loan_section, 0, 1)
+        transactions.addWidget(self.withdrawal_section, 1, 0)
+        transactions.addWidget(self.repayment_section, 1, 1)
+        transactions.setColumnStretch(0, 1)
+        transactions.setColumnStretch(1, 1)
+        outer.addLayout(transactions)
+
+        # Policy changes: four compact single-row groups in a line along the
+        # bottom. Rate Class / Table Rating carry their "current value" caption.
         self.face_section = DynamicSection(SectionSpec(
             "Face Amount Change", has_span=False, value_caption="New Face"))
         self.dbo_section = DynamicSection(SectionSpec(
             "Death Benefit Option Change", has_span=False, value_caption="New Option",
-            value_width=170,
-            value_options=[("A", "A — CV in Specified Amt"), ("B", "B — CV added to Specified Amt")]))
+            value_width=120,
+            value_options=[("A", "A — Level"), ("B", "B — Increasing")]))
         self.rateclass_section = DynamicSection(SectionSpec(
             "Rate Class Change", has_span=False, value_caption="New Rate Class",
             value_width=120, value_options=[(c, f"{c} — {label}") for c, label in _RATE_CLASSES]))
@@ -1151,21 +1170,15 @@ class DynamicInputsPanel(QWidget):
             value_width=110,
             value_options=[("0", "0 — Standard")] + [
                 (str(n), f"{n} — Table {chr(64 + n)}") for n in range(1, 17)]))
-        self.current_class_label = QLabel("Current rate class: —")
-        self.current_class_label.setStyleSheet(_CAPTION_STYLE)
-        self.current_table_label = QLabel("Current table rating: —")
-        self.current_table_label.setStyleSheet(_CAPTION_STYLE)
-        right.addWidget(self.face_section)
-        right.addWidget(self.dbo_section)
-        right.addWidget(self.rateclass_section)
-        right.addWidget(self.current_class_label)
-        right.addWidget(self.table_section)
-        right.addWidget(self.current_table_label)
-        right.addStretch(1)
+        changes_row = QHBoxLayout()
+        changes_row.setSpacing(10)
+        changes_row.addWidget(self.face_section, 1)
+        changes_row.addWidget(self.dbo_section, 1)
+        changes_row.addWidget(self.rateclass_section, 1)
+        changes_row.addWidget(self.table_section, 1)
+        outer.addLayout(changes_row)
 
-        columns.addLayout(left, 1)
-        columns.addLayout(right, 1)
-        outer.addLayout(columns, 1)
+        outer.addStretch(1)
 
         self.riders_panel = RiderButtonsPanel(self)
         outer.addWidget(self.riders_panel)
@@ -1178,10 +1191,6 @@ class DynamicInputsPanel(QWidget):
                         self.repayment_section, self.face_section, self.dbo_section,
                         self.rateclass_section, self.table_section):
             section.set_context(self._ctx)
-        self.current_class_label.setText(
-            f"Current rate class (Cov 1): {self._ctx.rate_class or '—'}")
-        self.current_table_label.setText(
-            f"Current table rating (Cov 1): {self._ctx.table_rating}")
         self.illustrated_rate_edit.set_rate(self._ctx.illustrated_rate)
         self.max_annual_level_edit.set_value(self._ctx.max_annual_level_premium, decimals=2)
         show_max_level = not self._ctx.is_cvat

@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from suiteview.illustration.core.loan_handler import empty_loan_cap_repay_detail
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.ui.widgets.filter_table_view import FilterTableView
@@ -288,6 +289,8 @@ class GuidelineRecalcView(QWidget):
         self.summary_grid.set_search_visible(False)
         self.summary_grid.apply_ledger_style()
         self.summary_grid.set_sort_enabled(False)
+        self.summary_grid.set_filtering_enabled(False)
+        self.summary_grid.set_full_row_selection(True)
         summary_layout.addWidget(self.summary_grid, 1)
         self.tabs.addTab(summary_page, "Summary")
 
@@ -804,8 +807,10 @@ class IllustrationValuesTab(QWidget):
             grid.set_search_visible(False)
             grid.apply_ledger_style()
             # Chronological ledger — no sort toggle; reclaiming the icon zone
-            # keeps the columns tight.
+            # keeps the columns tight. Read-only: no column-filter popups either.
             grid.set_sort_enabled(False)
+            grid.set_filtering_enabled(False)
+            grid.set_full_row_selection(True)
             grid.set_frozen_column_count(len(self.LEAD_COLUMNS))
             self._tab_grids[title] = grid
             self._add_content_page(title, grid)
@@ -1785,37 +1790,19 @@ class IllustrationValuesTab(QWidget):
 
     @staticmethod
     def _loan_capitalize_values(state: MonthlyState) -> dict:
-        # The engine tracks the beginning-of-month loan buckets (after cap/repay,
-        # CalcEngine cols 336-341); the advance/arrears repayment detail columns
-        # are not yet computed and render as placeholders.
-        return {
-            "Advance - Rg Ln Princ/Total": state.rg_loan_princ,
-            "Advance - Rg Ln Int Accrued": state.rg_loan_accrued,
-            "Advance - Pf Ln Princ/Total": state.pf_loan_princ,
-            "Advance - Pf Ln Int Accrued": state.pf_loan_accrued,
-            "Advance - Var Ln Princ/Total": state.vbl_loan_princ,
-            "Advance - Var Ln Int Accrued": state.vbl_loan_accrued,
-            "Advance - Adv Reg LN Payoff": 0.0,
-            "Advance - Adv Pref LN Payoff": 0.0,
-            "Advance - LoanPayoff": 0.0,
-            "Arrears - PremToPayLoanInterest": 0.0,
-            "Arrears - From Lumpsum": 0.0,
-            "Arrears - From Scheduled Prem": 0.0,
-            "Arrears - LoanRepayFromForceout": 0.0,
-            "Arrears - LoanRepayFromPremAndForceout": 0.0,
-            "Arrears - Requested Loan Repayment": state.applied_loan_repayment,
-            "Arrears - Total Loan Repayment Attempted": state.applied_loan_repayment,
-            "Advance - Adv Reg LN Repay": 0.0,
-            "Advance - Adv Pref LN Repay": 0.0,
-            "Advance - Adv Total Loan Repayment": 0.0,
+        # The capitalize/payoff/repay detail (cols LX..MZ) is computed by the
+        # engine and carried on state.loan_cap_repay. The post-repay loan buckets
+        # (MS..MX) and policy debt (NA) are the authoritative beginning-of-month
+        # loan fields after cap/repay.
+        detail = empty_loan_cap_repay_detail()
+        detail.update(state.loan_cap_repay or {})
+        detail.update({
             "Rg Ln Princ": state.rg_loan_princ,
             "Rg Ln Int": state.rg_loan_accrued,
             "Pf Ln Princ": state.pf_loan_princ,
             "Pf Ln Int": state.pf_loan_accrued,
             "Var Ln Princ": state.vbl_loan_princ,
             "Var Ln Int": state.vbl_loan_accrued,
-            "LNRepayLeftOver": 0.0,
-            "TotalLoanReduction": state.applied_loan_repayment,
             "PolicyDebtDisplay": (
                 state.rg_loan_princ
                 + state.rg_loan_accrued
@@ -1824,7 +1811,8 @@ class IllustrationValuesTab(QWidget):
                 + state.vbl_loan_princ
                 + state.vbl_loan_accrued
             ),
-        }
+        })
+        return detail
 
     @classmethod
     def _policy_values(cls, state: MonthlyState, coverage_keys: list[str]) -> dict:

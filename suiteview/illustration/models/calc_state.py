@@ -76,6 +76,10 @@ class MonthlyState:
     applied_regular_loan: float = 0.0
     applied_preferred_loan: float = 0.0
     applied_variable_loan: float = 0.0
+    # Loan Capitalize and Repay display detail (RERUN CalcEngine cols LX..MZ),
+    # keyed by the RERUN display column names. The post-repay buckets (MS..MX)
+    # and policy debt (NA) are derived from the loan fields above, not stored here.
+    loan_cap_repay: Dict[str, object] = field(default_factory=dict)
 
     # ── 1. Apply Premium (cols 367-403) ───────
     gross_premium: float = 0.0
