@@ -5,6 +5,7 @@ from typing import Optional
 
 from suiteview.core.policy_service import get_policy_info
 from suiteview.core.rates import Rates
+from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.illustration.models.policy_data import (
     BenefitInfo as IllBenefitInfo,
@@ -89,8 +90,12 @@ def build_illustration_data(
     doli_code = str(pi.def_of_life_ins_code or "")
     def_of_life_ins = _translate_doli(doli_code)
 
+    # GLP is normalized to a monthly mode — rounddown(GLP/12, 2) * 12 — so the
+    # annual level premium is an exact 12x its monthly twelfth. This matches how
+    # the engine accumulates/displays GLP (floor_monthly_cent) and keeps every
+    # consumer (e.g. the Max Annual Level Premium) on the same normalized value.
     glp_raw = pi.glp
-    glp = float(glp_raw) if glp_raw is not None else 0.0
+    glp = floor_monthly_cent(float(glp_raw)) if glp_raw is not None else 0.0
     gsp_raw = pi.gsp
     gsp = float(gsp_raw) if gsp_raw is not None else 0.0
     accum_glp_raw = pi.accumulated_glp_target

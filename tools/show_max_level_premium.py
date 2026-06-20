@@ -16,9 +16,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.pop("SUITEVIEW_LOCAL_DATA", None)
+# Force live DB2 unless the caller explicitly opted into local dev data.
+if os.environ.get("SUITEVIEW_LOCAL_DATA") != "1":
+    os.environ.pop("SUITEVIEW_LOCAL_DATA", None)
 
 from suiteview.core.policy_service import clear_cache, get_policy_info
+from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.ui.inputs_dynamic import context_from_policy
 
 
@@ -57,7 +60,7 @@ def main() -> None:
     attained_age = int(getattr(policy, "attained_age", 0) or 0)
     maturity_age = int(getattr(policy, "maturity_age", None) or getattr(policy, "age_at_maturity", None) or 0)
     max_level_end_age = min(maturity_age, 100)
-    glp = _first_float(policy, "glp")
+    glp = floor_monthly_cent(_first_float(policy, "glp"))  # monthly-normalized, matches the app
     accumulated_glp = _first_float(policy, "accumulated_glp", "accumulated_glp_target")
     premiums_paid_to_date = _first_float(policy, "premiums_paid_to_date", "premium_td", "total_premiums_paid")
     withdrawals_to_date = _first_float(policy, "withdrawals_to_date", "total_withdrawals")

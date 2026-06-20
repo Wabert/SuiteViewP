@@ -30,6 +30,7 @@ from suiteview.illustration.core.loan_handler import (
     repay_loan,
 )
 from suiteview.illustration.core.monthly_deduction import (
+    _at_or_after_policy_maturity,
     _coverage_year,
     _rate_from_schedule,
     _round_near,
@@ -629,10 +630,15 @@ class IllustrationEngine:
             premiums_to_date, withdrawals_to_date,
             accumulated_7pay_base, tamra_year,
         )
+        # No premium is collected on the maturity date — the policy endows.
+        # Same maturity condition as the monthly deduction so both cease together.
+        gross_premium_override = month_inputs.total_premium if month_inputs is not None else None
+        if _at_or_after_policy_maturity(policy, config, attained_age):
+            gross_premium_override = 0.0
         prem = apply_premium(
             av, policy, config, rates, rate_year,
             premiums_ytd, premiums_to_date, cost_basis,
-            gross_premium_override=month_inputs.total_premium if month_inputs is not None else None,
+            gross_premium_override=gross_premium_override,
             premium_cap=premium_cap,
         )
         av = prem.av_after_premium
@@ -1068,6 +1074,11 @@ class IllustrationEngine:
             premiums_to_date, withdrawals_to_date,
             state.accumulated_7pay, tamra_year,
         )
+        # No premium is collected on the maturity date — the policy endows.
+        # Same maturity condition as the monthly deduction so both cease together.
+        gross_premium_override = month_inputs.total_premium if month_inputs is not None else None
+        if _at_or_after_policy_maturity(policy, config, attained_age):
+            gross_premium_override = 0.0
         prem = apply_premium(
             cash_flows.av,
             policy,
@@ -1077,7 +1088,7 @@ class IllustrationEngine:
             premiums_ytd,
             premiums_to_date,
             cost_basis,
-            gross_premium_override=month_inputs.total_premium if month_inputs is not None else None,
+            gross_premium_override=gross_premium_override,
             premium_cap=premium_cap,
         )
         av_before_deduction = prem.av_after_premium

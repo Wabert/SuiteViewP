@@ -91,17 +91,20 @@ def test_max_level_premium_defaults_and_changes_with_mode():
     assert panel.max_annual_level_edit.text() == "1,106.98"
     assert not panel.max_annual_level_label.isHidden()
 
+    # Forecast is policy year 7, month 8, so the current year still has modes
+    # left (5 monthly / 1 quarterly), which the payment count now includes:
+    # monthly = 43*12 + 5 = 521, quarterly = 43*4 + 1 = 173.
     row.type_combo.setCurrentText("Max Level")
     assert row.amount_edit.isReadOnly()
-    assert abs(row.amount() - 92.25) < 0.005
+    assert abs(row.amount() - 47600.0 / 521) < 0.005      # 91.36 monthly
 
     row.mode_combo.setCurrentText("Q")
-    assert abs(row.amount() - 276.74) < 0.005
+    assert abs(row.amount() - 47600.0 / 173) < 0.005      # 275.14 quarterly
 
     input_set = IllustrationInputSet()
     panel.collect_into(input_set)
     premium_schedule = [t for t in input_set.scheduled_transactions if t.kind == TransactionKind.PREMIUM]
-    assert any(t.policy_year == 8 and abs(t.amount - 276.74) < 0.005 for t in premium_schedule)
+    assert any(t.policy_year == 8 and abs(t.amount - 47600.0 / 173) < 0.005 for t in premium_schedule)
 
 
 def test_max_level_premium_uses_attained_age_and_age_100_cap():
@@ -117,7 +120,9 @@ def test_max_level_premium_uses_attained_age_and_age_100_cap():
     panel = DynamicInputsPanel()
     panel.load_from_policy(UF002047Policy())
 
-    assert panel.max_annual_level_edit.text() == "3,859.99"
+    # GLP is monthly-normalized: floor(2936.85/12, 2)*12 = 2936.76, so the max
+    # annual level is ((55800.15 + 2936.76*51) - 8720) / 51 = 3,859.90.
+    assert panel.max_annual_level_edit.text() == "3,859.90"
 
 
 def test_max_level_premium_hidden_for_cvat():

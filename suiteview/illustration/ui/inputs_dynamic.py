@@ -50,6 +50,7 @@ from suiteview.illustration.models.input_set import (
     ScheduledTransaction,
     TransactionKind,
 )
+from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.polview.ui.formatting import format_amount, format_date
 
@@ -155,11 +156,40 @@ class PolicyContext:
             return self.forecast_date
         return when
 
+    def _forecast_months_since_issue(self) -> Optional[int]:
+        """Whole monthliversaries from issue to the first forecast month."""
+        if self.issue_date is None or self.forecast_date is None:
+            return None
+        months = (
+            (self.forecast_date.year - self.issue_date.year) * 12
+            + (self.forecast_date.month - self.issue_date.month)
+        )
+        if self.forecast_date.day < self.issue_date.day:
+            months -= 1
+        return months
+
     def payment_count(self, mode: str) -> int:
-        if self.max_level_years <= 0:
-            return 0
+        """Number of modal payments from the forecast month to min(maturity, 100).
+
+        The whole years to the limit age contribute ``freq`` payments each, plus
+        any modal due dates still left in the CURRENT policy year (from the
+        forecast month to the next anniversary) — so e.g. a few quarters left
+        this year are counted, not just whole_years * frequency.
+        """
         interval = _MODE_INTERVALS.get(mode, 12)
-        return self.max_level_years * (12 // interval)
+        freq = 12 // interval
+        whole_year_payments = max(0, self.max_level_years) * freq
+
+        n_forecast = self._forecast_months_since_issue()
+        if n_forecast is None:
+            return whole_year_payments
+        # Modal due months in a policy year are 1, 1+interval, ...; count those
+        # on or after the forecast month within the current year.
+        forecast_month = n_forecast % 12 + 1  # 1..12
+        remaining_this_year = sum(
+            1 for month in range(forecast_month, 13) if (month - 1) % interval == 0
+        )
+        return whole_year_payments + remaining_this_year
 
     def max_modal_level_premium(self, mode: str) -> float:
         if self.is_cvat or self.max_level_premium_room <= 0.0:
@@ -230,7 +260,9 @@ def context_from_policy(policy) -> PolicyContext:
     is_cvat = def_of_life_ins == "CVAT"
     max_level_end_age = min(maturity_age, 100)
     max_level_years = max(0, max_level_end_age - attained_age - 1)
-    glp = _first_float(policy, "glp")
+    # GLP normalized to a monthly mode — rounddown(GLP/12, 2) * 12 — to match the
+    # engine's GLP everywhere (the Values-tab GLP column and accumulation).
+    glp = floor_monthly_cent(_first_float(policy, "glp"))
     accumulated_glp = _first_float(policy, "accumulated_glp", "accumulated_glp_target")
     premiums_paid_to_date = _first_float(policy, "premiums_paid_to_date", "premium_td", "total_premiums_paid")
     withdrawals_to_date = _first_float(policy, "withdrawals_to_date", "total_withdrawals")
