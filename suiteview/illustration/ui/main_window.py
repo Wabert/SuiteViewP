@@ -361,7 +361,12 @@ class IllustrationWindow(FramelessWindowBase):
                     QApplication.restoreOverrideCursor()
                     self.run_values_btn.setEnabled(True)
                     self.inputs_tab.set_min_level_amount(None)
-                    QMessageBox.information(self, "Min Level to Maturity", str(exc))
+                    msg = str(exc)
+                    if not allow_exceptions:
+                        # It can't endow on its own — exceptions would carry it.
+                        msg += ("  GP exception premiums will be required.  "
+                                "Select Allow GP Exception Premium and run again.")
+                    QMessageBox.information(self, "Min Level to Maturity", msg)
                     self._show_status(str(exc))
                     return
                 sched = list(future_inputs.scheduled_transactions)
