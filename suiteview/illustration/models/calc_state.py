@@ -288,6 +288,7 @@ class MonthlyState:
 
     # ── Status ────────────────────────────────
     lapsed: bool = False
+    matured: bool = False          # reached the maturity age (endows, not a lapse)
 
     @property
     def premium_outlay(self) -> float:

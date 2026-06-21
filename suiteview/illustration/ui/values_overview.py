@@ -499,7 +499,7 @@ class ValuesOverview(QWidget):
                 if column in NUMERIC_LEDGER or column < 2:
                     item.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 item.setFont(column, bold)
-            if eoy.lapsed:
+            if eoy.lapsed and not getattr(eoy, "matured", False):
                 for column in range(len(LEDGER_COLUMNS)):
                     item.setForeground(column, QColor("#B71C1C"))
             item.setData(0, Qt.ItemDataRole.UserRole, eoy_index)
@@ -525,7 +525,7 @@ class ValuesOverview(QWidget):
                 for column in range(len(LEDGER_COLUMNS)):
                     if column in NUMERIC_LEDGER or column < 2:
                         child.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                if state.lapsed:
+                if state.lapsed and not getattr(state, "matured", False):
                     for column in range(len(LEDGER_COLUMNS)):
                         child.setForeground(column, QColor("#B71C1C"))
                 child.setData(0, Qt.ItemDataRole.UserRole, result_index)
@@ -891,6 +891,8 @@ class AccumulatedChargesChart(QWidget):
 
 
 def _status_text(state) -> str:
+    if getattr(state, "matured", False):
+        return "Maturity"
     if state.lapsed:
         return "LAPSED"
     flags = []

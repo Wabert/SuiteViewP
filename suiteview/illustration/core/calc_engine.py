@@ -835,6 +835,7 @@ class IllustrationEngine:
             policy_month=next_month,
             duration=duration,
             attained_age=attained_age,
+            matured=attained_age >= config.maturity_age,
             is_anniversary=is_anniversary,
             db_option=str(policy.db_option or "").upper(),
             coverage_after_change=cov_after_change,
@@ -1227,6 +1228,7 @@ class IllustrationEngine:
             policy_month=next_month,
             duration=duration,
             attained_age=attained_age,
+            matured=attained_age >= config.maturity_age,
             is_anniversary=is_anniversary,
             db_option=str(policy.db_option or "").upper(),
             coverage_after_change=_coverage_after_change_snapshot(
