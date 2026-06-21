@@ -1,9 +1,9 @@
-"""Solve the "Max Level Premium to Exception" — the minimum modal level premium
+"""Solve the "Min Level to Maturity" premium — the minimum modal level premium
 that keeps a GPT policy in force all the way to maturity.
 
-Paid level from the first forecast month (nothing else: no other premiums,
-withdrawals, loans, or face changes), this is the lowest premium at which the
-policy never lapses early. One of two things happens at that premium:
+Paid level from its start year (honoring any prior premium rows), this is the
+lowest premium at which the policy never lapses early. One of two things happens
+at that premium:
 
   * the policy endows with a non-negative account value (a healthy policy that
     simply needs a sustaining premium), or
@@ -54,6 +54,7 @@ class LevelToExceptionResult:
     mode: str                        # M / Q / S / A
     enters_exception: bool           # rode a GLP Exception period to maturity
     exception_start: Optional[date]  # first month of that exception period
+    exception_duration: Optional[int]  # policy year that exception period begins
     maturity_av: float               # account value at maturity at the solved premium
     iterations: int                  # engine projections spent solving
 
@@ -67,10 +68,11 @@ def level_to_exception_options(
 ) -> IllustrationOptions:
     """Guideline-conforming basis for the solve.
 
-    ``allow_exceptions`` selects the regime: True (Min Level to Exception) lets
-    the policy ride the GLP exception period to maturity — and guarantees a
-    high-enough premium always survives; False (Min Level to Maturity) requires
-    the level premium to endow on its own, with no exception rescue. The
+    ``allow_exceptions`` selects the regime: True lets the policy ride the GLP
+    exception period to maturity — and guarantees a high-enough premium always
+    survives; False requires the level premium to endow on its own, with no
+    exception rescue (the solve then reports no solution for a guideline-bound
+    policy). The
     interest-day convention and the premium-levelizing choice are inherited so
     the applied premium is shown consistently with the rest of the app; both the
     solve and the displayed run must use this same basis, or the solved premium
@@ -182,13 +184,16 @@ def solve_level_to_exception(
 def _build_result(
     premium: float, mode: str, states: List[MonthlyState], iterations: int,
 ) -> LevelToExceptionResult:
-    exc_start = next((s.date for s in states if s.exception_prem_mode), None)
+    exc_state = next((s for s in states if s.exception_prem_mode), None)
+    exc_start = exc_state.date if exc_state is not None else None
+    exc_duration = exc_state.policy_year if exc_state is not None else None
     maturity_av = states[-1].av_end_of_month if states else 0.0
     return LevelToExceptionResult(
         premium=round(premium, 2),
         mode=mode,
         enters_exception=exc_start is not None,
         exception_start=exc_start,
+        exception_duration=exc_duration,
         maturity_av=maturity_av,
         iterations=iterations,
     )

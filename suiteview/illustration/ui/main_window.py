@@ -345,13 +345,10 @@ class IllustrationWindow(FramelessWindowBase):
                 from suiteview.illustration.models.input_set import (
                     IllustrationInputSet, ScheduledTransaction, TransactionKind,
                 )
-                # Min Level to Exception solves with GP exceptions on; Min Level
-                # to Maturity endows on its own (exceptions only if the user
-                # checked the box, which it can't for loan/shadow policies).
-                allow_exceptions = bool(
-                    min_level["to_exception"] or run_options.allow_exception_prems)
-                title = ("Min Level to Exception" if min_level["to_exception"]
-                         else "Min Level to Maturity")
+                # Min Level to Maturity endows on its own unless the user allowed
+                # GP exceptions (the Allow GP Exception toggle, which is off and
+                # disabled for loan/shadow policies).
+                allow_exceptions = bool(run_options.allow_exception_prems)
                 try:
                     lte = solve_level_to_exception(
                         scenario.projectable_policy,
@@ -364,7 +361,7 @@ class IllustrationWindow(FramelessWindowBase):
                     QApplication.restoreOverrideCursor()
                     self.run_values_btn.setEnabled(True)
                     self.inputs_tab.set_min_level_amount(None)
-                    QMessageBox.information(self, title, str(exc))
+                    QMessageBox.information(self, "Min Level to Maturity", str(exc))
                     self._show_status(str(exc))
                     return
                 sched = list(future_inputs.scheduled_transactions)
