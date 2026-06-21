@@ -10,7 +10,12 @@ from PyQt6.QtGui import QFontMetrics
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
 from suiteview.illustration.ui.values_tab import IllustrationValuesTab
-from suiteview.illustration.ui.values_overview import ValuesOverview, build_charge_bands, build_chart_series
+from suiteview.illustration.ui.values_overview import (
+    LEDGER_COLUMNS,
+    ValuesOverview,
+    build_charge_bands,
+    build_chart_series,
+)
 
 
 _QT_APP = None
@@ -546,10 +551,11 @@ def test_overview_premium_column_uses_premium_outlay():
 
     overview.display(_policy(), [inforce, first, second])
 
+    prem_col = LEDGER_COLUMNS.index("Prem")
     year_item = overview.ledger.topLevelItem(0)
-    assert year_item.text(3) == "140.00"
-    assert year_item.child(0).text(3) == "125.00"
-    assert year_item.child(1).text(3) == "15.00"
+    assert year_item.text(prem_col) == "140.00"
+    assert year_item.child(0).text(prem_col) == "125.00"
+    assert year_item.child(1).text(prem_col) == "15.00"
 
 
 def test_summary_tab_uses_requested_illustration_values_order():
@@ -713,7 +719,9 @@ def test_overview_ledger_restores_compact_values_order():
         total_premium_load=7.5,
         withdrawals_to_date=20.0,
         guideline_forceout=3.0,
+        applied_regular_loan=6.0,
         total_deduction=11.0,
+        av_after_exception=950.0,
         interest_credited=4.0,
         av_end_of_month=1000.0,
         surrender_charge=90.0,
@@ -730,7 +738,9 @@ def test_overview_ledger_restores_compact_values_order():
         total_premium_load=1.5,
         withdrawals_to_date=50.0,
         guideline_forceout=2.0,
+        applied_regular_loan=4.0,
         total_deduction=12.0,
+        av_after_exception=1150.0,
         interest_credited=6.0,
         av_end_of_month=1200.0,
         surrender_charge=80.0,
@@ -744,13 +754,15 @@ def test_overview_ledger_restores_compact_values_order():
 
     headers = [overview.ledger.headerItem().text(index) for index in range(overview.ledger.columnCount())]
     assert headers == [
-        "Year", "Month", "Age", "Prem", "PremLoad", "Withdrawals", "ForceOuts",
-        "MD", "Interest", "EAV", "SC", "LN", "ESV", "Death Benefit", "Status",
+        "Year", "Month", "Age", "Withdrawals", "ForceOuts", "Prem",
+        "MD", "Exception Prem", "AV", "SV", "Interest", "EAV", "SC",
+        "New Loan", "LN", "ESV", "Death Benefit", "Status",
     ]
     year_item = overview.ledger.topLevelItem(0)
     assert [year_item.text(index) for index in range(overview.ledger.columnCount())] == [
-        "1", "2", "45", "140.00", "9.00", "50.00", "5.00",
-        "23.00", "10.00", "1,200.00", "80.00", "20.00", "1,100.00",
+        "1", "2", "45", "50.00", "5.00", "140.00",
+        "23.00", "30.00", "1,150.00", "1,050.00", "10.00", "1,200.00", "80.00",
+        "10.00", "20.00", "1,100.00",
         "151,000", "LAPSED",
     ]
 

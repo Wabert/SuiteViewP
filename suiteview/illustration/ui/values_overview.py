@@ -328,8 +328,9 @@ class _KpiChip(QWidget):
 
 
 LEDGER_COLUMNS = [
-    "Year", "Month", "Age", "Prem", "PremLoad", "Withdrawals", "ForceOuts",
-    "MD", "Interest", "EAV", "SC", "LN", "ESV", "Death Benefit", "Status",
+    "Year", "Month", "Age", "Withdrawals", "ForceOuts", "Prem",
+    "MD", "Exception Prem", "AV", "SV", "Interest", "EAV", "SC",
+    "New Loan", "LN", "ESV", "Death Benefit", "Status",
 ]
 NUMERIC_LEDGER = set(range(len(LEDGER_COLUMNS) - 1))
 
@@ -480,19 +481,26 @@ class ValuesOverview(QWidget):
             months = [state for _, state in month_entries]
             eoy_index, eoy = month_entries[-1]
             premium = sum(s.premium_outlay for s in months)
-            premium_load = sum(s.total_premium_load for s in months)
+            exception_prem = sum(s.gp_exception_prem for s in months)
             forceouts = sum(s.guideline_forceout for s in months)
+            new_loan = sum(s.applied_new_loan for s in months)
             interest = sum(s.interest_credited for s in months)
             monthly_deduction = sum(s.total_deduction for s in months)
             withdrawals = eoy.withdrawals_to_date - prior_wd
             prior_wd = eoy.withdrawals_to_date
+            # AV after exception premium, before interest; the matching SV nets
+            # loans and the surrender charge out of that AV.
+            av_pre_interest = eoy.av_after_exception
+            sv_pre_interest = av_pre_interest - eoy.policy_debt - eoy.surrender_charge
             item = QTreeWidgetItem([
                 str(year), str(eoy.policy_month), str(eoy.attained_age),
-                _fmt_money(premium, 2), _fmt_money(premium_load, 2),
                 _fmt_money(withdrawals, 2), _fmt_money(forceouts, 2),
-                _fmt_money(monthly_deduction, 2), _fmt_money(interest, 2),
+                _fmt_money(premium, 2), _fmt_money(monthly_deduction, 2),
+                _fmt_money(exception_prem, 2), _fmt_money(av_pre_interest, 2),
+                _fmt_money(sv_pre_interest, 2), _fmt_money(interest, 2),
                 _fmt_money(eoy.av_end_of_month, 2), _fmt_money(eoy.surrender_charge, 2),
-                _fmt_money(eoy.policy_debt, 2), _fmt_money(eoy.surrender_value, 2),
+                _fmt_money(new_loan, 2), _fmt_money(eoy.policy_debt, 2),
+                _fmt_money(eoy.surrender_value, 2),
                 _fmt_money(eoy.ending_db or eoy.gross_db, 0), _status_text(eoy),
             ])
             for column in range(len(LEDGER_COLUMNS)):
@@ -513,13 +521,17 @@ class ValuesOverview(QWidget):
             for result_index, state in month_entries:
                 month_wd = state.withdrawals_to_date - previous_wd
                 previous_wd = state.withdrawals_to_date
+                av_pre_interest = state.av_after_exception
+                sv_pre_interest = av_pre_interest - state.policy_debt - state.surrender_charge
                 child = QTreeWidgetItem([
                     str(state.policy_year), str(state.policy_month), str(state.attained_age),
-                    _fmt_money(state.premium_outlay, 2), _fmt_money(state.total_premium_load, 2),
                     _fmt_money(month_wd, 2), _fmt_money(state.guideline_forceout, 2),
-                    _fmt_money(state.total_deduction, 2), _fmt_money(state.interest_credited, 2),
+                    _fmt_money(state.premium_outlay, 2), _fmt_money(state.total_deduction, 2),
+                    _fmt_money(state.gp_exception_prem, 2), _fmt_money(av_pre_interest, 2),
+                    _fmt_money(sv_pre_interest, 2), _fmt_money(state.interest_credited, 2),
                     _fmt_money(state.av_end_of_month, 2), _fmt_money(state.surrender_charge, 2),
-                    _fmt_money(state.policy_debt, 2), _fmt_money(state.surrender_value, 2),
+                    _fmt_money(state.applied_new_loan, 2), _fmt_money(state.policy_debt, 2),
+                    _fmt_money(state.surrender_value, 2),
                     _fmt_money(state.ending_db or state.gross_db, 0), _status_text(state),
                 ])
                 for column in range(len(LEDGER_COLUMNS)):

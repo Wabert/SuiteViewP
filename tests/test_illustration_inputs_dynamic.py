@@ -87,20 +87,23 @@ def test_max_level_premium_defaults_and_changes_with_mode():
     panel = _panel()
     row = panel.premium_section.rows()[0]
 
-    assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == ["INPUT", "Max Level"]
-    assert panel.max_annual_level_edit.text() == "1,106.98"
-    assert not panel.max_annual_level_label.isHidden()
+    assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
+        "INPUT", "Max Level Allowed", "Min Level to Maturity"]
 
     # Forecast is policy year 7, month 8, so the current year still has modes
     # left (5 monthly / 1 quarterly), which the payment count now includes:
-    # monthly = 43*12 + 5 = 521, quarterly = 43*4 + 1 = 173.
-    row.type_combo.setCurrentText("Max Level")
+    # monthly = 43*12 + 5 = 521, quarterly = 43*4 + 1 = 173, annual = 43.
+    row.type_combo.setCurrentText("Max Level Allowed")
     assert row.amount_edit.isReadOnly()
     assert abs(row.amount() - 47600.0 / 521) < 0.005      # 91.36 monthly
 
     row.mode_combo.setCurrentText("Q")
     assert abs(row.amount() - 47600.0 / 173) < 0.005      # 275.14 quarterly
 
+    row.mode_combo.setCurrentText("A")
+    assert abs(row.amount() - 47600.0 / 43) < 0.005       # 1,106.98 annual
+
+    row.mode_combo.setCurrentText("Q")
     input_set = IllustrationInputSet()
     panel.collect_into(input_set)
     premium_schedule = [t for t in input_set.scheduled_transactions if t.kind == TransactionKind.PREMIUM]
@@ -119,10 +122,13 @@ def test_max_level_premium_uses_attained_age_and_age_100_cap():
     _app()
     panel = DynamicInputsPanel()
     panel.load_from_policy(UF002047Policy())
+    row = panel.premium_section.rows()[0]
+    row.type_combo.setCurrentText("Max Level Allowed")
+    row.mode_combo.setCurrentText("A")
 
     # GLP is monthly-normalized: floor(2936.85/12, 2)*12 = 2936.76, so the max
     # annual level is ((55800.15 + 2936.76*51) - 8720) / 51 = 3,859.90.
-    assert panel.max_annual_level_edit.text() == "3,859.90"
+    assert abs(row.amount() - 3859.90) < 0.005
 
 
 def test_max_level_premium_hidden_for_cvat():
@@ -134,9 +140,8 @@ def test_max_level_premium_hidden_for_cvat():
     panel.load_from_policy(CvatPolicy())
     row = panel.premium_section.rows()[0]
 
+    # CVAT has no guideline premium test — only INPUT, no Max/Min Level.
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == ["INPUT"]
-    assert panel.max_annual_level_label.isHidden()
-    assert panel.max_annual_level_edit.isHidden()
 
 
 def test_inputs_tab_exports_illustrated_rate_override_from_gint():
