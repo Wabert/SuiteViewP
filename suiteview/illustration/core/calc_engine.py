@@ -691,7 +691,10 @@ class IllustrationEngine:
 
         # ── 14. GP Exception premium ──────────────────────────
         guideline_limit_reached = _guideline_limit_reached(
-            options, policy, guideline_limit, prem.premiums_to_date, withdrawals_to_date
+            config, allowances,
+            attained_age=attained_age,
+            beginning_of_year=beginning_of_year,
+            prior_limit_reached=state.guideline_limit_reached,
         )
         exception = _compute_exception_premium(
             options, policy, config, rates, rate_year,
@@ -1162,7 +1165,10 @@ class IllustrationEngine:
         )
 
         guideline_limit_reached = _guideline_limit_reached(
-            options, policy, guideline_limit, prem.premiums_to_date, withdrawals_to_date
+            config, allowances,
+            attained_age=attained_age,
+            beginning_of_year=beginning_of_year,
+            prior_limit_reached=state.guideline_limit_reached,
         )
         exception = _compute_exception_premium(
             options, policy, config, rates, rate_year,
@@ -2548,17 +2554,31 @@ def _premium_state_fields(allowances: PremiumAllowances, requested_total: float)
 
 
 def _guideline_limit_reached(
-    options: IllustrationOptions,
-    policy: IllustrationPolicyData,
-    guideline_limit: float,
-    premiums_to_date: float,
-    withdrawals_to_date: float,
+    config: PlancodeConfig,
+    allowances: PremiumAllowances,
+    *,
+    attained_age: int,
+    beginning_of_year: bool,
+    prior_limit_reached: bool,
 ) -> bool:
-    """True when cumulative premium has consumed the guideline room (CalcEngine SX)."""
-    if not options.conform_to_tefra or not policy.is_gpt:
+    """Guideline Limit Reached — CalcEngine SX.
+
+        =IF(vYear>=sMaturityYear, FALSE,
+            IF(vBeginningOfYearCalc, NW=NU, SX_prior))
+
+    Latched at the start of each policy year to whether the GP level cap is the
+    binding constraint on the scheduled premium. The flag is true exactly when
+    Levelized Max Premium (NW) equals GP_Level_Allowance (NU): NV (Scheduled Prem
+    Cap) collapses to NU when the guideline — not the 7-pay limit — sets the cap,
+    and NW = MIN(NV, requested) lands on that same NU once the requested premium
+    reaches it. It is carried forward untouched the rest of the year and forced
+    off from the maturity year on.
+    """
+    if attained_age >= config.maturity_age:
         return False
-    room = guideline_limit - (premiums_to_date - withdrawals_to_date)
-    return room < 0.01
+    if beginning_of_year:
+        return allowances.levelized_max_premium == allowances.gp_level_allowance
+    return prior_limit_reached
 
 
 @dataclass
@@ -2586,18 +2606,20 @@ def _compute_exception_premium(
 ) -> _ExceptionPremium:
     """GP exception premium (CalcEngine SY / SZ / TA / TB / TD).
 
-    Once allowed and triggered (past safety net, no CCV, at the guideline limit,
-    and account value gone negative), the policy pays the exception premium that
-    brings the after-charge account value back to zero. Exception mode latches
-    on for the remainder of the projection.
+    SY (exception mode) latches on the moment the account value goes negative
+    while the policy sits at the guideline limit, and stays on until maturity.
+    The safety-net and CCV gates do **not** belong on the mode flag — they gate
+    the *premium* (SZ): the actual exception premium flows only past the safety
+    net, with no CCV/shadow account, while the policy is still inforce, and when
+    it does it brings the after-charge account value back to zero.
     """
     ccv_active = policy.has_shadow_account
     past_maturity = attained_age >= config.maturity_age
 
+    # SY = AND(sINPUT_AllowExceptionPrems, vAV_AfterCharge<0, SX) — no snet/CCV
+    # gate here, or the policy would lapse before the exception could rescue it.
     triggered = (
         options.allow_exception_prems
-        and past_snet
-        and not ccv_active
         and guideline_limit_reached
         and av_after_charge < 0.0
     )

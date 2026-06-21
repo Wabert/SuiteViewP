@@ -127,13 +127,48 @@ r3 = apply_premium(0.0, prem_pol, CONFIG, RATES, 1, 0.0, 0.0, 0.0, premium_cap=0
 check("zero cap -> pass-through", approx(r3.gross_premium, 0.0))
 
 # ── Guideline limit reached (SX) ──────────────────────────────────────
+# SX latches at BOY to NW==NU: the GP level cap (NU) binds the scheduled
+# premium exactly when Levelized Max Premium (NW) lands on it.
 print("Guideline limit reached (SX)")
-check("reached at the ceiling",
-      _guideline_limit_reached(IllustrationOptions(), gpt_pol, GSP, GSP, 0.0))
-check("not reached below ceiling",
-      not _guideline_limit_reached(IllustrationOptions(), gpt_pol, GSP, 12000.0, 0.0))
-check("not reached when TEFRA off",
-      not _guideline_limit_reached(IllustrationOptions(conform_to_tefra=False), gpt_pol, GSP, GSP, 0.0))
+
+
+def _sx(policy, opts=None, *, prem_td=0.0, requested=999_999.0, attained_age=70,
+        beginning_of_year=True, prior=False):
+    a = _premium_allowances(
+        opts or IllustrationOptions(), policy,
+        guideline_limit=GSP,
+        premiums_to_date=prem_td,
+        withdrawals_before_forceout=0.0,
+        force_out=0.0,
+        amount_in_7pay=0.0,
+        tamra_year=1,
+        tamra_month_of_year=1,
+        policy_month=1,
+        tamra_reset=False,
+        requested_scheduled=requested,
+        requested_lumpsum=0.0,
+        payment_count_policy_year=12,
+        payment_count_tamra_year=12,
+        has_loan_balance=False,
+        beginning_of_year=True,
+        prior_scheduled_prem_cap=0.0,
+    )
+    return _guideline_limit_reached(
+        CONFIG, a, attained_age=attained_age,
+        beginning_of_year=beginning_of_year, prior_limit_reached=prior,
+    )
+
+
+check("reached when the GP cap binds the premium",
+      _sx(gpt_pol, requested=999_999.0))
+check("not reached when the premium is below the GP cap",
+      not _sx(gpt_pol, requested=100.0))
+check("not reached when TEFRA off (no guideline cap)",
+      not _sx(gpt_pol, IllustrationOptions(conform_to_tefra=False), requested=999_999.0))
+check("forced off from the maturity year on",
+      not _sx(gpt_pol, requested=999_999.0, attained_age=CONFIG.maturity_age))
+check("latched value carries forward off-anniversary",
+      _sx(gpt_pol, requested=100.0, beginning_of_year=False, prior=True))
 
 # ── GP exception premium (SY/SZ/TA/TB/TD) ─────────────────────────────
 print("GP exception premium")
@@ -150,7 +185,10 @@ check("grossed-up premium > shortfall (loads)", e.prem > 50.0)
 e2 = _compute_exception_premium(on, exc_pol, CONFIG, RATES, 1, av_after_charge=-50.0,
                                 coi_rate=0.05, guideline_limit_reached=True, past_snet=False,
                                 prior_exception_mode=False, prior_lapsed=False, attained_age=70)
-check("no exception inside safety-net period", not e2.mode and approx(e2.av_after_exception, -50.0))
+# SY flips on even inside the safety net; SZ withholds the premium, so the AV
+# stays negative until the no-lapse period ends.
+check("inside safety-net: mode on but premium withheld",
+      e2.mode and approx(e2.av_after_exception, -50.0))
 off = IllustrationOptions(allow_exception_prems=False)
 e3 = _compute_exception_premium(off, exc_pol, CONFIG, RATES, 1, av_after_charge=-50.0,
                                 coi_rate=0.05, guideline_limit_reached=True, past_snet=True,
@@ -164,7 +202,10 @@ shadow_pol = IllustrationPolicyData(policy_number="T", plancode="1U143900", ccv_
 e5 = _compute_exception_premium(on, shadow_pol, CONFIG, RATES, 1, av_after_charge=-50.0,
                                 coi_rate=0.05, guideline_limit_reached=True, past_snet=True,
                                 prior_exception_mode=False, prior_lapsed=False, attained_age=70)
-check("CCV active -> no exception", not e5.mode)
+# A CCV/shadow policy never charges the exception premium (SZ=0), but SY still
+# flips — the mode flag does not gate on CCV.
+check("CCV active -> mode on but premium withheld",
+      e5.mode and approx(e5.av_after_exception, -50.0))
 
 # ── New fixed loan split (TR/TW/TX) ───────────────────────────────────
 print("New fixed loan gain split")

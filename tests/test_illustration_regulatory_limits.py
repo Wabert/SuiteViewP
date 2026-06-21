@@ -2,6 +2,7 @@ from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.illustration_policy_service import _translate_doli
 from suiteview.illustration.core.target_premium import floor_annual_cent, floor_monthly_cent
 from suiteview.illustration.models.input_set import IllustrationOptions
+from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
 
@@ -50,8 +51,14 @@ def test_blank_definition_of_life_disables_guideline_and_tamra_caps():
     assert policy.has_defined_life_insurance is False
     # No cap binds -> the full requested premium is accepted.
     assert allowances.applied_total_premium == 600.0
+    # SX: the GP level cap (NU) never binds the premium here, so Levelized Max
+    # Premium (NW) sits at the full requested premium, not at NU -> not reached.
+    config = PlancodeConfig(plancode="1U143900", maturity_age=121)
     assert calc_engine._guideline_limit_reached(
-        IllustrationOptions(), policy, 0.0, 5_000.0, 0.0
+        config, allowances,
+        attained_age=45,
+        beginning_of_year=True,
+        prior_limit_reached=False,
     ) is False
 
 
