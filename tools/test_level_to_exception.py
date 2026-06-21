@@ -57,6 +57,27 @@ def main() -> None:
         ok = 48.00 < r.premium <= 48.20
         print(f"  EXPECT (48.00, 48.20]: {'PASS' if ok else 'FAIL'}")
 
+    # Min Level to Maturity (no exceptions): a guideline-bound policy can't endow
+    # on its own, so the solver should report no solution.
+    try:
+        r0 = solve_level_to_exception(pdata, mode=mode, allow_exceptions=False)
+        print(f"  no-exception solve -> {r0.premium:.2f} (endows without exceptions)")
+    except LevelToExceptionError as e:
+        print(f"  no-exception solve -> no solution: {e}")
+
+    # Maturity flag: project to maturity and confirm the last row reads Maturity.
+    from suiteview.illustration.core.calc_engine import IllustrationEngine
+    from suiteview.illustration.ui.values_overview import _status_text
+    from suiteview.illustration.models.input_set import IllustrationOptions
+    states = IllustrationEngine().project(
+        pdata, options=IllustrationOptions(allow_exception_prems=True),
+        future_inputs=IllustrationInputSet(scheduled_transactions=[
+            ScheduledTransaction(kind=TransactionKind.PREMIUM, policy_year=1,
+                                 amount=r.premium, mode=r.mode)]))
+    last = states[-1]
+    print(f"  last row: age={last.attained_age} matured={last.matured} "
+          f"status={_status_text(last)!r}")
+
     # Prior-premium scenario: honor $100/mo from the forecast year, solve the
     # Min Level premium that takes over `start` years later.
     start = int(cmd.get("prior_start", 0))

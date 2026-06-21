@@ -249,7 +249,9 @@ class IllustrationWindow(FramelessWindowBase):
         )
         self.policy_tab.load_data_from_policy(self._policy, self._policy_info, md_check=md_check)
         self.policy_tab.set_rate_warnings(warnings)
-        self.inputs_tab.load_data_from_policy(self._policy)
+        self.inputs_tab.load_data_from_policy(
+            self._policy,
+            has_shadow=bool(getattr(self._illustration_data, "has_shadow_account", False)))
         self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")
         self.report_tab.clear()
         self.run_values_btn.setEnabled(True)
@@ -258,8 +260,10 @@ class IllustrationWindow(FramelessWindowBase):
 
     def _policy_load_checks(self, policy_number: str, region: str, company_code: str):
         warnings: list[str] = []
+        self._illustration_data = None
         try:
             policy_data = build_illustration_data(policy_number, region=region, company_code=company_code)
+            self._illustration_data = policy_data
             warnings.extend(self._definition_of_life_warnings(policy_data))
             config = load_plancode(policy_data.plancode)
             rates = load_rates(policy_data, config)
@@ -341,18 +345,26 @@ class IllustrationWindow(FramelessWindowBase):
                 from suiteview.illustration.models.input_set import (
                     IllustrationInputSet, ScheduledTransaction, TransactionKind,
                 )
+                # Min Level to Exception solves with GP exceptions on; Min Level
+                # to Maturity endows on its own (exceptions only if the user
+                # checked the box, which it can't for loan/shadow policies).
+                allow_exceptions = bool(
+                    min_level["to_exception"] or run_options.allow_exception_prems)
+                title = ("Min Level to Exception" if min_level["to_exception"]
+                         else "Min Level to Maturity")
                 try:
                     lte = solve_level_to_exception(
                         scenario.projectable_policy,
                         mode=min_level["mode"],
                         start_policy_year=min_level["start_year"],
                         base_future_inputs=future_inputs,
+                        allow_exceptions=allow_exceptions,
                         base_options=run_options)
                 except LevelToExceptionError as exc:
                     QApplication.restoreOverrideCursor()
                     self.run_values_btn.setEnabled(True)
                     self.inputs_tab.set_min_level_amount(None)
-                    QMessageBox.information(self, "Min Level to Maturity", str(exc))
+                    QMessageBox.information(self, title, str(exc))
                     self._show_status(str(exc))
                     return
                 sched = list(future_inputs.scheduled_transactions)
@@ -364,7 +376,7 @@ class IllustrationWindow(FramelessWindowBase):
                     scheduled_transactions=sched,
                     dated_transactions=list(future_inputs.dated_transactions),
                     policy_changes=list(future_inputs.policy_changes))
-                run_options = level_to_exception_options(run_options)
+                run_options = level_to_exception_options(run_options, allow_exceptions)
                 self.inputs_tab.set_min_level_amount(lte.premium)
 
             engine = IllustrationEngine()

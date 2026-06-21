@@ -62,22 +62,26 @@ def _default_mode(policy: IllustrationPolicyData) -> str:
     return _MODE_FROM_FREQ.get(int(policy.billing_frequency or 1), "M")
 
 
-def level_to_exception_options(base: Optional[IllustrationOptions]) -> IllustrationOptions:
-    """Guideline-conforming basis with exception premiums forced on.
+def level_to_exception_options(
+    base: Optional[IllustrationOptions], allow_exceptions: bool = True,
+) -> IllustrationOptions:
+    """Guideline-conforming basis for the solve.
 
-    The exception premium is the whole point of the solve — and what guarantees a
-    high-enough premium always survives — so it is enabled regardless of the
-    caller's toggle. The interest-day convention and the premium-levelizing choice
-    are inherited so the applied (non-exception) premium is shown consistently
-    with the rest of the app; both the solve and the displayed run use this same
-    basis, or the solved premium won't behave as solved.
+    ``allow_exceptions`` selects the regime: True (Min Level to Exception) lets
+    the policy ride the GLP exception period to maturity — and guarantees a
+    high-enough premium always survives; False (Min Level to Maturity) requires
+    the level premium to endow on its own, with no exception rescue. The
+    interest-day convention and the premium-levelizing choice are inherited so
+    the applied premium is shown consistently with the rest of the app; both the
+    solve and the displayed run must use this same basis, or the solved premium
+    won't behave as solved.
     """
     exact = getattr(base, "exact_days_interest", None) if base is not None else None
     levelizing = bool(getattr(base, "levelizing_premium", False)) if base is not None else False
     return IllustrationOptions(
         conform_to_tefra=True,
         conform_to_tamra=True,
-        allow_exception_prems=True,
+        allow_exception_prems=allow_exceptions,
         exact_days_interest=exact,
         levelizing_premium=levelizing,
     )
@@ -89,6 +93,7 @@ def solve_level_to_exception(
     mode: Optional[str] = None,
     start_policy_year: int = 1,
     base_future_inputs: Optional[IllustrationInputSet] = None,
+    allow_exceptions: bool = True,
     resolution: float = 0.01,
     base_options: Optional[IllustrationOptions] = None,
     engine: Optional[IllustrationEngine] = None,
@@ -118,7 +123,7 @@ def solve_level_to_exception(
             "Level-to-Exception is unavailable while the policy carries a loan.")
 
     mode = (mode or _default_mode(policy)).upper()
-    options = level_to_exception_options(base_options)
+    options = level_to_exception_options(base_options, allow_exceptions)
     engine = engine or IllustrationEngine()
 
     base = base_future_inputs

@@ -679,7 +679,7 @@ class IllustrationInputsTab(QWidget):
                 break
         self._warning_labels[warning_key].setVisible(has_warning)
 
-    def load_data_from_policy(self, policy):
+    def load_data_from_policy(self, policy, *, has_shadow: bool = False):
         self._issue_date = getattr(policy, "issue_date", None)
         self._maturity_date = self._maturity_date_from_policy(policy)
         if self._maturity_date is not None:
@@ -693,7 +693,7 @@ class IllustrationInputsTab(QWidget):
             label.setText(self._warning_text(base_text))
 
         self._update_valuation_banner(policy)
-        self.dynamic_panel.load_from_policy(policy)
+        self.dynamic_panel.load_from_policy(policy, has_shadow=has_shadow)
 
     def _update_valuation_banner(self, policy):
         valuation_date = getattr(policy, "valuation_date", None)
