@@ -385,7 +385,7 @@ class InputRow(QWidget):
 
         self.type_combo = QComboBox(self)
         self.type_combo.setStyleSheet(_COMBO_STYLE)
-        self.type_combo.setFixedWidth(_W_TYPE)
+        self.type_combo.setFixedWidth(spec.type_width)
         self._sync_type_options()
         self.type_combo.currentIndexChanged.connect(self._type_changed)
         layout.addWidget(self.type_combo)
@@ -461,7 +461,7 @@ class InputRow(QWidget):
                 if self._ctx is None or not self._ctx.has_loans:
                     options.append(_TYPE_MIN_LEVEL)
             self.type_combo.addItems(options)
-            self.type_combo.setFixedWidth(150)
+            self.type_combo.setFixedWidth(self._section.spec.type_width)
             if current in options:
                 self.type_combo.setCurrentText(current)
         else:
@@ -469,7 +469,7 @@ class InputRow(QWidget):
             model_item = self.type_combo.model().item(1)
             if model_item is not None:
                 model_item.setEnabled(False)
-            self.type_combo.setFixedWidth(64)
+            self.type_combo.setFixedWidth(self._section.spec.type_width)
             if current in {"Input", "Solve"}:
                 self.type_combo.setCurrentText(current)
         self.type_combo.blockSignals(False)
@@ -669,6 +669,7 @@ class SectionSpec:
     default_first_row: bool = False            # premium defaults from the policy
     auto_adjust_prior_span: bool = False
     allow_max_level_premium: bool = False
+    type_width: int = _W_TYPE                   # Type column width (wider for level types)
 
 
 class DynamicSection(QGroupBox):
@@ -691,7 +692,7 @@ class DynamicSection(QGroupBox):
         captions = QHBoxLayout()
         captions.setContentsMargins(0, 0, 0, 0)
         captions.setSpacing(4)
-        widths = [_W_TYPE, _W_YEAR, _W_AGE, spec.value_width]
+        widths = [spec.type_width, _W_YEAR, _W_AGE, spec.value_width]
         labels = ["Type", "Year", "Age", spec.value_caption]
         if spec.has_span:
             widths += [_W_MODE, _W_SPAN, _W_SPAN]
@@ -1266,7 +1267,7 @@ class DynamicInputsPanel(QWidget):
         # for its entry fields.
         self.premium_section = DynamicSection(SectionSpec(
             "Premiums", default_first_row=True, auto_adjust_prior_span=True,
-            allow_max_level_premium=True))
+            allow_max_level_premium=True, type_width=150))
         self.loan_section = DynamicSection(SectionSpec("Loans"))
         self.withdrawal_section = DynamicSection(SectionSpec("Withdrawals"))
         self.repayment_section = DynamicSection(SectionSpec("Loan Repayments"))
