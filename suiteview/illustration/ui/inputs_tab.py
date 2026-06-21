@@ -220,6 +220,11 @@ class IllustrationInputsTab(QWidget):
         self.input_tabs.addTab(self._build_control_tab(), "Illustration Control")
         outer.addWidget(self.input_tabs, 1)
 
+        # Max Level Premium to Exception forces the GP exception premium on (and
+        # locks it) while active — the solve depends on it.
+        self.dynamic_panel.level_to_exception_toggled.connect(
+            self._on_level_to_exception_toggled)
+
     def _build_valuation_banner(self):
         """Compact date strip: valuation date, monthliversary day, first forecast month.
 
@@ -809,6 +814,19 @@ class IllustrationInputsTab(QWidget):
             levelizing_premium=self.levelizing_check.isChecked(),
             guideline_by_search=self.gp_search_check.isChecked(),
         )
+
+    def level_to_exception_active(self) -> bool:
+        return self.dynamic_panel.level_to_exception_active()
+
+    def set_level_to_exception_result(self, text: str):
+        self.dynamic_panel.set_level_to_exception_result(text)
+
+    def _on_level_to_exception_toggled(self, active: bool):
+        # Lock GP Exception Premium on while the solve mode is active — both the
+        # solve and the displayed run depend on it.
+        if active:
+            self.exception_prem_check.setChecked(True)
+        self.exception_prem_check.setEnabled(not active)
 
     def stop_on_lapse_enabled(self) -> bool:
         return self.stop_on_lapse_check.isChecked()

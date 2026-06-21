@@ -1154,6 +1154,10 @@ class RiderButtonsPanel(QGroupBox):
 class DynamicInputsPanel(QWidget):
     """The "Input" tab: suspended banner, request sections, rider buttons."""
 
+    # Emitted when the "Max Level Premium to Exception" mode is toggled. The
+    # parent tab locks the Allow GP Exception toggle on while it is active.
+    level_to_exception_toggled = pyqtSignal(bool)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._ctx = PolicyContext()
@@ -1186,12 +1190,29 @@ class DynamicInputsPanel(QWidget):
         )
         self.max_annual_level_label.setToolTip(max_annual_tip)
         self.max_annual_level_edit.setToolTip(max_annual_tip)
+        # "Max Level Premium to Exception" — a checkable mode that takes over the
+        # whole input set: when on, every other input is disabled and the engine
+        # is fed the single solved level premium (see main_window._on_run_values).
+        self.level_to_exception_btn = QPushButton("Max Level Premium to Exception")
+        self.level_to_exception_btn.setCheckable(True)
+        lte_tip = (
+            "Solve the minimum level premium (at the policy's billing mode) that keeps the "
+            "policy in force to maturity — level right up to the GLP Exception period. "
+            "Disables all other inputs. Unavailable for CVAT or loan policies."
+        )
+        self.level_to_exception_btn.setToolTip(lte_tip)
+        self.level_to_exception_btn.toggled.connect(self._on_level_to_exception_toggled)
+        self.level_to_exception_result = QLabel("")
+        self.level_to_exception_result.setStyleSheet(_CAPTION_STYLE)
         rate_row.addWidget(rate_label)
         rate_row.addWidget(self.illustrated_rate_edit)
         rate_row.addWidget(rate_suffix)
         rate_row.addSpacing(16)
         rate_row.addWidget(self.max_annual_level_label)
         rate_row.addWidget(self.max_annual_level_edit)
+        rate_row.addSpacing(16)
+        rate_row.addWidget(self.level_to_exception_btn)
+        rate_row.addWidget(self.level_to_exception_result)
         rate_row.addStretch(1)
         outer.addLayout(rate_row)
 
@@ -1258,6 +1279,12 @@ class DynamicInputsPanel(QWidget):
         show_max_level = not self._ctx.is_cvat
         self.max_annual_level_label.setVisible(show_max_level)
         self.max_annual_level_edit.setVisible(show_max_level)
+        # Max Level Premium to Exception: GPT-only, and unavailable with a loan.
+        has_loans = bool(getattr(policy, "total_loan_balance", 0) or 0)
+        if self.level_to_exception_btn.isChecked():
+            self.level_to_exception_btn.setChecked(False)  # restores other inputs
+        self.level_to_exception_btn.setEnabled(show_max_level and not has_loans)
+        self.level_to_exception_result.setText("")
         self.riders_panel.set_policy(policy, self._ctx)
 
         if self._ctx.suspended and self._ctx.valuation_date is not None:
@@ -1275,6 +1302,32 @@ class DynamicInputsPanel(QWidget):
 
     def illustrated_rate(self) -> float:
         return self.illustrated_rate_edit.rate()
+
+    # ── Max Level Premium to Exception ────────────────────────
+
+    def level_to_exception_active(self) -> bool:
+        return self.level_to_exception_btn.isChecked()
+
+    def set_level_to_exception_result(self, text: str):
+        self.level_to_exception_result.setText(text or "")
+
+    def _on_level_to_exception_toggled(self, active: bool):
+        # Solo-solve mode: disable every other input; the engine is fed only the
+        # solved level premium. Clear the displayed result when turned off.
+        self._set_other_inputs_enabled(not active)
+        if not active:
+            self.level_to_exception_result.setText("")
+        self.level_to_exception_toggled.emit(active)
+
+    def _set_other_inputs_enabled(self, enabled: bool):
+        for widget in (
+            self.illustrated_rate_edit, self.max_annual_level_label,
+            self.max_annual_level_edit, self.premium_section, self.loan_section,
+            self.withdrawal_section, self.repayment_section, self.face_section,
+            self.dbo_section, self.rateclass_section, self.table_section,
+            self.riders_panel,
+        ):
+            widget.setEnabled(enabled)
 
     # ── export ────────────────────────────────────────────────
 

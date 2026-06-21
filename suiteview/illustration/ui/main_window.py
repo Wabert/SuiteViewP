@@ -324,12 +324,49 @@ class IllustrationWindow(FramelessWindowBase):
             QApplication.processEvents()
 
             self._last_scenario = scenario
+
+            # "Max Level Premium to Exception": ignore every other input and feed
+            # the engine the single solved level premium, under the same guideline
+            # + exception basis the solver used (or the premium won't behave as
+            # solved). Other modes run exactly as the user configured them.
+            future_inputs = scenario.future_inputs
+            run_options = self.inputs_tab.export_options()
+            if self.inputs_tab.level_to_exception_active():
+                from suiteview.illustration.core.solve_level_to_exception import (
+                    LevelToExceptionError, level_to_exception_options,
+                    solve_level_to_exception,
+                )
+                from suiteview.illustration.models.input_set import (
+                    IllustrationInputSet, ScheduledTransaction, TransactionKind,
+                )
+                try:
+                    lte = solve_level_to_exception(
+                        scenario.projectable_policy, base_options=run_options)
+                except LevelToExceptionError as exc:
+                    QApplication.restoreOverrideCursor()
+                    self.run_values_btn.setEnabled(True)
+                    QMessageBox.information(
+                        self, "Max Level Premium to Exception", str(exc))
+                    self._show_status(str(exc))
+                    return
+                future_inputs = IllustrationInputSet(scheduled_transactions=[
+                    ScheduledTransaction(
+                        kind=TransactionKind.PREMIUM, policy_year=1,
+                        amount=lte.premium, mode=lte.mode)])
+                run_options = level_to_exception_options(run_options)
+                if lte.enters_exception and lte.exception_start is not None:
+                    tail = f"exception {lte.exception_start:%m/%d/%Y}"
+                else:
+                    tail = "endows"
+                self.inputs_tab.set_level_to_exception_result(
+                    f"{lte.premium:,.2f} / {lte.mode}  ·  {tail}")
+
             engine = IllustrationEngine()
             results = engine.project(
                 scenario.projectable_policy,
                 months=projection_months,
-                future_inputs=scenario.future_inputs,
-                options=self.inputs_tab.export_options(),
+                future_inputs=future_inputs,
+                options=run_options,
                 stop_on_lapse=self.inputs_tab.stop_on_lapse_enabled(),
             )
             self.values_tab.display_projection(
@@ -345,8 +382,8 @@ class IllustrationWindow(FramelessWindowBase):
             self.report_tab.display_report(build_ul_report(
                 scenario.projectable_policy,
                 results,
-                options=self.inputs_tab.export_options(),
-                future_inputs=scenario.future_inputs,
+                options=run_options,
+                future_inputs=future_inputs,
                 run_date=_date.today(),
             ))
             self.tabs.setCurrentWidget(self.values_tab)

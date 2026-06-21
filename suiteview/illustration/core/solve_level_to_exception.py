@@ -62,12 +62,13 @@ def _default_mode(policy: IllustrationPolicyData) -> str:
     return _MODE_FROM_FREQ.get(int(policy.billing_frequency or 1), "M")
 
 
-def _solve_options(base: Optional[IllustrationOptions]) -> IllustrationOptions:
+def level_to_exception_options(base: Optional[IllustrationOptions]) -> IllustrationOptions:
     """Guideline-conforming basis with exception premiums forced on.
 
     The exception premium is the whole point of the solve — and what guarantees a
     high-enough premium always survives — so it is enabled regardless of the
-    caller's toggle. Only the interest-day convention is inherited.
+    caller's toggle. Only the interest-day convention is inherited. The displayed
+    run must use this same basis, or the solved premium won't behave as solved.
     """
     exact = getattr(base, "exact_days_interest", None) if base is not None else None
     return IllustrationOptions(
@@ -103,7 +104,7 @@ def solve_level_to_exception(
             "Level-to-Exception is unavailable while the policy carries a loan.")
 
     mode = (mode or _default_mode(policy)).upper()
-    options = _solve_options(base_options)
+    options = level_to_exception_options(base_options)
     engine = engine or IllustrationEngine()
 
     def project(premium: float) -> List[MonthlyState]:
