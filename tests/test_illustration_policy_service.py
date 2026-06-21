@@ -125,6 +125,30 @@ class _FakePolicyInfo:
         )
 
 
+def test_active_rider_benefit_codes_excludes_hash_and_ceased():
+    """Active riders + premium benefits, in order; '#'-type and ceased dropped."""
+    pi = SimpleNamespace(
+        valuation_date=date(2024, 1, 1),
+        issue_date=date(2000, 1, 1),
+        get_riders=lambda: [
+            SimpleNamespace(plancode="RIDER1", cease_date=None, terminate_date=None),
+            # ceased before the valuation date -> dropped
+            SimpleNamespace(plancode="RIDERX", cease_date=date(2010, 1, 1), terminate_date=None),
+        ],
+        get_benefits=lambda: [
+            SimpleNamespace(benefit_code="12", benefit_type_cd="1", cease_date=None, terminate_date=None),
+            # type "3" with a "#" subtype is still a premium benefit -> kept
+            SimpleNamespace(benefit_code="3#", benefit_type_cd="3", cease_date=None, terminate_date=None),
+            # "#"-type ABR accelerated rider, no premium -> dropped
+            SimpleNamespace(benefit_code="#4", benefit_type_cd="#", cease_date=None, terminate_date=None),
+            # future cease date -> still active
+            SimpleNamespace(benefit_code="76", benefit_type_cd="7", cease_date=date(2099, 1, 1), terminate_date=None),
+        ],
+    )
+
+    assert illustration_policy_service.active_rider_benefit_codes(pi) == "RIDER1, 12, 3#, 76"
+
+
 def test_build_illustration_data_excludes_terminated_base_coverages(monkeypatch):
     monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_args: _FakePolicyInfo())
     monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)

@@ -33,7 +33,10 @@ from PyQt6.QtWidgets import QApplication
 
 from suiteview.core.policy_service import get_policy_info, clear_cache
 from suiteview.illustration.core.calc_engine import IllustrationEngine
-from suiteview.illustration.core.illustration_policy_service import build_illustration_data
+from suiteview.illustration.core.illustration_policy_service import (
+    active_rider_benefit_codes,
+    build_illustration_data,
+)
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
 
@@ -92,41 +95,6 @@ def save_or_update_open_workbook(wb, path: Path, sheet_name: str, updates: list[
         raise
 
 
-def _active_as_of(item, as_of_date):
-    cease_date = getattr(item, "cease_date", None) or getattr(item, "terminate_date", None)
-    return cease_date is None or cease_date >= as_of_date
-
-
-def rider_benefit_plancodes(pi) -> str:
-    """Return comma-delimited active rider plancodes and benefit codes."""
-    as_of_date = pi.valuation_date or pi.issue_date
-    codes: list[str] = []
-
-    try:
-        riders = pi.get_riders()
-    except Exception:
-        riders = []
-    for rider in riders:
-        if as_of_date is not None and not _active_as_of(rider, as_of_date):
-            continue
-        code = str(getattr(rider, "plancode", "") or "").strip()
-        if code:
-            codes.append(code)
-
-    try:
-        benefits = pi.get_benefits()
-    except Exception:
-        benefits = []
-    for benefit in benefits:
-        if as_of_date is not None and not _active_as_of(benefit, as_of_date):
-            continue
-        code = str(getattr(benefit, "benefit_code", "") or "").strip()
-        if code:
-            codes.append(code)
-
-    return ", ".join(codes)
-
-
 def find_header_column(ws, header: str) -> int | None:
     for cell in ws[1]:
         if str(cell.value or "").strip() == header:
@@ -141,7 +109,7 @@ def forecast_termination(policy_number: str, *, exact_days_interest: bool):
     if pi is None or not getattr(pi, "exists", False):
         return None, "NOT FOUND", None, "", None, "not_found"
 
-    rider_benefit_codes = rider_benefit_plancodes(pi)
+    rider_benefit_codes = active_rider_benefit_codes(pi)
 
     policy_data = build_illustration_data(policy_number, region=REGION, company_code=pi.company_code)
 

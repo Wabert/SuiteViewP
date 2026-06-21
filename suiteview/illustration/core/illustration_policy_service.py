@@ -170,6 +170,9 @@ def build_illustration_data(
         cov for cov in base_covs
         if not _coverage_is_terminated(cov, as_of_date)
     ]
+    # Form number lives on the base coverage (LH_COV_PHA.POL_FRM_NBR).
+    form_cov = (active_base_covs or base_covs or [None])[0]
+    form_number = (getattr(form_cov, "form_number", "") or "").strip()
     if base_covs:
         face_amount = sum(float(cov.face_amount or 0.0) for cov in active_base_covs)
         units = sum(
@@ -327,7 +330,7 @@ def build_illustration_data(
         insured_name=pi.primary_insured_name or "",
         plancode=plancode,
         product_type=pi.product_type or "",
-        form_number="",  # TODO: map from coverage form_number
+        form_number=form_number,
         issue_state=pi.issue_state or "",
         company_sub=pi.company_name or "",
         issue_date=issue_date,
@@ -389,6 +392,51 @@ def build_illustration_data(
         benefits=benefits,
         riders=riders,
     )
+
+
+def active_rider_benefit_codes(pi) -> str:
+    """Comma-delimited active rider plancodes + supplemental benefit codes.
+
+    The premium-paying riders and benefits in force at the valuation date — the
+    same summary shown in the illustration test matrix. Reads PolicyInformation
+    directly: riders carry a ``plancode``, supplemental benefits a ``benefit_code``.
+    A rider/benefit counts as active when it has no cease/terminate date, or that
+    date is on/after the valuation date. ``"#"``-type benefits (the ABR accelerated
+    riders) are excluded — they carry no premium and load no rate.
+    """
+    as_of_date = pi.valuation_date or pi.issue_date
+    codes: list[str] = []
+
+    try:
+        riders = pi.get_riders()
+    except Exception:
+        riders = []
+    for rider in riders:
+        if as_of_date is not None and not _active_as_of(rider, as_of_date):
+            continue
+        code = str(getattr(rider, "plancode", "") or "").strip()
+        if code:
+            codes.append(code)
+
+    try:
+        benefits = pi.get_benefits()
+    except Exception:
+        benefits = []
+    for benefit in benefits:
+        if as_of_date is not None and not _active_as_of(benefit, as_of_date):
+            continue
+        if str(getattr(benefit, "benefit_type_cd", "") or "").strip() == "#":
+            continue  # premium-less ABR accelerated rider
+        code = str(getattr(benefit, "benefit_code", "") or "").strip()
+        if code:
+            codes.append(code)
+
+    return ", ".join(codes)
+
+
+def _active_as_of(item, as_of_date) -> bool:
+    cease_date = getattr(item, "cease_date", None) or getattr(item, "terminate_date", None)
+    return cease_date is None or cease_date >= as_of_date
 
 
 # ── Private helpers ───────────────────────────────────────────
