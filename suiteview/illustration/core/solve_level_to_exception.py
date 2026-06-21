@@ -87,6 +87,8 @@ def solve_level_to_exception(
     policy: IllustrationPolicyData,
     *,
     mode: Optional[str] = None,
+    start_policy_year: int = 1,
+    base_future_inputs: Optional[IllustrationInputSet] = None,
     resolution: float = 0.01,
     base_options: Optional[IllustrationOptions] = None,
     engine: Optional[IllustrationEngine] = None,
@@ -96,10 +98,18 @@ def solve_level_to_exception(
     Args:
         mode: modal cadence of the solved premium (M/Q/S/A); defaults to the
             policy's billing frequency.
+        start_policy_year: policy year the solved level premium begins. Earlier
+            years are governed by ``base_future_inputs`` (the honored prior
+            premium rows); the level premium takes over from this year to
+            maturity. ``1`` means "from the first projected month."
+        base_future_inputs: prior premium schedule to honor. The level premium is
+            layered on top at ``start_policy_year`` (a later same-or-greater year
+            schedule wins in the compiler), so the years before it keep whatever
+            these inputs specify.
         resolution: rounding granularity; the result is rounded UP to this so it
             lands on the in-force side of the lapse boundary.
-        base_options: only ``exact_days_interest`` is read from it; the guideline
-            and exception toggles are forced on for the solve.
+        base_options: only ``exact_days_interest`` and ``levelizing_premium`` are
+            read from it; the guideline and exception toggles are forced on.
     """
     if policy.is_cvat:
         raise LevelToExceptionError("Level-to-Exception applies to GPT policies only.")
@@ -111,12 +121,18 @@ def solve_level_to_exception(
     options = level_to_exception_options(base_options)
     engine = engine or IllustrationEngine()
 
+    base = base_future_inputs
+
     def project(premium: float) -> List[MonthlyState]:
-        future = IllustrationInputSet(scheduled_transactions=[
-            ScheduledTransaction(
-                kind=TransactionKind.PREMIUM, policy_year=1,
-                amount=float(premium), mode=mode),
-        ])
+        scheds = list(base.scheduled_transactions) if base is not None else []
+        scheds.append(ScheduledTransaction(
+            kind=TransactionKind.PREMIUM, policy_year=int(start_policy_year),
+            amount=float(premium), mode=mode))
+        future = IllustrationInputSet(
+            scheduled_transactions=scheds,
+            dated_transactions=list(base.dated_transactions) if base is not None else [],
+            policy_changes=list(base.policy_changes) if base is not None else [],
+        )
         return engine.project(policy, options=options, future_inputs=future)
 
     def survives(states: List[MonthlyState]) -> bool:

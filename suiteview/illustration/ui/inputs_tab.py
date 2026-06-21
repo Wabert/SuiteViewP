@@ -1,6 +1,7 @@
 """Illustration Inputs tab UI."""
 
 from datetime import date, datetime
+from typing import Optional
 
 from dateutil.relativedelta import relativedelta
 from PyQt6.QtCore import QDate, QEvent, QTimer, Qt
@@ -220,11 +221,6 @@ class IllustrationInputsTab(QWidget):
         self.input_tabs.addTab(self._build_control_tab(), "Illustration Control")
         outer.addWidget(self.input_tabs, 1)
 
-        # Max Level Premium to Exception forces the GP exception premium on (and
-        # locks it) while active — the solve depends on it.
-        self.dynamic_panel.level_to_exception_toggled.connect(
-            self._on_level_to_exception_toggled)
-
     def _build_valuation_banner(self):
         """Compact date strip: valuation date, monthliversary day, first forecast month.
 
@@ -329,9 +325,8 @@ class IllustrationInputsTab(QWidget):
         self.tamra_check.setToolTip("Enforce the 7-pay premium room while the policy is inside the TAMRA window.")
         layout.addWidget(self.tamra_check)
 
-        self.exception_prem_check = self._make_control_checkbox("Allow GP Exception Premium")
-        self.exception_prem_check.setToolTip("Allow the guideline-premium exception premium when the policy is guideline-limited and would otherwise lapse.")
-        layout.addWidget(self.exception_prem_check)
+        # Allow GP Exception Premium moved to the Input sheet (dynamic_panel);
+        # read it from there in export_options().
 
         self.cap_acceptance_check = self._make_control_checkbox("Cap Premiums at Acceptance")
         self.cap_acceptance_check.setChecked(True)
@@ -808,25 +803,18 @@ class IllustrationInputsTab(QWidget):
         return IllustrationOptions(
             conform_to_tefra=self.tefra_check.isChecked(),
             conform_to_tamra=self.tamra_check.isChecked(),
-            allow_exception_prems=self.exception_prem_check.isChecked(),
+            allow_exception_prems=self.dynamic_panel.exception_prem_check.isChecked(),
             exact_days_interest=self.exact_days_check.isChecked(),
             cap_premiums_at_acceptance=self.cap_acceptance_check.isChecked(),
             levelizing_premium=self.levelizing_check.isChecked(),
             guideline_by_search=self.gp_search_check.isChecked(),
         )
 
-    def level_to_exception_active(self) -> bool:
-        return self.dynamic_panel.level_to_exception_active()
+    def min_level_request(self) -> Optional[dict]:
+        return self.dynamic_panel.min_level_request()
 
-    def set_level_to_exception_result(self, text: str):
-        self.dynamic_panel.set_level_to_exception_result(text)
-
-    def _on_level_to_exception_toggled(self, active: bool):
-        # Lock GP Exception Premium on while the solve mode is active — both the
-        # solve and the displayed run depend on it.
-        if active:
-            self.exception_prem_check.setChecked(True)
-        self.exception_prem_check.setEnabled(not active)
+    def set_min_level_amount(self, value: Optional[float]):
+        self.dynamic_panel.set_min_level_amount(value)
 
     def stop_on_lapse_enabled(self) -> bool:
         return self.stop_on_lapse_check.isChecked()

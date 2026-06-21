@@ -29,6 +29,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator, QIntValidator
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QGridLayout,
@@ -118,6 +119,7 @@ class PolicyContext:
     max_level_premium_room: float = 0.0
     max_level_years: int = 0
     is_cvat: bool = False
+    has_loans: bool = False       # gates Min Level to Maturity (solver needs no loan)
     rate_class: str = ""          # Cov 1
     table_rating: int = 0         # Cov 1
     illustrated_rate: float = 0.0
@@ -288,6 +290,7 @@ def context_from_policy(policy) -> PolicyContext:
         max_level_premium_room=premium_room,
         max_level_years=max_level_years,
         is_cvat=is_cvat,
+        has_loans=bool(getattr(policy, "total_loan_balance", 0) or 0),
         rate_class=str(getattr(policy, "base_rate_class", "") or getattr(policy, "rate_class", "") or ""),
         table_rating=table_rating,
         illustrated_rate=illustrated_rate,
@@ -351,6 +354,16 @@ class _RateField(QLineEdit):
             return float((self.text() or "").strip()) / 100.0
         except ValueError:
             return 0.0
+
+
+# Premium-type dropdown values (premium section only). The two level types are a
+# GPT-only "solve" the engine fills in: Max Level is the closed-form maximum
+# guideline premium; Min Level is the minimum level premium that keeps the policy
+# in force to maturity (solved on Run Values).
+_TYPE_INPUT = "INPUT"
+_TYPE_MAX_LEVEL = "Max Level to Maturity"
+_TYPE_MIN_LEVEL = "Min Level to Maturity"
+_LEVEL_TYPES = (_TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL)
 
 
 class InputRow(QWidget):
@@ -439,9 +452,16 @@ class InputRow(QWidget):
         self.type_combo.blockSignals(True)
         self.type_combo.clear()
         if self._section.spec.allow_max_level_premium:
-            options = ["INPUT"] if self._ctx is not None and self._ctx.is_cvat else ["INPUT", "Max Level"]
+            # GPT policies can solve a level premium; CVAT only takes INPUT.
+            # Min Level needs the engine solver, which refuses loan policies.
+            if self._ctx is not None and self._ctx.is_cvat:
+                options = [_TYPE_INPUT]
+            else:
+                options = [_TYPE_INPUT, _TYPE_MAX_LEVEL]
+                if self._ctx is None or not self._ctx.has_loans:
+                    options.append(_TYPE_MIN_LEVEL)
             self.type_combo.addItems(options)
-            self.type_combo.setFixedWidth(76)
+            self.type_combo.setFixedWidth(150)
             if current in options:
                 self.type_combo.setCurrentText(current)
         else:
@@ -462,22 +482,51 @@ class InputRow(QWidget):
         self._refresh_max_level_amount()
         self.changed.emit()
 
+    def premium_type(self) -> str:
+        """The premium-type dropdown value (premium section)."""
+        return self.type_combo.currentText()
+
+    def is_min_level(self) -> bool:
+        return (self._section.spec.allow_max_level_premium
+                and self.type_combo.currentText() == _TYPE_MIN_LEVEL)
+
+    def set_amount_display(self, value: Optional[float]):
+        """Fill the (disabled) amount field with a solved value for display."""
+        if self.amount_edit is None:
+            return
+        if value is None:
+            self.amount_edit.setText("")
+        else:
+            self.amount_edit.set_value(value, decimals=2)
+
     def _refresh_max_level_amount(self):
         if self.amount_edit is None:
             return
-        is_max_level = (
+        level_capable = (
             self._section.spec.allow_max_level_premium
             and self._ctx is not None
             and not self._ctx.is_cvat
-            and self.type_combo.currentText() == "Max Level"
         )
-        self.amount_edit.setReadOnly(is_max_level)
-        if is_max_level:
+        ptype = self.type_combo.currentText()
+        if level_capable and ptype == _TYPE_MAX_LEVEL:
+            # Closed-form maximum guideline premium — read-only, filled now.
+            self.amount_edit.setEnabled(True)
+            self.amount_edit.setReadOnly(True)
             self.amount_edit.set_value(self._ctx.max_modal_level_premium(self.mode()), decimals=2)
             self.amount_edit.setToolTip(
-                "Calculated from remaining guideline premium room divided by the number of selected modal payments to maturity, capped at age 100."
-            )
+                "Maximum level premium: remaining guideline room divided by the modal "
+                "payments to maturity, capped at age 100.")
+        elif level_capable and ptype == _TYPE_MIN_LEVEL:
+            # Solved on Run Values — disabled and blank until the run fills it.
+            self.amount_edit.setText("")
+            self.amount_edit.setReadOnly(True)
+            self.amount_edit.setEnabled(False)
+            self.amount_edit.setToolTip(
+                "Minimum level premium that keeps the policy in force to maturity. "
+                "Solved when you Run Values.")
         else:
+            self.amount_edit.setEnabled(True)
+            self.amount_edit.setReadOnly(False)
             self.amount_edit.setToolTip("")
 
     def _clamp_year(self, year: float) -> int:
@@ -768,6 +817,7 @@ class DynamicSection(QGroupBox):
                 "amount": row.amount(),
                 "value": row.chosen_value(),
                 "mode": row.mode(),
+                "type": row.premium_type(),
             })
         out.sort(key=lambda e: e["year"])
         return out
@@ -1154,10 +1204,6 @@ class RiderButtonsPanel(QGroupBox):
 class DynamicInputsPanel(QWidget):
     """The "Input" tab: suspended banner, request sections, rider buttons."""
 
-    # Emitted when the "Max Level Premium to Exception" mode is toggled. The
-    # parent tab locks the Allow GP Exception toggle on while it is active.
-    level_to_exception_toggled = pyqtSignal(bool)
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self._ctx = PolicyContext()
@@ -1190,29 +1236,28 @@ class DynamicInputsPanel(QWidget):
         )
         self.max_annual_level_label.setToolTip(max_annual_tip)
         self.max_annual_level_edit.setToolTip(max_annual_tip)
-        # "Max Level Premium to Exception" — a checkable mode that takes over the
-        # whole input set: when on, every other input is disabled and the engine
-        # is fed the single solved level premium (see main_window._on_run_values).
-        self.level_to_exception_btn = QPushButton("Max Level Premium to Exception")
-        self.level_to_exception_btn.setCheckable(True)
-        lte_tip = (
-            "Solve the minimum level premium (at the policy's billing mode) that keeps the "
-            "policy in force to maturity — level right up to the GLP Exception period. "
-            "Disables all other inputs. Unavailable for CVAT or loan policies."
-        )
-        self.level_to_exception_btn.setToolTip(lte_tip)
-        self.level_to_exception_btn.toggled.connect(self._on_level_to_exception_toggled)
-        self.level_to_exception_result = QLabel("")
-        self.level_to_exception_result.setStyleSheet(_CAPTION_STYLE)
+        # Allow GP Exception Premium lives on the Input sheet (moved from the
+        # Illustration Control tab). Min Level to Maturity forces it on and locks
+        # it, since reaching maturity for a guideline-bound policy relies on it.
+        self.exception_prem_check = QCheckBox("Allow GP Exception Premium")
+        self.exception_prem_check.setStyleSheet(
+            f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
+            " font-weight: bold; spacing: 6px; }"
+            "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px;"
+            " background-color: white; }"
+            "QCheckBox::indicator:disabled { background-color: #E8DDF8; }"
+            "QCheckBox::indicator:checked { background-color: #5E35A5; }")
+        self.exception_prem_check.setToolTip(
+            "Allow the guideline-premium exception premium when the policy is guideline-"
+            "limited and would otherwise lapse.")
         rate_row.addWidget(rate_label)
         rate_row.addWidget(self.illustrated_rate_edit)
         rate_row.addWidget(rate_suffix)
         rate_row.addSpacing(16)
         rate_row.addWidget(self.max_annual_level_label)
         rate_row.addWidget(self.max_annual_level_edit)
-        rate_row.addSpacing(16)
-        rate_row.addWidget(self.level_to_exception_btn)
-        rate_row.addWidget(self.level_to_exception_result)
+        rate_row.addSpacing(24)
+        rate_row.addWidget(self.exception_prem_check)
         rate_row.addStretch(1)
         outer.addLayout(rate_row)
 
@@ -1266,6 +1311,10 @@ class DynamicInputsPanel(QWidget):
         self.riders_panel = RiderButtonsPanel(self)
         outer.addWidget(self.riders_panel)
 
+        # A level type (Max/Min) on a premium row locks the other sections;
+        # Min Level also forces the exception toggle on.
+        self.premium_section.changed.connect(self._on_premium_changed)
+
     # ── loading ───────────────────────────────────────────────
 
     def load_from_policy(self, policy):
@@ -1279,13 +1328,11 @@ class DynamicInputsPanel(QWidget):
         show_max_level = not self._ctx.is_cvat
         self.max_annual_level_label.setVisible(show_max_level)
         self.max_annual_level_edit.setVisible(show_max_level)
-        # Max Level Premium to Exception: GPT-only, and unavailable with a loan.
-        has_loans = bool(getattr(policy, "total_loan_balance", 0) or 0)
-        if self.level_to_exception_btn.isChecked():
-            self.level_to_exception_btn.setChecked(False)  # restores other inputs
-        self.level_to_exception_btn.setEnabled(show_max_level and not has_loans)
-        self.level_to_exception_result.setText("")
+        self.exception_prem_check.setEnabled(True)
         self.riders_panel.set_policy(policy, self._ctx)
+        # Reset the lock/exception state for the freshly loaded policy (the
+        # premium section reset to a single INPUT row above doesn't emit changed).
+        self._on_premium_changed()
 
         if self._ctx.suspended and self._ctx.valuation_date is not None:
             valuation = self._ctx.valuation_date
@@ -1303,31 +1350,55 @@ class DynamicInputsPanel(QWidget):
     def illustrated_rate(self) -> float:
         return self.illustrated_rate_edit.rate()
 
-    # ── Max Level Premium to Exception ────────────────────────
+    # ── Level-premium types (Max / Min Level to Maturity) ─────
 
-    def level_to_exception_active(self) -> bool:
-        return self.level_to_exception_btn.isChecked()
+    def active_level_premium_type(self) -> Optional[str]:
+        """The level type selected on any premium row, or None."""
+        for row in self.premium_section.rows():
+            if row.premium_type() in _LEVEL_TYPES:
+                return row.premium_type()
+        return None
 
-    def set_level_to_exception_result(self, text: str):
-        self.level_to_exception_result.setText(text or "")
+    def min_level_request(self) -> Optional[dict]:
+        """``{'start_year', 'mode'}`` for the Min Level row, or None.
 
-    def _on_level_to_exception_toggled(self, active: bool):
-        # Solo-solve mode: disable every other input; the engine is fed only the
-        # solved level premium. Clear the displayed result when turned off.
-        self._set_other_inputs_enabled(not active)
-        if not active:
-            self.level_to_exception_result.setText("")
-        self.level_to_exception_toggled.emit(active)
+        Min Level has no amount until the run solves it, so main_window detects
+        it here and solves on the projectable policy.
+        """
+        if self._ctx is None or self._ctx.is_cvat:
+            return None
+        for row in self.premium_section.rows():
+            if row.is_min_level():
+                year = row.year() or self._ctx.forecast_year
+                return {"start_year": int(year), "mode": row.mode()}
+        return None
 
-    def _set_other_inputs_enabled(self, enabled: bool):
-        for widget in (
-            self.illustrated_rate_edit, self.max_annual_level_label,
-            self.max_annual_level_edit, self.premium_section, self.loan_section,
-            self.withdrawal_section, self.repayment_section, self.face_section,
-            self.dbo_section, self.rateclass_section, self.table_section,
-            self.riders_panel,
+    def set_min_level_amount(self, value: Optional[float]):
+        """Fill the Min Level row's (disabled) amount field after a run."""
+        for row in self.premium_section.rows():
+            if row.is_min_level():
+                row.set_amount_display(value)
+                return
+
+    def _on_premium_changed(self):
+        # A level type (Max/Min) locks every non-premium input; prior premium
+        # rows stay editable. Min Level also forces the exception toggle on.
+        level = self.active_level_premium_type()
+        self._set_other_sections_locked(level is not None)
+        if level == _TYPE_MIN_LEVEL:
+            self.exception_prem_check.setChecked(True)
+            self.exception_prem_check.setEnabled(False)
+        else:
+            self.exception_prem_check.setEnabled(True)
+
+    def _set_other_sections_locked(self, locked: bool):
+        # Everything except the premium rows and the illustrated rate.
+        for section in (
+            self.loan_section, self.withdrawal_section, self.repayment_section,
+            self.face_section, self.dbo_section, self.rateclass_section,
+            self.table_section, self.riders_panel,
         ):
-            widget.setEnabled(enabled)
+            section.setEnabled(not locked)
 
     # ── export ────────────────────────────────────────────────
 
@@ -1415,7 +1486,13 @@ class DynamicInputsPanel(QWidget):
 
     def collect_into(self, input_set: IllustrationInputSet):
         ctx = self._ctx
-        prem_entries = [e for e in self.premium_section.entries() if e["amount"] is not None]
+        level_active = self.active_level_premium_type() is not None
+        # Min Level rows carry no amount until the run solves them — exclude them
+        # here; main_window solves and injects that premium separately.
+        prem_entries = [
+            e for e in self.premium_section.entries()
+            if e["amount"] is not None and e.get("type") != _TYPE_MIN_LEVEL
+        ]
         dated_prem, sched_prem = self._split_current_year(prem_entries)
         if prem_entries:
             # Any premium input REPLACES the billed default from the forecast
@@ -1428,6 +1505,11 @@ class DynamicInputsPanel(QWidget):
             self._expand_dated(dated_prem, TransactionKind.PREMIUM, on_due_dates=True))
         input_set.scheduled_transactions.extend(
             self._scheduled(sched_prem, TransactionKind.PREMIUM))
+
+        # A level premium type (Max/Min Level to Maturity) locks every other
+        # input — honor only the premium rows above.
+        if level_active:
+            return
 
         loan_entries = [e for e in self.loan_section.entries() if e["amount"] is not None]
         dated_loan, sched_loan = self._split_current_year(loan_entries)

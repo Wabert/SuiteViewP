@@ -27,6 +27,9 @@ def main() -> None:
     from suiteview.illustration.core.solve_level_to_exception import (
         solve_level_to_exception, LevelToExceptionError,
     )
+    from suiteview.illustration.models.input_set import (
+        IllustrationInputSet, ScheduledTransaction, TransactionKind,
+    )
 
     policy = cmd.get("policy", "UL062614")
     region = cmd.get("region", "CKPR")
@@ -53,6 +56,22 @@ def main() -> None:
     if policy == "UL062614" and mode in (None, "M"):
         ok = 48.00 < r.premium <= 48.20
         print(f"  EXPECT (48.00, 48.20]: {'PASS' if ok else 'FAIL'}")
+
+    # Prior-premium scenario: honor $100/mo from the forecast year, solve the
+    # Min Level premium that takes over `start` years later.
+    start = int(cmd.get("prior_start", 0))
+    if start:
+        prior_amt = float(cmd.get("prior_amount", 100.0))
+        base = IllustrationInputSet(scheduled_transactions=[
+            ScheduledTransaction(kind=TransactionKind.PREMIUM,
+                                 policy_year=start - 5, amount=prior_amt, mode="M")])
+        r2 = solve_level_to_exception(
+            pdata, mode="M", start_policy_year=start, base_future_inputs=base)
+        print(f"\n  prior ${prior_amt:.0f}/mo for yrs {start-5}..{start-1}, "
+              f"then Min Level from yr {start}:")
+        print(f"    solved level   : {r2.premium:.2f} / {r2.mode}")
+        print(f"    enters exc     : {r2.enters_exception}  start={r2.exception_start}")
+        print(f"    maturity AV    : {r2.maturity_av:.2f}  iters={r2.iterations}")
 
 
 if __name__ == "__main__":

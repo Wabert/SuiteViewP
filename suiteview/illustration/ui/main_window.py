@@ -325,13 +325,15 @@ class IllustrationWindow(FramelessWindowBase):
 
             self._last_scenario = scenario
 
-            # "Max Level Premium to Exception": ignore every other input and feed
-            # the engine the single solved level premium, under the same guideline
-            # + exception basis the solver used (or the premium won't behave as
-            # solved). Other modes run exactly as the user configured them.
+            # "Min Level to Maturity" premium type: solve the minimum level
+            # premium that keeps the policy in force to maturity, honoring the
+            # prior premium rows, then layer it on top from its start year under
+            # the same guideline + exception basis the solver used (or the premium
+            # won't behave as solved). Other modes run as the user configured them.
             future_inputs = scenario.future_inputs
             run_options = self.inputs_tab.export_options()
-            if self.inputs_tab.level_to_exception_active():
+            min_level = self.inputs_tab.min_level_request()
+            if min_level is not None:
                 from suiteview.illustration.core.solve_level_to_exception import (
                     LevelToExceptionError, level_to_exception_options,
                     solve_level_to_exception,
@@ -341,25 +343,29 @@ class IllustrationWindow(FramelessWindowBase):
                 )
                 try:
                     lte = solve_level_to_exception(
-                        scenario.projectable_policy, base_options=run_options)
+                        scenario.projectable_policy,
+                        mode=min_level["mode"],
+                        start_policy_year=min_level["start_year"],
+                        base_future_inputs=future_inputs,
+                        base_options=run_options)
                 except LevelToExceptionError as exc:
                     QApplication.restoreOverrideCursor()
                     self.run_values_btn.setEnabled(True)
-                    QMessageBox.information(
-                        self, "Max Level Premium to Exception", str(exc))
+                    self.inputs_tab.set_min_level_amount(None)
+                    QMessageBox.information(self, "Min Level to Maturity", str(exc))
                     self._show_status(str(exc))
                     return
-                future_inputs = IllustrationInputSet(scheduled_transactions=[
-                    ScheduledTransaction(
-                        kind=TransactionKind.PREMIUM, policy_year=1,
-                        amount=lte.premium, mode=lte.mode)])
+                sched = list(future_inputs.scheduled_transactions)
+                sched.append(ScheduledTransaction(
+                    kind=TransactionKind.PREMIUM,
+                    policy_year=int(min_level["start_year"]),
+                    amount=lte.premium, mode=lte.mode))
+                future_inputs = IllustrationInputSet(
+                    scheduled_transactions=sched,
+                    dated_transactions=list(future_inputs.dated_transactions),
+                    policy_changes=list(future_inputs.policy_changes))
                 run_options = level_to_exception_options(run_options)
-                if lte.enters_exception and lte.exception_start is not None:
-                    tail = f"exception {lte.exception_start:%m/%d/%Y}"
-                else:
-                    tail = "endows"
-                self.inputs_tab.set_level_to_exception_result(
-                    f"{lte.premium:,.2f} / {lte.mode}  ·  {tail}")
+                self.inputs_tab.set_min_level_amount(lte.premium)
 
             engine = IllustrationEngine()
             results = engine.project(
