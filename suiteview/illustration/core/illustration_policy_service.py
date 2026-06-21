@@ -157,12 +157,27 @@ def build_illustration_data(
             float(paid or 0.0) - float(withdrawn or 0.0)
         )
 
+    as_of_date = valuation_date or date.today()
+
     # ── Build coverage segments ───────────────────────────────
     segments = []
     try:
         base_covs = pi.get_base_coverages()
     except Exception:
         base_covs = []
+
+    active_base_covs = [
+        cov for cov in base_covs
+        if not _coverage_is_terminated(cov, as_of_date)
+    ]
+    if base_covs:
+        face_amount = sum(float(cov.face_amount or 0.0) for cov in active_base_covs)
+        units = sum(
+            float(cov.units) if cov.units else float(cov.face_amount or 0.0) / 1000.0
+            for cov in active_base_covs
+        )
+        raw_band = rates_db.get_band(plancode, face_amount)
+        band = raw_band if raw_band is not None else 1
 
     substandard_by_phase = {}
     try:
@@ -171,7 +186,7 @@ def build_illustration_data(
     except Exception:
         substandard_by_phase = {}
 
-    for cov in base_covs:
+    for cov in active_base_covs:
         seg_face = float(cov.face_amount) if cov.face_amount else 0.0
         seg_orig_face = float(cov.orig_amount) if cov.orig_amount else seg_face
         seg_units = float(cov.units) if cov.units else seg_face / 1000.0
@@ -230,7 +245,6 @@ def build_illustration_data(
     except Exception:
         raw_benefits = []
 
-    as_of_date = valuation_date or date.today()
     for b in raw_benefits:
         if b.cease_date and b.cease_date < as_of_date:
             continue

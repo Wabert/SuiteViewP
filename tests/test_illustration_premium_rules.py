@@ -18,6 +18,8 @@ from suiteview.illustration.models.policy_data import CoverageSegment, Illustrat
 def test_glp_normalizes_to_monthly_twelfths():
     # 2519.75 / 12 = 209.97916… -> floor to 209.97 -> * 12 = 2519.64
     assert floor_monthly_cent(2519.75) == 2519.64
+    # Negative amounts floor downward, not toward zero.
+    assert floor_monthly_cent(-160.46) == -160.56
     # Already a clean 12x stays put (idempotent).
     assert floor_monthly_cent(2519.64) == 2519.64
     # The twelfth is an exact cent amount.

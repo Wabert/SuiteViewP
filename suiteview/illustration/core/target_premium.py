@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Dict, Optional
 
 from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -311,9 +311,7 @@ def floor_monthly_cent(value: float) -> float:
     Decimal arithmetic — binary floats put already-exact values like 52004.28
     a hair below their cent boundary and a raw floor() drops a cent.
     """
-    if value <= 0.0:
-        return value
-    monthly_cents = (Decimal(f"{value:.10f}") * 100 / 12).to_integral_value(rounding=ROUND_DOWN)
+    monthly_cents = (Decimal(f"{value:.10f}") * 100 / 12).to_integral_value(rounding=ROUND_FLOOR)
     return float(monthly_cents * 12) / 100.0
 
 
