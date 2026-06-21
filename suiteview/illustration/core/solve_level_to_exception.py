@@ -67,15 +67,19 @@ def level_to_exception_options(base: Optional[IllustrationOptions]) -> Illustrat
 
     The exception premium is the whole point of the solve — and what guarantees a
     high-enough premium always survives — so it is enabled regardless of the
-    caller's toggle. Only the interest-day convention is inherited. The displayed
-    run must use this same basis, or the solved premium won't behave as solved.
+    caller's toggle. The interest-day convention and the premium-levelizing choice
+    are inherited so the applied (non-exception) premium is shown consistently
+    with the rest of the app; both the solve and the displayed run use this same
+    basis, or the solved premium won't behave as solved.
     """
     exact = getattr(base, "exact_days_interest", None) if base is not None else None
+    levelizing = bool(getattr(base, "levelizing_premium", False)) if base is not None else False
     return IllustrationOptions(
         conform_to_tefra=True,
         conform_to_tamra=True,
         allow_exception_prems=True,
         exact_days_interest=exact,
+        levelizing_premium=levelizing,
     )
 
 
