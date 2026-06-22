@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 DB2 = "DB2"
 SQL_SERVER = "SQL_SERVER"
 ACCESS = "ACCESS"
+DUCKDB = "DUCKDB"  # flat-file sources (File Source) run through DuckDB
+
+# Dialects that quote identifiers with ANSI double quotes (vs square brackets).
+_DOUBLE_QUOTE_DIALECTS = (DB2, DUCKDB)
 
 
 def _escape(val: str) -> str:
@@ -28,7 +32,7 @@ def _escape(val: str) -> str:
 
 def _q(col: str, dialect: str = SQL_SERVER) -> str:
     """Quote a column identifier for the target dialect."""
-    if dialect == DB2:
+    if dialect in _DOUBLE_QUOTE_DIALECTS:
         return f'"{col}"'
     # SQL_SERVER and ACCESS both use square brackets
     return f"[{col}]"
@@ -36,7 +40,7 @@ def _q(col: str, dialect: str = SQL_SERVER) -> str:
 
 def _alias(name: str, dialect: str = SQL_SERVER) -> str:
     """Quote a SELECT alias for the target dialect."""
-    if dialect == DB2:
+    if dialect in _DOUBLE_QUOTE_DIALECTS:
         return f'"{name}"'
     return f"[{name}]"
 
@@ -118,6 +122,8 @@ def build_dynamic_sql(
             if n > 0:
                 if dialect == DB2:
                     fetch_clause = f"\nFETCH FIRST {n} ROWS ONLY"
+                elif dialect == DUCKDB:
+                    fetch_clause = f"\nLIMIT {n}"
                 else:
                     top_clause = f"TOP {n} "
         except ValueError:
@@ -364,6 +370,8 @@ def build_join_sql(
             if n > 0:
                 if dialect == DB2:
                     fetch_clause = f"\nFETCH FIRST {n} ROWS ONLY"
+                elif dialect == DUCKDB:
+                    fetch_clause = f"\nLIMIT {n}"
                 else:
                     top_clause = f"TOP {n} "
         except ValueError:
@@ -516,7 +524,8 @@ def build_common_table_cte(
 
         values_block = ",\n        ".join(row_strs)
 
-        if dialect == DB2:
+        if dialect in (DB2, DUCKDB):
+            # DuckDB accepts the same `name (cols) AS (VALUES ...)` CTE form.
             cte = (
                 f"{ct.name} ({col_names}) AS (\n"
                 f"    VALUES {values_block}\n"

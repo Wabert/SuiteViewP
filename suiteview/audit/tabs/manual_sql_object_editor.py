@@ -190,6 +190,7 @@ class ManualSqlObjectEditor(QWidget):
         super().__init__(parent)
         self._df: pd.DataFrame | None = None
         self._dsn = ""
+        self._file_source_token = ""  # "file:<id>" when targeting a File Source
         self._original_name = ""
         self._result_columns: list[str] = []
         self._column_types: dict[str, str] = {}
@@ -401,8 +402,26 @@ class ManualSqlObjectEditor(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             self.new_object()
 
+    def set_file_source(self, fds):
+        """Target a File Source: the SQL Assist lists its member tables + schema
+        (no ODBC), and Run executes through DuckDB (the AuditWindow routes it)."""
+        from suiteview.audit.file_source import datasource_label
+
+        self._file_source_token = f"file:{fds.id}"
+        label = f"{fds.name} [{datasource_label(fds)}]"
+        table_fields = {
+            member.resolved_table_name():
+                [(col.name, col.data_type) for col in fds.columns]
+            for member in fds.members
+        }
+        self.sql_assist.load_local_source(label, self._file_source_token, table_fields)
+        self.lbl_status.setText(
+            f"Querying file source “{fds.name}” via DuckDB — "
+            "write SQL over its tables")
+
     def new_object(self):
         """Reset the editor for a new Manual SQL object."""
+        self._file_source_token = ""
         self._original_name = ""
         self._pinned_tables = []
         self._common_table_names = []

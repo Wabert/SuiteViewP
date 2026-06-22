@@ -1,0 +1,114 @@
+"""Unit tests for File Source intake + drag-drop validation (Phase 2 backbone).
+
+Self-contained (writes temp files, no DB2), runs on the minipc.
+"""
+import os
+import sys
+
+import pytest
+
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+
+from suiteview.audit.adhoc_source_intake import fixed_width_spec  # noqa: E402
+from suiteview.audit.file_source_intake import (  # noqa: E402
+    FileValidationError, add_member_file, infer_file_source_from_file,
+    unique_table_name, validate_member_file,
+)
+
+
+def _write(path, text):
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+# ── Inference ──────────────────────────────────────────────────────────────
+
+def test_infer_csv_builds_source_with_schema_and_member(tmp_path):
+    path = _write(tmp_path / "CLAIMS.csv",
+                  "policy,state,amount\nP1,TX,100\nP2,CA,200\n")
+    fds = infer_file_source_from_file(path)
+    assert fds.source_type == "csv"
+    assert fds.column_names == ["policy", "state", "amount"]
+    assert fds.parse_spec.get("format") == "delimited"
+    assert "path" not in fds.parse_spec  # parse spec is reusable, not per-file
+    assert fds.table_names == ["CLAIMS"]
+
+
+def test_infer_fixed_width_source(tmp_path):
+    path = _write(tmp_path / "FW.txt", "PROD1TX0100\nPROD2CA0200\n")
+    spec = fixed_width_spec([
+        {"name": "code", "start": 1, "width": 5},
+        {"name": "state", "start": 6, "width": 2},
+        {"name": "amt", "start": 8, "width": 4},
+    ])
+    fds = infer_file_source_from_file(path, format_spec=spec)
+    assert fds.source_type == "fixed_width"
+    assert fds.column_names == ["code", "state", "amt"]
+
+
+# ── Validation ─────────────────────────────────────────────────────────────
+
+def test_validate_matching_file_has_no_missing_columns(tmp_path):
+    a = _write(tmp_path / "CLAIMS.csv", "policy,state,amount\nP1,TX,100\n")
+    fds = infer_file_source_from_file(a)
+    b = _write(tmp_path / "RGACLAIMS.csv", "policy,state,amount\nR1,TX,500\n")
+    assert validate_member_file(fds, b) == []
+
+
+def test_validate_reports_missing_columns(tmp_path):
+    a = _write(tmp_path / "CLAIMS.csv", "policy,state,amount\nP1,TX,100\n")
+    fds = infer_file_source_from_file(a)
+    wrong = _write(tmp_path / "OTHER.csv", "foo,bar\n1,2\n")
+    missing = validate_member_file(fds, wrong)
+    assert set(missing) == {"policy", "state", "amount"}
+
+
+# ── Adding members ─────────────────────────────────────────────────────────
+
+def test_add_member_file_appends_matching_file(tmp_path):
+    a = _write(tmp_path / "CLAIMS.csv", "policy,state,amount\nP1,TX,100\n")
+    fds = infer_file_source_from_file(a)
+    b = _write(tmp_path / "RGACLAIMS.csv", "policy,state,amount\nR1,TX,500\n")
+    member = add_member_file(fds, b)
+    assert member.resolved_table_name() == "RGACLAIMS"
+    assert fds.table_names == ["CLAIMS", "RGACLAIMS"]
+
+
+def test_add_member_rejects_mismatched_file(tmp_path):
+    a = _write(tmp_path / "CLAIMS.csv", "policy,state,amount\nP1,TX,100\n")
+    fds = infer_file_source_from_file(a)
+    wrong = _write(tmp_path / "OTHER.csv", "foo,bar\n1,2\n")
+    with pytest.raises(FileValidationError):
+        add_member_file(fds, wrong)
+    assert len(fds.members) == 1  # not added
+
+
+def test_add_member_rejects_duplicate_path(tmp_path):
+    a = _write(tmp_path / "CLAIMS.csv", "policy,state,amount\nP1,TX,100\n")
+    fds = infer_file_source_from_file(a)
+    with pytest.raises(FileValidationError):
+        add_member_file(fds, a)
+
+
+def test_table_names_dedupe_across_folders(tmp_path):
+    a = _write(tmp_path / "CLAIMS.csv", "policy,state,amount\nP1,TX,100\n")
+    fds = infer_file_source_from_file(a)
+    sub = tmp_path / "rga"
+    sub.mkdir()
+    b = _write(sub / "CLAIMS.csv", "policy,state,amount\nR1,TX,500\n")
+    member = add_member_file(fds, b)
+    # Same stem in a different folder gets a unique table name.
+    assert member.resolved_table_name() == "CLAIMS_2"
+    assert fds.table_names == ["CLAIMS", "CLAIMS_2"]
+
+
+def test_unique_table_name_helper(tmp_path):
+    a = _write(tmp_path / "CLAIMS.csv", "policy\nP1\n")
+    fds = infer_file_source_from_file(a)
+    assert unique_table_name(fds, "CLAIMS") == "CLAIMS_2"
+    assert unique_table_name(fds, "NEW") == "NEW"
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-v"]))

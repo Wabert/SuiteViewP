@@ -260,6 +260,7 @@ class FieldPickerPanel(QWidget):
         self._field_cache: dict[str, list[tuple]] = {}
         self._common_table_cols: dict[str, list[tuple]] = {}
         self._connections: list[tuple[str, str]] = []
+        self._local_mode = False  # file-backed source: tables/fields from a stored schema, no ODBC
         self._fields_sort_mode = "native"
         self._preferred_table: str = ""
         self._pinned_tables: set[str] = set()
@@ -533,11 +534,33 @@ class FieldPickerPanel(QWidget):
         logger.warning("Visual Query SQL Assist table load failed: %s", message)
         self._table_loader = None
 
+    def load_local_source(self, label: str, token: str,
+                          table_fields: dict[str, list[tuple[str, str]]]):
+        """Show a file-backed source: tables + fields from a stored schema, no ODBC.
+
+        ``table_fields`` maps table name -> [(column, type), ...]. Tables and
+        columns are served directly (the field cache is pre-filled), so the
+        ODBC loader threads are never used while this source is active.
+        """
+        self._local_mode = True
+        self.set_connection_options([(label, token)], token)
+        self._dsn = token
+        self._tables = list(table_fields.keys())
+        self._pinned_tables = set(self._tables)
+        self._field_cache = {
+            name: [(col, type_name, None, "", False) for col, type_name in cols]
+            for name, cols in table_fields.items()
+        }
+        self._current_table = ""
+        self._preferred_table = self._tables[0] if self._tables else ""
+        self._rebuild_table_list()
+
     def set_group(self, dsn: str, tables: list[str],
                   display_names: dict[str, str],
                   preferred_table: str = "",
                   pinned_tables: list[str] | None = None):
         """Load tables and fields from a dynamic group."""
+        self._local_mode = False
         previous_dsn = self._dsn
         self._dsn = dsn
         self._display_names = display_names
@@ -670,6 +693,11 @@ class FieldPickerPanel(QWidget):
         if table in self._field_cache:
             self._populate_fields(table, self._field_cache[table])
             return
+        if self._local_mode:
+            # File-backed sources serve only from the pre-filled cache.
+            self.list_fields.clear()
+            self.lbl_status.setText("")
+            return
         self.list_fields.clear()
         self.lbl_status.setText("Loading...")
         self._loader = _FieldLoaderThread(self._dsn, table, self)
@@ -752,6 +780,8 @@ class FieldPickerPanel(QWidget):
 
     def _show_table_context_menu(self, pos):
         """Right-click a table → pin/unpin or show field details."""
+        if self._local_mode:
+            return  # file-backed tables aren't ODBC-removable / previewable here
         item = self.list_tables.itemAt(pos)
         if item is None:
             return
@@ -858,7 +888,7 @@ class FieldPickerPanel(QWidget):
 
     def _on_add_table(self):
         """Open the Add Table dialog to add more tables from the DSN."""
-        if not self._dsn:
+        if not self._dsn or self._local_mode:
             return
         from .dialogs.tables_dialog import _AddTableDialog
         existing = _dedupe_tables(list(self._tables) + list(self._common_table_cols.keys()))

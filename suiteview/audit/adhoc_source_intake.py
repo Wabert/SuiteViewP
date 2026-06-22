@@ -190,9 +190,14 @@ def dataframe_from_adhoc_metadata(
     metadata: dict[str, Any],
     *,
     columns: list[str] | None = None,
+    nrows: int | None = None,
 ):
-    """Load an ad hoc file source into a pandas DataFrame."""
-    df = _dataframe_from_source_metadata(source_type, metadata)
+    """Load an ad hoc file source into a pandas DataFrame.
+
+    ``nrows`` limits how many rows are read (e.g. a sample for fast validation);
+    None reads the whole file.
+    """
+    df = _dataframe_from_source_metadata(source_type, metadata, nrows=nrows)
 
     if columns:
         available = [column for column in columns if column in df.columns]
