@@ -2138,6 +2138,14 @@ class AuditWindow(FramelessWindowBase):
             on_busy=self.manual_sql_object_tab.set_running,
         )
 
+    def new_query_on_file_source(self, file_source_id: str, *, mode: str = "visual"):
+        """Start a new query on a saved File Source — the Object Browser's
+        Data Sources dashboard "New Query" action routes here."""
+        if mode == "manual":
+            self._open_manual_sql_on_file_source(file_source_id)
+        else:
+            self._open_visual_query_on_file_source(file_source_id)
+
     def _open_manual_sql_on_file_source(self, file_source_id: str):
         """Open the Manual SQL editor targeted at a saved File Source (DuckDB)."""
         from suiteview.audit import file_query_runner

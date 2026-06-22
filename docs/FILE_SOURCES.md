@@ -129,17 +129,34 @@ this was a small, additive change.
     `adhoc_source_intake.py`) once the browser is confirmed clean. Optionally
     fold the File Source browser into the unified Object Browser.
 
-- **Phase 4 — Data Sources tab as a source registry:** 🚧 *step 1 built
-  (2026-06-22); step 2 (this spec) written; step 3 deferred.* The Object
-  Browser's Data Sources tab was a read-only side-effect view that borrowed the
-  QueryObject detail canvas. Rework it into the place you **add, configure, test,
-  and inspect** data sources (File Source, ODBC/DB2, SQL Server, MS Access). Full
-  design in **§6**. Step 1 (done): removed `File Source` from the Audit Build-Mode
-  dropdown and the New-Query chooser (defining a source is not a query build
-  mode); added a `+ New File Source` button to the Data Sources tab backed by the
-  new public `AuditWindow.new_file_source()`. Step 3 (to build): the source
-  dashboard canvas, the typed `Add Data Source` chooser, registered ODBC/Access
-  sources, and folding away the legacy `Files` group.
+- **Phase 4 — Data Sources tab as a source registry:** 🚧 *steps 1–2 + 3a built
+  (2026-06-22); step 3b deferred.* The Object Browser's Data Sources tab was a
+  read-only side-effect view that borrowed the QueryObject detail canvas. Rework
+  it into the place you **add, configure, test, and inspect** data sources (File
+  Source, ODBC/DB2, SQL Server, MS Access). Full design in **§6**.
+  - **Step 1 (done):** removed `File Source` from the Audit Build-Mode dropdown
+    and the New-Query chooser; `+ New File Source` button backed by public
+    `AuditWindow.new_file_source()`.
+  - **Step 2 (done):** the §6 spec.
+  - **Step 3a (done, screenshot-verified):** the **source dashboard** —
+    `_SourceDashboard` (a new page in `_browser_canvas_stack`) replaces the
+    borrowed query tabs for source nodes. Header = name + type badge + health
+    pill + actions (Test / Edit Setup / New Query▾ / Open Folder / Delete);
+    body = `StyledInfoTableGroup` panels Setup / Tables / Columns / Used-by,
+    re-skinned to Audit Blue/Gold (`_DASHBOARD_GROUP_STYLE`, since the shared
+    widget carries PolView green). First-class File Sources (`file_data_source`)
+    now have a real detail view (they previously showed nothing on single-click);
+    health = member-file existence; Edit Setup → `FileSourceEditor`; New Query →
+    `AuditWindow.new_query_on_file_source(id, mode)`; Delete →
+    `file_source_store.delete_file_source_by_id`. ODBC + legacy `file_source` are
+    routed to the dashboard read-only (Setup + Used-by; health from
+    `get_dsn_details` / file existence). Removed the dead
+    `_configure_data_source_tables` + four source-row helpers. Harness:
+    `tools/show_source_dashboard.py`.
+  - **Step 3b (to build):** the typed `Add Data Source ▾` chooser, **registered**
+    ODBC/Access source entities (a `DataSource` store so a DSN/Access file can be
+    named + health-checked before any query uses it — §6.5), real Test-Connection
+    per type, and folding away the legacy `Files` group (§6.6).
 
 ## 5. Constraints
 - DuckDB + flat-file logic is fully testable on the minipc; interactive UI
@@ -254,6 +271,17 @@ All in `query_object_viewer_window.py` unless noted:
   step 3 lands — retire it then.
 
 ## Changelog
+- **2026-06-22 (Phase 4, step 3a)** — The source-dashboard canvas. New
+  `_SourceDashboard` widget (own page in `_browser_canvas_stack`) replaces the
+  borrowed QueryObject detail tabs for Data Source nodes: header (name + type
+  badge + health pill + Test/Edit Setup/New Query▾/Open Folder/Delete) over
+  `StyledInfoTableGroup` Setup/Tables/Columns/Used-by panels, re-skinned to Audit
+  Blue/Gold. First-class File Sources got a real single-click detail view +
+  member-file health; `AuditWindow.new_query_on_file_source(id, mode)` powers the
+  New Query action. Removed dead `_configure_data_source_tables` and four
+  now-unused source-row helpers. `tools/show_source_dashboard.py`. Suite: 441
+  passed, 13 pre-existing live-DB2/illustration failures (unrelated). Remaining:
+  step 3b (Add Data Source chooser + registered ODBC/Access + fold `Files`).
 - **2026-06-22 (Phase 4, step 1 + spec)** — Started the Data Sources tab →
   source registry rework (§6). Step 1 (built, screenshot-verified): removed
   `File Source` from the Audit Build-Mode dropdown and the New-Query chooser

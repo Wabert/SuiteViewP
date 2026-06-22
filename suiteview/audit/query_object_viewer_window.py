@@ -88,6 +88,7 @@ from suiteview.core.odbc_utils import (
     detect_dialect,
     get_dsn_details,
 )
+from suiteview.polview.ui.widgets import StyledInfoTableGroup
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 from suiteview.ui.widgets.bookmark_widgets import (
@@ -118,6 +119,19 @@ _BTN_DANGER_STYLE = (
     " border: 1px solid #900; border-radius: 3px;"
     " padding: 3px 10px; font-size: 8pt; }"
     "QPushButton:hover { background-color: #E00000; }"
+)
+
+# StyledInfoTableGroup ships PolView's identity (its BLUE_* constants resolve to
+# green). The Audit tool is Blue/Gold, so re-skin the dashboard panels to match.
+_DASHBOARD_GROUP_STYLE = (
+    "QGroupBox { font-size: 11px; font-weight: bold; color: #0D3A7A;"
+    " border: 2px solid #1E5BA8; border-radius: 8px; margin-top: 3px;"
+    " background-color: white; }"
+    "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left;"
+    " padding: 1px 10px; background-color: #1E5BA8; color: #D4A017;"
+    " border-radius: 4px; left: 10px; }"
+    "QGroupBox QLabel { font-size: 10px; color: #444; border: none;"
+    " background: transparent; }"
 )
 
 # ── Tree item payloads (UserRole) ───────────────────────────────────────
@@ -485,6 +499,145 @@ def _limited_preview_sql(sql: str, limit: int, dialect: str) -> str:
     return f"SELECT TOP {limit} * FROM (\n{sql}\n) AS QOBJ_PREVIEW"
 
 
+_HEALTH_PILL_COLORS = {
+    "ok": ("#E6F4EA", "#1E7E34", "#A3D9B1"),
+    "warn": ("#FFF4D6", "#9A7A00", "#E6D08A"),
+    "bad": ("#FCE8E8", "#B71C1C", "#E6A6A6"),
+    "neutral": ("#EEF2F7", "#475569", "#C9D5E3"),
+}
+
+
+class _SourceDashboard(QWidget):
+    """Detail view for a Data Source — a source dashboard, not a query inspector.
+
+    A data source is a thing you *connect to* (a DSN, an Access file, a File
+    Source), so this surfaces its identity, reachability (health), connection
+    setup, the tables it exposes, their columns, and which Query Objects use it
+    — never query-only tabs (outputs / joins / SQL). The window owns the data
+    extraction and the action handlers; this widget is the dumb view they fill.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("QWidget { background: #F0F0F0; }")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(6)
+
+        header = QFrame()
+        header.setStyleSheet(
+            "QFrame { background: #FAFBFD; border: 1px solid #C9D8EA; }"
+            "QLabel { border: none; background: transparent; }")
+        hlay = QHBoxLayout(header)
+        hlay.setContentsMargins(8, 6, 8, 6)
+        hlay.setSpacing(8)
+
+        self.lbl_name = QLabel("")
+        self.lbl_name.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+        self.lbl_name.setStyleSheet("color: #1E5BA8; border: none; background: transparent;")
+        hlay.addWidget(self.lbl_name)
+
+        self.lbl_badge = QLabel("")
+        self.lbl_badge.setFont(_FONT_SMALL)
+        self.lbl_badge.setVisible(False)
+        hlay.addWidget(self.lbl_badge)
+
+        self.lbl_health = QLabel("")
+        self.lbl_health.setFont(_FONT_SMALL)
+        self.lbl_health.setVisible(False)
+        hlay.addWidget(self.lbl_health)
+
+        hlay.addStretch(1)
+
+        self.btn_test = self._make_button("Test")
+        self.btn_edit = self._make_button("Edit Setup")
+        self.btn_new_query = self._make_button("New Query")
+        self.btn_open_folder = self._make_button("Open Folder")
+        self.btn_delete = self._make_button("Delete", danger=True)
+        for btn in (self.btn_test, self.btn_edit, self.btn_new_query,
+                    self.btn_open_folder, self.btn_delete):
+            hlay.addWidget(btn)
+        root.addWidget(header)
+
+        panels = QSplitter(Qt.Orientation.Vertical)
+        panels.setChildrenCollapsible(False)
+        panels.setHandleWidth(4)
+        self.grp_setup = StyledInfoTableGroup("Setup", show_info=False)
+        self.grp_tables = StyledInfoTableGroup("Tables", show_info=False)
+        self.grp_columns = StyledInfoTableGroup("Columns", show_info=False, filterable=True)
+        self.grp_usedby = StyledInfoTableGroup("Used by", show_info=False)
+        for grp in (self.grp_setup, self.grp_tables, self.grp_columns, self.grp_usedby):
+            grp.setStyleSheet(_DASHBOARD_GROUP_STYLE)
+            panels.addWidget(grp)
+        panels.setSizes([150, 150, 220, 130])
+        root.addWidget(panels, 1)
+
+        self._panels = {
+            "setup": self.grp_setup,
+            "tables": self.grp_tables,
+            "columns": self.grp_columns,
+            "usedby": self.grp_usedby,
+        }
+
+    @staticmethod
+    def _make_button(text: str, *, danger: bool = False) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setFont(_FONT_BOLD)
+        btn.setFixedHeight(26)
+        btn.setStyleSheet(_BTN_DANGER_STYLE if danger else _BTN_STYLE)
+        return btn
+
+    def set_title(self, text: str) -> None:
+        self.lbl_name.setText(text or "")
+
+    def set_badge(self, text: str, color: str) -> None:
+        if not text:
+            self.lbl_badge.setVisible(False)
+            return
+        self.lbl_badge.setText(text)
+        self.lbl_badge.setStyleSheet(
+            f"color: white; background: {color or '#475569'};"
+            " border-radius: 8px; padding: 1px 9px;")
+        self.lbl_badge.setVisible(True)
+
+    def set_health(self, text: str, state: str | None) -> None:
+        if not text or state is None:
+            self.lbl_health.setVisible(False)
+            return
+        bg, fg, border = _HEALTH_PILL_COLORS.get(state, _HEALTH_PILL_COLORS["neutral"])
+        self.lbl_health.setText(text)
+        self.lbl_health.setStyleSheet(
+            f"color: {fg}; background: {bg}; border: 1px solid {border};"
+            " border-radius: 8px; padding: 1px 9px;")
+        self.lbl_health.setVisible(True)
+
+    def set_actions(self, *, test: bool, edit: bool, new_query: bool,
+                    open_folder: bool, delete: bool) -> None:
+        self.btn_test.setVisible(test)
+        self.btn_edit.setVisible(edit)
+        self.btn_new_query.setVisible(new_query)
+        self.btn_open_folder.setVisible(open_folder)
+        self.btn_delete.setVisible(delete)
+
+    def set_panel(self, key: str, columns: list[str], rows: list[list[object]],
+                  visible: bool = True) -> None:
+        grp = self._panels[key]
+        if not visible:
+            grp.setVisible(False)
+            return
+        grp.setVisible(True)
+        grp.load_data(columns, [tuple(row) for row in rows])
+
+    def show_empty(self, message: str) -> None:
+        self.set_title(message)
+        self.set_badge("", "")
+        self.set_health("", None)
+        self.set_actions(test=False, edit=False, new_query=False,
+                         open_folder=False, delete=False)
+        for key in self._panels:
+            self.set_panel(key, [], [], visible=False)
+
+
 class QueryObjectViewerWindow(FramelessWindowBase):
     """Non-blocking QueryObject browser and inspector."""
 
@@ -494,6 +647,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._current: QueryObject | None = None
         self._current_forge_name = ""
         self._current_source_path = ""
+        self._current_source_kind = ""
+        self._current_source_payload: dict = {}
+        self._current_file_source = None
         self._loading_detail = False
         self._loading_tree = False
         self._loading_source_tree = False
@@ -783,6 +939,20 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._browser_canvas_stack.addWidget(self._tables_canvas_host)
         self._browser_canvas_stack.addWidget(self._registry_canvas_host)
 
+        # A Data Source gets its own dashboard page — never the query detail tabs.
+        self._source_dashboard = _SourceDashboard()
+        self._browser_canvas_stack.addWidget(self._source_dashboard)
+        self._source_dashboard.btn_test.clicked.connect(self._on_source_test)
+        self._source_dashboard.btn_edit.clicked.connect(self._on_source_edit_setup)
+        self._source_dashboard.btn_open_folder.clicked.connect(self._on_open_source_folder)
+        self._source_dashboard.btn_delete.clicked.connect(self._on_source_delete)
+        new_query_menu = QMenu(self._source_dashboard.btn_new_query)
+        new_query_menu.addAction("Visual Query").triggered.connect(
+            lambda: self._on_source_new_query("visual"))
+        new_query_menu.addAction("Manual SQL").triggered.connect(
+            lambda: self._on_source_new_query("manual"))
+        self._source_dashboard.btn_new_query.setMenu(new_query_menu)
+
         canvas_shell = QWidget()
         canvas_shell.setMinimumWidth(_RIGHT_PANEL_MIN_WIDTH)
         canvas_shell.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
@@ -887,11 +1057,12 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             self._browser_canvas_stack.setCurrentWidget(self._registry_canvas_host)
             self._update_registry_canvas_title()
             return
-        self._browser_canvas_stack.setCurrentWidget(self._detail_canvas)
         if label == "Data Sources":
             self._refresh_source_tree()
+            self._route_source_selection(self.source_tree.currentItem())
             self._update_data_sources_canvas_title()
         else:
+            self._browser_canvas_stack.setCurrentWidget(self._detail_canvas)
             self._update_queried_canvas_title()
 
     def _ensure_tables_embedded(self) -> None:
@@ -1159,17 +1330,6 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._set_table_headers(self.tbl_inputs, ["Filter Tab", "Field", "Mode", "Value"])
         self._set_table_headers(self.tbl_joins, ["Left Source", "Left Field(s)", "Right Source", "Right Field(s)", "Type"])
         self._set_table_headers(self.tbl_fields, ["Field", "Type", "Role", "Source"])
-
-    def _configure_data_source_tables(self) -> None:
-        self._set_tab_labels([
-            "Source", "Setup", "Query Objects", "Source Uses",
-            "Joins", "Fields", "SQL", "Config",
-        ])
-        self._set_table_headers(self.tbl_sources, ["Property", "Value"])
-        self._set_table_headers(self.tbl_outputs, ["Query Object", "Kind", "Builder", "Fields"])
-        self._set_table_headers(self.tbl_inputs, ["Query Object", "Source/Table", "Type", "Status"])
-        self._set_table_headers(self.tbl_joins, ["", ""])
-        self._set_table_headers(self.tbl_fields, ["Query Object", "Field", "Role", "Type", "Source"])
 
     def _set_tab_labels(self, labels: list[str]) -> None:
         if not hasattr(self, "tabs"):
@@ -1572,20 +1732,41 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def _on_source_tree_selection(self, current, previous) -> None:
         if self._loading_source_tree:
             return
+        self._route_source_selection(current)
+
+    def _route_source_selection(self, current) -> None:
+        """Show a source node in the dashboard, a query node in the detail canvas."""
         payload = _payload(current)
         payload_type = payload.get("type")
         if payload_type in {"query", "source_query"}:
             obj = query_object_store.load_object_by_id(payload.get("id", ""))
             if obj is not None:
+                self._browser_canvas_stack.setCurrentWidget(self._detail_canvas)
                 self._show_detail(obj)
+                return
+        if payload_type in {"odbc_source", "file_data_source", "file_source"}:
+            self._browser_canvas_stack.setCurrentWidget(self._source_dashboard)
+            if payload_type == "odbc_source":
+                self._show_odbc_source_detail(payload)
+            elif payload_type == "file_data_source":
+                self._show_file_data_source_detail(payload)
+            else:
+                self._show_file_source_detail(payload)
             return
-        if payload_type == "odbc_source":
-            self._show_odbc_source_detail(payload)
+        if payload_type == "file_member" and current is not None and current.parent() is not None:
+            self._route_source_selection(current.parent())
             return
-        if payload_type == "file_source":
-            self._show_file_source_detail(payload)
-            return
+        # A group node or empty selection: nothing to inspect.
+        self._browser_canvas_stack.setCurrentWidget(self._source_dashboard)
+        self._reset_current_source()
+        self._source_dashboard.show_empty("Select a data source")
         self._update_data_sources_canvas_title()
+
+    def _reset_current_source(self) -> None:
+        self._current_source_kind = ""
+        self._current_source_payload = {}
+        self._current_file_source = None
+        self._current_source_path = ""
 
     def _on_source_tree_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         payload = _payload(item)
@@ -2579,86 +2760,182 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def _show_odbc_source_detail(self, payload: dict) -> None:
         dsn = str(payload.get("dsn", "")).strip()
         objects = self._objects_from_payload(payload)
-        self._loading_detail = True
         self._current = None
         self._current_forge_name = ""
+        self._current_source_kind = "odbc_source"
+        self._current_source_payload = payload
+        self._current_file_source = None
         self._current_source_path = ""
-        self._set_editor_read_only(True)
-        self._configure_data_source_tables()
 
+        dialect = detect_dialect(dsn) if dsn else UNKNOWN
+        dash = self._source_dashboard
+        dash.set_title(dsn or "ODBC")
+        dash.set_badge(dialect if dialect != UNKNOWN else "ODBC", "#1E5BA8")
+        details = self._safe_dsn_details(dsn)
+        if "__error__" in details:
+            dash.set_health("DSN not found on this machine", "bad")
+        else:
+            dash.set_health("Configured", "ok")
+        # ODBC stays read-only here: it's discovered from queries, not yet a
+        # registered/named source — querying + Test-connection arrive with the
+        # source registry (FILE_SOURCES.md §6.5).
+        dash.set_actions(test=True, edit=False, new_query=False,
+                         open_folder=False, delete=False)
+        dash.set_panel("setup", ["Property", "Value"], self._odbc_detail_rows(dsn))
+        dash.set_panel("tables", [], [], visible=False)
+        dash.set_panel("columns", [], [], visible=False)
+        dash.set_panel("usedby", ["Query Object", "Kind", "Source", "Fields"],
+                       self._source_query_rows(objects))
         self._set_canvas_title(f"Data Sources: {dsn}" if dsn else "Data Sources")
-        self.lbl_name.setText(f"ODBC: {dsn}")
-        self.lbl_kind.setText("Data Source")
-        self.lbl_status.setText(f"Query Objects: {len(objects)}")
-        self.btn_delete.setEnabled(False)
-        self.btn_save.setEnabled(False)
-        self.btn_open_builder.setEnabled(False)
-        self.btn_preview_file.setEnabled(False)
-        self.btn_open_source_folder.setEnabled(False)
-        self.btn_open_source_folder.setVisible(False)
-        self.btn_promote.setEnabled(False)
-        self.btn_promote.setVisible(False)
-        self.edit_name.setText(dsn)
-        self.edit_origin.setText("ODBC")
-        self.edit_tags.clear()
-        self.edit_description.setText("Windows ODBC setup information for this DSN.")
 
-        self._set_table_rows(self.tbl_sources, self._odbc_detail_rows(dsn))
-        self._set_table_rows(self.tbl_outputs, self._source_query_rows(objects))
-        self._set_table_rows(self.tbl_inputs, self._odbc_source_use_rows(dsn, objects))
-        self.tbl_joins.setRowCount(0)
-        self._set_table_rows(self.tbl_fields, self._source_field_rows(objects))
-        self.txt_sql.setPlainText(self._source_sql_text(objects))
-        self.txt_config.setPlainText(json.dumps({
-            "type": "odbc",
-            "dsn": dsn,
-            "query_objects": [obj.id for obj in objects],
-        }, indent=2))
-        self._loading_detail = False
+    def _show_file_data_source_detail(self, payload: dict) -> None:
+        from suiteview.audit import file_source_store
+        from suiteview.audit.file_source import datasource_label
+
+        fs_id = str(payload.get("file_source_id") or payload.get("key", "")).strip()
+        fds = file_source_store.load_file_source_by_id(fs_id)
+        self._current = None
+        self._current_forge_name = ""
+        self._current_source_kind = "file_data_source"
+        self._current_source_payload = payload
+        self._current_file_source = fds
+        if fds is None:
+            self._reset_current_source()
+            self._source_dashboard.show_empty("This File Source could not be found.")
+            return
+
+        objects = self._objects_from_payload(payload)
+        self._current_source_path = fds.members[0].path if fds.members else ""
+        dash = self._source_dashboard
+        dash.set_title(fds.name)
+        dash.set_badge(datasource_label(fds), "#B58900")
+        missing = [m for m in fds.members if not Path(m.path).exists()]
+        if not fds.members:
+            dash.set_health("No files", "warn")
+        elif missing:
+            dash.set_health(f"{len(missing)} of {len(fds.members)} files missing", "bad")
+        else:
+            dash.set_health(f"{len(fds.members)} files OK", "ok")
+        dash.set_actions(test=True, edit=True, new_query=True,
+                         open_folder=bool(self._current_source_path), delete=True)
+
+        setup = [
+            ["Type", f"File Source ({datasource_label(fds)})"],
+            ["Columns", len(fds.columns)],
+            ["Member files", len(fds.members)],
+            ["Description", fds.description or "—"],
+            ["Updated", fds.updated_at.strftime("%Y-%m-%d %H:%M")],
+        ]
+        for key in ("delimiter", "sep", "encoding", "header", "sheet", "skiprows"):
+            if key in (fds.parse_spec or {}):
+                setup.append([key, fds.parse_spec[key]])
+        dash.set_panel("setup", ["Property", "Value"], setup)
+        dash.set_panel("tables", ["Table", "Status", "File"], [
+            [m.resolved_table_name(),
+             "OK" if Path(m.path).exists() else "missing", m.path]
+            for m in fds.members
+        ])
+        dash.set_panel("columns", ["Column", "Type", "Display Name"], [
+            [c.name, c.data_type, c.display_name or ""] for c in fds.columns
+        ])
+        dash.set_panel("usedby", ["Query Object", "Kind", "Fields"], [
+            [obj.name, _kind_label(obj.kind), len(obj.fields)] for obj in objects
+        ])
+        self._set_canvas_title(f"Data Sources: {fds.name}")
 
     def _show_file_source_detail(self, payload: dict) -> None:
         path = str(payload.get("path", "")).strip()
         label = str(payload.get("label", "")).strip() or _filename_from_path(path)
         source_type = str(payload.get("source_type", "")).strip()
         objects = self._objects_from_payload(payload)
-        self._loading_detail = True
         self._current = None
         self._current_forge_name = ""
+        self._current_source_kind = "file_source"
+        self._current_source_payload = payload
+        self._current_file_source = None
         self._current_source_path = path
-        self._set_editor_read_only(True)
-        self._configure_data_source_tables()
 
+        dash = self._source_dashboard
+        dash.set_title(label)
+        dash.set_badge(_file_source_type_label(source_type, payload.get("metadata", {})), "#8B6914")
+        if path and Path(path).exists():
+            dash.set_health("File OK", "ok")
+        elif path:
+            dash.set_health("File missing", "bad")
+        else:
+            dash.set_health("Path not saved", "warn")
+        dash.set_actions(test=True, edit=False, new_query=False,
+                         open_folder=bool(path), delete=False)
+        dash.set_panel("setup", ["Property", "Value"],
+                       self._file_detail_rows(payload, objects))
+        dash.set_panel("tables", [], [], visible=False)
+        dash.set_panel("columns", [], [], visible=False)
+        dash.set_panel("usedby", ["Query Object", "Kind", "Source", "Fields"],
+                       self._source_query_rows(objects))
         self._set_canvas_title(f"Data Sources: {label}" if label else "Data Sources")
-        self.lbl_name.setText(f"File: {label}")
-        self.lbl_kind.setText("Data Source")
-        self.lbl_status.setText(f"Query Objects: {len(objects)}")
-        self.btn_delete.setEnabled(False)
-        self.btn_save.setEnabled(False)
-        self.btn_open_builder.setEnabled(False)
-        self.btn_preview_file.setEnabled(False)
-        self.btn_open_source_folder.setEnabled(bool(path))
-        self.btn_open_source_folder.setVisible(True)
-        self.btn_promote.setEnabled(False)
-        self.btn_promote.setVisible(False)
-        self.edit_name.setText(label)
-        self.edit_origin.setText(_file_source_type_label(source_type, payload.get("metadata", {})))
-        self.edit_tags.clear()
-        self.edit_description.setText(path or "File path was not saved for this source.")
 
-        self._set_table_rows(self.tbl_sources, self._file_detail_rows(payload, objects))
-        self._set_table_rows(self.tbl_outputs, self._source_query_rows(objects))
-        self._set_table_rows(self.tbl_inputs, self._file_source_use_rows(payload, objects))
-        self.tbl_joins.setRowCount(0)
-        self._set_table_rows(self.tbl_fields, self._source_field_rows(objects))
-        self.txt_sql.setPlainText(self._source_sql_text(objects))
-        self.txt_config.setPlainText(json.dumps({
-            "type": "file",
-            "path": path,
-            "source_type": source_type,
-            "metadata": payload.get("metadata", {}),
-            "query_objects": [obj.id for obj in objects],
-        }, indent=2))
-        self._loading_detail = False
+    @staticmethod
+    def _safe_dsn_details(dsn: str) -> dict:
+        if not dsn:
+            return {"__error__": "no dsn"}
+        try:
+            details = dict(get_dsn_details(dsn) or {})
+        except Exception as exc:
+            return {"__error__": str(exc)}
+        return details or {"__error__": "not found"}
+
+    # ── Data Source dashboard actions ─────────────────────────────────
+
+    def _on_source_test(self) -> None:
+        """Re-evaluate the selected source's health (re-render its detail)."""
+        payload = self._current_source_payload
+        kind = self._current_source_kind
+        if kind == "file_data_source":
+            self._show_file_data_source_detail(payload)
+        elif kind == "file_source":
+            self._show_file_source_detail(payload)
+        elif kind == "odbc_source":
+            self._show_odbc_source_detail(payload)
+
+    def _on_source_edit_setup(self) -> None:
+        if self._current_source_kind == "file_data_source" and self._current_file_source is not None:
+            self._open_file_source_in_editor(self._current_file_source.id)
+
+    def _on_source_new_query(self, mode: str) -> None:
+        if self._current_source_kind != "file_data_source" or self._current_file_source is None:
+            return
+        parent = self._audit_window_for_builder()
+        opener = getattr(parent, "new_query_on_file_source", None)
+        if opener is None:
+            QMessageBox.information(
+                self, "Builder Unavailable",
+                "Could not open a query on this File Source.")
+            return
+        opener(self._current_file_source.id, mode=mode)
+
+    def _on_source_delete(self) -> None:
+        if self._current_source_kind != "file_data_source" or self._current_file_source is None:
+            return
+        from suiteview.audit import file_source_store
+
+        fds = self._current_file_source
+        objects = self._objects_from_payload(self._current_source_payload)
+        extra = (f"\n\n{len(objects)} query object(s) target it and will stop "
+                 "resolving.") if objects else ""
+        reply = QMessageBox.question(
+            self,
+            "Delete File Source",
+            f"Delete File Source \"{fds.name}\"?{extra}\n\n"
+            "This removes the source definition, not the underlying files.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        file_source_store.delete_file_source_by_id(fds.id)
+        self.refresh()
+        self._reset_current_source()
+        self._source_dashboard.show_empty("Select a data source")
 
     def _set_editor_read_only(self, read_only: bool) -> None:
         for edit in (self.edit_name, self.edit_origin, self.edit_tags, self.edit_description):
@@ -2677,23 +2954,6 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def _source_query_rows(objects: list[QueryObject]) -> list[list[object]]:
         return [[obj.name, _kind_label(obj.kind), obj.source_design or obj.kind, len(obj.fields)]
                 for obj in objects]
-
-    @staticmethod
-    def _source_field_rows(objects: list[QueryObject]) -> list[list[object]]:
-        rows: list[list[object]] = []
-        for obj in objects:
-            for field in obj.fields:
-                rows.append([obj.name, field.name, field.role, field.data_type, field.source])
-        return rows
-
-    @staticmethod
-    def _source_sql_text(objects: list[QueryObject]) -> str:
-        chunks: list[str] = []
-        for obj in objects:
-            sql = obj.sql.strip()
-            if sql:
-                chunks.append(f"-- Query Object: {obj.name}\n{sql}")
-        return "\n\n".join(chunks)
 
     @staticmethod
     def _odbc_detail_rows(dsn: str) -> list[list[object]]:
@@ -2725,20 +2985,6 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         return rows
 
     @staticmethod
-    def _odbc_source_use_rows(dsn: str, objects: list[QueryObject]) -> list[list[object]]:
-        rows: list[list[object]] = []
-        dsn_key = dsn.lower()
-        for obj in objects:
-            matched = False
-            for source in obj.sources:
-                if source.dsn.strip().lower() == dsn_key:
-                    rows.append([obj.name, source.name, source.source_type, source.status])
-                    matched = True
-            if not matched and obj.dsn.strip().lower() == dsn_key:
-                rows.append([obj.name, obj.source_design or obj.kind, "object", obj.metadata_status])
-        return rows
-
-    @staticmethod
     def _file_detail_rows(payload: dict, objects: list[QueryObject]) -> list[list[object]]:
         path = str(payload.get("path", "")).strip()
         metadata = dict(payload.get("metadata", {}) or {})
@@ -2754,18 +3000,6 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             if key == "path":
                 continue
             rows.append([key, metadata[key]])
-        return rows
-
-    @staticmethod
-    def _file_source_use_rows(payload: dict, objects: list[QueryObject]) -> list[list[object]]:
-        target_key = str(payload.get("key", ""))
-        rows: list[list[object]] = []
-        for obj in objects:
-            for source in obj.sources:
-                metadata = dict(source.metadata or {})
-                path = str(metadata.get("path", "")).strip()
-                if _file_source_key(path, source.name or obj.name) == target_key:
-                    rows.append([obj.name, source.name, source.source_type, source.status])
         return rows
 
     @staticmethod
