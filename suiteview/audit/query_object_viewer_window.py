@@ -501,6 +501,22 @@ def _limited_preview_sql(sql: str, limit: int, dialect: str) -> str:
     return f"SELECT TOP {limit} * FROM (\n{sql}\n) AS QOBJ_PREVIEW"
 
 
+class _CompactSourceDelegate(QStyledItemDelegate):
+    """Tight, uniform rows for the Data Sources tree.
+
+    The Queries tree uses pill rows; the Data Sources tree is a plain compact
+    catalog (groups → sources → tables/queries), so it reads better as a dense
+    list — group headers a touch taller, everything else snug.
+    """
+
+    def sizeHint(self, option, index) -> QSize:
+        size = super().sizeHint(option, index)
+        payload = index.data(Qt.ItemDataRole.UserRole) or {}
+        is_group = isinstance(payload, dict) and payload.get("type") == "source_group"
+        size.setHeight(22 if is_group else 19)
+        return size
+
+
 _HEALTH_PILL_COLORS = {
     "ok": ("#E6F4EA", "#1E7E34", "#A3D9B1"),
     "warn": ("#FFF4D6", "#9A7A00", "#E6D08A"),
@@ -562,17 +578,31 @@ class _SourceDashboard(QWidget):
             hlay.addWidget(btn)
         root.addWidget(header)
 
-        panels = QSplitter(Qt.Orientation.Vertical)
-        panels.setChildrenCollapsible(False)
-        panels.setHandleWidth(4)
         self.grp_setup = StyledInfoTableGroup("Setup", show_info=False)
         self.grp_tables = StyledInfoTableGroup("Tables", show_info=False)
         self.grp_columns = StyledInfoTableGroup("Columns", show_info=False, filterable=True)
         self.grp_usedby = StyledInfoTableGroup("Used by", show_info=False)
         for grp in (self.grp_setup, self.grp_tables, self.grp_columns, self.grp_usedby):
             grp.setStyleSheet(_DASHBOARD_GROUP_STYLE)
-            panels.addWidget(grp)
-        panels.setSizes([150, 150, 220, 130])
+
+        # Tables + Columns describe the same thing (the source's tables and their
+        # schema), so pair them side by side and use the wide canvas instead of
+        # four cramped horizontal bands.
+        self._middle = QSplitter(Qt.Orientation.Horizontal)
+        self._middle.setChildrenCollapsible(False)
+        self._middle.setHandleWidth(4)
+        self._middle.addWidget(self.grp_tables)
+        self._middle.addWidget(self.grp_columns)
+        self._middle.setSizes([320, 360])
+
+        panels = QSplitter(Qt.Orientation.Vertical)
+        panels.setChildrenCollapsible(False)
+        panels.setHandleWidth(4)
+        panels.addWidget(self.grp_setup)
+        panels.addWidget(self._middle)
+        panels.addWidget(self.grp_usedby)
+        panels.setStretchFactor(1, 1)
+        panels.setSizes([150, 300, 110])
         root.addWidget(panels, 1)
 
         self._panels = {
@@ -628,9 +658,15 @@ class _SourceDashboard(QWidget):
         grp = self._panels[key]
         if not visible:
             grp.setVisible(False)
-            return
-        grp.setVisible(True)
-        grp.load_data(columns, [tuple(row) for row in rows])
+        else:
+            grp.setVisible(True)
+            grp.load_data(columns, [tuple(row) for row in rows])
+        # Collapse the Tables|Columns band entirely when neither applies (ODBC).
+        # Use isHidden() (the explicit flag) not isVisible() — the latter is
+        # False while the dashboard page itself isn't shown yet during populate.
+        if key in {"tables", "columns"}:
+            self._middle.setVisible(
+                not self.grp_tables.isHidden() or not self.grp_columns.isHidden())
 
     def show_empty(self, message: str) -> None:
         self.set_title(message)
@@ -1457,15 +1493,19 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.source_tree.setAcceptDrops(False)
         self.source_tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.source_tree.setRootIsDecorated(True)
-        self.source_tree.setIndentation(14)
+        self.source_tree.setIndentation(12)
         self.source_tree.setUniformRowHeights(False)
-        self.source_tree.setItemDelegate(_OrganizerPillDelegate(self.source_tree))
+        self.source_tree.setItemDelegate(_CompactSourceDelegate(self.source_tree))
         self.source_tree.setFont(_FONT)
         self.source_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.source_tree.setStyleSheet(
-            "QTreeWidget { border: 1px solid #1E5BA8; background: white; }"
-            "QTreeWidget::item { padding: 2px 3px; min-height: 19px; }"
-            "QTreeWidget::item:selected { background: #D7E6F8; color: #0D3A7A; }"
+            "QTreeWidget { border: 1px solid #C9D8EA; border-radius: 3px;"
+            " background: white; outline: 0; }"
+            "QTreeWidget::item { padding: 0px 4px; border: none; }"
+            "QTreeWidget::item:hover { background: #F2F7FD; }"
+            "QTreeWidget::item:selected { background: #DCEAFB; color: #0D3A7A; }"
+            "QTreeWidget::branch:selected { background: #DCEAFB; }"
+            "QTreeWidget::branch:hover { background: #F2F7FD; }"
         )
         self.source_tree.itemClicked.connect(self._on_source_tree_clicked)
         self.source_tree.currentItemChanged.connect(self._on_source_tree_selection)
