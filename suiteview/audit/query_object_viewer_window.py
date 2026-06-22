@@ -1393,15 +1393,20 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             root.setData(0, Qt.ItemDataRole.UserRole, payload)
             self.source_tree.addTopLevelItem(root)
             _track(root, payload)
+            src_color = {"odbc": "#1E5BA8", "file_sources": "#4D7C0F"}.get(group_key, "#8B6914")
+            src_type = {"odbc": "odbc_source", "file_sources": "file_data_source"}.get(
+                group_key, "file_source")
             for source, children in visible_sources:
                 label = source.get("label", "")
                 source_item = QTreeWidgetItem([label])
                 source_item.setFont(0, _FONT_BOLD)
-                source_item.setForeground(0, QColor("#1E5BA8" if group_key == "odbc" else "#8B6914"))
+                source_item.setForeground(0, QColor(src_color))
                 tooltip = source.get("path") or source.get("dsn") or label
+                if group_key == "file_sources":
+                    tooltip = "Double-click to edit this File Source"
                 source_item.setToolTip(0, tooltip)
                 source_payload = {
-                    "type": "odbc_source" if group_key == "odbc" else "file_source",
+                    "type": src_type,
                     "group": group_key,
                     "key": source.get("key", ""),
                     "dsn": source.get("dsn", ""),
@@ -1409,27 +1414,60 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                     "label": label,
                     "source_type": source.get("source_type", ""),
                     "metadata": source.get("metadata", {}),
+                    "file_source_id": source.get("file_source_id", ""),
                     "object_ids": [obj.id for obj in source.get("objects", [])],
                 }
                 source_item.setData(0, Qt.ItemDataRole.UserRole, source_payload)
                 root.addChild(source_item)
                 _track(source_item, source_payload)
+                if group_key == "file_sources":
+                    for table_name, member_path in source.get("members", []):
+                        member_item = QTreeWidgetItem([f"{table_name}      —      {member_path}"])
+                        member_item.setFont(0, _FONT)
+                        member_item.setForeground(0, QColor("#5B6B7A"))
+                        member_item.setData(0, Qt.ItemDataRole.UserRole,
+                                            {"type": "file_member", "label": table_name,
+                                             "path": member_path})
+                        source_item.addChild(member_item)
                 for obj in children:
                     _add_query_leaf(source_item, obj, source.get("key", ""))
-                source_item.setExpanded(search_active)
+                source_item.setExpanded(search_active or group_key == "file_sources")
             root.setExpanded(True)
 
         _add_group("odbc", "ODBC", sorted(index["odbc"].values(), key=lambda item: item["label"].lower()))
         _add_group("files", "Files", sorted(index["files"].values(), key=lambda item: (item["label"].lower(), item.get("path", "").lower())))
+        _add_group("file_sources", "File Sources", sorted(index["file_sources"].values(), key=lambda item: item["label"].lower()))
 
         if selected_item is not None:
             self.source_tree.setCurrentItem(selected_item)
         self._loading_source_tree = False
 
     def _build_data_source_index(self, objects: list[QueryObject]) -> dict[str, dict[str, dict]]:
-        index: dict[str, dict[str, dict]] = {"odbc": {}, "files": {}}
+        from suiteview.audit import file_source_store
+        from suiteview.audit.file_source import datasource_label
+
+        index: dict[str, dict[str, dict]] = {"odbc": {}, "files": {}, "file_sources": {}}
+
+        # Saved File Sources are their own store entity (peer of a DSN) — show
+        # them whether or not a query targets them yet.
+        for fds in file_source_store.list_file_sources():
+            index["file_sources"][fds.id] = {
+                "group": "file_sources",
+                "key": fds.id,
+                "label": f"{fds.name}  [{datasource_label(fds)}]",
+                "file_source_id": fds.id,
+                "members": [(m.resolved_table_name(), m.path) for m in fds.members],
+                "objects": [],
+            }
 
         for obj in objects:
+            fs_id = self._file_source_id_for_object(obj)
+            if fs_id and fs_id in index["file_sources"]:
+                # A query that targets a File Source belongs under it, not ODBC.
+                entry = index["file_sources"][fs_id]
+                if all(existing.id != obj.id for existing in entry["objects"]):
+                    entry["objects"].append(obj)
+                continue
             for dsn in self._odbc_dsns_for_object(obj):
                 entry = index["odbc"].setdefault(dsn.lower(), {
                     "group": "odbc",
@@ -1461,9 +1499,19 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         return index
 
     @staticmethod
+    def _file_source_id_for_object(obj: QueryObject) -> str:
+        """The FileDataSource id a query targets (``file:<id>`` dsn or config)."""
+        dsn = (obj.dsn or "").strip()
+        if dsn.startswith("file:"):
+            return dsn[len("file:"):]
+        return str((obj.config or {}).get("file_source_id", "")).strip()
+
+    @staticmethod
     def _odbc_dsns_for_object(obj: QueryObject) -> list[str]:
         if obj.kind == OBJECT_KIND_ADHOC_SOURCE:
             return []
+        if (obj.dsn or "").strip().startswith("file:"):
+            return []  # file-backed query — listed under File Sources, not ODBC
         dsns: set[str] = set()
         if obj.dsn.strip():
             dsns.add(obj.dsn.strip())
@@ -1530,6 +1578,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
     def _on_source_tree_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         payload = _payload(item)
+        if payload.get("type") == "file_data_source":
+            self._open_file_source_in_editor(payload.get("file_source_id", ""))
+            return
         if payload.get("type") not in {"query", "source_query"}:
             return
         obj = query_object_store.load_object_by_id(payload.get("id", ""))
@@ -3026,6 +3077,25 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             )
             return
         opener(object_name)
+
+    def _open_file_source_in_editor(self, file_source_id: str):
+        if not file_source_id:
+            return
+        from suiteview.audit import file_source_store
+
+        fds = file_source_store.load_file_source_by_id(file_source_id)
+        if fds is None:
+            QMessageBox.information(
+                self, "File Source", "This File Source could not be found.")
+            return
+        parent = self._audit_window_for_builder()
+        opener = getattr(parent, "open_file_source", None)
+        if opener is None:
+            QMessageBox.information(
+                self, "Editor Unavailable",
+                "Could not open the File Source editor.")
+            return
+        opener(fds)
 
     def _open_dataforge_builder(self, forge_name: str):
         parent = self._audit_window_for_builder()
