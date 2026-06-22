@@ -134,6 +134,15 @@ class IllustrationOptions:
     # The workbook default is ON: you cannot borrow past the surrender value.
     restrict_loans_to_sv: bool = True
 
+    # sInput_ApplyPremToLoan — apply the requested premium to repay the policy
+    # loan FIRST, only loading what remains onto the account value. The lumpsum
+    # (unscheduled) deposit repays first, then the scheduled modal premium, each
+    # capped at the loan payoff; the rest becomes premium. Off by default — a
+    # normal illustration loads premium straight to the account value. See
+    # ``core/loan_handler.repay_loan`` (CalcEngine MH/MI) and
+    # ``core/premium_allowance.py`` (NL/NY).
+    apply_prem_to_loan: bool = False
+
     # Internal escape hatch: a consumer can keep force-out on while still letting
     # injected premiums intentionally exceed the guideline (no acceptance cap).
     # None -> derive from conform_to_tefra. Used by the PolView GLP solver, which

@@ -346,8 +346,9 @@ class IllustrationWindow(FramelessWindowBase):
                     IllustrationInputSet, ScheduledTransaction, TransactionKind,
                 )
                 # Min Level to Maturity endows on its own unless the user allowed
-                # GP exceptions (the Allow GP Exception toggle, which is off and
-                # disabled for loan/shadow policies).
+                # GP exceptions (the Allow GP Exception toggle, on by default and
+                # disabled only for an active shadow account). On a loan policy the
+                # solve applies premium to the loan first when that toggle is on.
                 allow_exceptions = bool(run_options.allow_exception_prems)
                 try:
                     lte = solve_level_to_exception(
@@ -382,6 +383,39 @@ class IllustrationWindow(FramelessWindowBase):
                 self.inputs_tab.set_min_level_amount(lte.premium)
 
             engine = IllustrationEngine()
+
+            # "Lumpsum to Next Premium": if the policy would lapse before its
+            # next modal premium, solve a bridging lumpsum and layer it in as an
+            # unscheduled premium on the forecast date. Moot (and skipped) when a
+            # level premium type is already solving the policy in force.
+            lumpsum_result = None
+            if (self.inputs_tab.lumpsum_to_next_enabled()
+                    and min_level is None
+                    and not self.inputs_tab.level_premium_active()):
+                from suiteview.illustration.core.solve_lumpsum_to_next_premium import (
+                    solve_lumpsum_to_next_premium,
+                )
+                from suiteview.illustration.models.input_set import (
+                    DatedTransaction, IllustrationInputSet, TransactionKind,
+                )
+                lumpsum_result = solve_lumpsum_to_next_premium(
+                    scenario.projectable_policy,
+                    base_future_inputs=future_inputs,
+                    base_options=run_options,
+                    engine=engine,
+                )
+                if lumpsum_result is not None and lumpsum_result.lumpsum > 0:
+                    dated = list(future_inputs.dated_transactions)
+                    dated.append(DatedTransaction(
+                        kind=TransactionKind.PREMIUM,
+                        effective_date=lumpsum_result.forecast_date,
+                        amount=lumpsum_result.lumpsum,
+                        subtype="lumpsum_to_next_premium"))
+                    future_inputs = IllustrationInputSet(
+                        scheduled_transactions=list(future_inputs.scheduled_transactions),
+                        dated_transactions=dated,
+                        policy_changes=list(future_inputs.policy_changes))
+
             results = engine.project(
                 scenario.projectable_policy,
                 months=projection_months,
@@ -407,9 +441,31 @@ class IllustrationWindow(FramelessWindowBase):
                 run_date=_date.today(),
             ))
             self.tabs.setCurrentWidget(self.values_tab)
-            self._show_status(
-                f"Values ready for {policy_number} - valuation snapshot plus {max(len(results) - 1, 0)} projected months"
+            status = (
+                f"Values ready for {policy_number} - valuation snapshot plus "
+                f"{max(len(results) - 1, 0)} projected months"
             )
+            if lumpsum_result is not None and lumpsum_result.lumpsum > 0:
+                from suiteview.polview.ui.formatting import format_amount, format_date
+                reason = {"SV": "surrender-value", "AV": "account-value-less-loans",
+                          "SNET": "safety-net"}.get(
+                              lumpsum_result.binding_reason, lumpsum_result.binding_reason)
+                status += (
+                    f"  ·  Applied a {format_amount(lumpsum_result.lumpsum)} lumpsum on "
+                    f"{format_date(lumpsum_result.forecast_date)} to carry the policy to its "
+                    f"next premium on {format_date(lumpsum_result.next_premium_date)} "
+                    f"(sized by the {reason} shortfall)."
+                )
+                if lumpsum_result.guideline_limited:
+                    QMessageBox.warning(
+                        self, "Lumpsum to Next Premium",
+                        f"The 7702 guideline limited the bridging premium to "
+                        f"{format_amount(lumpsum_result.applied)}, which cannot carry the "
+                        f"policy to its next premium on "
+                        f"{format_date(lumpsum_result.next_premium_date)} on premium alone.\n\n"
+                        f"Enable Allow GP Exception Premium to bridge the remaining gap."
+                    )
+            self._show_status(status)
         except Exception as exc:
             QMessageBox.critical(self, "Run Values", f"Failed to run illustration values: {exc}")
             self._show_status(f"Run Values failed: {exc}")

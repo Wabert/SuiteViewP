@@ -627,6 +627,17 @@ class IllustrationEngine:
             prior_exception_mode=prior_exception_mode,
         )
 
+        # Requested premium (LS scheduled, vLumpsum unscheduled) is needed before
+        # the loan repayment so sInput_ApplyPremToLoan can divert it to the loan.
+        requested_scheduled, requested_lumpsum = _split_requested_premium(
+            policy, config, month_inputs, attained_age
+        )
+        # Levelizing is gated on the loan that exists BEFORE the repayment (RERUN's
+        # NX uses LX..MC, post-capitalization/pre-repay). Capturing it after the
+        # repay would let the month that finally clears the loan flip levelizing on
+        # and apply the full scheduled premium instead of the small post-repay
+        # remainder (NY).
+        has_loan_balance = _loan_balance_for_levelizing(cap_loan)
         cash_flows = apply_cash_flow_inputs(
             av,
             cap_loan,
@@ -634,6 +645,9 @@ class IllustrationEngine:
             config=config,
             adv_reg_factor=adv_reg_factor,
             adv_pref_factor=adv_pref_factor,
+            apply_prem_to_loan=options.apply_prem_to_loan,
+            requested_lumpsum=requested_lumpsum,
+            requested_scheduled=requested_scheduled,
         )
         av = cash_flows.av
         cap_loan = cash_flows.loan_state
@@ -647,9 +661,6 @@ class IllustrationEngine:
         tamra_moy = _tamra_month_of_year(policy, month_date)
         pc_policy, pc_tamra, _mode = _payment_counts(
             state, policy, month_date, next_month, month_inputs
-        )
-        requested_scheduled, requested_lumpsum = _split_requested_premium(
-            policy, config, month_inputs, attained_age
         )
         beginning_of_year = is_anniversary or state.payment_count_policy_year == 0
         allowances = _premium_allowances(
@@ -667,9 +678,12 @@ class IllustrationEngine:
             requested_lumpsum=requested_lumpsum,
             payment_count_policy_year=pc_policy,
             payment_count_tamra_year=pc_tamra,
-            has_loan_balance=_loan_balance_for_levelizing(cap_loan),
+            has_loan_balance=has_loan_balance,
             beginning_of_year=beginning_of_year,
             prior_scheduled_prem_cap=state.scheduled_prem_cap,
+            loan_repay_from_lumpsum=cash_flows.loan_repay_from_lumpsum,
+            loan_repay_from_scheduled=cash_flows.loan_repay_from_scheduled,
+            ln_repay_left_over=cash_flows.ln_repay_left_over,
         )
         prem = apply_premium(
             av, policy, config, rates, rate_year,
@@ -793,7 +807,10 @@ class IllustrationEngine:
             edb_wo_corr += max(0.0, av)
         elif policy.db_option == "C":
             edb_wo_corr += max(0.0, prem.premiums_to_date - withdrawals_to_date)
-        edb_corr = max(0.0, av * ded.corridor_rate - edb_wo_corr) if ded.corridor_rate > 0 else 0.0
+        # Corridor DB truncated to a whole dollar — same CyberLife rule as the
+        # deduction-time Gross DB (diverges from RERUN VZ, which doesn't truncate).
+        edb_corr = (max(0.0, math.floor(av * ded.corridor_rate + 1e-6) - edb_wo_corr)
+                    if ded.corridor_rate > 0 else 0.0)
         # RERUN vIllustratedDB = base policy DB + face of riders on the primary
         # insured (e.g. Signature Term Riders), each active until its maturity.
         ending_db = (edb_wo_corr + edb_corr - accrual_loan.policy_debt
@@ -857,6 +874,9 @@ class IllustrationEngine:
             vbl_loan_princ=cap_loan.vbl_loan_princ,
             vbl_loan_accrued=cap_loan.vbl_loan_accrued,
             applied_loan_repayment=cash_flows.applied_loan_repayment,
+            loan_repay_from_prem=(
+                cash_flows.loan_repay_from_lumpsum + cash_flows.loan_repay_from_scheduled
+            ),
             applied_regular_loan=applied_regular_loan,
             applied_preferred_loan=applied_preferred_loan,
             applied_variable_loan=cash_flows.applied_variable_loan,
@@ -1099,6 +1119,14 @@ class IllustrationEngine:
             prior_exception_mode=prior_exception_mode,
         )
 
+        # Requested premium (LS scheduled, vLumpsum unscheduled) — needed before
+        # the loan repayment so sInput_ApplyPremToLoan can divert it to the loan.
+        requested_scheduled, requested_lumpsum = _split_requested_premium(
+            policy, config, month_inputs, attained_age
+        )
+        # Levelizing is gated on the pre-repay loan (RERUN NX uses LX..MC) — see
+        # process_month.
+        has_loan_balance = _loan_balance_for_levelizing(cap_loan)
         cash_flows = apply_cash_flow_inputs(
             av_after_guideline,
             cap_loan,
@@ -1106,6 +1134,9 @@ class IllustrationEngine:
             config=config,
             adv_reg_factor=adv_reg_factor,
             adv_pref_factor=adv_pref_factor,
+            apply_prem_to_loan=options.apply_prem_to_loan,
+            requested_lumpsum=requested_lumpsum,
+            requested_scheduled=requested_scheduled,
         )
         cap_loan = cash_flows.loan_state
         loan_cap_repay_detail = cash_flows.loan_cap_repay
@@ -1115,9 +1146,6 @@ class IllustrationEngine:
         tamra_moy = _tamra_month_of_year(policy, month_date)
         pc_policy, pc_tamra, _mode = _payment_counts(
             state, policy, month_date, next_month, month_inputs
-        )
-        requested_scheduled, requested_lumpsum = _split_requested_premium(
-            policy, config, month_inputs, attained_age
         )
         beginning_of_year = is_anniversary or state.payment_count_policy_year == 0
         allowances = _premium_allowances(
@@ -1135,9 +1163,12 @@ class IllustrationEngine:
             requested_lumpsum=requested_lumpsum,
             payment_count_policy_year=pc_policy,
             payment_count_tamra_year=pc_tamra,
-            has_loan_balance=_loan_balance_for_levelizing(cap_loan),
+            has_loan_balance=has_loan_balance,
             beginning_of_year=beginning_of_year,
             prior_scheduled_prem_cap=state.scheduled_prem_cap,
+            loan_repay_from_lumpsum=cash_flows.loan_repay_from_lumpsum,
+            loan_repay_from_scheduled=cash_flows.loan_repay_from_scheduled,
+            ln_repay_left_over=cash_flows.ln_repay_left_over,
         )
         prem = apply_premium(
             cash_flows.av,
@@ -1246,6 +1277,9 @@ class IllustrationEngine:
             vbl_loan_princ=cap_loan.vbl_loan_princ,
             vbl_loan_accrued=cap_loan.vbl_loan_accrued,
             applied_loan_repayment=cash_flows.applied_loan_repayment,
+            loan_repay_from_prem=(
+                cash_flows.loan_repay_from_lumpsum + cash_flows.loan_repay_from_scheduled
+            ),
             applied_regular_loan=applied_regular_loan,
             applied_preferred_loan=applied_preferred_loan,
             applied_variable_loan=cash_flows.applied_variable_loan,
@@ -2494,6 +2528,9 @@ def _premium_allowances(
     has_loan_balance: bool,
     beginning_of_year: bool,
     prior_scheduled_prem_cap: float,
+    loan_repay_from_lumpsum: float = 0.0,
+    loan_repay_from_scheduled: float = 0.0,
+    ln_repay_left_over: float = 0.0,
 ) -> PremiumAllowances:
     """Build the NC..NZ "Apply Premium" allowance chain for one month.
 
@@ -2501,6 +2538,11 @@ def _premium_allowances(
     The TAMRA side is treated as un-forced when the policy has no defined life
     insurance or no 7-pay level (mirrors the prior cap's defensive guards), so a
     misconfigured policy never blocks all premium.
+
+    ``loan_repay_from_lumpsum`` (MH), ``loan_repay_from_scheduled`` (MI) and
+    ``ln_repay_left_over`` (MY) come from the loan-repay step when
+    sInput_ApplyPremToLoan diverted premium to the loan; they shrink the lumpsum
+    (NL) and scheduled (NY) premium that loads onto the account value.
     """
     tamra_force = (
         options.tamra_cap_enabled
@@ -2528,9 +2570,9 @@ def _premium_allowances(
         requested_lumpsum=requested_lumpsum,
         payment_count_policy_year=payment_count_policy_year,
         payment_count_tamra_year=payment_count_tamra_year,
-        loan_repay_from_lumpsum=0.0,
-        loan_repay_from_scheduled=0.0,
-        ln_repay_left_over=0.0,
+        loan_repay_from_lumpsum=loan_repay_from_lumpsum,
+        loan_repay_from_scheduled=loan_repay_from_scheduled,
+        ln_repay_left_over=ln_repay_left_over,
         has_loan_balance=has_loan_balance,
         levelizing_premium=options.levelizing_premium,
         beginning_of_year=beginning_of_year,

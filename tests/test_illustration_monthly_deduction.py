@@ -74,6 +74,32 @@ def test_corridor_code_two_uses_alternate_corridor_curve():
     assert result.corr_amount == pytest.approx(35_000.0)
 
 
+def test_corridor_death_benefit_truncated_to_whole_dollar():
+    # GrossDB = max(StandardDB, trunc(CORR * NAR_AV)) — the corridor product is
+    # truncated to a whole dollar (CyberLife rule; RERUN's col OT does not).
+    policy = IllustrationPolicyData(
+        plancode="1U130N2X",
+        db_option="A",
+        face_amount=100_000.0,
+        account_value=100_000.50,
+        segments=[CoverageSegment(face_amount=100_000.0, units=100.0)],
+    )
+    config = PlancodeConfig(
+        plancode="1U130N2X", dbd=0.0, gint=0.0, corridor_code=2,
+        epu_code="0", mfee="0",
+    )
+
+    result = calculate_deduction(
+        100_000.50, policy, config, IllustrationRates(),
+        rate_year=1, attained_age=45, premiums_to_date=0.0,
+    )
+
+    # 1.35 * 100,000.50 = 135,000.675 -> truncated to 135,000 (not 135,000.675).
+    assert result.corridor_rate == pytest.approx(1.35)
+    assert result.gross_db == 135_000.0
+    assert result.corr_amount == pytest.approx(35_000.0)
+
+
 def test_plancode_loader_reads_corridor_code_from_table():
     config = load_plancode("1U130M29")
 

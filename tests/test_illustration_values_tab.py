@@ -720,6 +720,7 @@ def test_overview_ledger_restores_compact_values_order():
         withdrawals_to_date=20.0,
         guideline_forceout=3.0,
         applied_regular_loan=6.0,
+        applied_loan_repayment=30.0,
         total_deduction=11.0,
         av_after_exception=950.0,
         interest_credited=4.0,
@@ -739,6 +740,7 @@ def test_overview_ledger_restores_compact_values_order():
         withdrawals_to_date=50.0,
         guideline_forceout=2.0,
         applied_regular_loan=4.0,
+        applied_loan_repayment=15.0,
         total_deduction=12.0,
         av_after_exception=1150.0,
         interest_credited=6.0,
@@ -754,13 +756,13 @@ def test_overview_ledger_restores_compact_values_order():
 
     headers = [overview.ledger.headerItem().text(index) for index in range(overview.ledger.columnCount())]
     assert headers == [
-        "Year", "Month", "Age", "Withdrawals", "ForceOuts", "Prem",
+        "Year", "Month", "Age", "Withdrawals", "ForceOuts", "Loan Repay", "Prem",
         "MD", "Exception Prem", "AV", "SV", "Interest", "EAV", "SC",
         "New Loan", "LN", "ESV", "Death Benefit", "Status",
     ]
     year_item = overview.ledger.topLevelItem(0)
     assert [year_item.text(index) for index in range(overview.ledger.columnCount())] == [
-        "1", "2", "45", "50.00", "5.00", "140.00",
+        "1", "2", "45", "50.00", "5.00", "45.00", "140.00",
         "23.00", "30.00", "1,150.00", "1,050.00", "10.00", "1,200.00", "80.00",
         "10.00", "20.00", "1,100.00",
         "151,000", "LAPSED",

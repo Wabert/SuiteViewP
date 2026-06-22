@@ -109,8 +109,14 @@ def capitalize_loans(
         )
 
     if config is not None and config.loan_type == "Advance":
-        rg_adv = rg_princ * adv_reg_factor / (1.0 - adv_reg_factor) if adv_reg_factor < 1.0 else 0.0
-        pf_adv = pf_princ * adv_pref_factor / (1.0 - adv_pref_factor) if adv_pref_factor < 1.0 else 0.0
+        # Round the interest-in-advance capitalization to whole cents — CyberLife
+        # carries the loan balance in cents, so an unrounded gross-up leaves a
+        # sub-penny residual that the payoff (ROUND(LX*(1-X),2)) can no longer
+        # reach, stranding a fraction of a cent of debt and a negative surrender
+        # value once the loan is otherwise repaid. RERUN cols AA/AC do NOT round
+        # (Z*X/(1-X)); this is a deliberate, CyberLife-correct divergence.
+        rg_adv = _round2(rg_princ * adv_reg_factor / (1.0 - adv_reg_factor)) if adv_reg_factor < 1.0 else 0.0
+        pf_adv = _round2(pf_princ * adv_pref_factor / (1.0 - adv_pref_factor)) if adv_pref_factor < 1.0 else 0.0
         return LoanState(
             rg_loan_princ=rg_princ + rg_adv,
             rg_loan_accrued=0.0,
@@ -236,14 +242,50 @@ class LoanRepayResult:
     detail: dict = None
 
 
+def loan_payoff(
+    cap_loan: LoanState,
+    config: PlancodeConfig | None,
+    adv_reg_factor: float,
+    adv_pref_factor: float,
+) -> float:
+    """Loan payoff value (RERUN MF = vLoanPayoff).
+
+    Advance loans refund unearned prepaid interest, so each bucket pays off at
+    ``principal*(1-factor)`` (cols MD/ME); arrears loans pay off at the full
+    bucket total (SUM(LX:MC)). This is the cash needed to clear the loan, and
+    the ceiling on premium that can be diverted to repay it (MH/MI).
+    """
+    is_advance = config is not None and config.loan_type == "Advance"
+    if is_advance:
+        reg_payoff = _round2(cap_loan.rg_loan_princ * (1.0 - adv_reg_factor))
+        pref_payoff = _round2(cap_loan.pf_loan_princ * (1.0 - adv_pref_factor))
+        return reg_payoff + pref_payoff
+    return (
+        cap_loan.rg_loan_princ + cap_loan.rg_loan_accrued
+        + cap_loan.pf_loan_princ + cap_loan.pf_loan_accrued
+        + cap_loan.vbl_loan_princ + cap_loan.vbl_loan_accrued
+    )
+
+
 def repay_loan(
     cap_loan: LoanState,
     requested_repayment: float,
     config: PlancodeConfig | None,
     adv_reg_factor: float,
     adv_pref_factor: float,
+    *,
+    prem_to_loan_from_lumpsum: float = 0.0,
+    prem_to_loan_from_scheduled: float = 0.0,
 ) -> LoanRepayResult:
     """Apply a loan repayment to the post-capitalization buckets.
+
+    The total attempted repayment is the scheduled repayment input
+    ``requested_repayment`` (RERUN MN) plus any premium diverted to the loan by
+    ``sInput_ApplyPremToLoan`` — the lumpsum portion ``prem_to_loan_from_lumpsum``
+    (MH) and the scheduled-premium portion ``prem_to_loan_from_scheduled`` (MI).
+    Together these form MO = MK + MN (the PremToPayLoanInterest MG and force-out
+    MJ sources are not modeled). The caller computes MH/MI against
+    :func:`loan_payoff`; this routine reduces the buckets by the total.
 
     Advance loans (RERUN cols MD/ME/MP/MQ/MR): the loan total carries prepaid
     interest, so its payoff value is ``principal*(1-factor)`` (MD/ME). A cash
@@ -255,25 +297,32 @@ def repay_loan(
     in the accrued buckets), preferred-first then regular then variable.
 
     Returns a :class:`LoanRepayResult` (does not add new/variable loans — that
-    happens separately).
+    happens separately). ``applied_repayment`` is the total cash applied to the
+    loan, capped at the payoff.
     """
     is_advance = config is not None and config.loan_type == "Advance"
-    requested = max(requested_repayment, 0.0)
+    requested = max(requested_repayment, 0.0)                  # MN
+    prem_lump = max(prem_to_loan_from_lumpsum, 0.0)            # MH
+    prem_sched = max(prem_to_loan_from_scheduled, 0.0)         # MI
+    attempted = requested + prem_lump + prem_sched            # MO = MK + MN
 
     if is_advance:
         reg_payoff = _round2(cap_loan.rg_loan_princ * (1.0 - adv_reg_factor))   # MD
         pref_payoff = _round2(cap_loan.pf_loan_princ * (1.0 - adv_pref_factor))  # ME
         payoff = reg_payoff + pref_payoff                                        # MF
-        attempted = requested                                                    # MO (= MN)
         pref_repay = min(pref_payoff, attempted)                                 # MQ
         reg_repay = min(reg_payoff, max(0.0, attempted - pref_repay))            # MP
         reg_reduction = _round2(reg_repay / (1.0 - adv_reg_factor)) if adv_reg_factor < 1.0 else reg_repay
         pref_reduction = _round2(pref_repay / (1.0 - adv_pref_factor)) if adv_pref_factor < 1.0 else pref_repay
         total_reduction = reg_reduction + pref_reduction                         # MR / MZ
+        # Round the post-repay principal to whole cents — the gross-up subtraction
+        # otherwise leaves IEEE float dust (~1e-12) that the payoff (ROUND(...,2))
+        # can no longer reach, so a paid-off loan strands a sub-penny of debt and
+        # a negative surrender value.
         new_loan = LoanState(
-            rg_loan_princ=max(0.0, cap_loan.rg_loan_princ - reg_reduction),
+            rg_loan_princ=max(0.0, _round2(cap_loan.rg_loan_princ - reg_reduction)),
             rg_loan_accrued=0.0,
-            pf_loan_princ=max(0.0, cap_loan.pf_loan_princ - pref_reduction),
+            pf_loan_princ=max(0.0, _round2(cap_loan.pf_loan_princ - pref_reduction)),
             pf_loan_accrued=0.0,
             vbl_loan_princ=cap_loan.vbl_loan_princ,
             vbl_loan_accrued=cap_loan.vbl_loan_accrued,
@@ -284,6 +333,7 @@ def repay_loan(
             cap_loan, advance=True,
             reg_payoff=reg_payoff, pref_payoff=pref_payoff, payoff=payoff,
             requested=requested, attempted=attempted,
+            prem_from_lumpsum=prem_lump, prem_from_scheduled=prem_sched,
             reg_repay=reg_repay, pref_repay=pref_repay,
             total_reduction=total_reduction, leftover=leftover,
         )
@@ -295,14 +345,14 @@ def repay_loan(
         + cap_loan.pf_loan_princ + cap_loan.pf_loan_accrued
         + cap_loan.vbl_loan_princ + cap_loan.vbl_loan_accrued
     )                                                                            # MF = SUM(LX:MC)
-    remaining = requested
+    remaining = attempted
     rg_accrued, remaining = _reduce_bucket(cap_loan.rg_loan_accrued, remaining)
     rg_princ, remaining = _reduce_bucket(cap_loan.rg_loan_princ, remaining)
     pf_accrued, remaining = _reduce_bucket(cap_loan.pf_loan_accrued, remaining)
     pf_princ, remaining = _reduce_bucket(cap_loan.pf_loan_princ, remaining)
     vbl_accrued, remaining = _reduce_bucket(cap_loan.vbl_loan_accrued, remaining)
     vbl_princ, remaining = _reduce_bucket(cap_loan.vbl_loan_princ, remaining)
-    applied = requested - remaining
+    applied = attempted - remaining
     new_loan = LoanState(
         rg_loan_princ=rg_princ, rg_loan_accrued=rg_accrued,
         pf_loan_princ=pf_princ, pf_loan_accrued=pf_accrued,
@@ -311,9 +361,10 @@ def repay_loan(
     detail = _loan_cap_repay_detail(
         cap_loan, advance=False,
         reg_payoff=0.0, pref_payoff=0.0, payoff=payoff,
-        requested=requested, attempted=requested,
+        requested=requested, attempted=attempted,
+        prem_from_lumpsum=prem_lump, prem_from_scheduled=prem_sched,
         reg_repay=0.0, pref_repay=0.0,
-        total_reduction=applied, leftover=max(0.0, requested - payoff),
+        total_reduction=applied, leftover=max(0.0, attempted - payoff),
     )
     return LoanRepayResult(loan_state=new_loan, applied_repayment=applied, detail=detail)
 
@@ -322,8 +373,8 @@ def empty_loan_cap_repay_detail() -> dict:
     """Zero-valued Loan Capitalize and Repay detail (all display keys present)."""
     return _loan_cap_repay_detail(
         LoanState(), advance=False, reg_payoff=0.0, pref_payoff=0.0, payoff=0.0,
-        requested=0.0, attempted=0.0, reg_repay=0.0, pref_repay=0.0,
-        total_reduction=0.0, leftover=0.0,
+        requested=0.0, attempted=0.0, prem_from_lumpsum=0.0, prem_from_scheduled=0.0,
+        reg_repay=0.0, pref_repay=0.0, total_reduction=0.0, leftover=0.0,
     )
 
 
@@ -336,6 +387,8 @@ def _loan_cap_repay_detail(
     payoff: float,
     requested: float,
     attempted: float,
+    prem_from_lumpsum: float = 0.0,
+    prem_from_scheduled: float = 0.0,
     reg_repay: float,
     pref_repay: float,
     total_reduction: float,
@@ -359,12 +412,14 @@ def _loan_cap_repay_detail(
         "Advance - Adv Reg LN Payoff": reg_payoff,
         "Advance - Adv Pref LN Payoff": pref_payoff,
         "Advance - LoanPayoff": payoff,
-        # Premium/force-out repayment sources — MG..MK (unused in this app)
+        # Premium/force-out repayment sources — MG..MK. MG (PremToPayLoanInterest)
+        # and MJ (LoanRepayFromForceout) are not modeled; MH/MI carry the
+        # sInput_ApplyPremToLoan diversion and MK their sum.
         "Arrears - PremToPayLoanInterest": 0.0,
-        "Arrears - From Lumpsum": 0.0,
-        "Arrears - From Scheduled Prem": 0.0,
+        "Arrears - From Lumpsum": prem_from_lumpsum,
+        "Arrears - From Scheduled Prem": prem_from_scheduled,
         "Arrears - LoanRepayFromForceout": 0.0,
-        "Arrears - LoanRepayFromPremAndForceout": 0.0,
+        "Arrears - LoanRepayFromPremAndForceout": prem_from_lumpsum + prem_from_scheduled,
         # Requested / attempted — MN, MO
         "Arrears - Requested Loan Repayment": requested,
         "Arrears - Total Loan Repayment Attempted": attempted,

@@ -127,6 +127,24 @@ def test_levelizing_disabled_by_a_loan():
     assert a.applied_scheduled_premium == 500.0
 
 
+def test_loan_repay_month_applies_only_the_remainder_not_levelized_premium():
+    # The month a loan is repaid: a loan is present (the PRE-repay balance), so
+    # levelizing stays off and only the post-repay remainder (NY = scheduled - MI)
+    # loads as premium — not the full levelized premium (NW). Regression for
+    # S0503261 yr54: a 173.40 repayment out of a 174.12 scheduled premium must
+    # leave 0.72 of premium, not re-apply the whole 174.12. The engine must pass
+    # the pre-repay loan as has_loan_balance for this to hold.
+    a = _alw(
+        requested_scheduled=174.12,
+        loan_repay_from_scheduled=173.40,   # MI
+        has_loan_balance=True,              # pre-repay loan present
+        levelizing_premium=True,
+    )
+    assert a.apply_levelized is False
+    assert a.scheduled_less_loan_repay == pytest.approx(0.72)
+    assert a.applied_scheduled_premium == pytest.approx(0.72)
+
+
 def test_levelized_cap_locks_and_carries_forward_after_year_start():
     # A non-beginning-of-year month carries the prior scheduled-prem cap (NV11);
     # ample annual room so only the carried level cap binds the payment.

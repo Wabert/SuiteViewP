@@ -27,3 +27,16 @@ def test_levelizing_checkbox_defaults_on_and_drives_options():
     # Unchecking flows straight through to the run options.
     tab.levelizing_check.setChecked(False)
     assert tab.export_options().levelizing_premium is False
+
+
+def test_apply_prem_to_loan_checkbox_defaults_off_and_drives_options():
+    _app()
+    tab = IllustrationInputsTab()
+
+    # "Apply Premium to Loan First" lives on the Input panel and is off by
+    # default — a normal illustration loads premium straight to the account value.
+    assert tab.dynamic_panel.apply_prem_to_loan_check.isChecked() is False
+    assert tab.export_options().apply_prem_to_loan is False
+
+    tab.dynamic_panel.apply_prem_to_loan_check.setChecked(True)
+    assert tab.export_options().apply_prem_to_loan is True

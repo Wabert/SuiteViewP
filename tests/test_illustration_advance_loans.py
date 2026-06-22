@@ -135,6 +135,28 @@ def test_advance_full_payoff_clears_loan():
     assert result.detail["LNRepayLeftOver"] == pytest.approx(50.0)
 
 
+def test_advance_capitalization_rounds_interest_to_cents():
+    # CyberLife carries the loan in cents — the interest-in-advance gross-up is
+    # rounded so the balance never strands a sub-penny the payoff can't reach.
+    x, y = 0.074, 0.0566
+    cap = capitalize_loans(5_574.81, 0.0, 0.0, 0.0, 0.0, 0.0, is_anniversary=True,
+                           config=ADVANCE, adv_reg_factor=x, adv_pref_factor=y)
+    interest_added = cap.rg_loan_princ - 5_574.81
+    assert interest_added == pytest.approx(_round2(5_574.81 * x / (1 - x)))
+
+
+def test_advance_repay_principal_rounded_to_whole_cents():
+    # The post-repay principal is rounded to cents so a partially-repaid advance
+    # loan carries no sub-penny tail. Without it the gross-up subtraction leaves a
+    # fraction the payoff (ROUND(...,2)) can't reach once the rest is repaid —
+    # stranding debt and a negative surrender value (the S0503261 bug).
+    cap = LoanState(rg_loan_princ=100.007)
+    result = repay_loan(cap, 0.0, ADVANCE, 0.05, 0.04, prem_to_loan_from_lumpsum=50.0)
+    p = result.loan_state.rg_loan_princ
+    assert p == _round2(p)        # whole cents, no float-dust tail
+    assert p == 47.38             # 100.007 - round2(50/0.95)=52.63
+
+
 def test_arrears_repayment_reduces_buckets_by_cash_no_gross_up():
     cap = LoanState(rg_loan_princ=1_000.0, rg_loan_accrued=20.0)
     result = repay_loan(cap, 100.0, ARREARS, 0.03, 0.02)

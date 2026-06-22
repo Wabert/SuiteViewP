@@ -4,22 +4,35 @@
 
 **Primary control path:** `suiteview.illustration.core.calc_engine.IllustrationEngine`
 
+**Last reviewed:** 2026-06-21
+
 **Key observation:** the implementation is materially ahead of the older M1-only spec. The live engine currently includes:
 
 - inforce monthly-deduction reconciliation
-- loan capitalization and loan interest accrual
+- loan capitalization (arrears AND interest-in-advance) and loan interest accrual
+- the full premium-acceptance allowance chain (CalcEngine NC..NZ) with guideline / 7-pay caps, lumpsum handling, and optional premium levelizing
+- **Apply Premium to Loan First** (`sInput_ApplyPremToLoan`): the requested premium repays the loan before funding the account value
+- a full withdrawal stage (CalcEngine AX..BU — max-net, corridor, partial surrender charge, gross/net trackers)
 - projected cash-flow inputs (premium overrides, loans, repayments, withdrawals)
-- future policy-change inputs for face amount changes and simple DB option flips
-- guideline premium accumulation and force-out tracking
-- standalone GLP/GSP/7-pay calculation utilities
-- rider and benefit charges inside monthly deduction
+- future policy-change inputs: face amount changes, DB option flips (A↔B level-DB mechanics), rate class / table-rating changes, rider keep/change/drop
+- per-component MTP / CTP (target-premium) detail snapshots, recomputed on coverage change
+- guideline premium accumulation, force-out, and GP exception premium
+- standalone GLP/GSP/7-pay calculation utilities and a Min-Level-to-Exception premium solver
+- rider and benefit charges inside monthly deduction (incl. NAR-split / ratchet-banding COI)
 - shadow account / CCV calculation
-- safety net and shadow-based lapse protection
-- end-of-month surrender charge and lapse testing
+- safety net, shadow, AV, exception, and SV lapse-protection paths
+- end-of-month surrender charge, ending death benefit, and lapse testing
 - CyberLife monthliversary timing used by PolView GLP forecasts
 - RERUN comparison tooling for validating engine output against the workbook CalcEngine
 
 This document is intended to show the pipeline that exists now so the next round of work can focus on the remaining gaps instead of re-documenting already-implemented pieces.
+
+> **Recent changes (2026-06):** advance (interest-in-advance) loans are now fully
+> modeled (capitalization + repayment gross-up, cents-rounded); the full NC..NZ
+> premium-acceptance chain replaced the old single guideline cap; Apply-Premium-to-Loan,
+> the real withdrawal stage, the GP exception premium, corridor-DB whole-dollar
+> truncation, and the loan surrender-value cap all landed. The "advance loans out of
+> scope" and "surrender value floored at 0" statements in older revisions are obsolete.
 
 ## 1. Source Modules
 
@@ -30,11 +43,15 @@ The pipeline is distributed across these modules:
 - `suiteview/illustration/core/commutation.py` - commutation functions, mortality table helpers, substandard adjustments, and Fackler reserve utilities
 - `suiteview/illustration/core/rate_loader.py` - current and guaranteed COI/rate loading into `IllustrationRates`
 - `suiteview/illustration/core/premium_handler.py` - premium split, premium loads, net premium
-- `suiteview/illustration/core/monthly_deduction.py` - death benefit, NAR, COI, EPU, fees, rider and benefit charges
+- `suiteview/illustration/core/premium_allowance.py` - the NC..NZ premium-acceptance allowance chain (guideline/7-pay caps, lumpsum, levelizing, loan-repay diversion)
+- `suiteview/illustration/core/target_premium.py` - MTP / CTP per-component target-premium computation and display snapshots
+- `suiteview/illustration/core/withdrawal_handler.py` - the AX..BU withdrawal stage (max-net, corridor, partial surrender charge, gross/net trackers, SA-reducing decreases)
+- `suiteview/illustration/core/monthly_deduction.py` - death benefit, NAR, COI (incl. NAR-split/ratchet banding), EPU, fees, rider and benefit charges
 - `suiteview/illustration/core/interest_calc.py` - credited interest, bonus interest, impaired interest on loaned AV
-- `suiteview/illustration/core/loan_handler.py` - anniversary capitalization and in-arrears loan accrual
+- `suiteview/illustration/core/loan_handler.py` - anniversary capitalization (arrears roll-in AND advance gross-up), in-arrears accrual, advance payoff/repayment gross-up
 - `suiteview/illustration/core/input_compiler.py` - converts future inputs into per-month buckets
-- `suiteview/illustration/core/input_applier.py` - applies early cash flows before premium/deduction, excluding fixed new-loan allocation
+- `suiteview/illustration/core/input_applier.py` - applies early cash flows (variable loans, repayments, Apply-Prem-to-Loan diversion) before premium/deduction, excluding fixed new-loan allocation
+- `suiteview/illustration/core/solve_level_to_exception.py` - solves the minimum level premium that keeps a GPT policy in force to maturity (riding the GLP exception period); loan-capable via Apply-Prem-to-Loan
 - `suiteview/illustration/core/shadow_calc.py` - parallel CCV / shadow account calculation
 - `suiteview/polview/services/glp_exception.py` - PolView GLP exception and policy-support premium forecast consumer
 - `suiteview/illustration/debug/excel_export.py` - exposes the pipeline field order used for debug export
@@ -52,22 +69,22 @@ At a high level, the normal illustration path is being structured to follow the 
 ```text
 1. Update date, policy year/month, and attained age
 2. Gather beginning values: AV, PremTD, coverage amounts, surrender charge context
-3. Withdrawal processing (partially wired for projected withdrawal inputs; broader workflow later)
-4. DB option change processing (simple future change wiring; advanced A/B mechanics still partial)
+3. Withdrawal processing (full AX..BU stage: max-net, corridor, partial SC, SA-reducing decreases)
+4. DB option change processing (future change wiring + A↔B level-DB mechanics)
 5. Face increase processing (future policy-change input)
 6. Face decrease processing (future policy-change input)
 7. Coverage After Change: active coverages, original/current amount, coverage durations, rate/substandard changes
 8. Minimum Target Premium calculation/accumulation
 9. Commission Target Premium calculation/accumulation
-10. 7702 / 7702A calculations (GLP/GSP accumulation, force-out, premium caps, and standalone GLP/GSP/7-pay utilities)
-11. Loan capitalization and loan repayment processing (currently anniversary capitalization and projected repayments)
+10. 7702 / 7702A calculations (GLP/GSP accumulation, force-out, and the NC..NZ premium-acceptance chain)
+11. Loan capitalization and repayment (arrears roll-in + advance gross-up; Apply-Prem-to-Loan; projected repayments)
 12. Apply premium and premium load
 13. Monthly deduction
-14. Exception premium calculations (later)
-15. Policy values: account value, surrender value, and new loan processing
+14. GP exception premium (implemented, in-engine)
+15. Policy values: account value, surrender value, and new loan processing (with the loan SV cap)
 16. Accumulation: interest crediting, loan interest charges, and ending values
 17. Shadow account processing
-18. Testing: simplified TAMRA cap, lapse/SV/shadow/SNET now; full MEC determination later
+18. Testing: guideline/7-pay caps, lapse via SV/shadow/SNET/AV/exception now; full MEC flagging later
 19. Deemed Cash Value (later)
 ```
 
@@ -189,13 +206,26 @@ Surrender charge itself is still calculated near the policy-values/testing stage
 
 ### 4.3 Step 3 - Withdrawal Processing
 
-Withdrawal processing beyond projected withdrawal inputs is not fully wired yet.
+Withdrawals now run through a dedicated stage, `withdrawal_handler.compute_withdrawal()`
+(CalcEngine AX..BU), called from `_process_withdrawal()` before the dated policy
+changes and the guideline force-out.
 
 Valuation-date injection point:
 
 - `withdrawals_to_date` / WithdrawalTD is injected in this section
 
-Current projected withdrawal inputs are applied through `apply_cash_flow_inputs()`, after GLP force-out and before premium and deduction, and are limited to available positive AV.
+The stage models, rather than a simple `min(requested, AV)`:
+
+- the **maximum net withdrawal** allowed (against AV less the MD holdback and a
+  minimum-balance floor, or the full AV when loan-payoff-by-WD is allowed)
+- the **gross** withdrawal (net plus the withdrawal fee and any corridor add-on)
+- whether the withdrawal **reduces the specified amount** (DBO A face decrease) and
+  the **partial surrender charge** on that decrease
+- net / gross withdrawal-to-date trackers and the cost-basis reduction
+
+A specified-amount-reducing withdrawal also re-solves the guideline premiums for the
+month (it moves coverage before the dated changes do), so it wins the "first instance"
+tie on the month's guideline recalc.
 
 ### 4.4 Step 4 - DB Option Change Processing
 
@@ -302,7 +332,7 @@ Valuation-date injection points:
 - TAMRA start date
 - Lowest7YearFace
 
-The full integrated 7702 and 7702A package is not implemented yet in the monthly projection path. That path consumes loaded policy GLP/GSP values and currently covers GLP accumulation, guideline-limit premium capping, and force-out tracking.
+The monthly projection path consumes loaded policy GLP/GSP values and covers GLP accumulation, force-out tracking, and the full NC..NZ premium-acceptance chain (guideline + 7-pay capping at acceptance). What is still missing is 7702A **MEC determination/flagging** and the CVAT Necessary-Premium Test — the cap enforces the limits but no MEC status is surfaced.
 
 Guideline premium accumulation is separated from force-out application:
 
@@ -322,14 +352,36 @@ account_value_after_forceout = account_value_before_premium - forceout
 
 The force-out is capped by available account value (`KX`), disabled when TEFRA conformance is off, for CVAT policies, or once exception mode is on (so an exception premium is not immediately clawed back). Accumulated GLP stops growing at attained age ≥ 100 (`KU`). This happens before projected cash-flow inputs and before the premium stage in both normal illustration timing and CyberLife monthliversary timing.
 
-**Premium capping at acceptance** is now also implemented (`vAppliedScheduledPremium`): the applied premium is capped to the remaining guideline room and/or 7-pay room, gated by `IllustrationOptions.conform_to_tefra` and `conform_to_tamra`. The TAMRA cap is a simplified single-cumulative version (no MEC-status side effects, no material-change reset, no CVAT/NPT).
+**Premium capping at acceptance** is now the full CalcEngine `NC..NZ` allowance
+chain in `premium_allowance.compute_premium_allowances()` (replacing the old
+single-cap helper). For each month it computes, column-for-column:
+
+- GP / NPT / TAMRA allowances *before any premium* (NC/ND/NE) and the Annual Cap (NF)
+- the post-1035 allowances (NG..NK; the 1035 exchange itself is not yet modeled, so
+  the "1" allowances equal the "0" allowances)
+- the **lumpsum / unscheduled** premium applied first against the annual cap, reducing
+  the room left for the scheduled premium (NL/NM), and the post-lumpsum allowances (NN..NQ)
+- the per-mode **level** allowances (NR BOY / NS EOY / NT NPT / NU GP) and the
+  **Scheduled Prem Cap** (NV), locked at the start of each policy year and carried forward
+- **levelizing** (NW/NX, `IllustrationOptions.levelizing_premium`): when a cap binds,
+  spread the allowed premium evenly across the year's modal payments instead of billing
+  each in full until the annual room runs out mid-year — off when the policy carries a loan
+- the scheduled premium less any loan repayment (NY) and the final accepted scheduled
+  premium (NZ)
+
+The chain is gated by `IllustrationOptions.conform_to_tefra` / `conform_to_tamra`, honors
+the TAMRA 7-pay window with a **material-change reset** (a face increase or B→A restarts
+the period) and an inforce-MEC bypass, and handles the BOY/EOY split when the 7-pay
+anniversary falls mid-policy-year. The loan-repay diversion (MH/MI/leftover) from
+Apply-Premium-to-Loan feeds NL/NY here. Still stubbed: the 1035 exchange and the CVAT
+Necessary-Premium (vNPT_Premium / LI).
 
 Currently implemented:
 
 - GLP accumulation with the attained-age-100 stop
 - GSP-floored guideline limit and AV-capped force-out
-- premium capping by guideline / 7-pay room, with TEFRA / TAMRA toggles
-- accumulated GLP, guideline limit, force-out, and premium-cap fields on monthly rows
+- the full NC..NZ premium-acceptance chain (guideline / 7-pay caps, lumpsum, levelizing), with TEFRA / TAMRA toggles
+- accumulated GLP, guideline limit, force-out, and the per-column allowance fields on monthly rows (surfaced in the Values tab "Apply Premium" group)
 
 Separately, `guideline_calc.py` implements the standalone GLP/GSP calculation surface:
 
@@ -339,14 +391,19 @@ Separately, `guideline_calc.py` implements the standalone GLP/GSP calculation su
 - `calculate_glp_iterative()` binary-searches the level annual premium that endows the policy at the 7702 maturity age using the real `IllustrationEngine`, guaranteed COI rates supplied by the caller, zero bonus interest, and guideline/exception machinery turned off.
 - `load_rates(policy, config, coi_scale=0)` supplies guaranteed COI rates for guideline/TAMRA calculations; `coi_scale=1` remains the illustrated/current scale used by the normal projection.
 
-That standalone calculator is implemented, but it is not yet wired as an automatic replacement for loaded policy GLP/GSP/7-pay values during normal monthly projection or as an automatic recalculation on future policy changes.
+The normal projection still seeds from the loaded policy GLP/GSP/7-pay values, but on a
+specified-amount change the engine **does** now recompute them via the attained-age delta
+method (`glp_on_change`, monthly-cent floor) and restarts the 7-pay period on a material
+change (see Step 4.5). That recalc is wired but not yet calibrated to RERUN's
+Guideline_Premiums calculator (deltas ~15-18% low; `PolicyChangeEvent.metadata` can inject
+RERUN's `new_glp`/`new_gsp`/`new_7pay` for mechanics-only validation).
 
 Deferred:
 
-- full integrated 7702 testing and 7702A / TAMRA / MEC determination in the monthly projection path (the cap enforces limits but does not yet flag MEC)
-- Necessary Premium Test (CVAT)
+- full integrated 7702A / MEC *flagging* in the monthly projection path (the cap enforces the 7-pay limit but does not report MEC status)
+- Necessary Premium Test (CVAT) and the 1035 exchange
 - force-out reduction of cost basis (CalcEngine `OD`)
-- guideline/GSP/7-pay recalculation on face or DB option changes
+- RERUN-calibrated guideline/GSP/7-pay recalc on face or DB option changes (mechanics wired; values not yet matched), and mid-year AccumGLP pro-ration
 
 ### 4.10 Step 11 - Loan Capitalization and Repayment Processing
 
@@ -361,21 +418,38 @@ Valuation-date injection points:
 
 Loans appear in many downstream calculations, but this is the section where the source loan buckets are injected.
 
-This step is implemented before any new cash flow or premium is applied.
+This step is implemented before any new cash flow or premium is applied, and now
+handles BOTH loan types.
 
-At policy anniversary only:
+**Arrears loans** — at policy anniversary only, accrued interest rolls into principal:
 
 ```text
 principal += accrued_interest
 accrued_interest = 0
 ```
 
+**Advance (interest-in-advance) loans** — the loan *total* carries a year of prepaid
+interest, so the total ≠ the payoff. At anniversary the next year's interest is grossed
+onto the principal (CalcEngine AA/AC):
+
+```text
+principal += round2(principal * X / (1 - X))      # total grosses up toward principal/(1-X)
+```
+
+where `X = charge_rate * days_to_next_anniversary / 365` is the unearned-interest factor.
+The gross-up is **rounded to whole cents** (CyberLife carries the loan in cents — a
+deliberate divergence from RERUN's unrounded AA/AC; without it a fully-repaid advance loan
+strands a sub-penny of debt and a negative surrender value). The payoff value is
+`round2(principal * (1 - X))`, and a cash repayment reduces the principal by the
+grossed-up `round2(repay / (1 - X))` (also rounded), so paying $X clears $X plus the
+interest on $X for the rest of the year.
+
 Outside anniversary months, balances carry through unchanged.
 
 Notes:
 
 - regular, preferred, and variable loan buckets are carried separately
-- capitalization is handled by `capitalize_loans()`
+- capitalization is handled by `capitalize_loans()`; advance payoff / repayment by `repay_loan()`
 - the projection reads prior month end balances and converts them into beginning-of-month balances for the new month
 - projected loan repayments are handled by `apply_cash_flow_inputs()` after capitalization
 
@@ -393,29 +467,37 @@ Supported projected cash flows:
 - withdrawals
 
 This step occurs after GLP force-out and before premium and deduction.
+(Withdrawals are processed earlier, in the dedicated withdrawal stage — Step 3.)
 
-Implemented formulas:
+A new variable loan is added before the repayment, so the repayment sees the larger
+balance:
 
 ```text
 vbl_loan_princ += month_inputs.variable_loan
 ```
 
-Loan repayments are applied in this bucket order:
-
-1. regular accrued
-2. regular principal
-3. preferred accrued
-4. preferred principal
-5. variable accrued
-6. variable principal
-
-Withdrawals are limited to available AV:
+**Apply Premium to Loan First** (`IllustrationOptions.apply_prem_to_loan`,
+`sInput_ApplyPremToLoan`): when on, the requested premium repays the loan *before*
+funding the account value. The lumpsum repays first, then the scheduled premium, each
+capped at the remaining loan payoff (CalcEngine MH/MI):
 
 ```text
-applied_withdrawal = min(max(requested_withdrawal, 0), max(av, 0))
-av = av - applied_withdrawal
-withdrawals_to_date += applied_withdrawal
+MH = min(payoff, requested_lumpsum)
+MI = min(payoff - MH, requested_scheduled)
 ```
+
+MH + MI are added to any scheduled loan-repayment input (MN) to form the total
+attempted repayment (MO). MH, MI, and the over-repayment leftover are handed to the
+premium-acceptance chain (NL/NY) so only what remains loads onto the AV.
+
+Loan repayment honors the loan type:
+
+- **arrears** — the cash reduces the buckets directly (interest already lives in the
+  accrued buckets) in order: regular accrued, regular principal, preferred accrued,
+  preferred principal, variable accrued, variable principal
+- **advance** — preferred payoff first then regular, each capped at its payoff, with the
+  principal reduced by the grossed-up `round2(repay / (1 - factor))` and the result
+  rounded to whole cents
 
 These future cash-flow inputs affect projected months only. They do not alter the inforce snapshot row.
 
@@ -502,10 +584,12 @@ DBO B: standard_db = total_face + nar_av
 DBO C: standard_db = total_face + max(0, premiums_to_date - withdrawals_to_date)
 ```
 
-Corridor test and gross death benefit:
+Corridor test and gross death benefit. The corridor product is **truncated to a whole
+dollar** (CyberLife rule — a deliberate divergence from RERUN's col OT, which multiplies
+without truncating). The standard DB itself is not truncated:
 
 ```text
-gross_db = max(standard_db, corridor_rate * nar_av)
+gross_db = max(standard_db, trunc(corridor_rate * nar_av))
 corr_amount = gross_db - standard_db
 ```
 
@@ -624,7 +708,7 @@ exception_prem = (gross - discount + flat_prem_load) / (1 - target_load_rate)
 av = av_after_charge + (exception_prem * (1 - target_load_rate) - flat_prem_load + discount)   # -> ~0
 ```
 
-Exception mode latches on for the remainder of the projection, disables guideline force-out, and adds an exception-premium lapse protection (`YQ`) to the lapse test. The separate PolView GLP Exception workflow still solves a level premium in `suiteview/polview/services/glp_exception.py` and projects with the in-engine exception mechanic disabled (it computes its own).
+Exception mode latches on for the remainder of the projection, disables guideline force-out, and adds an exception-premium lapse protection (`YQ`) to the lapse test. The exception mechanic gates only on the safety-net, CCV/shadow, guideline-limit, and inforce conditions — **a policy loan does not block it** (the UI now allows Allow-GP-Exception for loan policies, since premium is applied to the loan first; only an active shadow account still blocks). The separate PolView GLP Exception workflow still solves a level premium in `suiteview/polview/services/glp_exception.py` and projects with the in-engine exception mechanic disabled (it computes its own).
 
 ### 4.15 Step 15 - Policy Values / New Fixed Loan Allocation
 
@@ -643,14 +727,20 @@ Where:
 - `PremTD` is premiums to date after this month's premium
 - `AccumWDs` is withdrawals to date after any applied withdrawal inputs
 
+The requested loan is first **capped at the lapse surrender value** when
+`IllustrationOptions.restrict_loans_to_sv` is on (the workbook default — CalcEngine TQ
+`vAppliedLoan` with `sInput_RestrictLoansToSV`): you cannot borrow past the surrender
+value, `AV - full surrender charge - existing debt - MD holdback`.
+
 Allocation rule:
 
 ```text
-preferred_amount = min(requested_fixed_loan, preferred_capacity)
-regular_amount = requested_fixed_loan - preferred_amount
+applied_loan = min(requested_fixed_loan, max(0, lapse_sv_cap))   # when restrict_loans_to_sv
+preferred_amount = min(applied_loan, preferred_capacity)
+regular_amount = applied_loan - preferred_amount
 ```
 
-If preferred loans are not available on the policy, the full fixed-loan request is added to regular loan principal.
+If preferred loans are not available on the policy, the full applied fixed-loan amount is added to regular loan principal.
 
 ### 4.16 Step 16 - Accumulation: Interest Credit
 
@@ -701,7 +791,9 @@ av_end_of_month = av_after_deduction + interest_credited
 
 This is handled by `accrue_loan_interest()` after interest credit.
 
-Only in-arrears loan types accrue monthly charges here. Advance loans pass through unchanged.
+Only in-arrears loan types accrue monthly charges here. Advance (interest-in-advance)
+loans do not accrue monthly — their interest is prepaid and grossed onto the principal at
+the anniversary instead (Step 11), so they correctly pass through this accrual step.
 
 ```text
 regular_accrual = regular_principal * loan_charge_rate_guar * days_in_month / 365
@@ -711,7 +803,7 @@ variable_accrual = variable_principal * variable_loan_charge_rate * days_in_mont
 
 The variable loan charge rate is loaded from the most recent `LH_FND_VAL_LOAN.LN_CRG_ITS_RT` row when the base policy loan type is variable (`LN_TYP_CD` 6 or 7). If the policy has no applicable variable loan rate, variable loan accrual remains zero.
 
-Variable loans do not participate in the collateral/impaired interest-crediting split; variable-loan-backed value is treated as unimpaired AV for interest crediting. Advance-loan calculations remain out of scope for this path and pass through unchanged.
+Variable loans do not participate in the collateral/impaired interest-crediting split; variable-loan-backed value is treated as unimpaired AV for interest crediting. Advance loans are modeled by the anniversary capitalization + repayment gross-up (Step 11 / `loan_handler`), not by this monthly accrual path.
 
 The accrued charges are added to the accrued buckets, not principal.
 
@@ -807,28 +899,39 @@ If no segment list exists, the fallback is:
 surrender_charge = scr_rate * policy.units
 ```
 
-Surrender value:
+Surrender value is the AV-after-exception less the surrender charge and policy debt, and
+is **not floored at zero** — it can be negative (the Values tab floors only the
+display-facing `IllustrationSV`, not the raw `ESV`):
 
 ```text
-surrender_value = max(av_end_of_month - surrender_charge - policy_debt, 0)
+surrender_value = av_after_exception - surrender_charge - policy_debt
 ```
 
-Ending death benefit:
+Ending death benefit is recomputed from the END-of-month AV (CalcEngine VY/VZ/WB), not
+just carried from the deduction-time gross DB:
 
 ```text
-ending_db = deduction_result.gross_db
+edb_wo_corr = total_face
+            + (db_option == "B": max(0, av_end))
+            + (db_option == "C": max(0, premiums_to_date - withdrawals_to_date))
+edb_corr  = max(0, trunc(av_end * corridor_rate) - edb_wo_corr)   # corridor truncated to whole dollar
+ending_db = edb_wo_corr + edb_corr - policy_debt + primary_insured_rider_face
 ```
 
-Lapse test:
+Lapse test (the protections are the safety net, shadow account, positive SV, AV-less-loans,
+and exception mode):
 
 ```text
 positive_sv = (lapse_value == "SV" and surrender_value > 0)
-av_loans_test = (lapse_value == "AV" and av_end_of_month - policy_debt > 0)
-any_protection = snet_active or shadow_protection or positive_sv or av_loans_test
+av_loans_test = (lapse_value == "AV" and av_after_exception - policy_debt > 0)
+exception_protection = (exception_mode and surrender_value > -0.0001)
+any_protection = snet_active or shadow_protection or positive_sv or av_loans_test or exception_protection
 lapsed = prior_lapsed or not any_protection
 ```
 
-Once `lapsed` becomes true, later states remain lapsed.
+Once `lapsed` becomes true, later states remain lapsed. (The `-0.0001` tolerance on the
+exception protection is why the advance-loan sub-penny residual — since fixed by
+cents-rounding the loan — could otherwise tip a fully-funded policy into a false lapse.)
 
 ### 4.21 Step 19 - Deemed Cash Value
 
@@ -918,32 +1021,39 @@ The forecast rows expose the fields the Policy Support tab needs to audit the fo
 
 - inforce reconciliation row
 - premium split and premium loads
-- DBO A, B, and C handling
-- future policy-change events for simple DB option flips and face amount increases/decreases
+- the full NC..NZ premium-acceptance allowance chain (guideline/7-pay caps, lumpsum, levelizing, TAMRA BOY/EOY + material-change reset + MEC bypass)
+- Apply Premium to Loan First (`sInput_ApplyPremToLoan`)
+- the AX..BU withdrawal stage (max-net, corridor, partial surrender charge, gross/net trackers, SA-reducing decreases)
+- DBO A, B, and C handling, with A↔B level-DB change mechanics
+- future policy-change events: DB option flips, face increases/decreases, rate class / table-rating changes, rider keep/change/drop
+- per-component MTP / CTP target-premium detail snapshots, recomputed on coverage change
 - multi-segment base coverage support in deduction and surrender charge logic
-- COI, EPU, MFEE, AV charge
+- COI (incl. NAR-split / ratchet-banding for ~1983 UL plancodes), EPU, MFEE, AV charge
+- corridor death benefit truncated to a whole dollar
 - rider and benefit charges during deduction and shadow account processing, excluding the CCV benefit charge from shadow rider charges
 - rider substandard table ratings and flat extras in rider COI charges
-- loan capitalization and in-arrears accrual, including variable loan charges when a policy variable rate is available
+- loan capitalization — arrears roll-in AND advance (interest-in-advance) gross-up, cents-rounded — plus in-arrears and variable-loan accrual when a policy variable rate is available
+- advance loan payoff and repayment gross-up (`repay_loan`), with the loan surrender-value cap (`restrict_loans_to_sv`)
 - projected loans, repayments, withdrawals, and premium overrides
-- guideline premium force-out and accumulated GLP tracking in monthly projection rows
+- guideline premium force-out, accumulated GLP tracking, and the GP exception premium (available for loan policies)
 - CyberLife monthliversary timing mode for PolView GLP forecasts
-- GLP Exception level-premium solver and Policy Support premium forecast consumer
+- GLP Exception level-premium solver, Min-Level-to-Exception solver (loan-capable), and Policy Support premium forecast consumer
 - standalone commutation GLP/GSP calculators, TAMRA 7-pay calculator, attained-age GLP change delta, and iterative GLP solver utility
 - current-vs-guaranteed COI scale selection for normal projection vs guideline/TAMRA calculations
 - bonus interest logic
 - ExactDays credited interest using actual `days / 365`
 - shadow account / CCV calculation
-- safety net and shadow-based lapse protection
-- surrender value and lapse determination
+- safety net, shadow, AV, exception, and SV lapse protection
+- surrender value (unfloored), ending death benefit (recomputed from EOM AV), and lapse determination
 
 ### 7.2 Explicitly Incomplete or Partial in Current Code
 
-- advance-loan calculations are still out of scope; advance loans currently pass through without monthly accrual
 - the engine's OWN guideline recalc (commutation on guaranteed COI) runs when no injected values are supplied, but is not yet calibrated to RERUN's Guideline_Premiums calculator (deltas ~15-18% low); DBO B after-states need the iterative method or injection
 - DBO B-to-A is implemented (inverse level-DB mechanic, material change) but not yet validated against a RERUN reference
 - mid-year (non-anniversary) changes do not pro-rate the year-of-change AccumGLP (Guideline_Premiums col K AccumAdjust)
-- some spec-era items such as full integrated 7702 recalculation, TAMRA/MEC flagging, deemed cash value, GCO logic, and broader policy change processing are not part of this monthly path
+- the 1035 exchange (allowance row "1") and the CVAT Necessary-Premium Test (vNPT_Premium) are stubbed at zero in the premium chain
+- TAMRA/MEC *flagging* is not surfaced (the cap enforces the 7-pay limit but no MEC status is reported); deemed cash value, GCO logic, and full integrated 7702A determination remain out of this monthly path
+- advance loans are validated penny-exact at current/early durations; the cents-rounding divergence from RERUN (unrounded AA/AC) is intentional and still wants a long-horizon RERUN-saved-case confirmation
 
 ## 8. Recommended Next Review Questions
 

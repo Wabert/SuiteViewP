@@ -73,6 +73,9 @@ class MonthlyState:
     vbl_loan_princ: float = 0.0
     vbl_loan_accrued: float = 0.0
     applied_loan_repayment: float = 0.0
+    # Premium dollars diverted to repay the loan this month (RERUN MH + MI),
+    # when sInput_ApplyPremToLoan is on. Zero otherwise.
+    loan_repay_from_prem: float = 0.0
     applied_regular_loan: float = 0.0
     applied_preferred_loan: float = 0.0
     applied_variable_loan: float = 0.0

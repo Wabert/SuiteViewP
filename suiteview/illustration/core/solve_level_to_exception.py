@@ -45,7 +45,7 @@ _MAX_BRACKET_DOUBLINGS = 24
 
 
 class LevelToExceptionError(ValueError):
-    """The solve cannot run for this policy (CVAT, carries a loan, or no solution)."""
+    """The solve cannot run for this policy (CVAT, or no level premium solution)."""
 
 
 @dataclass
@@ -56,6 +56,9 @@ class LevelToExceptionResult:
     exception_start: Optional[date]  # first month of that exception period
     exception_duration: Optional[int]  # policy year that exception period begins
     maturity_av: float               # account value at maturity at the solved premium
+    total_premium_paid: float        # lifetime premiums to maturity at the solved
+                                     # premium — applied premium + GP exception
+                                     # premium + loan repayments
     iterations: int                  # engine projections spent solving
 
 
@@ -65,6 +68,7 @@ def _default_mode(policy: IllustrationPolicyData) -> str:
 
 def level_to_exception_options(
     base: Optional[IllustrationOptions], allow_exceptions: bool = True,
+    apply_prem_to_loan: Optional[bool] = None,
 ) -> IllustrationOptions:
     """Guideline-conforming basis for the solve.
 
@@ -77,15 +81,23 @@ def level_to_exception_options(
     the applied premium is shown consistently with the rest of the app; both the
     solve and the displayed run must use this same basis, or the solved premium
     won't behave as solved.
+
+    ``apply_prem_to_loan`` (sInput_ApplyPremToLoan) makes the level premium repay
+    the policy loan before funding the account value — required to solve a policy
+    that carries a loan. ``None`` inherits it from ``base`` (e.g. the UI's "Apply
+    Premium to Loan First" toggle); a bool forces it.
     """
     exact = getattr(base, "exact_days_interest", None) if base is not None else None
     levelizing = bool(getattr(base, "levelizing_premium", False)) if base is not None else False
+    if apply_prem_to_loan is None:
+        apply_prem_to_loan = bool(getattr(base, "apply_prem_to_loan", False)) if base is not None else False
     return IllustrationOptions(
         conform_to_tefra=True,
         conform_to_tamra=True,
         allow_exception_prems=allow_exceptions,
         exact_days_interest=exact,
         levelizing_premium=levelizing,
+        apply_prem_to_loan=apply_prem_to_loan,
     )
 
 
@@ -96,6 +108,7 @@ def solve_level_to_exception(
     start_policy_year: int = 1,
     base_future_inputs: Optional[IllustrationInputSet] = None,
     allow_exceptions: bool = True,
+    apply_prem_to_loan: Optional[bool] = None,
     resolution: float = 0.01,
     base_options: Optional[IllustrationOptions] = None,
     engine: Optional[IllustrationEngine] = None,
@@ -115,17 +128,19 @@ def solve_level_to_exception(
             these inputs specify.
         resolution: rounding granularity; the result is rounded UP to this so it
             lands on the in-force side of the lapse boundary.
-        base_options: only ``exact_days_interest`` and ``levelizing_premium`` are
-            read from it; the guideline and exception toggles are forced on.
+        apply_prem_to_loan: make the level premium repay the policy loan before
+            funding the account value (sInput_ApplyPremToLoan) — needed to solve a
+            policy that carries a loan. ``None`` inherits it from ``base_options``;
+            a bool forces it.
+        base_options: only ``exact_days_interest``, ``levelizing_premium`` and
+            ``apply_prem_to_loan`` are read from it; the guideline and exception
+            toggles are forced on.
     """
     if policy.is_cvat:
         raise LevelToExceptionError("Level-to-Exception applies to GPT policies only.")
-    if policy.has_loans:
-        raise LevelToExceptionError(
-            "Level-to-Exception is unavailable while the policy carries a loan.")
 
     mode = (mode or _default_mode(policy)).upper()
-    options = level_to_exception_options(base_options, allow_exceptions)
+    options = level_to_exception_options(base_options, allow_exceptions, apply_prem_to_loan)
     engine = engine or IllustrationEngine()
 
     base = base_future_inputs
@@ -188,6 +203,13 @@ def _build_result(
     exc_start = exc_state.date if exc_state is not None else None
     exc_duration = exc_state.policy_year if exc_state is not None else None
     maturity_av = states[-1].av_end_of_month if states else 0.0
+    # Lifetime premiums to reach maturity: the cumulative applied premium
+    # (premiums_to_date already includes the inforce history and projected
+    # scheduled/unscheduled premium) plus the GP exception premium and any loan
+    # repayments, neither of which flows through premiums_to_date.
+    applied_to_date = float(states[-1].premiums_to_date) if states else 0.0
+    exception_paid = sum(float(s.gp_exception_prem_gross or 0.0) for s in states)
+    loan_repaid = sum(float(s.applied_loan_repayment or 0.0) for s in states)
     return LevelToExceptionResult(
         premium=round(premium, 2),
         mode=mode,
@@ -195,5 +217,6 @@ def _build_result(
         exception_start=exc_start,
         exception_duration=exc_duration,
         maturity_av=maturity_av,
+        total_premium_paid=round(applied_to_date + exception_paid + loan_repaid, 2),
         iterations=iterations,
     )

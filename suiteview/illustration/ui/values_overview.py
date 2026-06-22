@@ -328,7 +328,7 @@ class _KpiChip(QWidget):
 
 
 LEDGER_COLUMNS = [
-    "Year", "Month", "Age", "Withdrawals", "ForceOuts", "Prem",
+    "Year", "Month", "Age", "Withdrawals", "ForceOuts", "Loan Repay", "Prem",
     "MD", "Exception Prem", "AV", "SV", "Interest", "EAV", "SC",
     "New Loan", "LN", "ESV", "Death Benefit", "Status",
 ]
@@ -481,6 +481,7 @@ class ValuesOverview(QWidget):
             months = [state for _, state in month_entries]
             eoy_index, eoy = month_entries[-1]
             premium = sum(s.premium_outlay for s in months)
+            loan_repay = sum(s.applied_loan_repayment for s in months)
             exception_prem = sum(s.gp_exception_prem for s in months)
             forceouts = sum(s.guideline_forceout for s in months)
             new_loan = sum(s.applied_new_loan for s in months)
@@ -495,6 +496,7 @@ class ValuesOverview(QWidget):
             item = QTreeWidgetItem([
                 str(year), str(eoy.policy_month), str(eoy.attained_age),
                 _fmt_money(withdrawals, 2), _fmt_money(forceouts, 2),
+                _fmt_money(loan_repay, 2),
                 _fmt_money(premium, 2), _fmt_money(monthly_deduction, 2),
                 _fmt_money(exception_prem, 2), _fmt_money(av_pre_interest, 2),
                 _fmt_money(sv_pre_interest, 2), _fmt_money(interest, 2),
@@ -526,6 +528,7 @@ class ValuesOverview(QWidget):
                 child = QTreeWidgetItem([
                     str(state.policy_year), str(state.policy_month), str(state.attained_age),
                     _fmt_money(month_wd, 2), _fmt_money(state.guideline_forceout, 2),
+                    _fmt_money(state.applied_loan_repayment, 2),
                     _fmt_money(state.premium_outlay, 2), _fmt_money(state.total_deduction, 2),
                     _fmt_money(state.gp_exception_prem, 2), _fmt_money(av_pre_interest, 2),
                     _fmt_money(sv_pre_interest, 2), _fmt_money(state.interest_credited, 2),

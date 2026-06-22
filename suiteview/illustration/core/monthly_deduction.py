@@ -4,6 +4,7 @@ Follows RERUN CalcEngine cols 405-516.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
@@ -356,7 +357,15 @@ def calculate_deduction(
         attained_age,
         config.corridor_code,
     )
-    gross_db = max(standard_db, corr_rate * nar_av) if corr_rate > 0 else standard_db
+    # Corridor death benefit is truncated to a whole dollar (CyberLife rule).
+    # NOTE: this diverges from RERUN col OT (=MAX(OQ, OP*OR)), which multiplies
+    # without truncating. The +1e-6 absorbs float-multiply dust so an exact-dollar
+    # product (e.g. a non-round corridor rate × AV) isn't dropped a dollar.
+    if corr_rate > 0:
+        corr_db = float(math.floor(corr_rate * nar_av + 1e-6))
+        gross_db = max(standard_db, corr_db)
+    else:
+        gross_db = standard_db
     corr_amount = gross_db - standard_db
 
     # ── 3.2.4 Discounted DB — per segment (cols 418-422) ────

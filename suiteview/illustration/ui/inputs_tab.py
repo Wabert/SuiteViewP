@@ -808,10 +808,17 @@ class IllustrationInputsTab(QWidget):
             cap_premiums_at_acceptance=self.cap_acceptance_check.isChecked(),
             levelizing_premium=self.levelizing_check.isChecked(),
             guideline_by_search=self.gp_search_check.isChecked(),
+            apply_prem_to_loan=self.dynamic_panel.apply_prem_to_loan_check.isChecked(),
         )
 
     def min_level_request(self) -> Optional[dict]:
         return self.dynamic_panel.min_level_request()
+
+    def lumpsum_to_next_enabled(self) -> bool:
+        return self.dynamic_panel.lumpsum_to_next_enabled()
+
+    def level_premium_active(self) -> bool:
+        return self.dynamic_panel.active_level_premium_type() is not None
 
     def set_min_level_amount(self, value: Optional[float]):
         self.dynamic_panel.set_min_level_amount(value)

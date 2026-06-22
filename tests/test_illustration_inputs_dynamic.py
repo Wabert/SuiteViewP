@@ -83,6 +83,48 @@ def test_input_tab_illustrated_rate_defaults_from_plancode_gint():
     assert panel.illustrated_rate() == 0.03
 
 
+def test_loan_policy_allows_gp_exception_but_shadow_still_blocks():
+    # A policy loan no longer disables Allow GP Exception — the premium is applied
+    # to the loan first, so the policy can ride the GLP exception period with a
+    # loan outstanding. An active shadow account still blocks it.
+    _app()
+
+    class _LoanPolicy(_FakePolicy):
+        total_loan_balance = 5_000.0
+
+    panel = DynamicInputsPanel()
+    panel.load_from_policy(_LoanPolicy())
+    assert panel._ctx.has_loans is True
+    assert panel.exception_notice.text() == ""
+    assert panel.exception_prem_check.isEnabled() is True
+
+    shadow_panel = DynamicInputsPanel()
+    shadow_panel.load_from_policy(_LoanPolicy(), has_shadow=True)
+    assert "shadow account" in shadow_panel.exception_notice.text()
+    assert shadow_panel.exception_prem_check.isEnabled() is False
+
+
+def test_min_level_available_for_loan_policy():
+    # The Min Level solver is loan-capable (it applies premium to the loan first),
+    # so the premium-type dropdown offers it even with a loan outstanding.
+    _app()
+
+    class _LoanPolicy(_FakePolicy):
+        total_loan_balance = 5_000.0
+
+    panel = DynamicInputsPanel()
+    panel.load_from_policy(_LoanPolicy())
+    row = panel.premium_section.rows()[0]
+    options = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
+    assert options == ["INPUT", "Max Level Allowed", "Min Level to Maturity"]
+
+
+def test_allow_gp_exception_premium_checked_by_default():
+    # Allow GP Exception Premium is on by default for a normal (non-shadow) policy.
+    panel = _panel()
+    assert panel.exception_prem_check.isChecked() is True
+
+
 def test_max_level_premium_defaults_and_changes_with_mode():
     panel = _panel()
     row = panel.premium_section.rows()[0]

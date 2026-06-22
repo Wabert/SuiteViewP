@@ -119,7 +119,7 @@ class PolicyContext:
     max_level_premium_room: float = 0.0
     max_level_years: int = 0
     is_cvat: bool = False
-    has_loans: bool = False       # gates Min Level (solver needs no loan)
+    has_loans: bool = False       # policy carries a loan (informational)
     has_shadow: bool = False      # active shadow account (benefit type A) — gates exceptions
     rate_class: str = ""          # Cov 1
     table_rating: int = 0         # Cov 1
@@ -457,15 +457,14 @@ class InputRow(QWidget):
         self.type_combo.blockSignals(True)
         self.type_combo.clear()
         if self._section.spec.allow_max_level_premium:
-            # GPT policies can solve a level premium; CVAT only takes INPUT.
-            # Min Level needs the engine solver, which refuses loan policies.
+            # GPT policies can solve a level premium; CVAT only takes INPUT. The
+            # Min Level solver is loan-capable now (it applies premium to the loan
+            # first), so a policy loan no longer hides it.
             ctx = self._ctx
             if ctx is not None and ctx.is_cvat:
                 options = [_TYPE_INPUT]
             else:
-                options = [_TYPE_INPUT, _TYPE_MAX_LEVEL]
-                if ctx is None or not ctx.has_loans:
-                    options.append(_TYPE_MIN_LEVEL)
+                options = [_TYPE_INPUT, _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL]
             self.type_combo.addItems(options)
             self.type_combo.setFixedWidth(self._section.spec.type_width)
             if current in options:
@@ -1243,9 +1242,10 @@ class DynamicInputsPanel(QWidget):
         rate_suffix = QLabel("%")
         rate_suffix.setStyleSheet(_CAPTION_STYLE)
         # Allow GP Exception Premium lives on the Input sheet (moved from the
-        # Illustration Control tab). Disabled with a notice for loan/shadow
-        # policies; otherwise the user decides whether to allow exceptions.
+        # Illustration Control tab). On by default; disabled with a notice only for
+        # an active shadow account; otherwise the user decides whether to allow it.
         self.exception_prem_check = QCheckBox("Allow GP Exception Premium")
+        self.exception_prem_check.setChecked(True)
         self.exception_prem_check.setStyleSheet(
             f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
             " font-weight: bold; spacing: 6px; }"
@@ -1256,11 +1256,46 @@ class DynamicInputsPanel(QWidget):
         self.exception_prem_check.setToolTip(
             "Allow the guideline-premium exception premium when the policy is guideline-"
             "limited and would otherwise lapse.")
+        # Apply Premium to Loan First (sInput_ApplyPremToLoan): the requested
+        # premium repays the policy loan before any of it loads onto the account
+        # value. A no-op on a loan-free policy.
+        self.apply_prem_to_loan_check = QCheckBox("Apply Premium to Loan First")
+        self.apply_prem_to_loan_check.setStyleSheet(
+            f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
+            " font-weight: bold; spacing: 6px; }"
+            "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px;"
+            " background-color: white; }"
+            "QCheckBox::indicator:disabled { background-color: #E8DDF8; }"
+            "QCheckBox::indicator:checked { background-color: #5E35A5; }")
+        self.apply_prem_to_loan_check.setToolTip(
+            "Apply the requested premium to repay the policy loan first. The lumpsum "
+            "then the scheduled premium repay the loan up to its payoff; only what "
+            "remains is loaded onto the account value.")
+        # Lumpsum to Next Premium: when the policy is too thin to coast from the
+        # forecast date to its next modal premium, apply a solved lumpsum on the
+        # forecast date that carries it in force until that premium is collected.
+        self.lumpsum_to_next_check = QCheckBox("Lumpsum to Next Premium")
+        self.lumpsum_to_next_check.setStyleSheet(
+            f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
+            " font-weight: bold; spacing: 6px; }"
+            "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px;"
+            " background-color: white; }"
+            "QCheckBox::indicator:disabled { background-color: #E8DDF8; }"
+            "QCheckBox::indicator:checked { background-color: #5E35A5; }")
+        self.lumpsum_to_next_check.setToolTip(
+            "If the policy would lapse before its next modal premium, apply a solved "
+            "lumpsum on the forecast date that keeps it in force until that premium is "
+            "collected. Sized from the surrender-value (or AV-less-loans) shortfall, or "
+            "the safety-net gap when lower, then refined on the engine.")
         rate_row.addWidget(rate_label)
         rate_row.addWidget(self.illustrated_rate_edit)
         rate_row.addWidget(rate_suffix)
         rate_row.addSpacing(24)
         rate_row.addWidget(self.exception_prem_check)
+        rate_row.addSpacing(16)
+        rate_row.addWidget(self.apply_prem_to_loan_check)
+        rate_row.addSpacing(16)
+        rate_row.addWidget(self.lumpsum_to_next_check)
         rate_row.addStretch(1)
         outer.addLayout(rate_row)
 
@@ -1349,6 +1384,9 @@ class DynamicInputsPanel(QWidget):
     def illustrated_rate(self) -> float:
         return self.illustrated_rate_edit.rate()
 
+    def lumpsum_to_next_enabled(self) -> bool:
+        return self.lumpsum_to_next_check.isChecked()
+
     # ── Level-premium types (Max / Min Level to Maturity) ─────
 
     def active_level_premium_type(self) -> Optional[str]:
@@ -1385,15 +1423,19 @@ class DynamicInputsPanel(QWidget):
         # rows stay editable. The exception toggle is refreshed too.
         level = self.active_level_premium_type()
         self._set_other_sections_locked(level is not None)
+        # A level premium already solves the policy in force to maturity, so a
+        # next-premium bridge is moot — grey it out (state preserved for when the
+        # user switches back off the level type).
+        self.lumpsum_to_next_check.setEnabled(level is None)
         self._refresh_exception_checkbox()
 
     def _refresh_exception_checkbox(self):
-        # A policy loan or active shadow account blocks GP exceptions entirely,
-        # with a notice. Otherwise the user decides whether to allow them.
+        # An active shadow account blocks GP exceptions (the shadow account
+        # governs lapse, not the exception premium). A policy loan no longer
+        # blocks them — premium is applied to the loan first, so the policy can
+        # ride the GLP exception period with a loan outstanding.
         ctx = self._ctx
-        if ctx is not None and ctx.has_loans:
-            reason = "Allow Exceptions is not available due to a policy loan."
-        elif ctx is not None and ctx.has_shadow:
+        if ctx is not None and ctx.has_shadow:
             reason = "Allow Exceptions is not available due to an active shadow account."
         else:
             reason = ""

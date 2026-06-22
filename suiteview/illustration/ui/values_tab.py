@@ -2081,7 +2081,7 @@ class IllustrationValuesTab(QWidget):
             "IllustrationDB": state.ending_db,
             "PremiumOutlay": state.premium_outlay,
             "ForceOutDisplay": state.guideline_forceout,
-            "LoanRepayFromPremDisplay": state.applied_loan_repayment,
+            "LoanRepayFromPremDisplay": state.loan_repay_from_prem,
             "LoanRepayDisplay": state.applied_loan_repayment,
             "DistributionFromPolicy": 0.0,
             "IllustrationGCO": 0.0,

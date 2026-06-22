@@ -79,6 +79,10 @@ def run_engine_case(cmd: dict) -> dict:
         opt_kwargs["exact_days_interest"] = bool(cmd["exact_days"])
     if "gp_search" in cmd:
         opt_kwargs["guideline_by_search"] = bool(cmd["gp_search"])
+    if "apply_prem_to_loan" in cmd:
+        opt_kwargs["apply_prem_to_loan"] = bool(cmd["apply_prem_to_loan"])
+    if "levelizing" in cmd:
+        opt_kwargs["levelizing_premium"] = bool(cmd["levelizing"])
     options = IllustrationOptions(**opt_kwargs)
 
     # Optional policy changes: [{"kind":"face_amount"|"db_option","date":"YYYY-MM-DD","value":...,
