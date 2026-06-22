@@ -1,0 +1,7 @@
+PolicyNumber,ClaimNumber,InsuredName,State,ClaimType,ClaimAmount,Status,DateReported,DateClosed
+P0001006,RGA-10001,Linda Nguyen,CA,Death,150000.00,Closed,2023-02-12,2023-04-05
+P0001009,RGA-10002,Michael Brown,FL,Death,500000.00,Open,2025-04-01,
+P0001005,RGA-10003,Robert Haessly,TX,Death,375000.00,Pending,2025-03-15,
+P0001012,RGA-10004,Nancy Martins,CA,Death,112500.00,Open,2024-11-05,
+P0001002,RGA-10005,Maria Lopez,CA,Death,250000.00,Closed,2024-05-09,2024-06-30
+P0001011,RGA-10006,Thomas Wilson,GA,Death,75000.00,Denied,2024-07-14,2024-08-01

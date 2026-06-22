@@ -1,0 +1,11 @@
+PolicyNumber,ClaimNumber,InsuredName,State,ClaimType,ClaimAmount,Status,DateReported,DateClosed
+P0001006,CLM-00001,Linda Nguyen,CA,Death,300000.00,Closed,2023-02-10,2023-04-01
+P0001012,CLM-00002,Nancy Martins,CA,Death,225000.00,Open,2024-11-03,
+P0001003,CLM-00003,David Kim,NY,Surrender,8450.25,Closed,2022-06-15,2022-07-02
+P0001010,CLM-00004,Karen Davis,TX,Surrender,61200.00,Closed,2023-09-20,2023-10-11
+P0001001,CLM-00005,John Carter,TX,ABR,62500.00,Pending,2025-01-12,
+P0001005,CLM-00006,Robert Haessly,TX,Disability,1500.00,Open,2025-03-04,
+P0001004,CLM-00007,Susan Patel,FL,Waiver,1490.20,Closed,2024-01-30,2024-02-15
+P0001009,CLM-00008,Michael Brown,FL,ABR,250000.00,Denied,2024-08-22,2024-09-09
+P0001002,CLM-00009,Maria Lopez,CA,Disability,3120.00,Open,2025-02-18,
+P0001008,CLM-00010,Patricia Gomez,NY,Waiver,1675.85,Closed,2023-12-01,2023-12-20
