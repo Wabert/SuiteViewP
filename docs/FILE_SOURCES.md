@@ -100,11 +100,17 @@ this was a small, additive change.
   stamps `dialect="DUCKDB"` + `config["file_source_id"]`. Verified end-to-end: a
   cross-file `UNION ALL` + `GROUP BY` over CLAIMS+RGACLAIMS returns correct
   aggregates.
-- **Phase 2c — Visual builder over a File Source (remaining):** let the Visual
-  Query designer target a File Source (members as the Tables list, schema as the
-  field list, compile via the `DUCKDB` dialect, Run → `file_query_runner`). More
-  invasive — touches the Tables dialog (ODBC introspection) and
-  `DynamicQuery._on_run_audit`.
+- **Phase 2c — Visual builder over a File Source:** ✅ *built + screenshot-
+  verified in-app on the minipc (2026-06-22).* `detect_dialect()` returns
+  `DUCKDB` for a `file:<id>` pseudo-DSN, so a `DynamicQuery` built on a file
+  token compiles via the DUCKDB dialect. `DynamicQuery._run_audit` / `_run_build_sql`
+  branch to `file_query_runner`. `AuditWindow._open_visual_query_on_file_source`
+  creates the query with `tables=[]` (the table is inferred from the dragged
+  fields, so a multi-file source with identical columns can't silently pick the
+  wrong member); `_bind_picker_to_file_source` fills the SQL Assist picker from
+  the stored schema (reusing `FieldPickerPanel.load_local_source`). Entry point:
+  a **Visual Query →** button on the File Source editor. Verified: the designer
+  runs SELECT over a member table through DuckDB.
 - **Phase 3 — Browser/organizer + migration (app):** the "File Sources" group
   lists FileDataSources (not per-file query objects); the source-tree shows each
   source and its members. Migrate existing `adhoc_source` QueryObjects →
@@ -117,6 +123,11 @@ this was a small, additive change.
   app on the work laptop (`WORK_LAPTOP_SPEC.md` §3c).
 
 ## Changelog
+- **2026-06-22 (2c)** — Visual builder over a File Source. `DUCKDB` dialect from
+  `detect_dialect("file:…")`; `DynamicQuery` run paths branch to
+  `file_query_runner`; `AuditWindow._open_visual_query_on_file_source` (+
+  `_bind_picker_to_file_source`) and a "Visual Query →" button. Verified in-app;
+  suite 439 passed (13 pre-existing failures, unrelated). Remaining: Phase 3.
 - **2026-06-22 (later still)** — Phase 2b: Manual SQL over a File Source.
   `FieldPickerPanel` local (no-ODBC) mode (`load_local_source`), Manual editor
   `set_file_source`, AuditWindow run/save routing on a `file:<id>` token +

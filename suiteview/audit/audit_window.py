@@ -580,6 +580,7 @@ class AuditWindow(FramelessWindowBase):
         self.manual_sql_object_tab.save_requested.connect(self._save_manual_sql_object)
         self.csv_excel_object_tab.saved.connect(lambda _: self._open_query_object_viewer())
         self.file_source_tab.query_requested.connect(self._open_manual_sql_on_file_source)
+        self.file_source_tab.visual_query_requested.connect(self._open_visual_query_on_file_source)
     # ── Mode switching (Cyberlife / dynamic) ─────────────────────────
     # Cyberlife tab pane — darker blue top/bottom border
     _CYB_TAB_STYLE = (
@@ -676,14 +677,17 @@ class AuditWindow(FramelessWindowBase):
         if mode in self._dynamic_queries:
             dq = self._dynamic_queries[mode]
             self._set_mode_footer(dq.bottom_bar)
-            self._field_picker.set_connection_options(
-                self._manual_sql_odbc_connections(), dq.dsn)
-            self._field_picker.set_group(
-                dq.dsn, dq.tables, dq.display_names,
-                preferred_table=self._preferred_query_table(dq),
-                pinned_tables=dq.pinned_tables)
-            dq.set_source_dsn(self._field_picker.current_connection())
-            self._push_common_tables_to_picker(dq)
+            if dq.dsn.startswith("file:"):
+                self._bind_picker_to_file_source(dq)
+            else:
+                self._field_picker.set_connection_options(
+                    self._manual_sql_odbc_connections(), dq.dsn)
+                self._field_picker.set_group(
+                    dq.dsn, dq.tables, dq.display_names,
+                    preferred_table=self._preferred_query_table(dq),
+                    pinned_tables=dq.pinned_tables)
+                dq.set_source_dsn(self._field_picker.current_connection())
+                self._push_common_tables_to_picker(dq)
             raw_name = mode.removeprefix("▸ ")
             self._field_picker.highlight_query(raw_name)
         else:
@@ -2155,6 +2159,49 @@ class AuditWindow(FramelessWindowBase):
         if first:
             self.manual_sql_object_tab.set_sql(f'SELECT *\nFROM "{first}"')
         self._switch_mode("__manual_sql_object__")
+
+    def _open_visual_query_on_file_source(self, file_source_id: str):
+        """Open a Visual Query designer targeted at a saved File Source (DuckDB)."""
+        from suiteview.audit import file_query_runner
+
+        fds = file_query_runner.resolve_file_source(file_source_id)
+        if fds is None:
+            QMessageBox.warning(self, "File Source", "This file source could not be found.")
+            return
+        token = f"file:{fds.id}"
+        base_name = f"{fds.name} (Visual)"
+        name = base_name
+        suffix = 1
+        while name in self._dynamic_queries:
+            suffix += 1
+            name = f"{base_name} {suffix}"
+        # tables=[] → the source table is inferred from the fields the user drags,
+        # so a multi-file source with identical columns can't silently pick the
+        # wrong one. The picker still lists every member (see _bind_picker...).
+        self._create_dynamic_query(name, token, [], saved_query_name="")
+        self.btn_workbench.setChecked(True)
+        prev = self._active_unpinned
+        self._active_unpinned = name
+        self._switch_mode(name)
+        if prev and prev != name:
+            self._remove_query(prev)
+
+    def _bind_picker_to_file_source(self, dq):
+        """Fill the SQL Assist picker from a File Source's stored schema (no ODBC)."""
+        from suiteview.audit import file_query_runner
+        from suiteview.audit.file_source import datasource_label
+
+        fds = file_query_runner.resolve_file_source(dq.dsn[len("file:"):])
+        if fds is None:
+            self._field_picker.clear()
+            return
+        label = f"{fds.name} [{datasource_label(fds)}]"
+        table_fields = {
+            member.resolved_table_name():
+                [(col.name, col.data_type) for col in fds.columns]
+            for member in fds.members
+        }
+        self._field_picker.load_local_source(label, dq.dsn, table_fields)
 
     def _load_manual_sql_assist_tables(self, dsn: str = ""):
         """Load tables for the selected ODBC connection."""

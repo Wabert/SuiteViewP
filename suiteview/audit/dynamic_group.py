@@ -766,9 +766,19 @@ class DynamicQuery(QWidget):
 
         def work():
             t0 = time.time()
-            columns, rows, col_types = execute_odbc_query_with_types(dsn, sql)
+            if dsn.startswith("file:"):
+                from suiteview.audit import file_query_runner
+                fds = file_query_runner.resolve_file_source(dsn[len("file:"):])
+                if fds is None:
+                    raise RuntimeError("This file source could not be found.")
+                # The SQL already carries the row cap (DUCKDB dialect LIMIT).
+                df = file_query_runner.run_sql(fds, sql, limit=None).dataframe
+                columns = [str(c) for c in df.columns]
+                col_types = {c: str(df[c].dtype) for c in df.columns}
+            else:
+                columns, rows, col_types = execute_odbc_query_with_types(dsn, sql)
+                df = pd.DataFrame([list(r) for r in rows], columns=columns)
             t_query = time.time() - t0
-            df = pd.DataFrame([list(r) for r in rows], columns=columns)
             return columns, col_types, df, t_query
 
         def on_success(payload):
@@ -962,6 +972,12 @@ class DynamicQuery(QWidget):
         dsn = self.dsn
 
         def work():
+            if dsn.startswith("file:"):
+                from suiteview.audit import file_query_runner
+                fds = file_query_runner.resolve_file_source(dsn[len("file:"):])
+                if fds is None:
+                    raise RuntimeError("This file source could not be found.")
+                return file_query_runner.run_sql(fds, sql, limit=None).dataframe
             columns, rows = execute_odbc_query(dsn, sql)
             return pd.DataFrame([list(r) for r in rows], columns=columns)
 

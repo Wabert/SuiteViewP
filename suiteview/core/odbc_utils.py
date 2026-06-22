@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 DB2 = "DB2"
 SQL_SERVER = "SQL_SERVER"
 ACCESS = "ACCESS"
+DUCKDB = "DUCKDB"  # flat-file (File Source) queries run through DuckDB
 UNKNOWN = "UNKNOWN"
 
 # Driver-name substrings → dialect mapping (checked in order)
@@ -27,8 +28,11 @@ _DRIVER_HINTS: list[tuple[str, str]] = [
 def detect_dialect(dsn: str) -> str:
     """Return the SQL dialect for an ODBC DSN by inspecting its driver.
 
-    Returns one of: ``DB2``, ``SQL_SERVER``, ``ACCESS``, ``UNKNOWN``.
+    Returns one of: ``DB2``, ``SQL_SERVER``, ``ACCESS``, ``DUCKDB``, ``UNKNOWN``.
     """
+    if dsn.startswith("file:"):
+        # File Source pseudo-DSN (``file:<id>``) — compiled to DuckDB SQL.
+        return DUCKDB
     try:
         sources = pyodbc.dataSources()
     except Exception:

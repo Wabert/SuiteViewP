@@ -114,7 +114,8 @@ class FileSourceEditor(QWidget):
     """Define and save a FileDataSource (format + schema + member files)."""
 
     saved = pyqtSignal(str)  # file source name
-    query_requested = pyqtSignal(str)  # file source id — open a SQL query on it
+    query_requested = pyqtSignal(str)  # file source id — open a Manual SQL query on it
+    visual_query_requested = pyqtSignal(str)  # file source id — open a Visual query on it
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -264,8 +265,15 @@ class FileSourceEditor(QWidget):
 
         # Footer actions
         footer = QHBoxLayout()
-        self.btn_query = QPushButton("Query in SQL →")
-        self.btn_query.setFixedSize(130, 34)
+        self.btn_visual_query = QPushButton("Visual Query →")
+        self.btn_visual_query.setFixedSize(130, 34)
+        self.btn_visual_query.setStyleSheet(_ACTION_BTN_STYLE)
+        self.btn_visual_query.setToolTip(
+            "Save this source and open the Visual Query designer over it (DuckDB)")
+        self.btn_visual_query.clicked.connect(self._emit_visual_query_requested)
+        footer.addWidget(self.btn_visual_query)
+        self.btn_query = QPushButton("SQL Query →")
+        self.btn_query.setFixedSize(120, 34)
         self.btn_query.setStyleSheet(_ACTION_BTN_STYLE)
         self.btn_query.setToolTip(
             "Save this source and open the Manual SQL editor to query it (DuckDB)")
@@ -376,6 +384,7 @@ class FileSourceEditor(QWidget):
         self.btn_preview.setEnabled(has_source)
         self.btn_remove_file.setEnabled(has_source)
         self.btn_query.setEnabled(has_source)
+        self.btn_visual_query.setEnabled(has_source)
 
     # ── Adding files ────────────────────────────────────────────────────────
 
@@ -644,16 +653,24 @@ class FileSourceEditor(QWidget):
         self.saved.emit(name)
         QMessageBox.information(self, "File Source Saved", f'Saved "{name}".')
 
-    def _emit_query_requested(self):
-        """Save the source, then ask the app to open a SQL query against it."""
+    def _ensure_saved_for_query(self) -> bool:
+        """Persist the source so a query runs against what's on disk."""
         if self._fds is None or not self._fds.members:
             QMessageBox.information(self, "Add a File First",
                                    "Add at least one file before querying.")
-            return
-        # Persist the latest state so the query runs against what's on disk.
+            return False
         self._save()
-        if self._original_name and self._fds.id:
+        return bool(self._original_name and self._fds.id)
+
+    def _emit_query_requested(self):
+        """Save the source, then ask the app to open a Manual SQL query on it."""
+        if self._ensure_saved_for_query():
             self.query_requested.emit(self._fds.id)
+
+    def _emit_visual_query_requested(self):
+        """Save the source, then ask the app to open a Visual query on it."""
+        if self._ensure_saved_for_query():
+            self.visual_query_requested.emit(self._fds.id)
 
     def _confirm_new(self):
         reply = QMessageBox.question(
