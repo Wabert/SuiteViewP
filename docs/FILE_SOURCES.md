@@ -165,10 +165,20 @@ this was a small, additive change.
     with no query) with their own dashboard (Setup + live Test health + Edit /
     Delete); discovered DSNs get a **Register** action to promote them. Tests:
     `tests/test_data_source.py` (9). Harness: `tools/show_odbc_data_source.py`.
-  - **Step 3b — remaining:** MS Access as an addable kind (file picker →
-    connection string; `RegisteredDataSource.kind == access` is already
-    reserved), "New Query on a DSN" from the dashboard, and folding away the
-    legacy `Files` tree group (§6.6).
+  - **Step 3b — MS Access (done, screenshot-verified):** "Add Data Source → MS
+    Access" picks a `.accdb`/`.mdb` file (`_RegisterAccessDialog`, with Browse +
+    Test), registered as `RegisteredDataSource(kind=access)`. Access connects
+    DSN-less (driver + `DBQ=<path>`); `odbc_utils` gained `access_driver()`,
+    `access_connection_string()`, `probe_access_connection()`, and
+    `list_access_tables()`. New "MS Access" tree group (pinned, gold) with a
+    dashboard (Setup incl. driver/path, file-existence + live Test health,
+    Tables = the file's user tables when the driver can read it, Edit / Open
+    Folder / Delete). Delete generalized to `_delete_registered_source` for both
+    kinds. Tests: `test_data_source.py` (+3). Harness:
+    `tools/show_access_data_source.py`.
+  - **Step 3b — remaining:** "New Query on a DSN / Access source" from the
+    dashboard (needs builder wiring — File Sources already have it), and folding
+    away the legacy `Files` tree group (§6.6).
 
 ## 5. Constraints
 - DuckDB + flat-file logic is fully testable on the minipc; interactive UI
@@ -283,6 +293,17 @@ All in `query_object_viewer_window.py` unless noted:
   step 3 lands — retire it then.
 
 ## Changelog
+- **2026-06-22 (Phase 4, step 3b — MS Access)** — MS Access as an addable source
+  kind. `_RegisterAccessDialog` (Browse + Test); `RegisteredDataSource(kind=
+  access)`; `odbc_utils` Access helpers (`access_driver`,
+  `access_connection_string`, `probe_access_connection`, `list_access_tables`).
+  New "MS Access" tree group + dashboard (Setup/driver/path, file + live Test
+  health, Tables via the Access driver, Edit/Open Folder/Delete);
+  `_delete_registered_source` now covers both registered kinds. Updated
+  `..._file_source_keeps_left_width...` for the new group order (0=ODBC, 1=MS
+  Access, 2=Files, 3=File Sources). Tests +3; suite 453 passed / 13 pre-existing.
+  Harness: `tools/show_access_data_source.py`. Remaining 3b: New-Query-on-a-DSN,
+  fold the `Files` group.
 - **2026-06-22 (Phase 4, step 3b — ODBC registry)** — Registered ODBC sources
   are first-class. New `data_source.py` (`RegisteredDataSource`) +
   `data_source_store.py` (id-keyed atomic JSON, `SUITEVIEW_DATA_SOURCES_DIR`);

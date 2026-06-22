@@ -741,6 +741,102 @@ class _RegisterOdbcDialog(QDialog):
         self.accept()
 
 
+class _RegisterAccessDialog(QDialog):
+    """Register (or edit) an MS Access file as a named, persisted data source.
+
+    Access connects DSN-less (driver + file path), so you pick a ``.accdb`` /
+    ``.mdb`` file, name it, and can Test the connection. Produces a
+    ``RegisteredDataSource`` (kind=access) on ``result_source`` when accepted.
+    """
+
+    def __init__(self, parent=None, *, path: str = "", existing=None):
+        super().__init__(parent)
+        self._existing = existing
+        self.result_source = None
+        self.setWindowTitle("Register MS Access Data Source")
+        self.setMinimumWidth(500)
+        self.setStyleSheet(
+            "QDialog { background: #F0F0F0; }"
+            "QLabel { color: #0D3A7A; }"
+            "QLineEdit { background: white; border: 1px solid #A0C4E8; padding: 3px 4px; }")
+
+        grid = QGridLayout(self)
+        grid.setContentsMargins(12, 12, 12, 12)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
+
+        grid.addWidget(QLabel("Access file"), 0, 0)
+        self.edit_path = QLineEdit(path or (existing.path if existing else ""))
+        grid.addWidget(self.edit_path, 0, 1)
+        btn_browse = QPushButton("Browse…")
+        btn_browse.setStyleSheet(_BTN_STYLE)
+        btn_browse.clicked.connect(self._on_browse)
+        grid.addWidget(btn_browse, 0, 2)
+
+        grid.addWidget(QLabel("Name"), 1, 0)
+        default_name = existing.name if existing else (Path(path).stem if path else "")
+        self.edit_name = QLineEdit(default_name)
+        grid.addWidget(self.edit_name, 1, 1, 1, 2)
+
+        grid.addWidget(QLabel("Notes"), 2, 0)
+        self.edit_notes = QLineEdit(existing.notes if existing else "")
+        grid.addWidget(self.edit_notes, 2, 1, 1, 2)
+
+        self.lbl_test = QLabel("")
+        self.lbl_test.setFont(_FONT_SMALL)
+        grid.addWidget(self.lbl_test, 3, 1, 1, 2)
+
+        btn_test = QPushButton("Test Connection")
+        btn_test.setStyleSheet(_BTN_STYLE)
+        btn_test.clicked.connect(self._on_test)
+        grid.addWidget(btn_test, 4, 0)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText(
+            "Save" if existing is None else "Update")
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        grid.addWidget(buttons, 4, 1, 1, 2)
+
+    def _on_browse(self) -> None:
+        start = self.edit_path.text().strip() or str(Path.home())
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select MS Access database", start,
+            "Access Databases (*.accdb *.mdb);;All Files (*.*)")
+        if file_path:
+            self.edit_path.setText(file_path)
+            if not self.edit_name.text().strip():
+                self.edit_name.setText(Path(file_path).stem)
+
+    def _on_test(self) -> None:
+        from suiteview.core.odbc_utils import probe_access_connection
+
+        ok, message = probe_access_connection(self.edit_path.text().strip())
+        self.lbl_test.setText("✓ Connected" if ok else f"✗ {message[:90]}")
+        self.lbl_test.setStyleSheet("color: #1E7E34;" if ok else "color: #B71C1C;")
+
+    def _on_accept(self) -> None:
+        from suiteview.audit.data_source import KIND_ACCESS, RegisteredDataSource
+        from suiteview.core.odbc_utils import ACCESS
+
+        path = self.edit_path.text().strip()
+        if not path:
+            QMessageBox.warning(self, "File Required", "Pick an MS Access file.")
+            return
+        name = self.edit_name.text().strip() or Path(path).stem
+        notes = self.edit_notes.text().strip()
+        if self._existing is not None:
+            ds = self._existing
+            ds.name, ds.path, ds.notes, ds.dialect = name, path, notes, ACCESS
+            ds.updated_at = datetime.now()
+        else:
+            ds = RegisteredDataSource(
+                name=name, kind=KIND_ACCESS, path=path, dialect=ACCESS, notes=notes)
+        self.result_source = ds
+        self.accept()
+
+
 class QueryObjectViewerWindow(FramelessWindowBase):
     """Non-blocking QueryObject browser and inspector."""
 
@@ -1351,6 +1447,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         add_menu = QMenu(self.btn_add_source)
         add_menu.addAction("File Source…").triggered.connect(self._on_add_file_source)
         add_menu.addAction("ODBC DSN…").triggered.connect(self._on_add_odbc_source)
+        add_menu.addAction("MS Access…").triggered.connect(self._on_add_access_source)
         self.btn_add_source.setMenu(add_menu)
         panel_lay.addWidget(self.btn_add_source)
 
@@ -1609,6 +1706,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             keys = {
                 "odbc_source": ("dsn",),
                 "registered_odbc": ("data_source_id",),
+                "access_source": ("data_source_id",),
                 "file_source": ("key",),
                 "file_data_source": ("key",),
                 "query": ("id", "source_key"),
@@ -1674,9 +1772,10 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             root.setData(0, Qt.ItemDataRole.UserRole, payload)
             self.source_tree.addTopLevelItem(root)
             _track(root, payload)
-            src_color = {"odbc": "#1E5BA8", "file_sources": "#4D7C0F"}.get(group_key, "#8B6914")
-            src_type = {"odbc": "odbc_source", "file_sources": "file_data_source"}.get(
-                group_key, "file_source")
+            src_color = {"odbc": "#1E5BA8", "access": "#8B5E00",
+                         "file_sources": "#4D7C0F"}.get(group_key, "#8B6914")
+            src_type = {"odbc": "odbc_source", "access": "access_source",
+                        "file_sources": "file_data_source"}.get(group_key, "file_source")
             for source, children in visible_sources:
                 label = source.get("label", "")
                 node_type = source.get("node_type") or src_type
@@ -1722,6 +1821,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             root.setExpanded(True)
 
         _add_group("odbc", "ODBC", sorted(index["odbc"].values(), key=lambda item: item["label"].lower()))
+        _add_group("access", "MS Access", sorted(index["access"].values(), key=lambda item: item["label"].lower()))
         _add_group("files", "Files", sorted(index["files"].values(), key=lambda item: (item["label"].lower(), item.get("path", "").lower())))
         _add_group("file_sources", "File Sources", sorted(index["file_sources"].values(), key=lambda item: item["label"].lower()))
 
@@ -1731,26 +1831,38 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
     def _build_data_source_index(self, objects: list[QueryObject]) -> dict[str, dict[str, dict]]:
         from suiteview.audit import data_source_store, file_source_store
-        from suiteview.audit.data_source import KIND_ODBC, datasource_kind_label
+        from suiteview.audit.data_source import (
+            KIND_ACCESS, KIND_ODBC, datasource_kind_label)
         from suiteview.audit.file_source import datasource_label
 
-        index: dict[str, dict[str, dict]] = {"odbc": {}, "files": {}, "file_sources": {}}
+        index: dict[str, dict[str, dict]] = {
+            "odbc": {}, "access": {}, "files": {}, "file_sources": {}}
 
-        # Registered ODBC sources are pinned — they show whether or not a query
-        # targets them yet (the whole point of "Add Data Source").
+        # Registered ODBC / Access sources are pinned — they show whether or not
+        # a query targets them yet (the whole point of "Add Data Source").
         for ds in data_source_store.list_data_sources():
-            if ds.kind != KIND_ODBC or not ds.dsn.strip():
-                continue
-            index["odbc"][ds.dsn.strip().lower()] = {
-                "group": "odbc",
-                "key": ds.dsn.strip().lower(),
-                "label": f"{ds.name}  [{datasource_kind_label(ds)}]",
-                "dsn": ds.dsn.strip(),
-                "node_type": "registered_odbc",
-                "registered": True,
-                "data_source_id": ds.id,
-                "objects": [],
-            }
+            if ds.kind == KIND_ODBC and ds.dsn.strip():
+                index["odbc"][ds.dsn.strip().lower()] = {
+                    "group": "odbc",
+                    "key": ds.dsn.strip().lower(),
+                    "label": f"{ds.name}  [{datasource_kind_label(ds)}]",
+                    "dsn": ds.dsn.strip(),
+                    "node_type": "registered_odbc",
+                    "registered": True,
+                    "data_source_id": ds.id,
+                    "objects": [],
+                }
+            elif ds.kind == KIND_ACCESS and ds.path.strip():
+                index["access"][ds.id] = {
+                    "group": "access",
+                    "key": ds.id,
+                    "label": f"{ds.name}  [{datasource_kind_label(ds)}]",
+                    "path": ds.path,
+                    "node_type": "access_source",
+                    "registered": True,
+                    "data_source_id": ds.id,
+                    "objects": [],
+                }
 
         # Saved File Sources are their own store entity (peer of a DSN) — show
         # them whether or not a query targets them yet.
@@ -1877,10 +1989,13 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 self._browser_canvas_stack.setCurrentWidget(self._detail_canvas)
                 self._show_detail(obj)
                 return
-        if payload_type in {"odbc_source", "registered_odbc", "file_data_source", "file_source"}:
+        if payload_type in {"odbc_source", "registered_odbc", "access_source",
+                            "file_data_source", "file_source"}:
             self._browser_canvas_stack.setCurrentWidget(self._source_dashboard)
             if payload_type == "registered_odbc":
                 self._show_registered_odbc_detail(payload)
+            elif payload_type == "access_source":
+                self._show_access_source_detail(payload)
             elif payload_type == "odbc_source":
                 self._show_odbc_source_detail(payload)
             elif payload_type == "file_data_source":
@@ -2975,6 +3090,63 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return "DSN not found on this machine", "bad"
         return "Configured", "neutral"
 
+    def _show_access_source_detail(self, payload: dict, *, probe: bool = False) -> None:
+        from suiteview.audit import data_source_store
+        from suiteview.core.odbc_utils import access_driver, list_access_tables
+
+        ds = data_source_store.load_data_source_by_id(str(payload.get("data_source_id", "")))
+        self._current = None
+        self._current_forge_name = ""
+        self._current_source_kind = "access_source"
+        self._current_source_payload = payload
+        self._current_file_source = None
+        self._current_data_source = ds
+        if ds is None:
+            self._reset_current_source()
+            self._source_dashboard.show_empty("This data source could not be found.")
+            return
+
+        self._current_source_path = ds.path
+        objects = self._objects_from_payload(payload)
+        dash = self._source_dashboard
+        dash.set_title(ds.name)
+        dash.set_badge("MS Access", "#8B5E00")
+        dash.set_health(*self._access_health(ds.path, probe))
+        dash.set_actions(test=True, register=False, edit=True, new_query=False,
+                         open_folder=bool(ds.path), delete=True)
+        setup = [
+            ["Name", ds.name],
+            ["File", ds.path],
+            ["Folder", str(Path(ds.path).parent) if ds.path else ""],
+            ["Driver", access_driver() or "Access ODBC driver not installed"],
+            ["Notes", ds.notes or "—"],
+            ["Registered", ds.created_at.strftime("%Y-%m-%d %H:%M")],
+        ]
+        dash.set_panel("setup", ["Property", "Value"], setup)
+        tables = list_access_tables(ds.path)
+        if tables:
+            dash.set_panel("tables", ["Table"], [[name] for name in tables])
+        else:
+            dash.set_panel("tables", [], [], visible=False)
+        dash.set_panel("columns", [], [], visible=False)
+        dash.set_panel("usedby", ["Query Object", "Kind", "Source", "Fields"],
+                       self._source_query_rows(objects))
+        self._set_canvas_title(f"Data Sources: {ds.name}")
+
+    @staticmethod
+    def _access_health(path: str, probe: bool) -> tuple[str, str]:
+        import os
+
+        if not path:
+            return "No file", "warn"
+        if not os.path.exists(path):
+            return "File not found", "bad"
+        if probe:
+            from suiteview.core.odbc_utils import probe_access_connection
+            ok, message = probe_access_connection(path)
+            return ("Connected", "ok") if ok else (f"Unreachable — {message[:60]}", "bad")
+        return "File OK", "ok"
+
     def _show_file_data_source_detail(self, payload: dict) -> None:
         from suiteview.audit import file_source_store
         from suiteview.audit.file_source import datasource_label
@@ -3085,6 +3257,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             self._show_file_source_detail(payload)
         elif kind == "registered_odbc":
             self._show_registered_odbc_detail(payload, probe=True)
+        elif kind == "access_source":
+            self._show_access_source_detail(payload, probe=True)
         elif kind == "odbc_source":
             self._show_odbc_source_detail(payload, probe=True)
 
@@ -3098,10 +3272,24 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         """Add Data Source → ODBC DSN: register a new ODBC source."""
         self._register_odbc_dsn()
 
+    def _on_add_access_source(self) -> None:
+        """Add Data Source → MS Access: register a new Access file source."""
+        self._register_access_file()
+
     def _register_odbc_dsn(self, *, dsn: str = "", existing=None) -> None:
         from suiteview.audit import data_source_store
 
         dialog = _RegisterOdbcDialog(self, dsn=dsn, existing=existing)
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.result_source is None:
+            return
+        data_source_store.save_data_source(dialog.result_source)
+        self.refresh()
+        self._select_registered_source(dialog.result_source.id)
+
+    def _register_access_file(self, *, path: str = "", existing=None) -> None:
+        from suiteview.audit import data_source_store
+
+        dialog = _RegisterAccessDialog(self, path=path, existing=existing)
         if dialog.exec() != QDialog.DialogCode.Accepted or dialog.result_source is None:
             return
         data_source_store.save_data_source(dialog.result_source)
@@ -3114,9 +3302,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return
 
         def _find(item: QTreeWidgetItem):
-            payload = _payload(item)
-            if (payload.get("type") == "registered_odbc"
-                    and payload.get("data_source_id") == data_source_id):
+            if _payload(item).get("data_source_id") == data_source_id:
                 return item
             for index in range(item.childCount()):
                 found = _find(item.child(index))
@@ -3135,6 +3321,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             self._open_file_source_in_editor(self._current_file_source.id)
         elif self._current_source_kind == "registered_odbc" and self._current_data_source is not None:
             self._register_odbc_dsn(existing=self._current_data_source)
+        elif self._current_source_kind == "access_source" and self._current_data_source is not None:
+            self._register_access_file(existing=self._current_data_source)
 
     def _on_source_new_query(self, mode: str) -> None:
         if self._current_source_kind != "file_data_source" or self._current_file_source is None:
@@ -3149,8 +3337,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         opener(self._current_file_source.id, mode=mode)
 
     def _on_source_delete(self) -> None:
-        if self._current_source_kind == "registered_odbc" and self._current_data_source is not None:
-            self._delete_registered_odbc()
+        if (self._current_source_kind in {"registered_odbc", "access_source"}
+                and self._current_data_source is not None):
+            self._delete_registered_source()
             return
         if self._current_source_kind != "file_data_source" or self._current_file_source is None:
             return
@@ -3175,15 +3364,20 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._reset_current_source()
         self._source_dashboard.show_empty("Select a data source")
 
-    def _delete_registered_odbc(self) -> None:
+    def _delete_registered_source(self) -> None:
         from suiteview.audit import data_source_store
+        from suiteview.audit.data_source import KIND_ACCESS
 
         ds = self._current_data_source
+        if ds.kind == KIND_ACCESS:
+            target, underlying = ds.path, "Access file"
+        else:
+            target, underlying = f"DSN {ds.dsn}", "Windows DSN"
         reply = QMessageBox.question(
             self,
             "Unregister Data Source",
-            f"Unregister ODBC data source \"{ds.name}\" (DSN {ds.dsn})?\n\n"
-            "This removes the registration only — the Windows DSN and any "
+            f"Unregister data source \"{ds.name}\" ({target})?\n\n"
+            f"This removes the registration only — the {underlying} and any "
             "queries that use it are untouched.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,

@@ -1019,7 +1019,8 @@ class QueryObjectTests(unittest.TestCase):
                 payload = file_item.data(0, Qt.ItemDataRole.UserRole)
                 self.assertEqual(payload["badge_fill"], "#B58900")
                 self.assertEqual(payload["badge_text_color"], "#FFFFFF")
-                files_item = window.source_tree.topLevelItem(1)
+                # Source groups: 0=ODBC, 1=MS Access, 2=Files, 3=File Sources.
+                files_item = window.source_tree.topLevelItem(2)
                 self.assertEqual(files_item.text(0), "Files (1)")
                 source_item = files_item.child(0)
                 self.assertEqual(source_item.text(0), "claims.csv")
@@ -1033,7 +1034,8 @@ class QueryObjectTests(unittest.TestCase):
 
                 window.left_tabs.setCurrentIndex(1)
                 app.processEvents()
-                files_item = window.source_tree.topLevelItem(1)
+                # Source groups: 0=ODBC, 1=MS Access, 2=Files, 3=File Sources.
+                files_item = window.source_tree.topLevelItem(2)
                 source_item = files_item.child(0)
                 source_query_item = source_item.child(0)
                 window.source_tree.setCurrentItem(source_item)

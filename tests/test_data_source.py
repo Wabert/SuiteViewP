@@ -91,3 +91,27 @@ def test_probe_bogus_dsn_fails_gracefully():
     ok, message = odbc_utils.probe_dsn_connection("__NOT_A_REAL_DSN__")
     assert ok is False
     assert isinstance(message, str) and message
+
+
+def test_access_round_trips_with_path(store_dir):
+    ds = RegisteredDataSource(name="Claims Archive", kind=KIND_ACCESS,
+                              path=r"C:\data\claims.accdb", dialect="ACCESS")
+    data_source_store.save_data_source(ds)
+    loaded = data_source_store.load_data_source_by_id(ds.id)
+    assert loaded is not None
+    assert loaded.kind == KIND_ACCESS
+    assert loaded.path == r"C:\data\claims.accdb"
+    assert loaded.target == r"C:\data\claims.accdb"
+
+
+def test_access_connection_string_has_driver_and_dbq():
+    conn = odbc_utils.access_connection_string(r"C:\data\x.accdb")
+    assert "DRIVER={" in conn
+    assert "DBQ=C:\\data\\x.accdb" in conn
+
+
+def test_access_helpers_handle_missing_file_gracefully():
+    ok, message = odbc_utils.probe_access_connection(r"C:\nope\missing.accdb")
+    assert ok is False
+    assert isinstance(message, str) and message
+    assert odbc_utils.list_access_tables(r"C:\nope\missing.accdb") == []

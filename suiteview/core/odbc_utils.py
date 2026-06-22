@@ -84,6 +84,73 @@ def probe_dsn_connection(dsn: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def access_driver() -> str:
+    """The installed Microsoft Access ODBC driver name, or '' if none.
+
+    Access is queried DSN-less (driver + file path), unlike a named DSN.
+    """
+    try:
+        drivers = pyodbc.drivers()
+    except Exception:
+        logger.warning("Could not enumerate ODBC drivers")
+        return ""
+    for driver in drivers:
+        if "access" in driver.lower():
+            return driver
+    return ""
+
+
+def access_connection_string(path: str) -> str:
+    """Build a DSN-less ODBC connection string for an Access file."""
+    driver = access_driver() or "Microsoft Access Driver (*.mdb, *.accdb)"
+    return f"DRIVER={{{driver}}};DBQ={path};"
+
+
+def probe_access_connection(path: str) -> tuple[bool, str]:
+    """Test reachability of an MS Access file. Returns ``(success, message)``."""
+    import os
+
+    if not path:
+        return False, "No file path"
+    if not os.path.exists(path):
+        return False, "File not found"
+    if not access_driver():
+        return False, "Microsoft Access ODBC driver not installed"
+    try:
+        conn = pyodbc.connect(access_connection_string(path), autocommit=True, timeout=5)
+        conn.close()
+        return True, ""
+    except pyodbc.Error as exc:
+        return False, _friendly_odbc_error(exc)
+    except Exception as exc:
+        return False, str(exc)
+
+
+def list_access_tables(path: str) -> list[str]:
+    """User table names in an Access file (best-effort; ``[]`` on failure).
+
+    Skips the ``MSys*`` system tables. Needs the Access ODBC driver + the file.
+    """
+    import os
+
+    if not path or not os.path.exists(path) or not access_driver():
+        return []
+    try:
+        conn = pyodbc.connect(access_connection_string(path), autocommit=True, timeout=5)
+        try:
+            names = [
+                str(row.table_name)
+                for row in conn.cursor().tables(tableType="TABLE")
+                if not str(row.table_name).startswith("MSys")
+            ]
+        finally:
+            conn.close()
+        return sorted(names)
+    except Exception:
+        logger.warning("Could not list Access tables for %s", path)
+        return []
+
+
 def get_dsn_details(dsn: str) -> dict[str, str]:
     """Read ODBC DSN connection properties from the Windows registry.
 
