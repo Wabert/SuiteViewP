@@ -56,9 +56,9 @@ def main():
         except Exception as exc:
             print(f"open_file_source failed: {exc}")
             try:
-                win._start_file_source(reset=True)
+                win.new_file_source()
             except Exception as exc2:
-                print(f"_start_file_source failed: {exc2}")
+                print(f"new_file_source failed: {exc2}")
         QTimer.singleShot(500, capture)
 
     def capture():

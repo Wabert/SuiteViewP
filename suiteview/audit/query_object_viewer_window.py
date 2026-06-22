@@ -1064,6 +1064,17 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.edit_source_search.textChanged.connect(lambda _text: self._refresh_source_tree())
         panel_lay.addWidget(self.edit_source_search)
 
+        # Defining a source is a data-source action, not a query build mode — so
+        # the entry point lives here. Only File Sources are addable today; ODBC
+        # and MS Access join this control as a typed chooser in the registry work.
+        self.btn_add_file_source = QPushButton("+ New File Source")
+        self.btn_add_file_source.setFont(_FONT_BOLD)
+        self.btn_add_file_source.setFixedHeight(24)
+        self.btn_add_file_source.setStyleSheet(_BTN_STYLE)
+        self.btn_add_file_source.setToolTip("Define a flat-file data source (CSV, Excel, delimited or fixed-width) over one or more files")
+        self.btn_add_file_source.clicked.connect(self._on_add_file_source)
+        panel_lay.addWidget(self.btn_add_file_source)
+
         self.source_tree = QTreeWidget()
         self.source_tree.setHeaderHidden(True)
         self.source_tree.setDragEnabled(False)
@@ -3077,6 +3088,17 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             )
             return
         opener(object_name)
+
+    def _on_add_file_source(self):
+        """Create a new File Source — the Data Sources tab is where sources are added."""
+        parent = self._audit_window_for_builder()
+        opener = getattr(parent, "new_file_source", None)
+        if opener is None:
+            QMessageBox.information(
+                self, "Editor Unavailable",
+                "Could not open the File Source editor.")
+            return
+        opener()
 
     def _open_file_source_in_editor(self, file_source_id: str):
         if not file_source_id:

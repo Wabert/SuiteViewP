@@ -109,11 +109,6 @@ class QueryObjectModeDialog(QDialog):
                 "Manual SQL Object",
                 "Paste or edit SQL, run it, capture output schema, then save object",
             ),
-            (
-                "file",
-                "File Source",
-                "Define a flat-file data source (CSV, Excel, delimited or fixed-width) over one or more files",
-            ),
         ]
         for mode, heading, detail in modes:
             button = QPushButton(f"{heading}\n{detail}")
@@ -207,7 +202,6 @@ class AuditWindow(FramelessWindowBase):
             ("cyberlife", "Cyberlife"),
             ("visual", "Visual Query"),
             ("manual_sql", "Manual SQL"),
-            ("file", "File Source"),
         ):
             action = mode_menu.addAction(label)
             action.setIcon(mode_icon(build_mode_style(mode).color))
@@ -1335,8 +1329,6 @@ class AuditWindow(FramelessWindowBase):
             self._start_visual_query_object()
         elif chosen == "manual_sql":
             self._start_manual_sql_object()
-        elif chosen == "file":
-            self._start_file_source(reset=True)
 
     def _style_build_mode_button(self, mode: str):
         """Paint the selector in the active mode's identity color."""
@@ -1371,8 +1363,6 @@ class AuditWindow(FramelessWindowBase):
             self._open_visual_query_builder()
         elif mode == "manual_sql":
             self._start_manual_sql_object(reset=False)
-        elif mode == "file":
-            self._start_file_source(reset=False)
 
     def _open_visual_query_builder(self):
         """Open the tabbed Visual Query builder, creating one if needed."""
@@ -1423,10 +1413,14 @@ class AuditWindow(FramelessWindowBase):
             self.csv_excel_object_tab.new_object()
         self._switch_mode("__csv_excel_object__")
 
-    def _start_file_source(self, *, reset: bool = True):
-        """Open the File Source editor (define a flat-file data source)."""
-        if reset:
-            self.file_source_tab.new_object()
+    def new_file_source(self):
+        """Open the File Source editor on a blank new flat-file data source.
+
+        Creating a File Source lives on the Object Browser's Data Sources tab
+        (a source is a thing you connect to, not a query build mode) — this is
+        the entry point that tab calls.
+        """
+        self.file_source_tab.new_object()
         self._switch_mode("__file_source__")
 
     def open_manual_sql_object(self, obj):
