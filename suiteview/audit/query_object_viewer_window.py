@@ -25,8 +25,10 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QFrame,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QGridLayout,
     QHeaderView,
@@ -550,12 +552,13 @@ class _SourceDashboard(QWidget):
         hlay.addStretch(1)
 
         self.btn_test = self._make_button("Test")
+        self.btn_register = self._make_button("Register")
         self.btn_edit = self._make_button("Edit Setup")
         self.btn_new_query = self._make_button("New Query")
         self.btn_open_folder = self._make_button("Open Folder")
         self.btn_delete = self._make_button("Delete", danger=True)
-        for btn in (self.btn_test, self.btn_edit, self.btn_new_query,
-                    self.btn_open_folder, self.btn_delete):
+        for btn in (self.btn_test, self.btn_register, self.btn_edit,
+                    self.btn_new_query, self.btn_open_folder, self.btn_delete):
             hlay.addWidget(btn)
         root.addWidget(header)
 
@@ -612,8 +615,9 @@ class _SourceDashboard(QWidget):
         self.lbl_health.setVisible(True)
 
     def set_actions(self, *, test: bool, edit: bool, new_query: bool,
-                    open_folder: bool, delete: bool) -> None:
+                    open_folder: bool, delete: bool, register: bool = False) -> None:
         self.btn_test.setVisible(test)
+        self.btn_register.setVisible(register)
         self.btn_edit.setVisible(edit)
         self.btn_new_query.setVisible(new_query)
         self.btn_open_folder.setVisible(open_folder)
@@ -638,6 +642,105 @@ class _SourceDashboard(QWidget):
             self.set_panel(key, [], [], visible=False)
 
 
+class _RegisterOdbcDialog(QDialog):
+    """Register (or edit) an ODBC DSN as a named, persisted data source.
+
+    You pick from the installed Windows DSNs or type a name, give it a friendly
+    label + notes, and can Test the connection before saving. Produces a
+    ``RegisteredDataSource`` on ``result_source`` when accepted.
+    """
+
+    def __init__(self, parent=None, *, dsn: str = "", existing=None):
+        super().__init__(parent)
+        from suiteview.core.odbc_utils import list_installed_dsns
+
+        self._existing = existing
+        self.result_source = None
+        self.setWindowTitle("Register ODBC Data Source")
+        self.setMinimumWidth(440)
+        self.setStyleSheet(
+            "QDialog { background: #F0F0F0; }"
+            "QLabel { color: #0D3A7A; }"
+            "QLineEdit, QComboBox { background: white; border: 1px solid #A0C4E8;"
+            " padding: 3px 4px; }")
+
+        grid = QGridLayout(self)
+        grid.setContentsMargins(12, 12, 12, 12)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
+
+        grid.addWidget(QLabel("ODBC DSN"), 0, 0)
+        self.cmb_dsn = QComboBox()
+        self.cmb_dsn.setEditable(True)
+        for name, driver in list_installed_dsns():
+            self.cmb_dsn.addItem(name)
+            self.cmb_dsn.setItemData(self.cmb_dsn.count() - 1, driver, Qt.ItemDataRole.ToolTipRole)
+        self.cmb_dsn.setCurrentText(dsn or (existing.dsn if existing else ""))
+        grid.addWidget(self.cmb_dsn, 0, 1, 1, 2)
+
+        grid.addWidget(QLabel("Name"), 1, 0)
+        self.edit_name = QLineEdit(existing.name if existing else (dsn or ""))
+        grid.addWidget(self.edit_name, 1, 1, 1, 2)
+
+        grid.addWidget(QLabel("Notes"), 2, 0)
+        self.edit_notes = QLineEdit(existing.notes if existing else "")
+        grid.addWidget(self.edit_notes, 2, 1, 1, 2)
+
+        self.lbl_test = QLabel("")
+        self.lbl_test.setFont(_FONT_SMALL)
+        grid.addWidget(self.lbl_test, 3, 1, 1, 2)
+
+        btn_test = QPushButton("Test Connection")
+        btn_test.setStyleSheet(_BTN_STYLE)
+        btn_test.clicked.connect(self._on_test)
+        grid.addWidget(btn_test, 4, 0)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText(
+            "Save" if existing is None else "Update")
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        grid.addWidget(buttons, 4, 1, 1, 2)
+
+    def _current_dsn(self) -> str:
+        return self.cmb_dsn.currentText().strip()
+
+    def _on_test(self) -> None:
+        from suiteview.core.odbc_utils import probe_dsn_connection
+
+        dsn = self._current_dsn()
+        if not dsn:
+            self.lbl_test.setText("Enter a DSN first.")
+            self.lbl_test.setStyleSheet("color: #9A7A00;")
+            return
+        ok, message = probe_dsn_connection(dsn)
+        self.lbl_test.setText("✓ Connected" if ok else f"✗ {message[:90]}")
+        self.lbl_test.setStyleSheet("color: #1E7E34;" if ok else "color: #B71C1C;")
+
+    def _on_accept(self) -> None:
+        from suiteview.audit.data_source import KIND_ODBC, RegisteredDataSource
+        from suiteview.core.odbc_utils import detect_dialect
+
+        dsn = self._current_dsn()
+        if not dsn:
+            QMessageBox.warning(self, "DSN Required", "Pick or type an ODBC DSN.")
+            return
+        name = self.edit_name.text().strip() or dsn
+        notes = self.edit_notes.text().strip()
+        if self._existing is not None:
+            ds = self._existing
+            ds.name, ds.dsn, ds.notes = name, dsn, notes
+            ds.dialect = detect_dialect(dsn)
+            ds.updated_at = datetime.now()
+        else:
+            ds = RegisteredDataSource(
+                name=name, kind=KIND_ODBC, dsn=dsn,
+                dialect=detect_dialect(dsn), notes=notes)
+        self.result_source = ds
+        self.accept()
+
+
 class QueryObjectViewerWindow(FramelessWindowBase):
     """Non-blocking QueryObject browser and inspector."""
 
@@ -650,6 +753,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._current_source_kind = ""
         self._current_source_payload: dict = {}
         self._current_file_source = None
+        self._current_data_source = None
         self._loading_detail = False
         self._loading_tree = False
         self._loading_source_tree = False
@@ -943,6 +1047,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._source_dashboard = _SourceDashboard()
         self._browser_canvas_stack.addWidget(self._source_dashboard)
         self._source_dashboard.btn_test.clicked.connect(self._on_source_test)
+        self._source_dashboard.btn_register.clicked.connect(self._on_source_register)
         self._source_dashboard.btn_edit.clicked.connect(self._on_source_edit_setup)
         self._source_dashboard.btn_open_folder.clicked.connect(self._on_open_source_folder)
         self._source_dashboard.btn_delete.clicked.connect(self._on_source_delete)
@@ -1236,15 +1341,18 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         panel_lay.addWidget(self.edit_source_search)
 
         # Defining a source is a data-source action, not a query build mode — so
-        # the entry point lives here. Only File Sources are addable today; ODBC
-        # and MS Access join this control as a typed chooser in the registry work.
-        self.btn_add_file_source = QPushButton("+ New File Source")
-        self.btn_add_file_source.setFont(_FONT_BOLD)
-        self.btn_add_file_source.setFixedHeight(24)
-        self.btn_add_file_source.setStyleSheet(_BTN_STYLE)
-        self.btn_add_file_source.setToolTip("Define a flat-file data source (CSV, Excel, delimited or fixed-width) over one or more files")
-        self.btn_add_file_source.clicked.connect(self._on_add_file_source)
-        panel_lay.addWidget(self.btn_add_file_source)
+        # the entry point lives here. A typed chooser: File Source + ODBC DSN
+        # today; MS Access joins it next.
+        self.btn_add_source = QPushButton("+ Add Data Source  ▾")
+        self.btn_add_source.setFont(_FONT_BOLD)
+        self.btn_add_source.setFixedHeight(24)
+        self.btn_add_source.setStyleSheet(_BTN_STYLE)
+        self.btn_add_source.setToolTip("Register a new data source to query against")
+        add_menu = QMenu(self.btn_add_source)
+        add_menu.addAction("File Source…").triggered.connect(self._on_add_file_source)
+        add_menu.addAction("ODBC DSN…").triggered.connect(self._on_add_odbc_source)
+        self.btn_add_source.setMenu(add_menu)
+        panel_lay.addWidget(self.btn_add_source)
 
         self.source_tree = QTreeWidget()
         self.source_tree.setHeaderHidden(True)
@@ -1500,7 +1608,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 return
             keys = {
                 "odbc_source": ("dsn",),
+                "registered_odbc": ("data_source_id",),
                 "file_source": ("key",),
+                "file_data_source": ("key",),
                 "query": ("id", "source_key"),
                 "source_query": ("id", "source_key"),
                 "source_group": ("group",),
@@ -1569,23 +1679,29 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 group_key, "file_source")
             for source, children in visible_sources:
                 label = source.get("label", "")
+                node_type = source.get("node_type") or src_type
+                registered = bool(source.get("registered"))
                 source_item = QTreeWidgetItem([label])
                 source_item.setFont(0, _FONT_BOLD)
-                source_item.setForeground(0, QColor(src_color))
+                source_item.setForeground(0, QColor("#B58900" if registered else src_color))
                 tooltip = source.get("path") or source.get("dsn") or label
                 if group_key == "file_sources":
                     tooltip = "Double-click to edit this File Source"
+                elif registered:
+                    tooltip = f"Registered ODBC source — DSN {source.get('dsn', '')}"
                 source_item.setToolTip(0, tooltip)
                 source_payload = {
-                    "type": src_type,
+                    "type": node_type,
                     "group": group_key,
                     "key": source.get("key", ""),
                     "dsn": source.get("dsn", ""),
                     "path": source.get("path", ""),
                     "label": label,
+                    "registered": registered,
                     "source_type": source.get("source_type", ""),
                     "metadata": source.get("metadata", {}),
                     "file_source_id": source.get("file_source_id", ""),
+                    "data_source_id": source.get("data_source_id", ""),
                     "object_ids": [obj.id for obj in source.get("objects", [])],
                 }
                 source_item.setData(0, Qt.ItemDataRole.UserRole, source_payload)
@@ -1614,10 +1730,27 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._loading_source_tree = False
 
     def _build_data_source_index(self, objects: list[QueryObject]) -> dict[str, dict[str, dict]]:
-        from suiteview.audit import file_source_store
+        from suiteview.audit import data_source_store, file_source_store
+        from suiteview.audit.data_source import KIND_ODBC, datasource_kind_label
         from suiteview.audit.file_source import datasource_label
 
         index: dict[str, dict[str, dict]] = {"odbc": {}, "files": {}, "file_sources": {}}
+
+        # Registered ODBC sources are pinned — they show whether or not a query
+        # targets them yet (the whole point of "Add Data Source").
+        for ds in data_source_store.list_data_sources():
+            if ds.kind != KIND_ODBC or not ds.dsn.strip():
+                continue
+            index["odbc"][ds.dsn.strip().lower()] = {
+                "group": "odbc",
+                "key": ds.dsn.strip().lower(),
+                "label": f"{ds.name}  [{datasource_kind_label(ds)}]",
+                "dsn": ds.dsn.strip(),
+                "node_type": "registered_odbc",
+                "registered": True,
+                "data_source_id": ds.id,
+                "objects": [],
+            }
 
         # Saved File Sources are their own store entity (peer of a DSN) — show
         # them whether or not a query targets them yet.
@@ -1744,9 +1877,11 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 self._browser_canvas_stack.setCurrentWidget(self._detail_canvas)
                 self._show_detail(obj)
                 return
-        if payload_type in {"odbc_source", "file_data_source", "file_source"}:
+        if payload_type in {"odbc_source", "registered_odbc", "file_data_source", "file_source"}:
             self._browser_canvas_stack.setCurrentWidget(self._source_dashboard)
-            if payload_type == "odbc_source":
+            if payload_type == "registered_odbc":
+                self._show_registered_odbc_detail(payload)
+            elif payload_type == "odbc_source":
                 self._show_odbc_source_detail(payload)
             elif payload_type == "file_data_source":
                 self._show_file_data_source_detail(payload)
@@ -1766,6 +1901,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._current_source_kind = ""
         self._current_source_payload = {}
         self._current_file_source = None
+        self._current_data_source = None
         self._current_source_path = ""
 
     def _on_source_tree_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
@@ -2757,7 +2893,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         ))
         self._loading_detail = False
 
-    def _show_odbc_source_detail(self, payload: dict) -> None:
+    def _show_odbc_source_detail(self, payload: dict, *, probe: bool = False) -> None:
+        """A DSN discovered from queries (not registered). Read-only + Register."""
         dsn = str(payload.get("dsn", "")).strip()
         objects = self._objects_from_payload(payload)
         self._current = None
@@ -2765,21 +2902,16 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._current_source_kind = "odbc_source"
         self._current_source_payload = payload
         self._current_file_source = None
+        self._current_data_source = None
         self._current_source_path = ""
 
         dialect = detect_dialect(dsn) if dsn else UNKNOWN
         dash = self._source_dashboard
         dash.set_title(dsn or "ODBC")
         dash.set_badge(dialect if dialect != UNKNOWN else "ODBC", "#1E5BA8")
-        details = self._safe_dsn_details(dsn)
-        if "__error__" in details:
-            dash.set_health("DSN not found on this machine", "bad")
-        else:
-            dash.set_health("Configured", "ok")
-        # ODBC stays read-only here: it's discovered from queries, not yet a
-        # registered/named source — querying + Test-connection arrive with the
-        # source registry (FILE_SOURCES.md §6.5).
-        dash.set_actions(test=True, edit=False, new_query=False,
+        dash.set_health(*self._odbc_health(dsn, probe))
+        # Discovered DSN: read-only, but offer to Register it (pin + name it).
+        dash.set_actions(test=True, register=True, edit=False, new_query=False,
                          open_folder=False, delete=False)
         dash.set_panel("setup", ["Property", "Value"], self._odbc_detail_rows(dsn))
         dash.set_panel("tables", [], [], visible=False)
@@ -2787,6 +2919,61 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         dash.set_panel("usedby", ["Query Object", "Kind", "Source", "Fields"],
                        self._source_query_rows(objects))
         self._set_canvas_title(f"Data Sources: {dsn}" if dsn else "Data Sources")
+
+    def _show_registered_odbc_detail(self, payload: dict, *, probe: bool = False) -> None:
+        from suiteview.audit import data_source_store
+
+        ds = data_source_store.load_data_source_by_id(str(payload.get("data_source_id", "")))
+        self._current = None
+        self._current_forge_name = ""
+        self._current_source_kind = "registered_odbc"
+        self._current_source_payload = payload
+        self._current_file_source = None
+        self._current_data_source = ds
+        self._current_source_path = ""
+        if ds is None:
+            self._reset_current_source()
+            self._source_dashboard.show_empty("This data source could not be found.")
+            return
+
+        objects = self._objects_from_payload(payload)
+        dash = self._source_dashboard
+        dash.set_title(ds.name)
+        dash.set_badge(ds.dialect or "ODBC", "#1E5BA8")
+        dash.set_health(*self._odbc_health(ds.dsn, probe))
+        dash.set_actions(test=True, register=False, edit=True, new_query=False,
+                         open_folder=False, delete=True)
+        setup = [
+            ["Name", ds.name],
+            ["DSN", ds.dsn],
+            ["Dialect", ds.dialect or "—"],
+            ["Notes", ds.notes or "—"],
+            ["Registered", ds.created_at.strftime("%Y-%m-%d %H:%M")],
+        ]
+        # Append the live DSN details, but not the keys we already show above.
+        shown = {"dsn", "dialect"}
+        setup.extend(row for row in self._odbc_detail_rows(ds.dsn)
+                     if str(row[0]).strip().lower() not in shown)
+        dash.set_panel("setup", ["Property", "Value"], setup)
+        dash.set_panel("tables", [], [], visible=False)
+        dash.set_panel("columns", [], [], visible=False)
+        dash.set_panel("usedby", ["Query Object", "Kind", "Source", "Fields"],
+                       self._source_query_rows(objects))
+        self._set_canvas_title(f"Data Sources: {ds.name}")
+
+    def _odbc_health(self, dsn: str, probe: bool) -> tuple[str, str]:
+        """Health pill for an ODBC DSN. ``probe`` does a live connection test
+        (Test button); otherwise just report whether the DSN is configured."""
+        if not dsn:
+            return "No DSN", "warn"
+        if probe:
+            from suiteview.core.odbc_utils import probe_dsn_connection
+            ok, message = probe_dsn_connection(dsn)
+            return ("Connected", "ok") if ok else (f"Unreachable — {message[:60]}", "bad")
+        details = self._safe_dsn_details(dsn)
+        if "__error__" in details or "Error" in details:
+            return "DSN not found on this machine", "bad"
+        return "Configured", "neutral"
 
     def _show_file_data_source_detail(self, payload: dict) -> None:
         from suiteview.audit import file_source_store
@@ -2887,19 +3074,67 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     # ── Data Source dashboard actions ─────────────────────────────────
 
     def _on_source_test(self) -> None:
-        """Re-evaluate the selected source's health (re-render its detail)."""
+        """Re-evaluate the selected source's health (re-render its detail).
+
+        ODBC sources do a *live* connection probe here (``probe=True``)."""
         payload = self._current_source_payload
         kind = self._current_source_kind
         if kind == "file_data_source":
             self._show_file_data_source_detail(payload)
         elif kind == "file_source":
             self._show_file_source_detail(payload)
+        elif kind == "registered_odbc":
+            self._show_registered_odbc_detail(payload, probe=True)
         elif kind == "odbc_source":
-            self._show_odbc_source_detail(payload)
+            self._show_odbc_source_detail(payload, probe=True)
+
+    def _on_source_register(self) -> None:
+        """Promote a discovered DSN to a registered (named, pinned) source."""
+        if self._current_source_kind != "odbc_source":
+            return
+        self._register_odbc_dsn(dsn=str(self._current_source_payload.get("dsn", "")))
+
+    def _on_add_odbc_source(self) -> None:
+        """Add Data Source → ODBC DSN: register a new ODBC source."""
+        self._register_odbc_dsn()
+
+    def _register_odbc_dsn(self, *, dsn: str = "", existing=None) -> None:
+        from suiteview.audit import data_source_store
+
+        dialog = _RegisterOdbcDialog(self, dsn=dsn, existing=existing)
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.result_source is None:
+            return
+        data_source_store.save_data_source(dialog.result_source)
+        self.refresh()
+        self._select_registered_source(dialog.result_source.id)
+
+    def _select_registered_source(self, data_source_id: str) -> None:
+        """After save, select the source's tree node so its dashboard shows."""
+        if not hasattr(self, "source_tree"):
+            return
+
+        def _find(item: QTreeWidgetItem):
+            payload = _payload(item)
+            if (payload.get("type") == "registered_odbc"
+                    and payload.get("data_source_id") == data_source_id):
+                return item
+            for index in range(item.childCount()):
+                found = _find(item.child(index))
+                if found is not None:
+                    return found
+            return None
+
+        for i in range(self.source_tree.topLevelItemCount()):
+            node = _find(self.source_tree.topLevelItem(i))
+            if node is not None:
+                self.source_tree.setCurrentItem(node)
+                return
 
     def _on_source_edit_setup(self) -> None:
         if self._current_source_kind == "file_data_source" and self._current_file_source is not None:
             self._open_file_source_in_editor(self._current_file_source.id)
+        elif self._current_source_kind == "registered_odbc" and self._current_data_source is not None:
+            self._register_odbc_dsn(existing=self._current_data_source)
 
     def _on_source_new_query(self, mode: str) -> None:
         if self._current_source_kind != "file_data_source" or self._current_file_source is None:
@@ -2914,6 +3149,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         opener(self._current_file_source.id, mode=mode)
 
     def _on_source_delete(self) -> None:
+        if self._current_source_kind == "registered_odbc" and self._current_data_source is not None:
+            self._delete_registered_odbc()
+            return
         if self._current_source_kind != "file_data_source" or self._current_file_source is None:
             return
         from suiteview.audit import file_source_store
@@ -2933,6 +3171,26 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         if reply != QMessageBox.StandardButton.Yes:
             return
         file_source_store.delete_file_source_by_id(fds.id)
+        self.refresh()
+        self._reset_current_source()
+        self._source_dashboard.show_empty("Select a data source")
+
+    def _delete_registered_odbc(self) -> None:
+        from suiteview.audit import data_source_store
+
+        ds = self._current_data_source
+        reply = QMessageBox.question(
+            self,
+            "Unregister Data Source",
+            f"Unregister ODBC data source \"{ds.name}\" (DSN {ds.dsn})?\n\n"
+            "This removes the registration only — the Windows DSN and any "
+            "queries that use it are untouched.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        data_source_store.delete_data_source_by_id(ds.id)
         self.refresh()
         self._reset_current_source()
         self._source_dashboard.show_empty("Select a data source")

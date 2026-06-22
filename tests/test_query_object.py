@@ -884,9 +884,15 @@ class QueryObjectTests(unittest.TestCase):
 
     def test_query_object_viewer_initial_selection_populates_detail(self):
         old_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")
+        old_data_sources_dir = os.environ.get("SUITEVIEW_DATA_SOURCES_DIR")
         old_forges_dir = dataforge_store._FORGES_DIR
-        with tempfile.TemporaryDirectory() as tmp_dir, tempfile.TemporaryDirectory() as tmp_forges:
+        with tempfile.TemporaryDirectory() as tmp_dir, \
+                tempfile.TemporaryDirectory() as tmp_forges, \
+                tempfile.TemporaryDirectory() as tmp_data_sources:
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = tmp_dir
+            # Isolate registered data sources so the ODBC count is deterministic
+            # regardless of what's registered on the machine running the test.
+            os.environ["SUITEVIEW_DATA_SOURCES_DIR"] = tmp_data_sources
             dataforge_store._FORGES_DIR = dataforge_store.Path(tmp_forges)
             save_object(manual_sql_query_object(
                 "Initial Viewer Object",
@@ -949,6 +955,10 @@ class QueryObjectTests(unittest.TestCase):
             os.environ.pop("SUITEVIEW_QUERY_OBJECTS_DIR", None)
         else:
             os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"] = old_dir
+        if old_data_sources_dir is None:
+            os.environ.pop("SUITEVIEW_DATA_SOURCES_DIR", None)
+        else:
+            os.environ["SUITEVIEW_DATA_SOURCES_DIR"] = old_data_sources_dir
 
     def test_query_object_viewer_file_source_keeps_left_width_and_dark_badge(self):
         old_dir = os.environ.get("SUITEVIEW_QUERY_OBJECTS_DIR")

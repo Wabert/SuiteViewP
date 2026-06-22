@@ -153,10 +153,22 @@ this was a small, additive change.
     `get_dsn_details` / file existence). Removed the dead
     `_configure_data_source_tables` + four source-row helpers. Harness:
     `tools/show_source_dashboard.py`.
-  - **Step 3b (to build):** the typed `Add Data Source ▾` chooser, **registered**
-    ODBC/Access source entities (a `DataSource` store so a DSN/Access file can be
-    named + health-checked before any query uses it — §6.5), real Test-Connection
-    per type, and folding away the legacy `Files` group (§6.6).
+  - **Step 3b — ODBC registry (done, screenshot-verified):** registered ODBC
+    sources are now first-class. New `data_source.py` (`RegisteredDataSource` —
+    pure model, kind=odbc|access) + `data_source_store.py` (id-keyed atomic JSON
+    at `~/.suiteview/data_sources/`, mirrors `file_source_store`; env override
+    `SUITEVIEW_DATA_SOURCES_DIR`). `core/odbc_utils` gained `list_installed_dsns()`
+    and a dialect-agnostic `probe_dsn_connection()`. The `+ New File Source`
+    button became a typed `+ Add Data Source ▾` chooser (File Source… / ODBC
+    DSN…); `_RegisterOdbcDialog` picks an installed DSN (or types one), names it,
+    and Tests it. Registered DSNs are **pinned** in the tree (shown gold, even
+    with no query) with their own dashboard (Setup + live Test health + Edit /
+    Delete); discovered DSNs get a **Register** action to promote them. Tests:
+    `tests/test_data_source.py` (9). Harness: `tools/show_odbc_data_source.py`.
+  - **Step 3b — remaining:** MS Access as an addable kind (file picker →
+    connection string; `RegisteredDataSource.kind == access` is already
+    reserved), "New Query on a DSN" from the dashboard, and folding away the
+    legacy `Files` tree group (§6.6).
 
 ## 5. Constraints
 - DuckDB + flat-file logic is fully testable on the minipc; interactive UI
@@ -271,6 +283,18 @@ All in `query_object_viewer_window.py` unless noted:
   step 3 lands — retire it then.
 
 ## Changelog
+- **2026-06-22 (Phase 4, step 3b — ODBC registry)** — Registered ODBC sources
+  are first-class. New `data_source.py` (`RegisteredDataSource`) +
+  `data_source_store.py` (id-keyed atomic JSON, `SUITEVIEW_DATA_SOURCES_DIR`);
+  `odbc_utils.list_installed_dsns()` + `probe_dsn_connection()`. `+ New File
+  Source` → typed `+ Add Data Source ▾` (File Source / ODBC DSN) with a
+  `_RegisterOdbcDialog` (pick/type DSN, name, Test). Registered DSNs are pinned
+  in the tree + get a dashboard (Setup / live Test health / Edit / Delete);
+  discovered DSNs get a Register action. Made
+  `test_query_object_viewer_initial_selection_populates_detail` hermetic
+  (isolate `SUITEVIEW_DATA_SOURCES_DIR`). Tests: `test_data_source.py` (9); suite
+  450 passed, 13 pre-existing failures. Remaining 3b: MS Access, New-Query-on-DSN,
+  fold the `Files` group.
 - **2026-06-22 (Phase 4, step 3a)** — The source-dashboard canvas. New
   `_SourceDashboard` widget (own page in `_browser_canvas_stack`) replaces the
   borrowed QueryObject detail tabs for Data Source nodes: header (name + type

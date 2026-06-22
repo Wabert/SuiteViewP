@@ -53,6 +53,37 @@ def detect_dialect(dsn: str) -> str:
     return SQL_SERVER
 
 
+def list_installed_dsns() -> list[tuple[str, str]]:
+    """Return the installed ODBC DSNs as ``(dsn_name, driver)`` pairs, sorted.
+
+    Reads ``pyodbc.dataSources()`` (User + System). Returns ``[]`` if ODBC can't
+    be read — callers should still allow a typed DSN name.
+    """
+    try:
+        sources = pyodbc.dataSources()
+    except Exception:
+        logger.warning("Could not enumerate ODBC data sources")
+        return []
+    return sorted(sources.items(), key=lambda item: item[0].lower())
+
+
+def probe_dsn_connection(dsn: str) -> tuple[bool, str]:
+    """Test reachability of any ODBC DSN by connecting (dialect-agnostic).
+
+    Unlike :func:`test_dsn_connection` (which runs a DB2-specific probe query),
+    this only opens and closes the connection, so it works for DB2, SQL Server,
+    and Access alike. Returns ``(success, error_message)``.
+    """
+    try:
+        conn = pyodbc.connect(f"DSN={dsn}", autocommit=True, timeout=5)
+        conn.close()
+        return True, ""
+    except pyodbc.Error as exc:
+        return False, _friendly_odbc_error(exc)
+    except Exception as exc:
+        return False, str(exc)
+
+
 def get_dsn_details(dsn: str) -> dict[str, str]:
     """Read ODBC DSN connection properties from the Windows registry.
 
