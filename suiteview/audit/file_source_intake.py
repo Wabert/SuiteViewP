@@ -27,6 +27,7 @@ from suiteview.audit.adhoc_source_intake import (
     query_object_from_file,
 )
 from suiteview.audit.file_source import FileColumn, FileDataSource, FileMember
+from suiteview.audit.query_object import OBJECT_KIND_ADHOC_SOURCE
 
 # Metadata keys that describe the *file instance*, not the reusable parse spec.
 _INSTANCE_KEYS = {"path", "detected_at", "promoted", "promoted_at", "sample_rows"}
@@ -110,6 +111,40 @@ def unique_table_name(file_source: FileDataSource, base: str) -> str:
     while f"{name}_{n}" in existing:
         n += 1
     return f"{name}_{n}"
+
+
+def migrate_adhoc_to_file_source(query_object) -> FileDataSource:
+    """Convert a legacy ``adhoc_source`` QueryObject into a FileDataSource.
+
+    The old model stored the parse spec + columns + a single file path on one
+    QueryObject; this lifts those into a FileDataSource with one member. Caller
+    persists the result and removes the legacy QueryObject (see
+    ``tools/migrate_adhoc_sources.py``).
+    """
+    if query_object.kind != OBJECT_KIND_ADHOC_SOURCE:
+        raise FileValidationError(
+            "Only adhoc_source QueryObjects can be migrated to a File Source.")
+    source = query_object.sources[0] if query_object.sources else None
+    metadata = dict(source.metadata) if source else {}
+    parse_spec = _parse_spec_from_metadata(metadata)
+    columns = [
+        FileColumn(name=f.name, data_type=f.data_type,
+                   display_name=f.display_name or f.name)
+        for f in query_object.fields
+    ]
+    fds = FileDataSource(
+        name=query_object.name,
+        source_type=(source.source_type if source else query_object.source_design) or "csv",
+        parse_spec=parse_spec,
+        columns=columns,
+        description=query_object.description or "",
+        tags=list(query_object.tags or []),
+    )
+    path = metadata.get("path", "")
+    if path:
+        fds.members.append(
+            FileMember(path=path, table_name=unique_table_name(fds, Path(path).stem)))
+    return fds
 
 
 def add_member_file(

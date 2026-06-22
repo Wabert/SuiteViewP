@@ -10,10 +10,12 @@ import pytest
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from suiteview.audit.adhoc_source_intake import fixed_width_spec  # noqa: E402
+from suiteview.audit.adhoc_source_intake import (  # noqa: E402
+    fixed_width_spec, query_object_from_file,
+)
 from suiteview.audit.file_source_intake import (  # noqa: E402
     FileValidationError, add_member_file, infer_file_source_from_file,
-    unique_table_name, validate_member_file,
+    migrate_adhoc_to_file_source, unique_table_name, validate_member_file,
 )
 
 
@@ -108,6 +110,37 @@ def test_unique_table_name_helper(tmp_path):
     fds = infer_file_source_from_file(a)
     assert unique_table_name(fds, "CLAIMS") == "CLAIMS_2"
     assert unique_table_name(fds, "NEW") == "NEW"
+
+
+# ── Migration (legacy adhoc_source -> FileDataSource) ──────────────────────
+
+def test_migrate_adhoc_source_to_file_source(tmp_path):
+    path = _write(tmp_path / "CLAIMS.csv",
+                  "policy,state,amount\nP1,TX,100\nP2,CA,200\n")
+    obj = query_object_from_file(path, name="Legacy Claims")
+    obj.description = "imported long ago"
+    obj.tags = ["legacy"]
+
+    fds = migrate_adhoc_to_file_source(obj)
+    assert fds.name == "Legacy Claims"
+    assert fds.source_type == "csv"
+    assert fds.column_names == ["policy", "state", "amount"]
+    assert fds.description == "imported long ago"
+    assert fds.tags == ["legacy"]
+    assert fds.table_names == ["CLAIMS"]
+    assert "path" not in fds.parse_spec
+    # The migrated source actually runs (schema + parse spec carried over).
+    from suiteview.audit import file_query_runner
+    df = file_query_runner.run_sql(fds, 'SELECT * FROM "CLAIMS"').dataframe
+    assert len(df) == 2
+
+
+def test_migrate_rejects_non_adhoc():
+    from suiteview.audit.query_object import manual_sql_query_object
+
+    obj = manual_sql_query_object("X", sql="SELECT 1", dsn="D", result_columns=["a"])
+    with pytest.raises(FileValidationError):
+        migrate_adhoc_to_file_source(obj)
 
 
 if __name__ == "__main__":

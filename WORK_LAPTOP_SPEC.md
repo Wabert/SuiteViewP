@@ -533,7 +533,11 @@ fetchers and synthetic data. Two pieces could not be exercised here:
 Note: `pyarrow` was added to `requirements.txt` (parquet engine for Snapshots);
 `pip install -r requirements.txt` on the laptop to pick it up.
 
-## §3c — File Sources Phase 1: builder integration + editor rework (UI, NEEDS APP)
+## §3c — File Sources: legacy cleanup + interactive confirmation (NEEDS APP)
+
+Phases 1, 2a, 2b, 2c, and 3 are all built and verified on the minipc (the app
+runs + screenshots here). What's left for the laptop is migration-apply on real
+data and removing the now-dead legacy code. See the bottom of this section.
 
 Phase 1 backbone built + unit-tested on the minipc (2026-06-22): flat files
 become a first-class **File Data Source** (peer of a DSN, each member file its
@@ -552,21 +556,35 @@ own table), queried by the existing builders compiled to **DuckDB**. See
 - Tests: `tests/test_file_source.py` (17, green); `test_dynamic_query` +
   `test_forge_engine` still green (40).
 
-**Remaining (laptop / in-app — Phases 2 & 3):**
-1. **Builder integration.** Make a File Source selectable as a data source in
-   the New Query flow (Visual + Manual). When chosen: the Tables list = its
-   member files, the field list = its column schema (no ODBC introspection),
-   dialect = `DUCKDB`. Route Run/Preview to `file_query_runner` when the query
-   is file-backed. Verify a visual design compiles to DuckDB and runs, and that
-   Manual SQL over `"CLAIMS"` / `"RGACLAIMS"` works.
-2. **Editor rework.** Turn `tabs/csv_excel_object_editor.py` from "save a file
-   as a query" into a **File Source editor**: define format/spec/columns once +
-   manage the member-file list (add/remove, each validated against the schema),
-   preview a chosen file. "Save File Source", not "Save Query".
-3. **Browser/organizer + migration.** "File Sources" group lists FileDataSources
-   (not per-file query objects); source-tree shows each source and its members.
-   Migrate existing `adhoc_source` QueryObjects → FileDataSource (+ a default
-   query), then delete the old `adhoc_source` kind cleanly (dev-only, no shims).
+**Built + verified on the minipc (2026-06-22) — re-confirm interactively, then
+proceed with the cleanup below:**
+- **2a** Editor (`tabs/file_source_editor.py`): format/columns from the first
+  file, member-file list with **OS drag-and-drop** add + schema validation,
+  per-file DuckDB preview, Save File Source. Wired into New Query → File Source.
+- **2b** Manual SQL over a File Source: `FieldPickerPanel.load_local_source`
+  (no-ODBC), `set_file_source`, run/save routing on a `file:<id>` token,
+  "SQL Query →" button. (Verified: cross-file `UNION ALL`+`GROUP BY`.)
+- **2c** Visual builder over a File Source: `detect_dialect` → `DUCKDB`,
+  `DynamicQuery` run paths branch to `file_query_runner`,
+  `_open_visual_query_on_file_source` (tables inferred from dragged fields),
+  "Visual Query →" button.
+- **3** `dialogs/file_source_browser.py` (open/delete saved sources) + an
+  "Open…" button on the editor; `migrate_adhoc_to_file_source` +
+  `tools/migrate_adhoc_sources.py`.
+
+**Remaining (laptop):**
+1. **Run the migration on real data.** The minipc has no legacy `adhoc_source`
+   objects. On the laptop: `venv\Scripts\python.exe tools/migrate_adhoc_sources.py`
+   (dry run) to review, then `'{"apply": true}'` to convert + remove originals.
+2. **Remove the dead legacy adhoc code** once #1 is done and the browser is
+   confirmed clean: `tabs/csv_excel_object_editor.py`, the `OBJECT_KIND_ADHOC_SOURCE`
+   branches in `query_object_viewer_window.py`, and the adhoc factories in
+   `query_object.py` / `adhoc_source_intake.py` (the `*_adhoc_*` /
+   `query_object_from_file` QueryObject path — keep the pure readers used by
+   `file_source_intake`). Drop the legacy `_start_csv_excel_object` /
+   `open_csv_excel_object` wiring in `audit_window.py`.
+3. **Optional:** fold the File Source browser into the unified Object Browser
+   (DataForge design §8) instead of a standalone dialog.
 
 ## §4 — FUTURE: Tier 3 (larger refactors, not yet started)
 - Decompose `suiteview/taskbar_launcher/suiteview_taskbar.py` (very large).
@@ -575,6 +593,12 @@ own table), queried by the existing builders compiled to **DuckDB**. See
 ---
 
 ## Changelog
+- **2026-06-22 (minipc, later)** — File Sources Phases 2a/2b/2c/3 built +
+  screenshot-verified in-app on the minipc (§3c updated): the File Source editor
+  (drag-drop member files), Manual SQL + Visual builder over a File Source via
+  DuckDB, and a File Source browser + adhoc→FileDataSource migration tool.
+  Committed on `feat/file-sources`. Remaining laptop work: run the migration with
+  `apply=true` on real data, then delete the dead legacy adhoc code (§3c).
 - **2026-06-22 (minipc)** — File Sources Phase 1 backbone (added §3c): flat
   files reworked into a first-class `FileDataSource` (peer of a DSN, each member
   file its own DuckDB table) queried by the existing Visual/Manual builders.

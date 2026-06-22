@@ -111,11 +111,23 @@ this was a small, additive change.
   the stored schema (reusing `FieldPickerPanel.load_local_source`). Entry point:
   a **Visual Query →** button on the File Source editor. Verified: the designer
   runs SELECT over a member table through DuckDB.
-- **Phase 3 — Browser/organizer + migration (app):** the "File Sources" group
-  lists FileDataSources (not per-file query objects); the source-tree shows each
-  source and its members. Migrate existing `adhoc_source` QueryObjects →
-  FileDataSource (+ a default query), then delete the old `adhoc_source` kind
-  cleanly (dev-only, no shims).
+- **Phase 3 — Discoverability + migration:** ✅ *built + verified on the minipc
+  (2026-06-22).* A dedicated **File Source browser** (`dialogs/file_source_browser.py`)
+  lists saved sources (name, format, file/column counts) with Open/Delete; the
+  File Source editor gained an **Open…** button to reopen a saved source for
+  editing. Migration: `file_source_intake.migrate_adhoc_to_file_source()` +
+  `tools/migrate_adhoc_sources.py` (dry-run by default; `apply=true` converts
+  every legacy `adhoc_source` QueryObject to a FileDataSource and removes the
+  original). Tests: `test_file_source_intake.py` (+2 migration). A dedicated
+  browser was chosen over shoehorning a new entity into the 3,300-line
+  QueryObject browser.
+  - **Deferred (needs interactive app verification, `WORK_LAPTOP_SPEC.md` §3c):**
+    run the migration with `apply=true` on the work laptop (no adhoc objects on
+    the minipc), then remove the now-dead legacy `adhoc_source` code paths
+    (`csv_excel_object_editor.py`, the adhoc branches in
+    `query_object_viewer_window.py`, the adhoc factories in `query_object.py` /
+    `adhoc_source_intake.py`) once the browser is confirmed clean. Optionally
+    fold the File Source browser into the unified Object Browser.
 
 ## 5. Constraints
 - DuckDB + flat-file logic is fully testable on the minipc; interactive UI
@@ -123,6 +135,11 @@ this was a small, additive change.
   app on the work laptop (`WORK_LAPTOP_SPEC.md` §3c).
 
 ## Changelog
+- **2026-06-22 (Phase 3)** — Discoverability + migration. `dialogs/file_source_browser.py`
+  (list/open/delete saved sources) + an "Open…" button on the editor;
+  `migrate_adhoc_to_file_source` + `tools/migrate_adhoc_sources.py` (dry-run
+  default). Tests +2 (migration). Legacy adhoc code removal + unified-browser
+  fold deferred to the laptop (needs interactive verification).
 - **2026-06-22 (2c)** — Visual builder over a File Source. `DUCKDB` dialect from
   `detect_dialect("file:…")`; `DynamicQuery` run paths branch to
   `file_query_runner`; `AuditWindow._open_visual_query_on_file_source` (+

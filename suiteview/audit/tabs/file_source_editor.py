@@ -21,6 +21,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -280,6 +281,12 @@ class FileSourceEditor(QWidget):
         self.btn_query.clicked.connect(self._emit_query_requested)
         footer.addWidget(self.btn_query)
         footer.addStretch()
+        self.btn_open_existing = QPushButton("Open…")
+        self.btn_open_existing.setFixedSize(70, 34)
+        self.btn_open_existing.setStyleSheet(_SAVE_BTN_STYLE)
+        self.btn_open_existing.setToolTip("Open a saved File Source to edit")
+        self.btn_open_existing.clicked.connect(self._open_existing)
+        footer.addWidget(self.btn_open_existing)
         self.btn_new = QPushButton("New")
         self.btn_new.setFixedSize(70, 34)
         self.btn_new.setStyleSheet(_SAVE_BTN_STYLE)
@@ -671,6 +678,16 @@ class FileSourceEditor(QWidget):
         """Save the source, then ask the app to open a Visual query on it."""
         if self._ensure_saved_for_query():
             self.visual_query_requested.emit(self._fds.id)
+
+    def _open_existing(self):
+        """Pick a saved File Source from the browser and load it for editing."""
+        from suiteview.audit.dialogs.file_source_browser import FileSourceBrowserDialog
+
+        dlg = FileSourceBrowserDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_id:
+            fds = file_source_store.load_file_source_by_id(dlg.selected_id)
+            if fds is not None:
+                self.load_file_source(fds)
 
     def _confirm_new(self):
         reply = QMessageBox.question(
