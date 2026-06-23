@@ -293,6 +293,16 @@ All in `query_object_viewer_window.py` unless noted:
   step 3 lands — retire it then.
 
 ## Changelog
+- **2026-06-22 (Phase 4 polish — File Source editor window)** — The File Source
+  editor is now its own dedicated frameless window (`FileSourceEditorWindow` in
+  `tabs/file_source_editor.py`), not a build mode embedded in the Audit tool. The
+  browser's Add/Edit actions open it (`_ensure_file_source_editor_window`); its
+  Visual/SQL Query buttons route to `AuditWindow.new_query_on_file_source` via the
+  browser. Removed the embedded file-source surface from `audit_window.py`
+  (`file_source_tab`, `__file_source__` mode, `_enter_file_source_mode`,
+  `new_file_source`, `open_file_source`). The Columns panel became an editable
+  table (per-row Type dropdown → `FileColumn.data_type`, persisted on save) and
+  list rows were tightened.
 - **2026-06-22 (Phase 4, step 3b — MS Access)** — MS Access as an addable source
   kind. `_RegisterAccessDialog` (Browse + Test); `RegisteredDataSource(kind=
   access)`; `odbc_utils` Access helpers (`access_driver`,

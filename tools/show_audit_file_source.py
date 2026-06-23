@@ -44,21 +44,17 @@ def main():
         Path.home() / ".suiteview" / "audit_file_source.png")
 
     app = QApplication(sys.argv)
-    from suiteview.audit.audit_window import AuditWindow
+    from suiteview.audit.tabs.file_source_editor import FileSourceEditorWindow
 
-    win = AuditWindow()
+    win = FileSourceEditorWindow()
     win.resize(1320, 840)
     win.show()
 
     def go():
         try:
-            win.open_file_source(_build_sample())
+            win.edit_source(_build_sample())
         except Exception as exc:
-            print(f"open_file_source failed: {exc}")
-            try:
-                win.new_file_source()
-            except Exception as exc2:
-                print(f"new_file_source failed: {exc2}")
+            print(f"edit_source failed: {exc}")
         QTimer.singleShot(500, capture)
 
     def capture():

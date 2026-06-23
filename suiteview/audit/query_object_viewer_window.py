@@ -895,6 +895,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._dataforge_builder_windows: list[QDialog] = []
         self._audit_builder_windows: list[QWidget] = []
         self._file_nav_window = None
+        self._file_source_editor_window = None
         self._embedded_common_tables = None
         self._embedded_registry = None
         super().__init__(
@@ -3816,15 +3817,10 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         opener(object_name)
 
     def _on_add_file_source(self):
-        """Create a new File Source — the Data Sources tab is where sources are added."""
-        parent = self._audit_window_for_builder()
-        opener = getattr(parent, "new_file_source", None)
-        if opener is None:
-            QMessageBox.information(
-                self, "Editor Unavailable",
-                "Could not open the File Source editor.")
-            return
-        opener()
+        """Create a new File Source — opens the dedicated File Source editor window."""
+        window = self._ensure_file_source_editor_window()
+        window.new_source()
+        self._show_window(window)
 
     def _open_file_source_in_editor(self, file_source_id: str):
         if not file_source_id:
@@ -3836,14 +3832,45 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             QMessageBox.information(
                 self, "File Source", "This File Source could not be found.")
             return
+        window = self._ensure_file_source_editor_window()
+        window.edit_source(fds)
+        self._show_window(window)
+
+    def _ensure_file_source_editor_window(self):
+        """The single dedicated File Source editor window (created on first use)."""
+        window = getattr(self, "_file_source_editor_window", None)
+        try:
+            _ = window.isVisible() if window is not None else None
+        except RuntimeError:
+            window = None  # was destroyed
+        if window is None:
+            from suiteview.audit.tabs.file_source_editor import FileSourceEditorWindow
+            window = FileSourceEditorWindow()
+            window.editor.saved.connect(lambda _name: self.refresh())
+            window.editor.visual_query_requested.connect(
+                lambda fid: self._open_query_on_file_source(fid, "visual"))
+            window.editor.query_requested.connect(
+                lambda fid: self._open_query_on_file_source(fid, "manual"))
+            self._file_source_editor_window = window
+        return window
+
+    def _open_query_on_file_source(self, file_source_id: str, mode: str):
         parent = self._audit_window_for_builder()
-        opener = getattr(parent, "open_file_source", None)
+        opener = getattr(parent, "new_query_on_file_source", None)
         if opener is None:
             QMessageBox.information(
-                self, "Editor Unavailable",
-                "Could not open the File Source editor.")
+                self, "Builder Unavailable",
+                "Could not open a query on this File Source.")
             return
-        opener(fds)
+        opener(file_source_id, mode=mode)
+
+    @staticmethod
+    def _show_window(window) -> None:
+        window.show()
+        if window.isMinimized():
+            window.showNormal()
+        window.raise_()
+        window.activateWindow()
 
     def _open_dataforge_builder(self, forge_name: str):
         parent = self._audit_window_for_builder()

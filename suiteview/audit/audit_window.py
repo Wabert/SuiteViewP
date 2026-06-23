@@ -39,7 +39,6 @@ from .tabs.build_sql_tab import BuildSqlTab
 from .tabs.build_sql_results_tab import BuildSqlResultsTab
 from .tabs.manual_sql_object_editor import ManualSqlObjectEditor
 from .tabs.csv_excel_object_editor import CsvExcelObjectEditor
-from .tabs.file_source_editor import FileSourceEditor
 from .tabs._styles import style_combo as _style_combo
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import DEFAULT_SCHEMA, REGION_SCHEMA_MAP
@@ -380,7 +379,6 @@ class AuditWindow(FramelessWindowBase):
         # Manual SQL Object editor screen (hidden until New Object chooses it)
         self.manual_sql_object_tab = ManualSqlObjectEditor()
         self.csv_excel_object_tab = CsvExcelObjectEditor()
-        self.file_source_tab = FileSourceEditor()
         # Right-click on tab bar → close transient SQL/object tabs
         self.tabs.tabBar().setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu)
@@ -487,8 +485,6 @@ class AuditWindow(FramelessWindowBase):
         self._dynamic_query_container.addWidget(self.manual_sql_object_tab)
         self.csv_excel_object_tab.setVisible(False)
         self._dynamic_query_container.addWidget(self.csv_excel_object_tab)
-        self.file_source_tab.setVisible(False)
-        self._dynamic_query_container.addWidget(self.file_source_tab)
         # DataForge group storage
         self._dataforge_groups: dict[str, DataForgeGroup] = {}
         # ── Left picker panel (embedded) ───────────────────────────
@@ -573,8 +569,6 @@ class AuditWindow(FramelessWindowBase):
         self.manual_sql_object_tab.preview_requested.connect(self._run_manual_sql_preview)
         self.manual_sql_object_tab.save_requested.connect(self._save_manual_sql_object)
         self.csv_excel_object_tab.saved.connect(lambda _: self._open_query_object_viewer())
-        self.file_source_tab.query_requested.connect(self._open_manual_sql_on_file_source)
-        self.file_source_tab.visual_query_requested.connect(self._open_visual_query_on_file_source)
     # ── Mode switching (Cyberlife / dynamic) ─────────────────────────
     # Cyberlife tab pane — darker blue top/bottom border
     _CYB_TAB_STYLE = (
@@ -613,7 +607,6 @@ class AuditWindow(FramelessWindowBase):
             self._query_blank.setVisible(is_query_blank)
             self.manual_sql_object_tab.setVisible(is_manual_sql_object)
             self.csv_excel_object_tab.setVisible(is_csv_excel_object)
-            self.file_source_tab.setVisible(mode == "__file_source__")
             # Only toggle the two affected widgets (prev + new)
             for name, q in self._dynamic_queries.items():
                 if name == mode:
@@ -636,8 +629,6 @@ class AuditWindow(FramelessWindowBase):
             self._enter_manual_sql_object_mode()
         elif mode == "__csv_excel_object__":
             self._enter_csv_excel_object_mode()
-        elif mode == "__file_source__":
-            self._enter_file_source_mode()
         else:
             self._enter_cyberlife_mode()
     def _enter_cyberlife_mode(self):
@@ -733,21 +724,6 @@ class AuditWindow(FramelessWindowBase):
 
     def _enter_csv_excel_object_mode(self):
         """Configure UI for the File Source Object editor."""
-        self._hide_mode_footer()
-        self._style_build_mode_button("file")
-        self.btn_cyberlife.blockSignals(True)
-        self.btn_cyberlife.setChecked(False)
-        self.btn_cyberlife.blockSignals(False)
-        self.btn_workbench.setChecked(False)
-        self.btn_dataforge.setChecked(False)
-        self._save_picker_width()
-        self._hide_picker_panel()
-        self._content_splitter.setStyleSheet(
-            "QSplitter::handle { background: #AFC3DA; }"
-            "QSplitter::handle:hover { background: #1E5BA8; }")
-
-    def _enter_file_source_mode(self):
-        """Configure UI for the File Source editor (define a flat-file data source)."""
         self._hide_mode_footer()
         self._style_build_mode_button("file")
         self.btn_cyberlife.blockSignals(True)
@@ -1413,16 +1389,6 @@ class AuditWindow(FramelessWindowBase):
             self.csv_excel_object_tab.new_object()
         self._switch_mode("__csv_excel_object__")
 
-    def new_file_source(self):
-        """Open the File Source editor on a blank new flat-file data source.
-
-        Creating a File Source lives on the Object Browser's Data Sources tab
-        (a source is a thing you connect to, not a query build mode) — this is
-        the entry point that tab calls.
-        """
-        self.file_source_tab.new_object()
-        self._switch_mode("__file_source__")
-
     def open_manual_sql_object(self, obj):
         """Open a saved Manual SQL QueryObject in its editor."""
         self._manual_sql_started = True
@@ -1437,11 +1403,6 @@ class AuditWindow(FramelessWindowBase):
         """Open a saved (legacy) File Source QueryObject in its editor."""
         self.csv_excel_object_tab.load_object(obj)
         self._switch_mode("__csv_excel_object__")
-
-    def open_file_source(self, fds):
-        """Open a saved FileDataSource in the File Source editor."""
-        self.file_source_tab.load_file_source(fds)
-        self._switch_mode("__file_source__")
 
     def open_cyberlife_query_object(self, obj):
         """Open a saved Cyberlife QueryObject in the Cyberlife builder."""

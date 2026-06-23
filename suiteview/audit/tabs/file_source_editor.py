@@ -21,11 +21,13 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -34,6 +36,8 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -54,6 +58,12 @@ from suiteview.audit.file_source_intake import (
     infer_file_source_from_file,
 )
 from suiteview.ui.widgets.filter_table_view import FilterTableView
+from suiteview.ui.widgets.frameless_window import FramelessWindowBase
+
+# Declarative column types the user can assign (DuckDB infers actual types at
+# query time; this is the schema label shown in pickers and the source dashboard).
+_DATA_TYPES = ["TEXT", "INTEGER", "BIGINT", "DOUBLE", "DECIMAL", "DATE",
+               "TIMESTAMP", "BOOLEAN"]
 
 _FONT = QFont("Segoe UI", 9)
 _FONT_BOLD = QFont("Segoe UI", 9, QFont.Weight.Bold)
@@ -122,6 +132,7 @@ class FileSourceEditor(QWidget):
         super().__init__(parent)
         self._fds: FileDataSource | None = None
         self._original_name = ""
+        self._loading_columns = False
         self._build_ui()
         self._refresh_all()
 
@@ -135,6 +146,10 @@ class FileSourceEditor(QWidget):
             "QWidget { background-color: #F6F8FB; color: #111; }"
             "QLineEdit { background: white; border: 1px solid #9FB4CC; padding: 4px; }"
             "QListWidget { background: white; border: 1px solid #9FB4CC; }"
+            "QListWidget::item { padding: 0px 3px; }"
+            "QListWidget::item:selected { background: #DCEAFB; color: #0D3A7A; }"
+            "QTableWidget { background: white; border: 1px solid #9FB4CC;"
+            " gridline-color: #EAEFF6; }"
             "QGroupBox { border: 1px solid #AFC3DA; margin-top: 8px;"
             " padding: 8px 6px 6px 6px; font-weight: bold; }"
             "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
@@ -191,15 +206,23 @@ class FileSourceEditor(QWidget):
         cols_layout = QVBoxLayout(cols_panel)
         cols_layout.setContentsMargins(0, 0, 0, 0)
         cols_layout.setSpacing(4)
-        cols_header = QLabel("Columns")
+        cols_header = QLabel("Columns  (click a Type to change it)")
         cols_header.setFont(_FONT_BOLD)
         cols_header.setStyleSheet(
             "background: #1E5BA8; color: white; padding: 3px 5px;")
         cols_layout.addWidget(cols_header)
-        self.list_columns = QListWidget()
-        self.list_columns.setSelectionMode(
-            QAbstractItemView.SelectionMode.NoSelection)
-        cols_layout.addWidget(self.list_columns, 1)
+        self.tbl_columns = QTableWidget(0, 2)
+        self.tbl_columns.setHorizontalHeaderLabels(["Column", "Type"])
+        self.tbl_columns.verticalHeader().setVisible(False)
+        self.tbl_columns.verticalHeader().setDefaultSectionSize(20)
+        self.tbl_columns.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tbl_columns.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.tbl_columns.setFont(_FONT)
+        hdr = self.tbl_columns.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.tbl_columns.setColumnWidth(1, 96)
+        cols_layout.addWidget(self.tbl_columns, 1)
         self.btn_name_columns = QPushButton("Name Columns")
         self.btn_name_columns.setFont(_FONT)
         self.btn_name_columns.setFixedHeight(24)
@@ -216,7 +239,8 @@ class FileSourceEditor(QWidget):
         files_box = QGroupBox("Member Files  (each is its own table — drag files here to add)")
         files_layout = QVBoxLayout(files_box)
         self.list_members = FileDropList()
-        self.list_members.setFixedHeight(150)
+        self.list_members.setFont(_FONT)
+        self.list_members.setFixedHeight(140)
         self.list_members.files_dropped.connect(self._add_files)
         files_layout.addWidget(self.list_members)
         file_btns = QHBoxLayout()
@@ -362,12 +386,34 @@ class FileSourceEditor(QWidget):
         return st
 
     def _refresh_columns(self):
-        self.list_columns.clear()
+        self._loading_columns = True
+        self.tbl_columns.setRowCount(0)
         if self._fds is None:
+            self._loading_columns = False
             return
-        for col in self._fds.columns:
-            type_part = f"  [{col.data_type}]" if col.data_type else ""
-            self.list_columns.addItem(QListWidgetItem(f"{col.name}{type_part}"))
+        self.tbl_columns.setRowCount(len(self._fds.columns))
+        for row, col in enumerate(self._fds.columns):
+            name_item = QTableWidgetItem(col.name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.tbl_columns.setItem(row, 0, name_item)
+            combo = QComboBox()
+            combo.addItems(_DATA_TYPES)
+            data_type = (col.data_type or "TEXT").upper()
+            if data_type not in _DATA_TYPES:
+                combo.addItem(data_type)
+            combo.setCurrentText(data_type)
+            combo.currentTextChanged.connect(
+                lambda text, r=row: self._on_column_type_changed(r, text))
+            self.tbl_columns.setCellWidget(row, 1, combo)
+        self._loading_columns = False
+
+    def _on_column_type_changed(self, row: int, data_type: str):
+        if self._loading_columns or self._fds is None:
+            return
+        if 0 <= row < len(self._fds.columns):
+            self._fds.columns[row].data_type = data_type
+            self.lbl_status.setText(
+                f"{self._fds.columns[row].name} → {data_type}  (Save to persist)")
 
     def _refresh_members(self):
         self.list_members.clear()
@@ -697,3 +743,40 @@ class FileSourceEditor(QWidget):
             QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
             self.new_object()
+
+
+class FileSourceEditorWindow(FramelessWindowBase):
+    """Standalone window that hosts the File Source editor.
+
+    Defining a flat-file data source is its own task, not a build mode inside the
+    Audit tool — so it gets a dedicated frameless window (Blue/Gold). The hosted
+    editor is exposed as ``self.editor`` so callers can drive it (``new_object``,
+    ``load_file_source``) and connect its signals (``saved``, ``query_requested``,
+    ``visual_query_requested``).
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(
+            title="File Source Editor",
+            default_size=(1140, 720),
+            min_size=(900, 560),
+            parent=parent,
+            header_colors=("#1E5BA8", "#0D3A7A", "#082B5C"),
+            border_color="#D4A017",
+        )
+
+    def build_content(self) -> QWidget:
+        self.editor = FileSourceEditor()
+        return self.editor
+
+    def new_source(self):
+        self.editor.new_object()
+        self._set_title_for(None)
+
+    def edit_source(self, fds: FileDataSource):
+        self.editor.load_file_source(fds)
+        self._set_title_for(fds)
+
+    def _set_title_for(self, fds: FileDataSource | None):
+        name = fds.name if fds is not None else "New"
+        self._title_label.setText(f"File Source Editor — {name}")
