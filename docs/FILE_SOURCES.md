@@ -293,6 +293,13 @@ All in `query_object_viewer_window.py` unless noted:
   step 3 lands — retire it then.
 
 ## Changelog
+- **2026-06-22 (Phase 4 polish — Manual SQL matches Visual Query)** — Restructured
+  `ManualSqlObjectEditor` to mirror the Visual Query builder: SQL Assist
+  (`FieldPickerPanel`) on the left, a SQL / Results / Schema tab canvas on the
+  right (the assist used to live inside the SQL tab). Dropped the "Object" tab —
+  name comes from the Save As prompt (as Visual Query does); Name/Description/Tags
+  are kept as hidden value-holders so editing a saved object still round-trips
+  them. Adjusted the shifted tab indices.
 - **2026-06-22 (Phase 4 polish — copy path + DataForge into Build Mode)** —
   Dashboard Tables right-click gained **Copy path** (copies the member file's
   full path to the clipboard). Separately, DataForge moved from a standalone

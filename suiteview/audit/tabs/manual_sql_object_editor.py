@@ -15,9 +15,7 @@ from PyQt6.QtCore import QMimeData, Qt, pyqtSignal
 from PyQt6.QtGui import QDrag, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QFormLayout,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -235,9 +233,22 @@ class ManualSqlObjectEditor(QWidget):
         header.addWidget(self.lbl_status)
         root.addLayout(header)
 
+        # SQL Assist on the left, the SQL/Results/Schema canvas on the right —
+        # mirrors the Visual Query builder so the two feel like one tool.
+        self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._main_splitter.setHandleWidth(4)
+        self.sql_assist = FieldPickerPanel()
+        self.sql_assist.setMinimumWidth(240)
+        self.sql_assist.setMaximumWidth(460)
+        self._main_splitter.addWidget(self.sql_assist)
+
         self.editor_tabs = QTabWidget()
         self.editor_tabs.setFont(_FONT)
-        root.addWidget(self.editor_tabs, 1)
+        self._main_splitter.addWidget(self.editor_tabs)
+        self._main_splitter.setStretchFactor(0, 0)
+        self._main_splitter.setStretchFactor(1, 1)
+        self._main_splitter.setSizes([300, 820])
+        root.addWidget(self._main_splitter, 1)
 
         self.bottom_bar = AuditBottomBar(bg_color=FOOTER_BG, run_label="Run")
         self.bottom_bar.btn_all.setVisible(False)
@@ -263,58 +274,23 @@ class ManualSqlObjectEditor(QWidget):
         self.bottom_bar.action_layout.addWidget(self.btn_save)
         root.addWidget(self.bottom_bar)
 
-        object_page = QWidget()
-        object_layout = QVBoxLayout(object_page)
-        object_layout.setContentsMargins(8, 8, 8, 8)
-        object_layout.setSpacing(8)
-
-        meta_box = QGroupBox("Object Metadata")
-        meta_layout = QFormLayout(meta_box)
-        meta_layout.setContentsMargins(8, 12, 8, 8)
-        meta_layout.setSpacing(6)
+        # Name/Description/Tags are no longer a tab — match the Visual Query,
+        # which only asks for a name on Save As. Kept as hidden value-holders so
+        # editing a saved object still round-trips its description and tags.
         self.txt_name = QLineEdit()
-        self.txt_name.setPlaceholderText("Object name")
         self.txt_description = QLineEdit()
-        self.txt_description.setPlaceholderText("Optional description")
         self.txt_tags = QLineEdit()
-        self.txt_tags.setPlaceholderText("Optional comma-separated tags")
-        meta_layout.addRow("Name", self.txt_name)
-        meta_layout.addRow("Description", self.txt_description)
-        meta_layout.addRow("Tags", self.txt_tags)
-        object_layout.addWidget(meta_box)
-        object_layout.addStretch()
-        self.editor_tabs.addTab(object_page, "Object")
 
         sql_page = QWidget()
-        sql_layout = QHBoxLayout(sql_page)
+        sql_layout = QVBoxLayout(sql_page)
         sql_layout.setContentsMargins(6, 6, 6, 6)
         sql_layout.setSpacing(6)
-
-        self.sql_assist = FieldPickerPanel()
-        self.sql_assist.setMinimumWidth(260)
-        self.sql_assist.setMaximumWidth(420)
-        assist = self.sql_assist
-
-        editor_side = QWidget()
-        editor_layout = QVBoxLayout(editor_side)
-        editor_layout.setContentsMargins(0, 0, 0, 0)
-        editor_layout.setSpacing(6)
-
         self.txt_sql = SqlDropTextEdit()
         self.txt_sql.setFont(_FONT_MONO)
         self.txt_sql.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.txt_sql.setPlaceholderText("Paste DB2 SQL here")
         self._highlighter = _SqlHighlighter(self.txt_sql.document())
-        editor_layout.addWidget(self.txt_sql, 1)
-
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(4)
-        splitter.addWidget(assist)
-        splitter.addWidget(editor_side)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([300, 760])
-        sql_layout.addWidget(splitter, 1)
+        sql_layout.addWidget(self.txt_sql, 1)
         self.editor_tabs.addTab(sql_page, "SQL")
 
         results_page = QWidget()
@@ -462,7 +438,7 @@ class ManualSqlObjectEditor(QWidget):
         self.results_table.set_dataframe(pd.DataFrame(columns=self._result_columns), limit_rows=False)
         self._set_save_enabled(bool(self.current_sql()) and bool(self._result_columns))
         self.lbl_status.setText(f"Loaded {len(self._result_columns)} saved columns from {obj.dsn or '-'}")
-        self.editor_tabs.setCurrentIndex(1)
+        self.editor_tabs.setCurrentIndex(0)  # SQL
 
     def set_connection_options(self, connections: list, current: str = ""):
         """Set the ODBC connections available to the SQL Assist picker."""
@@ -699,7 +675,7 @@ class ManualSqlObjectEditor(QWidget):
         self._set_save_enabled(bool(self.current_sql()) and df is not None)
         self.bottom_bar.lbl_result_count.setText(f"Result count: {len(df)}")
         self.lbl_status.setText(f"Captured {len(df.columns)} columns from {dsn}")
-        self.editor_tabs.setCurrentIndex(2)
+        self.editor_tabs.setCurrentIndex(1)  # Results
 
     def clear_preview(self):
         """Clear preview schema when SQL changes or a new object starts."""
