@@ -293,6 +293,13 @@ All in `query_object_viewer_window.py` unless noted:
   step 3 lands — retire it then.
 
 ## Changelog
+- **2026-06-22 (Phase 4 polish — copy path + DataForge into Build Mode)** —
+  Dashboard Tables right-click gained **Copy path** (copies the member file's
+  full path to the clipboard). Separately, DataForge moved from a standalone
+  Audit header button into the **Build Mode** dropdown (`build_mode_styles`
+  special-cases `dataforge` → orange `FORGE_STYLE`); `btn_dataforge` stays as an
+  invisible checkable state-holder (like `btn_cyberlife`/`btn_workbench`) so the
+  existing mode-switch bookkeeping is untouched. Cleaner header.
 - **2026-06-22 (Phase 4 polish — dashboard tab/preview refinements)** — Used-by
   moved to its own tab (Overview / Tables / Used by); Overview now puts Setup and
   Columns side by side. Tables tab is button-driven: a `Rows` input + "Preview

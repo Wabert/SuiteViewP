@@ -629,7 +629,7 @@ class _SourceDashboard(QWidget):
         tb_lay.setContentsMargins(6, 16, 6, 4)
         tb_lay.setSpacing(2)
         tb_lay.addWidget(self.tables_list, 1)
-        footnote = QLabel("Right-click a table to open its folder or remove it.")
+        footnote = QLabel("Right-click a table to copy its path, open its folder, or remove it.")
         footnote.setFont(_FONT_SMALL)
         footnote.setStyleSheet("color: #6B7280; font-style: italic; border: none; background: transparent;")
         tb_lay.addWidget(footnote)
@@ -807,12 +807,16 @@ class _SourceDashboard(QWidget):
         if info is None:
             return
         menu = QMenu(self.tables_list)
+        copy_path = menu.addAction("Copy path")
+        copy_path.setEnabled(bool(info["path"]))
         open_folder = menu.addAction("Open containing folder")
         open_folder.setEnabled(bool(info["path"]))
         remove = menu.addAction("Remove table from source")
         remove.setEnabled(self._tables_removable)
         chosen = menu.exec(self.tables_list.viewport().mapToGlobal(pos))
-        if chosen == open_folder and info["path"]:
+        if chosen == copy_path and info["path"]:
+            QApplication.clipboard().setText(info["path"])
+        elif chosen == open_folder and info["path"]:
             self.open_table_folder_requested.emit(info["path"])
         elif chosen == remove:
             self.remove_table_requested.emit(info["name"])

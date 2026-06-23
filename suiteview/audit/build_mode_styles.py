@@ -61,7 +61,13 @@ def mode_style(kind: str) -> ModeStyle:
 
 
 def build_mode_style(build_mode: str) -> ModeStyle:
-    """The ModeStyle for an audit-window build-mode key."""
+    """The ModeStyle for an audit-window build-mode key.
+
+    DataForge isn't a query *kind* (it composes saved queries), but it lives in
+    the build-mode selector, so it maps to its reserved orange identity.
+    """
+    if build_mode == "dataforge":
+        return FORGE_STYLE
     return mode_style(BUILD_MODE_TO_KIND.get(build_mode, ""))
 
 

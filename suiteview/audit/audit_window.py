@@ -201,6 +201,7 @@ class AuditWindow(FramelessWindowBase):
             ("cyberlife", "Cyberlife"),
             ("visual", "Visual Query"),
             ("manual_sql", "Manual SQL"),
+            ("dataforge", "DataForge"),
         ):
             action = mode_menu.addAction(label)
             action.setIcon(mode_icon(build_mode_style(mode).color))
@@ -246,13 +247,17 @@ class AuditWindow(FramelessWindowBase):
             "QPushButton:checked { background-color: #C2410C;"
             " border: 2px solid " + _GOLD + "; color: " + _GOLD + "; }"
         )
+        # DataForge now lives in the Build Mode selector (not a separate header
+        # button) — kept as an invisible checkable state-holder, like
+        # btn_cyberlife / btn_workbench, so the existing checked-state bookkeeping
+        # across mode switches keeps working.
         self.btn_dataforge = QPushButton("DataForge")
         self.btn_dataforge.setFont(QFont("Segoe UI", 8))
         self.btn_dataforge.setFixedHeight(24)
         self.btn_dataforge.setCheckable(True)
         self.btn_dataforge.setStyleSheet(_DF_BTN_STYLE)
-        self.btn_dataforge.setToolTip("Switch to the DataForge view")
         self.btn_dataforge.clicked.connect(self._toggle_dataforge_shelf)
+        self.btn_dataforge.setVisible(False)
         # Advanced executable-definition viewer button
         _QDEF_BTN_STYLE = (
             "QPushButton { background-color: rgba(124,58,237,0.4);"
@@ -304,7 +309,6 @@ class AuditWindow(FramelessWindowBase):
             QSpacerItem(20, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum))
         header_layout.insertWidget(insert_pos + 2, self.lbl_build_mode)
         header_layout.insertWidget(insert_pos + 3, self.btn_build_mode)
-        header_layout.insertWidget(insert_pos + 4, self.btn_dataforge)
         # Dynamic query storage
         self._dynamic_queries: dict[str, DynamicQuery] = {}
         # Track which unpinned query is currently active
@@ -688,6 +692,7 @@ class AuditWindow(FramelessWindowBase):
     def _enter_forge_mode(self, mode: str, prev_had_picker: bool):
         """Configure UI for a DataForge or the forge-blank placeholder."""
         self._hide_mode_footer()
+        self._style_build_mode_button("dataforge")
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(False)
         self.btn_cyberlife.blockSignals(False)
@@ -1339,6 +1344,8 @@ class AuditWindow(FramelessWindowBase):
             self._open_visual_query_builder()
         elif mode == "manual_sql":
             self._start_manual_sql_object(reset=False)
+        elif mode == "dataforge":
+            self._open_dataforge_builder()
 
     def _open_visual_query_builder(self):
         """Open the tabbed Visual Query builder, creating one if needed."""
