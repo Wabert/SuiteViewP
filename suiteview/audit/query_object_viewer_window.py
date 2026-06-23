@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from PyQt6.QtCore import QSize, Qt, QTimer
+from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QBrush,
     QColor,
@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QGridLayout,
+    QGroupBox,
     QHeaderView,
     QHBoxLayout,
     QInputDialog,
@@ -535,6 +536,10 @@ class _SourceDashboard(QWidget):
     extraction and the action handlers; this widget is the dumb view they fill.
     """
 
+    table_selected = pyqtSignal(str)              # resolved table name
+    remove_table_requested = pyqtSignal(str)      # table name
+    open_table_folder_requested = pyqtSignal(str) # file path of that table
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet("QWidget { background: #F0F0F0; }")
@@ -578,39 +583,77 @@ class _SourceDashboard(QWidget):
             hlay.addWidget(btn)
         root.addWidget(header)
 
+        # ── Overview tab: Setup on top, Columns + Used-by side by side ──────
         self.grp_setup = StyledInfoTableGroup("Setup", show_info=False)
-        self.grp_tables = StyledInfoTableGroup("Tables", show_info=False)
         self.grp_columns = StyledInfoTableGroup("Columns", show_info=False, filterable=True)
         self.grp_usedby = StyledInfoTableGroup("Used by", show_info=False)
-        for grp in (self.grp_setup, self.grp_tables, self.grp_columns, self.grp_usedby):
+        for grp in (self.grp_setup, self.grp_columns, self.grp_usedby):
             grp.setStyleSheet(_DASHBOARD_GROUP_STYLE)
 
-        # Tables + Columns describe the same thing (the source's tables and their
-        # schema), so pair them side by side and use the wide canvas instead of
-        # four cramped horizontal bands.
-        self._middle = QSplitter(Qt.Orientation.Horizontal)
-        self._middle.setChildrenCollapsible(False)
-        self._middle.setHandleWidth(4)
-        self._middle.addWidget(self.grp_tables)
-        self._middle.addWidget(self.grp_columns)
-        self._middle.setSizes([320, 360])
+        overview_lower = QSplitter(Qt.Orientation.Horizontal)
+        overview_lower.setChildrenCollapsible(False)
+        overview_lower.setHandleWidth(4)
+        overview_lower.addWidget(self.grp_columns)
+        overview_lower.addWidget(self.grp_usedby)
+        overview_lower.setSizes([380, 300])
 
-        panels = QSplitter(Qt.Orientation.Vertical)
-        panels.setChildrenCollapsible(False)
-        panels.setHandleWidth(4)
-        panels.addWidget(self.grp_setup)
-        panels.addWidget(self._middle)
-        panels.addWidget(self.grp_usedby)
-        panels.setStretchFactor(1, 1)
-        panels.setSizes([150, 300, 110])
-        root.addWidget(panels, 1)
+        overview = QSplitter(Qt.Orientation.Vertical)
+        overview.setChildrenCollapsible(False)
+        overview.setHandleWidth(4)
+        overview.addWidget(self.grp_setup)
+        overview.addWidget(overview_lower)
+        overview.setSizes([170, 320])
 
         self._panels = {
             "setup": self.grp_setup,
-            "tables": self.grp_tables,
             "columns": self.grp_columns,
             "usedby": self.grp_usedby,
         }
+
+        # ── Tables tab: the table list on top, a preview of the selection below
+        self.tables_list = QTableWidget(0, 3)
+        self.tables_list.setHorizontalHeaderLabels(["Table", "Status", "File"])
+        self.tables_list.verticalHeader().setVisible(False)
+        self.tables_list.verticalHeader().setDefaultSectionSize(19)
+        self.tables_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tables_list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tables_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tables_list.setFont(_FONT)
+        self.tables_list.horizontalHeader().setStretchLastSection(True)
+        self.tables_list.setStyleSheet(
+            "QTableWidget { background: white; border: none; gridline-color: #EEF2F7; }"
+            "QTableWidget::item { padding: 0px 4px; }"
+            "QTableWidget::item:selected { background: #DCEAFB; color: #0D3A7A; }"
+            "QHeaderView::section { background: #E8F0FB; font-weight: bold;"
+            " font-size: 8pt; border: 1px solid #C0C0C0; padding: 1px 4px; }")
+        self.tables_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tables_list.customContextMenuRequested.connect(self._on_tables_context_menu)
+        self.tables_list.itemSelectionChanged.connect(self._on_table_selection)
+        self.preview = FilterTableView(self)
+        pv = self.preview.table_view
+        pv.setShowGrid(False)
+        pv.verticalHeader().setVisible(False)
+        pv.verticalHeader().setDefaultSectionSize(16)
+
+        tables_split = QSplitter(Qt.Orientation.Vertical)
+        tables_split.setChildrenCollapsible(False)
+        tables_split.setHandleWidth(4)
+        tables_split.addWidget(self._titled_box("Tables  (right-click to preview, open folder, or remove)", self.tables_list))
+        tables_split.addWidget(self._titled_box("Preview of selected table", self.preview))
+        tables_split.setSizes([200, 320])
+
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet(
+            "QTabWidget::pane { border: 1px solid #1E5BA8; background: #F0F0F0; }"
+            "QTabBar::tab { background: #E8F0FB; color: #0D3A7A; border: 1px solid #A0C4E8;"
+            " border-bottom: none; padding: 3px 12px; font-size: 8pt; }"
+            "QTabBar::tab:selected { background: #F0F0F0; color: #1E5BA8; font-weight: bold; }")
+        self.tabs.addTab(overview, "Overview")
+        self.tabs.addTab(tables_split, "Tables")
+        root.addWidget(self.tabs, 1)
+
+        self._tables_rows: list[dict] = []
+        self._tables_removable = False
 
     @staticmethod
     def _make_button(text: str, *, danger: bool = False) -> QPushButton:
@@ -658,15 +701,82 @@ class _SourceDashboard(QWidget):
         grp = self._panels[key]
         if not visible:
             grp.setVisible(False)
-        else:
-            grp.setVisible(True)
-            grp.load_data(columns, [tuple(row) for row in rows])
-        # Collapse the Tables|Columns band entirely when neither applies (ODBC).
-        # Use isHidden() (the explicit flag) not isVisible() — the latter is
-        # False while the dashboard page itself isn't shown yet during populate.
-        if key in {"tables", "columns"}:
-            self._middle.setVisible(
-                not self.grp_tables.isHidden() or not self.grp_columns.isHidden())
+            return
+        grp.setVisible(True)
+        grp.load_data(columns, [tuple(row) for row in rows])
+
+    @staticmethod
+    def _titled_box(title: str, widget: QWidget) -> QGroupBox:
+        box = QGroupBox(title)
+        box.setStyleSheet(_DASHBOARD_GROUP_STYLE)
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(6, 16, 6, 6)
+        lay.setSpacing(2)
+        lay.addWidget(widget)
+        return box
+
+    # ── Tables tab ────────────────────────────────────────────────────
+
+    def set_tables(self, rows: list[tuple], *, removable: bool) -> None:
+        """Fill the Tables list. ``rows`` = (table, status, path); ``removable``
+        gates the right-click Remove (File Source members can be removed)."""
+        self._tables_rows = [
+            {"name": str(r[0]), "status": str(r[1]) if len(r) > 1 else "",
+             "path": str(r[2]) if len(r) > 2 else ""}
+            for r in rows
+        ]
+        self._tables_removable = removable
+        self.tables_list.blockSignals(True)
+        self.tables_list.setRowCount(len(self._tables_rows))
+        for row, info in enumerate(self._tables_rows):
+            for col, value in enumerate((info["name"], info["status"], info["path"])):
+                self.tables_list.setItem(row, col, QTableWidgetItem(value))
+        self.tables_list.resizeColumnToContents(0)
+        self.tables_list.resizeColumnToContents(1)
+        self.tables_list.blockSignals(False)
+        self.clear_preview()
+
+    def set_tables_tab_visible(self, visible: bool) -> None:
+        self.tabs.setTabVisible(1, visible)
+        if not visible and self.tabs.currentIndex() == 1:
+            self.tabs.setCurrentIndex(0)
+
+    def set_preview(self, dataframe) -> None:
+        self.preview.set_dataframe(dataframe, limit_rows=False)
+
+    def clear_preview(self) -> None:
+        import pandas as pd
+        self.preview.set_dataframe(pd.DataFrame(), limit_rows=False)
+
+    def _selected_table(self) -> dict | None:
+        rows = self.tables_list.selectionModel().selectedRows()
+        if not rows:
+            return None
+        index = rows[0].row()
+        return self._tables_rows[index] if 0 <= index < len(self._tables_rows) else None
+
+    def _on_table_selection(self) -> None:
+        info = self._selected_table()
+        if info is not None:
+            self.table_selected.emit(info["name"])
+
+    def _on_tables_context_menu(self, pos) -> None:
+        item = self.tables_list.itemAt(pos)
+        if item is None:
+            return
+        info = self._tables_rows[item.row()] if item.row() < len(self._tables_rows) else None
+        if info is None:
+            return
+        menu = QMenu(self.tables_list)
+        open_folder = menu.addAction("Open containing folder")
+        open_folder.setEnabled(bool(info["path"]))
+        remove = menu.addAction("Remove table from source")
+        remove.setEnabled(self._tables_removable)
+        chosen = menu.exec(self.tables_list.viewport().mapToGlobal(pos))
+        if chosen == open_folder and info["path"]:
+            self.open_table_folder_requested.emit(info["path"])
+        elif chosen == remove:
+            self.remove_table_requested.emit(info["name"])
 
     def show_empty(self, message: str) -> None:
         self.set_title(message)
@@ -676,6 +786,8 @@ class _SourceDashboard(QWidget):
                          open_folder=False, delete=False)
         for key in self._panels:
             self.set_panel(key, [], [], visible=False)
+        self.set_tables([], removable=False)
+        self.set_tables_tab_visible(False)
 
 
 class _RegisterOdbcDialog(QDialog):
@@ -1190,6 +1302,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         new_query_menu.addAction("Manual SQL").triggered.connect(
             lambda: self._on_source_new_query("manual"))
         self._source_dashboard.btn_new_query.setMenu(new_query_menu)
+        self._source_dashboard.table_selected.connect(self._on_dashboard_table_selected)
+        self._source_dashboard.remove_table_requested.connect(self._on_dashboard_remove_table)
+        self._source_dashboard.open_table_folder_requested.connect(self._open_path_folder)
 
         canvas_shell = QWidget()
         canvas_shell.setMinimumWidth(_RIGHT_PANEL_MIN_WIDTH)
@@ -3070,8 +3185,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         dash.set_actions(test=True, register=True, edit=False, new_query=False,
                          open_folder=False, delete=False)
         dash.set_panel("setup", ["Property", "Value"], self._odbc_detail_rows(dsn))
-        dash.set_panel("tables", [], [], visible=False)
         dash.set_panel("columns", [], [], visible=False)
+        dash.set_tables([], removable=False)
+        dash.set_tables_tab_visible(False)
         dash.set_panel("usedby", ["Query Object", "Kind", "Source", "Fields"],
                        self._source_query_rows(objects))
         self._set_canvas_title(f"Data Sources: {dsn}" if dsn else "Data Sources")
@@ -3111,8 +3227,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         setup.extend(row for row in self._odbc_detail_rows(ds.dsn)
                      if str(row[0]).strip().lower() not in shown)
         dash.set_panel("setup", ["Property", "Value"], setup)
-        dash.set_panel("tables", [], [], visible=False)
         dash.set_panel("columns", [], [], visible=False)
+        dash.set_tables([], removable=False)
+        dash.set_tables_tab_visible(False)
         dash.set_panel("usedby", ["Query Object", "Kind", "Source", "Fields"],
                        self._source_query_rows(objects))
         self._set_canvas_title(f"Data Sources: {ds.name}")
@@ -3165,10 +3282,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         ]
         dash.set_panel("setup", ["Property", "Value"], setup)
         tables = list_access_tables(ds.path)
-        if tables:
-            dash.set_panel("tables", ["Table"], [[name] for name in tables])
-        else:
-            dash.set_panel("tables", [], [], visible=False)
+        # Each Access table lives in the one .accdb file, so they share its path.
+        dash.set_tables([(name, "", ds.path) for name in tables], removable=False)
+        dash.set_tables_tab_visible(bool(tables))
         dash.set_panel("columns", [], [], visible=False)
         dash.set_panel("usedby", ["Query Object", "Kind", "Source", "Fields"],
                        self._source_query_rows(objects))
@@ -3230,11 +3346,12 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             if key in (fds.parse_spec or {}):
                 setup.append([key, fds.parse_spec[key]])
         dash.set_panel("setup", ["Property", "Value"], setup)
-        dash.set_panel("tables", ["Table", "Status", "File"], [
-            [m.resolved_table_name(),
-             "OK" if Path(m.path).exists() else "missing", m.path]
+        dash.set_tables([
+            (m.resolved_table_name(),
+             "OK" if Path(m.path).exists() else "missing", m.path)
             for m in fds.members
-        ])
+        ], removable=True)
+        dash.set_tables_tab_visible(True)
         dash.set_panel("columns", ["Column", "Type", "Display Name"], [
             [c.name, c.data_type, c.display_name or ""] for c in fds.columns
         ])
@@ -3268,8 +3385,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                          open_folder=bool(path), delete=False)
         dash.set_panel("setup", ["Property", "Value"],
                        self._file_detail_rows(payload, objects))
-        dash.set_panel("tables", [], [], visible=False)
         dash.set_panel("columns", [], [], visible=False)
+        dash.set_tables([], removable=False)
+        dash.set_tables_tab_visible(False)
         dash.set_panel("usedby", ["Query Object", "Kind", "Source", "Fields"],
                        self._source_query_rows(objects))
         self._set_canvas_title(f"Data Sources: {label}" if label else "Data Sources")
@@ -3308,6 +3426,70 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         if self._current_source_kind != "odbc_source":
             return
         self._register_odbc_dsn(dsn=str(self._current_source_payload.get("dsn", "")))
+
+    # ── Tables tab: preview / remove / per-file open-folder ────────────
+
+    def _on_dashboard_table_selected(self, table_name: str) -> None:
+        """Preview the selected member table (File Sources only)."""
+        if self._current_source_kind != "file_data_source" or self._current_file_source is None:
+            return
+        member = self._current_file_source.find_member_by_table(table_name)
+        if member is None:
+            return
+        from suiteview.audit import file_query_runner
+        try:
+            result = file_query_runner.run_sql(
+                self._current_file_source, f'SELECT * FROM "{table_name}"',
+                limit=100, table_names=[table_name])
+            self._source_dashboard.set_preview(result.dataframe)
+        except Exception as exc:
+            logger.warning("File Source preview failed for %s: %s", table_name, exc)
+            self._source_dashboard.clear_preview()
+
+    def _on_dashboard_remove_table(self, table_name: str) -> None:
+        """Remove a member file (table) from a File Source."""
+        if self._current_source_kind != "file_data_source" or self._current_file_source is None:
+            return
+        from suiteview.audit import file_source_store
+
+        fds = self._current_file_source
+        member = fds.find_member_by_table(table_name)
+        if member is None:
+            return
+        if len(fds.members) <= 1:
+            QMessageBox.information(
+                self, "Cannot Remove",
+                "A File Source needs at least one file. Delete the whole source instead.")
+            return
+        reply = QMessageBox.question(
+            self,
+            "Remove Table",
+            f"Remove table \"{table_name}\" ({Path(member.path).name}) from "
+            f"\"{fds.name}\"?\n\nThis removes the file from the source definition, "
+            "not from disk.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        fds.members = [m for m in fds.members if m is not member]
+        fds.updated_at = datetime.now()
+        file_source_store.save_file_source(fds)
+        self.refresh()
+        self._route_source_selection(self.source_tree.currentItem())
+
+    def _open_path_folder(self, path: str) -> None:
+        """Open the folder containing a specific file (resolves multi-folder sources)."""
+        folder = str(Path(path).parent) if path else ""
+        if not folder:
+            return
+        if self._open_folder_in_suiteview_file_nav(folder):
+            return
+        try:
+            import os
+            os.startfile(folder)
+        except Exception as exc:
+            QMessageBox.warning(self, "Open Folder Failed", str(exc))
 
     def _on_add_odbc_source(self) -> None:
         """Add Data Source → ODBC DSN: register a new ODBC source."""

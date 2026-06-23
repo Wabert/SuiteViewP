@@ -293,6 +293,17 @@ All in `query_object_viewer_window.py` unless noted:
   step 3 lands — retire it then.
 
 ## Changelog
+- **2026-06-22 (Phase 4 polish — dashboard tabs + table preview)** — The source
+  dashboard (`_SourceDashboard`) is now tabbed: **Overview** (Setup on top,
+  Columns + Used-by side by side) and **Tables** (the table list on top, a live
+  **preview of the selected table** below — runs `file_query_runner` for File
+  Sources). Right-clicking a table gives **Open containing folder** (uses *that
+  file's* path, resolving multi-folder sources) and **Remove table from source**
+  (File Source members only — removes the member + saves). The Tables tab hides
+  for sources that have none (ODBC). Dashboard emits `table_selected` /
+  `remove_table_requested` / `open_table_folder_requested`; the window wires
+  preview / remove / per-file open-folder. Harness:
+  `tools/show_source_dashboard_tables.py`.
 - **2026-06-22 (Phase 4 polish — File Source editor window)** — The File Source
   editor is now its own dedicated frameless window (`FileSourceEditorWindow` in
   `tabs/file_source_editor.py`), not a build mode embedded in the Audit tool. The
