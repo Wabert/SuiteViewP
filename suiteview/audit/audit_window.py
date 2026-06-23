@@ -46,7 +46,7 @@ from .cyberlife_query import build_cyberlife_sql
 from .dynamic_query import build_common_table_cte
 from .sql_helpers import fmt_time
 from .dynamic_group import DynamicQuery
-from .field_picker_panel import FieldPickerPanel, _indexed_column_names
+from .field_picker_panel import FieldPickerPanel
 from .group_config import load_ui_settings, save_ui_settings
 from .ui.bottom_bar import AuditBottomBar, FOOTER_BG
 from .query_runner import (
@@ -56,7 +56,6 @@ from .query_runner import (
     format_query_error,
 )
 from suiteview.audit.dataforge.dataforge_group import DataForgeGroup
-from .dialogs.tables_dialog import _clean_odbc_identifier
 logger = logging.getLogger(__name__)
 _FONT = QFont("Segoe UI", 9)
 # Theme — default SuiteView blue header, gold border
@@ -2173,60 +2172,6 @@ class AuditWindow(FramelessWindowBase):
         }
         self._field_picker.load_local_source(label, dq.dsn, table_fields)
 
-    def _load_manual_sql_assist_tables(self, dsn: str = ""):
-        """Load tables for the selected ODBC connection."""
-        dsn = dsn or self.manual_sql_object_tab.current_connection()
-        if not dsn:
-            self.manual_sql_object_tab.set_assist_error("Select an ODBC connection")
-            return
-        try:
-            conn = pyodbc.connect(f"DSN={dsn}", autocommit=True, timeout=15)
-            cursor = conn.cursor()
-            tables = []
-            for row in cursor.tables(tableType="TABLE"):
-                name = _clean_odbc_identifier(getattr(row, "table_name", ""))
-                row_schema = _clean_odbc_identifier(getattr(row, "table_schem", ""))
-                if name:
-                    tables.append(f"{row_schema}.{name}" if row_schema else name)
-            cursor.close()
-            conn.close()
-            self.manual_sql_object_tab.set_assist_tables(
-                sorted(set(tables), key=str.lower),
-                region=dsn,
-            )
-        except (pyodbc.Error, Exception) as exc:
-            logger.exception("Manual SQL assist table load failed")
-            self.manual_sql_object_tab.set_assist_error(f"Table load failed: {exc}")
-    def _load_manual_sql_assist_fields(self, dsn: str, table_name: str):
-        """Load columns for the selected ODBC table."""
-        dsn = dsn or self.manual_sql_object_tab.current_connection()
-        if not dsn:
-            self.manual_sql_object_tab.set_assist_error("Select an ODBC connection")
-            return
-        try:
-            conn = pyodbc.connect(f"DSN={dsn}", autocommit=True, timeout=15)
-            cursor = conn.cursor()
-            parts = [_clean_odbc_identifier(part) for part in table_name.split(".", 1)]
-            if len(parts) == 2:
-                schema, table = parts
-            else:
-                schema = None
-                table = parts[0]
-            indexed_names = _indexed_column_names(cursor, table, schema)
-            fields = []
-            for row in cursor.columns(table=table, schema=schema):
-                column_name = _clean_odbc_identifier(getattr(row, "column_name", ""))
-                fields.append((
-                    column_name,
-                    _clean_odbc_identifier(getattr(row, "type_name", "")),
-                    column_name.upper() in indexed_names,
-                ))
-            cursor.close()
-            conn.close()
-            self.manual_sql_object_tab.set_assist_fields(table_name, fields)
-        except (pyodbc.Error, Exception) as exc:
-            logger.exception("Manual SQL assist field load failed")
-            self.manual_sql_object_tab.set_assist_error(f"Field load failed: {exc}")
     def _manual_sql_odbc_connections(self) -> list[tuple[str, str]]:
         """Return saved ODBC connections plus system/user DSNs."""
         saved: list[tuple[str, str]] = []

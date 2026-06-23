@@ -11,17 +11,14 @@ from dataclasses import replace
 
 import pandas as pd
 import time
-from PyQt6.QtCore import QMimeData, Qt, pyqtSignal
-from PyQt6.QtGui import QDrag, QFont
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QAbstractItemView,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -46,7 +43,6 @@ from suiteview.audit.field_picker_panel import FieldPickerPanel
 _FONT = QFont("Segoe UI", 9)
 _FONT_BOLD = QFont("Segoe UI", 9, QFont.Weight.Bold)
 _FONT_MONO = QFont("Consolas", 10)
-SQL_ASSIST_MIME = "application/x-manual-sql-assist"
 SQL_KEYWORDS = [
     "SELECT", "FROM", "WHERE", "AND",
     "OR", "JOIN", "LEFT JOIN", "INNER JOIN",
@@ -63,56 +59,6 @@ _SAVE_OBJECT_BTN_STYLE = (
     " border-color: #C9B46B; }"
 )
 
-_ASSIST_BLUE = "#1E5BA8"
-_ASSIST_BLUE_DARK = "#0A2A5C"
-_ASSIST_BLUE_BG = "#EDF3FA"
-_ASSIST_BLUE_LIGHT = "#D9E8F7"
-_ASSIST_GOLD = "#D4AF37"
-
-_ASSIST_HEADER_STYLE = (
-    f"QLabel, QPushButton {{ color: white; font-size: 8pt; font-weight: bold;"
-    f" padding: 2px 4px; background-color: {_ASSIST_BLUE};"
-    f" border: 1px solid {_ASSIST_GOLD}; border-radius: 2px; text-align: left; }}"
-    f"QPushButton:hover {{ background-color: #2A6BC4; }}"
-)
-
-_ASSIST_SEARCH_STYLE = (
-    f"QLineEdit {{ border: 1px solid {_ASSIST_BLUE}; border-radius: 2px;"
-    f" padding: 1px 4px; font-size: 8pt; }}"
-    f"QLineEdit:focus {{ border: 1px solid {_ASSIST_GOLD}; }}"
-)
-
-_ASSIST_LIST_STYLE = (
-    f"QListWidget {{ border: 1px solid {_ASSIST_BLUE}; background-color: white;"
-    f" font-size: 9pt; outline: none; }}"
-    f"QListWidget::item {{ padding: 0px 2px; border: none; }}"
-    f"QListWidget::item:selected {{ background-color: {_ASSIST_BLUE_LIGHT}; color: {_ASSIST_BLUE_DARK}; border: none; }}"
-    f"QListWidget::item:focus {{ outline: none; border: none; }}"
-)
-
-
-class SqlAssistList(QListWidget):
-    """List that can drag SQL identifier text into the editor."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setDragEnabled(True)
-        self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
-        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-
-    def startDrag(self, supportedActions):
-        items = self.selectedItems()
-        if not items:
-            return
-        values = [item.data(Qt.ItemDataRole.UserRole) or item.text() for item in items]
-        drag = QDrag(self)
-        mime = QMimeData()
-        text = ", ".join(str(value) for value in values)
-        mime.setText(text)
-        mime.setData(SQL_ASSIST_MIME, text.encode("utf-8"))
-        drag.setMimeData(mime)
-        drag.exec(Qt.DropAction.CopyAction)
-
 
 class SqlDropTextEdit(QTextEdit):
     """SQL editor that accepts table/field drops from the assist picker."""
@@ -122,23 +68,18 @@ class SqlDropTextEdit(QTextEdit):
         self.setAcceptDrops(True)
 
     def dragEnterEvent(self, event):  # noqa: N802
-        if event.mimeData().hasFormat(SQL_ASSIST_MIME) or event.mimeData().hasText():
+        if event.mimeData().hasText():
             event.acceptProposedAction()
             return
         super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event):  # noqa: N802
-        if event.mimeData().hasFormat(SQL_ASSIST_MIME) or event.mimeData().hasText():
+        if event.mimeData().hasText():
             event.acceptProposedAction()
             return
         super().dragMoveEvent(event)
 
     def dropEvent(self, event):  # noqa: N802
-        if event.mimeData().hasFormat(SQL_ASSIST_MIME):
-            text = bytes(event.mimeData().data(SQL_ASSIST_MIME)).decode("utf-8")
-            self.textCursor().insertText(text)
-            event.acceptProposedAction()
-            return
         if event.mimeData().hasText():
             self.textCursor().insertText(event.mimeData().text())
             event.acceptProposedAction()
@@ -181,8 +122,6 @@ class ManualSqlObjectEditor(QWidget):
 
     preview_requested = pyqtSignal(str)
     save_requested = pyqtSignal(dict)
-    load_assist_requested = pyqtSignal(str)
-    load_fields_requested = pyqtSignal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -193,10 +132,6 @@ class ManualSqlObjectEditor(QWidget):
         self._result_columns: list[str] = []
         self._column_types: dict[str, str] = {}
         self._existing_fields = []
-        self._assist_tables: list[str] = []
-        self._assist_fields: dict[str, list[tuple[str, str]]] = {}
-        self._current_assist_table = ""
-        self._fields_sort_mode = "native"
         self._pinned_tables: list[str] = []
         self._common_table_names: list[str] = []
         self._build_ui()
@@ -487,171 +422,11 @@ class ManualSqlObjectEditor(QWidget):
                 ]
         self.sql_assist.set_common_tables(common_cols)
 
-    def set_assist_tables(self, tables: list[str], *, region: str = ""):
-        """Populate the SQL Assist table list."""
-        self._assist_tables = list(tables)
-        self._assist_fields.clear()
-        self._current_assist_table = ""
-        self.list_tables.clear()
-        self.list_fields.clear()
-        for table in self._assist_tables:
-            item = QListWidgetItem(table)
-            item.setData(Qt.ItemDataRole.UserRole, table)
-            self.list_tables.addItem(item)
-        self.lbl_assist_status.setText(
-            f"{len(tables)} tables" + (f" in {region}" if region else "")
-        )
-        if self.list_tables.count() > 0:
-            self.list_tables.setCurrentRow(0)
-
-    def set_assist_fields(self, table: str, fields: list[tuple]):
-        """Populate the SQL Assist field list for a selected table."""
-        self._assist_fields[table] = list(fields)
-        if table == self._current_assist_table:
-            self._populate_assist_fields(table)
-
-    def set_assist_error(self, message: str):
-        self.lbl_assist_status.setText(message)
-
-    def _on_load_assist(self):
-        self.lbl_assist_status.setText("Loading tables...")
-        self.load_assist_requested.emit(self.current_connection())
-
-    def _on_connection_changed(self, connection: str):
-        self._assist_tables = []
-        self._assist_fields.clear()
-        self._current_assist_table = ""
-        self.list_tables.clear()
-        self.list_fields.clear()
-        if connection:
-            self.lbl_assist_status.setText(f"Loading tables for {self.current_connection_label()}...")
-            self.load_assist_requested.emit(self.current_connection())
-        else:
-            self.lbl_assist_status.setText("Select an ODBC connection")
-
-    def _on_assist_table_selected(self, current, previous):
-        if current is None:
-            return
-        table = current.data(Qt.ItemDataRole.UserRole) or current.text()
-        if table == self._current_assist_table:
-            return
-        self._current_assist_table = table
-        if table in self._assist_fields:
-            self._populate_assist_fields(table)
-        else:
-            self.list_fields.clear()
-            self.lbl_assist_status.setText(f"Loading fields for {table}...")
-            self.load_fields_requested.emit(self.current_connection(), table)
-
-    def _show_table_context_menu(self, pos):
-        item = self.list_tables.itemAt(pos)
-        if item is None:
-            return
-        table = str(item.data(Qt.ItemDataRole.UserRole) or item.text())
-        menu = QMenu(self)
-        act_preview = menu.addAction("View Top 1000 Rows")
-        chosen = menu.exec(self.list_tables.mapToGlobal(pos))
-        if chosen is act_preview:
-            self._preview_assist_table(table)
-
-    def _preview_assist_table(self, table: str):
-        dsn = self.current_connection()
-        if not dsn:
-            QMessageBox.information(self, "ODBC Required", "Select an ODBC connection first.")
-            return
-        from suiteview.audit.dialogs.tables_dialog import _TablePreviewDialog
-        dlg = _TablePreviewDialog(dsn, table, self)
-        dlg.show()
-
-    def _populate_assist_fields(self, table: str):
-        fields = self._assist_fields.get(table, [])
-        self.list_fields.clear()
-        ordered_fields = self._ordered_assist_fields(fields)
-        for field in ordered_fields:
-            name = field[0]
-            type_name = field[1] if len(field) > 1 else ""
-            is_key = bool(field[2]) if len(field) > 2 else False
-            label = f"{name}  ({type_name})" if type_name else name
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, name)
-            if is_key:
-                font = item.font()
-                font.setWeight(QFont.Weight.Bold)
-                item.setFont(font)
-                item.setToolTip("Key/index field")
-            self.list_fields.addItem(item)
-        self.lbl_assist_status.setText(f"{table}: {len(fields)} fields")
-        self._filter_assist_fields(self.txt_field_search.text())
-
-    def _ordered_assist_fields(self, fields: list[tuple]) -> list[tuple]:
-        if self._fields_sort_mode == "native":
-            return list(fields)
-        return sorted(
-            fields,
-            key=lambda field: str(field[0]).lower(),
-            reverse=self._fields_sort_mode == "desc",
-        )
-
-    def _toggle_fields_sort(self):
-        next_mode = {"native": "asc", "asc": "desc", "desc": "native"}
-        self._fields_sort_mode = next_mode[self._fields_sort_mode]
-        labels = {"native": "Fields", "asc": "Fields ↑", "desc": "Fields ↓"}
-        self.btn_fields_header.setText(labels[self._fields_sort_mode])
-        if self._current_assist_table:
-            self._populate_assist_fields(self._current_assist_table)
-
-    def _filter_assist_tables(self, text: str):
-        filt = text.strip().lower()
-        for row in range(self.list_tables.count()):
-            item = self.list_tables.item(row)
-            item.setHidden(filt not in item.text().lower() if filt else False)
-
-    def _filter_assist_fields(self, text: str):
-        filt = text.strip().lower()
-        for row in range(self.list_fields.count()):
-            item = self.list_fields.item(row)
-            item.setHidden(filt not in item.text().lower() if filt else False)
-
     def _insert_sql_text(self, text: str):
         cursor = self.txt_sql.textCursor()
         cursor.insertText(text)
         self.txt_sql.setTextCursor(cursor)
         self.txt_sql.setFocus()
-
-    def _current_table_name(self) -> str:
-        item = self.list_tables.currentItem()
-        if item is None:
-            return ""
-        return str(item.data(Qt.ItemDataRole.UserRole) or item.text())
-
-    def _selected_field_names(self) -> list[str]:
-        names = []
-        for item in self.list_fields.selectedItems():
-            names.append(str(item.data(Qt.ItemDataRole.UserRole) or item.text()))
-        return names
-
-    def _insert_current_table(self):
-        table = self._current_table_name()
-        if table:
-            self._insert_sql_text(table)
-
-    def _insert_select_template(self):
-        table = self._current_table_name()
-        if table:
-            self._insert_sql_text(f"SELECT *\nFROM {table}\nFETCH FIRST 25 ROWS ONLY")
-
-    def _insert_selected_fields(self):
-        fields = self._selected_field_names()
-        if fields:
-            self._insert_sql_text(", ".join(fields))
-
-    def _insert_selected_fields_csv(self):
-        fields = self._selected_field_names()
-        table = self._current_table_name()
-        if table and fields:
-            fields = [f"{table}.{field}" for field in fields]
-        if fields:
-            self._insert_sql_text(", ".join(fields))
 
     def set_sql(self, sql: str):
         """Load SQL text and clear stale preview schema."""
