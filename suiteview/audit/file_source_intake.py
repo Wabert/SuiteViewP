@@ -26,7 +26,13 @@ from suiteview.audit.adhoc_source_intake import (
     dataframe_from_adhoc_metadata,
     query_object_from_file,
 )
-from suiteview.audit.file_source import FileColumn, FileDataSource, FileMember
+from suiteview.audit.file_source import (
+    SOURCE_TYPE_CSV,
+    SOURCE_TYPE_FIXED_WIDTH,
+    FileColumn,
+    FileDataSource,
+    FileMember,
+)
 from suiteview.audit.query_object import OBJECT_KIND_ADHOC_SOURCE
 
 # Metadata keys that describe the *file instance*, not the reusable parse spec.
@@ -145,6 +151,46 @@ def migrate_adhoc_to_file_source(query_object) -> FileDataSource:
         fds.members.append(
             FileMember(path=path, table_name=unique_table_name(fds, Path(path).stem)))
     return fds
+
+
+def parse_column_names(text: str) -> list[str]:
+    """Parse user-entered column names (one per line, or comma-separated).
+
+    Raises ValueError if empty or if names collide case-insensitively.
+    """
+    raw_parts: list[str] = []
+    for line in text.splitlines():
+        raw_parts.extend(line.split(","))
+    names = [part.strip() for part in raw_parts if part.strip()]
+    if not names:
+        raise ValueError("Enter at least one column name.")
+    lowered = [name.lower() for name in names]
+    if len(lowered) != len(set(lowered)):
+        raise ValueError("Column names must be unique.")
+    return names
+
+
+def apply_column_names(file_source: FileDataSource, names: list[str]) -> None:
+    """Rename schema columns and push the rename into the parse spec.
+
+    Keeps the schema and the data the readers produce in agreement:
+    - Delimited: the readers rename via ``column_names`` (works with or without a
+      header row).
+    - Fixed-width: each column spec is renamed in place.
+    Excel follows the sheet's header row and is not renamed here. Raises
+    ValueError if ``names`` doesn't match the current column count.
+    """
+    current = file_source.columns
+    if len(names) != len(current):
+        raise ValueError(
+            f"Enter exactly {len(current)} names. You entered {len(names)}.")
+    for col, new_name in zip(current, names):
+        col.name = new_name
+    if file_source.source_type == SOURCE_TYPE_CSV:
+        file_source.parse_spec["column_names"] = list(names)
+    elif file_source.source_type == SOURCE_TYPE_FIXED_WIDTH:
+        for spec, new_name in zip(file_source.parse_spec.get("columns", []), names):
+            spec["name"] = new_name
 
 
 def add_member_file(

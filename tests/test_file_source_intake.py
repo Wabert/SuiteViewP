@@ -14,8 +14,9 @@ from suiteview.audit.adhoc_source_intake import (  # noqa: E402
     fixed_width_spec, query_object_from_file,
 )
 from suiteview.audit.file_source_intake import (  # noqa: E402
-    FileValidationError, add_member_file, infer_file_source_from_file,
-    migrate_adhoc_to_file_source, unique_table_name, validate_member_file,
+    FileValidationError, add_member_file, apply_column_names,
+    infer_file_source_from_file, migrate_adhoc_to_file_source,
+    parse_column_names, unique_table_name, validate_member_file,
 )
 
 
@@ -110,6 +111,55 @@ def test_unique_table_name_helper(tmp_path):
     fds = infer_file_source_from_file(a)
     assert unique_table_name(fds, "CLAIMS") == "CLAIMS_2"
     assert unique_table_name(fds, "NEW") == "NEW"
+
+
+# ── Column naming (parse + apply) ──────────────────────────────────────────
+
+def test_parse_column_names_lines_and_commas():
+    assert parse_column_names("a\nb\nc") == ["a", "b", "c"]
+    assert parse_column_names("a, b , c") == ["a", "b", "c"]
+    assert parse_column_names("a, b\nc") == ["a", "b", "c"]
+
+
+def test_parse_column_names_rejects_empty_and_dupes():
+    with pytest.raises(ValueError):
+        parse_column_names("   ")
+    with pytest.raises(ValueError):
+        parse_column_names("a\nA")  # case-insensitive collision
+
+
+def test_apply_column_names_renames_csv_and_updates_parse_spec(tmp_path):
+    # No header, so the schema names are the only names the readers know.
+    path = _write(tmp_path / "NOHDR.csv", "P1,TX,100\nP2,CA,200\n")
+    from suiteview.audit.adhoc_source_intake import delimited_text_spec
+    fds = infer_file_source_from_file(
+        path, format_spec=delimited_text_spec(has_header=False))
+    apply_column_names(fds, ["policy", "state", "amount"])
+    assert fds.column_names == ["policy", "state", "amount"]
+    assert fds.parse_spec["column_names"] == ["policy", "state", "amount"]
+    # The rename is reflected in the data the runner produces.
+    from suiteview.audit import file_query_runner
+    df = file_query_runner.run_sql(fds, 'SELECT * FROM "NOHDR"').dataframe
+    assert list(df.columns) == ["policy", "state", "amount"]
+
+
+def test_apply_column_names_fixed_width_renames_specs(tmp_path):
+    path = _write(tmp_path / "FW.txt", "PROD1TX0100\n")
+    fds = infer_file_source_from_file(path, format_spec=fixed_width_spec([
+        {"name": "a", "start": 1, "width": 5},
+        {"name": "b", "start": 6, "width": 2},
+        {"name": "c", "start": 8, "width": 4},
+    ]))
+    apply_column_names(fds, ["code", "state", "amt"])
+    assert fds.column_names == ["code", "state", "amt"]
+    assert [c["name"] for c in fds.parse_spec["columns"]] == ["code", "state", "amt"]
+
+
+def test_apply_column_names_rejects_wrong_count(tmp_path):
+    path = _write(tmp_path / "CLAIMS.csv", "policy,state,amount\nP1,TX,100\n")
+    fds = infer_file_source_from_file(path)
+    with pytest.raises(ValueError):
+        apply_column_names(fds, ["only", "two"])
 
 
 # ── Migration (legacy adhoc_source -> FileDataSource) ──────────────────────

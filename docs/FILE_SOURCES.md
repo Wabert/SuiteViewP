@@ -224,10 +224,12 @@ Replace the borrowed query tabs with a **source dashboard** (its own page in
 - Health is the new idea: *is this source reachable right now?* Cached, with a
   manual Refresh. ODBC/Access → Test Connection (Connected / Unreachable). File
   Source → member-file existence (`N files OK` / `N missing`).
-- Actions: `Test/Refresh` · `Edit setup` (opens the type's editor — `FileSourceEditor`
-  for files; an ODBC/Access connection dialog for the others) · `New query on this
-  source` (the bridge that replaces "Build Mode → File Source": select a source,
-  then ask a question) · `Rename` · `Remove` · `Open folder` (files).
+- Actions: `Test/Refresh` · editing — **File Sources are edited in place on the
+  dashboard** (Setup name/description + Columns name/type, Add File(s)… on the
+  Tables tab, header `Save`; no `Edit setup` button), while ODBC/Access keep an
+  `Edit setup` connection dialog · `New query on this source` (the bridge that
+  replaces "Build Mode → File Source": select a source, then ask a question) ·
+  `Remove` · `Open folder` (files).
 
 **Body panels:**
 1. **Setup** (label/value) — the connection facts, per type (see §6.4).
@@ -293,6 +295,32 @@ All in `query_object_viewer_window.py` unless noted:
   step 3 lands — retire it then.
 
 ## Changelog
+- **2026-06-22 (Phase 4 polish — one canonical File Source screen)** — The Data
+  Sources **dashboard is now the single screen to add, edit, and view a File
+  Source**; the standalone editor window is gone. `_SourceDashboard` became
+  editable for File Sources: Setup **Name/Description** are `QLineEdit`s, the
+  Columns panel is an editable table (name cell + per-row **Type** combo) swapped
+  in via a `QStackedWidget` (ODBC/Access keep the read-only `StyledInfoTableGroup`),
+  the Tables tab gained an **Add File(s)…** button + OS drag-drop, and a header
+  **Save** appears (dirty-aware; "Edit Setup" is hidden for File Sources). New
+  signals `save_requested` / `add_files_requested` / `pick_files_requested` +
+  draft getters; the window owns the `FileDataSource` mutation + persistence
+  (`_on_source_save`, `_on_add_files_to_source`, `_render_file_source`,
+  `_select_file_source`) and a light unsaved-edits guard on navigation.
+  **+ Add Data Source → File Source** opens the dashboard blank in "new" mode
+  (first file sets the format). Reusable logic was extracted before deleting the
+  editor: `DATA_TYPES` → `file_source.py`; `apply_column_names` / `parse_column_names`
+  → `file_source_intake.py` (pure); the format prompts → new
+  `file_source_format_dialogs.py` (cancel via `DialogCancelled`). **Deleted**
+  `tabs/file_source_editor.py` (`FileSourceEditor` + `FileSourceEditorWindow`),
+  `tools/show_new_file_source_editor.py`, `tools/show_file_source_editor.py`, and
+  the editor-window plumbing (`_open_file_source_in_editor`,
+  `_ensure_file_source_editor_window`, `_open_query_on_file_source`,
+  `_show_window`). Tests: `apply_column_names`/`parse_column_names` covered in
+  `test_file_source_intake.py`; suite 458 passed / 13 pre-existing fails.
+  Harnesses: `tools/show_source_dashboard.py` (edit/view),
+  `tools/show_audit_file_source.py` (add-new), `tools/verify_file_source_canvas_save.py`
+  (headless Save round-trip).
 - **2026-06-22 (Phase 4 polish — Manual SQL matches Visual Query)** — Restructured
   `ManualSqlObjectEditor` to mirror the Visual Query builder: SQL Assist
   (`FieldPickerPanel`) on the left, a SQL / Results / Schema tab canvas on the

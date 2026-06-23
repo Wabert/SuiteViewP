@@ -79,6 +79,20 @@ def test_datasource_label():
     assert datasource_label(FileDataSource(name="x", source_type="excel")) == "Excel"
 
 
+def test_datasource_label_delimiter_aware():
+    # Delimited sources are all source_type "csv"; the delimiter refines the label
+    # so a tab/pipe text file doesn't masquerade as "CSV".
+    assert datasource_label(
+        FileDataSource(name="x", source_type="csv",
+                       parse_spec={"delimiter": "\t"})) == "TSV"
+    assert datasource_label(
+        FileDataSource(name="x", source_type="csv",
+                       parse_spec={"delimiter": "|"})) == "PSV"
+    assert datasource_label(
+        FileDataSource(name="x", source_type="csv",
+                       parse_spec={"delimiter": "~"})) == "Delimited"
+
+
 # ── Store ────────────────────────────────────────────────────────────────
 
 @pytest.fixture

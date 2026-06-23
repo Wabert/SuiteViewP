@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QGridLayout,
     QGroupBox,
     QHeaderView,
@@ -71,6 +72,7 @@ from suiteview.audit.query_object import (
     object_from_qdefinition,
     qdefinition_from_query_object,
 )
+from suiteview.audit.file_source import DATA_TYPES as _FILE_DATA_TYPES
 from suiteview.audit.qdefinition import QDefinition
 from suiteview.audit.query_runner import execute_odbc_query
 from suiteview.audit import query_object_store
@@ -147,6 +149,11 @@ _LEFT_PANEL_MIN_WIDTH = 220
 _LEFT_PANEL_MAX_WIDTH = 720
 _RIGHT_PANEL_MIN_WIDTH = 220
 _FILE_SOURCE_TYPES = {"csv", "excel", "fixed_width"}
+_FILE_SOURCE_FILE_FILTER = (
+    "Data Files (*.csv *.txt *.dat *.psv *.tsv *.xlsx *.xlsm *.xls);;"
+    "Text Files (*.csv *.txt *.dat *.psv *.tsv);;"
+    "Excel Files (*.xlsx *.xlsm *.xls);;All Files (*.*)"
+)
 _SENSITIVE_ODBC_KEYS = {
     "password",
     "pwd",
@@ -526,22 +533,68 @@ _HEALTH_PILL_COLORS = {
 }
 
 
+class _FileDropTable(QTableWidget):
+    """The Tables list, made an OS-file drop target for editable File Sources.
+
+    Dropped local file paths are emitted via ``files_dropped`` (the window
+    validates + adds them). Drops are only accepted while ``setAcceptDrops(True)``
+    is set, which the dashboard toggles per source kind.
+    """
+
+    files_dropped = pyqtSignal(list)
+
+    def dragEnterEvent(self, event):  # noqa: N802 (Qt signature)
+        if self.acceptDrops() and event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):  # noqa: N802
+        if self.acceptDrops() and event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):  # noqa: N802
+        if self.acceptDrops() and event.mimeData().hasUrls():
+            paths = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
+            if paths:
+                event.acceptProposedAction()
+                self.files_dropped.emit(paths)
+                return
+        super().dropEvent(event)
+
+
 class _SourceDashboard(QWidget):
-    """Detail view for a Data Source — a source dashboard, not a query inspector.
+    """Detail view AND editor for a Data Source — a source dashboard.
 
     A data source is a thing you *connect to* (a DSN, an Access file, a File
     Source), so this surfaces its identity, reachability (health), connection
     setup, the tables it exposes, their columns, and which Query Objects use it
-    — never query-only tabs (outputs / joins / SQL). The window owns the data
-    extraction and the action handlers; this widget is the dumb view they fill.
+    — never query-only tabs (outputs / joins / SQL).
+
+    For **File Sources** this is also the single canonical screen used to add,
+    edit, and view: the Setup name/description and the Columns (name + type) are
+    editable in place, files can be dropped/added on the Tables tab, and a Save
+    button persists the draft. ODBC / Access stay read-only here (they edit via a
+    small registration dialog). The window owns all data extraction, the
+    ``FileDataSource`` mutation, and persistence; this widget holds only the
+    draft and emits intent (``save_requested`` / ``add_files_requested`` / …).
     """
 
     preview_requested = pyqtSignal(str, int)      # table name, row count
     remove_table_requested = pyqtSignal(str)      # table name
     open_table_folder_requested = pyqtSignal(str) # file path of that table
+    save_requested = pyqtSignal()                 # persist the editable draft
+    add_files_requested = pyqtSignal(list)        # member file paths to add
+    pick_files_requested = pyqtSignal()           # open a file picker to add members
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._editable = False     # File Source edit mode (vs read-only ODBC/Access)
+        self._loading = False      # suppress dirty marking during programmatic fill
+        self._dirty = False
+        self._names_editable = True
         self.setStyleSheet("QWidget { background: #F0F0F0; }")
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -570,31 +623,56 @@ class _SourceDashboard(QWidget):
         self.lbl_health.setVisible(False)
         hlay.addWidget(self.lbl_health)
 
+        self.lbl_status = QLabel("")
+        self.lbl_status.setFont(_FONT_SMALL)
+        self.lbl_status.setStyleSheet("color: #6B7280; border: none; background: transparent;")
+        hlay.addWidget(self.lbl_status)
+
         hlay.addStretch(1)
 
         self.btn_test = self._make_button("Test")
         self.btn_register = self._make_button("Register")
         self.btn_edit = self._make_button("Edit Setup")
+        self.btn_edit_format = self._make_button("Edit Format")
+        self.btn_edit_format.setToolTip(
+            "Re-open the delimiter / fixed-width layout dialog and re-read the columns")
         self.btn_new_query = self._make_button("New Query")
         self.btn_open_folder = self._make_button("Open Folder")
+        self.btn_save = self._make_button("Save")
+        # Save is dirty-gated; mute it visibly when disabled (the custom stylesheet
+        # otherwise suppresses Qt's default disabled greying).
+        self.btn_save.setStyleSheet(
+            _BTN_STYLE + "QPushButton:disabled { background-color: #A9BBD0;"
+            " color: #E8EEF6; border-color: #93A7C0; }")
         self.btn_delete = self._make_button("Delete", danger=True)
+        self.btn_save.clicked.connect(self.save_requested.emit)
         for btn in (self.btn_test, self.btn_register, self.btn_edit,
-                    self.btn_new_query, self.btn_open_folder, self.btn_delete):
+                    self.btn_edit_format, self.btn_new_query, self.btn_open_folder,
+                    self.btn_save, self.btn_delete):
             hlay.addWidget(btn)
         root.addWidget(header)
 
         # ── Overview tab: Setup and Columns side by side ───────────────────
+        # Each side is a stack: read-only StyledInfoTableGroup (ODBC/Access) OR
+        # an editable widget (File Source). set_editable() picks the page.
         self.grp_setup = StyledInfoTableGroup("Setup", show_info=False)
         self.grp_columns = StyledInfoTableGroup("Columns", show_info=False, filterable=True)
         self.grp_usedby = StyledInfoTableGroup("Used by", show_info=False)
         for grp in (self.grp_setup, self.grp_columns, self.grp_usedby):
             grp.setStyleSheet(_DASHBOARD_GROUP_STYLE)
 
+        self.setup_stack = QStackedWidget()
+        self.setup_stack.addWidget(self.grp_setup)          # 0 read-only
+        self.setup_stack.addWidget(self._build_setup_editor())  # 1 editable
+        self.columns_stack = QStackedWidget()
+        self.columns_stack.addWidget(self.grp_columns)      # 0 read-only
+        self.columns_stack.addWidget(self._build_columns_editor())  # 1 editable
+
         overview = QSplitter(Qt.Orientation.Horizontal)
         overview.setChildrenCollapsible(False)
         overview.setHandleWidth(4)
-        overview.addWidget(self.grp_setup)
-        overview.addWidget(self.grp_columns)
+        overview.addWidget(self.setup_stack)
+        overview.addWidget(self.columns_stack)
         overview.setSizes([420, 420])
 
         self._panels = {
@@ -604,7 +682,7 @@ class _SourceDashboard(QWidget):
         }
 
         # ── Tables tab: table list (top) + a row-count preview (bottom) ──────
-        self.tables_list = QTableWidget(0, 3)
+        self.tables_list = _FileDropTable(0, 3)
         self.tables_list.setHorizontalHeaderLabels(["Table", "Status", "File"])
         self.tables_list.verticalHeader().setVisible(False)
         self.tables_list.verticalHeader().setDefaultSectionSize(19)
@@ -622,17 +700,29 @@ class _SourceDashboard(QWidget):
         self.tables_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tables_list.customContextMenuRequested.connect(self._on_tables_context_menu)
         self.tables_list.itemDoubleClicked.connect(lambda *_: self._on_preview_clicked())
+        self.tables_list.files_dropped.connect(self.add_files_requested.emit)
 
         tables_box = QGroupBox("Tables")
         tables_box.setStyleSheet(_DASHBOARD_GROUP_STYLE)
         tb_lay = QVBoxLayout(tables_box)
         tb_lay.setContentsMargins(6, 16, 6, 4)
         tb_lay.setSpacing(2)
+        add_row = QHBoxLayout()
+        self.btn_add_files = QPushButton("Add File(s)…")
+        self.btn_add_files.setFont(_FONT_BOLD)
+        self.btn_add_files.setFixedHeight(22)
+        self.btn_add_files.setStyleSheet(_BTN_STYLE)
+        self.btn_add_files.clicked.connect(self.pick_files_requested.emit)
+        add_row.addWidget(self.btn_add_files)
+        add_row.addStretch(1)
+        tb_lay.addLayout(add_row)
         tb_lay.addWidget(self.tables_list, 1)
-        footnote = QLabel("Right-click a table to copy its path, open its folder, or remove it.")
-        footnote.setFont(_FONT_SMALL)
-        footnote.setStyleSheet("color: #6B7280; font-style: italic; border: none; background: transparent;")
-        tb_lay.addWidget(footnote)
+        self.lbl_tables_footnote = QLabel(
+            "Right-click a table to copy its path, open its folder, or remove it.")
+        self.lbl_tables_footnote.setFont(_FONT_SMALL)
+        self.lbl_tables_footnote.setStyleSheet(
+            "color: #6B7280; font-style: italic; border: none; background: transparent;")
+        tb_lay.addWidget(self.lbl_tables_footnote)
 
         self.preview = FilterTableView(self)
         pv = self.preview.table_view
@@ -690,6 +780,156 @@ class _SourceDashboard(QWidget):
         self._tables_rows: list[dict] = []
         self._tables_removable = False
 
+    # ── Editable (File Source) widgets ──────────────────────────────────
+
+    def _build_setup_editor(self) -> QWidget:
+        """Editable Setup pane (File Source): Name + Description + read-only info."""
+        box = QGroupBox("Setup")
+        box.setStyleSheet(_DASHBOARD_GROUP_STYLE)
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(8, 16, 8, 8)
+        lay.setSpacing(6)
+        form = QFormLayout()
+        form.setSpacing(4)
+        edit_style = ("QLineEdit { background: white; border: 1px solid #A0C4E8;"
+                      " padding: 3px 5px; }")
+        self.edit_src_name = QLineEdit()
+        self.edit_src_name.setStyleSheet(edit_style)
+        self.edit_src_name.textEdited.connect(self._on_edit_changed)
+        self.edit_src_desc = QLineEdit()
+        self.edit_src_desc.setStyleSheet(edit_style)
+        self.edit_src_desc.setPlaceholderText("Optional description")
+        self.edit_src_desc.textEdited.connect(self._on_edit_changed)
+        form.addRow("Name", self.edit_src_name)
+        form.addRow("Description", self.edit_src_desc)
+        lay.addLayout(form)
+        self.lbl_setup_info = QLabel("")
+        self.lbl_setup_info.setWordWrap(True)
+        self.lbl_setup_info.setFont(_FONT_SMALL)
+        self.lbl_setup_info.setStyleSheet(
+            "color: #475569; border: none; background: transparent;")
+        lay.addWidget(self.lbl_setup_info)
+        lay.addStretch(1)
+        return box
+
+    def _build_columns_editor(self) -> QWidget:
+        """Editable Columns pane (File Source): name cells + a Type combo per row."""
+        box = QGroupBox("Columns")
+        box.setStyleSheet(_DASHBOARD_GROUP_STYLE)
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(8, 16, 8, 8)
+        lay.setSpacing(4)
+        hint = QLabel("Edit a column name or pick its Type, then Save.")
+        hint.setFont(_FONT_SMALL)
+        hint.setStyleSheet(
+            "color: #6B7280; font-style: italic; border: none; background: transparent;")
+        lay.addWidget(hint)
+        self.tbl_columns_edit = QTableWidget(0, 2)
+        self.tbl_columns_edit.setHorizontalHeaderLabels(["Column", "Type"])
+        self.tbl_columns_edit.verticalHeader().setVisible(False)
+        self.tbl_columns_edit.verticalHeader().setDefaultSectionSize(20)
+        self.tbl_columns_edit.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.tbl_columns_edit.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+            | QAbstractItemView.EditTrigger.AnyKeyPressed)
+        self.tbl_columns_edit.setFont(_FONT)
+        self.tbl_columns_edit.setStyleSheet(
+            "QTableWidget { background: white; border: none; gridline-color: #EEF2F7; }"
+            "QTableWidget::item:selected { background: #DCEAFB; color: #0D3A7A; }"
+            "QHeaderView::section { background: #E8F0FB; font-weight: bold;"
+            " font-size: 8pt; border: 1px solid #C0C0C0; padding: 1px 4px; }")
+        hdr = self.tbl_columns_edit.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.tbl_columns_edit.setColumnWidth(1, 110)
+        self.tbl_columns_edit.itemChanged.connect(self._on_edit_changed)
+        lay.addWidget(self.tbl_columns_edit, 1)
+        return box
+
+    def set_editable(self, editable: bool) -> None:
+        """Switch Setup/Columns between read-only (ODBC/Access) and editable."""
+        self._editable = editable
+        page = 1 if editable else 0
+        self.setup_stack.setCurrentIndex(page)
+        self.columns_stack.setCurrentIndex(page)
+        self.tables_list.setAcceptDrops(editable)
+        self.tables_list.viewport().setAcceptDrops(editable)
+        self.tables_list.setDragDropMode(
+            QAbstractItemView.DragDropMode.DropOnly if editable
+            else QAbstractItemView.DragDropMode.NoDragDrop)
+        self.btn_add_files.setVisible(editable)
+        self.lbl_tables_footnote.setText(
+            "Drag files here to add, or use Add File(s)…. Right-click a table to "
+            "copy its path, open its folder, or remove it." if editable
+            else "Right-click a table to copy its path, open its folder, or remove it.")
+
+    def set_editable_setup(self, name: str, description: str, info: str) -> None:
+        self._loading = True
+        self.edit_src_name.setText(name or "")
+        self.edit_src_desc.setText(description or "")
+        self.lbl_setup_info.setText(info or "")
+        self._loading = False
+
+    def set_editable_columns(self, columns: list[tuple], *,
+                             names_editable: bool = True) -> None:
+        """Fill the editable columns table. ``columns`` = (name, data_type)."""
+        self._loading = True
+        self._names_editable = names_editable
+        tbl = self.tbl_columns_edit
+        tbl.setRowCount(0)
+        tbl.setRowCount(len(columns))
+        for row, (name, data_type) in enumerate(columns):
+            item = QTableWidgetItem(str(name))
+            if not names_editable:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            tbl.setItem(row, 0, item)
+            combo = QComboBox()
+            combo.addItems(list(_FILE_DATA_TYPES))
+            dt = (data_type or "TEXT").upper()
+            if dt not in _FILE_DATA_TYPES:
+                combo.addItem(dt)
+            combo.setCurrentText(dt)
+            combo.currentTextChanged.connect(self._on_edit_changed)
+            tbl.setCellWidget(row, 1, combo)
+        self._loading = False
+
+    def editable_name(self) -> str:
+        return self.edit_src_name.text().strip()
+
+    def editable_description(self) -> str:
+        return self.edit_src_desc.text().strip()
+
+    def editable_columns(self) -> list[tuple]:
+        """Read the draft columns back as (name, data_type) tuples."""
+        out: list[tuple] = []
+        tbl = self.tbl_columns_edit
+        for row in range(tbl.rowCount()):
+            item = tbl.item(row, 0)
+            combo = tbl.cellWidget(row, 1)
+            name = item.text().strip() if item else ""
+            data_type = combo.currentText() if combo else "TEXT"
+            out.append((name, data_type))
+        return out
+
+    @property
+    def names_editable(self) -> bool:
+        return self._names_editable
+
+    def _on_edit_changed(self, *_args) -> None:
+        if not self._loading:
+            self.set_dirty(True)
+
+    def set_dirty(self, dirty: bool) -> None:
+        self._dirty = bool(dirty)
+        if self._editable:
+            self.btn_save.setEnabled(self._dirty)
+            self.lbl_status.setText("Unsaved changes" if self._dirty else "")
+
+    def is_dirty(self) -> bool:
+        return self._editable and self._dirty
+
     @staticmethod
     def _make_button(text: str, *, danger: bool = False) -> QPushButton:
         btn = QPushButton(text)
@@ -723,12 +963,15 @@ class _SourceDashboard(QWidget):
         self.lbl_health.setVisible(True)
 
     def set_actions(self, *, test: bool, edit: bool, new_query: bool,
-                    open_folder: bool, delete: bool, register: bool = False) -> None:
+                    open_folder: bool, delete: bool, register: bool = False,
+                    save: bool = False, edit_format: bool = False) -> None:
         self.btn_test.setVisible(test)
         self.btn_register.setVisible(register)
         self.btn_edit.setVisible(edit)
+        self.btn_edit_format.setVisible(edit_format)
         self.btn_new_query.setVisible(new_query)
         self.btn_open_folder.setVisible(open_folder)
+        self.btn_save.setVisible(save)
         self.btn_delete.setVisible(delete)
 
     def set_test_button(self, label: str, tooltip: str) -> None:
@@ -822,11 +1065,14 @@ class _SourceDashboard(QWidget):
             self.remove_table_requested.emit(info["name"])
 
     def show_empty(self, message: str) -> None:
+        self.set_editable(False)
+        self.set_dirty(False)
+        self.lbl_status.setText("")
         self.set_title(message)
         self.set_badge("", "")
         self.set_health("", None)
         self.set_actions(test=False, edit=False, new_query=False,
-                         open_folder=False, delete=False)
+                         open_folder=False, delete=False, save=False)
         for key in self._panels:
             self.set_panel(key, [], [], visible=False)
         self.set_tables([], removable=False)
@@ -1050,7 +1296,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._dataforge_builder_windows: list[QDialog] = []
         self._audit_builder_windows: list[QWidget] = []
         self._file_nav_window = None
-        self._file_source_editor_window = None
+        self._file_source_is_new = False  # editing an unsaved (new) File Source
         self._embedded_common_tables = None
         self._embedded_registry = None
         super().__init__(
@@ -1337,6 +1583,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._source_dashboard.btn_test.clicked.connect(self._on_source_test)
         self._source_dashboard.btn_register.clicked.connect(self._on_source_register)
         self._source_dashboard.btn_edit.clicked.connect(self._on_source_edit_setup)
+        self._source_dashboard.btn_edit_format.clicked.connect(self._on_edit_file_source_format)
         self._source_dashboard.btn_open_folder.clicked.connect(self._on_open_source_folder)
         self._source_dashboard.btn_delete.clicked.connect(self._on_source_delete)
         new_query_menu = QMenu(self._source_dashboard.btn_new_query)
@@ -1348,6 +1595,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._source_dashboard.preview_requested.connect(self._on_dashboard_preview)
         self._source_dashboard.remove_table_requested.connect(self._on_dashboard_remove_table)
         self._source_dashboard.open_table_folder_requested.connect(self._open_path_folder)
+        self._source_dashboard.save_requested.connect(self._on_source_save)
+        self._source_dashboard.add_files_requested.connect(self._on_add_files_to_source)
+        self._source_dashboard.pick_files_requested.connect(self._on_pick_files_for_source)
 
         canvas_shell = QWidget()
         canvas_shell.setMinimumWidth(_RIGHT_PANEL_MIN_WIDTH)
@@ -2176,7 +2426,28 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def _on_source_tree_selection(self, current, previous) -> None:
         if self._loading_source_tree:
             return
+        self._offer_to_save_file_source_edits()
         self._route_source_selection(current)
+
+    def _offer_to_save_file_source_edits(self) -> None:
+        """If a File Source has unsaved edits, offer to Save before navigating away.
+
+        Light guard — it never blocks navigation, it just asks whether to persist
+        the draft first (Save) or drop it (Discard)."""
+        dash = self._source_dashboard
+        if self._current_source_kind != "file_data_source" or not dash.is_dirty():
+            return
+        if self._current_file_source is None or not self._current_file_source.members:
+            return
+        reply = QMessageBox.question(
+            self, "Unsaved File Source",
+            f'"{dash.editable_name() or "This File Source"}" has unsaved changes. '
+            "Save them before leaving?",
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard,
+            QMessageBox.StandardButton.Save)
+        if reply == QMessageBox.StandardButton.Save:
+            self._on_source_save()
+        dash.set_dirty(False)
 
     def _route_source_selection(self, current) -> None:
         """Show a source node in the dashboard, a query node in the detail canvas."""
@@ -2221,7 +2492,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
     def _on_source_tree_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         payload = _payload(item)
         if payload.get("type") == "file_data_source":
-            self._open_file_source_in_editor(payload.get("file_source_id", ""))
+            # The dashboard already IS the editor — single-click selects + shows it.
+            self._route_source_selection(item)
             return
         if payload.get("type") not in {"query", "source_query"}:
             return
@@ -3221,6 +3493,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
         dialect = detect_dialect(dsn) if dsn else UNKNOWN
         dash = self._source_dashboard
+        dash.set_editable(False)
         dash.set_title(dsn or "ODBC")
         dash.set_badge(dialect if dialect != UNKNOWN else "ODBC", "#1E5BA8")
         dash.set_health(*self._odbc_health(dsn, probe))
@@ -3254,6 +3527,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
         objects = self._objects_from_payload(payload)
         dash = self._source_dashboard
+        dash.set_editable(False)
         dash.set_title(ds.name)
         dash.set_badge(ds.dialect or "ODBC", "#1E5BA8")
         dash.set_health(*self._odbc_health(ds.dsn, probe))
@@ -3312,6 +3586,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._current_source_path = ds.path
         objects = self._objects_from_payload(payload)
         dash = self._source_dashboard
+        dash.set_editable(False)
         dash.set_title(ds.name)
         dash.set_badge("MS Access", "#8B5E00")
         dash.set_health(*self._access_health(ds.path, probe))
@@ -3351,8 +3626,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         return "File OK", "ok"
 
     def _show_file_data_source_detail(self, payload: dict) -> None:
+        """Render a saved File Source in the editable dashboard (view = edit)."""
         from suiteview.audit import file_source_store
-        from suiteview.audit.file_source import datasource_label
 
         fs_id = str(payload.get("file_source_id") or payload.get("key", "")).strip()
         fds = file_source_store.load_file_source_by_id(fs_id)
@@ -3361,15 +3636,49 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._current_source_kind = "file_data_source"
         self._current_source_payload = payload
         self._current_file_source = fds
+        self._file_source_is_new = False
         if fds is None:
             self._reset_current_source()
             self._source_dashboard.show_empty("This File Source could not be found.")
             return
+        self._render_file_source(fds, payload, new=False)
 
-        objects = self._objects_from_payload(payload)
-        self._current_source_path = fds.members[0].path if fds.members else ""
+    def _render_file_source(self, fds, payload: dict, *, new: bool) -> None:
+        """Fill the editable dashboard for a File Source (``fds=None`` = brand new).
+
+        Drives the single canonical screen: Setup name/description + Columns
+        (name/type) editable, member files on the Tables tab, Save in the header.
+        ``new`` sources hide query/delete/refresh until first saved.
+        """
+        from suiteview.audit.file_source import SOURCE_TYPE_EXCEL, datasource_label
+
         dash = self._source_dashboard
-        dash.set_title(fds.name)
+        dash.set_editable(True)
+        objects = self._objects_from_payload(payload) if payload else []
+
+        if fds is None:
+            self._current_source_path = ""
+            dash.set_title("New File Source")
+            dash.set_badge("", "")
+            dash.set_health("Add a file to set the format", "warn")
+            dash.set_actions(test=False, edit=False, new_query=False,
+                             open_folder=False, delete=False, save=True)
+            dash.set_editable_setup(
+                "", "",
+                "Add a file (drag it onto the Tables tab, or Add File(s)…) to set "
+                "the format and columns. Later files must match.")
+            dash.set_editable_columns([])
+            dash.set_tables([], removable=False)
+            dash.set_tables_tab_visible(True)
+            dash.set_panel("usedby", ["Query Object", "Kind", "Fields"], [])
+            dash.set_dirty(False)
+            dash.btn_save.setEnabled(False)
+            dash.tabs.setCurrentIndex(1)  # land on the Tables tab to add a file
+            self._set_canvas_title("Data Sources: New File Source")
+            return
+
+        self._current_source_path = fds.members[0].path if fds.members else ""
+        dash.set_title("New File Source" if new else fds.name)
         dash.set_badge(datasource_label(fds), "#B58900")
         missing = [m for m in fds.members if not Path(m.path).exists()]
         if not fds.members:
@@ -3378,34 +3687,80 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             dash.set_health(f"{len(missing)} of {len(fds.members)} files missing", "bad")
         else:
             dash.set_health(f"{len(fds.members)} files OK", "ok")
-        dash.set_actions(test=True, edit=True, new_query=True,
-                         open_folder=bool(self._current_source_path), delete=True)
+        if new:
+            dash.set_actions(test=False, edit=False, new_query=False,
+                             open_folder=bool(self._current_source_path),
+                             delete=False, save=True, edit_format=True)
+        else:
+            dash.set_actions(test=True, edit=False, new_query=True,
+                             open_folder=bool(self._current_source_path),
+                             delete=True, save=True, edit_format=True)
         dash.set_test_button("Refresh", "Re-check that the member files still exist")
-
-        setup = [
-            ["Type", f"File Source ({datasource_label(fds)})"],
-            ["Columns", len(fds.columns)],
-            ["Member files", len(fds.members)],
-            ["Description", fds.description or "—"],
-            ["Updated", fds.updated_at.strftime("%Y-%m-%d %H:%M")],
-        ]
-        for key in ("delimiter", "sep", "encoding", "header", "sheet", "skiprows"):
-            if key in (fds.parse_spec or {}):
-                setup.append([key, fds.parse_spec[key]])
-        dash.set_panel("setup", ["Property", "Value"], setup)
+        dash.set_editable_setup(
+            fds.name, fds.description, self._file_source_info_text(fds))
+        dash.set_editable_columns(
+            [(c.name, c.data_type) for c in fds.columns],
+            names_editable=fds.source_type != SOURCE_TYPE_EXCEL)
         dash.set_tables([
             (m.resolved_table_name(),
              "OK" if Path(m.path).exists() else "missing", m.path)
             for m in fds.members
         ], removable=True)
         dash.set_tables_tab_visible(True)
-        dash.set_panel("columns", ["Column", "Type", "Display Name"], [
-            [c.name, c.data_type, c.display_name or ""] for c in fds.columns
-        ])
         dash.set_panel("usedby", ["Query Object", "Kind", "Fields"], [
             [obj.name, _kind_label(obj.kind), len(obj.fields)] for obj in objects
         ])
-        self._set_canvas_title(f"Data Sources: {fds.name}")
+        dash.set_dirty(bool(new))
+        self._set_canvas_title(
+            "Data Sources: New File Source" if new else f"Data Sources: {fds.name}")
+
+    def _refresh_file_source_tables(self, fds) -> None:
+        """Update only the Tables list + info line (preserves in-progress edits)."""
+        dash = self._source_dashboard
+        dash.set_tables([
+            (m.resolved_table_name(),
+             "OK" if Path(m.path).exists() else "missing", m.path)
+            for m in fds.members
+        ], removable=True)
+        dash.set_tables_tab_visible(True)
+        dash.lbl_setup_info.setText(self._file_source_info_text(fds))
+        missing = [m for m in fds.members if not Path(m.path).exists()]
+        if missing:
+            dash.set_health(f"{len(missing)} of {len(fds.members)} files missing", "bad")
+        elif fds.members:
+            dash.set_health(f"{len(fds.members)} files OK", "ok")
+        else:
+            dash.set_health("No files", "warn")
+
+    def _file_source_info_text(self, fds) -> str:
+        from suiteview.audit.file_source import datasource_label
+
+        return "\n".join([
+            f"Type: {datasource_label(fds)}",
+            f"Format: {self._file_source_format_summary(fds)}",
+            f"Member files: {len(fds.members)}    Columns: {len(fds.columns)}",
+            f"Updated: {fds.updated_at.strftime('%Y-%m-%d %H:%M')}",
+        ])
+
+    @staticmethod
+    def _file_source_format_summary(fds) -> str:
+        from suiteview.audit.file_source import (
+            SOURCE_TYPE_CSV, SOURCE_TYPE_EXCEL, SOURCE_TYPE_FIXED_WIDTH)
+
+        st = fds.source_type
+        ps = fds.parse_spec or {}
+        if st == SOURCE_TYPE_CSV:
+            delim = ps.get("delimiter", ",")
+            delim_disp = "\\t (tab)" if delim == "\t" else f"'{delim}'"
+            header = "header row" if ps.get("has_header", True) else "no header"
+            skip = ps.get("skip_rows", 0)
+            extra = f", skip {skip}" if skip else ""
+            return f"Delimited — delimiter {delim_disp}, {header}{extra}"
+        if st == SOURCE_TYPE_FIXED_WIDTH:
+            return f"Fixed width — {len(ps.get('columns', []))} columns"
+        if st == SOURCE_TYPE_EXCEL:
+            return f"Excel — sheet {ps.get('sheet_name', 0)}"
+        return st
 
     def _show_file_source_detail(self, payload: dict) -> None:
         path = str(payload.get("path", "")).strip()
@@ -3420,6 +3775,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._current_source_path = path
 
         dash = self._source_dashboard
+        dash.set_editable(False)
         dash.set_title(label)
         dash.set_badge(_file_source_type_label(source_type, payload.get("metadata", {})), "#8B6914")
         if path and Path(path).exists():
@@ -3504,7 +3860,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         member = fds.find_member_by_table(table_name)
         if member is None:
             return
-        if len(fds.members) <= 1:
+        # A *saved* source must keep at least one file — delete the source instead.
+        # A *new* (unsaved) source may drop its last file, reverting to empty.
+        if not self._file_source_is_new and len(fds.members) <= 1:
             QMessageBox.information(
                 self, "Cannot Remove",
                 "A File Source needs at least one file. Delete the whole source instead.")
@@ -3512,8 +3870,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         reply = QMessageBox.question(
             self,
             "Remove Table",
-            f"Remove table \"{table_name}\" ({Path(member.path).name}) from "
-            f"\"{fds.name}\"?\n\nThis removes the file from the source definition, "
+            f"Remove table \"{table_name}\" ({Path(member.path).name}) from this "
+            "File Source?\n\nThis removes the file from the source definition, "
             "not from disk.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -3521,10 +3879,195 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         if reply != QMessageBox.StandardButton.Yes:
             return
         fds.members = [m for m in fds.members if m is not member]
+        if self._file_source_is_new:
+            # Stay in the in-memory draft; never touch the store until Save.
+            if not fds.members:
+                self._current_file_source = None
+                self._render_file_source(None, self._current_source_payload, new=True)
+            else:
+                self._refresh_file_source_tables(fds)
+                self._source_dashboard.set_dirty(True)
+            return
         fds.updated_at = datetime.now()
         file_source_store.save_file_source(fds)
         self.refresh()
-        self._route_source_selection(self.source_tree.currentItem())
+        self._select_file_source(fds.id)
+
+    # ── File Source editing (the canonical add/edit/view screen) ───────
+
+    def _on_source_save(self) -> None:
+        """Persist the editable File Source draft shown in the dashboard."""
+        if self._current_source_kind != "file_data_source":
+            return
+        fds = self._current_file_source
+        dash = self._source_dashboard
+        if fds is None or not fds.members:
+            QMessageBox.information(self, "Add a File First",
+                                   "Add at least one file before saving.")
+            return
+        name = dash.editable_name()
+        if not name:
+            QMessageBox.information(self, "Name Required",
+                                   "Give the File Source a name before saving.")
+            return
+        from suiteview.audit import file_source_store
+        from suiteview.audit.file_source import SOURCE_TYPE_EXCEL
+        from suiteview.audit.file_source_intake import apply_column_names
+
+        draft_cols = dash.editable_columns()
+        if len(draft_cols) == len(fds.columns):
+            names = [c[0].strip() for c in draft_cols]
+            if fds.source_type != SOURCE_TYPE_EXCEL and dash.names_editable:
+                if any(not n for n in names):
+                    QMessageBox.warning(self, "Invalid Column Names",
+                                       "Column names cannot be blank.")
+                    return
+                if len({n.lower() for n in names}) != len(names):
+                    QMessageBox.warning(self, "Invalid Column Names",
+                                       "Column names must be unique.")
+                    return
+                try:
+                    apply_column_names(fds, names)
+                except ValueError as exc:
+                    QMessageBox.warning(self, "Invalid Column Names", str(exc))
+                    return
+            for col, (_, data_type) in zip(fds.columns, draft_cols):
+                col.data_type = data_type
+        fds.name = name
+        fds.description = dash.editable_description()
+        fds.updated_at = datetime.now()
+        file_source_store.save_file_source(fds)
+        self._file_source_is_new = False
+        dash.set_dirty(False)
+        self.refresh()
+        self._select_file_source(fds.id)
+
+    def _on_edit_file_source_format(self) -> None:
+        """Re-open the format/layout dialog and re-read the columns.
+
+        Fixes a mis-detected text file (wrong delimiter, or it's really
+        fixed-width) and lets fixed-width column definitions be changed after the
+        fact. The schema is re-inferred from the first member; the change is
+        staged (Save persists it)."""
+        if self._current_source_kind != "file_data_source" or self._current_file_source is None:
+            return
+        fds = self._current_file_source
+        if not fds.members:
+            QMessageBox.information(self, "Add a File First",
+                                   "Add a file before editing its format.")
+            return
+        from suiteview.audit.file_source_format_dialogs import (
+            DialogCancelled, prompt_format_spec_for_source)
+        from suiteview.audit.file_source_intake import (
+            infer_file_source_from_file, validate_member_file)
+
+        try:
+            new_spec = prompt_format_spec_for_source(self, fds)
+        except DialogCancelled:
+            return
+        first = fds.members[0].path
+        try:
+            fresh = infer_file_source_from_file(first, name=fds.name, format_spec=new_spec)
+        except Exception as exc:  # noqa: BLE001 — surface any read error
+            QMessageBox.warning(self, "Could Not Apply Format", f"{exc}")
+            return
+        # Adopt the new format + columns; keep identity, name, description, members.
+        fds.source_type = fresh.source_type
+        fds.parse_spec = fresh.parse_spec
+        fds.columns = fresh.columns
+        # Warn if any existing member no longer matches the new format.
+        mismatched = []
+        for member in fds.members:
+            try:
+                if validate_member_file(fds, member.path):
+                    mismatched.append(Path(member.path).name)
+            except Exception:  # noqa: BLE001 — unreadable under the new format
+                mismatched.append(Path(member.path).name)
+        self._render_file_source(
+            fds, self._current_source_payload, new=self._file_source_is_new)
+        self._source_dashboard.set_dirty(True)
+        self._source_dashboard.tabs.setCurrentIndex(0)  # show the re-read columns
+        if mismatched:
+            QMessageBox.warning(
+                self, "Format Changed",
+                "These files no longer match the new format and may fail to "
+                "query:\n• " + "\n• ".join(mismatched))
+
+    def _on_pick_files_for_source(self) -> None:
+        """Add File(s)… button — pick member files for the current File Source."""
+        if self._current_source_kind != "file_data_source":
+            return
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Add File(s) to Source", "", _FILE_SOURCE_FILE_FILTER)
+        if paths:
+            self._on_add_files_to_source(paths)
+
+    def _on_add_files_to_source(self, paths: list) -> None:
+        """Add member files (button or drag-drop). The first file of a new source
+        establishes its format; later files are validated against it. Nothing is
+        persisted until Save."""
+        if self._current_source_kind != "file_data_source":
+            return
+        from suiteview.audit.file_source_intake import (
+            FileValidationError, add_member_file)
+        from suiteview.audit.file_source_format_dialogs import (
+            DialogCancelled, establish_source_from_first_file)
+
+        fds = self._current_file_source
+        established_new = False
+        errors: list[str] = []
+        added = 0
+        for path in paths:
+            if fds is None:
+                try:
+                    fds = establish_source_from_first_file(
+                        self, path, self._source_dashboard.editable_name())
+                except DialogCancelled:
+                    break
+                if fds is None:
+                    continue  # unreadable file; a warning was already shown
+                self._current_file_source = fds
+                established_new = True
+                added += 1
+            else:
+                try:
+                    add_member_file(fds, path)
+                    added += 1
+                except FileValidationError as exc:
+                    errors.append(f"• {Path(path).name}: {exc}")
+        if fds is None:
+            return
+        if established_new:
+            self._render_file_source(
+                fds, self._current_source_payload, new=self._file_source_is_new)
+            # First file just set the format + columns — show them on Overview.
+            self._source_dashboard.tabs.setCurrentIndex(0)
+        else:
+            self._refresh_file_source_tables(fds)
+        if added:
+            self._source_dashboard.set_dirty(True)
+        if errors:
+            QMessageBox.warning(self, "Some files were not added", "\n\n".join(errors))
+
+    def _select_file_source(self, file_source_id: str) -> None:
+        """Select the tree node for a File Source so its dashboard re-renders."""
+        if not file_source_id or not hasattr(self, "source_tree"):
+            return
+
+        def _find(item: QTreeWidgetItem):
+            if _payload(item).get("file_source_id") == file_source_id:
+                return item
+            for index in range(item.childCount()):
+                found = _find(item.child(index))
+                if found is not None:
+                    return found
+            return None
+
+        for i in range(self.source_tree.topLevelItemCount()):
+            node = _find(self.source_tree.topLevelItem(i))
+            if node is not None:
+                self.source_tree.setCurrentItem(node)
+                return
 
     def _open_path_folder(self, path: str) -> None:
         """Open the folder containing a specific file (resolves multi-folder sources)."""
@@ -3588,9 +4131,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 return
 
     def _on_source_edit_setup(self) -> None:
-        if self._current_source_kind == "file_data_source" and self._current_file_source is not None:
-            self._open_file_source_in_editor(self._current_file_source.id)
-        elif self._current_source_kind == "registered_odbc" and self._current_data_source is not None:
+        # File Sources are edited in place on the dashboard (no "Edit Setup"
+        # button is shown for them). ODBC / Access edit via their dialog.
+        if self._current_source_kind == "registered_odbc" and self._current_data_source is not None:
             self._register_odbc_dsn(existing=self._current_data_source)
         elif self._current_source_kind == "access_source" and self._current_data_source is not None:
             self._register_access_file(existing=self._current_data_source)
@@ -4047,60 +4590,23 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         opener(object_name)
 
     def _on_add_file_source(self):
-        """Create a new File Source — opens the dedicated File Source editor window."""
-        window = self._ensure_file_source_editor_window()
-        window.new_source()
-        self._show_window(window)
+        """Add a File Source — open the editable dashboard in 'new' mode.
 
-    def _open_file_source_in_editor(self, file_source_id: str):
-        if not file_source_id:
-            return
-        from suiteview.audit import file_source_store
-
-        fds = file_source_store.load_file_source_by_id(file_source_id)
-        if fds is None:
-            QMessageBox.information(
-                self, "File Source", "This File Source could not be found.")
-            return
-        window = self._ensure_file_source_editor_window()
-        window.edit_source(fds)
-        self._show_window(window)
-
-    def _ensure_file_source_editor_window(self):
-        """The single dedicated File Source editor window (created on first use)."""
-        window = getattr(self, "_file_source_editor_window", None)
-        try:
-            _ = window.isVisible() if window is not None else None
-        except RuntimeError:
-            window = None  # was destroyed
-        if window is None:
-            from suiteview.audit.tabs.file_source_editor import FileSourceEditorWindow
-            window = FileSourceEditorWindow()
-            window.editor.saved.connect(lambda _name: self.refresh())
-            window.editor.visual_query_requested.connect(
-                lambda fid: self._open_query_on_file_source(fid, "visual"))
-            window.editor.query_requested.connect(
-                lambda fid: self._open_query_on_file_source(fid, "manual"))
-            self._file_source_editor_window = window
-        return window
-
-    def _open_query_on_file_source(self, file_source_id: str, mode: str):
-        parent = self._audit_window_for_builder()
-        opener = getattr(parent, "new_query_on_file_source", None)
-        if opener is None:
-            QMessageBox.information(
-                self, "Builder Unavailable",
-                "Could not open a query on this File Source.")
-            return
-        opener(file_source_id, mode=mode)
-
-    @staticmethod
-    def _show_window(window) -> None:
-        window.show()
-        if window.isMinimized():
-            window.showNormal()
-        window.raise_()
-        window.activateWindow()
+        Same screen used to view/edit; the first file added sets the format."""
+        self._offer_to_save_file_source_edits()
+        # Clear the tree selection first: that routes the canvas to "empty" via
+        # the selection handler, so set our new-source state *after* it.
+        self.source_tree.setCurrentItem(None)
+        self._current = None
+        self._current_forge_name = ""
+        self._current_source_kind = "file_data_source"
+        self._current_source_payload = {}
+        self._current_file_source = None
+        self._current_data_source = None
+        self._current_source_path = ""
+        self._file_source_is_new = True
+        self._browser_canvas_stack.setCurrentWidget(self._source_dashboard)
+        self._render_file_source(None, {}, new=True)
 
     def _open_dataforge_builder(self, forge_name: str):
         parent = self._audit_window_for_builder()

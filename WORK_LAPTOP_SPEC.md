@@ -558,9 +558,14 @@ own table), queried by the existing builders compiled to **DuckDB**. See
 
 **Built + verified on the minipc (2026-06-22) — re-confirm interactively, then
 proceed with the cleanup below:**
-- **2a** Editor (`tabs/file_source_editor.py`): format/columns from the first
-  file, member-file list with **OS drag-and-drop** add + schema validation,
-  per-file DuckDB preview, Save File Source. Wired into New Query → File Source.
+> **Update (2026-06-22):** the standalone editor below was later **consolidated
+> into the Data Sources dashboard** — `tabs/file_source_editor.py` is deleted; the
+> dashboard (`_SourceDashboard` in `query_object_viewer_window.py`) is now the one
+> editable add/edit/view screen. Format prompts live in
+> `file_source_format_dialogs.py`; column-name logic in `file_source_intake.py`.
+- **2a** Editor (now the dashboard): format/columns from the first file,
+  member-file list with **OS drag-and-drop** add + schema validation, per-file
+  DuckDB preview, Save File Source. Reached via the Data Sources tab.
 - **2b** Manual SQL over a File Source: `FieldPickerPanel.load_local_source`
   (no-ODBC), `set_file_source`, run/save routing on a `file:<id>` token,
   "SQL Query →" button. (Verified: cross-file `UNION ALL`+`GROUP BY`.)

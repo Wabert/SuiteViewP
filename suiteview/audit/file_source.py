@@ -36,6 +36,12 @@ SOURCE_TYPE_FIXED_WIDTH = "fixed_width"
 SOURCE_TYPE_EXCEL = "excel"
 SUPPORTED_SOURCE_TYPES = (SOURCE_TYPE_CSV, SOURCE_TYPE_FIXED_WIDTH, SOURCE_TYPE_EXCEL)
 
+# Declarative column types the user can assign in the schema editor. DuckDB
+# infers the actual types at query time; this is the schema label shown in
+# pickers and the source dashboard. (FileColumn.data_type defaults to "TEXT".)
+DATA_TYPES = ("TEXT", "INTEGER", "BIGINT", "DOUBLE", "DECIMAL", "DATE",
+              "TIMESTAMP", "BOOLEAN")
+
 
 @dataclass
 class FileColumn:
@@ -164,10 +170,17 @@ class FileDataSource:
 
 
 def datasource_label(file_source: FileDataSource) -> str:
-    """The bracketed datasource tag for display (parallel to a DSN label)."""
-    labels = {
-        SOURCE_TYPE_CSV: "CSV",
-        SOURCE_TYPE_FIXED_WIDTH: "Fixed Width",
-        SOURCE_TYPE_EXCEL: "Excel",
-    }
-    return labels.get(file_source.source_type, file_source.source_type or "File")
+    """The datasource tag for display (parallel to a DSN label).
+
+    Delimited sources all share ``source_type == "csv"`` internally, so the label
+    is refined by the actual delimiter — a tab/pipe text file reads as "TSV"/"PSV",
+    not a misleading "CSV". Comma (or unknown) stays "CSV"."""
+    st = file_source.source_type
+    if st == SOURCE_TYPE_FIXED_WIDTH:
+        return "Fixed Width"
+    if st == SOURCE_TYPE_EXCEL:
+        return "Excel"
+    if st == SOURCE_TYPE_CSV:
+        delim = (file_source.parse_spec or {}).get("delimiter", ",")
+        return {",": "CSV", "\t": "TSV", "|": "PSV", ";": "SSV"}.get(delim, "Delimited")
+    return st or "File"

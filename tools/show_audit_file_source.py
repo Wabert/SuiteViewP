@@ -1,8 +1,10 @@
-"""Launch the real Audit window, open the File Source editor in-app, screenshot it.
+"""Screenshot the File Source "Add (new)" flow on the Data Sources dashboard.
 
-Verifies the Phase 2 wiring (New Query → File Source → new editor) renders inside
-the actual AuditWindow chrome. No DB2 connection is made (only DSN strings are
-read). A hard timer quits the app even if something stalls.
+The File Source editor is no longer a separate window — the Data Sources tab's
+dashboard IS the single canonical add/edit/view screen. This opens the unified
+browser, triggers "+ Add Data Source → File Source", and captures the blank
+editable canvas (Setup name/description, empty Columns, Tables tab with the
+Add File(s)… / drop affordance). No DB2.
 
 Usage:
     venv\\Scripts\\python.exe tools/show_audit_file_source.py [output_png]
@@ -17,45 +19,28 @@ from PyQt6.QtCore import QTimer  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 
-def _build_sample():
-    from suiteview.audit.file_source_intake import (
-        add_member_file, infer_file_source_from_file)
-
-    base = Path.home() / ".suiteview"
-    base.mkdir(parents=True, exist_ok=True)
-    claims = base / "CLAIMS.csv"
-    claims.write_text(
-        "policy,state,claim_amount,status\n"
-        "P1001,TX,1500.00,OPEN\nP1002,CA,3200.50,CLOSED\nP1003,NY,875.25,OPEN\n",
-        encoding="utf-8")
-    rga = base / "RGACLAIMS.csv"
-    rga.write_text(
-        "policy,state,claim_amount,status\nR2001,FL,9100.00,OPEN\nR2002,TX,4400.00,OPEN\n",
-        encoding="utf-8")
-    fds = infer_file_source_from_file(claims, name="Claims")
-    fds.description = "Claims extracts (direct + reinsurance), same layout"
-    fds.tags = ["claims", "audit"]
-    add_member_file(fds, str(rga))
-    return fds
-
-
 def main():
     output = sys.argv[1] if len(sys.argv) > 1 else str(
         Path.home() / ".suiteview" / "audit_file_source.png")
 
     app = QApplication(sys.argv)
-    from suiteview.audit.tabs.file_source_editor import FileSourceEditorWindow
+    from suiteview.audit.query_object_viewer_window import QueryObjectViewerWindow
 
-    win = FileSourceEditorWindow()
+    win = QueryObjectViewerWindow.show_instance(parent=None)
     win.resize(1320, 840)
-    win.show()
 
     def go():
         try:
-            win.edit_source(_build_sample())
+            for i in range(win.left_tabs.count()):
+                if win.left_tabs.tabText(i) == "Data Sources":
+                    win.left_tabs.setCurrentIndex(i)
+                    break
+            win._on_add_file_source()  # opens the dashboard in 'new' mode
         except Exception as exc:
-            print(f"edit_source failed: {exc}")
-        QTimer.singleShot(500, capture)
+            import traceback
+            traceback.print_exc()
+            print(f"flow failed: {exc}")
+        QTimer.singleShot(400, capture)
 
     def capture():
         ok = win.grab().save(output, "PNG")
@@ -63,7 +48,7 @@ def main():
         app.quit()
 
     QTimer.singleShot(500, go)
-    QTimer.singleShot(8000, app.quit)  # hard backstop
+    QTimer.singleShot(10000, app.quit)  # hard backstop
     app.exec()
 
 
