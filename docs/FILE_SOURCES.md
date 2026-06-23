@@ -293,6 +293,14 @@ All in `query_object_viewer_window.py` unless noted:
   step 3 lands — retire it then.
 
 ## Changelog
+- **2026-06-22 (Phase 4 polish — dashboard tab/preview refinements)** — Used-by
+  moved to its own tab (Overview / Tables / Used by); Overview now puts Setup and
+  Columns side by side. Tables tab is button-driven: a `Rows` input + "Preview
+  selected table" button (`preview_requested(name, rows)`); the right-click hint
+  is a footnote under the table, the box label is just "Tables". The top action
+  button is contextual (`set_test_button`) — "Refresh" + tooltip for File
+  Sources (re-checks file existence), "Test" for ODBC/Access (live connection
+  probe).
 - **2026-06-22 (Phase 4 polish — dashboard tabs + table preview)** — The source
   dashboard (`_SourceDashboard`) is now tabbed: **Overview** (Setup on top,
   Columns + Used-by side by side) and **Tables** (the table list on top, a live

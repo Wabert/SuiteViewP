@@ -536,7 +536,7 @@ class _SourceDashboard(QWidget):
     extraction and the action handlers; this widget is the dumb view they fill.
     """
 
-    table_selected = pyqtSignal(str)              # resolved table name
+    preview_requested = pyqtSignal(str, int)      # table name, row count
     remove_table_requested = pyqtSignal(str)      # table name
     open_table_folder_requested = pyqtSignal(str) # file path of that table
 
@@ -583,26 +583,19 @@ class _SourceDashboard(QWidget):
             hlay.addWidget(btn)
         root.addWidget(header)
 
-        # ── Overview tab: Setup on top, Columns + Used-by side by side ──────
+        # ── Overview tab: Setup and Columns side by side ───────────────────
         self.grp_setup = StyledInfoTableGroup("Setup", show_info=False)
         self.grp_columns = StyledInfoTableGroup("Columns", show_info=False, filterable=True)
         self.grp_usedby = StyledInfoTableGroup("Used by", show_info=False)
         for grp in (self.grp_setup, self.grp_columns, self.grp_usedby):
             grp.setStyleSheet(_DASHBOARD_GROUP_STYLE)
 
-        overview_lower = QSplitter(Qt.Orientation.Horizontal)
-        overview_lower.setChildrenCollapsible(False)
-        overview_lower.setHandleWidth(4)
-        overview_lower.addWidget(self.grp_columns)
-        overview_lower.addWidget(self.grp_usedby)
-        overview_lower.setSizes([380, 300])
-
-        overview = QSplitter(Qt.Orientation.Vertical)
+        overview = QSplitter(Qt.Orientation.Horizontal)
         overview.setChildrenCollapsible(False)
         overview.setHandleWidth(4)
         overview.addWidget(self.grp_setup)
-        overview.addWidget(overview_lower)
-        overview.setSizes([170, 320])
+        overview.addWidget(self.grp_columns)
+        overview.setSizes([420, 420])
 
         self._panels = {
             "setup": self.grp_setup,
@@ -610,7 +603,7 @@ class _SourceDashboard(QWidget):
             "usedby": self.grp_usedby,
         }
 
-        # ── Tables tab: the table list on top, a preview of the selection below
+        # ── Tables tab: table list (top) + a row-count preview (bottom) ──────
         self.tables_list = QTableWidget(0, 3)
         self.tables_list.setHorizontalHeaderLabels(["Table", "Status", "File"])
         self.tables_list.verticalHeader().setVisible(False)
@@ -628,19 +621,60 @@ class _SourceDashboard(QWidget):
             " font-size: 8pt; border: 1px solid #C0C0C0; padding: 1px 4px; }")
         self.tables_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tables_list.customContextMenuRequested.connect(self._on_tables_context_menu)
-        self.tables_list.itemSelectionChanged.connect(self._on_table_selection)
+        self.tables_list.itemDoubleClicked.connect(lambda *_: self._on_preview_clicked())
+
+        tables_box = QGroupBox("Tables")
+        tables_box.setStyleSheet(_DASHBOARD_GROUP_STYLE)
+        tb_lay = QVBoxLayout(tables_box)
+        tb_lay.setContentsMargins(6, 16, 6, 4)
+        tb_lay.setSpacing(2)
+        tb_lay.addWidget(self.tables_list, 1)
+        footnote = QLabel("Right-click a table to open its folder or remove it.")
+        footnote.setFont(_FONT_SMALL)
+        footnote.setStyleSheet("color: #6B7280; font-style: italic; border: none; background: transparent;")
+        tb_lay.addWidget(footnote)
+
         self.preview = FilterTableView(self)
         pv = self.preview.table_view
         pv.setShowGrid(False)
         pv.verticalHeader().setVisible(False)
         pv.verticalHeader().setDefaultSectionSize(16)
 
+        preview_box = QGroupBox("Preview")
+        preview_box.setStyleSheet(_DASHBOARD_GROUP_STYLE)
+        pb_lay = QVBoxLayout(preview_box)
+        pb_lay.setContentsMargins(6, 16, 6, 6)
+        pb_lay.setSpacing(4)
+        controls = QHBoxLayout()
+        controls.setSpacing(6)
+        controls.addWidget(QLabel("Rows"))
+        self.edit_preview_rows = QLineEdit("100")
+        self.edit_preview_rows.setFixedWidth(60)
+        self.edit_preview_rows.setStyleSheet(
+            "QLineEdit { background: white; border: 1px solid #A0C4E8; padding: 2px 4px; }")
+        self.edit_preview_rows.returnPressed.connect(self._on_preview_clicked)
+        controls.addWidget(self.edit_preview_rows)
+        self.btn_preview = QPushButton("Preview selected table")
+        self.btn_preview.setFont(_FONT_BOLD)
+        self.btn_preview.setFixedHeight(24)
+        self.btn_preview.setStyleSheet(_BTN_STYLE)
+        self.btn_preview.clicked.connect(self._on_preview_clicked)
+        controls.addWidget(self.btn_preview)
+        controls.addStretch(1)
+        pb_lay.addLayout(controls)
+        pb_lay.addWidget(self.preview, 1)
+
         tables_split = QSplitter(Qt.Orientation.Vertical)
         tables_split.setChildrenCollapsible(False)
         tables_split.setHandleWidth(4)
-        tables_split.addWidget(self._titled_box("Tables  (right-click to preview, open folder, or remove)", self.tables_list))
-        tables_split.addWidget(self._titled_box("Preview of selected table", self.preview))
-        tables_split.setSizes([200, 320])
+        tables_split.addWidget(tables_box)
+        tables_split.addWidget(preview_box)
+        tables_split.setSizes([190, 330])
+
+        used_by_page = QWidget()
+        ub_lay = QVBoxLayout(used_by_page)
+        ub_lay.setContentsMargins(2, 2, 2, 2)
+        ub_lay.addWidget(self.grp_usedby)
 
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(
@@ -649,7 +683,8 @@ class _SourceDashboard(QWidget):
             " border-bottom: none; padding: 3px 12px; font-size: 8pt; }"
             "QTabBar::tab:selected { background: #F0F0F0; color: #1E5BA8; font-weight: bold; }")
         self.tabs.addTab(overview, "Overview")
-        self.tabs.addTab(tables_split, "Tables")
+        self.tabs.addTab(tables_split, "Tables")     # index 1 (toggled per source)
+        self.tabs.addTab(used_by_page, "Used by")
         root.addWidget(self.tabs, 1)
 
         self._tables_rows: list[dict] = []
@@ -696,6 +731,11 @@ class _SourceDashboard(QWidget):
         self.btn_open_folder.setVisible(open_folder)
         self.btn_delete.setVisible(delete)
 
+    def set_test_button(self, label: str, tooltip: str) -> None:
+        """The top 'Test' action means different things per source type — name it."""
+        self.btn_test.setText(label)
+        self.btn_test.setToolTip(tooltip)
+
     def set_panel(self, key: str, columns: list[str], rows: list[list[object]],
                   visible: bool = True) -> None:
         grp = self._panels[key]
@@ -704,16 +744,6 @@ class _SourceDashboard(QWidget):
             return
         grp.setVisible(True)
         grp.load_data(columns, [tuple(row) for row in rows])
-
-    @staticmethod
-    def _titled_box(title: str, widget: QWidget) -> QGroupBox:
-        box = QGroupBox(title)
-        box.setStyleSheet(_DASHBOARD_GROUP_STYLE)
-        lay = QVBoxLayout(box)
-        lay.setContentsMargins(6, 16, 6, 6)
-        lay.setSpacing(2)
-        lay.addWidget(widget)
-        return box
 
     # ── Tables tab ────────────────────────────────────────────────────
 
@@ -726,14 +756,14 @@ class _SourceDashboard(QWidget):
             for r in rows
         ]
         self._tables_removable = removable
-        self.tables_list.blockSignals(True)
         self.tables_list.setRowCount(len(self._tables_rows))
         for row, info in enumerate(self._tables_rows):
             for col, value in enumerate((info["name"], info["status"], info["path"])):
                 self.tables_list.setItem(row, col, QTableWidgetItem(value))
         self.tables_list.resizeColumnToContents(0)
         self.tables_list.resizeColumnToContents(1)
-        self.tables_list.blockSignals(False)
+        if self._tables_rows:
+            self.tables_list.selectRow(0)  # a default target for the Preview button
         self.clear_preview()
 
     def set_tables_tab_visible(self, visible: bool) -> None:
@@ -755,10 +785,19 @@ class _SourceDashboard(QWidget):
         index = rows[0].row()
         return self._tables_rows[index] if 0 <= index < len(self._tables_rows) else None
 
-    def _on_table_selection(self) -> None:
+    def _on_preview_clicked(self) -> None:
         info = self._selected_table()
-        if info is not None:
-            self.table_selected.emit(info["name"])
+        if info is None and self._tables_rows:
+            self.tables_list.selectRow(0)
+            info = self._selected_table()
+        if info is None:
+            return
+        try:
+            rows = int(self.edit_preview_rows.text().strip() or "100")
+        except ValueError:
+            rows = 100
+            self.edit_preview_rows.setText("100")
+        self.preview_requested.emit(info["name"], max(1, rows))
 
     def _on_tables_context_menu(self, pos) -> None:
         item = self.tables_list.itemAt(pos)
@@ -1302,7 +1341,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         new_query_menu.addAction("Manual SQL").triggered.connect(
             lambda: self._on_source_new_query("manual"))
         self._source_dashboard.btn_new_query.setMenu(new_query_menu)
-        self._source_dashboard.table_selected.connect(self._on_dashboard_table_selected)
+        self._source_dashboard.preview_requested.connect(self._on_dashboard_preview)
         self._source_dashboard.remove_table_requested.connect(self._on_dashboard_remove_table)
         self._source_dashboard.open_table_folder_requested.connect(self._open_path_folder)
 
@@ -3184,6 +3223,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         # Discovered DSN: read-only, but offer to Register it (pin + name it).
         dash.set_actions(test=True, register=True, edit=False, new_query=False,
                          open_folder=False, delete=False)
+        dash.set_test_button("Test", "Test the ODBC DSN connection")
         dash.set_panel("setup", ["Property", "Value"], self._odbc_detail_rows(dsn))
         dash.set_panel("columns", [], [], visible=False)
         dash.set_tables([], removable=False)
@@ -3215,6 +3255,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         dash.set_health(*self._odbc_health(ds.dsn, probe))
         dash.set_actions(test=True, register=False, edit=True, new_query=False,
                          open_folder=False, delete=True)
+        dash.set_test_button("Test", "Test the ODBC DSN connection")
         setup = [
             ["Name", ds.name],
             ["DSN", ds.dsn],
@@ -3272,6 +3313,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         dash.set_health(*self._access_health(ds.path, probe))
         dash.set_actions(test=True, register=False, edit=True, new_query=False,
                          open_folder=bool(ds.path), delete=True)
+        dash.set_test_button("Test", "Open the Access file to test the connection")
         setup = [
             ["Name", ds.name],
             ["File", ds.path],
@@ -3334,6 +3376,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             dash.set_health(f"{len(fds.members)} files OK", "ok")
         dash.set_actions(test=True, edit=True, new_query=True,
                          open_folder=bool(self._current_source_path), delete=True)
+        dash.set_test_button("Refresh", "Re-check that the member files still exist")
 
         setup = [
             ["Type", f"File Source ({datasource_label(fds)})"],
@@ -3383,6 +3426,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             dash.set_health("Path not saved", "warn")
         dash.set_actions(test=True, edit=False, new_query=False,
                          open_folder=bool(path), delete=False)
+        dash.set_test_button("Refresh", "Re-check that the file still exists")
         dash.set_panel("setup", ["Property", "Value"],
                        self._file_detail_rows(payload, objects))
         dash.set_panel("columns", [], [], visible=False)
@@ -3429,8 +3473,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
     # ── Tables tab: preview / remove / per-file open-folder ────────────
 
-    def _on_dashboard_table_selected(self, table_name: str) -> None:
-        """Preview the selected member table (File Sources only)."""
+    def _on_dashboard_preview(self, table_name: str, rows: int) -> None:
+        """Preview N rows of the selected member table (File Sources only)."""
         if self._current_source_kind != "file_data_source" or self._current_file_source is None:
             return
         member = self._current_file_source.find_member_by_table(table_name)
@@ -3440,7 +3484,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         try:
             result = file_query_runner.run_sql(
                 self._current_file_source, f'SELECT * FROM "{table_name}"',
-                limit=100, table_names=[table_name])
+                limit=rows, table_names=[table_name])
             self._source_dashboard.set_preview(result.dataframe)
         except Exception as exc:
             logger.warning("File Source preview failed for %s: %s", table_name, exc)

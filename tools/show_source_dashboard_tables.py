@@ -73,6 +73,8 @@ def main():
         dash.tabs.setCurrentIndex(1)  # Tables tab
         if dash.tables_list.rowCount():
             dash.tables_list.selectRow(0)
+            dash.edit_preview_rows.setText("25")
+            dash.btn_preview.click()  # button-driven preview
         QTimer.singleShot(400, capture)
 
     def capture():
