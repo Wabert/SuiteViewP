@@ -222,6 +222,7 @@ class PolicyTab(QWidget):
         r = 0
         self.txt_issue_age_lo, self.txt_issue_age_hi = _add_range_row(grid, r, "Issue Age Range"); r += 1
         self.txt_current_age_lo, self.txt_current_age_hi = _add_range_row(grid, r, "Current Age Range"); r += 1
+        self.txt_val_age_lo, self.txt_val_age_hi = _add_range_row(grid, r, "Val Attained Age Range"); r += 1
         self.txt_pol_year_lo, self.txt_pol_year_hi = _add_range_row(grid, r, "Current Policy Year"); r += 1
         self.txt_issue_month_lo, self.txt_issue_month_hi = _add_range_row(grid, r, "Issue Month Range"); r += 1
         self.txt_issue_day_lo, self.txt_issue_day_hi = _add_range_row(grid, r, "Issue Day Range"); r += 1
@@ -411,6 +412,8 @@ class PolicyTab(QWidget):
             "txt_issue_age_hi": _t(self.txt_issue_age_hi),
             "txt_current_age_lo": _t(self.txt_current_age_lo),
             "txt_current_age_hi": _t(self.txt_current_age_hi),
+            "txt_val_age_lo": _t(self.txt_val_age_lo),
+            "txt_val_age_hi": _t(self.txt_val_age_hi),
             "txt_pol_year_lo": _t(self.txt_pol_year_lo),
             "txt_pol_year_hi": _t(self.txt_pol_year_hi),
             "txt_issue_month_lo": _t(self.txt_issue_month_lo),
@@ -467,6 +470,8 @@ class PolicyTab(QWidget):
         _t(self.txt_issue_age_hi, state.get("txt_issue_age_hi", ""))
         _t(self.txt_current_age_lo, state.get("txt_current_age_lo", ""))
         _t(self.txt_current_age_hi, state.get("txt_current_age_hi", ""))
+        _t(self.txt_val_age_lo, state.get("txt_val_age_lo", ""))
+        _t(self.txt_val_age_hi, state.get("txt_val_age_hi", ""))
         _t(self.txt_pol_year_lo, state.get("txt_pol_year_lo", ""))
         _t(self.txt_pol_year_hi, state.get("txt_pol_year_hi", ""))
         _t(self.txt_issue_month_lo, state.get("txt_issue_month_lo", ""))

@@ -1019,37 +1019,10 @@ class QueryObjectTests(unittest.TestCase):
                 payload = file_item.data(0, Qt.ItemDataRole.UserRole)
                 self.assertEqual(payload["badge_fill"], "#B58900")
                 self.assertEqual(payload["badge_text_color"], "#FFFFFF")
-                # Source groups: 0=ODBC, 1=MS Access, 2=Files, 3=File Sources.
-                files_item = window.source_tree.topLevelItem(2)
-                self.assertEqual(files_item.text(0), "Files (1)")
-                source_item = files_item.child(0)
-                self.assertEqual(source_item.text(0), "claims.csv")
-                source_query_item = source_item.child(0)
-                self.assertIn("Claims File Source", source_query_item.text(0))
-                source_payload = source_query_item.data(0, Qt.ItemDataRole.UserRole)
-                self.assertEqual(source_payload["type"], "query")
-                self.assertTrue(source_payload["source_tree"])
-                self.assertEqual(source_payload["badge_fill"], "#B58900")
-                self.assertEqual(source_payload["badge_text_color"], "#FFFFFF")
-
-                window.left_tabs.setCurrentIndex(1)
-                app.processEvents()
-                # Source groups: 0=ODBC, 1=MS Access, 2=Files, 3=File Sources.
-                files_item = window.source_tree.topLevelItem(2)
-                source_item = files_item.child(0)
-                source_query_item = source_item.child(0)
-                window.source_tree.setCurrentItem(source_item)
-                app.processEvents()
-                self.assertEqual(window.lbl_canvas_title.text(), "Data Sources: claims.csv")
-                window.source_tree.setCurrentItem(source_query_item)
-                app.processEvents()
-                self.assertEqual(window.lbl_canvas_title.text(),
-                                 "Data Sources: Claims File Source")
-
-                opened = []
-                window._on_open_builder = lambda: opened.append(window._current.name)
-                window._on_source_tree_double_clicked(source_query_item, 0)
-                self.assertEqual(opened, ["Claims File Source"])
+                # The legacy "Files" group was removed; the only registered
+                # source registry is "File Sources". This un-migrated adhoc
+                # source therefore lives in the Queries tree, not the source
+                # tree, so there is no source-tree node to assert here.
 
                 window.tree.setCurrentItem(file_item)
                 app.processEvents()

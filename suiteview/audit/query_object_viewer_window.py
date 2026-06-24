@@ -588,6 +588,7 @@ class _SourceDashboard(QWidget):
     save_requested = pyqtSignal()                 # persist the editable draft
     add_files_requested = pyqtSignal(list)        # member file paths to add
     pick_files_requested = pyqtSignal()           # open a file picker to add members
+    bulk_columns_requested = pyqtSignal()         # open the multi-line column-spec box
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -823,7 +824,24 @@ class _SourceDashboard(QWidget):
         hint.setFont(_FONT_SMALL)
         hint.setStyleSheet(
             "color: #6B7280; font-style: italic; border: none; background: transparent;")
-        lay.addWidget(hint)
+        hint_row = QHBoxLayout()
+        hint_row.setContentsMargins(0, 0, 0, 0)
+        hint_row.setSpacing(6)
+        hint_row.addWidget(hint)
+        hint_row.addStretch(1)
+        self.btn_bulk_columns = QPushButton("Enter Columns…")
+        self.btn_bulk_columns.setFont(_FONT_SMALL)
+        self.btn_bulk_columns.setFixedHeight(20)
+        self.btn_bulk_columns.setToolTip(
+            "Type or paste all columns at once — one name per line, or "
+            "name,start,width for a fixed-width layout")
+        self.btn_bulk_columns.setStyleSheet(
+            "QPushButton { background: #F8FAFC; border: 1px solid #8AAED8;"
+            " border-radius: 3px; color: #0D3A7A; padding: 1px 8px; }"
+            "QPushButton:hover { background: #E8F0FB; border-color: #1E5BA8; }")
+        self.btn_bulk_columns.clicked.connect(self.bulk_columns_requested.emit)
+        hint_row.addWidget(self.btn_bulk_columns)
+        lay.addLayout(hint_row)
         self.tbl_columns_edit = QTableWidget(0, 2)
         self.tbl_columns_edit.setHorizontalHeaderLabels(["Column", "Type"])
         self.tbl_columns_edit.verticalHeader().setVisible(False)
@@ -1598,6 +1616,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._source_dashboard.save_requested.connect(self._on_source_save)
         self._source_dashboard.add_files_requested.connect(self._on_add_files_to_source)
         self._source_dashboard.pick_files_requested.connect(self._on_pick_files_for_source)
+        self._source_dashboard.bulk_columns_requested.connect(self._on_bulk_edit_columns)
 
         canvas_shell = QWidget()
         canvas_shell.setMinimumWidth(_RIGHT_PANEL_MIN_WIDTH)
@@ -1913,12 +1932,13 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             "QTreeWidget::item { padding: 0px 4px; border: none; }"
             "QTreeWidget::item:hover { background: #F2F7FD; }"
             "QTreeWidget::item:selected { background: #DCEAFB; color: #0D3A7A; }"
-            "QTreeWidget::branch:selected { background: #DCEAFB; }"
-            "QTreeWidget::branch:hover { background: #F2F7FD; }"
         )
         self.source_tree.itemClicked.connect(self._on_source_tree_clicked)
         self.source_tree.currentItemChanged.connect(self._on_source_tree_selection)
         self.source_tree.itemDoubleClicked.connect(self._on_source_tree_double_clicked)
+        self.source_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.source_tree.customContextMenuRequested.connect(
+            self._on_source_tree_context_menu)
         panel_lay.addWidget(self.source_tree, 1)
         return panel
 
@@ -2170,8 +2190,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             dsn = _display_dsn_for_object(obj) or obj.source_design or "?"
             item = QTreeWidgetItem([f"{obj.name}  [{dsn}]"])
             item.setFont(0, _FONT)
-            item.setForeground(0, QColor(style.color))
-            item.setBackground(0, QBrush(QColor(style.tint)))
+            item.setForeground(0, QColor("#000000"))
             item.setToolTip(0, f"{style.label} - {dsn}")
             payload = {
                 "type": "query",
@@ -2215,7 +2234,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 return
             root = QTreeWidgetItem([f"{title} ({len(visible_sources)})"])
             root.setFont(0, QFont("Segoe UI", 9, QFont.Weight.Bold))
-            root.setForeground(0, QColor("#0D3A7A"))
+            root.setForeground(0, QColor("#000000"))
             root.setBackground(0, QBrush(QColor("#E8F0FB")))
             payload = {"type": "source_group", "group": group_key}
             root.setData(0, Qt.ItemDataRole.UserRole, payload)
@@ -2231,7 +2250,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 registered = bool(source.get("registered"))
                 source_item = QTreeWidgetItem([label])
                 source_item.setFont(0, _FONT_BOLD)
-                source_item.setForeground(0, QColor("#B58900" if registered else src_color))
+                source_item.setForeground(0, QColor("#000000"))
                 tooltip = source.get("path") or source.get("dsn") or label
                 if group_key == "file_sources":
                     tooltip = "Double-click to edit this File Source"
@@ -2257,9 +2276,9 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 _track(source_item, source_payload)
                 if group_key == "file_sources":
                     for table_name, member_path in source.get("members", []):
-                        member_item = QTreeWidgetItem([f"{table_name}      —      {member_path}"])
+                        member_item = QTreeWidgetItem([_filename_from_path(member_path)])
                         member_item.setFont(0, _FONT)
-                        member_item.setForeground(0, QColor("#5B6B7A"))
+                        member_item.setForeground(0, QColor("#000000"))
                         member_item.setData(0, Qt.ItemDataRole.UserRole,
                                             {"type": "file_member", "label": table_name,
                                              "path": member_path})
@@ -2271,7 +2290,6 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
         _add_group("odbc", "ODBC", sorted(index["odbc"].values(), key=lambda item: item["label"].lower()))
         _add_group("access", "MS Access", sorted(index["access"].values(), key=lambda item: item["label"].lower()))
-        _add_group("files", "Files", sorted(index["files"].values(), key=lambda item: (item["label"].lower(), item.get("path", "").lower())))
         _add_group("file_sources", "File Sources", sorted(index["file_sources"].values(), key=lambda item: item["label"].lower()))
 
         if selected_item is not None:
@@ -2503,6 +2521,46 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self._show_detail(obj)
         if self._current is not None and self._can_open_in_builder(self._current):
             self._on_open_builder()
+
+    def _on_source_tree_context_menu(self, pos) -> None:
+        """Right-click a File Source node to delete it."""
+        item = self.source_tree.itemAt(pos)
+        if item is None:
+            return
+        payload = _payload(item)
+        if payload.get("type") != "file_data_source":
+            return
+        menu = QMenu(self.source_tree)
+        delete_action = menu.addAction("Delete File Source")
+        chosen = menu.exec(self.source_tree.viewport().mapToGlobal(pos))
+        if chosen is delete_action:
+            self._delete_file_source_by_payload(payload)
+
+    def _delete_file_source_by_payload(self, payload: dict) -> None:
+        """Confirm and delete a File Source identified by a tree payload."""
+        from suiteview.audit import file_source_store
+
+        fs_id = str(payload.get("file_source_id") or payload.get("key", "")).strip()
+        fds = file_source_store.load_file_source_by_id(fs_id)
+        if fds is None:
+            return
+        objects = self._objects_from_payload(payload)
+        extra = (f"\n\n{len(objects)} query object(s) target it and will stop "
+                 "resolving.") if objects else ""
+        reply = QMessageBox.question(
+            self,
+            "Delete File Source",
+            f'Delete File Source "{fds.name}"?{extra}\n\n'
+            "This removes the source definition, not the underlying files.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        file_source_store.delete_file_source_by_id(fds.id)
+        self.refresh()
+        self._reset_current_source()
+        self._source_dashboard.show_empty("Select a data source")
 
     def _expanded_for_item(self, payload: dict, search_active: bool) -> bool:
         if search_active:
@@ -3689,12 +3747,12 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             dash.set_health(f"{len(fds.members)} files OK", "ok")
         if new:
             dash.set_actions(test=False, edit=False, new_query=False,
-                             open_folder=bool(self._current_source_path),
-                             delete=False, save=True, edit_format=True)
+                             open_folder=False, delete=False, save=True,
+                             edit_format=True)
         else:
-            dash.set_actions(test=True, edit=False, new_query=True,
-                             open_folder=bool(self._current_source_path),
-                             delete=True, save=True, edit_format=True)
+            dash.set_actions(test=False, edit=False, new_query=False,
+                             open_folder=False, delete=False, save=True,
+                             edit_format=True)
         dash.set_test_button("Refresh", "Re-check that the member files still exist")
         dash.set_editable_setup(
             fds.name, fds.description, self._file_source_info_text(fds))
@@ -3991,6 +4049,124 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             QMessageBox.warning(
                 self, "Format Changed",
                 "These files no longer match the new format and may fail to "
+                "query:\n• " + "\n• ".join(mismatched))
+
+    def _on_bulk_edit_columns(self) -> None:
+        """Multi-line column entry: a list of names, or name,start,width rows.
+
+        A names list renames the draft columns in place (Save persists). A
+        name,start,width block redefines a fixed-width layout — the format is
+        re-applied and the columns re-read, mirroring Edit Format."""
+        if (self._current_source_kind != "file_data_source"
+                or self._current_file_source is None):
+            return
+        from suiteview.audit.file_source import SOURCE_TYPE_EXCEL
+        from suiteview.audit.file_source_intake import parse_column_spec_text
+
+        fds = self._current_file_source
+        if fds.source_type == SOURCE_TYPE_EXCEL:
+            QMessageBox.information(
+                self, "Excel Columns",
+                "Excel columns follow the sheet's header row and can't be "
+                "entered here.")
+            return
+        if not fds.members:
+            QMessageBox.information(self, "Add a File First",
+                                   "Add a file before entering its columns.")
+            return
+
+        prefill = self._column_spec_prefill(fds)
+        message = (
+            "Enter one column name per line, or name,start,width for a "
+            "fixed-width layout.\n\nNames:\n  Policy\n  Company\n\n"
+            "Fixed width (name,start,width):\n  Policy,1,10\n  Company,11,2")
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Enter Columns", message, prefill)
+        if not ok:
+            return
+        try:
+            mode, parsed = parse_column_spec_text(text)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid Columns", str(exc))
+            return
+        if mode == "fixed_width":
+            self._apply_fixed_width_columns(fds, parsed)
+        else:
+            self._apply_bulk_column_names(fds, parsed)
+
+    @staticmethod
+    def _column_spec_prefill(fds) -> str:
+        """Current columns as editable text for the multi-line box."""
+        from suiteview.audit.file_source import SOURCE_TYPE_FIXED_WIDTH
+        if fds.source_type == SOURCE_TYPE_FIXED_WIDTH:
+            specs = fds.parse_spec.get("columns", [])
+            if specs:
+                return "\n".join(
+                    f"{s.get('name', '')},{s.get('start', '')},{s.get('width', '')}"
+                    for s in specs)
+        return "\n".join(c.name for c in fds.columns)
+
+    def _apply_bulk_column_names(self, fds, names: list) -> None:
+        """Fill the editable columns table from a pasted name list.
+
+        Count must match the current columns; types are preserved and nothing
+        persists until Save."""
+        dash = self._source_dashboard
+        if not dash.names_editable:
+            QMessageBox.information(
+                self, "Names Fixed",
+                "This source's column names follow its file header and can't be "
+                "renamed here.")
+            return
+        draft = dash.editable_columns()
+        if len(names) != len(draft):
+            QMessageBox.warning(
+                self, "Column Count Mismatch",
+                f"The source has {len(draft)} columns but you entered "
+                f"{len(names)} names.\n\nEnter exactly {len(draft)} names, or use "
+                "name,start,width on every line to redefine a fixed-width layout.")
+            return
+        dash.set_editable_columns(
+            [(name, data_type) for name, (_, data_type) in zip(names, draft)],
+            names_editable=True)
+        dash.set_dirty(True)
+        dash.tabs.setCurrentIndex(0)
+
+    def _apply_fixed_width_columns(self, fds, columns: list) -> None:
+        """Re-apply a fixed-width layout from pasted name,start,width rows.
+
+        Reuses the format re-inference path so columns are re-read from the first
+        member; the change is staged (Save persists)."""
+        from suiteview.audit.adhoc_source_intake import fixed_width_spec
+        from suiteview.audit.file_source_intake import (
+            infer_file_source_from_file, validate_member_file)
+
+        skip_rows = int(fds.parse_spec.get("skip_rows", 0) or 0)
+        spec = fixed_width_spec(columns, skip_rows=skip_rows)
+        first = fds.members[0].path
+        try:
+            fresh = infer_file_source_from_file(first, name=fds.name, format_spec=spec)
+        except Exception as exc:  # noqa: BLE001 — surface any read error
+            QMessageBox.warning(self, "Could Not Apply Columns", f"{exc}")
+            return
+        fds.source_type = fresh.source_type
+        fds.parse_spec = fresh.parse_spec
+        fds.columns = fresh.columns
+        mismatched = []
+        for member in fds.members:
+            try:
+                if validate_member_file(fds, member.path):
+                    mismatched.append(Path(member.path).name)
+            except Exception:  # noqa: BLE001 — unreadable under the new format
+                mismatched.append(Path(member.path).name)
+        self._render_file_source(
+            fds, self._current_source_payload, new=self._file_source_is_new)
+        self._source_dashboard.set_dirty(True)
+        self._source_dashboard.tabs.setCurrentIndex(0)
+        if mismatched:
+            QMessageBox.warning(
+                self, "Columns Changed",
+                "These files no longer match the new layout and may fail to "
                 "query:\n• " + "\n• ".join(mismatched))
 
     def _on_pick_files_for_source(self) -> None:

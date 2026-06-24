@@ -16,7 +16,8 @@ from suiteview.audit.adhoc_source_intake import (  # noqa: E402
 from suiteview.audit.file_source_intake import (  # noqa: E402
     FileValidationError, add_member_file, apply_column_names,
     infer_file_source_from_file, migrate_adhoc_to_file_source,
-    parse_column_names, unique_table_name, validate_member_file,
+    parse_column_names, parse_column_spec_text, unique_table_name,
+    validate_member_file,
 )
 
 
@@ -191,6 +192,48 @@ def test_migrate_rejects_non_adhoc():
     obj = manual_sql_query_object("X", sql="SELECT 1", dsn="D", result_columns=["a"])
     with pytest.raises(FileValidationError):
         migrate_adhoc_to_file_source(obj)
+
+
+def test_parse_column_spec_names_one_per_line():
+    mode, parsed = parse_column_spec_text("Policy\nCompany\nAmount")
+    assert mode == "names"
+    assert parsed == ["Policy", "Company", "Amount"]
+
+
+def test_parse_column_spec_names_comma_separated():
+    mode, parsed = parse_column_spec_text("Policy, Company, Amount")
+    assert mode == "names"
+    assert parsed == ["Policy", "Company", "Amount"]
+
+
+def test_parse_column_spec_fixed_width():
+    mode, parsed = parse_column_spec_text("Policy,1,10\nCompany,11,2\nAmount,13,9")
+    assert mode == "fixed_width"
+    assert parsed == [
+        {"name": "Policy", "start": 1, "width": 10},
+        {"name": "Company", "start": 11, "width": 2},
+        {"name": "Amount", "start": 13, "width": 9},
+    ]
+
+
+def test_parse_column_spec_rejects_mixed_formats():
+    with pytest.raises(ValueError):
+        parse_column_spec_text("Policy,1,10\nCompany")
+
+
+def test_parse_column_spec_rejects_empty():
+    with pytest.raises(ValueError):
+        parse_column_spec_text("   \n  ")
+
+
+def test_parse_column_spec_rejects_duplicate_names():
+    with pytest.raises(ValueError):
+        parse_column_spec_text("Policy\npolicy")
+
+
+def test_parse_column_spec_fixed_width_rejects_duplicate_names():
+    with pytest.raises(ValueError):
+        parse_column_spec_text("Policy,1,10\npolicy,11,2")
 
 
 if __name__ == "__main__":

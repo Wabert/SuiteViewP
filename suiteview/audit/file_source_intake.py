@@ -170,6 +170,50 @@ def parse_column_names(text: str) -> list[str]:
     return names
 
 
+def _looks_like_fixed_width_line(line: str) -> bool:
+    """True if ``line`` is ``name,start,width`` with integer start and width."""
+    parts = [part.strip() for part in line.split(",")]
+    if len(parts) != 3:
+        return False
+    try:
+        int(parts[1])
+        int(parts[2])
+    except ValueError:
+        return False
+    return True
+
+
+def parse_column_spec_text(text: str) -> tuple[str, list]:
+    """Parse the multi-line column-spec box into one of two shapes.
+
+    Returns ``("fixed_width", [{"name", "start", "width"}, ...])`` when *every*
+    non-empty line is ``name,start,width`` (integer start/width), otherwise
+    ``("names", [name, ...])`` parsed the same way as ``parse_column_names``
+    (one per line or comma-separated). Raises ValueError if the box is empty,
+    mixes the two formats, or has blank/duplicate names.
+    """
+    raw_lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not raw_lines:
+        raise ValueError("Enter at least one column.")
+    fixed_flags = [_looks_like_fixed_width_line(line) for line in raw_lines]
+    if all(fixed_flags):
+        columns: list[dict] = []
+        for line in raw_lines:
+            name, start, width = (part.strip() for part in line.split(","))
+            columns.append({"name": name, "start": int(start), "width": int(width)})
+        names = [col["name"] for col in columns]
+        if any(not name for name in names):
+            raise ValueError("Each fixed-width column needs a name.")
+        if len({name.lower() for name in names}) != len(names):
+            raise ValueError("Column names must be unique.")
+        return "fixed_width", columns
+    if any(fixed_flags):
+        raise ValueError(
+            "Mixed formats. Use either one column name per line, or "
+            "name,start,width on every line.")
+    return "names", parse_column_names(text)
+
+
 def apply_column_names(file_source: FileDataSource, names: list[str]) -> None:
     """Rename schema columns and push the rename into the parse spec.
 

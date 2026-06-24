@@ -313,7 +313,8 @@ class QueryOrganizer:
           browser starts looking like the old kind-based view.
         """
         organizable = [o for o in objects if not _is_forge_owned(o)]
-        known_ids = {o.id for o in organizable}
+        by_id = {o.id: o for o in organizable}
+        known_ids = set(by_id)
         forge_set = set(forge_names)
         changed = False
 
@@ -328,27 +329,62 @@ class QueryOrganizer:
             self._data["seeded"] = True
             changed = True
 
-        # Prune dead refs.
+        # Re-link refs whose query id changed underneath us. An identity
+        # migration (e.g. moving onto a new code version) can re-stamp a
+        # query's id while its name stays the same; without re-linking, the
+        # stale ref would be pruned below and the query re-appended to Commons,
+        # silently emptying the user's groups on every such upgrade.
+        organized_now = {ref.get("query_id") for ref in self._all_query_refs()
+                         if ref.get("query_id") in known_ids}
+        unclaimed_by_name: dict[str, list[str]] = {}
+        for obj in organizable:
+            if obj.id not in organized_now:
+                unclaimed_by_name.setdefault(obj.name, []).append(obj.id)
+
+        def _resolve(ref: dict) -> bool:
+            """True if ``ref`` points at a live query — re-linking by name when
+            the stored id went stale. False means the ref is truly orphaned."""
+            nonlocal changed
+            if ref.get("query_id") in known_ids:
+                return True
+            candidates = unclaimed_by_name.get(ref.get("name") or "")
+            if candidates:
+                ref["query_id"] = candidates.pop(0)
+                changed = True
+                return True
+            return False
+
+        # Prune dead refs (after attempting to re-link them by name).
         for item in list(self.items):
             kind = item.get("type")
-            if kind == ITEM_QUERY and item.get("query_id") not in known_ids:
-                self.items.remove(item)
-                changed = True
+            if kind == ITEM_QUERY:
+                if not _resolve(item):
+                    self.items.remove(item)
+                    changed = True
             elif kind == ITEM_FORGE and item.get("name") not in forge_set:
                 self.items.remove(item)
                 changed = True
             elif kind == ITEM_GROUP:
                 for child in list(item.get("items", [])):
-                    if child.get("query_id") not in known_ids:
+                    if not _resolve(child):
                         item["items"].remove(child)
                         changed = True
 
-        # Append anything on disk that isn't organized yet.
+        # Denormalize the current name onto every surviving ref so a future id
+        # churn can re-link by name (refs created before this carry no name).
+        for ref in self._all_query_refs():
+            obj = by_id.get(ref.get("query_id"))
+            if obj is not None and ref.get("name") != obj.name:
+                ref["name"] = obj.name
+                changed = True
+
+        # Append anything on disk that still isn't organized yet.
         organized = {ref.get("query_id") for ref in self._all_query_refs()}
         commons_items = self.commons_group().setdefault("items", [])
         for obj in organizable:
             if obj.id not in organized:
-                commons_items.append({"type": ITEM_QUERY, "query_id": obj.id})
+                commons_items.append({"type": ITEM_QUERY, "query_id": obj.id,
+                                      "name": obj.name})
                 changed = True
         listed_forges = {i.get("name") for i in self.items
                          if i.get("type") == ITEM_FORGE}

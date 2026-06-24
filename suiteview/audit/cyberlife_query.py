@@ -125,6 +125,35 @@ def _build_custom_display(custom_display_tab, result_cov_alias: str,
     return select_lines, join_lines
 
 
+def _valuation_date_sql(schema: str) -> str:
+    """SQL expression for the policy valuation date.
+
+    Mirrors PolView's ``PolicyInformation.valuation_date`` across product
+    types:
+      • advanced products (``NON_TRD_POL_IND='1'``) → most recent
+        monthliversary (``LH_POL_MVRY_VAL.MVRY_DT``);
+      • otherwise → last processed monthliversary
+        (``NXT_MVRY_PRC_DT − 1 month``);
+      • otherwise → last financial date (``LST_FIN_DT``).
+    ``9999`` sentinel dates are excluded at every step.
+    """
+    return (
+        "COALESCE("
+        "CASE WHEN POLICY1.NON_TRD_POL_IND = '1' THEN "
+        f"(SELECT MAX(MV.MVRY_DT) FROM {schema}.LH_POL_MVRY_VAL MV "
+        "WHERE MV.CK_SYS_CD = POLICY1.CK_SYS_CD "
+        "AND MV.CK_CMP_CD = POLICY1.CK_CMP_CD "
+        "AND MV.TCH_POL_ID = POLICY1.TCH_POL_ID "
+        "AND YEAR(MV.MVRY_DT) < 9999) END, "
+        "CASE WHEN POLICY1.NXT_MVRY_PRC_DT IS NOT NULL "
+        "AND YEAR(POLICY1.NXT_MVRY_PRC_DT) < 9999 "
+        "THEN POLICY1.NXT_MVRY_PRC_DT - 1 MONTH END, "
+        "CASE WHEN POLICY1.LST_FIN_DT IS NOT NULL "
+        "AND YEAR(POLICY1.LST_FIN_DT) < 9999 "
+        "THEN POLICY1.LST_FIN_DT END)"
+    )
+
+
 def build_cyberlife_sql(
     schema: str,
     sys_code: str,
@@ -174,6 +203,8 @@ def build_cyberlife_sql(
     # ── Check which range filters are active (for conditional SELECT columns) ──
     has_current_age = bool(pt.txt_current_age_lo.text().strip() or
                            pt.txt_current_age_hi.text().strip())
+    has_val_age = bool(pt.txt_val_age_lo.text().strip() or
+                       pt.txt_val_age_hi.text().strip())
     has_pol_year = bool(pt.txt_pol_year_lo.text().strip() or
                         pt.txt_pol_year_hi.text().strip())
     has_issue_month = bool(pt.txt_issue_month_lo.text().strip() or
@@ -789,6 +820,14 @@ def build_cyberlife_sql(
                      + f"', {result_cov_alias}.ISSUE_DT) / 12, 0)")
     if has_current_age:
         sql_parts.append(f"  , INTEGER({result_cov_alias}.INS_ISS_AGE + {duration_expr}) CurrentAge")
+    if has_val_age:
+        val_duration_expr = (
+            f"TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(schema)}, "
+            f"{result_cov_alias}.ISSUE_DT) / 12, 0)"
+        )
+        sql_parts.append(
+            f"  , INTEGER({result_cov_alias}.INS_ISS_AGE + {val_duration_expr}) ValAttainedAge"
+        )
     if has_pol_year:
         sql_parts.append(f"  , INTEGER({duration_expr} + 1) PolicyYear")
     if has_issue_month:
@@ -1818,6 +1857,17 @@ def build_cyberlife_sql(
         wheres,
         f"({result_cov_alias}.INS_ISS_AGE + {duration_expr})",
         pt.txt_current_age_lo, pt.txt_current_age_hi)
+
+    # -- Policy tab: Val Attained Age range (INS_ISS_AGE + duration from --
+    # -- the policy valuation date instead of today) --
+    val_duration_expr = (
+        f"TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(schema)}, "
+        f"{result_cov_alias}.ISSUE_DT) / 12, 0)"
+    )
+    add_int_range(
+        wheres,
+        f"({result_cov_alias}.INS_ISS_AGE + {val_duration_expr})",
+        pt.txt_val_age_lo, pt.txt_val_age_hi)
 
     # -- Policy tab: Current policy year (Duration + 1) --
     add_int_range(

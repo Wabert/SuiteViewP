@@ -281,6 +281,39 @@ def test_reconcile_skips_forge_owned_copies(tmp_home):
     print("  reconcile skips forge-owned copies  OK")
 
 
+def test_reconcile_relinks_group_member_after_id_churn(tmp_home):
+    """A query whose on-disk id changes (identity migration) keeps its group
+    membership instead of being dumped into Commons."""
+    q = _make("Claims Report")
+    org = _organizer_no_seed()
+    grp = org.create_group("Claims")
+    org.move_query(q.id, grp["id"])
+    org.reconcile(query_object_store.list_objects(), [])
+    org.save()
+    assert any(c.get("query_id") == q.id
+               for c in org.find_group(grp["id"]).get("items", []))
+
+    # Simulate an identity migration: same name + content, brand-new id.
+    objects_dir = Path(os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"])
+    path = next(p for p in objects_dir.glob("*.json")
+                if json.loads(p.read_text())["id"] == q.id)
+    data = json.loads(path.read_text())
+    new_id = "deadbeef" + data["id"][8:]
+    data["id"] = new_id
+    path.write_text(json.dumps(data))
+    path.rename(objects_dir / f"Claims Report__{new_id[:8]}.json")
+
+    reloaded = _organizer()
+    reloaded.load()
+    reloaded.reconcile(query_object_store.list_objects(), [])
+    claims = reloaded.find_group(grp["id"])
+    commons = reloaded.find_group(COMMONS_GROUP_ID)
+    # Re-linked to the new id, still in Claims — never fell into Commons.
+    assert any(c.get("query_id") == new_id for c in claims.get("items", []))
+    assert all(c.get("query_id") != new_id for c in commons.get("items", []))
+    print("  reconcile re-links group member after id churn  OK")
+
+
 def test_copy_query_and_clone_group(tmp_home):
     a, b = _make("A"), _make("B")
     org = _organizer_no_seed()
