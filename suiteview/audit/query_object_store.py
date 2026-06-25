@@ -113,6 +113,24 @@ def list_objects() -> list[QueryObject]:
     return objects
 
 
+def existing_object_id8s() -> set[str]:
+    """Return the 8-char id suffix of every query-object file on disk.
+
+    This reads only filenames (``<safe_name>__<id8>.json``) and never parses
+    the JSON, so it still reports a query's presence even when the file is
+    temporarily unreadable (cloud-sync dehydration, a file lock, a transient
+    parse failure). The organizer uses it to avoid pruning a group membership
+    for a query whose file is still on disk but merely failed to load this pass.
+    """
+    _ensure_dir()
+    id8s: set[str] = set()
+    for path in _objects_dir().glob("*__*.json"):
+        suffix = path.stem.rsplit("__", 1)[-1]
+        if suffix:
+            id8s.add(suffix)
+    return id8s
+
+
 def load_object_by_id(object_id: str) -> QueryObject | None:
     """Load one query object by its permanent id."""
     if not object_id:

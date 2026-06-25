@@ -324,10 +324,26 @@ class QueryOrganizer:
 
         changed = self._ensure_commons() or changed
 
+        # A momentarily empty or unreadable object store must never wipe the
+        # user's groups. If the store handed us nothing but we already track
+        # queries, treat it as a transient read (store renamed/locked mid-scan,
+        # a half-finished sync, an antivirus quarantine) and leave the
+        # organization intact — the queries return on the next refresh once the
+        # store reads cleanly. Without this guard a single bad read prunes every
+        # group member and the follow-up refresh dumps them all into Commons.
+        if not organizable and self._has_organized_queries():
+            return changed
+
         if first_run and organizable:
             self._seed_from_kinds(organizable)
             self._data["seeded"] = True
             changed = True
+
+        # Remember each query's current group BEFORE any pruning, so a query
+        # that disappears (genuine re-create, id migration, or a transient read
+        # failure that briefly hides its file) can be restored to its group on
+        # reappearance instead of falling into Commons.
+        changed = self._record_homes() or changed
 
         # Re-link refs whose query id changed underneath us. An identity
         # migration (e.g. moving onto a new code version) can re-stamp a
@@ -341,6 +357,16 @@ class QueryOrganizer:
             if obj.id not in organized_now:
                 unclaimed_by_name.setdefault(obj.name, []).append(obj.id)
 
+        # Ids of every query whose file is still physically on disk, derived
+        # from filenames alone. A ref whose object failed to load THIS pass
+        # (cloud-sync dehydration, a file lock, a transient parse error) must
+        # not be pruned while its file still exists, or the user's groups empty
+        # out and everything lands in Commons on the next refresh.
+        try:
+            on_disk_id8s = query_object_store.existing_object_id8s()
+        except Exception:  # pragma: no cover - never let a scan failure prune
+            on_disk_id8s = set()
+
         def _resolve(ref: dict) -> bool:
             """True if ``ref`` points at a live query — re-linking by name when
             the stored id went stale. False means the ref is truly orphaned."""
@@ -351,6 +377,12 @@ class QueryOrganizer:
             if candidates:
                 ref["query_id"] = candidates.pop(0)
                 changed = True
+                return True
+            # The object didn't load this pass, but if its file is still on
+            # disk keep the membership intact — it will re-link cleanly once the
+            # file is readable again rather than being dumped into Commons.
+            qid = ref.get("query_id") or ""
+            if qid[:8] in on_disk_id8s:
                 return True
             return False
 
@@ -378,14 +410,19 @@ class QueryOrganizer:
                 ref["name"] = obj.name
                 changed = True
 
-        # Append anything on disk that still isn't organized yet.
+        # Append anything on disk that still isn't organized yet. A query that
+        # was previously filed in a group — and has since vanished and
+        # reappeared (genuine re-create, an id migration, or a transient read
+        # failure that briefly hid it) — returns to that remembered group
+        # instead of being dumped into Commons.
         organized = {ref.get("query_id") for ref in self._all_query_refs()}
-        commons_items = self.commons_group().setdefault("items", [])
         for obj in organizable:
-            if obj.id not in organized:
-                commons_items.append({"type": ITEM_QUERY, "query_id": obj.id,
-                                      "name": obj.name})
-                changed = True
+            if obj.id in organized:
+                continue
+            target = self._home_group_for(obj) or self.commons_group()
+            target.setdefault("items", []).append(
+                {"type": ITEM_QUERY, "query_id": obj.id, "name": obj.name})
+            changed = True
         listed_forges = {i.get("name") for i in self.items
                          if i.get("type") == ITEM_FORGE}
         for forge_name in forge_names:
@@ -473,6 +510,49 @@ class QueryOrganizer:
                 refs.extend(c for c in item.get("items", [])
                             if c.get("type") == ITEM_QUERY)
         return refs
+
+    def _has_organized_queries(self) -> bool:
+        """True if any query ref exists anywhere (Commons, a group, or root)."""
+        return any(self._all_query_refs())
+
+    def _record_homes(self) -> bool:
+        """Remember the group each query currently lives in, keyed by name.
+
+        Names are denormalized onto refs and survive id churn, so a name is the
+        stable handle for "where did this query live" across a vanish/reappear.
+        Commons membership is recorded too (as the Commons id) so a query the
+        user deliberately moved to Commons is not yanked back into an old group.
+        """
+        homes = self._data.setdefault("homes", {})
+        changed = False
+        for item in self.items:
+            if item.get("type") != ITEM_GROUP:
+                continue
+            group_id = item.get("id")
+            for child in item.get("items", []):
+                if child.get("type") != ITEM_QUERY:
+                    continue
+                name = child.get("name")
+                if not name:
+                    continue
+                if homes.get(name) != group_id:
+                    homes[name] = group_id
+                    changed = True
+        return changed
+
+    def _home_group_for(self, obj: QueryObject) -> dict | None:
+        """The remembered group for a reappearing query, or None for Commons.
+
+        Returns None when the query has no remembered home, its home was
+        Commons, or that group no longer exists — callers fall back to Commons.
+        """
+        group_id = self._data.get("homes", {}).get(obj.name)
+        if group_id is None or group_id == COMMONS_GROUP_ID:
+            return None
+        group = self.find_group(group_id)
+        if group is None or self.is_commons_group(group):
+            return None
+        return group
 
     def _seed_from_kinds(self, objects: list[QueryObject]) -> None:
         by_kind: dict[str, list[QueryObject]] = {}

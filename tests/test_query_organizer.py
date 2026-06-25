@@ -314,6 +314,96 @@ def test_reconcile_relinks_group_member_after_id_churn(tmp_home):
     print("  reconcile re-links group member after id churn  OK")
 
 
+def test_reconcile_transient_empty_store_does_not_wipe_groups(tmp_home):
+    """A momentarily empty/unreadable object store must not strip group
+    membership — the queries return on the next clean read."""
+    q = _make("Claims Report")
+    org = _organizer_no_seed()
+    grp = org.create_group("Claims")
+    org.move_query(q.id, grp["id"])
+    org.reconcile(query_object_store.list_objects(), [])
+    org.save()
+    assert any(c.get("query_id") == q.id
+               for c in org.find_group(grp["id"]).get("items", []))
+
+    # Simulate the store reading back empty (locked dir, sync in progress).
+    reloaded = _organizer()
+    reloaded.load()
+    changed = reloaded.reconcile([], [])
+    # Group membership is left exactly as it was — nothing dumped to Commons.
+    assert any(c.get("query_id") == q.id
+               for c in reloaded.find_group(grp["id"]).get("items", []))
+    assert all(c.get("query_id") != q.id
+               for c in reloaded.commons_group().get("items", []))
+    assert changed is False
+    print("  reconcile transient-empty store keeps groups  OK")
+
+
+def test_reconcile_keeps_ref_when_file_on_disk_but_unread(tmp_home):
+    """A query whose file is still on disk but failed to load this pass (cloud
+    dehydration, a lock, a parse error) keeps its group membership — it is not
+    pruned just because it was absent from the objects list."""
+    keep = _make("Kept Report")
+    flaky = _make("Flaky Report")
+    org = _organizer_no_seed()
+    grp = org.create_group("Reinsurance")
+    org.move_query(keep.id, grp["id"])
+    org.move_query(flaky.id, grp["id"])
+    org.reconcile(query_object_store.list_objects(), [])
+    org.save()
+
+    # Partial read: `flaky` is missing from the list, but its file is still on
+    # disk, so the ref must survive untouched.
+    org2 = _organizer()
+    org2.load()
+    org2.reconcile([keep], [])
+    assert any(c.get("query_id") == flaky.id
+               for c in org2.find_group(grp["id"]).get("items", []))
+    assert all(c.get("query_id") != flaky.id
+               for c in org2.commons_group().get("items", []))
+    print("  reconcile keeps ref when file on disk but unread  OK")
+
+
+def test_reconcile_returns_reappearing_query_to_home_group(tmp_home):
+    """A query that genuinely vanishes (deleted file) while the rest of the
+    store reads fine, then later reappears, returns to its remembered group
+    instead of being dumped into Commons."""
+    keep = _make("Kept Report")
+    gone = _make("Reins Report")
+    org = _organizer_no_seed()
+    grp = org.create_group("Reinsurance")
+    org.move_query(keep.id, grp["id"])
+    org.move_query(gone.id, grp["id"])
+    org.reconcile(query_object_store.list_objects(), [])
+    org.save()
+
+    # Genuinely delete `gone`'s file so the on-disk guard cannot keep it; the
+    # missing ref is pruned this pass…
+    objects_dir = Path(os.environ["SUITEVIEW_QUERY_OBJECTS_DIR"])
+    gone_path = next(p for p in objects_dir.glob("*.json")
+                     if json.loads(p.read_text())["id"] == gone.id)
+    gone_bytes = gone_path.read_bytes()
+    gone_path.unlink()
+
+    org2 = _organizer()
+    org2.load()
+    org2.reconcile([keep], [])
+    org2.save()
+    assert all(c.get("query_id") != gone.id
+               for c in org2.find_group(grp["id"]).get("items", []))
+
+    # …but when `gone` reappears, it goes home to Reinsurance, not Commons.
+    gone_path.write_bytes(gone_bytes)
+    org3 = _organizer()
+    org3.load()
+    org3.reconcile([keep, gone], [])
+    assert any(c.get("query_id") == gone.id
+               for c in org3.find_group(grp["id"]).get("items", []))
+    assert all(c.get("query_id") != gone.id
+               for c in org3.commons_group().get("items", []))
+    print("  reconcile returns reappearing query to home group  OK")
+
+
 def test_copy_query_and_clone_group(tmp_home):
     a, b = _make("A"), _make("B")
     org = _organizer_no_seed()
