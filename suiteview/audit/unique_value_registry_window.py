@@ -9,18 +9,17 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSortFilterProxyModel
+from PyQt6.QtCore import Qt, QSortFilterProxyModel, pyqtSignal
 from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem, QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel,
     QTreeWidget, QTreeWidgetItem, QHeaderView,
     QTableView, QPushButton, QAbstractItemView, QMessageBox,
     QApplication, QMenu,
-    QLineEdit, QDialog, QFormLayout, QDialogButtonBox,
+    QTableWidget, QTableWidgetItem,
 )
 
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
@@ -130,6 +129,14 @@ _BTN_TOGGLE_STYLE = (
     "QPushButton:hover { background-color: #C5D8F5; }"
 )
 
+_BTN_GREEN_STYLE = (
+    "QPushButton { background-color: #2E7D32; color: white;"
+    " border: 1px solid #1B5E20; border-radius: 2px;"
+    " padding: 2px 12px; font-size: 8pt; }"
+    "QPushButton:hover { background-color: #388E3C; }"
+    "QPushButton:disabled { background-color: #A0A0A0; border: 1px solid #888; }"
+)
+
 _INACTIVE_FG = QColor("#999999")
 
 
@@ -143,40 +150,272 @@ class _NumericSortItem(QStandardItem):
             return super().__lt__(other)
 
 
-class _AddValueDialog(QDialog):
-    """Small dialog to add a new value entry."""
+class RegistryValueEditorWindow(FramelessWindowBase):
+    """Pop-out datagrid editor for a single field's registered values.
 
-    def __init__(self, field_title: str, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(f"Add Value — {field_title}")
-        self.setMinimumWidth(360)
-        lay = QFormLayout(self)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(8)
+    Shows Value (read-only), Description, Active, and Notes. The Value is
+    never editable but is included on Excel export so it can drive VLOOKUPs.
+    Paste anchors at the selected row and only writes the Description, Active,
+    and Notes columns, never running past the last existing row.
+    """
 
-        self.txt_value = QLineEdit()
-        self.txt_value.setPlaceholderText("Field value (required)")
-        lay.addRow("Value:", self.txt_value)
+    values_changed = pyqtSignal()
 
-        self.txt_desc = QLineEdit()
-        self.txt_desc.setPlaceholderText("Optional description")
-        lay.addRow("Description:", self.txt_desc)
+    # Editable column indices in this editor's grid.
+    COL_VALUE = 0
+    COL_DESC = 1
+    COL_ACTIVE = 2
+    COL_NOTES = 3
+    _HEADERS = ["Value", "Description", "Active", "Notes"]
+    # Clipboard columns map onto these grid columns, in order.
+    _PASTE_TARGET_COLS = (COL_DESC, COL_ACTIVE, COL_NOTES)
+    _ACTIVE_TRUE = {"1", "y", "yes", "true", "t", "active", "x", "\u2713"}
 
-        self.txt_notes = QLineEdit()
-        self.txt_notes.setPlaceholderText("Optional notes")
-        lay.addRow("Notes:", self.txt_notes)
+    def __init__(self, field_id: int, field_label: str, parent=None):
+        self._field_id = field_id
+        self._field_label = field_label
+        self._dirty = False
+        super().__init__(
+            title=f"Edit Values \u2014 {field_label}",
+            default_size=(760, 560),
+            min_size=(520, 360),
+            parent=parent,
+            header_colors=_HEADER_COLORS,
+            border_color=_BORDER_COLOR,
+        )
+        self._load_rows()
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        lay.addRow(buttons)
+    # ── UI ────────────────────────────────────────────────────────────
 
-    def get_data(self) -> tuple[str, str, str]:
-        return (self.txt_value.text().strip(),
-                self.txt_desc.text().strip(),
-                self.txt_notes.text().strip())
+    def build_content(self) -> QWidget:
+        body = QWidget()
+        body.setStyleSheet("QWidget { background-color: #F0F0F0; }")
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(8, 6, 8, 8)
+        lay.setSpacing(5)
+
+        lbl = QLabel(self._field_label)
+        lbl.setFont(_FONT_BOLD)
+        lbl.setStyleSheet("color: #0A1E5E; padding: 2px 0px;")
+        lay.addWidget(lbl)
+
+        # ── Action row ───────────────────────────────────────────────
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
+        btn_paste = QPushButton("Paste")
+        btn_paste.setFont(_FONT_SMALL)
+        btn_paste.setFixedHeight(22)
+        btn_paste.setStyleSheet(_BTN_STYLE)
+        btn_paste.setToolTip(
+            "Paste Description / Active / Notes from a copied Excel selection,"
+            " starting at the selected row")
+        btn_paste.clicked.connect(self._on_paste)
+        actions.addWidget(btn_paste)
+
+        btn_export = QPushButton("Export to Excel")
+        btn_export.setFont(_FONT_SMALL)
+        btn_export.setFixedHeight(22)
+        btn_export.setStyleSheet(_BTN_STYLE)
+        btn_export.setToolTip(
+            "Export Value, Description, Active and Notes to an Excel workbook")
+        btn_export.clicked.connect(self._on_export)
+        actions.addWidget(btn_export)
+
+        actions.addStretch()
+
+        btn_save = QPushButton("Save")
+        btn_save.setFont(_FONT_SMALL)
+        btn_save.setFixedHeight(22)
+        btn_save.setStyleSheet(_BTN_GREEN_STYLE)
+        btn_save.clicked.connect(self._on_save)
+        actions.addWidget(btn_save)
+        lay.addLayout(actions)
+
+        # ── Grid ─────────────────────────────────────────────────────
+        self.table = QTableWidget(0, len(self._HEADERS))
+        self.table.setHorizontalHeaderLabels(self._HEADERS)
+        self.table.setFont(_FONT)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(20)
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(self.COL_VALUE, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(self.COL_DESC, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(self.COL_ACTIVE, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.COL_NOTES, QHeaderView.ResizeMode.Stretch)
+        self.table.itemChanged.connect(self._on_item_changed)
+        active_hdr = self.table.horizontalHeaderItem(self.COL_ACTIVE)
+        if active_hdr is not None:
+            active_hdr.setToolTip("Type Yes/No (TRUE/FALSE or 1/0 also accepted)")
+        lay.addWidget(self.table, 1)
+
+        self.lbl_info = QLabel("")
+        self.lbl_info.setStyleSheet("color: #666; font-size: 8pt;")
+        lay.addWidget(self.lbl_info)
+        return body
+
+    # ── Data ──────────────────────────────────────────────────────────
+
+    def reload(self, field_id: int, field_label: str) -> None:
+        """Point the editor at a different field and reload its values."""
+        self._field_id = field_id
+        self._field_label = field_label
+        title = f"Edit Values \u2014 {field_label}"
+        self.setWindowTitle(title)
+        if hasattr(self, "_window_title_text"):
+            self._window_title_text = title
+        if hasattr(self, "_title_label"):
+            self._title_label.setText(title)
+        self._load_rows()
+
+    def _load_rows(self) -> None:
+        rows = registry.get_values_full(self._field_id, include_inactive=True)
+        self.table.blockSignals(True)
+        self.table.setRowCount(0)
+        for rec in rows:
+            r = self.table.rowCount()
+            self.table.insertRow(r)
+
+            item_val = QTableWidgetItem(rec.get("field_value") or "")
+            item_val.setFlags(item_val.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            item_val.setData(Qt.ItemDataRole.UserRole, rec["value_id"])
+            self.table.setItem(r, self.COL_VALUE, item_val)
+
+            self.table.setItem(
+                r, self.COL_DESC,
+                QTableWidgetItem(rec.get("value_description") or ""))
+
+            item_active = QTableWidgetItem(
+                self._active_text(bool(rec.get("is_active", 1))))
+            item_active.setFlags(
+                item_active.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+            item_active.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(r, self.COL_ACTIVE, item_active)
+
+            self.table.setItem(
+                r, self.COL_NOTES, QTableWidgetItem(rec.get("notes") or ""))
+
+        self.table.blockSignals(False)
+        self._dirty = False
+        self.lbl_info.setText(f"{self.table.rowCount()} value(s)")
+
+    def _mark_dirty(self) -> None:
+        self._dirty = True
+
+    @staticmethod
+    def _active_text(active: bool) -> str:
+        return "Yes" if active else "No"
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        """Mark dirty and normalize the Active cell to Yes/No on edit."""
+        self._dirty = True
+        if item.column() == self.COL_ACTIVE:
+            normalized = self._active_text(self._parse_active(item.text()))
+            if item.text() != normalized:
+                self.table.blockSignals(True)
+                item.setText(normalized)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.blockSignals(False)
+
+    # ── Paste ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_clipboard(text: str) -> list[list[str]]:
+        """Split clipboard text into a grid of rows/cells (Excel TSV)."""
+        if not text:
+            return []
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        lines = text.split("\n")
+        if lines and lines[-1] == "":
+            lines.pop()  # Excel appends a trailing newline
+        return [line.split("\t") for line in lines]
+
+    @classmethod
+    def _parse_active(cls, text: str) -> bool:
+        return str(text).strip().lower() in cls._ACTIVE_TRUE
+
+    def _on_paste(self) -> None:
+        grid = self._parse_clipboard(QApplication.clipboard().text())
+        if not grid:
+            return
+        anchor = self.table.currentRow()
+        if anchor < 0:
+            anchor = 0
+        self.table.blockSignals(True)
+        written = 0
+        for i, cells in enumerate(grid):
+            row = anchor + i
+            if row >= self.table.rowCount():
+                break  # never run past the last existing row
+            for col, value in zip(self._PASTE_TARGET_COLS, cells):
+                if col == self.COL_ACTIVE:
+                    self.table.item(row, col).setText(
+                        self._active_text(self._parse_active(value)))
+                else:
+                    self.table.item(row, col).setText(value)
+            written += 1
+        self.table.blockSignals(False)
+        self._dirty = True
+        self.lbl_info.setText(
+            f"Pasted into {written} row(s) starting at row {anchor + 1}")
+
+    # ── Export ────────────────────────────────────────────────────────
+
+    def _collect_export_rows(self) -> list[list[str]]:
+        out = []
+        for r in range(self.table.rowCount()):
+            active = self._parse_active(self.table.item(r, self.COL_ACTIVE).text())
+            out.append([
+                self.table.item(r, self.COL_VALUE).text(),
+                self.table.item(r, self.COL_DESC).text(),
+                self._active_text(active),
+                self.table.item(r, self.COL_NOTES).text(),
+            ])
+        return out
+
+    def _on_export(self) -> None:
+        rows = self._collect_export_rows()
+        if not rows:
+            QMessageBox.information(self, "Export", "No data to export.")
+            return
+        try:
+            from suiteview.core.excel_export import (
+                dump_to_new_workbook, ExcelExportError)
+            sheet = self._field_label.replace(".", "_")
+            # Value is column 1 — force text so leading-zero codes are preserved.
+            dump_to_new_workbook(
+                self._HEADERS, rows, sheet_name=sheet, text_col_indexes=[1])
+        except ExcelExportError as exc:
+            QMessageBox.warning(self, "Excel Error", str(exc))
+        except Exception as exc:
+            logger.exception("Registry value editor Excel export failed")
+            QMessageBox.warning(self, "Excel Error", f"Could not export:\n{exc}")
+
+    # ── Save ──────────────────────────────────────────────────────────
+
+    def _on_save(self) -> None:
+        try:
+            for r in range(self.table.rowCount()):
+                value_id = self.table.item(r, self.COL_VALUE).data(
+                    Qt.ItemDataRole.UserRole)
+                active = self._parse_active(
+                    self.table.item(r, self.COL_ACTIVE).text())
+                registry.update_value(
+                    value_id,
+                    value_description=self.table.item(r, self.COL_DESC).text(),
+                    notes=self.table.item(r, self.COL_NOTES).text(),
+                    is_active=1 if active else 0,
+                )
+        except Exception as exc:
+            logger.exception("Failed to save registry values")
+            QMessageBox.warning(self, "Save Error", str(exc))
+            return
+        self._dirty = False
+        self.values_changed.emit()
+        self.lbl_info.setText("Saved.")
 
 
 class UniqueValueRegistryWindow(FramelessWindowBase):
@@ -239,14 +478,6 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.btn_refresh.clicked.connect(self._refresh_all)
         toolbar.addWidget(self.btn_refresh)
 
-        self.btn_delete = QPushButton("Deactivate Field")
-        self.btn_delete.setFont(_FONT_SMALL)
-        self.btn_delete.setFixedHeight(22)
-        self.btn_delete.setStyleSheet(_BTN_RED_STYLE)
-        self.btn_delete.setToolTip("Deactivate selected field registration")
-        self.btn_delete.clicked.connect(self._delete_selected)
-        toolbar.addWidget(self.btn_delete)
-
         toolbar.addStretch()
 
         self.lbl_summary = QLabel("")
@@ -285,6 +516,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.tree.header().setStretchLastSection(True)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tree.currentItemChanged.connect(self._on_tree_selection_changed)
+        self.tree.currentItemChanged.connect(self._sync_edit_window_button)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._on_tree_context_menu)
         left_lay.addWidget(self.tree)
@@ -320,24 +552,6 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         action_bar = QHBoxLayout()
         action_bar.setSpacing(6)
 
-        self.btn_add = QPushButton("Add Value")
-        self.btn_add.setFont(_FONT_SMALL)
-        self.btn_add.setFixedHeight(22)
-        self.btn_add.setStyleSheet(_BTN_STYLE)
-        self.btn_add.setToolTip("Manually add a new value entry")
-        self.btn_add.clicked.connect(self._add_value)
-        self.btn_add.setEnabled(False)
-        action_bar.addWidget(self.btn_add)
-
-        self.btn_deactivate = QPushButton("Deactivate Value")
-        self.btn_deactivate.setFont(_FONT_SMALL)
-        self.btn_deactivate.setFixedHeight(22)
-        self.btn_deactivate.setStyleSheet(_BTN_RED_STYLE)
-        self.btn_deactivate.setToolTip("Mark selected value as inactive")
-        self.btn_deactivate.clicked.connect(self._deactivate_selected_value)
-        self.btn_deactivate.setEnabled(False)
-        action_bar.addWidget(self.btn_deactivate)
-
         self.btn_export = QPushButton("Export to Excel")
         self.btn_export.setFont(_FONT_SMALL)
         self.btn_export.setFixedHeight(22)
@@ -347,14 +561,16 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.btn_export.setEnabled(False)
         action_bar.addWidget(self.btn_export)
 
-        self.btn_view = QPushButton("View Table")
-        self.btn_view.setFont(_FONT_SMALL)
-        self.btn_view.setFixedHeight(22)
-        self.btn_view.setStyleSheet(_BTN_STYLE)
-        self.btn_view.setToolTip("Preview first 1000 rows of the selected table")
-        self.btn_view.clicked.connect(self._view_table_data)
-        self.btn_view.setEnabled(False)
-        action_bar.addWidget(self.btn_view)
+        self.btn_edit_window = QPushButton("\u270e  Edit in Window")
+        self.btn_edit_window.setFont(_FONT_SMALL)
+        self.btn_edit_window.setFixedHeight(22)
+        self.btn_edit_window.setStyleSheet(_BTN_GREEN_STYLE)
+        self.btn_edit_window.setToolTip(
+            "Open the selected field's values in an editable datagrid window"
+            " (Value is read-only; paste/edit Description, Active and Notes)")
+        self.btn_edit_window.clicked.connect(self._open_value_editor_window)
+        self.btn_edit_window.setEnabled(False)
+        action_bar.addWidget(self.btn_edit_window)
 
         action_bar.addStretch()
 
@@ -399,8 +615,6 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             Qt.ContextMenuPolicy.CustomContextMenu)
         self.value_table.customContextMenuRequested.connect(
             self._on_value_table_context_menu)
-        self.value_table.selectionModel().selectionChanged.connect(
-            self._on_value_selection_changed)
         right_lay.addWidget(self.value_table)
 
         self._canvas_panel = QWidget()
@@ -638,8 +852,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         stats += f"  |  {total_count:,} total rows"
         self.lbl_stats.setText(stats)
 
-        # Enable buttons
-        self.btn_add.setEnabled(True)
+        # Enable export when there are values to export
         self.btn_export.setEnabled(len(self._value_rows) > 0)
 
         # Default sort by count descending
@@ -687,18 +900,13 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             col_name = current.text(0)
             self.lbl_field_title.setText(f"{table_name}.{col_name}")
             self._show_values(reg_id)
-            self.btn_view.setEnabled(True)
         elif node_type == "table":
             dsn = current.data(0, _ROLE_DSN) or ""
             table_name = current.data(0, _ROLE_TABLE_NAME) or current.text(0)
             self._show_table_columns(dsn, table_name, current)
-            self.btn_view.setEnabled(True)
         elif node_type == "db":
             dsn = current.data(0, _ROLE_DSN) or current.text(0)
             self._show_dsn_details(dsn)
-            self.btn_view.setEnabled(False)
-        else:
-            self.btn_view.setEnabled(False)
 
     def _show_table_columns(self, dsn: str, table_name: str,
                             table_node: QTreeWidgetItem):
@@ -724,9 +932,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             self.value_model.setHorizontalHeaderLabels(
                 ["Column", "Type", "Size", "Nullable", "Registered"])
             self.value_model.itemChanged.connect(self._on_item_changed)
-            self.btn_add.setEnabled(False)
             self.btn_export.setEnabled(False)
-            self.btn_deactivate.setEnabled(False)
             return
 
         self.value_model.itemChanged.disconnect(self._on_item_changed)
@@ -788,9 +994,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.lbl_stats.setText(
             f"{len(columns)} column(s)  |  "
             f"{registered_count} registered")
-        self.btn_add.setEnabled(False)
         self.btn_export.setEnabled(False)
-        self.btn_deactivate.setEnabled(False)
 
     def _show_dsn_details(self, dsn: str):
         """Show ODBC connection details for a DSN in the right panel."""
@@ -832,75 +1036,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             self.value_table.setColumnHidden(col, True)
 
         self.lbl_stats.setText(f"{len(details)} properties")
-        self.btn_add.setEnabled(False)
         self.btn_export.setEnabled(False)
-        self.btn_deactivate.setEnabled(False)
-
-    def _view_table_data(self):
-        """Preview first 1000 rows of the currently selected table."""
-        current = self.tree.currentItem()
-        if current is None:
-            return
-
-        node_type = current.data(0, _ROLE_NODE_TYPE)
-
-        # Determine DSN and table from the selected node
-        if node_type == "table":
-            dsn = current.data(0, _ROLE_DSN) or ""
-            table_name = current.data(0, _ROLE_TABLE_NAME) or current.text(0)
-        elif node_type == "field":
-            dsn = current.data(0, _ROLE_DSN) or ""
-            table_name = current.data(0, _ROLE_TABLE_NAME) or ""
-        else:
-            return
-
-        if not table_name:
-            return
-
-        self.btn_view.setEnabled(False)
-        self.btn_view.setText("Loading\u2026")
-        QApplication.processEvents()
-
-        try:
-            col_names, rows = registry.preview_table_rows(dsn, table_name)
-        except Exception as exc:
-            logger.error("Failed to preview %s: %s", table_name, exc)
-            QMessageBox.warning(self, "Preview Error",
-                                f"Could not load table data:\n\n{exc}")
-            self.btn_view.setText("View Table")
-            self.btn_view.setEnabled(True)
-            return
-
-        self._current_field_id = None
-        self.lbl_field_title.setText(
-            f"{table_name}  ({len(rows):,} rows)")
-
-        self.value_model.itemChanged.disconnect(self._on_item_changed)
-        self.value_model.clear()
-        self.value_model.setHorizontalHeaderLabels(col_names)
-
-        for row in rows:
-            items = []
-            for val in row:
-                item = QStandardItem(
-                    str(val) if val is not None else "(NULL)")
-                item.setEditable(False)
-                items.append(item)
-            self.value_model.appendRow(items)
-
-        self.value_model.itemChanged.connect(self._on_item_changed)
-
-        self.value_table.resizeColumnsToContents()
-        hdr = self.value_table.horizontalHeader()
-        hdr.setStretchLastSection(True)
-
-        self.lbl_stats.setText(
-            f"{len(rows):,} row(s)  |  {len(col_names)} column(s)")
-        self.btn_add.setEnabled(False)
-        self.btn_export.setEnabled(False)
-        self.btn_deactivate.setEnabled(False)
-        self.btn_view.setText("View Table")
-        self.btn_view.setEnabled(True)
 
     def _on_tree_context_menu(self, pos):
         """Right-click menu on tree: permanently delete a table or field."""
@@ -971,9 +1107,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             self.value_model.itemChanged.connect(self._on_item_changed)
             self.lbl_field_title.setText("Select a field \u2192")
             self.lbl_stats.setText("")
-            self.btn_add.setEnabled(False)
             self.btn_export.setEnabled(False)
-            self.btn_deactivate.setEnabled(False)
         self._load_registrations()
 
     def _permanently_delete_table(self, table_name: str, field_count: int):
@@ -1002,14 +1136,8 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.value_model.itemChanged.connect(self._on_item_changed)
         self.lbl_field_title.setText("Select a field \u2192")
         self.lbl_stats.setText("")
-        self.btn_add.setEnabled(False)
         self.btn_export.setEnabled(False)
-        self.btn_deactivate.setEnabled(False)
         self._load_registrations()
-
-    def _on_value_selection_changed(self, selected, _deselected):
-        has_sel = len(self.value_table.selectionModel().selectedRows()) > 0
-        self.btn_deactivate.setEnabled(has_sel)
 
     def _refresh_all(self):
         """Re-query all registered fields from the live database."""
@@ -1044,87 +1172,6 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             QMessageBox.warning(
                 self, "Refresh Errors",
                 "Some fields failed to refresh:\n\n" + "\n".join(errors))
-
-    def _delete_selected(self):
-        current = self.tree.currentItem()
-        if current is None:
-            return
-        if current.data(0, _ROLE_NODE_TYPE) != "field":
-            return
-        reg_id = current.data(0, _ROLE_FIELD_ID)
-        if reg_id is None:
-            return
-
-        parent = current.parent()
-        table_name = parent.text(0) if parent else ""
-        col_name = current.text(0)
-
-        reply = QMessageBox.question(
-            self, "Deactivate Field",
-            f"Deactivate {table_name}.{col_name}?\n"
-            "The field and its values will be hidden but not deleted.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            registry.delete_registration(reg_id)
-            self._current_field_id = None
-            self.value_model.itemChanged.disconnect(self._on_item_changed)
-            self.value_model.clear()
-            self.value_model.setHorizontalHeaderLabels(_ALL_HEADERS)
-            self.value_model.itemChanged.connect(self._on_item_changed)
-            self.lbl_field_title.setText("Select a field \u2192")
-            self.lbl_stats.setText("")
-            self.btn_add.setEnabled(False)
-            self.btn_export.setEnabled(False)
-            self.btn_deactivate.setEnabled(False)
-            self._load_registrations()
-
-    def _add_value(self):
-        """Add a new value entry via dialog."""
-        if self._current_field_id is None:
-            return
-        title = self.lbl_field_title.text()
-        dlg = _AddValueDialog(title, self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        val, desc, notes = dlg.get_data()
-        if not val:
-            QMessageBox.warning(self, "Add Value", "Value cannot be empty.")
-            return
-        try:
-            registry.add_value(self._current_field_id, val, desc, notes)
-            self._show_values(self._current_field_id)
-        except Exception as exc:
-            QMessageBox.warning(self, "Add Error",
-                                f"Could not add value:\n\n{exc}")
-
-    def _deactivate_selected_value(self):
-        """Deactivate the selected value row."""
-        rows = self.value_table.selectionModel().selectedRows()
-        if not rows:
-            return
-        proxy_idx = rows[0]
-        source_idx = self.proxy_model.mapToSource(proxy_idx)
-        val_item = self.value_model.item(source_idx.row(), _COL_VALUE)
-        if val_item is None:
-            return
-        value_id = val_item.data(Qt.ItemDataRole.UserRole)
-        field_value = val_item.text()
-        if value_id is None:
-            return
-        reply = QMessageBox.question(
-            self, "Deactivate Value",
-            f"Deactivate value \"{field_value}\"?\n"
-            "It will be marked inactive but not deleted.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                registry.deactivate_value(value_id)
-                self._show_values(self._current_field_id)
-            except Exception as exc:
-                QMessageBox.warning(self, "Deactivate Error",
-                                    f"Could not deactivate:\n\n{exc}")
 
     def _select_registration(self, field_id: int):
         """Find and select a tree item by field ID (3-level tree)."""
@@ -1193,34 +1240,56 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
 
     def _export_values_to_excel(self):
         """Export all values (all columns) to an Excel workbook."""
-        try:
-            import pandas as pd
-        except ImportError:
-            QMessageBox.warning(self, "Export Error",
-                                "pandas is required for Excel export.")
-            return
-
         # Export all columns regardless of More/Less state
         headers, rows = self._get_table_data(visible_only=False)
         if not rows:
             QMessageBox.information(self, "Export", "No data to export.")
             return
 
-        from PyQt6.QtWidgets import QFileDialog
-        title = self.lbl_field_title.text().replace(".", "_")
-        default_name = f"field_values_{title}.xlsx"
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export to Excel", default_name,
-            "Excel Files (*.xlsx)")
-        if not path:
-            return
-
         try:
-            df = pd.DataFrame(rows, columns=headers)
-            df.to_excel(path, index=False)
-            os.startfile(path)
+            from suiteview.core.excel_export import (
+                dump_to_new_workbook, ExcelExportError)
+            sheet = self.lbl_field_title.text().replace(".", "_")
+            # Value is column 1 — force text so leading-zero codes are preserved.
+            dump_to_new_workbook(
+                headers, rows, sheet_name=sheet, text_col_indexes=[1])
+        except ExcelExportError as exc:
+            QMessageBox.warning(self, "Excel Error", str(exc))
         except Exception as exc:
-            QMessageBox.warning(self, "Export Error", str(exc))
+            logger.exception("Registry Excel export failed")
+            QMessageBox.warning(self, "Excel Error", f"Could not export:\n{exc}")
+
+    # ── Pop-out value editor ─────────────────────────────────────────
+
+    def _sync_edit_window_button(self, current, _previous=None) -> None:
+        """Enable the Edit-in-Window button only when a field leaf is selected."""
+        is_field = (
+            current is not None
+            and current.data(0, _ROLE_NODE_TYPE) == "field"
+            and current.data(0, _ROLE_FIELD_ID) is not None
+        )
+        self.btn_edit_window.setEnabled(bool(is_field))
+
+    def _open_value_editor_window(self) -> None:
+        """Pop the selected field's values open in an editable datagrid window."""
+        if self._current_field_id is None:
+            return
+        win = getattr(self, "_value_editor_win", None)
+        if win is None:
+            win = RegistryValueEditorWindow(
+                self._current_field_id, self.lbl_field_title.text())
+            win.values_changed.connect(self._on_value_editor_saved)
+            self._value_editor_win = win
+        else:
+            win.reload(self._current_field_id, self.lbl_field_title.text())
+        win.show()
+        win.raise_()
+        win.activateWindow()
+
+    def _on_value_editor_saved(self) -> None:
+        """Reload the value table after the pop-out editor saves."""
+        if self._current_field_id is not None:
+            self._show_values(self._current_field_id)
 
     # ── Window geometry persistence ──────────────────────────────────
 

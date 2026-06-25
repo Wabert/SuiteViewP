@@ -565,6 +565,65 @@ class _FileDropTable(QTableWidget):
         super().dropEvent(event)
 
 
+class _TablePreviewDialog(QDialog):
+    """Popup preview of a table's data with adjustable row count and search.
+
+    The embedded :class:`FilterTableView` provides the search bar; the Rows
+    input lets the user change how many rows to pull and reload in place.
+    """
+
+    reload_requested = pyqtSignal(int)  # requested row count
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Preview")
+        self.setStyleSheet("QDialog { background: #F0F0F0; }")
+        self.resize(760, 480)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 8, 8, 8)
+        lay.setSpacing(6)
+        controls = QHBoxLayout()
+        controls.setSpacing(6)
+        controls.addWidget(QLabel("Rows"))
+        self.edit_rows = QLineEdit("100")
+        self.edit_rows.setFixedWidth(60)
+        self.edit_rows.setStyleSheet(
+            "QLineEdit { background: white; border: 1px solid #A0C4E8; padding: 2px 4px; }")
+        self.edit_rows.returnPressed.connect(self._emit_reload)
+        controls.addWidget(self.edit_rows)
+        self.btn_reload = QPushButton("Reload")
+        self.btn_reload.setFont(_FONT_BOLD)
+        self.btn_reload.setFixedHeight(24)
+        self.btn_reload.setStyleSheet(_BTN_STYLE)
+        self.btn_reload.clicked.connect(self._emit_reload)
+        controls.addWidget(self.btn_reload)
+        controls.addStretch(1)
+        lay.addLayout(controls)
+        self.table = FilterTableView(self)
+        pv = self.table.table_view
+        pv.setShowGrid(False)
+        pv.verticalHeader().setVisible(False)
+        pv.verticalHeader().setDefaultSectionSize(16)
+        lay.addWidget(self.table, 1)
+
+    def rows_value(self) -> int:
+        try:
+            rows = int(self.edit_rows.text().strip() or "100")
+        except ValueError:
+            rows = 100
+            self.edit_rows.setText("100")
+        return max(1, rows)
+
+    def _emit_reload(self) -> None:
+        self.reload_requested.emit(self.rows_value())
+
+    def set_dataframe(self, dataframe) -> None:
+        self.table.set_dataframe(dataframe, limit_rows=False)
+
+    def set_title(self, name: str) -> None:
+        self.setWindowTitle(f"Preview: {name}")
+
+
 class _SourceDashboard(QWidget):
     """Detail view AND editor for a Data Source — a source dashboard.
 
@@ -716,6 +775,12 @@ class _SourceDashboard(QWidget):
         self.btn_add_files.clicked.connect(self.pick_files_requested.emit)
         add_row.addWidget(self.btn_add_files)
         add_row.addStretch(1)
+        self.btn_preview = QPushButton("Preview")
+        self.btn_preview.setFont(_FONT_BOLD)
+        self.btn_preview.setFixedHeight(22)
+        self.btn_preview.setStyleSheet(_BTN_STYLE)
+        self.btn_preview.clicked.connect(self._on_preview_clicked)
+        add_row.addWidget(self.btn_preview)
         tb_lay.addLayout(add_row)
         tb_lay.addWidget(self.tables_list, 1)
         self.lbl_tables_footnote = QLabel(
@@ -724,43 +789,6 @@ class _SourceDashboard(QWidget):
         self.lbl_tables_footnote.setStyleSheet(
             "color: #6B7280; font-style: italic; border: none; background: transparent;")
         tb_lay.addWidget(self.lbl_tables_footnote)
-
-        self.preview = FilterTableView(self)
-        pv = self.preview.table_view
-        pv.setShowGrid(False)
-        pv.verticalHeader().setVisible(False)
-        pv.verticalHeader().setDefaultSectionSize(16)
-
-        preview_box = QGroupBox("Preview")
-        preview_box.setStyleSheet(_DASHBOARD_GROUP_STYLE)
-        pb_lay = QVBoxLayout(preview_box)
-        pb_lay.setContentsMargins(6, 16, 6, 6)
-        pb_lay.setSpacing(4)
-        controls = QHBoxLayout()
-        controls.setSpacing(6)
-        controls.addWidget(QLabel("Rows"))
-        self.edit_preview_rows = QLineEdit("100")
-        self.edit_preview_rows.setFixedWidth(60)
-        self.edit_preview_rows.setStyleSheet(
-            "QLineEdit { background: white; border: 1px solid #A0C4E8; padding: 2px 4px; }")
-        self.edit_preview_rows.returnPressed.connect(self._on_preview_clicked)
-        controls.addWidget(self.edit_preview_rows)
-        self.btn_preview = QPushButton("Preview selected table")
-        self.btn_preview.setFont(_FONT_BOLD)
-        self.btn_preview.setFixedHeight(24)
-        self.btn_preview.setStyleSheet(_BTN_STYLE)
-        self.btn_preview.clicked.connect(self._on_preview_clicked)
-        controls.addWidget(self.btn_preview)
-        controls.addStretch(1)
-        pb_lay.addLayout(controls)
-        pb_lay.addWidget(self.preview, 1)
-
-        tables_split = QSplitter(Qt.Orientation.Vertical)
-        tables_split.setChildrenCollapsible(False)
-        tables_split.setHandleWidth(4)
-        tables_split.addWidget(tables_box)
-        tables_split.addWidget(preview_box)
-        tables_split.setSizes([190, 330])
 
         used_by_page = QWidget()
         ub_lay = QVBoxLayout(used_by_page)
@@ -774,12 +802,14 @@ class _SourceDashboard(QWidget):
             " border-bottom: none; padding: 3px 12px; font-size: 8pt; }"
             "QTabBar::tab:selected { background: #F0F0F0; color: #1E5BA8; font-weight: bold; }")
         self.tabs.addTab(overview, "Overview")
-        self.tabs.addTab(tables_split, "Tables")     # index 1 (toggled per source)
+        self.tabs.addTab(tables_box, "Tables")       # index 1 (toggled per source)
         self.tabs.addTab(used_by_page, "Used by")
         root.addWidget(self.tabs, 1)
 
         self._tables_rows: list[dict] = []
         self._tables_removable = False
+        self._preview_dialog: "_TablePreviewDialog | None" = None
+        self._preview_table_name = ""
 
     # ── Editable (File Source) widgets ──────────────────────────────────
 
@@ -1032,12 +1062,19 @@ class _SourceDashboard(QWidget):
         if not visible and self.tabs.currentIndex() == 1:
             self.tabs.setCurrentIndex(0)
 
+    def _ensure_preview_dialog(self) -> "_TablePreviewDialog":
+        if self._preview_dialog is None:
+            self._preview_dialog = _TablePreviewDialog(self)
+            self._preview_dialog.reload_requested.connect(self._on_preview_reload)
+        return self._preview_dialog
+
     def set_preview(self, dataframe) -> None:
-        self.preview.set_dataframe(dataframe, limit_rows=False)
+        self._ensure_preview_dialog().set_dataframe(dataframe)
 
     def clear_preview(self) -> None:
-        import pandas as pd
-        self.preview.set_dataframe(pd.DataFrame(), limit_rows=False)
+        if self._preview_dialog is not None:
+            import pandas as pd
+            self._preview_dialog.set_dataframe(pd.DataFrame())
 
     def _selected_table(self) -> dict | None:
         rows = self.tables_list.selectionModel().selectedRows()
@@ -1053,12 +1090,18 @@ class _SourceDashboard(QWidget):
             info = self._selected_table()
         if info is None:
             return
-        try:
-            rows = int(self.edit_preview_rows.text().strip() or "100")
-        except ValueError:
-            rows = 100
-            self.edit_preview_rows.setText("100")
-        self.preview_requested.emit(info["name"], max(1, rows))
+        self._preview_table_name = info["name"]
+        dlg = self._ensure_preview_dialog()
+        dlg.set_title(info["name"])
+        rows = dlg.rows_value()
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+        self.preview_requested.emit(info["name"], rows)
+
+    def _on_preview_reload(self, rows: int) -> None:
+        if self._preview_table_name:
+            self.preview_requested.emit(self._preview_table_name, max(1, rows))
 
     def _on_tables_context_menu(self, pos) -> None:
         item = self.tables_list.itemAt(pos)
@@ -1418,7 +1461,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.left_tabs.addTab(self._build_data_source_panel(), "Data Sources")
         self._tables_left_host = self._make_embedded_host()
         self._registry_left_host = self._make_embedded_host()
-        self.left_tabs.addTab(self._tables_left_host, "Tables")
+        self.left_tabs.addTab(self._tables_left_host, "Common Tables")
         self.left_tabs.addTab(self._registry_left_host, "Registry")
         self.left_tabs.currentChanged.connect(self._on_left_tab_changed)
         left_lay.addWidget(self.left_tabs, 1)
@@ -1712,7 +1755,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
 
     def _on_left_tab_changed(self, index: int) -> None:
         label = self.left_tabs.tabText(index)
-        if label == "Tables":
+        if label == "Common Tables":
             self._ensure_tables_embedded()
             self._browser_canvas_stack.setCurrentWidget(self._tables_canvas_host)
             self._update_common_tables_canvas_title()
@@ -1735,7 +1778,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             return
         try:
             from suiteview.audit.common_table_dialog import CommonTableDialog
-            self._embedded_common_tables = CommonTableDialog(parent=self)
+            self._embedded_common_tables = CommonTableDialog(parent=self, embedded=True)
             self._replace_host_content(
                 self._tables_left_host, self._embedded_common_tables._nav_panel)
             self._replace_host_content(
@@ -1779,7 +1822,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 return
 
     def _open_common_tables(self):
-        self._select_left_tab("Tables")
+        self._select_left_tab("Common Tables")
 
     def _open_registry(self):
         self._select_left_tab("Registry")
@@ -2283,8 +2326,6 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                                             {"type": "file_member", "label": table_name,
                                              "path": member_path})
                         source_item.addChild(member_item)
-                for obj in children:
-                    _add_query_leaf(source_item, obj, source.get("key", ""))
                 source_item.setExpanded(search_active or group_key == "file_sources")
             root.setExpanded(True)
 

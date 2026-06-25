@@ -391,6 +391,12 @@ class IllustrationEngine:
             premiums_to_date=policy.premiums_paid_to_date,
             withdrawals_to_date=policy.withdrawals_to_date,
             cost_basis=policy.cost_basis,
+            # Seed the after-exception set from the same inforce values — no
+            # exception premium has been applied yet, so month 1 carries these
+            # forward unchanged.
+            premiums_ytd_after_exception=policy.premiums_ytd,
+            premiums_to_date_after_exception=policy.premiums_paid_to_date,
+            cost_basis_after_exception=policy.cost_basis,
             cumulative_interest=intr0.interest_credited,
             # Shadow
             shadow_bav=shd0.shadow_bav,
@@ -501,9 +507,9 @@ class IllustrationEngine:
         is_anniversary = next_month == 1
 
         # ── 2. Gather beginning values ────────────────────────
-        premiums_ytd = 0.0 if is_anniversary else state.premiums_ytd
-        premiums_to_date = state.premiums_to_date
-        cost_basis = state.cost_basis
+        premiums_ytd = 0.0 if is_anniversary else state.premiums_ytd_after_exception
+        premiums_to_date = state.premiums_to_date_after_exception
+        cost_basis = state.cost_basis_after_exception
         av = state.av_end_of_month
         rate_year = next_year
 
@@ -597,7 +603,7 @@ class IllustrationEngine:
         else:
             within_snet = next_year <= config.snet_period
         past_snet = not within_snet
-        prior_exception_mode = state.exception_prem_mode
+        prior_exception_mode = state.gp_exception_mode
 
         # ── 9. Commission Target Premium (split handled in apply_premium) ─
 
@@ -719,6 +725,8 @@ class IllustrationEngine:
             prior_exception_mode=prior_exception_mode,
             prior_lapsed=state.lapsed,
             attained_age=attained_age,
+            md_premium_active=_monthly_deduction_premium_active(options, next_year),
+            total_deduction=ded.total_deduction,
         )
         av = exception.av_after_exception
 
@@ -905,6 +913,7 @@ class IllustrationEngine:
             tamra_7pay_level=policy.tamra_7pay_level,
             guideline_limit_reached=guideline_limit_reached,
             exception_prem_mode=exception.mode,
+            gp_exception_mode=exception.is_gp_exception,
             gp_exception_prem_gross=exception.gross,
             gp_exception_prem=exception.prem,
             exception_protection=exception_protection,
@@ -993,6 +1002,9 @@ class IllustrationEngine:
             premiums_to_date=prem.premiums_to_date,
             withdrawals_to_date=withdrawals_to_date,
             cost_basis=prem.cost_basis,
+            premiums_ytd_after_exception=prem.premiums_ytd + exception.prem,
+            premiums_to_date_after_exception=prem.premiums_to_date + exception.prem,
+            cost_basis_after_exception=prem.cost_basis + exception.prem,
             cumulative_interest=cumulative_interest,
             cumulative_charges=cumulative_charges,
             # Shadow
@@ -1056,16 +1068,16 @@ class IllustrationEngine:
         is_anniversary = next_month == 1
         rate_year = next_year
 
-        premiums_ytd = 0.0 if is_anniversary else state.premiums_ytd
-        premiums_to_date = state.premiums_to_date
-        cost_basis = state.cost_basis
+        premiums_ytd = 0.0 if is_anniversary else state.premiums_ytd_after_exception
+        premiums_to_date = state.premiums_to_date_after_exception
+        cost_basis = state.cost_basis_after_exception
 
         if policy.map_cease_date is not None:
             within_snet = month_date <= policy.map_cease_date
         else:
             within_snet = next_year <= config.snet_period
         past_snet = not within_snet
-        prior_exception_mode = state.exception_prem_mode
+        prior_exception_mode = state.gp_exception_mode
 
         days_to_next_anniv = _days_to_next_anniversary(policy.issue_date, month_date)
         adv_reg_factor, adv_pref_factor = _advance_loan_factors(config, days_to_next_anniv)
@@ -1211,6 +1223,8 @@ class IllustrationEngine:
             prior_exception_mode=prior_exception_mode,
             prior_lapsed=state.lapsed,
             attained_age=attained_age,
+            md_premium_active=_monthly_deduction_premium_active(options, next_year),
+            total_deduction=ded.total_deduction,
         )
         av_end = exception.av_after_exception
 
@@ -1306,6 +1320,7 @@ class IllustrationEngine:
             tamra_7pay_level=policy.tamra_7pay_level,
             guideline_limit_reached=guideline_limit_reached,
             exception_prem_mode=exception.mode,
+            gp_exception_mode=exception.is_gp_exception,
             gp_exception_prem_gross=exception.gross,
             gp_exception_prem=exception.prem,
             exception_protection=exception_protection,
@@ -1383,6 +1398,9 @@ class IllustrationEngine:
             premiums_to_date=prem.premiums_to_date,
             withdrawals_to_date=withdrawals_to_date,
             cost_basis=prem.cost_basis,
+            premiums_ytd_after_exception=prem.premiums_ytd + exception.prem,
+            premiums_to_date_after_exception=prem.premiums_to_date + exception.prem,
+            cost_basis_after_exception=prem.cost_basis + exception.prem,
             cumulative_interest=state.cumulative_interest + intr.interest_credited,
             cumulative_charges=state.cumulative_charges + ded.total_deduction,
             monthly_mtp=monthly_mtp,
@@ -2631,6 +2649,22 @@ class _ExceptionPremium:
     gross: float = 0.0
     prem: float = 0.0
     av_after_exception: float = 0.0
+    # True only for the real GP exception (not the Monthly Deduction premium).
+    # Carried to MonthlyState.gp_exception_mode so the force-out bypass + latch
+    # apply to GP exceptions only.
+    is_gp_exception: bool = False
+
+
+def _monthly_deduction_premium_active(options: IllustrationOptions, policy_year: int) -> bool:
+    """Whether the Monthly Deduction premium applies in this policy year.
+
+    Defaults to active from the forecast date (``monthly_deduction_start_year``
+    is None) and runs to maturity; a start year gates it to that year onward.
+    """
+    if not options.pay_monthly_deduction:
+        return False
+    start = options.monthly_deduction_start_year
+    return start is None or policy_year >= start
 
 
 def _compute_exception_premium(
@@ -2647,6 +2681,8 @@ def _compute_exception_premium(
     prior_exception_mode: bool,
     prior_lapsed: bool,
     attained_age: int,
+    md_premium_active: bool = False,
+    total_deduction: float = 0.0,
 ) -> _ExceptionPremium:
     """GP exception premium (CalcEngine SY / SZ / TA / TB / TD).
 
@@ -2656,24 +2692,43 @@ def _compute_exception_premium(
     the *premium* (SZ): the actual exception premium flows only past the safety
     net, with no CCV/shadow account, while the policy is still inforce, and when
     it does it brings the after-charge account value back to zero.
+
+    The **Monthly Deduction** premium (``md_premium_active``) reuses the exact
+    same gross-up math, only the *target* changes: instead of grossing the
+    after-charge account value back up to zero, it grosses it back up by the full
+    monthly deduction so the ending account value equals where it stood just
+    *before* the deduction. It is mutually exclusive with the GP exception
+    (enforced in the inputs UI) and uses the regular account even on a shadow/CCV
+    policy, so the CCV gate does not apply to it.
     """
-    ccv_active = policy.has_shadow_account
     past_maturity = attained_age >= config.maturity_age
 
-    # SY = AND(sINPUT_AllowExceptionPrems, vAV_AfterCharge<0, SX) — no snet/CCV
-    # gate here, or the policy would lapse before the exception could rescue it.
-    triggered = (
-        options.allow_exception_prems
-        and guideline_limit_reached
-        and av_after_charge < 0.0
-    )
-    mode = (prior_exception_mode or triggered) and not past_maturity
+    if md_premium_active:
+        # Monthly Deduction premium: target = the pre-deduction account value.
+        mode = not past_maturity
+        result = _ExceptionPremium(mode=mode, av_after_exception=av_after_charge)
+        if not mode or prior_lapsed:
+            return result
+        gross = max(0.0, total_deduction)
+    else:
+        ccv_active = policy.has_shadow_account
+        # SY = AND(sINPUT_AllowExceptionPrems, vAV_AfterCharge<0, SX) — no
+        # snet/CCV gate here, or the policy would lapse before the exception
+        # could rescue it.
+        triggered = (
+            options.allow_exception_prems
+            and guideline_limit_reached
+            and av_after_charge < 0.0
+        )
+        mode = (prior_exception_mode or triggered) and not past_maturity
 
-    result = _ExceptionPremium(mode=mode, av_after_exception=av_after_charge)
-    if not (mode and past_snet and not ccv_active and not prior_lapsed):
-        return result
+        result = _ExceptionPremium(
+            mode=mode, av_after_exception=av_after_charge, is_gp_exception=mode)
+        if not (mode and past_snet and not ccv_active and not prior_lapsed):
+            return result
 
-    gross = max(0.0, -av_after_charge)
+        gross = max(0.0, -av_after_charge)
+
     if gross <= 0.0:
         return result
 

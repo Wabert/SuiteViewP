@@ -131,6 +131,12 @@ class MonthlyState:
 
     # ── 1d. GP Exception Premium (cols 519-524) ──
     exception_prem_mode: bool = False      # SY — latched exception mode
+    # True ONLY for the real GP exception premium (not the Monthly Deduction
+    # premium, which also raises exception_prem_mode). Drives the force-out
+    # bypass + latch: once a policy is on GP exception it stays on, and its
+    # force-outs are suppressed. Monthly Deduction premiums leave this False so
+    # they remain subject to normal guideline force-out.
+    gp_exception_mode: bool = False
     gp_exception_prem_gross: float = 0.0   # SZ — gross shortfall covered
     gp_exception_prem: float = 0.0         # TB — grossed-up exception premium
     exception_protection: bool = False     # YQ — exception keeps policy in force
@@ -286,6 +292,14 @@ class MonthlyState:
     premiums_to_date: float = 0.0
     withdrawals_to_date: float = 0.0
     cost_basis: float = 0.0
+    # Second set of premium trackers, taken AFTER the GP exception / Monthly
+    # Deduction premium is layered on. The next month's beginning balances carry
+    # forward from THESE, so the exception/MD premium counts toward premiums paid
+    # and cost basis. The plain ``premiums_*``/``cost_basis`` above stay the
+    # after-Apply-Premium (pre-exception) values for display.
+    premiums_ytd_after_exception: float = 0.0
+    premiums_to_date_after_exception: float = 0.0
+    cost_basis_after_exception: float = 0.0
     cumulative_interest: float = 0.0
     cumulative_charges: float = 0.0
 

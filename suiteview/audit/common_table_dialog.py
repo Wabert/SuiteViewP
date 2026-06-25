@@ -25,6 +25,7 @@ from datetime import datetime
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QFont
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QHBoxLayout,
     QHeaderView,
@@ -145,27 +146,32 @@ class CommonTableDialog(FramelessWindowBase):
             cls._instance.activateWindow()
         return cls._instance
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, embedded: bool = False, editor_only: bool = False):
         self._current_name: str = ""  # name of table being edited
         self._dirty = False
+        self._embedded = embedded  # True = read-only preview with a single Edit button
+        self._editor_only = editor_only  # True = single-table editor popout
 
         seed_defaults()  # create starter tables on first use
 
         super().__init__(
-            title="Common Tables",
+            title="Edit Common Table" if editor_only else "Common Tables",
             default_size=(1050, 650),
             min_size=(900, 600),
             parent=None,
             header_colors=_HEADER_COLORS,
             border_color=_BORDER_COLOR,
         )
-        self.setWindowTitle("Common Tables")
+        self.setWindowTitle("Edit Common Table" if editor_only else "Common Tables")
         self.setFont(_FONT)
         self._refresh_list()
 
     # ── UI construction ──────────────────────────────────────────
 
     def build_content(self) -> QWidget:
+        if self._editor_only:
+            return self._build_editor_only_content()
+
         body = QWidget()
         body.setStyleSheet(f"QWidget {{ background-color: {_PANEL_BG}; }}")
         root = QHBoxLayout(body)
@@ -255,64 +261,34 @@ class CommonTableDialog(FramelessWindowBase):
         data_header.setStyleSheet("color: #0A1E5E;")
         right_lay.addWidget(data_header)
 
-        self.tbl_header = QTableWidget(2, 0)
-        self._configure_header_grid(self.tbl_header)
-        self.tbl_header.itemChanged.connect(self._mark_dirty)
-        right_lay.addWidget(self.tbl_header)
+        self._create_data_grids(right_lay)
 
-        self.tbl_data = QTableWidget(0, 0)
-        self._configure_grid(self.tbl_data)
-        data_header_view = self.tbl_data.horizontalHeader()
-        data_header_view.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        data_header_view.setStretchLastSection(False)
-        data_header_view.hide()
-        self.tbl_data.itemChanged.connect(self._mark_dirty)
-        right_lay.addWidget(self.tbl_data)
-        self._sync_horizontal_scrollbars()
+        if self._embedded:
+            # Read-only preview: a single Edit button that pops the table open
+            # in its own editable datagrid window.
+            self._make_preview_read_only()
+            edit_row = QHBoxLayout()
+            self.lbl_info = QLabel("")
+            self.lbl_info.setStyleSheet("color: #666; font-size: 8pt;")
+            edit_row.addWidget(self.lbl_info)
+            edit_row.addStretch()
+            self.btn_edit = QPushButton("✎  Edit")
+            self.btn_edit.setFont(_FONT_BOLD)
+            self.btn_edit.setStyleSheet(_BTN_GREEN_STYLE)
+            self.btn_edit.setFixedSize(96, 24)
+            self.btn_edit.setToolTip(
+                "Open the selected table in its own editable datagrid window")
+            self.btn_edit.setEnabled(False)
+            self.btn_edit.clicked.connect(self._open_in_editor)
+            edit_row.addWidget(self.btn_edit)
+            right_lay.addLayout(edit_row)
 
-        data_btn_row = QHBoxLayout()
-        data_btn_row.setSpacing(5)
-        btn_add_field = QPushButton("Add Field")
-        btn_add_field.setFont(_FONT_SMALL)
-        btn_add_field.setFixedHeight(_BTN_H)
-        btn_add_field.setStyleSheet(_BTN_STYLE)
-        btn_add_field.clicked.connect(self._on_add_column)
-        data_btn_row.addWidget(btn_add_field)
+            self._canvas_panel = right
+            splitter.addWidget(right)
+            splitter.setSizes([220, 780])
+            return body
 
-        btn_add_row = QPushButton("Add Row")
-        btn_add_row.setFont(_FONT_SMALL)
-        btn_add_row.setFixedHeight(_BTN_H)
-        btn_add_row.setStyleSheet(_BTN_STYLE)
-        btn_add_row.clicked.connect(self._on_add_row)
-        data_btn_row.addWidget(btn_add_row)
-
-        btn_paste = QPushButton("Paste")
-        btn_paste.setFont(_FONT_SMALL)
-        btn_paste.setFixedHeight(_BTN_H)
-        btn_paste.setStyleSheet(_BTN_STYLE)
-        btn_paste.setToolTip("Paste rows from the clipboard")
-        btn_paste.clicked.connect(self._on_paste)
-        data_btn_row.addWidget(btn_paste)
-
-        btn_export = QPushButton("Export")
-        btn_export.setFont(_FONT_SMALL)
-        btn_export.setFixedHeight(_BTN_H)
-        btn_export.setStyleSheet(_BTN_STYLE)
-        btn_export.setToolTip("Open this table in a new Excel workbook")
-        btn_export.clicked.connect(self._on_export_excel)
-        data_btn_row.addWidget(btn_export)
-
-        data_btn_row.addWidget(self._make_menu_button(
-            "More",
-            [
-                ("Remove selected field", self._on_remove_column),
-                ("Remove selected row", self._on_remove_row),
-                ("Clear all data rows", self._on_clear_data),
-            ],
-        ))
-
-        data_btn_row.addStretch()
-        right_lay.addLayout(data_btn_row)
+        right_lay.addLayout(self._build_data_buttons(include_more=True))
 
         # ── Info + Save ──────────────────────────────────────────
         bottom_row = QHBoxLayout()
@@ -334,6 +310,111 @@ class CommonTableDialog(FramelessWindowBase):
         splitter.setSizes([220, 780])
         return body
 
+    def _create_data_grids(self, layout, *, data_stretch: int = 0) -> None:
+        """Build the frozen header grid and scrollable data grid into *layout*."""
+        self.tbl_header = QTableWidget(2, 0)
+        self._configure_header_grid(self.tbl_header)
+        self.tbl_header.itemChanged.connect(self._mark_dirty)
+        layout.addWidget(self.tbl_header)
+
+        self.tbl_data = QTableWidget(0, 0)
+        self._configure_grid(self.tbl_data)
+        data_header_view = self.tbl_data.horizontalHeader()
+        data_header_view.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        data_header_view.setStretchLastSection(False)
+        data_header_view.hide()
+        self.tbl_data.itemChanged.connect(self._mark_dirty)
+        layout.addWidget(self.tbl_data, data_stretch)
+        self._sync_horizontal_scrollbars()
+
+        if not self._embedded:
+            for grid in (self.tbl_header, self.tbl_data):
+                grid.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self.tbl_header.customContextMenuRequested.connect(self._show_header_menu)
+            self.tbl_data.customContextMenuRequested.connect(self._show_data_menu)
+
+    def _build_data_buttons(self, *, include_more: bool) -> QHBoxLayout:
+        """Build the Add Field / Add Row / Paste / Export button row."""
+        row = QHBoxLayout()
+        row.setSpacing(5)
+        specs = [
+            ("Add Field", "", self._on_add_column),
+            ("Add Row", "", self._on_add_row),
+            ("Paste", "Paste rows from the clipboard", self._on_paste),
+            ("Export", "Open this table in a new Excel workbook", self._on_export_excel),
+        ]
+        for text, tip, slot in specs:
+            btn = QPushButton(text)
+            btn.setFont(_FONT_SMALL)
+            btn.setFixedHeight(_BTN_H)
+            btn.setStyleSheet(_BTN_STYLE)
+            if tip:
+                btn.setToolTip(tip)
+            btn.clicked.connect(slot)
+            row.addWidget(btn)
+        if include_more:
+            row.addWidget(self._make_menu_button(
+                "More",
+                [
+                    ("Remove selected field(s)", self._on_remove_column),
+                    ("Remove selected row(s)", self._on_remove_row),
+                    ("Clear all data rows", self._on_clear_data),
+                ],
+            ))
+        row.addStretch()
+        return row
+
+    def _build_editor_only_content(self) -> QWidget:
+        """Single-table editor popout: no list, no description, full-window grid."""
+        body = QWidget()
+        body.setStyleSheet(f"QWidget {{ background-color: {_PANEL_BG}; }}")
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(8, 6, 8, 8)
+        lay.setSpacing(5)
+
+        name_row = QHBoxLayout()
+        name_row.setSpacing(6)
+        name_row.addWidget(QLabel("Name:"))
+        self.txt_name = QLineEdit()
+        self.txt_name.setStyleSheet(_INPUT_STYLE)
+        self.txt_name.setMaximumWidth(300)
+        self.txt_name.setFixedHeight(22)
+        self.txt_name.textEdited.connect(self._mark_dirty)
+        name_row.addWidget(self.txt_name)
+        name_row.addStretch()
+        lay.addLayout(name_row)
+
+        self._create_data_grids(lay, data_stretch=1)
+
+        lay.addLayout(self._build_data_buttons(include_more=False))
+
+        bottom_row = QHBoxLayout()
+        self.lbl_info = QLabel("")
+        self.lbl_info.setStyleSheet("color: #666; font-size: 8pt;")
+        bottom_row.addWidget(self.lbl_info)
+        bottom_row.addStretch()
+        self.btn_save = QPushButton("Save")
+        self.btn_save.setFont(_FONT_SMALL)
+        self.btn_save.setStyleSheet(_BTN_GREEN_STYLE)
+        self.btn_save.setFixedSize(78, 24)
+        self.btn_save.clicked.connect(self._on_save)
+        bottom_row.addWidget(self.btn_save)
+        lay.addLayout(bottom_row)
+        return body
+
+    def load_single_table(self, name: str) -> None:
+        """Load a table by name into the editor popout and update the title."""
+        ct = common_table_store.load_table(name)
+        if ct is None:
+            return
+        self._load_table(ct)
+        title = f"Edit Common Table — {ct.name}"
+        self.setWindowTitle(title)
+        if hasattr(self, "_title_label"):
+            self._title_label.setText(title)
+
+
+
     def _make_menu_button(self, text: str, actions: list[tuple[str, object]]) -> QToolButton:
         button = QToolButton()
         button.setText(text)
@@ -350,9 +431,64 @@ class CommonTableDialog(FramelessWindowBase):
         button.setMenu(menu)
         return button
 
+    # ── Embedded preview mode ────────────────────────────────────
+
+    def _make_preview_read_only(self) -> None:
+        """Turn the canvas into a non-editable preview (embedded mode)."""
+        self.txt_name.setReadOnly(True)
+        self.txt_desc.setReadOnly(True)
+        for grid in (self.tbl_header, self.tbl_data):
+            grid.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+    def _open_in_editor(self) -> None:
+        """Pop the selected table open in its own dedicated editor window."""
+        item = self.lst_tables.currentItem()
+        if item is None:
+            return
+        name = item.text()
+        win = getattr(self, "_editor_win", None)
+        if win is None:
+            win = CommonTableDialog(editor_only=True)
+            win.tables_changed.connect(self._on_external_save)
+            self._editor_win = win
+        win.load_single_table(name)
+        win.show()
+        win.raise_()
+        win.activateWindow()
+
+    def _on_external_save(self) -> None:
+        """Refresh the embedded preview after the editor window saves."""
+        current = self._current_name
+        self._refresh_list()
+        if current:
+            items = self.lst_tables.findItems(current, Qt.MatchFlag.MatchExactly)
+            if items:
+                self.lst_tables.blockSignals(True)
+                self.lst_tables.setCurrentItem(items[0])
+                self.lst_tables.blockSignals(False)
+                ct = common_table_store.load_table(current)
+                if ct:
+                    self._load_table(ct)
+        self.tables_changed.emit()
+
+    # ── Context menus (editor mode) ──────────────────────────────
+
+    def _show_header_menu(self, pos) -> None:
+        menu = QMenu(self)
+        menu.addAction("Add field", self._on_add_column)
+        menu.addAction("Remove selected field(s)", self._on_remove_column)
+        menu.exec(self.tbl_header.viewport().mapToGlobal(pos))
+
+    def _show_data_menu(self, pos) -> None:
+        menu = QMenu(self)
+        menu.addAction("Add row", self._on_add_row)
+        menu.addAction("Remove selected row(s)", self._on_remove_row)
+        menu.addSeparator()
+        menu.addAction("Remove selected field(s)", self._on_remove_column)
+        menu.exec(self.tbl_data.viewport().mapToGlobal(pos))
+
     def _configure_grid(self, table: QTableWidget):
         table.setStyleSheet(_TABLE_STYLE)
-        table.setShowGrid(False)
         table.setAlternatingRowColors(False)
         table.setWordWrap(False)
         table.setCornerButtonEnabled(False)
@@ -415,6 +551,8 @@ class CommonTableDialog(FramelessWindowBase):
         combo.setCurrentText(current_type if current_type in COLUMN_TYPES else "TEXT")
         combo.setStyleSheet(_TYPE_COMBO_STYLE)
         combo.currentTextChanged.connect(self._mark_dirty)
+        if self._embedded:
+            combo.setEnabled(False)
         return combo
 
     def _set_field_metadata(self, column: int, name: str, field_type: str = "TEXT"):
@@ -448,11 +586,21 @@ class CommonTableDialog(FramelessWindowBase):
     # ── List management ──────────────────────────────────────────
 
     def _refresh_list(self):
+        if not hasattr(self, "lst_tables"):
+            return
         self.lst_tables.blockSignals(True)
         self.lst_tables.clear()
         for ct in common_table_store.list_tables():
             self.lst_tables.addItem(ct.name)
         self.lst_tables.blockSignals(False)
+
+    def select_table(self, name: str) -> None:
+        """Select and load an existing table by name, then raise the window."""
+        items = self.lst_tables.findItems(name, Qt.MatchFlag.MatchExactly)
+        if items:
+            self.lst_tables.setCurrentItem(items[0])
+        self.raise_()
+        self.activateWindow()
 
     def _on_table_selected(self, name: str):
         if not name:
@@ -486,7 +634,8 @@ class CommonTableDialog(FramelessWindowBase):
         self._current_name = ct.name
         self._dirty = False
         self.txt_name.setText(ct.name)
-        self.txt_desc.setPlainText(ct.description)
+        if hasattr(self, "txt_desc"):
+            self.txt_desc.setPlainText(ct.description)
 
         self.tbl_header.blockSignals(True)
         self.tbl_data.blockSignals(True)
@@ -511,6 +660,8 @@ class CommonTableDialog(FramelessWindowBase):
             info_parts.append(f"Updated: {ct.updated_at:%Y-%m-%d %H:%M}")
         self.lbl_info.setText("  |  ".join(info_parts))
         self._dirty = False
+        if self._embedded and hasattr(self, "btn_edit"):
+            self.btn_edit.setEnabled(True)
 
     # ── Column actions ───────────────────────────────────────────
 
@@ -526,11 +677,12 @@ class CommonTableDialog(FramelessWindowBase):
         self._dirty = True
 
     def _on_remove_column(self):
-        column = self._current_column()
-        if column < 0:
+        columns = self._selected_columns()
+        if not columns:
             return
-        self.tbl_header.removeColumn(column)
-        self.tbl_data.removeColumn(column)
+        for column in sorted(columns, reverse=True):
+            self.tbl_header.removeColumn(column)
+            self.tbl_data.removeColumn(column)
         self._fit_grid_columns(self.tbl_data)
         self._dirty = True
 
@@ -545,11 +697,36 @@ class CommonTableDialog(FramelessWindowBase):
         self._dirty = True
 
     def _on_remove_row(self):
-        row = self.tbl_data.currentRow()
-        if row < 0:
+        rows = self._selected_rows()
+        if not rows:
             return
-        self.tbl_data.removeRow(row)
+        for row in sorted(rows, reverse=True):
+            self.tbl_data.removeRow(row)
         self._dirty = True
+
+    def _selected_columns(self) -> set[int]:
+        """Columns selected in either the header or data grid."""
+        columns: set[int] = set()
+        for rng in self.tbl_header.selectedRanges():
+            columns.update(range(rng.leftColumn(), rng.rightColumn() + 1))
+        for rng in self.tbl_data.selectedRanges():
+            columns.update(range(rng.leftColumn(), rng.rightColumn() + 1))
+        if not columns:
+            current = self._current_column()
+            if current >= 0:
+                columns.add(current)
+        return columns
+
+    def _selected_rows(self) -> set[int]:
+        """Rows selected in the data grid."""
+        rows: set[int] = set()
+        for rng in self.tbl_data.selectedRanges():
+            rows.update(range(rng.topRow(), rng.bottomRow() + 1))
+        if not rows:
+            current = self.tbl_data.currentRow()
+            if current >= 0:
+                rows.add(current)
+        return rows
 
     def _on_clear_data(self):
         if self.tbl_data.rowCount() == 0:
@@ -890,9 +1067,15 @@ class CommonTableDialog(FramelessWindowBase):
         existing = common_table_store.load_table(name)
         created = existing.created_at if existing else datetime.now()
 
+        if hasattr(self, "txt_desc"):
+            description = self.txt_desc.toPlainText().strip()
+        else:
+            # Editor popout has no description field; preserve the saved value.
+            description = existing.description if existing else ""
+
         ct = CommonTable(
             name=name,
-            description=self.txt_desc.toPlainText().strip(),
+            description=description,
             columns=col_defs,
             rows=rows,
             created_at=created,
@@ -903,11 +1086,12 @@ class CommonTableDialog(FramelessWindowBase):
         self._dirty = False
         self._refresh_list()
         # Re-select
-        items = self.lst_tables.findItems(name, Qt.MatchFlag.MatchExactly)
-        if items:
-            self.lst_tables.blockSignals(True)
-            self.lst_tables.setCurrentItem(items[0])
-            self.lst_tables.blockSignals(False)
+        if hasattr(self, "lst_tables"):
+            items = self.lst_tables.findItems(name, Qt.MatchFlag.MatchExactly)
+            if items:
+                self.lst_tables.blockSignals(True)
+                self.lst_tables.setCurrentItem(items[0])
+                self.lst_tables.blockSignals(False)
         self._load_table(ct)
         self.tables_changed.emit()
 

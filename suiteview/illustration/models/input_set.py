@@ -143,6 +143,18 @@ class IllustrationOptions:
     # ``core/premium_allowance.py`` (NL/NY).
     apply_prem_to_loan: bool = False
 
+    # Pay Monthly Deduction premium — a per-month premium computed in-engine
+    # right after the monthly deduction (it reuses the GP exception premium
+    # machinery, just retargeted) that grosses the after-charge account value
+    # back up to where it stood just before the deduction. Mutually exclusive
+    # with allow_exception_prems (enforced in the inputs UI). See
+    # ``_compute_exception_premium`` in ``core/calc_engine.py``.
+    pay_monthly_deduction: bool = False
+
+    # First policy year the Monthly Deduction premium is paid (None = from the
+    # forecast date). Runs to maturity.
+    monthly_deduction_start_year: Optional[int] = None
+
     # Internal escape hatch: a consumer can keep force-out on while still letting
     # injected premiums intentionally exceed the guideline (no acceptance cap).
     # None -> derive from conform_to_tefra. Used by the PolView GLP solver, which

@@ -369,6 +369,12 @@ _TYPE_INPUT = "INPUT"
 _TYPE_MAX_LEVEL = "Max Level Allowed"
 _TYPE_MIN_LEVEL = "Min Level to Maturity"
 _LEVEL_TYPES = (_TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL)
+# "Monthly Deduction" pays, each month, exactly the policy's monthly deduction
+# (grossed up by the COI rate and premium load) so the account value after the
+# deduction equals where it stood just before it. The engine reuses the GP
+# exception premium machinery, retargeted; it is mutually exclusive with the
+# Allow GP Exception Premium toggle. The mode is forced to M (monthly).
+_TYPE_MONTHLY_DEDUCTION = "Monthly Deduction"
 
 
 class InputRow(QWidget):
@@ -462,9 +468,10 @@ class InputRow(QWidget):
             # first), so a policy loan no longer hides it.
             ctx = self._ctx
             if ctx is not None and ctx.is_cvat:
-                options = [_TYPE_INPUT]
+                options = [_TYPE_INPUT, _TYPE_MONTHLY_DEDUCTION]
             else:
-                options = [_TYPE_INPUT, _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL]
+                options = [_TYPE_INPUT, _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL,
+                           _TYPE_MONTHLY_DEDUCTION]
             self.type_combo.addItems(options)
             self.type_combo.setFixedWidth(self._section.spec.type_width)
             if current in options:
@@ -495,6 +502,9 @@ class InputRow(QWidget):
         return (self._section.spec.allow_max_level_premium
                 and self.type_combo.currentText() == _TYPE_MIN_LEVEL)
 
+    def is_monthly_deduction(self) -> bool:
+        return self.type_combo.currentText() == _TYPE_MONTHLY_DEDUCTION
+
     def set_amount_display(self, value: Optional[float]):
         """Fill the (disabled) amount field with a solved value for display."""
         if self.amount_edit is None:
@@ -505,6 +515,10 @@ class InputRow(QWidget):
             self.amount_edit.set_value(value, decimals=2)
 
     def _refresh_max_level_amount(self):
+        ptype = self.type_combo.currentText()
+        # Monthly Deduction forces the mode to M (it is recomputed and paid every
+        # month) and locks the mode combo while selected.
+        self._apply_monthly_deduction_mode(ptype == _TYPE_MONTHLY_DEDUCTION)
         if self.amount_edit is None:
             return
         level_capable = (
@@ -512,7 +526,6 @@ class InputRow(QWidget):
             and self._ctx is not None
             and not self._ctx.is_cvat
         )
-        ptype = self.type_combo.currentText()
         if level_capable and ptype == _TYPE_MAX_LEVEL:
             # Closed-form maximum guideline premium — read-only, filled now.
             self.amount_edit.setEnabled(True)
@@ -529,10 +542,34 @@ class InputRow(QWidget):
             self.amount_edit.setToolTip(
                 "Minimum level premium that keeps the policy in force to maturity. "
                 "Solved when you Run Values.")
+        elif ptype == _TYPE_MONTHLY_DEDUCTION:
+            # Solved in-engine each month (varies with the deduction) — blank and
+            # disabled; only the start year is read off this row.
+            self.amount_edit.setText("")
+            self.amount_edit.setReadOnly(True)
+            self.amount_edit.setEnabled(False)
+            self.amount_edit.setToolTip(
+                "Pays the policy's monthly deduction each month — grossed up for the "
+                "COI rate and premium load — so the account value stays where it was "
+                "just before the deduction. The mode is forced to M.")
         else:
             self.amount_edit.setEnabled(True)
             self.amount_edit.setReadOnly(False)
             self.amount_edit.setToolTip("")
+
+    def _apply_monthly_deduction_mode(self, force_monthly: bool):
+        """Lock the mode to M while Monthly Deduction is selected; else unlock."""
+        if self.mode_combo is None:
+            return
+        if force_monthly:
+            if self.mode_combo.currentText() != "M":
+                self.mode_combo.blockSignals(True)
+                self.mode_combo.setCurrentText("M")
+                self.mode_combo.blockSignals(False)
+            self.mode_combo.setEnabled(False)
+        else:
+            self.mode_combo.setEnabled(True)
+
 
     def _clamp_year(self, year: float) -> int:
         ctx = self._ctx
@@ -1418,6 +1455,20 @@ class DynamicInputsPanel(QWidget):
                 row.set_amount_display(value)
                 return
 
+    def monthly_deduction_request(self) -> Optional[dict]:
+        """``{'start_year'}`` for an active Monthly Deduction premium row, or None.
+
+        The premium is solved in-engine each month, so the row carries only a
+        start year (default = forecast date) and runs to maturity.
+        """
+        if self._ctx is None:
+            return None
+        for row in self.premium_section.rows():
+            if row.is_monthly_deduction():
+                year = row.year() or self._ctx.forecast_year
+                return {"start_year": int(year)}
+        return None
+
     def _on_premium_changed(self):
         # A level type (Max/Min) locks every non-premium input; prior premium
         # rows stay editable. The exception toggle is refreshed too.
@@ -1433,10 +1484,14 @@ class DynamicInputsPanel(QWidget):
         # An active shadow account blocks GP exceptions (the shadow account
         # governs lapse, not the exception premium). A policy loan no longer
         # blocks them — premium is applied to the loan first, so the policy can
-        # ride the GLP exception period with a loan outstanding.
+        # ride the GLP exception period with a loan outstanding. A Monthly
+        # Deduction premium also blocks it — the two are mutually exclusive.
         ctx = self._ctx
         if ctx is not None and ctx.has_shadow:
             reason = "Allow Exceptions is not available due to an active shadow account."
+        elif self.monthly_deduction_request() is not None:
+            reason = ("GP Exception Premium is off while a Monthly Deduction premium "
+                      "is selected — the two are mutually exclusive.")
         else:
             reason = ""
         self.exception_notice.setText(reason)
@@ -1543,17 +1598,23 @@ class DynamicInputsPanel(QWidget):
     def collect_into(self, input_set: IllustrationInputSet):
         ctx = self._ctx
         level_active = self.active_level_premium_type() is not None
-        # Min Level rows carry no amount until the run solves them — exclude them
-        # here; main_window solves and injects that premium separately.
+        md_active = self.monthly_deduction_request() is not None
+        # Min Level rows carry no amount until the run solves them, and Monthly
+        # Deduction rows are solved in-engine — exclude both here. main_window
+        # solves Min Level separately; the engine pays Monthly Deduction from a
+        # run option.
         prem_entries = [
             e for e in self.premium_section.entries()
-            if e["amount"] is not None and e.get("type") != _TYPE_MIN_LEVEL
+            if e["amount"] is not None
+            and e.get("type") not in (_TYPE_MIN_LEVEL, _TYPE_MONTHLY_DEDUCTION)
         ]
         dated_prem, sched_prem = self._split_current_year(prem_entries)
-        if prem_entries:
+        if prem_entries or md_active:
             # Any premium input REPLACES the billed default from the forecast
             # year on: silence billing with a zero schedule, then layer the
-            # requested premiums (dated this year, schedules after).
+            # requested premiums (dated this year, schedules after). A Monthly
+            # Deduction premium pays only the deduction, so it silences the
+            # default modal billing too.
             input_set.scheduled_transactions.append(ScheduledTransaction(
                 kind=TransactionKind.PREMIUM, policy_year=ctx.forecast_year,
                 amount=0.0, mode="A"))

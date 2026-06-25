@@ -275,8 +275,8 @@ def get_values_full(field_id: int, include_inactive: bool = False) -> list[dict]
 
 
 def update_value(value_id: int, *, value_description: str | None = ...,
-                 notes: str | None = ...) -> None:
-    """Update description and/or notes for a value row."""
+                 notes: str | None = ..., is_active: int | bool | None = ...) -> None:
+    """Update description, notes, and/or the active flag for a value row."""
     parts = []
     params = []
     sentinel = ...
@@ -286,6 +286,9 @@ def update_value(value_id: int, *, value_description: str | None = ...,
     if notes is not sentinel:
         parts.append("notes = ?")
         params.append(notes)
+    if is_active is not sentinel:
+        parts.append("is_active = ?")
+        params.append(1 if is_active else 0)
     if not parts:
         return
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

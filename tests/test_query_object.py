@@ -930,23 +930,14 @@ class QueryObjectTests(unittest.TestCase):
                 self.assertEqual(window.source_tree.topLevelItem(0).text(0), "ODBC (1)")
                 odbc_item = window.source_tree.topLevelItem(0).child(0)
                 self.assertEqual(odbc_item.text(0), "WORK_DSN")
-                odbc_query_item = odbc_item.child(0)
-                self.assertEqual(odbc_query_item.text(0), "Initial Viewer Object  [WORK_DSN]")
-                odbc_payload = odbc_query_item.data(0, Qt.ItemDataRole.UserRole)
-                self.assertEqual(odbc_payload["type"], "query")
-                self.assertTrue(odbc_payload["source_tree"])
+                self.assertEqual(odbc_item.childCount(), 0)
 
                 window.left_tabs.setCurrentIndex(1)
                 app.processEvents()
                 odbc_item = window.source_tree.topLevelItem(0).child(0)
-                odbc_query_item = odbc_item.child(0)
                 window.source_tree.setCurrentItem(odbc_item)
                 app.processEvents()
                 self.assertEqual(window.lbl_canvas_title.text(), "Data Sources: WORK_DSN")
-                window.source_tree.setCurrentItem(odbc_query_item)
-                app.processEvents()
-                self.assertEqual(window.lbl_canvas_title.text(),
-                                 "Data Sources: Initial Viewer Object")
             finally:
                 window.close()
 

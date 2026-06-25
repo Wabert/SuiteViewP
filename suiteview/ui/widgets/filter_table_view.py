@@ -9,7 +9,7 @@ import operator
 from pandas.api.types import is_numeric_dtype
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableView, QListView, QAbstractItemView,
                               QHeaderView, QLineEdit, QPushButton, QMenu, QStyledItemDelegate,
-                              QLabel, QWidgetAction)
+                              QLabel, QWidgetAction, QFileDialog, QMessageBox)
 from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal, QRect, QPoint, QTimer, QThread, QStringListModel, QSize
 from PyQt6.QtGui import QFont, QFontMetrics, QAction, QPainter, QColor
 
@@ -850,6 +850,24 @@ class FilterTableView(QWidget):
         self.global_search_box.setPlaceholderText("Search across all columns...")
         self.global_search_box.textChanged.connect(self.apply_global_search)
         search_layout.addWidget(self.global_search_box)
+
+        # Export to Excel button
+        self.export_btn = QPushButton("Export to Excel")
+        self.export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #217346;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 4px 12px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #1a5c38;
+            }
+        """)
+        self.export_btn.clicked.connect(self.export_to_excel)
+        search_layout.addWidget(self.export_btn)
 
         # Clear filters button (smaller)
         clear_btn = QPushButton("Clear All")
@@ -1843,6 +1861,32 @@ class FilterTableView(QWidget):
         if self.model:
             return self.model.get_display_data()
         return pd.DataFrame()
+
+    def export_to_excel(self):
+        """Export the currently displayed (filtered/searched) rows to an Excel file."""
+        df = self.get_filtered_dataframe()
+        if df is None or df.empty:
+            QMessageBox.information(self, "Export to Excel", "There is no data to export.")
+            return
+
+        column_names = [c for c in self._visible_column_names_in_order() if c in df.columns]
+        if column_names:
+            df = df.loc[:, column_names]
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export to Excel", "export.xlsx", "Excel Workbook (*.xlsx)")
+        if not path:
+            return
+        if not path.lower().endswith(".xlsx"):
+            path += ".xlsx"
+
+        try:
+            df.to_excel(path, index=False, engine="openpyxl")
+        except Exception as exc:
+            logger.exception("Excel export failed")
+            QMessageBox.critical(self, "Export to Excel", f"Could not export the data:\n{exc}")
+            return
+        logger.info("Exported %d rows to %s", len(df), path)
 
     def _visible_column_names_in_order(self) -> List[str]:
         if self.model is None:

@@ -116,7 +116,8 @@ def test_min_level_available_for_loan_policy():
     panel.load_from_policy(_LoanPolicy())
     row = panel.premium_section.rows()[0]
     options = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
-    assert options == ["INPUT", "Max Level Allowed", "Min Level to Maturity"]
+    assert options == [
+        "INPUT", "Max Level Allowed", "Min Level to Maturity", "Monthly Deduction"]
 
 
 def test_allow_gp_exception_premium_checked_by_default():
@@ -130,7 +131,7 @@ def test_max_level_premium_defaults_and_changes_with_mode():
     row = panel.premium_section.rows()[0]
 
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
-        "INPUT", "Max Level Allowed", "Min Level to Maturity"]
+        "INPUT", "Max Level Allowed", "Min Level to Maturity", "Monthly Deduction"]
 
     # Forecast is policy year 7, month 8, so the current year still has modes
     # left (5 monthly / 1 quarterly), which the payment count now includes:
@@ -182,8 +183,10 @@ def test_max_level_premium_hidden_for_cvat():
     panel.load_from_policy(CvatPolicy())
     row = panel.premium_section.rows()[0]
 
-    # CVAT has no guideline premium test — only INPUT, no Max/Min Level.
-    assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == ["INPUT"]
+    # CVAT has no guideline premium test — only INPUT and Monthly Deduction
+    # (no Max/Min Level).
+    assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
+        "INPUT", "Monthly Deduction"]
 
 
 def test_inputs_tab_exports_illustrated_rate_override_from_gint():

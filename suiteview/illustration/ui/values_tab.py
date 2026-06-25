@@ -166,6 +166,9 @@ COMPACT_HEADER_LABELS = {
     "GP_Exception_Prem_Gross": "Exc Prem Gross",
     "Exception_Prem_Discount": "Exc Prem Discount",
     "vGP_Exception_Prem": "Exception Prem",
+    "PremTD_AfterExc": "Prem TD aft Exc",
+    "PremYTD_AfterExc": "Prem YTD aft Exc",
+    "CostBasis_AfterExc": "Cost Basis aft Exc",
     # Policy Values
     "Requested Loan": "Req Loan",
     "Loan Mode Effective": "Loan Mode Eff",
@@ -611,6 +614,9 @@ class IllustrationValuesTab(QWidget):
         "GP_Exception_Prem_Gross",
         "Exception_Prem_Discount",
         "vGP_Exception_Prem",
+        "PremTD_AfterExc",
+        "PremYTD_AfterExc",
+        "CostBasis_AfterExc",
     ]
     POLICY_VALUES_GROUP = "Policy Values"
     POLICY_VALUES_COLUMNS = [
@@ -1776,6 +1782,11 @@ class IllustrationValuesTab(QWidget):
             # Engine does not yet compute the exception-premium COI discount (CalcEngine TA).
             "Exception_Prem_Discount": 0.0,
             "vGP_Exception_Prem": state.gp_exception_prem,
+            # Second set of cumulative trackers, after the exception / Monthly
+            # Deduction premium; the next month carries forward from these.
+            "PremTD_AfterExc": state.premiums_to_date_after_exception,
+            "PremYTD_AfterExc": state.premiums_ytd_after_exception,
+            "CostBasis_AfterExc": state.cost_basis_after_exception,
         }
 
     @staticmethod

@@ -800,6 +800,7 @@ class IllustrationInputsTab(QWidget):
         return input_set
 
     def export_options(self) -> IllustrationOptions:
+        md_request = self.dynamic_panel.monthly_deduction_request()
         return IllustrationOptions(
             conform_to_tefra=self.tefra_check.isChecked(),
             conform_to_tamra=self.tamra_check.isChecked(),
@@ -809,6 +810,9 @@ class IllustrationInputsTab(QWidget):
             levelizing_premium=self.levelizing_check.isChecked(),
             guideline_by_search=self.gp_search_check.isChecked(),
             apply_prem_to_loan=self.dynamic_panel.apply_prem_to_loan_check.isChecked(),
+            pay_monthly_deduction=md_request is not None,
+            monthly_deduction_start_year=(
+                md_request["start_year"] if md_request else None),
         )
 
     def min_level_request(self) -> Optional[dict]:
