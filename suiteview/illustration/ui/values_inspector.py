@@ -153,6 +153,9 @@ class MonthInspector(QWidget):
         self._row(interest, "Days / Eff Annual Rate",
                   f"{state.days_in_month} / {state.effective_annual_rate:.4%}")
         self._row(interest, "Interest Credited", f"+{_money(state.interest_credited)}")
+        if state.md_premium:
+            self._row(interest, "MD Premium", f"+{_money(state.md_premium)}",
+                      alert=state.md_premium_capped)
         if state.gp_exception_prem:
             self._row(interest, "GP Exception Prem", f"+{_money(state.gp_exception_prem)}", alert=True)
         self._row(interest, "EOM Account Value", _money(state.av_end_of_month), bold=True)

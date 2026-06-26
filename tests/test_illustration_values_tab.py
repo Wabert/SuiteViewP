@@ -478,6 +478,23 @@ def test_summary_tab_columns_and_relabels():
     assert summary.df.iloc[0]["EAV"] == 9_990.00
 
 
+def test_av_column_shows_zero_when_exception_holds_account_value_flat():
+    # When the MD / GP exception premium holds the account value at exactly 0,
+    # the AV column must show 0 — not the negative pre-exception (after-deduction)
+    # value. Regression for the "AV negative while AV Display is 0" display bug.
+    _app()
+    tab = IllustrationValuesTab()
+    state = _state()
+    state.av_after_deduction = -512.0
+    state.av_after_exception = 0.0
+    state.exception_prem_mode = True
+    state.gp_exception_prem = 524.0
+
+    tab.display_projection(_policy(), [state])
+
+    assert tab._tab_grids["Summary"].df.iloc[0]["AV"] == 0.0
+
+
 def test_premium_outlay_includes_exception_premium_in_ending_values():
     _app()
     tab = IllustrationValuesTab()
@@ -492,10 +509,14 @@ def test_premium_outlay_includes_exception_premium_in_ending_values():
 
 
 def test_chart_cumulative_premium_uses_premium_outlay():
+    # The cumulative-premium line reads premiums_to_date_after_exception, which
+    # already folds in the MD and GP exception premiums (carried forward).
     first = MonthlyState(policy_year=1, policy_month=1, gross_premium=100.0,
-                         gp_exception_prem=25.0, premiums_to_date=10_000.0)
+                         gp_exception_prem=25.0, premiums_to_date=10_000.0,
+                         premiums_to_date_after_exception=10_025.0)
     second = MonthlyState(policy_year=1, policy_month=2, gross_premium=10.0,
-                          gp_exception_prem=5.0, premiums_to_date=20_000.0)
+                          gp_exception_prem=5.0, premiums_to_date=20_000.0,
+                          premiums_to_date_after_exception=20_030.0)
 
     series = build_chart_series([first, second])
     cum_premium = next(entry for entry in series if entry.name == "Cum Premium")

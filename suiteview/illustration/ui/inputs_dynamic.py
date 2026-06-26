@@ -1485,13 +1485,12 @@ class DynamicInputsPanel(QWidget):
         # governs lapse, not the exception premium). A policy loan no longer
         # blocks them — premium is applied to the loan first, so the policy can
         # ride the GLP exception period with a loan outstanding. A Monthly
-        # Deduction premium also blocks it — the two are mutually exclusive.
+        # Deduction premium does NOT block it — the two work together: the MD
+        # premium funds the deduction up to the guideline limit, and the GP
+        # exception is the backstop once the policy caps out and runs negative.
         ctx = self._ctx
         if ctx is not None and ctx.has_shadow:
             reason = "Allow Exceptions is not available due to an active shadow account."
-        elif self.monthly_deduction_request() is not None:
-            reason = ("GP Exception Premium is off while a Monthly Deduction premium "
-                      "is selected — the two are mutually exclusive.")
         else:
             reason = ""
         self.exception_notice.setText(reason)

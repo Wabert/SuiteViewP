@@ -162,6 +162,10 @@ COMPACT_HEADER_LABELS = {
     "NetPremium": "Net Premium",
     # Exception Premiums
     "Guideline Limit Reached": "GP Limit Reached",
+    "MD_Prem_Mode": "MD Prem Mode",
+    "MD_Premium": "MD Premium",
+    "MD_Prem_Discount": "MD Prem Discount",
+    "MD_Prem_Capped": "MD Prem Capped",
     "vExceptionPremMode": "Exc Prem Mode",
     "GP_Exception_Prem_Gross": "Exc Prem Gross",
     "Exception_Prem_Discount": "Exc Prem Discount",
@@ -610,6 +614,10 @@ class IllustrationValuesTab(QWidget):
     EXCEPTION_PREMIUM_GROUP = "Exception Premiums"
     EXCEPTION_PREMIUM_COLUMNS = [
         "Guideline Limit Reached",
+        "MD_Prem_Mode",
+        "MD_Premium",
+        "MD_Prem_Discount",
+        "MD_Prem_Capped",
         "vExceptionPremMode",
         "GP_Exception_Prem_Gross",
         "Exception_Prem_Discount",
@@ -1777,13 +1785,19 @@ class IllustrationValuesTab(QWidget):
     def _exception_premium_values(state: MonthlyState) -> dict:
         return {
             "Guideline Limit Reached": state.guideline_limit_reached,
+            # Monthly Deduction premium (Phase 1; capped at the guideline room).
+            "MD_Prem_Mode": state.md_premium_mode,
+            "MD_Premium": state.md_premium,
+            "MD_Prem_Discount": state.md_premium_discount,
+            "MD_Prem_Capped": state.md_premium_capped,
             "vExceptionPremMode": state.exception_prem_mode,
             "GP_Exception_Prem_Gross": state.gp_exception_prem_gross,
-            # Engine does not yet compute the exception-premium COI discount (CalcEngine TA).
-            "Exception_Prem_Discount": 0.0,
+            # COI saving from the exception premium lifting the pre-deduction AV
+            # (CalcEngine TA); folded into the gross-up, surfaced here for tracing.
+            "Exception_Prem_Discount": state.gp_exception_prem_discount,
             "vGP_Exception_Prem": state.gp_exception_prem,
-            # Second set of cumulative trackers, after the exception / Monthly
-            # Deduction premium; the next month carries forward from these.
+            # Second set of cumulative trackers, after BOTH the MD and exception
+            # premiums; the next month carries forward from these.
             "PremTD_AfterExc": state.premiums_to_date_after_exception,
             "PremYTD_AfterExc": state.premiums_ytd_after_exception,
             "CostBasis_AfterExc": state.cost_basis_after_exception,
@@ -2124,7 +2138,13 @@ class IllustrationValuesTab(QWidget):
 
     @staticmethod
     def _account_value_before_interest(state: MonthlyState) -> float:
-        return state.av_after_exception if state.av_after_exception != 0.0 else state.av_after_deduction
+        # AV at the start of the Policy Values section = the account value after
+        # the MD and GP exception premiums. The engine always sets this (it
+        # defaults to the after-deduction AV when no premium applies), so it must
+        # be returned as-is. A prior `!= 0.0 else av_after_deduction` fallback
+        # wrongly showed the negative pre-exception AV in exactly the months
+        # where an exception/MD premium holds the account value at 0.
+        return state.av_after_exception
 
     @staticmethod
     def _death_benefit(state: MonthlyState) -> float:

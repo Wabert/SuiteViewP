@@ -169,7 +169,7 @@ def _annualize(
     for year in sorted(by_year):
         months = by_year[year]
         eoy = months[-1]
-        outlay = sum(m.gross_premium + m.gp_exception_prem for m in months)
+        outlay = sum(m.premium_outlay for m in months)
         forceout = sum(m.guideline_forceout for m in months)
         exception = sum(m.gp_exception_prem for m in months)
         withdrawals = sum(m.applied_net_withdrawal for m in months)

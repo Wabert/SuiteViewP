@@ -462,7 +462,7 @@ class ValuesOverview(QWidget):
                 f"Yr {lapse_state.policy_year} · Age {lapse_state.attained_age}", alert=True)
         else:
             self.kpi_lapse.set("None")
-        room = final.guideline_limit - (final.premiums_to_date - final.withdrawals_to_date)
+        room = final.guideline_limit - (final.premiums_to_date_after_exception - final.withdrawals_to_date)
         self.kpi_room.set(_fmt_money(room), alert=room < 0)
         self.kpi_premium.set(_fmt_money(sum(s.premium_outlay for s in projected)))
 
@@ -563,11 +563,12 @@ def build_chart_series(projected: list) -> list[ChartSeries]:
     def xs(state):
         return state.policy_year + (state.policy_month - 1) / 12.0
 
-    cumulative_exception_premium = 0.0
-    premium_points = []
-    for state in projected:
-        cumulative_exception_premium += state.premium_outlay - state.gross_premium
-        premium_points.append((xs(state), state.premiums_to_date + cumulative_exception_premium))
+    # Total premium paid to date already includes the MD and GP exception
+    # premiums (carried forward in premiums_to_date_after_exception), so use it
+    # directly rather than re-accumulating (which would double-count).
+    premium_points = [
+        (xs(state), state.premiums_to_date_after_exception) for state in projected
+    ]
 
     series = [
         ChartSeries("Account Value", [(xs(s), s.av_end_of_month) for s in projected]),

@@ -727,6 +727,10 @@ class IllustrationEngine:
             attained_age=attained_age,
             md_premium_active=_monthly_deduction_premium_active(options, next_year),
             total_deduction=ded.total_deduction,
+            guideline_limit=guideline_limit,
+            premiums_to_date=prem.premiums_to_date,
+            withdrawals_to_date=withdrawals_to_date,
+            guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
         )
         av = exception.av_after_exception
 
@@ -912,10 +916,16 @@ class IllustrationEngine:
             tamra_year=tamra_year,
             tamra_7pay_level=policy.tamra_7pay_level,
             guideline_limit_reached=guideline_limit_reached,
+            md_premium_mode=exception.md_premium_mode,
+            md_premium=exception.md_prem,
+            md_premium_gross=exception.md_prem_gross,
+            md_premium_capped=exception.md_prem_capped,
+            md_premium_discount=exception.md_discount,
             exception_prem_mode=exception.mode,
             gp_exception_mode=exception.is_gp_exception,
             gp_exception_prem_gross=exception.gross,
             gp_exception_prem=exception.prem,
+            gp_exception_prem_discount=exception.discount,
             exception_protection=exception_protection,
             # Deduction
             nar_av=ded.nar_av,
@@ -1002,9 +1012,9 @@ class IllustrationEngine:
             premiums_to_date=prem.premiums_to_date,
             withdrawals_to_date=withdrawals_to_date,
             cost_basis=prem.cost_basis,
-            premiums_ytd_after_exception=prem.premiums_ytd + exception.prem,
-            premiums_to_date_after_exception=prem.premiums_to_date + exception.prem,
-            cost_basis_after_exception=prem.cost_basis + exception.prem,
+            premiums_ytd_after_exception=prem.premiums_ytd + exception.total_prem,
+            premiums_to_date_after_exception=prem.premiums_to_date + exception.total_prem,
+            cost_basis_after_exception=prem.cost_basis + exception.total_prem,
             cumulative_interest=cumulative_interest,
             cumulative_charges=cumulative_charges,
             # Shadow
@@ -1225,6 +1235,10 @@ class IllustrationEngine:
             attained_age=attained_age,
             md_premium_active=_monthly_deduction_premium_active(options, next_year),
             total_deduction=ded.total_deduction,
+            guideline_limit=guideline_limit,
+            premiums_to_date=prem.premiums_to_date,
+            withdrawals_to_date=withdrawals_to_date,
+            guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
         )
         av_end = exception.av_after_exception
 
@@ -1319,10 +1333,16 @@ class IllustrationEngine:
             tamra_year=tamra_year,
             tamra_7pay_level=policy.tamra_7pay_level,
             guideline_limit_reached=guideline_limit_reached,
+            md_premium_mode=exception.md_premium_mode,
+            md_premium=exception.md_prem,
+            md_premium_gross=exception.md_prem_gross,
+            md_premium_capped=exception.md_prem_capped,
+            md_premium_discount=exception.md_discount,
             exception_prem_mode=exception.mode,
             gp_exception_mode=exception.is_gp_exception,
             gp_exception_prem_gross=exception.gross,
             gp_exception_prem=exception.prem,
+            gp_exception_prem_discount=exception.discount,
             exception_protection=exception_protection,
             nar_av=ded.nar_av,
             standard_db=ded.standard_db,
@@ -1398,9 +1418,9 @@ class IllustrationEngine:
             premiums_to_date=prem.premiums_to_date,
             withdrawals_to_date=withdrawals_to_date,
             cost_basis=prem.cost_basis,
-            premiums_ytd_after_exception=prem.premiums_ytd + exception.prem,
-            premiums_to_date_after_exception=prem.premiums_to_date + exception.prem,
-            cost_basis_after_exception=prem.cost_basis + exception.prem,
+            premiums_ytd_after_exception=prem.premiums_ytd + exception.total_prem,
+            premiums_to_date_after_exception=prem.premiums_to_date + exception.total_prem,
+            cost_basis_after_exception=prem.cost_basis + exception.total_prem,
             cumulative_interest=state.cumulative_interest + intr.interest_credited,
             cumulative_charges=state.cumulative_charges + ded.total_deduction,
             monthly_mtp=monthly_mtp,
@@ -2645,14 +2665,26 @@ def _guideline_limit_reached(
 
 @dataclass
 class _ExceptionPremium:
-    mode: bool = False
-    gross: float = 0.0
-    prem: float = 0.0
-    av_after_exception: float = 0.0
-    # True only for the real GP exception (not the Monthly Deduction premium).
-    # Carried to MonthlyState.gp_exception_mode so the force-out bypass + latch
-    # apply to GP exceptions only.
+    # ── Monthly Deduction premium (Phase 1 — capped at the guideline room) ──
+    md_premium_mode: bool = False
+    md_prem: float = 0.0           # grossed-up MD premium actually paid (capped)
+    md_prem_gross: float = 0.0     # account-value restoration the MD premium funded
+    md_prem_capped: bool = False   # the guideline room limited the MD premium
+    md_discount: float = 0.0       # COI saving from lifting the AV pre-deduction
+    # ── GP exception premium (Phase 2 — uncapped, on the residual) ──
+    mode: bool = False             # GP exception mode (latches; drives protection/lapse)
+    # == mode; kept for the MonthlyState.gp_exception_mode wiring (force-out
+    # bypass + latch apply to GP exceptions only, never the MD premium).
     is_gp_exception: bool = False
+    gross: float = 0.0             # GP exception gross shortfall covered
+    prem: float = 0.0              # grossed-up GP exception premium
+    discount: float = 0.0          # COI saving (CalcEngine TA) when the exception fires
+    av_after_exception: float = 0.0
+
+    @property
+    def total_prem(self) -> float:
+        """Combined premium added this month (MD + GP exception)."""
+        return self.md_prem + self.prem
 
 
 def _monthly_deduction_premium_active(options: IllustrationOptions, policy_year: int) -> bool:
@@ -2683,66 +2715,121 @@ def _compute_exception_premium(
     attained_age: int,
     md_premium_active: bool = False,
     total_deduction: float = 0.0,
+    guideline_limit: float = 0.0,
+    premiums_to_date: float = 0.0,
+    withdrawals_to_date: float = 0.0,
+    guideline_cap_enabled: bool = False,
 ) -> _ExceptionPremium:
-    """GP exception premium (CalcEngine SY / SZ / TA / TB / TD).
+    """Monthly Deduction premium then GP exception premium, in sequence.
 
-    SY (exception mode) latches on the moment the account value goes negative
-    while the policy sits at the guideline limit, and stays on until maturity.
-    The safety-net and CCV gates do **not** belong on the mode flag — they gate
-    the *premium* (SZ): the actual exception premium flows only past the safety
-    net, with no CCV/shadow account, while the policy is still inforce, and when
-    it does it brings the after-charge account value back to zero.
+    Two phases run on the same residual account value:
 
-    The **Monthly Deduction** premium (``md_premium_active``) reuses the exact
-    same gross-up math, only the *target* changes: instead of grossing the
-    after-charge account value back up to zero, it grosses it back up by the full
-    monthly deduction so the ending account value equals where it stood just
-    *before* the deduction. It is mutually exclusive with the GP exception
-    (enforced in the inputs UI) and uses the regular account even on a shadow/CCV
-    policy, so the CCV gate does not apply to it.
+    * **Phase 1 — Monthly Deduction premium** (``md_premium_active``): grosses the
+      after-charge account value back up toward its pre-deduction value, but the
+      gross premium is **capped at the remaining guideline room** so it is
+      subject to the guideline limit. When the room runs out the AV is only
+      partially restored (or not at all) and the policy starts to run down. This
+      is NOT exception mode.
+    * **Phase 2 — GP exception premium**: if exceptions are allowed and the
+      account value is still negative once the policy is at the guideline limit
+      (including the case where the MD premium was just capped out), the
+      exception premium covers the residual *past* the guideline (it is NOT
+      capped) and brings the account value back to zero. It latches once on
+      (``mode``/``is_gp_exception``) and bypasses the force-out from then on.
+
+    The two are independent and can both be non-zero in the single hand-off
+    month. The COI feedback (a premium that lifts the AV before the deduction
+    lowers the COI) is modelled as a realized bump of ``net / (1 - phi)`` where
+    ``phi`` is the COI saving per dollar of AV: the full ``coi_rate/1000`` for a
+    level death benefit (Option A), but only ``r·(1 - 1/(1+dbd)^(1/12))`` for an
+    increasing death benefit (Option B/C), where the rising DB nearly offsets the
+    NAR drop. Exact for the uncapped MD premium and the GP exception, and correct
+    for a partially-funded (capped) MD premium.
     """
+    result = _ExceptionPremium(av_after_exception=av_after_charge)
     past_maturity = attained_age >= config.maturity_age
-
-    if md_premium_active:
-        # Monthly Deduction premium: target = the pre-deduction account value.
-        mode = not past_maturity
-        result = _ExceptionPremium(mode=mode, av_after_exception=av_after_charge)
-        if not mode or prior_lapsed:
-            return result
-        gross = max(0.0, total_deduction)
-    else:
-        ccv_active = policy.has_shadow_account
-        # SY = AND(sINPUT_AllowExceptionPrems, vAV_AfterCharge<0, SX) — no
-        # snet/CCV gate here, or the policy would lapse before the exception
-        # could rescue it.
-        triggered = (
-            options.allow_exception_prems
-            and guideline_limit_reached
-            and av_after_charge < 0.0
-        )
-        mode = (prior_exception_mode or triggered) and not past_maturity
-
-        result = _ExceptionPremium(
-            mode=mode, av_after_exception=av_after_charge, is_gp_exception=mode)
-        if not (mode and past_snet and not ccv_active and not prior_lapsed):
-            return result
-
-        gross = max(0.0, -av_after_charge)
-
-    if gross <= 0.0:
+    if past_maturity:
         return result
 
-    discount = gross / 1000.0 * coi_rate
     tpp = get_rate(rates, "tpp", rate_year)
     denom = 1.0 - tpp
     if abs(denom) < 1e-9:
         denom = 1.0
     flat = config.prem_flat_load
-    prem = (gross - discount + flat) / denom
-    av = av_after_charge + (prem * (1.0 - tpp) - flat + discount)
+    # COI feedback per dollar of AV the premium lifts before the deduction. With a
+    # level death benefit (Option A) a dollar of AV cuts the NAR dollar-for-dollar,
+    # so the saving is the full COI rate. With an increasing death benefit
+    # (Option B — and Option C, treated the same here, conservatively) the DB also
+    # rises, so the NAR barely moves and the saving collapses to
+    # r·(1 − 1/(1+dbd)^(1/12)) — nearly (but not quite) a wash.
+    db_factor = 1.0
+    if str(policy.db_option or "").upper() in ("B", "C"):
+        discount_factor = round((1.0 + config.dbd) ** (1.0 / 12.0), 7)
+        db_factor = 1.0 - 1.0 / discount_factor if discount_factor else 1.0
+    phi = (coi_rate / 1000.0) * db_factor
+    coi_factor = 1.0 - phi
+    if abs(coi_factor) < 1e-9:
+        coi_factor = 1.0
 
-    result.gross = gross
-    result.prem = prem
+    av = av_after_charge
+
+    # ── Phase 1: Monthly Deduction premium (capped at the guideline room) ──
+    if md_premium_active and not prior_lapsed:
+        result.md_premium_mode = True
+        gross_target = max(0.0, total_deduction)
+        if gross_target > 0.0:
+            # Gross-up: the premium that — net of the premium load and the COI
+            # saving it earns — lifts the AV by the full deduction so the AV
+            # returns to its pre-deduction value. ``discount`` is that COI saving.
+            discount = gross_target * phi
+            md_prem_wanted = (gross_target - discount + flat) / denom
+            # The MD premium is SUBJECT TO the guideline: cap the gross premium at
+            # the remaining room (limit − net premiums paid). Once the room is
+            # exhausted the AV is only partially restored (or not at all) and the
+            # policy begins to run down — at which point the GP exception (Phase 2)
+            # takes over if it is allowed.
+            if guideline_cap_enabled:
+                room = max(0.0, guideline_limit - (premiums_to_date - withdrawals_to_date))
+            else:
+                room = float("inf")
+            md_prem = min(md_prem_wanted, room)
+            result.md_prem_capped = md_prem < md_prem_wanted - 1e-9
+            # Realized AV bump from the (possibly capped) premium: the net premium
+            # plus the COI saving it earns, modelled as ``net / (1 - phi)``.
+            net = md_prem * denom - flat
+            if net > 0.0:
+                av_bump = net / coi_factor
+                av += av_bump
+                result.md_prem = md_prem
+                result.md_prem_gross = av_bump
+                # COI saving: the part of the AV bump funded by the lower COI
+                # (the premium lifting the pre-deduction AV), not the net premium.
+                result.md_discount = av_bump - net
+
+    # ── Phase 2: GP exception premium (uncapped, on the residual) ──
+    ccv_active = policy.has_shadow_account
+    # The exception kicks in when the policy is at the guideline limit with a
+    # residual negative AV — either the usual scheduled-premium limit-reached
+    # flag, or (with the MD premium) the room having just run out.
+    at_guideline = guideline_limit_reached or result.md_prem_capped
+    triggered = options.allow_exception_prems and at_guideline and av < 0.0
+    gp_mode = prior_exception_mode or triggered      # already past_maturity-guarded
+    result.mode = gp_mode
+    result.is_gp_exception = gp_mode
+    if gp_mode and past_snet and not ccv_active and not prior_lapsed and av < 0.0:
+        # Uncapped gross-up that brings the residual AV exactly to 0 (it is NOT
+        # subject to the guideline — that is the whole point of the exception).
+        # The COI saving (``discount``) is SUBTRACTED from the premium needed and
+        # ADDED BACK to the AV — the same value on both sides of one identity, so
+        # it nets out and the AV lands on the target. Mirrors RERUN SZ/TA/TB/TD.
+        gross = -av
+        discount = gross * phi
+        gp_prem = (gross - discount + flat) / denom
+        av += gp_prem * denom - flat + discount      # = gross → brings AV to 0
+        result.gross = gross
+        result.prem = gp_prem
+        result.discount = discount
+
     result.av_after_exception = av
     return result
 

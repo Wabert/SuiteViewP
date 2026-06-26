@@ -130,15 +130,23 @@ class MonthlyState:
     guideline_limit_reached: bool = False  # SX — at guideline ceiling this year
 
     # ── 1d. GP Exception Premium (cols 519-524) ──
+    # Monthly Deduction premium (Phase 1; reuses the exception engine but is
+    # capped at the remaining guideline room — NOT exception mode).
+    md_premium_mode: bool = False
+    md_premium: float = 0.0
+    md_premium_gross: float = 0.0          # account-value restoration funded
+    md_premium_capped: bool = False        # guideline room limited the premium
+    md_premium_discount: float = 0.0       # COI saving from the MD premium
     exception_prem_mode: bool = False      # SY — latched exception mode
     # True ONLY for the real GP exception premium (not the Monthly Deduction
-    # premium, which also raises exception_prem_mode). Drives the force-out
-    # bypass + latch: once a policy is on GP exception it stays on, and its
-    # force-outs are suppressed. Monthly Deduction premiums leave this False so
-    # they remain subject to normal guideline force-out.
+    # premium). Drives the force-out bypass + latch: once a policy is on GP
+    # exception it stays on, and its force-outs are suppressed. Monthly Deduction
+    # premiums leave this False so they remain subject to normal guideline
+    # force-out.
     gp_exception_mode: bool = False
     gp_exception_prem_gross: float = 0.0   # SZ — gross shortfall covered
     gp_exception_prem: float = 0.0         # TB — grossed-up exception premium
+    gp_exception_prem_discount: float = 0.0  # TA — COI saving when the exception fires
     exception_protection: bool = False     # YQ — exception keeps policy in force
 
     # ── 2. Monthly Deduction (cols 405-516) ───
@@ -309,7 +317,7 @@ class MonthlyState:
 
     @property
     def premium_outlay(self) -> float:
-        return self.gross_premium + self.gp_exception_prem
+        return self.gross_premium + self.md_premium + self.gp_exception_prem
 
     @property
     def applied_new_loan(self) -> float:
