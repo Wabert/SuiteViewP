@@ -367,7 +367,7 @@ _TYPE_INPUT = "INPUT"
 # Run Values); whether it rides the GLP exception period is up to the user's
 # Allow GP Exception toggle.
 _TYPE_MAX_LEVEL = "Max Level Allowed"
-_TYPE_MIN_LEVEL = "Min Level to Maturity"
+_TYPE_MIN_LEVEL = "Min to Maturity"
 _LEVEL_TYPES = (_TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL)
 # "Monthly Deduction" pays, each month, exactly the policy's monthly deduction
 # (grossed up by the COI rate and premium load) so the account value after the
@@ -1474,10 +1474,8 @@ class DynamicInputsPanel(QWidget):
         # rows stay editable. The exception toggle is refreshed too.
         level = self.active_level_premium_type()
         self._set_other_sections_locked(level is not None)
-        # A level premium already solves the policy in force to maturity, so a
-        # next-premium bridge is moot — grey it out (state preserved for when the
-        # user switches back off the level type).
-        self.lumpsum_to_next_check.setEnabled(level is None)
+        # A Lumpsum to Next Premium bridge can layer on top of a level premium
+        # type, so the checkbox stays available regardless of the premium type.
         self._refresh_exception_checkbox()
 
     def _refresh_exception_checkbox(self):

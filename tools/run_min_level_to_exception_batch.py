@@ -131,6 +131,7 @@ HEADERS = {
     "valuation_date": "Valuation Date",
     "suspense_code": "Suspense Code",
     "total_prem_paid": "Total Prem Paid",
+    "lumpsum": "Lumpsum to Next Prem",
     "def_life_ins": "Def Life Ins",
 }
 
@@ -154,6 +155,7 @@ MONEY_KEYS = {
     "prem_td",
     "accum_wd",
     "total_prem_paid",
+    "lumpsum",
 }
 DATE_KEYS = {"exc_date", "issue_date", "maturity_date", "valuation_date"}
 INT_KEYS = {
@@ -168,6 +170,12 @@ INT_KEYS = {
 # Premium that always trips the guideline cap, so the policy is funded to its
 # absolute maximum each month (exceptions off — see _absolute_max_result).
 ABSOLUTE_MAX_PREMIUM = 999_999_999.0
+
+# Lumpsum to Next Prem is always on in this batch: after the level premium is
+# solved, a bridging lumpsum is solved on the forecast date to carry a thin
+# policy to its first modal premium, exactly like the illustration UI's
+# "Lumpsum to Next Premium" checkbox layered on top of a level premium type.
+LUMPSUM_TO_NEXT_ALWAYS = True
 
 # Run Status values. Bypassed rows get a dynamic "bypass (<codes>)" status whose
 # codes name the reason(s): A=shadow account, LN=loan, MD=MD diff, rates missing,
@@ -357,10 +365,11 @@ def _write_snapshot(ws, row: int, policy) -> None:
     _put(ws, row, "def_life_ins", (policy.def_of_life_ins or "").strip() or None)
 
 
-def _write_solve(ws, row: int, lte) -> None:
+def _write_solve(ws, row: int, lte, lumpsum: Optional[float] = None) -> None:
     """Write the solve-derived columns (premium, exception date/duration, total paid)."""
     _put(ws, row, "min_prem", lte.premium, MONEY_FMT)
     _put(ws, row, "total_prem_paid", round(lte.total_premium_paid, 2), MONEY_FMT)
+    _put(ws, row, "lumpsum", round(lumpsum, 2) if lumpsum else None, MONEY_FMT)
     if lte.enters_exception:
         _put(ws, row, "exc_date", lte.exception_start, DATE_FMT)
         _put(ws, row, "exc_dur", lte.exception_duration, INT_FMT)
@@ -370,7 +379,7 @@ def _write_solve(ws, row: int, lte) -> None:
 
 
 def _clear_solve(ws, row: int) -> None:
-    for key in ("min_prem", "total_prem_paid", "exc_date", "exc_dur"):
+    for key in ("min_prem", "total_prem_paid", "lumpsum", "exc_date", "exc_dur"):
         _put(ws, row, key, None)
 
 
@@ -481,7 +490,11 @@ def main() -> None:
         missing_required_rate_warnings,
     )
     from suiteview.illustration.core.solve_level_to_exception import (
-        LevelToExceptionError, solve_level_to_exception,
+        LevelToExceptionError, level_to_exception_options, solve_level_to_exception,
+        _build_result,
+    )
+    from suiteview.illustration.core.solve_lumpsum_to_next_premium import (
+        solve_lumpsum_to_next_premium,
     )
     from suiteview.illustration.models.plancode_config import load_plancode
 
@@ -709,7 +722,50 @@ def main() -> None:
                 clear_cache()
                 continue
 
-            _write_solve(ws, row, lte)
+            # ── Lumpsum to Next Prem (always on) ───────────────────────
+            # Mirror the illustration UI: layer a bridging lumpsum on top of the
+            # solved level premium so a thin policy survives from the forecast date
+            # to its first modal premium. The reported exception/total-paid figures
+            # come from a final projection that includes both premiums.
+            lumpsum_amount = None
+            if LUMPSUM_TO_NEXT_ALWAYS:
+                from suiteview.illustration.models.input_set import (
+                    DatedTransaction, IllustrationInputSet, ScheduledTransaction,
+                    TransactionKind,
+                )
+                level_options = level_to_exception_options(
+                    None, allow_exceptions=True, apply_prem_to_loan=policy.has_loans)
+                level_future = IllustrationInputSet(scheduled_transactions=[
+                    ScheduledTransaction(
+                        kind=TransactionKind.PREMIUM, policy_year=1,
+                        amount=lte.premium, mode=lte.mode)])
+                try:
+                    lump = solve_lumpsum_to_next_premium(
+                        deepcopy(policy),
+                        base_future_inputs=level_future,
+                        base_options=level_options,
+                        engine=engine,
+                    )
+                except Exception as exc:  # bridge solve failed — report the level solve alone
+                    lump = None
+                    print(f"row {row:>4}  {policy_number:<12}  lumpsum bridge failed: {exc}")
+                if lump is not None and lump.lumpsum > 0:
+                    lumpsum_amount = lump.lumpsum
+                    final_future = IllustrationInputSet(
+                        scheduled_transactions=list(level_future.scheduled_transactions),
+                        dated_transactions=[DatedTransaction(
+                            kind=TransactionKind.PREMIUM,
+                            effective_date=lump.forecast_date,
+                            amount=lump.lumpsum,
+                            subtype="lumpsum_to_next_premium")])
+                    final_states = engine.project(
+                        deepcopy(policy), options=level_options,
+                        future_inputs=final_future)
+                    # Keep the solved level premium; refresh exception/total-paid
+                    # from the run that includes the bridge.
+                    lte = _build_result(lte.premium, lte.mode, final_states, lte.iterations)
+
+            _write_solve(ws, row, lte, lumpsum=lumpsum_amount)
             status = STATUS_EXCEPT if lte.enters_exception else STATUS_MATURED
             _put(ws, row, "run_status", status)
 
@@ -722,6 +778,7 @@ def main() -> None:
                 "mode": lte.mode,
                 "min_level_prem": lte.premium,
                 "total_premium_paid": lte.total_premium_paid,
+                "lumpsum_to_next": lumpsum_amount,
                 "enters_exception": lte.enters_exception,
                 "exception_date": str(lte.exception_start) if lte.exception_start else None,
                 "exception_duration": lte.exception_duration,
@@ -730,13 +787,15 @@ def main() -> None:
             results.append(record)
             persist_row(row, {
                 "mode": lte.mode,
+                "lumpsum_to_next": lumpsum_amount,
                 "enters_exception": lte.enters_exception,
                 "iterations": lte.iterations,
             })
+            lump_txt = f"  lumpsum {lumpsum_amount:>10,.2f}" if lumpsum_amount else ""
             exc_txt = (f"exc {lte.exception_start} (yr {lte.exception_duration})"
                        if lte.enters_exception else "endows")
             print(f"row {row:>4}  {policy_number:<12}  {lte.mode} "
-                  f"min level {lte.premium:>12,.2f}  {exc_txt}  "
+                  f"min level {lte.premium:>12,.2f}{lump_txt}  {exc_txt}  "
                   f"total paid {lte.total_premium_paid:>12,.2f}  [abs-max: {abs_max}]")
             clear_cache()
     finally:

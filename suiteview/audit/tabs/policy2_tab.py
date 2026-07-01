@@ -21,7 +21,7 @@ from ..constants import (
     STANDARD_LOAN_PAYMENT_ITEMS,
     CHANGE_SEQ_68_ITEMS,
 )
-from ._styles import make_checkbox as _make_checkbox, make_listbox as _make_listbox, connect_checkbox_listbox as _connect_checkbox_listbox
+from ._styles import make_checkbox as _make_checkbox, make_listbox as _make_listbox, connect_checkbox_listbox as _connect_checkbox_listbox, make_combo as _make_combo
 
 # ── Compact sizing helpers (same as policy_tab) ────────────────────────
 _FONT = QFont("Segoe UI", 9)
@@ -31,6 +31,9 @@ _V_SPACING = 2
 _H_SPACING = 4
 _RANGE_W = 70
 _LABEL_W = 195       # slightly wider for longer labels on this tab
+
+# Match-type options for the Person Info name filters.
+NAME_MATCH_ITEMS = ["Exact match", "Contains", "Begins with", "Ends with"]
 
 
 def _connect_checkbox_widgets(chk: QCheckBox, widgets: list[QWidget]):
@@ -92,6 +95,25 @@ class Policy2Tab(QWidget):
         sep.setStyleSheet("color: #bbb;")
         sep.setFixedWidth(2)
         return sep
+
+    def _add_name_row(self, layout: QGridLayout, row: int, label_text: str):
+        """Add a 'label | match-type combo | text' row and return (combo, line-edit)."""
+        lbl = QLabel(label_text)
+        lbl.setFont(_FONT)
+        lbl.setFixedWidth(70)
+        lbl.setFixedHeight(_CTRL_H)
+
+        cmb = _make_combo(NAME_MATCH_ITEMS, width=100)
+
+        txt = QLineEdit()
+        txt.setFont(_FONT)
+        txt.setFixedHeight(_CTRL_H)
+        txt.setMinimumWidth(110)
+
+        layout.addWidget(lbl, row, 0)
+        layout.addWidget(cmb, row, 1)
+        layout.addWidget(txt, row, 2)
+        return cmb, txt
 
     def _build_ui(self):
         root = QHBoxLayout(self)
@@ -179,6 +201,23 @@ class Policy2Tab(QWidget):
         col1.addWidget(self.chk_mec)
         self.chk_failed_guideline = _make_checkbox("Failed Guideline or TAMRA (66)")
         col1.addWidget(self.chk_failed_guideline)
+
+        col1.addSpacing(2); col1.addWidget(self._hsep()); col1.addSpacing(2)
+
+        # ── GROUP 5: Person Info (VH_POL_HAS_LOC_CLT) ─────────────
+        lbl_person = QLabel("Person Info")
+        lbl_person.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        col1.addWidget(lbl_person)
+
+        person_grid = QGridLayout()
+        person_grid.setSpacing(_V_SPACING)
+        person_grid.setContentsMargins(0, 0, 0, 0)
+        person_grid.setHorizontalSpacing(_H_SPACING)
+        self.cmb_first_name_match, self.txt_first_name = self._add_name_row(
+            person_grid, 0, "First Name")
+        self.cmb_last_name_match, self.txt_last_name = self._add_name_row(
+            person_grid, 1, "Last Name")
+        col1.addLayout(person_grid)
 
         col1.addStretch()
 

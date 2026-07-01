@@ -367,7 +367,7 @@ class IllustrationWindow(FramelessWindowBase):
                         # It can't endow on its own — exceptions would carry it.
                         msg += ("  GP exception premiums will be required.  "
                                 "Select Allow GP Exception Premium and run again.")
-                    QMessageBox.information(self, "Min Level to Maturity", msg)
+                    QMessageBox.information(self, "Min to Maturity", msg)
                     self._show_status(str(exc))
                     return
                 sched = list(future_inputs.scheduled_transactions)
@@ -386,12 +386,11 @@ class IllustrationWindow(FramelessWindowBase):
 
             # "Lumpsum to Next Premium": if the policy would lapse before its
             # next modal premium, solve a bridging lumpsum and layer it in as an
-            # unscheduled premium on the forecast date. Moot (and skipped) when a
-            # level premium type is already solving the policy in force.
+            # unscheduled premium on the forecast date. It layers on top of any
+            # level premium type, bridging with the solved premium already merged
+            # into future_inputs above.
             lumpsum_result = None
-            if (self.inputs_tab.lumpsum_to_next_enabled()
-                    and min_level is None
-                    and not self.inputs_tab.level_premium_active()):
+            if self.inputs_tab.lumpsum_to_next_enabled():
                 from suiteview.illustration.core.solve_lumpsum_to_next_premium import (
                     solve_lumpsum_to_next_premium,
                 )

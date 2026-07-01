@@ -196,6 +196,48 @@ class CoveragesTab(QWidget):
         cd_row.addStretch()
         grid.addLayout(cd_row, r, 0, 1, 2); r += 1
 
+        # VPU (Value-Per-Unit) range
+        lbl_vpu = QLabel("VPU:")
+        lbl_vpu.setFont(_FONT_SM)
+        grid.addWidget(lbl_vpu, r, 0, 1, 2); r += 1
+
+        vpu_row = QHBoxLayout(); vpu_row.setSpacing(_H_SPACING)
+        widgets["vpu_lo"] = QLineEdit()
+        widgets["vpu_lo"].setFont(_FONT)
+        widgets["vpu_lo"].setFixedSize(_RANGE_W, _CTRL_H)
+        widgets["vpu_lo"].setPlaceholderText("Min")
+        lbl_to3 = QLabel("to"); lbl_to3.setFont(_FONT)
+        widgets["vpu_hi"] = QLineEdit()
+        widgets["vpu_hi"].setFont(_FONT)
+        widgets["vpu_hi"].setFixedSize(_RANGE_W, _CTRL_H)
+        widgets["vpu_hi"].setPlaceholderText("Max")
+        vpu_row.addWidget(widgets["vpu_lo"])
+        vpu_row.addWidget(lbl_to3)
+        vpu_row.addWidget(widgets["vpu_hi"])
+        vpu_row.addStretch()
+        grid.addLayout(vpu_row, r, 0, 1, 2); r += 1
+
+        # Specified Amount range (units × VPU)
+        lbl_sa = QLabel("Specified Amount:")
+        lbl_sa.setFont(_FONT_SM)
+        grid.addWidget(lbl_sa, r, 0, 1, 2); r += 1
+
+        sa_row = QHBoxLayout(); sa_row.setSpacing(_H_SPACING)
+        widgets["spec_amt_lo"] = QLineEdit()
+        widgets["spec_amt_lo"].setFont(_FONT)
+        widgets["spec_amt_lo"].setFixedSize(_RANGE_W, _CTRL_H)
+        widgets["spec_amt_lo"].setPlaceholderText("Min")
+        lbl_to4 = QLabel("to"); lbl_to4.setFont(_FONT)
+        widgets["spec_amt_hi"] = QLineEdit()
+        widgets["spec_amt_hi"].setFont(_FONT)
+        widgets["spec_amt_hi"].setFixedSize(_RANGE_W, _CTRL_H)
+        widgets["spec_amt_hi"].setPlaceholderText("Max")
+        sa_row.addWidget(widgets["spec_amt_lo"])
+        sa_row.addWidget(lbl_to4)
+        sa_row.addWidget(widgets["spec_amt_hi"])
+        sa_row.addStretch()
+        grid.addLayout(sa_row, r, 0, 1, 2); r += 1
+
         layout.addLayout(grid)
         layout.addStretch()
 

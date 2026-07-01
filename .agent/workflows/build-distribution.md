@@ -11,6 +11,16 @@ This workflow builds SuiteView into a distributable folder + ZIP that coworkers 
 - PyInstaller installed (`pip install pyinstaller`)
 - ABR Quote database populated at `~/.suiteview/abr_quote.db`
 
+## Version Bump (do this FIRST, every build)
+
+The version lives in `suiteview/__init__.py` (`__version__`) and is shown in
+the taskbar header (e.g. `SuiteView (2.0)`).
+
+1. Read the current `__version__` from `suiteview/__init__.py`.
+2. Tell the user the **current version** and ask for the **new version**.
+   Wait for confirmation before building.
+3. Update `__version__` to the agreed value.
+
 ## Build Steps
 
 // turbo

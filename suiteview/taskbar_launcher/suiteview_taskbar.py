@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QSize, QPoint, QRect, QTimer
 from PyQt6.QtGui import QAction, QCursor, QMouseEvent, QIcon, QPainter, QColor, QPen, QPixmap, QFont, QBrush
 
+from suiteview import __version__ as APP_VERSION
+
 # Import the base FileExplorerCore
 from suiteview.file_nav.file_explorer_core import FileExplorerCore, DropTreeView
 
@@ -3011,7 +3013,7 @@ class SuiteViewTaskbar(QWidget):
         header_layout.setSpacing(8)
         
         # App title (acts as drag handle) - larger and italic
-        self.title_label = QLabel("SuiteView")
+        self.title_label = QLabel(f"SuiteView ({APP_VERSION})")
         self.title_label.setStyleSheet("""
             QLabel {
                 color: #D4A017;

@@ -23,6 +23,9 @@ from pathlib import Path
 # Project root
 PROJECT_ROOT = Path(__file__).parent.parent
 os.chdir(PROJECT_ROOT)
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from suiteview import __version__ as APP_VERSION
 
 # ── Resolve venv Python ────────────────────────────────────────────────
 # PyInstaller MUST run under the venv interpreter so that it discovers
@@ -69,6 +72,7 @@ def main():
     ╔═══════════════════════════════════════════╗
     ║   {dist_name:^37s}   ║
     ║        Distribution Builder               ║
+    ║   {('Version ' + APP_VERSION):^37s}   ║
     ╚═══════════════════════════════════════════╝
     """)
 

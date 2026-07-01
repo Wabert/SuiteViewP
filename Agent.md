@@ -1129,6 +1129,26 @@ coworkers using PyInstaller. See the workflow: `/build-distribution`.
 
 **Build script:** `scripts/build_distribution.py`
 
+### Versioning (REQUIRED for every release)
+
+Every distribution carries a **version number** so users can tell builds
+apart. The version is displayed in the taskbar header (e.g. `SuiteView (2.0)`).
+
+- **Single source of truth:** `suiteview/__init__.py` → `__version__`.
+- The taskbar label reads this value, and `build_distribution.py` prints it
+  in the build banner.
+
+**Agent workflow — do this EVERY time a distribution is requested:**
+
+1. Read the current version from `suiteview/__init__.py`.
+2. Tell the user the **current version** and ask what the **new version**
+   should be. Do not build until they confirm.
+3. Update `__version__` in `suiteview/__init__.py` to the agreed value.
+4. Run the build.
+
+Versions are simple `MAJOR.MINOR` strings (e.g. `2.0`, `2.1`, `3.0`) —
+bump MINOR for routine releases, MAJOR for significant changes.
+
 ### How to build
 
 ```powershell
