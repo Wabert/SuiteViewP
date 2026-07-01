@@ -149,20 +149,11 @@ class SymbolPickerDialog(QDialog):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# IndentingPlainTextEdit — Custom editor with auto-indentation logic
+# IndentingPlainTextEdit — Custom editor
 # ═══════════════════════════════════════════════════════════════════════════
 
 class IndentingPlainTextEdit(QPlainTextEdit):
-    """QPlainTextEdit that auto-indents new lines to 4 spaces."""
-
-    def keyPressEvent(self, event):
-        # Handle Enter key for auto-indentation
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            # User requirement: "basically any time i hit return i want a 3 space indent to be added"
-            self.insertPlainText("\n   ")
-            self.ensureCursorVisible()
-            return
-        super().keyPressEvent(event)
+    """Plain text editor for the scratchpad (no automatic indentation)."""
 
 # ═══════════════════════════════════════════════════════════════════════════
 # ScratchPadPanel

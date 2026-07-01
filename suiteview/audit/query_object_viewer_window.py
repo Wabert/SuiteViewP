@@ -139,6 +139,54 @@ _DASHBOARD_GROUP_STYLE = (
     " background: transparent; }"
 )
 
+# StyledInfoTableGroup's inner FixedHeaderTableWidget bakes PolView greens into
+# its frame border, header sections and scrollbars (the BLUE_* style constants
+# resolve to green). _DASHBOARD_GROUP_STYLE only re-skins the outer QGroupBox,
+# so re-skin the inner table widgets to the Audit tool's Blue/Gold here.
+_INFO_TABLE_BLUE_STYLE = (
+    "QTableWidget { background-color: white; border: none;"
+    " gridline-color: transparent; font-size: 11px;"
+    " selection-background-color: #DCEAFB; selection-color: #0D3A7A; }"
+    "QTableWidget::item { padding: 0px 4px; border: none; }"
+    "QTableWidget::item:selected { background-color: #DCEAFB; color: #0D3A7A;"
+    " border: none; }"
+    "QHeaderView::section { background-color: #E8F0FB; color: #0D3A7A;"
+    " padding: 2px 4px; border: none; border-right: 1px solid #E1E5EB;"
+    " border-bottom: 1px solid #1E5BA8; font-size: 10px; font-weight: normal;"
+    " height: 18px; }"
+    "QHeaderView::section:last { border-right: none; }"
+    "QScrollBar:vertical { background-color: #E8F0FB; width: 14px; margin: 0px;"
+    " border: none; }"
+    "QScrollBar::handle:vertical { background-color: #A8C6E8; min-height: 30px;"
+    " margin: 2px; }"
+    "QScrollBar::handle:vertical:hover { background-color: #2A6BC4; }"
+    "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+    "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }"
+    "QScrollBar:horizontal { background-color: #E8F0FB; height: 14px; margin: 0px;"
+    " border: none; }"
+    "QScrollBar::handle:horizontal { background-color: #A8C6E8; min-width: 30px;"
+    " margin: 2px; }"
+    "QScrollBar::handle:horizontal:hover { background-color: #2A6BC4; }"
+    "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }"
+    "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }"
+)
+
+
+def _reskin_info_table_blue(group) -> None:
+    """Re-skin a StyledInfoTableGroup's inner table from PolView green to blue."""
+    table = getattr(group, "table", None)
+    if table is None:
+        return
+    outer = getattr(table, "_outer_frame", None)
+    if outer is not None:
+        outer.setStyleSheet(
+            "QFrame#outerFrame { background-color: white;"
+            " border: 1px solid #1E5BA8; border-radius: 4px; }"
+        )
+    data_table = getattr(table, "_data_table", None)
+    if data_table is not None:
+        data_table.setStyleSheet(_INFO_TABLE_BLUE_STYLE)
+
 # ── Tree item payloads (UserRole) ───────────────────────────────────────
 # {"type": "query", "id": <object id>, "name": <object name>[, "forge": name]}
 # {"type": "group", "group_id": <organizer group id>, "name": <group name>}
@@ -351,15 +399,20 @@ class _OrganizerPillDelegate(QStyledItemDelegate):
         badge_color = payload.get("badge_color") or "#64748B"
         badge_fill = payload.get("badge_fill") or badge_color
         badge_text_color = payload.get("badge_text_color") or "#FFFFFF"
+        badge_font = QFont(_FONT_SMALL)
+        badge_font.setBold(True)
+        painter.setFont(badge_font)
+        metrics = painter.fontMetrics()
+        max_badge_width = 140
+        badge_width = max(34, min(max_badge_width, metrics.horizontalAdvance(badge) + 14))
+        if metrics.horizontalAdvance(badge) + 14 > max_badge_width:
+            badge = metrics.elidedText(badge, Qt.TextElideMode.ElideRight, badge_width - 12)
         badge_rect = rect.adjusted(16, 4, 0, -4)
-        badge_rect.setWidth(34 if len(badge) <= 3 else 42)
+        badge_rect.setWidth(badge_width)
         painter.setPen(QPen(QColor(badge_color), 1))
         painter.setBrush(QColor(badge_fill))
         painter.drawRoundedRect(badge_rect, 4, 4)
         painter.setPen(QColor(badge_text_color))
-        badge_font = QFont(_FONT_SMALL)
-        badge_font.setBold(True)
-        painter.setFont(badge_font)
         painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge)
 
         painter.setPen(QColor("#202124"))
@@ -720,6 +773,7 @@ class _SourceDashboard(QWidget):
         self.grp_usedby = StyledInfoTableGroup("Used by", show_info=False)
         for grp in (self.grp_setup, self.grp_columns, self.grp_usedby):
             grp.setStyleSheet(_DASHBOARD_GROUP_STYLE)
+            _reskin_info_table_blue(grp)
 
         self.setup_stack = QStackedWidget()
         self.setup_stack.addWidget(self.grp_setup)          # 0 read-only
@@ -1672,8 +1726,8 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         self.lbl_canvas_title.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         self.lbl_canvas_title.setMinimumHeight(28)
         self.lbl_canvas_title.setStyleSheet(
-            "QLabel { background: #2A6BC4; color: white;"
-            " border: 1px solid #14407A; padding: 4px 8px; }"
+            "QLabel { background: #DADADA; color: black;"
+            " border: 1px solid #B8B8B8; padding: 4px 8px; }"
         )
         self.lbl_canvas_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         canvas_lay.addWidget(self.lbl_canvas_title)
@@ -2104,7 +2158,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         def _add_query_item(parent, obj: QueryObject, forge_name: str = ""):
             style = mode_style(obj.kind)
             dsn = _display_dsn_for_object(obj) or "?"
-            item = QTreeWidgetItem([f"{obj.name}  [{dsn}]"])
+            item = QTreeWidgetItem([obj.name])
             item.setFont(0, _FONT)
             item.setForeground(0, QColor(style.color))
             item.setBackground(0, QBrush(QColor(style.tint)))
@@ -2113,7 +2167,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 "type": "query",
                 "id": obj.id,
                 "name": obj.name,
-                "badge": _QUERY_BADGES.get(obj.kind, "Q"),
+                "badge": dsn,
                 "badge_color": style.color,
                 "badge_fill": style.color,
                 "badge_text_color": "#FFFFFF",
@@ -2273,7 +2327,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                 ])
                 if not search_active or source_matches or children:
                     visible_sources.append((source, children))
-            if search_active and not visible_sources:
+            if not visible_sources:
                 return
             root = QTreeWidgetItem([f"{title} ({len(visible_sources)})"])
             root.setFont(0, QFont("Segoe UI", 9, QFont.Weight.Bold))
@@ -2977,18 +3031,19 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         organizer = get_query_organizer()
 
         menu = QMenu(self)
+        open_new = menu.addAction("Open in New Window")
+        open_new.setEnabled(self._can_open_in_builder(obj))
+        menu.addSeparator()
         rename = menu.addAction("Rename")
         copy_here = menu.addAction("Copy")
         delete = menu.addAction("Delete")
-        menu.addSeparator()
-        new_query, new_forge = self._add_creation_actions(menu)
 
         chosen = menu.exec(global_pos)
-        if self._handle_creation_action(chosen, new_query, new_forge):
-            return
         if chosen is None:
             return
-        if chosen == rename:
+        if chosen == open_new:
+            self._open_query_object_in_new_builder(obj.name)
+        elif chosen == rename:
             self._rename_query_object(obj)
         elif chosen == copy_here:
             organizer.copy_query(obj.id, organizer.query_location(obj.id))
@@ -3039,22 +3094,22 @@ class QueryObjectViewerWindow(FramelessWindowBase):
         menu = QMenu(self)
         rename = menu.addAction("Rename Source...")
         open_forge = menu.addAction("Open DataForge in Builder")
+        open_new = menu.addAction("Open in New Window")
+        open_new.setEnabled(self._can_open_in_builder(obj))
         menu.addSeparator()
         copy_out = menu.addAction("Copy out to Browser")
         move_out = menu.addAction("Move out to Browser")
         menu.addSeparator()
         remove = menu.addAction("Remove from DataForge")
-        menu.addSeparator()
-        new_query, new_forge = self._add_creation_actions(menu)
 
         chosen = menu.exec(global_pos)
         organizer = get_query_organizer()
-        if self._handle_creation_action(chosen, new_query, new_forge):
-            return
         if chosen == rename:
             self._rename_forge_query_object(forge_name, obj)
         elif chosen == open_forge:
             self._open_dataforge_builder(forge_name)
+        elif chosen == open_new:
+            self._open_query_object_in_new_builder(obj.name)
         elif chosen in (copy_out, move_out):
             out = organizer.extract_query_from_forge(
                 forge_name, obj.name, remove_source=(chosen == move_out))
@@ -4805,6 +4860,41 @@ class QueryObjectViewerWindow(FramelessWindowBase):
             )
             return
         opener(object_name)
+
+    def _open_query_object_in_new_builder(self, object_name: str):
+        """Open a Query Object in a brand-new builder window.
+
+        Unlike ``_open_query_object_builder`` this never reuses an existing
+        Audit builder — it always spins up a fresh window so several query
+        builders can be open side by side.
+        """
+        try:
+            from suiteview.audit.main import create_audit_window
+            window = create_audit_window()
+        except Exception:
+            logger.exception("Failed to create AuditWindow for new builder window")
+            QMessageBox.information(
+                self,
+                "Builder Unavailable",
+                "Could not open a new Audit builder window.",
+            )
+            return
+        self._audit_builder_windows.append(window)
+        window.destroyed.connect(lambda _=None, win=window: self._forget_audit_window(win))
+        opener = getattr(window, "open_query_object_in_builder", None)
+        if opener is None:
+            QMessageBox.information(
+                self,
+                "Builder Unavailable",
+                "Could not open the Audit builder for this Query Object.",
+            )
+            return
+        opener(object_name)
+        try:
+            window.raise_()
+            window.activateWindow()
+        except RuntimeError:
+            pass
 
     def _on_add_file_source(self):
         """Add a File Source — open the editable dashboard in 'new' mode.

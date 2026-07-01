@@ -600,6 +600,11 @@ class FieldPickerPanel(QWidget):
     def _rebuild_table_list(self):
         """Rebuild the table list widget with selected DB tables + common tables."""
         preferred = self._preferred_table or self._current_table
+        # Reset so the re-selection below always reloads fields. Otherwise the
+        # currentItemChanged handler short-circuits (table == _current_table)
+        # and the freshly-cleared field list stays blank until the user clicks
+        # away and back.
+        self._current_table = ""
         self.list_tables.clear()
         self.list_fields.clear()
         self.lbl_status.setText("")

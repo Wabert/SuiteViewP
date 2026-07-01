@@ -28,17 +28,6 @@ from suiteview.ui.widgets.bookmark_widgets import (
 import logging
 logger = logging.getLogger(__name__)
 
-try:
-    from suiteview.messaging.message_service import MessageService, is_messaging_available
-    from suiteview.messaging.inbox_widget import MessageInbox
-except Exception:
-    logger.info("Messaging module unavailable — skipping")
-    MessageService = None  # type: ignore[assignment,misc]
-    MessageInbox = None    # type: ignore[assignment,misc]
-
-    def is_messaging_available() -> bool:
-        return False
-
 # DEV_MODE is True when running from source, False when running as a PyInstaller exe.
 # Experimental features (PolView, Audit, Task Tracker, etc.) are only shown in DEV_MODE.
 DEV_MODE = not getattr(sys, 'frozen', False)
@@ -2052,7 +2041,6 @@ class SuiteViewTaskbar(QWidget):
         self.mainframe_window = None
         self.email_attachments_window = None
         self.screenshot_window = None
-        self.task_tracker_window = None
         self.polview_window = None
         self.audit_window = None
         self.ratemanager_window = None
@@ -2064,17 +2052,6 @@ class SuiteViewTaskbar(QWidget):
         # PolView is created lazily the first time it is requested. Keeping it
         # lazy avoids a hidden native tool window flashing during taskbar startup.
         logger.info("PolView will be created on first use")
-
-        # Messaging service (only when shared folder is reachable, disabled in Light mode)
-        logger.info("Checking messaging availability (LIGHT_MODE=%s)...", LIGHT_MODE)
-        self._messaging_enabled = is_messaging_available() and not LIGHT_MODE
-        if self._messaging_enabled:
-            self._msg_service = MessageService(self)
-            self._msg_inbox = MessageInbox()
-        else:
-            self._msg_service = None
-            self._msg_inbox = None
-        self._unread_count = 0
 
         # Shared splitter sizes across all tabs - loaded from saved settings
         self._shared_splitter_sizes = None  # Will be set from first tab or saved
@@ -2093,13 +2070,6 @@ class SuiteViewTaskbar(QWidget):
         logger.info("System tray setup complete")
 
         self._connect_screen_change_handlers()
-
-        # Connect messaging signals
-        if self._messaging_enabled:
-            self._msg_service.new_messages.connect(self._on_new_messages)
-            self._msg_inbox.message_dismissed.connect(self._on_message_dismissed)
-            self._msg_inbox.open_file.connect(self._on_msg_open_file)
-            self._msg_inbox.navigate_to.connect(self._on_msg_open_in_folder)
 
         # Create initial tab
         self.add_new_tab()
@@ -2355,10 +2325,6 @@ class SuiteViewTaskbar(QWidget):
         logger.info("Quit requested from system tray")
         
         try:
-            # Stop messaging service
-            if hasattr(self, '_msg_service') and self._msg_service:
-                self._msg_service.stop()
-
             # Unregister AppBar to restore desktop work area (compact mode)
             self._unregister_appbar()
             
@@ -2388,141 +2354,6 @@ class SuiteViewTaskbar(QWidget):
             logger.error(f"Error during quit: {e}")
             # Force quit anyway
             QApplication.quit()
-
-    # ── Messaging ────────────────────────────────────────────────
-
-    def _on_new_messages(self, messages):
-        """Handle newly arrived messages from the polling service."""
-        self._unread_count += len(messages)
-        self._update_msg_badge()
-        self._msg_inbox.add_messages(messages)
-        # System tray balloon
-        if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
-            sender = messages[0].sender_display or messages[0].sender
-            if len(messages) == 1:
-                body = f"📄 {Path(messages[0].path).name}"
-            else:
-                body = f"{len(messages)} new file links"
-            self.tray_icon.showMessage(
-                f"Message from {sender}", body,
-                QSystemTrayIcon.MessageIcon.Information, 4000)
-
-    def _on_message_dismissed(self, msg):
-        """Acknowledge (delete) the message file and update badge."""
-        self._msg_service.acknowledge(msg)
-        self._unread_count = max(0, self._unread_count - 1)
-        self._update_msg_badge()
-
-    def _on_msg_open_file(self, file_path):
-        """Open a file received via message."""
-        try:
-            p = Path(file_path)
-            if p.exists():
-                if os.name == 'nt':
-                    os.startfile(str(p))
-                else:
-                    import subprocess
-                    subprocess.run(['xdg-open', str(p)])
-            else:
-                QMessageBox.warning(self, "File Not Found",
-                                    f"The file no longer exists:\n{file_path}")
-        except Exception as e:
-            logger.error(f"Failed to open message file: {e}")
-
-    def _on_msg_open_in_folder(self, file_path):
-        """Open the file's parent folder in File Nav in a new tab."""
-        p = Path(file_path)
-        folder = str(p.parent) if p.is_file() else str(p)
-        # Ensure File Nav is open
-        self._open_file_nav()
-        if self.file_nav_window:
-            self.file_nav_window.add_new_tab(path=folder)
-
-    def _update_msg_badge(self):
-        """Update the message badge button appearance based on unread count."""
-        if not self.msg_badge_btn:
-            return
-        count = self._unread_count
-        if count > 0:
-            display = f"\u2709 {count}" if count <= 99 else "\u2709 99+"
-            self.msg_badge_btn.setText(display)
-            self.msg_badge_btn.setFixedSize(48, 28)
-            self.msg_badge_btn.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 #E03030, stop:1 #B01010);
-                    border: 2px solid #FF2222;
-                    border-radius: 4px;
-                    color: white;
-                    font-size: 10px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 #FF4040, stop:1 #D02020);
-                    border-color: #FF5555;
-                }
-            """)
-            self.msg_badge_btn.setToolTip(f"{count} unread message{'s' if count != 1 else ''}")
-        else:
-            self.msg_badge_btn.setText("\u2709")
-            self.msg_badge_btn.setFixedSize(28, 28)
-            self.msg_badge_btn.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: 2px solid #555;
-                    border-radius: 4px;
-                    color: #888;
-                    font-size: 14px;
-                }
-                QPushButton:hover {
-                    background: rgba(255, 255, 255, 0.1);
-                    border-color: #777;
-                }
-            """)
-            self.msg_badge_btn.setToolTip("Messages")
-
-    def _toggle_msg_inbox(self):
-        """Show / hide the message inbox popup above the badge button."""
-        if not self._messaging_enabled:
-            return
-        if self._msg_inbox.isVisible():
-            self._msg_inbox.hide()
-            return
-        # Popup auto-closes on outside click; if the badge button was that
-        # click, the popup just closed and we should NOT reopen it.
-        if self._msg_inbox.recently_closed:
-            return
-        # Ensure the widget knows its size before positioning
-        self._msg_inbox.adjustSize()
-        inbox_h = self._msg_inbox.sizeHint().height()
-        inbox_w = self._msg_inbox.width()  # fixedWidth=340
-
-        # Anchor: top-right of the badge button
-        btn_top_right = self.msg_badge_btn.mapToGlobal(
-            QPoint(self.msg_badge_btn.width(), 0))
-
-        # Position the popup so its bottom edge is at the top of the button
-        x = btn_top_right.x() - inbox_w
-        y = btn_top_right.y() - inbox_h - 4
-
-        # Clamp to screen bounds so nothing goes off-screen
-        screen = self.msg_badge_btn.screen()
-        if screen:
-            avail = screen.availableGeometry()
-            # If popup would go above the screen top, flip it below the button
-            if y < avail.top():
-                btn_bottom = self.msg_badge_btn.mapToGlobal(
-                    QPoint(0, self.msg_badge_btn.height()))
-                y = btn_bottom.y() + 4
-            # Keep within horizontal bounds
-            if x < avail.left():
-                x = avail.left() + 4
-            if x + inbox_w > avail.right():
-                x = avail.right() - inbox_w - 4
-
-        self._msg_inbox.move(x, y)
-        self._msg_inbox.show()
 
     def _take_quick_screenshot(self):
         """Take a screenshot of the primary screen INCLUDING SuiteView windows"""
@@ -2706,18 +2537,6 @@ class SuiteViewTaskbar(QWidget):
                 return
         self._bring_to_front(self.email_attachments_window)
     
-    def _open_task_tracker(self):
-        """Open the Task Tracker window"""
-        if self.task_tracker_window is None:
-            try:
-                from suiteview.tasktracker import TaskTrackerWindow
-                self.task_tracker_window = TaskTrackerWindow()
-                self._setup_child_window(self.task_tracker_window, "Task Tracker")
-            except Exception as e:
-                logger.error(f"Failed to open Task Tracker: {e}")
-                return
-        self._bring_to_front(self.task_tracker_window)
-
     def _open_polview(self):
         """Open the PolView - Policy Viewer window"""
         if self.polview_window is None:
@@ -3595,7 +3414,6 @@ class SuiteViewTaskbar(QWidget):
             self.tools_menu.addAction("Audit Tool", self._open_audit)
         if DEV_MODE and not LIGHT_MODE:
             self.tools_menu.addAction("Email Attachments", self._open_email_attachments)
-            self.tools_menu.addAction("Task Tracker", self._open_task_tracker)
             self.tools_menu.addAction("Rate File Converter", self._open_rate_manager)
         self.tools_menu.addSeparator()
         self.tools_menu.addAction("📁 App Data Location", self._open_app_data_location)
@@ -3608,30 +3426,6 @@ class SuiteViewTaskbar(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.header_spacer.setMinimumWidth(20)
         header_layout.addWidget(self.header_spacer)
-
-        # ====== MESSAGE NOTIFICATION BADGE (right side of bar) ======
-        if self._messaging_enabled:
-            self.msg_badge_btn = QPushButton("✉")
-            self.msg_badge_btn.setFixedSize(28, 28)
-            self.msg_badge_btn.setToolTip("Messages")
-            self.msg_badge_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.msg_badge_btn.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: 2px solid #555;
-                    border-radius: 4px;
-                    color: #888;
-                    font-size: 14px;
-                }
-                QPushButton:hover {
-                    background: rgba(255, 255, 255, 0.1);
-                    border-color: #777;
-                }
-            """)
-            self.msg_badge_btn.clicked.connect(self._toggle_msg_inbox)
-            header_layout.addWidget(self.msg_badge_btn)
-        else:
-            self.msg_badge_btn = None
 
         # ====== WINDOW CONTROL BUTTONS ======
         window_btn_style = """

@@ -36,6 +36,7 @@ from ..styles import (
 )
 from ..widgets import CopyableLabel, FixedHeaderTableWidget
 from .annuity_rider_tab import AnnuityRiderTab, RIDER_PLANCODE
+from ....utils.excel_template import copy_as_workbook, workbook_filename
 from ...services.glp_exception import (
     GlpExceptionResult,
     calculate_glp_exception,
@@ -2480,7 +2481,7 @@ class PolicySupportTab(QWidget):
             )
             return
 
-        filename = os.path.basename(source_path)
+        filename = workbook_filename(os.path.basename(source_path))
         if self._policy:
             dest_filename = f"{self._policy.policy_number} - {filename}"
         else:
@@ -2495,7 +2496,7 @@ class PolicySupportTab(QWidget):
             return
 
         try:
-            shutil.copy2(source_path, dest_path)
+            copy_as_workbook(source_path, dest_path)
             self._status_label.setText(f"✓ Copied: {dest_filename}")
             self._status_label.setStyleSheet(
                 f"font-size: 10px; color: {GREEN_DARK}; font-weight: bold; "

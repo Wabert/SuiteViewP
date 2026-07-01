@@ -28,7 +28,7 @@ from .abr_styles import (
 )
 from ..models.abr_data import ABRPolicyData, ABRQuoteResult, MedicalAssessment
 from ..models.abr_constants import PLAN_CODE_INFO, MODAL_LABELS
-
+from ...utils.excel_template import copy_as_workbook, workbook_filename
 logger = logging.getLogger(__name__)
 
 # ── Custom styles for MiniExplorer components (matching ABR theme) ────────────────
@@ -820,7 +820,7 @@ class OutputPanel(QWidget):
             if not source_path or not os.path.isfile(source_path):
                 continue
                 
-            filename = os.path.basename(source_path)
+            filename = workbook_filename(os.path.basename(source_path))
             if self._policy:
                 dest_filename = f"{self._policy.policy_number} - {filename}"
             else:
@@ -832,7 +832,7 @@ class OutputPanel(QWidget):
                 continue
 
             try:
-                shutil.copy2(source_path, dest_path)
+                copy_as_workbook(source_path, dest_path)
                 copied_count += 1
             except Exception as e:
                 errors.append(f"Failed to copy '{filename}': {e}")

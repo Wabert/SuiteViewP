@@ -7,7 +7,7 @@ Builds SuiteViewLight as a one-folder distribution with only core tools:
   - View Screenshots, App Data Location (Tools menu)
 
 Excludes: Audit Tool, ScratchPad, Mainframe Navigator, Email Attachments,
-          Task Tracker, Rate File Converter, messaging, duckdb, markdown
+          Task Tracker, Rate File Converter, duckdb, markdown
 
 Usage:
   python -m PyInstaller SuiteViewLight.spec
@@ -60,9 +60,6 @@ a = Analysis(
         'pytest', 'black', 'flake8',
         # Exclude modules not needed in Light build
         'duckdb', 'markdown',
-        'suiteview.messaging',
-        'suiteview.messaging.message_service',
-        'suiteview.messaging.inbox_widget',
     ],
     noarchive=False,
     optimize=0,

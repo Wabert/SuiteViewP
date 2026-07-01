@@ -1585,23 +1585,47 @@ class FileExplorerCore(QWidget):
         return onedrive_paths
         
     def get_system_drives(self):
-        """Get all system drives"""
+        """Get all system drives.
+
+        IMPORTANT: this runs on the UI thread during startup, so it must never
+        block.  A disconnected mapped network drive (DRIVE_REMOTE) still has its
+        bit set in GetLogicalDrives(), but calling os.path.exists() on it can
+        stall for many seconds while Windows tries to reconnect — which freezes
+        the whole app before the event loop starts.  We therefore trust the
+        drive-type for network drives and only do a (fast) existence check on
+        local drive types.
+        """
         drives = []
-        
+
         if os.name == 'nt':  # Windows
             import string
             from ctypes import windll
-            
+
+            DRIVE_REMOVABLE = 2
+            DRIVE_FIXED = 3
+            DRIVE_REMOTE = 4
+            DRIVE_CDROM = 5
+            DRIVE_RAMDISK = 6
+
             bitmask = windll.kernel32.GetLogicalDrives()
             for letter in string.ascii_uppercase:
                 if bitmask & 1:
                     drive_path = f"{letter}:\\"
-                    if os.path.exists(drive_path):
+                    drive_type = windll.kernel32.GetDriveTypeW(drive_path)
+                    if drive_type == DRIVE_REMOTE:
+                        # Mapped network drive — assigned, but may be offline.
+                        # Add it without the blocking reachability check; the
+                        # tree expands lazily when the user actually clicks it.
                         drives.append(drive_path)
+                    elif drive_type in (DRIVE_FIXED, DRIVE_RAMDISK,
+                                        DRIVE_REMOVABLE, DRIVE_CDROM):
+                        # Local/removable media — existence check is fast.
+                        if os.path.exists(drive_path):
+                            drives.append(drive_path)
                 bitmask >>= 1
         else:  # Unix-like
             drives.append("/")
-        
+
         return drives
         
     def create_tree_folder_item(self, path, icon="📁"):
@@ -3337,53 +3361,6 @@ class FileExplorerCore(QWidget):
         # Show menu
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
     
-    def _emit_send(self, file_path: str, recipient: str, link_type: str = "network"):
-        """Send a file link directly to the recipient's shared folder.
-        
-        link_type: 'network' for a file-system path, 'sharepoint' for a URL.
-        """
-        from suiteview.messaging.message_service import SHARED_MSG_ROOT, _username, _portable_path
-        from suiteview.ui.widgets.bookmark_widgets import update_footer_status
-        import json as _json
-        from datetime import datetime
-
-        user = _username()
-        dest = SHARED_MSG_ROOT / recipient.lower()
-        if not dest.is_dir():
-            QMessageBox.warning(self, "Send Failed",
-                                f"Recipient folder not found for {recipient}.")
-            return
-
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        fname = f"msg_{ts}_{user}.json"
-        if link_type == "sharepoint":
-            msg_data = {
-                "from": user,
-                "from_display": user,
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "type": "sharepoint_link",
-                "url": file_path,
-                "note": "",
-            }
-            file_display = file_path.rsplit("/", 1)[-1] if "/" in file_path else file_path
-        else:
-            msg_data = {
-                "from": user,
-                "from_display": user,
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "type": "file_link",
-                "path": _portable_path(file_path),
-                "note": "",
-            }
-            file_display = Path(file_path).name
-        try:
-            (dest / fname).write_text(
-                _json.dumps(msg_data, indent=2), encoding="utf-8")
-            label = "SharePoint link" if link_type == "sharepoint" else file_display
-            update_footer_status(f"\u2709 Sent \"{label}\" to {recipient}")
-        except OSError as exc:
-            QMessageBox.warning(self, "Send Failed", str(exc))
-
     def show_details_context_menu(self, position):
         """Show context menu for details view"""
         index = self.details_view.indexAt(position)
@@ -3437,83 +3414,6 @@ class FileExplorerCore(QWidget):
                     
                     delete_action = menu.addAction("🗑️ Delete")
                     delete_action.triggered.connect(self.delete_file)
-
-                    # Send to > submenu (messaging) — only when shared folder is reachable
-                    try:
-                        from suiteview.messaging.message_service import is_messaging_available
-                        _show_send_to = is_messaging_available()
-                    except Exception:
-                        _show_send_to = False
-
-                    if _show_send_to:
-                        menu.addSeparator()
-                        send_menu = menu.addMenu("📨 Send to")
-                        send_menu.setStyleSheet("""
-                            QMenu {
-                                background-color: #0D3A7A;
-                                border: 1px solid #D4A017;
-                                padding: 4px;
-                            }
-                            QMenu::item {
-                                background-color: transparent;
-                                color: white;
-                                padding: 4px 16px;
-                                font-size: 10px;
-                            }
-                            QMenu::item:selected {
-                                background-color: #3A7DC8;
-                            }
-                            QMenu::item:disabled {
-                                color: #777;
-                            }
-                        """)
-                        try:
-                            from suiteview.messaging.message_service import SHARED_MSG_ROOT, _username
-                            my_user = _username()
-                            users = []
-                            if SHARED_MSG_ROOT.is_dir():
-                                for entry in SHARED_MSG_ROOT.iterdir():
-                                    if not entry.is_dir():
-                                        continue
-                                    uname = entry.name.lower()
-                                    profile = entry / ".profile.json"
-                                    display = uname
-                                    if profile.exists():
-                                        try:
-                                            import json
-                                            data = json.loads(profile.read_text(encoding="utf-8"))
-                                            display = data.get("display_name", uname)
-                                        except Exception:
-                                            pass
-                                    users.append((uname, display))
-                            users.sort(key=lambda u: u[1].lower())
-                            if users:
-                                captured_path = str(path)
-                                sp_url = onedrive_url  # already resolved above
-                                for uname, display in users:
-                                    if sp_url:
-                                        # Sub-menu per user: network path or SharePoint link
-                                        user_menu = send_menu.addMenu(display)
-                                        user_menu.setStyleSheet(send_menu.styleSheet())
-                                        net_action = user_menu.addAction("📁 Network Path")
-                                        net_action.triggered.connect(
-                                            lambda checked, u=uname, p=captured_path:
-                                                self._emit_send(p, u))
-                                        sp_action = user_menu.addAction("🔗 SharePoint Link")
-                                        sp_action.triggered.connect(
-                                            lambda checked, u=uname, url=sp_url:
-                                                self._emit_send(url, u, link_type="sharepoint"))
-                                    else:
-                                        action = send_menu.addAction(display)
-                                        action.triggered.connect(
-                                            lambda checked, u=uname, p=captured_path:
-                                                self._emit_send(p, u))
-                            else:
-                                no_user = send_menu.addAction("(no other users found)")
-                                no_user.setEnabled(False)
-                        except Exception:
-                            err_action = send_menu.addAction("(messaging unavailable)")
-                            err_action.setEnabled(False)
         
         # Paste (always available if clipboard has content - internal or Windows)
         if self.has_clipboard_content():
