@@ -18,8 +18,13 @@ from PyQt6.QtWidgets import (QTreeView, QVBoxLayout, QHBoxLayout, QWidget,
                               QProgressDialog, QFrame, QSizePolicy,
                               QFileIconProvider, QToolButton, QStyle, QStyledItemDelegate,
                               QApplication, QComboBox)
-from PyQt6.QtGui import QIcon, QAction, QStandardItemModel, QStandardItem, QDragEnterEvent, QDropEvent, QDragMoveEvent, QDrag
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSortFilterProxyModel, QFileInfo, QSize, QUrl, QMimeData, QRegularExpression, QTimer
+from PyQt6.QtGui import QIcon, QAction, QStandardItemModel, QStandardItem, QDragEnterEvent, QDropEvent, QDragMoveEvent, QDrag, QDesktopServices
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSortFilterProxyModel, QFileInfo, QSize, QUrl, QMimeData, QRegularExpression, QTimer, QPersistentModelIndex
+
+from suiteview.file_nav.sharepoint_client import (
+    is_sp_path, make_sp_path, get_sharepoint_client,
+    SharePointListWorker, SharePointResolveWorker, SharePointDownloadWorker,
+)
 
 import logging
 
@@ -845,6 +850,14 @@ class FileExplorerCore(QWidget):
         self.pinned_folders_file = Path.home() / ".suiteview" / "pinned_folders.json"
         self.pinned_folders = self.load_pinned_folders()
         
+        # SharePoint document libraries (browsed live via Graph API - no OneDrive sync)
+        self.sharepoint_libraries_file = Path.home() / ".suiteview" / "sharepoint_libraries.json"
+        self.sharepoint_libraries = self.load_sharepoint_libraries()
+        self._sp_workers = []             # keep refs so QThreads aren't GC'd mid-run
+        self._sp_pending_tree = set()     # sp paths with an in-flight tree listing
+        self._sp_details_generation = 0   # ignore stale async details results
+        self._sp_current_name = None      # display name of current SP folder in details
+        
         # Column width settings file
         self.column_widths_file = Path.home() / ".suiteview" / "column_widths.json"
         self.column_widths = self.load_column_widths()
@@ -1479,6 +1492,21 @@ class FileExplorerCore(QWidget):
             separator.setEnabled(False)
             self.model.appendRow(separator)
         
+        # Add SharePoint document libraries (🌐 icon, browsed via Graph API)
+        if self.sharepoint_libraries:
+            for lib in self.sharepoint_libraries:
+                item = self.create_sp_tree_item(
+                    lib.get('name', 'SharePoint Library'),
+                    make_sp_path(lib['drive_id'], lib.get('item_id', 'root')),
+                    web_url=lib.get('url', ''),
+                    is_root=True)
+                self.model.appendRow(item)
+            
+            # Add separator after SharePoint libraries
+            separator = QStandardItem("─" * 30)
+            separator.setEnabled(False)
+            self.model.appendRow(separator)
+        
         # Add system drives
         drives = self.get_system_drives()
         for drive in drives:
@@ -1883,11 +1911,17 @@ class FileExplorerCore(QWidget):
         
         # Check if this item has a placeholder child
         if item.rowCount() == 1 and item.child(0, 0).text() == "Loading...":
+            path = item.data(Qt.ItemDataRole.UserRole)
+            
+            # SharePoint folders load asynchronously - keep placeholder until results arrive
+            if is_sp_path(path):
+                self.load_sharepoint_tree_children(item, path)
+                return
+            
             # Remove placeholder
             item.removeRow(0)
             
             # Load actual contents (folders only for tree)
-            path = item.data(Qt.ItemDataRole.UserRole)
             if path:
                 self.load_tree_directory_contents(item, Path(path))
                 
@@ -2832,6 +2866,10 @@ class FileExplorerCore(QWidget):
             return
         
         path = item.data(Qt.ItemDataRole.UserRole)
+        if is_sp_path(path):
+            display_name = item.data(Qt.ItemDataRole.UserRole + 5) or item.text()
+            self.load_sharepoint_contents_in_details(path, display_name)
+            return
         if path:
             self.load_folder_contents_in_details(Path(path))
     
@@ -3196,6 +3234,18 @@ class FileExplorerCore(QWidget):
         if not path:
             return
         
+        # SharePoint virtual items: navigate folders, download-and-open files
+        if is_sp_path(path):
+            col0_index = index.sibling(index.row(), 0)
+            kind = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 3)
+            name = (self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 5)
+                    or self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole))
+            if kind == "folder":
+                self.load_sharepoint_contents_in_details(path, name)
+            else:
+                self.open_sharepoint_file(path, name)
+            return
+        
         path_obj = Path(path)
         
         # Handle .lnk shortcut files - resolve target and navigate if it's a folder
@@ -3321,6 +3371,11 @@ class FileExplorerCore(QWidget):
         """Show context menu for tree view"""
         index = self.tree_view.indexAt(position)
         if not index.isValid():
+            # Blank area - offer to add a SharePoint library
+            menu = QMenu()
+            add_sp_action = menu.addAction("🌐 Add SharePoint Library…")
+            add_sp_action.triggered.connect(self.add_sharepoint_library_dialog)
+            menu.exec(self.tree_view.viewport().mapToGlobal(position))
             return
         
         item = self.model.itemFromIndex(index)
@@ -3331,14 +3386,33 @@ class FileExplorerCore(QWidget):
         if not path:
             return
         
+        # Also verify it's a top-level item (no parent except model root)
+        is_top_level = item.parent() is None
+        
+        # SharePoint items get their own menu (no filesystem operations)
+        if is_sp_path(path):
+            menu = QMenu()
+            web_url = item.data(Qt.ItemDataRole.UserRole + 4)
+            if web_url:
+                browser_action = menu.addAction("🌐 Open in Browser")
+                browser_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl(web_url)))
+            refresh_action = menu.addAction("🔄 Refresh")
+            refresh_action.triggered.connect(lambda: self._refresh_sp_tree_item(item))
+            if item.data(Qt.ItemDataRole.UserRole + 2) == "__SHAREPOINT__" and is_top_level:
+                menu.addSeparator()
+                remove_action = menu.addAction("🗑️ Remove SharePoint Library")
+                remove_action.triggered.connect(lambda: self.remove_sharepoint_library(path))
+            menu.addSeparator()
+            add_sp_action = menu.addAction("🌐 Add SharePoint Library…")
+            add_sp_action.triggered.connect(self.add_sharepoint_library_dialog)
+            menu.exec(self.tree_view.viewport().mapToGlobal(position))
+            return
+        
         # Check if this is a custom quick link (only top-level items in Quick Links)
         is_custom_link = item.data(Qt.ItemDataRole.UserRole + 1) == "__CUSTOM_LINK__"
         
         # Check if this is a pinned folder
         is_pinned = item.data(Qt.ItemDataRole.UserRole + 2) == "__PINNED__"
-        
-        # Also verify it's a top-level item (no parent except model root)
-        is_top_level = item.parent() is None
         
         menu = QMenu()
         
@@ -3358,12 +3432,22 @@ class FileExplorerCore(QWidget):
             unpin_action = menu.addAction("📌 Unpin from Folders")
             unpin_action.triggered.connect(lambda: self.unpin_folder_from_tree(path))
         
+        # Add SharePoint library (always available)
+        menu.addSeparator()
+        add_sp_action = menu.addAction("🌐 Add SharePoint Library…")
+        add_sp_action.triggered.connect(self.add_sharepoint_library_dialog)
+        
         # Show menu
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
     
     def show_details_context_menu(self, position):
         """Show context menu for details view"""
         index = self.details_view.indexAt(position)
+        
+        # SharePoint items get a dedicated read-only menu
+        if is_sp_path(self.current_details_folder):
+            self.show_sp_details_context_menu(position, index)
+            return
         
         menu = QMenu()
         
@@ -3903,6 +3987,12 @@ class FileExplorerCore(QWidget):
     
     def paste_file(self):
         """Paste cut/copied file/folder from internal clipboard or Windows clipboard"""
+        if is_sp_path(self.current_details_folder):
+            QMessageBox.information(self, "Read-Only",
+                "SharePoint libraries are read-only in FileNav.\n"
+                "Use 'Open in Browser' to make changes in SharePoint.")
+            return
+        
         # Determine destination folder
         dest_path = self.get_selected_path()
         
@@ -4182,7 +4272,11 @@ class FileExplorerCore(QWidget):
     def refresh_details_view(self):
         """Refresh the current folder contents in the details view"""
         if self.current_details_folder:
-            self.load_folder_contents_in_details(Path(self.current_details_folder))
+            if is_sp_path(self.current_details_folder):
+                self.load_sharepoint_contents_in_details(
+                    self.current_details_folder, self._sp_current_name)
+            else:
+                self.load_folder_contents_in_details(Path(self.current_details_folder))
         else:
             logger.warning("No current folder to refresh")
     
@@ -4190,6 +4284,12 @@ class FileExplorerCore(QWidget):
         """Create a new folder in the current directory"""
         if not self.current_details_folder:
             QMessageBox.warning(self, "Error", "No folder selected")
+            return
+        
+        if is_sp_path(self.current_details_folder):
+            QMessageBox.information(self, "Read-Only",
+                "SharePoint libraries are read-only in FileNav.\n"
+                "Use 'Open in Browser' to make changes in SharePoint.")
             return
         
         # Prompt for folder name
@@ -4579,6 +4679,429 @@ class FileExplorerCore(QWidget):
                 self.populate_tree_model()
                 logger.info(f"Unpinned folder from Folders panel: {folder_path}")
                 return
+    
+    # ------------------------------------------------------------------
+    # SharePoint document libraries (browsed live via Microsoft Graph API)
+    # ------------------------------------------------------------------
+    
+    def load_sharepoint_libraries(self):
+        """Load saved SharePoint libraries from JSON file"""
+        try:
+            if self.sharepoint_libraries_file.exists():
+                with open(self.sharepoint_libraries_file, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load SharePoint libraries: {e}")
+        return []
+    
+    def save_sharepoint_libraries(self):
+        """Save SharePoint libraries to JSON file"""
+        try:
+            self.sharepoint_libraries_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.sharepoint_libraries_file, 'w') as f:
+                json.dump(self.sharepoint_libraries, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save SharePoint libraries: {e}")
+    
+    def create_sp_tree_item(self, name, sp_path, web_url="", is_root=False, has_children=True):
+        """Create a tree item for a SharePoint library or folder"""
+        icon = "🌐" if is_root else "📁"
+        item = QStandardItem(f"{icon} {name}")
+        item.setData(sp_path, Qt.ItemDataRole.UserRole)
+        item.setData("folder", Qt.ItemDataRole.UserRole + 3)
+        item.setData(web_url, Qt.ItemDataRole.UserRole + 4)
+        item.setData(name, Qt.ItemDataRole.UserRole + 5)
+        item.setEditable(False)
+        item.setToolTip(web_url or name)
+        if is_root:
+            item.setData("__SHAREPOINT__", Qt.ItemDataRole.UserRole + 2)
+        if has_children:
+            placeholder = QStandardItem("Loading...")
+            placeholder.setEnabled(False)
+            item.appendRow(placeholder)
+        return item
+    
+    def _track_sp_worker(self, worker):
+        """Keep a reference to a QThread worker and clean up when it finishes"""
+        self._sp_workers.append(worker)
+        worker.finished.connect(lambda: self._sp_workers.remove(worker)
+                                if worker in self._sp_workers else None)
+    
+    def add_sharepoint_library_dialog(self):
+        """Prompt for a SharePoint library URL and add it to the tree"""
+        url, ok = QInputDialog.getText(
+            self, "Add SharePoint Library",
+            "Paste the SharePoint document library URL\n"
+            "(e.g. https://yourcompany.sharepoint.com/sites/SiteName/LibraryName):",
+            QLineEdit.EchoMode.Normal, "https://")
+        if not ok or not url or url.strip() in ("", "https://"):
+            return
+        
+        # Already added?
+        for lib in self.sharepoint_libraries:
+            if lib.get('url', '').rstrip('/').lower() == url.strip().rstrip('/').lower():
+                QMessageBox.information(self, "Already Added",
+                                        "That library is already in the Folders panel.")
+                return
+        
+        progress = QProgressDialog(
+            "Connecting to SharePoint…\n\n"
+            "If a browser window opens, complete the sign-in with your work account.",
+            "Cancel", 0, 0, self)
+        progress.setWindowTitle("Add SharePoint Library")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        
+        worker = SharePointResolveWorker(url.strip())
+        
+        def on_resolved(lib):
+            progress.close()
+            self.sharepoint_libraries.append(lib)
+            self.save_sharepoint_libraries()
+            self.populate_tree_model()
+            logger.info(f"Added SharePoint library: {lib['name']}")
+        
+        def on_failed(msg):
+            progress.close()
+            QMessageBox.warning(self, "Add SharePoint Library", msg)
+        
+        def on_cancelled():
+            # Don't kill the thread mid-request - just ignore its result
+            try:
+                worker.resolved.disconnect(on_resolved)
+                worker.failed.disconnect(on_failed)
+            except TypeError:
+                pass
+        
+        worker.resolved.connect(on_resolved)
+        worker.failed.connect(on_failed)
+        progress.canceled.connect(on_cancelled)
+        self._track_sp_worker(worker)
+        worker.start()
+        progress.show()
+    
+    def remove_sharepoint_library(self, sp_path):
+        """Remove a SharePoint library from the tree (by its sp:// root path)"""
+        from suiteview.file_nav.sharepoint_client import parse_sp_path
+        drive_id, item_id = parse_sp_path(sp_path)
+        for i, lib in enumerate(self.sharepoint_libraries):
+            if lib.get('drive_id') == drive_id and lib.get('item_id', 'root') == item_id:
+                removed = self.sharepoint_libraries.pop(i)
+                self.save_sharepoint_libraries()
+                self.populate_tree_model()
+                logger.info(f"Removed SharePoint library: {removed.get('name')}")
+                return
+    
+    def load_sharepoint_tree_children(self, item, sp_path):
+        """Async-load subfolders of a SharePoint folder into the tree"""
+        if sp_path in self._sp_pending_tree:
+            return  # Listing already in flight
+        self._sp_pending_tree.add(sp_path)
+        
+        context = {"pidx": QPersistentModelIndex(self.model.indexFromItem(item)),
+                   "sp_path": sp_path}
+        worker = SharePointListWorker(sp_path, context)
+        worker.result_ready.connect(self._on_sp_tree_children)
+        worker.failed.connect(self._on_sp_tree_failed)
+        self._track_sp_worker(worker)
+        worker.start()
+    
+    def _sp_tree_item_from_context(self, context):
+        self._sp_pending_tree.discard(context["sp_path"])
+        pidx = context["pidx"]
+        if not pidx.isValid():
+            return None
+        return self.model.itemFromIndex(self.model.index(pidx.row(), pidx.column(),
+                                                          pidx.parent()))
+    
+    def _on_sp_tree_children(self, context, entries):
+        """Populate a tree node with SharePoint subfolders (folders only)"""
+        item = self._sp_tree_item_from_context(context)
+        if item is None:
+            return
+        item.removeRows(0, item.rowCount())
+        from suiteview.file_nav.sharepoint_client import make_sp_path, parse_sp_path
+        drive_id, _ = parse_sp_path(context["sp_path"])
+        for entry in entries:
+            if not entry["is_folder"]:
+                continue
+            child = self.create_sp_tree_item(
+                entry["name"], make_sp_path(drive_id, entry["id"]),
+                web_url=entry["web_url"],
+                has_children=entry["child_count"] > 0)
+            item.appendRow(child)
+    
+    def _on_sp_tree_failed(self, context, message):
+        item = self._sp_tree_item_from_context(context)
+        if item is None:
+            return
+        item.removeRows(0, item.rowCount())
+        error_item = QStandardItem(f"❌ {message}")
+        error_item.setEnabled(False)
+        item.appendRow(error_item)
+    
+    def _refresh_sp_tree_item(self, item):
+        """Re-fetch a SharePoint tree node's children"""
+        sp_path = item.data(Qt.ItemDataRole.UserRole)
+        item.removeRows(0, item.rowCount())
+        placeholder = QStandardItem("Loading...")
+        placeholder.setEnabled(False)
+        item.appendRow(placeholder)
+        self.load_sharepoint_tree_children(item, sp_path)
+    
+    def load_sharepoint_contents_in_details(self, sp_path, display_name=None):
+        """Async-load a SharePoint folder's contents into the details view"""
+        self._sp_details_generation += 1
+        generation = self._sp_details_generation
+        start_time = time.perf_counter()
+        
+        self.current_details_folder = sp_path
+        self._sp_current_name = display_name or "SharePoint"
+        self.details_view.set_current_folder(sp_path)
+        self.details_header.setText(f"🌐 {self._sp_current_name}")
+        
+        # Restore folder-specific search term (same behavior as local folders)
+        if hasattr(self, 'details_search') and hasattr(self, 'folder_search_terms'):
+            saved_search = self.folder_search_terms.get(sp_path, "")
+            self.details_search.blockSignals(True)
+            self.details_search.setText(saved_search)
+            self.details_search.blockSignals(False)
+            if saved_search:
+                escaped = QRegularExpression.escape(saved_search)
+                regex = QRegularExpression(escaped, QRegularExpression.PatternOption.CaseInsensitiveOption)
+                self.details_sort_proxy.setFilterRegularExpression(regex)
+            else:
+                self.details_sort_proxy.setFilterRegularExpression(QRegularExpression())
+        
+        # Reset model with loading indicator, preserving column widths
+        self._reset_details_model_for_sp()
+        loading_item = QStandardItem("⏳ Loading from SharePoint…")
+        loading_item.setEnabled(False)
+        self.details_model.appendRow([loading_item, QStandardItem(""), QStandardItem(""),
+                                      QStandardItem(""), QStandardItem("")])
+        
+        context = {"gen": generation, "sp_path": sp_path, "start": start_time}
+        worker = SharePointListWorker(sp_path, context)
+        worker.result_ready.connect(self._on_sp_details_ready)
+        worker.failed.connect(self._on_sp_details_failed)
+        self._track_sp_worker(worker)
+        worker.start()
+    
+    def _reset_details_model_for_sp(self):
+        """Clear the details model while preserving column widths (SP loads)"""
+        self.details_model.clear()
+        self.details_model.setHorizontalHeaderLabels(
+            ['Name', 'Size', 'Type', 'Date Modified', 'Date Accessed'])
+        header_view = self.details_view.header()
+        try:
+            header_view.sectionResized.disconnect(self.on_column_resized)
+        except:
+            pass
+        default_widths = [350, 100, 120, 150, 150]
+        for col in range(5):
+            width = self.column_widths.get(f'col_{col}', default_widths[col])
+            self.details_view.setColumnWidth(col, width)
+        header_view.sectionResized.connect(self.on_column_resized)
+    
+    def _on_sp_details_ready(self, context, entries):
+        """Populate the details view with SharePoint folder contents"""
+        if (context["gen"] != self._sp_details_generation
+                or self.current_details_folder != context["sp_path"]):
+            return  # Stale result - user navigated elsewhere
+        
+        from suiteview.file_nav.sharepoint_client import make_sp_path, parse_sp_path
+        drive_id, _ = parse_sp_path(context["sp_path"])
+        
+        self._reset_details_model_for_sp()
+        entries.sort(key=lambda e: (not e["is_folder"], e["name"].lower()))
+        
+        self.details_view.setUpdatesEnabled(False)
+        try:
+            for entry in entries:
+                self.details_model.appendRow(
+                    self._create_sp_details_row(entry, make_sp_path(drive_id, entry["id"])))
+        finally:
+            self.details_view.setUpdatesEnabled(True)
+        
+        # Re-apply current sort order
+        header = self.details_view.header()
+        self.details_sort_proxy.sort(header.sortIndicatorSection(), header.sortIndicatorOrder())
+        
+        elapsed_ms = int((time.perf_counter() - context["start"]) * 1000)
+        self.update_details_footer(timing_ms=elapsed_ms)
+    
+    def _on_sp_details_failed(self, context, message):
+        if (context["gen"] != self._sp_details_generation
+                or self.current_details_folder != context["sp_path"]):
+            return
+        self._reset_details_model_for_sp()
+        error_item = QStandardItem(f"❌ {message}")
+        error_item.setEnabled(False)
+        self.details_model.appendRow([error_item, QStandardItem(""), QStandardItem(""),
+                                      QStandardItem(""), QStandardItem("")])
+    
+    def _create_sp_details_row(self, entry, sp_path):
+        """Build a 5-column details row from a SharePoint item dict"""
+        name = entry["name"]
+        is_folder = entry["is_folder"]
+        
+        icon = self._get_cached_icon(Path(name), is_directory=is_folder)
+        name_item = QStandardItem(icon, name)
+        name_item.setData(sp_path, Qt.ItemDataRole.UserRole)
+        name_item.setData(f"{'0' if is_folder else '1'}_{name.lower()}", Qt.ItemDataRole.UserRole + 1)
+        name_item.setData("folder" if is_folder else "file", Qt.ItemDataRole.UserRole + 3)
+        name_item.setData(entry["web_url"], Qt.ItemDataRole.UserRole + 4)
+        name_item.setData(name, Qt.ItemDataRole.UserRole + 5)
+        name_item.setEditable(False)
+        
+        # Size (blank for folders, like local view)
+        if is_folder:
+            size_str, size_val = "", 0
+        else:
+            size_val = entry["size"]
+            if size_val < 1024:
+                size_str = f"{size_val} B"
+            elif size_val < 1024 * 1024:
+                size_str = f"{size_val / 1024:.1f} KB"
+            elif size_val < 1024 * 1024 * 1024:
+                size_str = f"{size_val / (1024 * 1024):.1f} MB"
+            else:
+                size_str = f"{size_val / (1024 * 1024 * 1024):.2f} GB"
+        size_item = QStandardItem(size_str)
+        size_item.setEditable(False)
+        size_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        size_item.setData(size_val, Qt.ItemDataRole.UserRole + 1)
+        
+        # Type
+        suffix = Path(name).suffix.lower()
+        type_item = QStandardItem("Folder" if is_folder
+                                  else (suffix.upper()[1:] if suffix else "File"))
+        type_item.setEditable(False)
+        
+        # Date modified (Graph returns ISO 8601 UTC)
+        date_str, mtime = "", 0
+        if entry["modified"]:
+            try:
+                dt = datetime.fromisoformat(entry["modified"].replace("Z", "+00:00")).astimezone()
+                date_str = dt.strftime("%Y-%m-%d %H:%M")
+                mtime = dt.timestamp()
+            except ValueError:
+                pass
+        date_item = QStandardItem(date_str)
+        date_item.setEditable(False)
+        date_item.setData(mtime, Qt.ItemDataRole.UserRole + 1)
+        
+        # Date accessed (not available from SharePoint)
+        adate_item = QStandardItem("")
+        adate_item.setEditable(False)
+        adate_item.setData(0, Qt.ItemDataRole.UserRole + 1)
+        
+        return [name_item, size_item, type_item, date_item, adate_item]
+    
+    def open_sharepoint_file(self, sp_path, name, dest_path=None):
+        """Download a SharePoint file (to temp cache by default) and open it.
+        
+        The cached copy is marked read-only so edits aren't mistaken for
+        changes that would sync back to SharePoint.
+        """
+        from suiteview.file_nav.sharepoint_client import parse_sp_path
+        import tempfile
+        import re
+        import stat as stat_module
+        
+        open_after = dest_path is None
+        if dest_path is None:
+            _, item_id = parse_sp_path(sp_path)
+            safe_id = re.sub(r'[^A-Za-z0-9_-]', '_', item_id)[:40]
+            dest_path = Path(tempfile.gettempdir()) / "SuiteView_SharePoint" / safe_id / name
+        
+        progress = QProgressDialog(f"Downloading {name}…", "Cancel", 0, 100, self)
+        progress.setWindowTitle("SharePoint")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(400)
+        
+        worker = SharePointDownloadWorker(sp_path, dest_path)
+        
+        def on_progress(done, total):
+            if total > 0:
+                progress.setMaximum(100)
+                progress.setValue(min(99, int(done * 100 / total)))
+            else:
+                progress.setMaximum(0)  # Indeterminate
+        
+        def on_finished(local_path):
+            progress.close()
+            if open_after:
+                try:
+                    # Read-only: this is a downloaded copy, not a synced file
+                    Path(local_path).chmod(stat_module.S_IREAD)
+                except OSError:
+                    pass
+                try:
+                    self._safe_startfile(local_path)
+                except Exception as e:
+                    logger.error(f"Failed to open downloaded file: {e}")
+                    QMessageBox.warning(self, "Cannot Open File",
+                                        f"Downloaded but failed to open {name}\n\nError: {e}")
+        
+        def on_failed(msg):
+            progress.close()
+            if msg != "Download cancelled":
+                QMessageBox.warning(self, "SharePoint Download", msg)
+        
+        worker.progress.connect(on_progress)
+        worker.finished_ok.connect(on_finished)
+        worker.failed.connect(on_failed)
+        progress.canceled.connect(worker.cancel)
+        self._track_sp_worker(worker)
+        worker.start()
+    
+    def show_sp_details_context_menu(self, position, index):
+        """Context menu for the details view when browsing SharePoint (read-only)"""
+        menu = QMenu()
+        
+        if index.isValid():
+            col0_index = index.sibling(index.row(), 0)
+            sp_path = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole)
+            kind = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 3)
+            name = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 5)
+            web_url = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 4)
+            
+            if sp_path:
+                if kind == "folder":
+                    open_action = menu.addAction("📂 Open")
+                    open_action.triggered.connect(
+                        lambda: self.load_sharepoint_contents_in_details(sp_path, name))
+                else:
+                    open_action = menu.addAction("📄 Open (download copy)")
+                    open_action.triggered.connect(
+                        lambda: self.open_sharepoint_file(sp_path, name))
+                    save_action = menu.addAction("💾 Save a Copy As…")
+                    save_action.triggered.connect(
+                        lambda: self._save_sp_file_as(sp_path, name))
+                
+                if web_url:
+                    browser_action = menu.addAction("🌐 Open in Browser")
+                    browser_action.triggered.connect(
+                        lambda: QDesktopServices.openUrl(QUrl(web_url)))
+                    copy_link_action = menu.addAction("🔗 Copy SharePoint Link")
+                    copy_link_action.triggered.connect(
+                        lambda: QApplication.clipboard().setText(web_url))
+                
+                menu.addSeparator()
+        
+        refresh_action = menu.addAction("🔄 Refresh")
+        refresh_action.triggered.connect(self.refresh_details_view)
+        
+        menu.exec(self.details_view.viewport().mapToGlobal(position))
+    
+    def _save_sp_file_as(self, sp_path, name):
+        """Download a SharePoint file to a user-chosen location"""
+        from PyQt6.QtWidgets import QFileDialog
+        dest, _ = QFileDialog.getSaveFileName(self, "Save a Copy As",
+                                              str(Path.home() / "Downloads" / name))
+        if dest:
+            self.open_sharepoint_file(sp_path, name, dest_path=dest)
     
     def load_column_widths(self):
         """Load column widths from JSON file"""

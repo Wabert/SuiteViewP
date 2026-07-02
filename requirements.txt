@@ -24,6 +24,9 @@ psutil>=6.0.0
 aiohttp>=3.9.0
 requests>=2.32.0
 
+# SharePoint browsing in FileNav (Microsoft Graph auth)
+msal>=1.31.0
+
 # Markdown rendering
 markdown>=3.10.0
 
