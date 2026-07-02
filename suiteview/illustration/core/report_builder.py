@@ -17,8 +17,10 @@ Sources in the workbook (decoded 2026-06-10):
   - Riders/regulatory page (CI block): riders list, GSP/GLP/AccumGLP (+7-pay
     within the TAMRA window), per-policy-change estimated limits.
 
-The GUARANTEED value columns are intentionally left blank for now — the
-engine projects current assumptions only.
+The GUARANTEED value columns come from a second engine run under guaranteed
+assumptions with the current side's cash flows locked in (LockValues — see
+core/guaranteed_projection.py). When no guaranteed run is supplied the
+columns render blank.
 """
 from __future__ import annotations
 
@@ -89,7 +91,7 @@ class LedgerRow:
     markers: str = ""               # '* @ ^ & # %' combination for the year
     cash_from_policy: float = 0.0   # Distribution from Policy (WDs + force-outs)
     loan_balance: float = 0.0
-    # Guaranteed columns intentionally None (blank) for now.
+    # Guaranteed columns; None (blank) when no guaranteed run was supplied.
     guar_accum: Optional[float] = None
     guar_surr: Optional[float] = None
     guar_death: Optional[float] = None
@@ -120,9 +122,12 @@ class IllustrationReport:
     # Cover blocks
     insured_lines: List[str] = field(default_factory=list)
     agent_lines: List[str] = field(default_factory=list)
-    policy_block: List[tuple] = field(default_factory=list)   # (label, value) pairs
+    # Two-column policy block: (left text, right text) pairs, pre-formatted.
+    # A pair of empty strings renders as a blank separator row.
+    policy_block: List[tuple] = field(default_factory=list)
     disclaimer_lines: List[str] = field(default_factory=list)
     av_basis_line: str = ""
+    loan_basis_line: str = ""
     request_intro: List[str] = field(default_factory=list)
     request_lines: List[str] = field(default_factory=list)
     change_sections: List[ChangeSection] = field(default_factory=list)
@@ -143,7 +148,9 @@ class IllustrationReport:
 
     # Derived facts (for tests / status)
     termination_year: Optional[int] = None
+    guaranteed_termination_year: Optional[int] = None
     year_of_mec: Optional[int] = None
+    has_guaranteed_values: bool = False
 
 
 # ── Annual ledger assembly ──────────────────────────────────────────────────
@@ -217,6 +224,35 @@ def _annualize(
             lapsed=eoy.lapsed,
         ))
     return rows, year_of_mec, termination_year
+
+
+def _fill_guaranteed_columns(
+    rows: List[LedgerRow],
+    guaranteed_results: List[MonthlyState],
+) -> Optional[int]:
+    """Fill the ledger's guaranteed columns from the guaranteed run.
+
+    Ledger years past the guaranteed run's end (it lapsed earlier) show zero,
+    matching RERUN. Returns the guaranteed termination year (None = inforce
+    for all years shown).
+    """
+    by_year: dict[int, MonthlyState] = {}
+    termination_year: Optional[int] = None
+    for state in guaranteed_results[1:]:
+        by_year[state.policy_year] = state
+        if termination_year is None and state.lapsed:
+            termination_year = state.policy_year
+    for row in rows:
+        eoy = by_year.get(row.year)
+        if eoy is None or eoy.lapsed:
+            row.guar_accum = 0.0
+            row.guar_surr = 0.0
+            row.guar_death = 0.0
+        else:
+            row.guar_accum = max(eoy.av_end_of_month, 0.0)
+            row.guar_surr = max(eoy.surrender_value, 0.0)
+            row.guar_death = max(eoy.ending_db, 0.0)
+    return termination_year
 
 
 # ── Requested premium / loan / withdrawal lines ─────────────────────────────
@@ -395,8 +431,14 @@ def build_ul_report(
     options: Optional[IllustrationOptions] = None,
     future_inputs: Optional[IllustrationInputSet] = None,
     run_date: Optional[date] = None,
+    guaranteed_results: Optional[List[MonthlyState]] = None,
 ) -> IllustrationReport:
-    """Assemble the UL illustration report from a finished projection."""
+    """Assemble the UL illustration report from a finished projection.
+
+    ``guaranteed_results`` is the guaranteed-assumption run built from the
+    current run's locked cash flows (core/guaranteed_projection.py); when
+    omitted the guaranteed ledger columns render blank.
+    """
     if options is None:
         options = IllustrationOptions()
     report = IllustrationReport(run_date=run_date)
@@ -414,6 +456,10 @@ def build_ul_report(
     # ── Ledger + derived facts ──
     report.ledger, report.year_of_mec, report.termination_year = _annualize(
         policy, results, options)
+    if guaranteed_results:
+        report.has_guaranteed_values = True
+        report.guaranteed_termination_year = _fill_guaranteed_columns(
+            report.ledger, guaranteed_results)
 
     # ── Cover ──
     valuation = policy.valuation_date or policy.issue_date
@@ -433,27 +479,45 @@ def build_ul_report(
     )
     sex = {"M": "MALE", "F": "FEMALE"}.get((policy.rate_sex or "").upper(), "UNISEX")
     mode_label = _MODE_LABELS.get(policy.billing_frequency, "MONTHLY")
+    issue_date_long = (
+        f"{policy.issue_date:%B} {policy.issue_date.day}, {policy.issue_date.year}"
+        if policy.issue_date else ""
+    )
+    as_of_short = valuation.strftime("%m-%d-%Y") if valuation else ""
+    # Two-column cover block (RERUN page 1): identity on the left, the
+    # CURRENT policy elements on the right. ("", "") rows are separators.
     report.policy_block = [
-        ("POLICY NUMBER:", policy.policy_number),
-        ("ISSUE DATE:", valuation and policy.issue_date and policy.issue_date.strftime("%m/%d/%Y") or ""),
-        ("ISSUE AGE:", str(policy.issue_age)),
-        ("PLAN:", "FLEXIBLE PREMIUM UNIVERSAL LIFE"),
-        ("FORM:", (policy.form_number or "").upper()),
-        ("ATTAINED AGE:", str(policy.attained_age)),
-        ("SEX:", sex),
-        ("PREMIUM CLASS:", f"{rated}{nicotine}"),
-        ("CURRENT SPECIFIED AMOUNT:", f"{policy.face_amount:,.0f}"),
-        ("CURRENT PLAN OPTION:", _DBO_DESCRIPTIONS.get((policy.db_option or "A").upper(), "")),
-        ("CURRENT BILLING MODE:", mode_label),
-        ("CURRENT BILLABLE PREMIUM:", _money(policy.modal_premium)),
-        ("ACTUAL PREMIUMS PAID:", _money(policy.premiums_paid_to_date)
-         + (f"  (AS OF {valuation.strftime('%m-%d-%Y')})" if valuation else "")),
+        (f"{'POLICY NUMBER:':<17}{policy.policy_number}",
+         f"{'CURRENT SPECIFIED AMOUNT:':<27}${policy.face_amount:,.0f}"),
+        ("",
+         f"{'CURRENT PLAN OPTION:':<27}"
+         f"{_DBO_DESCRIPTIONS.get((policy.db_option or 'A').upper(), '')}"),
+        ("", ""),
+        (f"{'ISSUE DATE:':<17}{issue_date_long}",
+         f"{'CURRENT BILLING MODE:':<27}{mode_label}"),
+        (f"{'ISSUE AGE:':<17}{policy.issue_age}",
+         f"{'CURRENT BILLABLE PREMIUM:':<27}{_money(policy.modal_premium)}"),
+        ("FLEXIBLE PREMIUM UNIVERSAL LIFE",
+         f"{'ACTUAL PREMIUMS PAID:':<27}{_money(policy.premiums_paid_to_date)}"),
+        (f"FORM {(policy.form_number or '').upper()}",
+         f"{'':<27}(AS OF {as_of_short})" if as_of_short else ""),
+        ("", ""),
+        (f"ATTAINED AGE: {policy.attained_age}", ""),
+        (f"SEX: {sex}", ""),
+        (f"{'PREMIUM CLASS:':<17}{rated}{nicotine}", ""),
     ]
     if valuation:
         report.av_basis_line = (
             f"THIS ILLUSTRATION IS BASED ON AN ACCUMULATION VALUE OF "
             f"{_money(policy.account_value)} AS OF {valuation.strftime('%m/%d/%Y')}"
         )
+    inforce_debt = (
+        policy.regular_loan_principal + policy.regular_loan_accrued
+        + policy.preferred_loan_principal + policy.preferred_loan_accrued
+        + policy.variable_loan_principal + policy.variable_loan_accrued
+    )
+    if inforce_debt > 0.005:
+        report.loan_basis_line = f"WITH A LOAN BALANCE OF {inforce_debt:,.2f}"
 
     has_loans = future_inputs is not None and any(
         t.kind == TransactionKind.LOAN and t.amount > 0
@@ -516,6 +580,16 @@ def build_ul_report(
         if report.termination_year is not None
         else "REMAIN INFORCE FOR ALL YEARS SHOWN"
     )
+    if report.has_guaranteed_values:
+        guaranteed_termination = (
+            f"UNDER GUARANTEED ACCUMULATION VALUE, YOUR POLICY WILL TERMINATE IN "
+            f"POLICY YEAR {report.guaranteed_termination_year}."
+            if report.guaranteed_termination_year is not None
+            else "UNDER GUARANTEED ACCUMULATION VALUE, YOUR POLICY WILL REMAIN "
+                 "INFORCE FOR ALL YEARS SHOWN."
+        )
+    else:
+        guaranteed_termination = "GUARANTEED VALUES ARE NOT PROJECTED IN THIS ILLUSTRATION."
     report.note_paragraphs = [
         ["NON-GUARANTEED VALUES AND BENEFITS ARE BASED ON ASSUMPTIONS WHICH ARE SUBJECT TO "
          "CHANGE BY THE INSURER.",
@@ -525,7 +599,7 @@ def build_ul_report(
          f"FOR GUARANTEED PROJECTED VALUES, THE ILLUSTRATION ASSUMES A GUARANTEED INTEREST "
          f"RATE OF {_pct(guaranteed_rate)},",
          "GUARANTEED COST OF INSURANCE CHARGES, AND GUARANTEED MONTHLY EXPENSES.",
-         "GUARANTEED VALUES ARE NOT PROJECTED IN THIS ILLUSTRATION."],
+         guaranteed_termination],
         ["NON-GUARANTEED ASSUMPTIONS",
          "",
          f"FOR NON-GUARANTEED PROJECTED VALUES, THE ILLUSTRATION ASSUMES AN ILLUSTRATED "

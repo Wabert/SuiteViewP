@@ -854,6 +854,11 @@ class IllustrationValuesTab(QWidget):
         self._content_titles: list[str] = []
         self._results: list[MonthlyState] = []
         self._inspected_row: int | None = None
+        # Current-assumption and guaranteed-assumption views: (policy, results,
+        # months, injected first-row columns). The Guaranteed toggle re-renders
+        # the grids from whichever view is active.
+        self._current_view: tuple | None = None
+        self._guaranteed_view: tuple | None = None
         self._setup_ui()
         self.clear_results()
 
@@ -879,6 +884,17 @@ class IllustrationValuesTab(QWidget):
         )
         top_row.addWidget(self.status_label)
         top_row.addStretch(1)
+        self.guaranteed_toggle = QPushButton("Guaranteed Values")
+        self.guaranteed_toggle.setCheckable(True)
+        self.guaranteed_toggle.setStyleSheet(toggle_style)
+        self.guaranteed_toggle.setToolTip(
+            "Switch between current and guaranteed assumptions. The guaranteed run\n"
+            "uses guaranteed COIs and the guaranteed interest rate with the current\n"
+            "side's premiums, withdrawals, and loans locked in (RERUN LockValues)."
+        )
+        self.guaranteed_toggle.setVisible(False)
+        self.guaranteed_toggle.toggled.connect(self._on_guaranteed_toggled)
+        top_row.addWidget(self.guaranteed_toggle)
         self.inspector_toggle = QPushButton("Inspect Month")
         self.inspector_toggle.setCheckable(True)
         self.inspector_toggle.setStyleSheet(toggle_style)
@@ -1150,10 +1166,56 @@ class IllustrationValuesTab(QWidget):
         self.nav_tree.clear()
         self._results = []
         self._inspected_row = None
+        self._current_view = None
+        self._guaranteed_view = None
+        self.guaranteed_toggle.blockSignals(True)
+        self.guaranteed_toggle.setChecked(False)
+        self.guaranteed_toggle.blockSignals(False)
+        self.guaranteed_toggle.setVisible(False)
         for grid in self._tab_grids.values():
             grid.set_dataframe(pd.DataFrame(), limit_rows=False)
 
     def display_projection(
+        self,
+        policy: IllustrationPolicyData,
+        results: Iterable[MonthlyState],
+        months: int = 24,
+        injected_first_row_columns: set[str] | None = None,
+    ):
+        """Show a current-assumption projection (resets the Guaranteed toggle)."""
+        result_list = list(results)
+        self._current_view = (policy, result_list, months, injected_first_row_columns)
+        self._guaranteed_view = None
+        self.guaranteed_toggle.blockSignals(True)
+        self.guaranteed_toggle.setChecked(False)
+        self.guaranteed_toggle.blockSignals(False)
+        self.guaranteed_toggle.setVisible(False)
+        self._render_projection(policy, result_list, months, injected_first_row_columns)
+
+    def set_guaranteed_results(
+        self,
+        policy: IllustrationPolicyData,
+        results: Iterable[MonthlyState],
+    ):
+        """Cache the guaranteed-assumption run and show the Guaranteed toggle."""
+        result_list = list(results)
+        if not result_list:
+            return
+        self._guaranteed_view = (policy, result_list, max(len(result_list) - 1, 0), None)
+        self.guaranteed_toggle.setVisible(True)
+
+    def _on_guaranteed_toggled(self, on: bool):
+        view = self._guaranteed_view if on else self._current_view
+        if view is None:
+            return
+        policy, results, months, injected = view
+        self._render_projection(policy, results, months, injected)
+        if on:
+            self.status_label.setText(
+                f"GUARANTEED assumptions — locked current-side cash flows, guaranteed "
+                f"COIs and interest. Showing valuation snapshot plus {months} projected months.")
+
+    def _render_projection(
         self,
         policy: IllustrationPolicyData,
         results: Iterable[MonthlyState],

@@ -16,6 +16,7 @@ available; otherwise tokens live only in memory for the session.
 import json
 import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -213,6 +214,31 @@ class SharePointClient:
             "item_id": item_id,
         }
 
+    def list_site_libraries(self, site_url: str) -> list:
+        """List ALL document libraries on a site. Returns dicts compatible with
+        the saved-library format: {name, url, drive_id, item_id}.
+
+        site_url: e.g. https://tenant.sharepoint.com/sites/SiteName
+        """
+        parsed = urlparse(site_url.strip())
+        host = parsed.netloc
+        segments = [s for s in unquote(parsed.path).split("/") if s]
+        if len(segments) < 2 or segments[0].lower() not in ("sites", "teams"):
+            raise SharePointError(f"Not a site URL: {site_url}")
+        site_path = f"/{segments[0]}/{segments[1]}"
+
+        site = self._get(f"/sites/{host}:{site_path}")
+        site_name = site.get("displayName") or segments[1]
+        drives = self._get(f"/sites/{site['id']}/drives").get("value", [])
+        return [{
+            "name": f"{site_name} — {d.get('name', 'Documents')}",
+            "url": unquote(d.get("webUrl", "")),
+            "drive_id": d["id"],
+            "item_id": "root",
+            "site_name": site_name,
+            "library_name": d.get("name", "Documents"),
+        } for d in drives]
+
     def list_children(self, drive_id: str, item_id: str = "root") -> list:
         """List a folder's children. Returns dicts:
         {name, id, is_folder, size, modified (ISO str), web_url, child_count}
@@ -276,6 +302,43 @@ class SharePointClient:
         return dest_path
 
 
+def get_synced_site_urls() -> list:
+    """Read the OneDrive sync registry to find SharePoint sites the user syncs.
+
+    Returns distinct site root URLs (e.g. https://tenant.sharepoint.com/sites/X),
+    excluding the personal OneDrive. Ordered as found in the registry.
+    """
+    import winreg
+    sites = {}
+    try:
+        root = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                              r"Software\SyncEngines\Providers\OneDrive")
+    except OSError:
+        return []
+    try:
+        i = 0
+        while True:
+            try:
+                sub = winreg.EnumKey(root, i)
+            except OSError:
+                break
+            i += 1
+            try:
+                with winreg.OpenKey(root, sub) as k:
+                    url, _ = winreg.QueryValueEx(k, "UrlNamespace")
+            except OSError:
+                continue
+            parsed = urlparse(str(url))
+            if "-my.sharepoint" in parsed.netloc.lower():
+                continue  # personal OneDrive, not a team site
+            segs = [s for s in unquote(parsed.path).split("/") if s]
+            if len(segs) >= 2 and segs[0].lower() in ("sites", "teams"):
+                sites[f"https://{parsed.netloc}/{segs[0]}/{segs[1]}"] = None
+    finally:
+        winreg.CloseKey(root)
+    return list(sites)
+
+
 # Module-level singleton — token cache and MSAL app are shared
 _client = None
 _client_lock = threading.Lock()
@@ -330,6 +393,116 @@ class SharePointListWorker(QThread):
         except Exception as e:
             logger.exception("SharePoint listing failed")
             self.failed.emit(self.context, f"Unexpected error: {e}")
+
+
+class SharePointDiscoverWorker(QThread):
+    """Discover libraries: read OneDrive-synced sites from the registry, then
+    list every document library on each site via Graph."""
+    progress = pyqtSignal(str)       # status message
+    discovered = pyqtSignal(list)    # list of library dicts (saved-library format)
+    failed = pyqtSignal(str)
+
+    def run(self):
+        try:
+            site_urls = get_synced_site_urls()
+            if not site_urls:
+                self.failed.emit(
+                    "No SharePoint sites found in your OneDrive sync settings.\n"
+                    "Add one library by URL first, or sync at least one library.")
+                return
+            client = get_sharepoint_client()
+            libraries = []
+            for i, site_url in enumerate(site_urls, 1):
+                self.progress.emit(f"Checking site {i} of {len(site_urls)}…")
+                try:
+                    libraries.extend(client.list_site_libraries(site_url))
+                except SharePointError as e:
+                    logger.warning(f"Discovery skipped {site_url}: {e}")
+            if not libraries:
+                self.failed.emit("No document libraries were accessible on your sites.")
+                return
+            self.discovered.emit(libraries)
+        except SharePointError as e:
+            self.failed.emit(str(e))
+        except Exception as e:
+            logger.exception("SharePoint discovery failed")
+            self.failed.emit(f"Unexpected error: {e}")
+
+
+class SharePointDepthScanWorker(QThread):
+    """Recursively scan a SharePoint folder for depth search (one Graph
+    listing call per subfolder). Emits result dicts shaped exactly like the
+    local ``DepthScanWorker`` items so the depth-search UI renders either
+    source, plus ``name``/``web_url`` so SP double-click/open keeps working."""
+    progress = pyqtSignal(int, str)
+    finished = pyqtSignal(list)
+
+    def __init__(self, sp_path, depth_level, parent=None):
+        super().__init__(parent)
+        self.sp_path = sp_path
+        self.depth_level = depth_level  # -1 = unlimited ("Max")
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        results = []
+        try:
+            drive_id, item_id = parse_sp_path(self.sp_path)
+            self._scan(drive_id, item_id, "", 0, results)
+        except SharePointError as e:
+            logger.error(f"SharePoint depth scan failed: {e}")
+        except Exception:
+            logger.exception("SharePoint depth scan failed")
+        self.finished.emit(results)
+
+    def _scan(self, drive_id, item_id, relative_path, current_depth, results):
+        if self._cancelled:
+            return
+        if self.depth_level != -1 and current_depth >= self.depth_level:
+            return
+        try:
+            entries = get_sharepoint_client().list_children(drive_id, item_id)
+        except SharePointError as e:
+            logger.warning(f"SharePoint depth scan skipped a folder: {e}")
+            return
+
+        folders = []
+        for it in entries:
+            if self._cancelled:
+                return
+            display_name = (f"{relative_path} | {it['name']}"
+                            if relative_path else it["name"])
+            modified = ""
+            if it["modified"]:
+                try:
+                    dt = datetime.fromisoformat(
+                        it["modified"].replace("Z", "+00:00")).astimezone()
+                    modified = dt.strftime("%Y-%m-%d %H:%M")
+                except ValueError:
+                    pass
+            results.append({
+                "path": make_sp_path(drive_id, it["id"]),
+                "display_name": display_name,
+                "is_dir": it["is_folder"],
+                "depth": current_depth + 1,
+                "size": 0 if it["is_folder"] else it["size"],
+                "modified": modified,
+                "accessed": "",  # not available from SharePoint
+                "name": it["name"],
+                "web_url": it["web_url"],
+            })
+            if it["is_folder"] and it["child_count"] > 0:
+                folders.append((it["id"], display_name))
+
+        # One progress tick per folder listed — network calls dominate here
+        self.progress.emit(len(results), f"Scanning depth {current_depth + 1}…")
+
+        if self.depth_level == -1 or current_depth + 1 < self.depth_level:
+            for child_id, child_display in folders:
+                self._scan(drive_id, child_id, child_display,
+                           current_depth + 1, results)
 
 
 class SharePointDownloadWorker(QThread):

@@ -19,6 +19,7 @@ from suiteview import __version__ as APP_VERSION
 
 # Import the base FileExplorerCore
 from suiteview.file_nav.file_explorer_core import FileExplorerCore, DropTreeView
+from suiteview.file_nav.sharepoint_client import is_sp_path
 
 # Import unified bookmark widgets for sidebar categories
 from suiteview.ui.widgets.bookmark_widgets import (
@@ -242,6 +243,9 @@ class FileExplorerTab(FileExplorerCore):
         
         # 2. Full History - complete log of everywhere visited (never truncates)
         self.full_history = []  # List of all visited paths
+        
+        # Display names for SharePoint virtual paths (sp://... -> folder name)
+        self._sp_display_names = {}
         
         # Which history view is active in the panel
         self.history_view_mode = "current_path"  # "current_path" or "full_history"
@@ -1399,6 +1403,14 @@ class FileExplorerTab(FileExplorerCore):
     
     def update_breadcrumb(self, path):
         """Update breadcrumb display"""
+        # SharePoint virtual folders show their display name as a single segment
+        if is_sp_path(path):
+            name = self._sp_display_names.get(path, "SharePoint")
+            self.breadcrumb_widget.set_path(f"🌐 {name}")
+            self.current_directory = path
+            self.path_changed.emit(name)  # Tab title shows the folder name
+            return
+        
         try:
             path_obj = Path(path)
             if path_obj.exists() and path_obj.is_file():
@@ -1483,6 +1495,17 @@ class FileExplorerTab(FileExplorerCore):
     def navigate_to_path(self, path, add_to_history=True):
         """Navigate to a specific directory path - loads in details pane (right side)"""
         try:
+            # SharePoint virtual folders bypass all filesystem checks
+            if is_sp_path(path):
+                if add_to_history:
+                    self._record_navigation(path)
+                self.update_breadcrumb(path)
+                self._update_nav_button_states()
+                display_name = self._sp_display_names.get(path, "SharePoint")
+                # Call the parent implementation directly (our override funnels here)
+                super().load_sharepoint_contents_in_details(path, display_name)
+                return
+            
             path_obj = Path(path)
             if not path_obj.exists():
                 return
@@ -1494,19 +1517,7 @@ class FileExplorerTab(FileExplorerCore):
             
             # Add to navigation history if requested (not when using back/forward)
             if add_to_history:
-                # Current Path History - browser-style with truncation
-                # If we're not at the end, truncate everything after current position
-                if self.current_path_index < len(self.current_path_history) - 1:
-                    self.current_path_history = self.current_path_history[:self.current_path_index + 1]
-                
-                # Add new path if different from current
-                if not self.current_path_history or self.current_path_history[-1] != path_str:
-                    self.current_path_history.append(path_str)
-                    self.current_path_index = len(self.current_path_history) - 1
-                
-                # Full History - always append, never truncate
-                if not self.full_history or self.full_history[-1] != path_str:
-                    self.full_history.append(path_str)
+                self._record_navigation(path_str)
             
             # Update breadcrumb
             self.update_breadcrumb(path_str)
@@ -1519,6 +1530,22 @@ class FileExplorerTab(FileExplorerCore):
             
         except Exception as e:
             logger.error(f"Failed to navigate to {path}: {e}")
+    
+    def _record_navigation(self, path_str):
+        """Append a path to both navigation histories (browser-style truncation)"""
+        # Current Path History - browser-style with truncation
+        # If we're not at the end, truncate everything after current position
+        if self.current_path_index < len(self.current_path_history) - 1:
+            self.current_path_history = self.current_path_history[:self.current_path_index + 1]
+        
+        # Add new path if different from current
+        if not self.current_path_history or self.current_path_history[-1] != path_str:
+            self.current_path_history.append(path_str)
+            self.current_path_index = len(self.current_path_history) - 1
+        
+        # Full History - always append, never truncate
+        if not self.full_history or self.full_history[-1] != path_str:
+            self.full_history.append(path_str)
     
     def _update_nav_button_states(self):
         """Update enabled/disabled state of back/forward buttons based on current path history"""
@@ -1854,6 +1881,18 @@ class FileExplorerTab(FileExplorerCore):
         print(f"Path retrieved: {path}")
         print(f"=========================\n")
         
+        # SharePoint virtual items: navigate folders, download-and-open files
+        if is_sp_path(path):
+            col0_index = index.sibling(index.row(), 0)
+            kind = self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 3)
+            name = (self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.UserRole + 5)
+                    or self.details_sort_proxy.data(col0_index, Qt.ItemDataRole.DisplayRole))
+            if kind == "folder":
+                self.load_sharepoint_contents_in_details(path, name)
+            else:
+                self.open_sharepoint_file(path, name)
+            return
+        
         path_obj = Path(path)
         
         # Handle .lnk shortcut files - resolve target and navigate if it's a folder
@@ -1948,6 +1987,13 @@ class FileExplorerTab(FileExplorerCore):
             # Refresh without adding to history
             self.load_folder_contents_in_details(Path(self.current_details_folder))
     
+    def load_sharepoint_contents_in_details(self, sp_path, display_name=None):
+        """Override: route SharePoint loads through navigate_to_path so
+        breadcrumb, tab title, and back/forward history stay in sync."""
+        if display_name:
+            self._sp_display_names[sp_path] = display_name
+        self.navigate_to_path(sp_path)
+    
     def on_tree_item_clicked(self, index):
         """Override parent method to use navigate_to_path for history tracking"""
         # Get the path from the clicked item
@@ -1956,6 +2002,12 @@ class FileExplorerTab(FileExplorerCore):
             return
         
         path = item.data(Qt.ItemDataRole.UserRole)
+        if is_sp_path(path):
+            # Remember the display name for the breadcrumb/tab title
+            self._sp_display_names[path] = (item.data(Qt.ItemDataRole.UserRole + 5)
+                                            or item.text())
+            self.navigate_to_path(path)
+            return
         if path:
             # Use navigate_to_path which handles history
             self.navigate_to_path(path)
@@ -1973,6 +2025,12 @@ class FileExplorerTab(FileExplorerCore):
         
         path = item.data(Qt.ItemDataRole.UserRole)
         if not path:
+            return
+        
+        if is_sp_path(path):
+            self._sp_display_names[path] = (item.data(Qt.ItemDataRole.UserRole + 5)
+                                            or item.text())
+            self.navigate_to_path(path)
             return
         
         path_obj = Path(path)

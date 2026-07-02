@@ -422,12 +422,36 @@ class IllustrationWindow(FramelessWindowBase):
                 options=run_options,
                 stop_on_lapse=self.inputs_tab.stop_on_lapse_enabled(),
             )
+
+            # Guaranteed side (RERUN LockValues): re-project with guaranteed
+            # COIs / interest using the current run's applied cash flows locked
+            # in. Non-fatal — the report's guaranteed columns render blank if
+            # the guaranteed run cannot be built.
+            guaranteed_results = None
+            guaranteed_error = None
+            try:
+                from suiteview.illustration.core.guaranteed_projection import (
+                    run_guaranteed_projection,
+                )
+                guaranteed_results = run_guaranteed_projection(
+                    scenario.projectable_policy,
+                    results,
+                    base_options=run_options,
+                    base_future_inputs=future_inputs,
+                    engine=engine,
+                )
+            except Exception as exc:
+                guaranteed_error = str(exc)
+
             self.values_tab.display_projection(
                 scenario.projectable_policy,
                 results,
                 months=max(len(results) - 1, 0),
                 injected_first_row_columns=self._first_row_injected_columns(scenario),
             )
+            if guaranteed_results:
+                self.values_tab.set_guaranteed_results(
+                    scenario.projectable_policy, guaranteed_results)
             from datetime import date as _date
 
             from suiteview.illustration.core.report_builder import build_ul_report
@@ -438,12 +462,15 @@ class IllustrationWindow(FramelessWindowBase):
                 options=run_options,
                 future_inputs=future_inputs,
                 run_date=_date.today(),
+                guaranteed_results=guaranteed_results,
             ))
             self.tabs.setCurrentWidget(self.values_tab)
             status = (
                 f"Values ready for {policy_number} - valuation snapshot plus "
                 f"{max(len(results) - 1, 0)} projected months"
             )
+            if guaranteed_error:
+                status += f"  ·  Guaranteed values unavailable: {guaranteed_error}"
             if lumpsum_result is not None and lumpsum_result.lumpsum > 0:
                 from suiteview.polview.ui.formatting import format_amount, format_date
                 reason = {"SV": "surrender-value", "AV": "account-value-less-loans",

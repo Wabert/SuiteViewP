@@ -87,6 +87,33 @@ def _is_url(path_str):
     return lower.startswith('http://') or lower.startswith('https://')
 
 
+def _bookmark_data_from_url(url):
+    """Convert a dropped QUrl into bookmark data.
+
+    Local files/folders keep their filesystem path; web URLs (e.g. SharePoint
+    files/folders dragged from FileNav's details view) are stored as 'url'
+    bookmarks named after the last path segment. Returns None if unsupported.
+    """
+    if url.isLocalFile():
+        path = url.toLocalFile()
+        if path and os.path.exists(path):
+            return {
+                'name': Path(path).name,
+                'path': path,
+                'type': 'folder' if os.path.isdir(path) else 'file',
+            }
+        return None
+    if url.scheme() in ('http', 'https'):
+        from urllib.parse import unquote
+        from PyQt6.QtCore import QUrl
+        segments = [s for s in unquote(url.path()).split('/') if s]
+        name = segments[-1] if segments else (url.host() or url.toString())
+        # Keep percent-encoding so the stored URL opens cleanly in a browser
+        url_str = url.toString(QUrl.ComponentFormattingOption.FullyEncoded)
+        return {'name': name, 'path': url_str, 'type': 'url'}
+    return None
+
+
 def get_file_icon_placeholder(path_str):
     """
     Get a placeholder icon instantly - no filesystem access.
@@ -2232,17 +2259,16 @@ class CategoryPopup(QFrame):
             event.ignore()
     
     def _handle_url_drop(self, event):
-        """Handle dropping files/folders from file system"""
+        """Handle dropping files/folders/web URLs from file system"""
         try:
             from suiteview.ui.widgets.bookmark_data_manager import get_bookmark_manager
             manager = get_bookmark_manager()
             
             for url in event.mimeData().urls():
-                if url.isLocalFile():
-                    path = url.toLocalFile()
-                    if os.path.exists(path):
-                        name = Path(path).name
-                        manager.add_bookmark_to_category_by_name(self.category_name, name, path)
+                data = _bookmark_data_from_url(url)
+                if data:
+                    manager.add_bookmark_to_category_by_name(
+                        self.category_name, data['name'], data['path'])
             
             manager.save()
             # Refresh parent BookmarkContainer UI to show new bookmark immediately
@@ -2562,14 +2588,12 @@ class CategoryButton(QPushButton):
                 event.ignore()
         
         elif mime.hasUrls():
-            # Dropping file/folder URLs from file system - create bookmarks
+            # Dropping file/folder/web URLs from file system - create bookmarks
             try:
                 for url in mime.urls():
-                    if url.isLocalFile():
-                        path = url.toLocalFile()
-                        if os.path.exists(path):
-                            name = Path(path).name
-                            self._handle_drop({'name': name, 'path': path})
+                    data = _bookmark_data_from_url(url)
+                    if data:
+                        self._handle_drop({'name': data['name'], 'path': data['path']})
                 
                 close_all_category_popups()
                 event.acceptProposedAction()
@@ -3027,11 +3051,9 @@ class CategoryButton(QPushButton):
         elif mime.hasUrls():
             try:
                 for url in mime.urls():
-                    path = url.toLocalFile()
-                    if path:
-                        name = Path(path).name
-                        bookmark = {'name': name, 'path': path}
-                        self._handle_drop(bookmark)
+                    data = _bookmark_data_from_url(url)
+                    if data:
+                        self._handle_drop({'name': data['name'], 'path': data['path']})
                 
                 event.acceptProposedAction()
             except Exception as e:
@@ -4253,12 +4275,15 @@ class BookmarkContainer(QWidget):
             except Exception as e:
                 logger.error(f"Error in internal reorder: {e}")
         
-        # File/folder drops from file system - add as new bookmark
+        # File/folder/web-URL drops - add as new bookmark
         if mime.hasUrls():
             for url in mime.urls():
-                path = url.toLocalFile()
-                if path:
-                    self._handle_file_drop(path, drop_index)
+                if url.isLocalFile():
+                    path = url.toLocalFile()
+                    if path:
+                        self._handle_file_drop(path, drop_index)
+                else:
+                    self._handle_web_url_drop(url, drop_index)
             event.acceptProposedAction()
             return
         
@@ -4300,6 +4325,23 @@ class BookmarkContainer(QWidget):
         # Add to this container
         self.add_bookmark(bookmark_data, insert_at=drop_index)
         logger.info(f"Added dropped file/folder to bar {self.bar_id}: {path}")
+    
+    def _handle_web_url_drop(self, url, drop_index: int):
+        """Handle a web URL (e.g. a SharePoint file/folder) dropped onto this bar"""
+        bookmark_data = _bookmark_data_from_url(url)
+        if bookmark_data is None:
+            logger.warning(f"Unsupported URL drop ignored: {url.toString()}")
+            return
+        
+        # Check if already exists in this bar
+        for item in self.data_store.get('items', []):
+            if (item.get('type') == 'bookmark'
+                    and item.get('path') == bookmark_data['path']):
+                logger.info(f"URL already exists in bar {self.bar_id}: {bookmark_data['path']}")
+                return
+        
+        self.add_bookmark(bookmark_data, insert_at=drop_index)
+        logger.info(f"Added dropped URL to bar {self.bar_id}: {bookmark_data['path']}")
     
     def _promote_subcategory_to_toplevel(self, category_name, parent_name, drop_index):
         """Promote a subcategory to a top-level category on this bar"""

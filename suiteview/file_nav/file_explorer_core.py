@@ -24,6 +24,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSortFilterProxyModel, QFileIn
 from suiteview.file_nav.sharepoint_client import (
     is_sp_path, make_sp_path, get_sharepoint_client,
     SharePointListWorker, SharePointResolveWorker, SharePointDownloadWorker,
+    SharePointDiscoverWorker, SharePointDepthScanWorker,
 )
 
 import logging
@@ -170,8 +171,10 @@ class DropTreeView(QTreeView):
         if not indexes:
             return
         
-        # Get unique file paths from selected rows
-        paths = []
+        # Get unique file paths from selected rows. SharePoint rows carry an
+        # sp:// virtual path — drag those as their real SharePoint web URL so
+        # drop targets (e.g. the bookmarks bar) can store a working link.
+        urls = []
         seen_rows = set()
         for index in indexes:
             row = index.row()
@@ -180,15 +183,20 @@ class DropTreeView(QTreeView):
                 # Get path from column 0
                 col0_index = index.sibling(row, 0)
                 path = self.model().data(col0_index, Qt.ItemDataRole.UserRole)
-                if path and os.path.exists(path):
-                    paths.append(path)
+                if not path:
+                    continue
+                if is_sp_path(path):
+                    web_url = self.model().data(col0_index, Qt.ItemDataRole.UserRole + 4)
+                    if web_url:
+                        urls.append(QUrl(web_url))
+                elif os.path.exists(path):
+                    urls.append(QUrl.fromLocalFile(path))
         
-        if not paths:
+        if not urls:
             return
         
         # Create mime data with file URLs
         mime_data = QMimeData()
-        urls = [QUrl.fromLocalFile(path) for path in paths]
         mime_data.setUrls(urls)
         
         # Create and execute drag
@@ -830,6 +838,7 @@ class FileExplorerCore(QWidget):
         self.depth_search_enabled = False
         self.depth_search_cache = {}  # Cache: {folder_path: {depth_level: [items]}}
         self.depth_search_folder = None  # Folder where depth search was initiated
+        self.depth_search_folder_name = None  # Display name of that folder (SharePoint)
         self.depth_search_locked = False  # True when depth search is active and locked
         self.depth_search_active_results = None  # Currently displayed depth results
         
@@ -2425,14 +2434,14 @@ class FileExplorerCore(QWidget):
             # Clear cache and search folder
             self.depth_search_cache.clear()
             self.depth_search_folder = None
+            self.depth_search_folder_name = None
             
             # Reset combo to 1
             self.depth_level_combo.setCurrentText("1")
             
             # Clear search and restore normal view
             self.details_search.clear()
-            if self.current_details_folder:
-                self.load_folder_contents_in_details(Path(self.current_details_folder))
+            self._reload_current_details_folder()
         else:
             # Currently OFF, turn it ON
             depth_level = self.depth_level_combo.currentText()
@@ -2503,8 +2512,17 @@ class FileExplorerCore(QWidget):
             self._apply_compact_toolbar_style(self.toolbar, locked=False)
             
             # Restore normal view
-            if self.current_details_folder:
-                self.load_folder_contents_in_details(Path(self.current_details_folder))
+            self._reload_current_details_folder()
+    
+    def _reload_current_details_folder(self):
+        """Reload the current details folder (local path or SharePoint)."""
+        if not self.current_details_folder:
+            return
+        if is_sp_path(self.current_details_folder):
+            self.load_sharepoint_contents_in_details(
+                self.current_details_folder, getattr(self, '_sp_current_name', None))
+        else:
+            self.load_folder_contents_in_details(Path(self.current_details_folder))
     
     def go_to_depth_search_home(self):
         """Navigate to the root folder of the current depth search (keeps depth search active)"""
@@ -2519,7 +2537,13 @@ class FileExplorerCore(QWidget):
                 self.details_search.clear()
             
             # Reload the folder contents in the details panel
-            self.load_folder_contents_in_details(Path(self.depth_search_folder))
+            if is_sp_path(self.depth_search_folder):
+                # Locked restore in load_sharepoint_contents_in_details shows
+                # the depth results instead of re-listing the folder
+                self.load_sharepoint_contents_in_details(
+                    self.depth_search_folder, self.depth_search_folder_name)
+            else:
+                self.load_folder_contents_in_details(Path(self.depth_search_folder))
     
     def perform_depth_scan_and_populate(self, depth_level):
         """Perform depth scan and populate all results (no search filter)"""
@@ -2560,9 +2584,15 @@ class FileExplorerCore(QWidget):
         
         # Start async scan
         self.depth_search_folder = search_folder
+        self.depth_search_folder_name = (
+            getattr(self, '_sp_current_name', None) if is_sp_path(search_folder)
+            else None)
         
-        # Create and start worker thread
-        self.depth_scan_worker = DepthScanWorker(search_folder, depth_level_int)
+        # Create and start worker thread (SharePoint folders scan via Graph API)
+        if is_sp_path(search_folder):
+            self.depth_scan_worker = SharePointDepthScanWorker(search_folder, depth_level_int)
+        else:
+            self.depth_scan_worker = DepthScanWorker(search_folder, depth_level_int)
         self.depth_scan_worker.finished.connect(self._on_depth_scan_complete)
         self.depth_scan_worker.progress.connect(self._on_depth_scan_progress)
         
@@ -2709,13 +2739,19 @@ class FileExplorerCore(QWidget):
             
             # Check which button was clicked
             if msg_box.clickedButton() == go_button:
-                # Navigate to search folder and populate results
-                self.load_folder_contents_in_details(Path(search_folder))
-                self._populate_depth_results(results)
-                
-                # Enable lock mode
+                # Enable lock mode BEFORE navigating so the folder loaders
+                # restore the depth results (SharePoint loads are async and
+                # would otherwise overwrite them when the listing returns)
                 self.depth_search_locked = True
                 self.depth_search_active_results = results
+                
+                # Navigate to search folder — the locked-restore branch in the
+                # loader populates the depth results
+                if is_sp_path(search_folder):
+                    self.load_sharepoint_contents_in_details(
+                        search_folder, self.depth_search_folder_name)
+                else:
+                    self.load_folder_contents_in_details(Path(search_folder))
                 
                 # Disable tree panel navigation
                 if hasattr(self, 'tree_view'):
@@ -2811,12 +2847,26 @@ class FileExplorerCore(QWidget):
         modified = item_data.get('modified', '')
         accessed = item_data.get('accessed', '')
         
+        # SharePoint results carry sp:// virtual paths — derive icon/type from
+        # the item's leaf name (the sp path is an opaque drive/item id pair)
+        is_sp = is_sp_path(full_path)
+        if is_sp:
+            leaf_name = item_data.get('name') or display_name.split(' | ')[-1]
+            path_obj = Path(leaf_name)
+        else:
+            path_obj = Path(full_path)
+        
         # Create name item with icon
         name_item = QStandardItem(display_name)
-        path_obj = Path(full_path)
         icon = self._get_cached_icon(path_obj, is_dir)
         name_item.setIcon(icon)
         name_item.setData(full_path, Qt.ItemDataRole.UserRole)
+        if is_sp:
+            # Same roles as _create_sp_details_row so double-click nav/open works
+            name_item.setData("folder" if is_dir else "file", Qt.ItemDataRole.UserRole + 3)
+            name_item.setData(item_data.get('web_url', ''), Qt.ItemDataRole.UserRole + 4)
+            name_item.setData(path_obj.name, Qt.ItemDataRole.UserRole + 5)
+            name_item.setEditable(False)
         
         # Set sort data (depth prefix for proper sorting)
         sort_prefix = f"{depth}_{'0' if is_dir else '1'}_"
@@ -3375,6 +3425,8 @@ class FileExplorerCore(QWidget):
             menu = QMenu()
             add_sp_action = menu.addAction("🌐 Add SharePoint Library…")
             add_sp_action.triggered.connect(self.add_sharepoint_library_dialog)
+            discover_action = menu.addAction("🔍 Discover My Libraries…")
+            discover_action.triggered.connect(self.discover_sharepoint_libraries_dialog)
             menu.exec(self.tree_view.viewport().mapToGlobal(position))
             return
         
@@ -3405,6 +3457,8 @@ class FileExplorerCore(QWidget):
             menu.addSeparator()
             add_sp_action = menu.addAction("🌐 Add SharePoint Library…")
             add_sp_action.triggered.connect(self.add_sharepoint_library_dialog)
+            discover_action = menu.addAction("🔍 Discover My Libraries…")
+            discover_action.triggered.connect(self.discover_sharepoint_libraries_dialog)
             menu.exec(self.tree_view.viewport().mapToGlobal(position))
             return
         
@@ -3436,6 +3490,8 @@ class FileExplorerCore(QWidget):
         menu.addSeparator()
         add_sp_action = menu.addAction("🌐 Add SharePoint Library…")
         add_sp_action.triggered.connect(self.add_sharepoint_library_dialog)
+        discover_action = menu.addAction("🔍 Discover My Libraries…")
+        discover_action.triggered.connect(self.discover_sharepoint_libraries_dialog)
         
         # Show menu
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
@@ -4780,6 +4836,113 @@ class FileExplorerCore(QWidget):
         worker.start()
         progress.show()
     
+    def discover_sharepoint_libraries_dialog(self):
+        """Find all document libraries on sites the user syncs with OneDrive,
+        and let them pick which ones to add to the Folders panel."""
+        progress = QProgressDialog(
+            "Discovering your SharePoint libraries…\n\n"
+            "If a browser window opens, complete the sign-in with your work account.",
+            "Cancel", 0, 0, self)
+        progress.setWindowTitle("Discover My Libraries")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        
+        worker = SharePointDiscoverWorker()
+        
+        def on_progress(msg):
+            progress.setLabelText(f"Discovering your SharePoint libraries…\n\n{msg}")
+        
+        def on_discovered(libraries):
+            progress.close()
+            self._show_sp_library_picker(libraries)
+        
+        def on_failed(msg):
+            progress.close()
+            QMessageBox.warning(self, "Discover My Libraries", msg)
+        
+        def on_cancelled():
+            try:
+                worker.discovered.disconnect(on_discovered)
+                worker.failed.disconnect(on_failed)
+            except TypeError:
+                pass
+        
+        worker.progress.connect(on_progress)
+        worker.discovered.connect(on_discovered)
+        worker.failed.connect(on_failed)
+        progress.canceled.connect(on_cancelled)
+        self._track_sp_worker(worker)
+        worker.start()
+        progress.show()
+    
+    def _show_sp_library_picker(self, libraries):
+        """Checkbox picker for discovered libraries, grouped by site"""
+        from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
+        
+        existing = {lib.get('drive_id') for lib in self.sharepoint_libraries}
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Discover My Libraries")
+        dialog.resize(560, 480)
+        layout = QVBoxLayout(dialog)
+        
+        info = QLabel(f"Found {len(libraries)} document libraries on your synced sites.\n"
+                      "Check the ones to add to the Folders panel:")
+        layout.addWidget(info)
+        
+        tree = QTreeWidget()
+        tree.setHeaderLabels(["Library"])
+        tree.setRootIsDecorated(True)
+        
+        # Group by site
+        sites = {}
+        for lib in libraries:
+            sites.setdefault(lib.get('site_name', 'SharePoint'), []).append(lib)
+        
+        for site_name, libs in sites.items():
+            site_item = QTreeWidgetItem(tree, [f"🏢 {site_name}"])
+            site_item.setFlags(site_item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+            for lib in libs:
+                child = QTreeWidgetItem(site_item, [f"🌐 {lib.get('library_name', lib['name'])}"])
+                child.setToolTip(0, lib.get('url', ''))
+                child.setData(0, Qt.ItemDataRole.UserRole, lib)
+                if lib['drive_id'] in existing:
+                    child.setText(0, child.text(0) + "   (already added)")
+                    child.setFlags(Qt.ItemFlag.ItemIsEnabled)  # visible but not checkable
+                else:
+                    child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    child.setCheckState(0, Qt.CheckState.Unchecked)
+            site_item.setExpanded(True)
+        
+        layout.addWidget(tree)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                                   | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        
+        added = 0
+        for i in range(tree.topLevelItemCount()):
+            site_item = tree.topLevelItem(i)
+            for j in range(site_item.childCount()):
+                child = site_item.child(j)
+                if child.checkState(0) == Qt.CheckState.Checked:
+                    lib = child.data(0, Qt.ItemDataRole.UserRole)
+                    self.sharepoint_libraries.append({
+                        'name': lib['name'], 'url': lib['url'],
+                        'drive_id': lib['drive_id'], 'item_id': lib.get('item_id', 'root'),
+                    })
+                    added += 1
+        
+        if added:
+            self.save_sharepoint_libraries()
+            self.populate_tree_model()
+            logger.info(f"Added {added} SharePoint libraries via discovery")
+    
     def remove_sharepoint_library(self, sp_path):
         """Remove a SharePoint library from the tree (by its sp:// root path)"""
         from suiteview.file_nav.sharepoint_client import parse_sp_path
@@ -4854,6 +5017,35 @@ class FileExplorerCore(QWidget):
         self._sp_details_generation += 1
         generation = self._sp_details_generation
         start_time = time.perf_counter()
+        
+        # Returning to the depth search folder while locked — restore the
+        # depth results instead of re-listing the folder (mirrors the local
+        # branch at the top of load_folder_contents_in_details)
+        if (self.depth_search_locked and 
+            self.depth_search_folder and 
+            sp_path == self.depth_search_folder and
+            self.depth_search_active_results):
+            self.current_details_folder = sp_path
+            self._sp_current_name = (display_name or self.depth_search_folder_name
+                                     or "SharePoint")
+            self.details_view.set_current_folder(sp_path)
+            self.details_header.setText(f"\U0001F310 {self._sp_current_name}")
+            
+            # Restore folder-specific search term for the depth search folder
+            if hasattr(self, 'details_search') and hasattr(self, 'folder_search_terms'):
+                saved_search = self.folder_search_terms.get(sp_path, "")
+                self.details_search.blockSignals(True)
+                self.details_search.setText(saved_search)
+                self.details_search.blockSignals(False)
+                if saved_search:
+                    escaped = QRegularExpression.escape(saved_search)
+                    regex = QRegularExpression(escaped, QRegularExpression.PatternOption.CaseInsensitiveOption)
+                    self.details_sort_proxy.setFilterRegularExpression(regex)
+                else:
+                    self.details_sort_proxy.setFilterRegularExpression(QRegularExpression())
+            
+            self._populate_depth_results(self.depth_search_active_results)
+            return
         
         self.current_details_folder = sp_path
         self._sp_current_name = display_name or "SharePoint"

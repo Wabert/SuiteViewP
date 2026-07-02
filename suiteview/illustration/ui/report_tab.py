@@ -3,17 +3,24 @@
 Print-preview style: white fixed-width "sheets" stacked on the purple
 Illustration background, formatted from the structured
 ``IllustrationReport`` (core/report_builder.py). Mirrors RERUN's
-"UL - Illustration Pages" layout; the GUARANTEED columns are blank for now.
+"UL - Illustration Pages" layout. Print to PDF renders the same fixed-width
+pages through Qt's PDF printer.
 """
 from __future__ import annotations
 
+from html import escape
 from typing import List, Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QMarginsF, Qt, QUrl
+from PyQt6.QtGui import QDesktopServices, QFont, QPageLayout, QPageSize, QTextDocument
+from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
@@ -32,7 +39,8 @@ def _center(text: str) -> str:
 
 
 def _money(value: Optional[float]) -> str:
-    return "" if value is None else f"{value:,.2f}"
+    """Ledger money: whole dollars, floored at 0 (RERUN); None renders blank."""
+    return "" if value is None else f"{max(value, 0.0):,.0f}"
 
 
 class _PageBuilder:
@@ -84,10 +92,10 @@ _LEDGER_HEADER = [
 
 def _ledger_line(row: LedgerRow) -> str:
     return (
-        f"{row.eoy_age:>4}{row.year:>5}{row.premium_outlay:>11,.2f}"
+        f"{row.eoy_age:>4}{row.year:>5}{row.premium_outlay:>11,.0f}"
         f"{row.markers:>5}{row.cash_from_policy:>8,.0f}{row.loan_balance:>10,.0f}  "
         f"{_money(row.guar_accum):>10}{_money(row.guar_surr):>10}{_money(row.guar_death):>12}  "
-        f"{row.accum_value:>10,.2f}{row.surr_value:>10,.2f}{row.death_benefit:>12,.2f}"
+        f"{_money(row.accum_value):>10}{_money(row.surr_value):>10}{_money(row.death_benefit):>12}"
     )
 
 
@@ -108,16 +116,28 @@ def format_report_pages(report: IllustrationReport) -> List[List[str]]:
     for line in report.disclaimer_lines:
         cover.add_wrapped(line)
     cover.blank()
+    # Insured block on the left, agent block on the right (when present).
     insured = report.insured_lines or [""]
-    cover.add(f"  INSURED: {insured[0]}")
-    for extra in insured[1:]:
-        cover.add(f"           {extra}")
+    left_lines = [f"  INSURED: {insured[0]}"]
+    left_lines += [f"           {extra}" for extra in insured[1:]]
+    agent = report.agent_lines
+    right_lines = ([f"AGENT: {agent[0]}"] + [f"       {extra}" for extra in agent[1:]]) if agent else []
+    for index in range(max(len(left_lines), len(right_lines))):
+        left = left_lines[index] if index < len(left_lines) else ""
+        right = right_lines[index] if index < len(right_lines) else ""
+        cover.add(f"{left:<58}{right}".rstrip() if right else left)
     cover.blank()
-    for label, value in report.policy_block:
-        cover.add(f"  {label:<28}{value}")
+    # Two-column policy block: ("", "") pairs are blank separator rows.
+    for left, right in report.policy_block:
+        if not left and not right:
+            cover.blank()
+        else:
+            cover.add(f"  {left:<40}{right}".rstrip())
     cover.blank()
     if report.av_basis_line:
         cover.add_wrapped(report.av_basis_line)
+        if report.loan_basis_line:
+            cover.add_wrapped(report.loan_basis_line)
         cover.blank()
     for line in report.request_intro:
         cover.add_wrapped(line)
@@ -142,9 +162,11 @@ def format_report_pages(report: IllustrationReport) -> List[List[str]]:
     for index, chunk in enumerate(ledger_chunks):
         page = _PageBuilder(report, 2 + index, total)
         page.lines.extend(_LEDGER_HEADER)
+        base = index * LEDGER_ROWS_PER_PAGE
         for row_index, row in enumerate(chunk):
             page.add(_ledger_line(row))
-            if (row.year % 5 == 0) and row_index + 1 < len(chunk):
+            # RERUN groups the ledger into blocks of five rows.
+            if (base + row_index + 1) % 5 == 0 and row_index + 1 < len(chunk):
                 page.blank()
         if index == len(ledger_chunks) - 1 and report.footnote_legends:
             page.blank()
@@ -208,15 +230,30 @@ class IllustrationReportTab(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._report: Optional[IllustrationReport] = None
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
+        top_row = QHBoxLayout()
+        top_row.setSpacing(6)
         self.status_label = QLabel("")
         self.status_label.setStyleSheet(
             f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;")
-        layout.addWidget(self.status_label)
+        top_row.addWidget(self.status_label)
+        top_row.addStretch(1)
+        self.print_pdf_btn = QPushButton("Print to PDF")
+        self.print_pdf_btn.setEnabled(False)
+        self.print_pdf_btn.setToolTip("Save the illustration report as a PDF file.")
+        self.print_pdf_btn.setStyleSheet(
+            f"QPushButton {{ background-color: #F3ECFC; color: {PURPLE_DARK};"
+            " border: 1px solid #7E57C2; border-radius: 4px; padding: 1px 10px;"
+            " min-height: 18px; font-size: 10px; font-weight: bold; }"
+            "QPushButton:disabled { color: #9E9E9E; border-color: #C5B3E0; }")
+        self.print_pdf_btn.clicked.connect(self._on_print_pdf)
+        top_row.addWidget(self.print_pdf_btn)
+        layout.addLayout(top_row)
 
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
@@ -235,6 +272,8 @@ class IllustrationReportTab(QWidget):
         self.clear()
 
     def clear(self, message: str = "Run Values to build the illustration report."):
+        self._report = None
+        self.print_pdf_btn.setEnabled(False)
         self.status_label.setText(message)
         while self._sheet_layout.count():
             item = self._sheet_layout.takeAt(0)
@@ -244,6 +283,8 @@ class IllustrationReportTab(QWidget):
 
     def display_report(self, report: IllustrationReport):
         self.clear("")
+        self._report = report
+        self.print_pdf_btn.setEnabled(True)
         pages = format_report_pages(report)
         for lines in pages:
             sheet = QLabel("\n".join(lines))
@@ -261,5 +302,56 @@ class IllustrationReportTab(QWidget):
             )
             sheet.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             self._sheet_layout.addWidget(sheet)
+        guaranteed_note = (
+            "" if report.has_guaranteed_values
+            else "  Guaranteed columns are not projected."
+        )
         self.status_label.setText(
-            f"UL illustration report - {len(pages)} pages. Guaranteed columns are not yet projected.")
+            f"UL illustration report - {len(pages)} pages.{guaranteed_note}")
+
+    # ── Print to PDF ────────────────────────────────────────────────────
+
+    def _on_print_pdf(self):
+        if self._report is None:
+            return
+        default_name = (
+            (self._report.prepared_for or "Illustration")
+            .replace("PREPARED FOR ", "").strip().replace(" ", "_")
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Print to PDF", f"{default_name}_Illustration.pdf",
+            "PDF Files (*.pdf)")
+        if not path:
+            return
+        try:
+            self.write_pdf(self._report, path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Print to PDF", f"Failed to write PDF: {exc}")
+            return
+        self.status_label.setText(f"Saved {path}")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    @staticmethod
+    def write_pdf(report: IllustrationReport, path: str):
+        """Render the fixed-width report pages to a PDF file."""
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(path)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.Letter))
+        printer.setPageMargins(QMarginsF(0.6, 0.5, 0.6, 0.5), QPageLayout.Unit.Inch)
+
+        pages = format_report_pages(report)
+        parts: List[str] = []
+        for index, lines in enumerate(pages):
+            style = (
+                "font-family:'Courier New',monospace; font-size:7pt;"
+                " white-space:pre; margin:0;"
+            )
+            if index < len(pages) - 1:
+                style += " page-break-after:always;"
+            parts.append(f'<pre style="{style}">{escape(chr(10).join(lines))}</pre>')
+
+        document = QTextDocument()
+        document.setDefaultFont(QFont("Courier New", 7))
+        document.setHtml("".join(parts))
+        document.print(printer)

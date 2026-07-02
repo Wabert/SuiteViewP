@@ -145,5 +145,93 @@ def test_report_pages_render_fixed_width():
     cover = "\n".join(pages[0])
     assert "PREPARED FOR JOHN DOE" in cover
     assert "ACCUMULATION VALUE OF $6,311.09" in cover
+    # Two-column cover: CURRENT elements share rows with the identity block.
+    policy_number_line = next(line for line in pages[0] if "POLICY NUMBER:" in line)
+    assert "CURRENT SPECIFIED AMOUNT:" in policy_number_line
+    issue_date_line = next(line for line in pages[0] if "ISSUE DATE:" in line)
+    assert "November 9, 2019" in issue_date_line
+    assert "CURRENT BILLING MODE:" in issue_date_line
     ledger_page = "\n".join(pages[1])
     assert "NON-GUARANTEED" in ledger_page
+
+
+def _guaranteed_results():
+    """Guaranteed run: same span but AV collapses and the policy lapses in yr 9."""
+    rows = [MonthlyState(policy_year=7, policy_month=6, duration=78)]
+    for year in (8, 9):
+        for month in range(1, 13):
+            lapsed = year == 9 and month >= 3
+            rows.append(_month(
+                year, month,
+                av_end_of_month=0.0 if lapsed else 1000.0,
+                surrender_value=-50.0 if lapsed else 800.0,
+                ending_db=0.0 if lapsed else 100000.0,
+                lapsed=lapsed,
+            ))
+            if lapsed:
+                return rows
+    return rows
+
+
+def test_report_guaranteed_columns_fill_from_guaranteed_run():
+    report = build_ul_report(
+        _policy(), _results(), run_date=date(2026, 6, 10),
+        guaranteed_results=_guaranteed_results())
+
+    assert report.has_guaranteed_values
+    assert report.guaranteed_termination_year == 9
+    year8, year9 = report.ledger
+    assert year8.guar_accum == 1000.0
+    assert year8.guar_surr == 800.0
+    assert year8.guar_death == 100000.0
+    # Lapsed guaranteed year renders zero, not blank.
+    assert year9.guar_accum == 0.0 and year9.guar_surr == 0.0 and year9.guar_death == 0.0
+    notes = " ".join(" ".join(p) for p in report.note_paragraphs)
+    assert "UNDER GUARANTEED ACCUMULATION VALUE, YOUR POLICY WILL TERMINATE IN POLICY YEAR 9" in notes
+    assert "GUARANTEED VALUES ARE NOT PROJECTED" not in notes
+
+
+def test_lock_values_locks_current_cash_flows():
+    from dateutil.relativedelta import relativedelta
+
+    from suiteview.illustration.core.guaranteed_projection import lock_values
+
+    policy = _policy()
+    results = [MonthlyState(policy_year=7, policy_month=6, duration=78)]
+    results.append(_month(8, 1, gross_premium=100.0, gp_exception_prem=25.0))
+    results.append(_month(8, 2, gross_premium=0.0, applied_net_withdrawal=500.0,
+                          applied_regular_loan=200.0, applied_variable_loan=75.0,
+                          applied_loan_repayment=40.0))
+
+    locked = lock_values(policy, results)
+
+    # Zero premium schedule keeps the modal-premium fallback from billing.
+    assert len(locked.scheduled_transactions) == 1
+    anchor = locked.scheduled_transactions[0]
+    assert anchor.kind == TransactionKind.PREMIUM and anchor.amount == 0.0
+
+    month1 = policy.issue_date + relativedelta(months=results[1].duration - 1)
+    month2 = policy.issue_date + relativedelta(months=results[2].duration - 1)
+    by_key = {(t.kind, t.effective_date): t.amount for t in locked.dated_transactions}
+    assert by_key[(TransactionKind.PREMIUM, month1)] == 125.0  # premium + exception
+    assert by_key[(TransactionKind.WITHDRAWAL, month2)] == 500.0
+    assert by_key[(TransactionKind.LOAN_REPAYMENT, month2)] == 40.0
+    loans = [t for t in locked.dated_transactions
+             if t.kind == TransactionKind.LOAN and t.effective_date == month2]
+    assert sorted(t.amount for t in loans) == [75.0, 200.0]
+    assert any(t.subtype == "variable" and t.amount == 75.0 for t in loans)
+
+
+def test_guaranteed_options_disable_limits():
+    from suiteview.illustration.core.guaranteed_projection import guaranteed_options
+    from suiteview.illustration.models.input_set import IllustrationOptions
+
+    base = IllustrationOptions(conform_to_tefra=True, conform_to_tamra=True,
+                               allow_exception_prems=True, apply_prem_to_loan=True)
+    opts = guaranteed_options(base)
+    assert not opts.conform_to_tefra
+    assert not opts.conform_to_tamra
+    assert not opts.allow_exception_prems
+    assert not opts.apply_prem_to_loan
+    assert not opts.restrict_loans_to_sv
+    assert not opts.guideline_cap_enabled and not opts.force_out_enabled
