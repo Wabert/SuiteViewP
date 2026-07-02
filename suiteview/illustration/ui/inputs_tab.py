@@ -9,6 +9,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QAbstractItemDelegate,
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -17,6 +18,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QPushButton,
     QRadioButton,
     QSizePolicy,
@@ -131,7 +133,70 @@ class ComboBoxDelegate(NavigationDelegate):
 
 
 class ExcelTableWidget(QTableWidget):
-    """QTableWidget with Excel-like arrow-key navigation during editing."""
+    """QTableWidget with Excel-like arrow-key navigation and clipboard paste."""
+
+    MAX_PASTE_ROWS = 2000
+
+    def init_rows(self, start: int, end: int):
+        """Create 20px rows of empty right-aligned items for ``start..end-1``.
+
+        The first column centers when it holds a Date/Year (matches the
+        original table setup); paste growth reuses this so new rows look the
+        same as the built-in ones.
+        """
+        header_item = self.horizontalHeaderItem(0)
+        center_first = header_item is not None and header_item.text() in {"Date", "Year"}
+        for row in range(start, end):
+            self.setRowHeight(row, 20)
+            for col in range(self.columnCount()):
+                item = QTableWidgetItem("")
+                if col == 0 and center_first:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                else:
+                    item.setTextAlignment(
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                self.setItem(row, col, item)
+
+    def contextMenuEvent(self, event):
+        index = self.indexAt(event.pos())
+        menu = QMenu(self)
+        paste_action = menu.addAction("Paste from Clipboard")
+        paste_action.setEnabled(bool((QApplication.clipboard().text() or "").strip()))
+        if menu.exec(event.globalPos()) is paste_action:
+            row = index.row() if index.isValid() else max(self.currentRow(), 0)
+            col = index.column() if index.isValid() else max(self.currentColumn(), 0)
+            self.paste_from_clipboard(row, col)
+
+    def paste_from_clipboard(self, start_row: int, start_col: int = 0):
+        self.paste_text(QApplication.clipboard().text() or "", start_row, start_col)
+
+    def paste_text(self, text: str, start_row: int, start_col: int = 0):
+        """Paste tab-separated rows (an Excel range) starting at the given cell.
+
+        Capped at ``MAX_PASTE_ROWS`` rows; the table grows to fit. Columns past
+        the table's last column are dropped.
+        """
+        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        while lines and not lines[-1].strip():
+            lines.pop()
+        lines = lines[: self.MAX_PASTE_ROWS]
+        if not lines:
+            return
+        start_row = max(start_row, 0)
+        start_col = max(start_col, 0)
+        needed = start_row + len(lines)
+        if needed > self.rowCount():
+            grown_from = self.rowCount()
+            self.setRowCount(needed)
+            self.init_rows(grown_from, needed)
+        for row_offset, line in enumerate(lines):
+            for col_offset, value in enumerate(line.split("\t")):
+                col = start_col + col_offset
+                if col >= self.columnCount():
+                    break
+                item = self.item(start_row + row_offset, col)
+                if item is not None:
+                    item.setText(value.strip())
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -196,6 +261,7 @@ class IllustrationInputsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._warning_labels: dict[str, QLabel] = {}
+        self._pending_warning_refresh: set[str] = set()
         self._issue_date: date | None = None
         self._maturity_date: date | None = None
         self._setup_ui()
@@ -608,18 +674,7 @@ class IllustrationInputsTab(QWidget):
         table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         table.setItemDelegate(NavigationDelegate(table))
 
-        for row in range(rows):
-            table.setRowHeight(row, 20)
-            for col in range(len(headers)):
-                item = QTableWidgetItem("")
-                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                table.setItem(row, col, item)
-
-        if headers and headers[0] in {"Date", "Year"}:
-            for row in range(rows):
-                first_item = table.item(row, 0)
-                if first_item:
-                    first_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        table.init_rows(0, rows)
 
         if headers == ["Year", "Amount", "Mode"]:
             widths = [64, 110, 72]
@@ -671,13 +726,24 @@ class IllustrationInputsTab(QWidget):
         self._refresh_warning_state(table, date_column, warning_key)
 
     def _refresh_warning_state(self, table: QTableWidget, date_column: int, warning_key: str):
-        has_warning = False
-        for row in range(table.rowCount()):
-            item = table.item(row, date_column)
-            if item and (item.text() or "").strip() and item.background().color() == self.WARNING_BG:
-                has_warning = True
-                break
-        self._warning_labels[warning_key].setVisible(has_warning)
+        # Coalesce to one scan per event-loop turn — a clipboard paste fires
+        # itemChanged per cell, and scanning the whole column each time is
+        # O(rows²) on a 2,000-row paste.
+        if warning_key in self._pending_warning_refresh:
+            return
+        self._pending_warning_refresh.add(warning_key)
+
+        def scan():
+            self._pending_warning_refresh.discard(warning_key)
+            has_warning = False
+            for row in range(table.rowCount()):
+                item = table.item(row, date_column)
+                if item and (item.text() or "").strip() and item.background().color() == self.WARNING_BG:
+                    has_warning = True
+                    break
+            self._warning_labels[warning_key].setVisible(has_warning)
+
+        QTimer.singleShot(0, scan)
 
     def load_data_from_policy(self, policy, *, has_shadow: bool = False):
         self._issue_date = getattr(policy, "issue_date", None)
@@ -810,6 +876,8 @@ class IllustrationInputsTab(QWidget):
             levelizing_premium=self.levelizing_check.isChecked(),
             guideline_by_search=self.gp_search_check.isChecked(),
             apply_prem_to_loan=self.dynamic_panel.apply_prem_to_loan_check.isChecked(),
+            apply_excess_repayment_as_premium=(
+                self.dynamic_panel.excess_repay_as_premium_check.isChecked()),
             pay_monthly_deduction=md_request is not None,
             monthly_deduction_start_year=(
                 md_request["start_year"] if md_request else None),

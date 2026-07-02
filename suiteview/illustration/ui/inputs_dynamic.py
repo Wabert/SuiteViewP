@@ -95,6 +95,14 @@ _SMALL_BTN_STYLE = (
 _CAPTION_STYLE = (
     f"color: {PURPLE_DARK}; background: transparent; font-size: 9px; font-weight: bold;"
 )
+_CHECKBOX_STYLE = (
+    f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
+    " font-weight: bold; spacing: 6px; }"
+    "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px;"
+    " background-color: white; }"
+    "QCheckBox::indicator:disabled { background-color: #E8DDF8; }"
+    "QCheckBox::indicator:checked { background-color: #5E35A5; }"
+)
 
 
 def _first_float(source, *names: str) -> float:
@@ -752,22 +760,26 @@ class DynamicSection(QGroupBox):
         self._rows_layout.setSpacing(2)
         outer.addLayout(self._rows_layout)
 
-        footer = QHBoxLayout()
-        footer.setContentsMargins(0, 2, 0, 0)
+        self._footer = QHBoxLayout()
+        self._footer.setContentsMargins(0, 2, 0, 0)
         self.add_btn = QPushButton("＋")
         self.add_btn.setStyleSheet(_SMALL_BTN_STYLE)
         self.add_btn.setToolTip("Add another row")
         self.add_btn.clicked.connect(lambda: self.add_row())
-        footer.addWidget(self.add_btn)
+        self._footer.addWidget(self.add_btn)
         self.warning = QLabel("Rows overlap — later rows must start after earlier rows end.")
         self.warning.setStyleSheet(
             "color: #C62828; background: transparent; font-size: 10px; font-weight: bold;")
         self.warning.setVisible(False)
-        footer.addWidget(self.warning)
-        footer.addStretch(1)
-        outer.addLayout(footer)
+        self._footer.addWidget(self.warning)
+        self._footer.addStretch(1)
+        outer.addLayout(self._footer)
 
         self.add_row(removable=False)
+
+    def add_footer_widget(self, widget: QWidget):
+        """Place an extra control in the section footer, left of the stretch."""
+        self._footer.insertWidget(self._footer.count() - 1, widget)
 
     def add_row(self, removable: bool = True) -> InputRow:
         row = InputRow(self, removable, self)
@@ -1283,13 +1295,7 @@ class DynamicInputsPanel(QWidget):
         # an active shadow account; otherwise the user decides whether to allow it.
         self.exception_prem_check = QCheckBox("Allow GP Exception Premium")
         self.exception_prem_check.setChecked(True)
-        self.exception_prem_check.setStyleSheet(
-            f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
-            " font-weight: bold; spacing: 6px; }"
-            "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px;"
-            " background-color: white; }"
-            "QCheckBox::indicator:disabled { background-color: #E8DDF8; }"
-            "QCheckBox::indicator:checked { background-color: #5E35A5; }")
+        self.exception_prem_check.setStyleSheet(_CHECKBOX_STYLE)
         self.exception_prem_check.setToolTip(
             "Allow the guideline-premium exception premium when the policy is guideline-"
             "limited and would otherwise lapse.")
@@ -1297,13 +1303,7 @@ class DynamicInputsPanel(QWidget):
         # premium repays the policy loan before any of it loads onto the account
         # value. A no-op on a loan-free policy.
         self.apply_prem_to_loan_check = QCheckBox("Apply Premium to Loan First")
-        self.apply_prem_to_loan_check.setStyleSheet(
-            f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
-            " font-weight: bold; spacing: 6px; }"
-            "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px;"
-            " background-color: white; }"
-            "QCheckBox::indicator:disabled { background-color: #E8DDF8; }"
-            "QCheckBox::indicator:checked { background-color: #5E35A5; }")
+        self.apply_prem_to_loan_check.setStyleSheet(_CHECKBOX_STYLE)
         self.apply_prem_to_loan_check.setToolTip(
             "Apply the requested premium to repay the policy loan first. The lumpsum "
             "then the scheduled premium repay the loan up to its payoff; only what "
@@ -1312,13 +1312,7 @@ class DynamicInputsPanel(QWidget):
         # forecast date to its next modal premium, apply a solved lumpsum on the
         # forecast date that carries it in force until that premium is collected.
         self.lumpsum_to_next_check = QCheckBox("Lumpsum to Next Premium")
-        self.lumpsum_to_next_check.setStyleSheet(
-            f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
-            " font-weight: bold; spacing: 6px; }"
-            "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px;"
-            " background-color: white; }"
-            "QCheckBox::indicator:disabled { background-color: #E8DDF8; }"
-            "QCheckBox::indicator:checked { background-color: #5E35A5; }")
+        self.lumpsum_to_next_check.setStyleSheet(_CHECKBOX_STYLE)
         self.lumpsum_to_next_check.setToolTip(
             "If the policy would lapse before its next modal premium, apply a solved "
             "lumpsum on the forecast date that keeps it in force until that premium is "
@@ -1345,6 +1339,18 @@ class DynamicInputsPanel(QWidget):
         self.loan_section = DynamicSection(SectionSpec("Loans"))
         self.withdrawal_section = DynamicSection(SectionSpec("Withdrawals"))
         self.repayment_section = DynamicSection(SectionSpec("Loan Repayments"))
+        # Apply excess as premium (apply_excess_repayment_as_premium): a loan
+        # repayment larger than the loan payoff applies its excess as premium —
+        # through the acceptance chain, with the premium load. Off by default:
+        # repayments stop once the loan is repaid.
+        self.excess_repay_as_premium_check = QCheckBox("Apply excess as premium")
+        self.excess_repay_as_premium_check.setStyleSheet(_CHECKBOX_STYLE)
+        self.excess_repay_as_premium_check.setToolTip(
+            "When a loan repayment exceeds the loan payoff, apply the excess as "
+            "premium — it runs through the premium-acceptance chain and gets the "
+            "premium load. Unchecked, repayments stop once the loan is repaid and "
+            "the excess is discarded.")
+        self.repayment_section.add_footer_widget(self.excess_repay_as_premium_check)
 
         transactions = QGridLayout()
         transactions.setHorizontalSpacing(10)

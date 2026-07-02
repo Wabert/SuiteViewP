@@ -652,6 +652,7 @@ class IllustrationEngine:
             adv_reg_factor=adv_reg_factor,
             adv_pref_factor=adv_pref_factor,
             apply_prem_to_loan=options.apply_prem_to_loan,
+            excess_repayment_to_premium=options.apply_excess_repayment_as_premium,
             requested_lumpsum=requested_lumpsum,
             requested_scheduled=requested_scheduled,
         )
@@ -1157,6 +1158,7 @@ class IllustrationEngine:
             adv_reg_factor=adv_reg_factor,
             adv_pref_factor=adv_pref_factor,
             apply_prem_to_loan=options.apply_prem_to_loan,
+            excess_repayment_to_premium=options.apply_excess_repayment_as_premium,
             requested_lumpsum=requested_lumpsum,
             requested_scheduled=requested_scheduled,
         )

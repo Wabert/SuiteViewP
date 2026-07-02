@@ -62,7 +62,7 @@ def main() -> None:
     from PyQt6.QtWidgets import QDialog
 
     riders = panel.riders_panel
-    enabled = [(k, l, r, a) for (k, l, r, _p, a) in riders._items
+    enabled = [(k, l, r, a) for (k, l, r, _p, a, _m) in riders._items
                if riders._buttons[k].isEnabled()]
     if enabled:
         key, label, rows, amount = enabled[0]

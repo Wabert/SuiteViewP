@@ -40,3 +40,16 @@ def test_apply_prem_to_loan_checkbox_defaults_off_and_drives_options():
 
     tab.dynamic_panel.apply_prem_to_loan_check.setChecked(True)
     assert tab.export_options().apply_prem_to_loan is True
+
+
+def test_excess_repayment_checkbox_defaults_off_and_drives_options():
+    _app()
+    tab = IllustrationInputsTab()
+
+    # "Apply excess as premium" lives in the Loan Repayments group and is off
+    # by default — repayments stop once the loan is repaid.
+    assert tab.dynamic_panel.excess_repay_as_premium_check.isChecked() is False
+    assert tab.export_options().apply_excess_repayment_as_premium is False
+
+    tab.dynamic_panel.excess_repay_as_premium_check.setChecked(True)
+    assert tab.export_options().apply_excess_repayment_as_premium is True

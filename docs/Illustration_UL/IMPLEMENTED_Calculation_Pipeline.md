@@ -452,6 +452,11 @@ Notes:
 - capitalization is handled by `capitalize_loans()`; advance payoff / repayment by `repay_loan()`
 - the projection reads prior month end balances and converts them into beginning-of-month balances for the new month
 - projected loan repayments are handled by `apply_cash_flow_inputs()` after capitalization
+- a repayment larger than the loan payoff leaves an excess (RERUN vLNRepayLeftOver / MY).
+  RERUN always returns it to the premium pool; SuiteView gates that behind the
+  "Apply excess as premium" toggle (`IllustrationOptions.apply_excess_repayment_as_premium`,
+  Loan Repayments group on the Input tab). Off (default): repayments stop at the payoff and
+  the excess is discarded. On: the excess loads as lumpsum premium (with the premium load).
 
 ### 4.11 Step 11b - External Cash-Flow Inputs
 

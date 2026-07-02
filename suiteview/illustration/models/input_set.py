@@ -143,6 +143,13 @@ class IllustrationOptions:
     # ``core/premium_allowance.py`` (NL/NY).
     apply_prem_to_loan: bool = False
 
+    # Apply excess loan repayment as premium — when a loan repayment exceeds the
+    # loan payoff, the excess (vLNRepayLeftOver / RERUN MY) is applied as premium
+    # through the acceptance chain, picking up the premium load. Off by default:
+    # repayments stop once the loan is repaid and the excess is discarded. (RERUN
+    # always returns the leftover to the premium pool; this option gates it.)
+    apply_excess_repayment_as_premium: bool = False
+
     # Pay Monthly Deduction premium — a per-month premium computed in-engine
     # right after the monthly deduction (it reuses the GP exception premium
     # machinery, just retargeted) that grosses the after-charge account value

@@ -32,6 +32,7 @@ def apply_cash_flow_inputs(
     adv_reg_factor: float = 0.0,
     adv_pref_factor: float = 0.0,
     apply_prem_to_loan: bool = False,
+    excess_repayment_to_premium: bool = False,
     requested_lumpsum: float = 0.0,
     requested_scheduled: float = 0.0,
 ) -> CashFlowApplication:
@@ -52,6 +53,12 @@ def apply_cash_flow_inputs(
     payoff (RERUN MH = MIN(MF, lumpsum), MI = MIN(MF − MH, scheduled)). The
     amounts diverted are returned so the premium-acceptance chain only loads what
     is left (NL/NY) onto the account value.
+
+    ``excess_repayment_to_premium`` gates the over-repayment leftover (RERUN MY):
+    on, it returns to the premium pool via ``ln_repay_left_over`` (loading onto
+    the AV with the premium load); off, repayments stop at the loan payoff and
+    the excess is discarded (``ln_repay_left_over`` stays 0). The leftover still
+    appears in the ``loan_cap_repay`` display detail either way.
     """
     variable_loan = max(month_inputs.variable_loan, 0.0) if month_inputs is not None else 0.0
     requested_repayment = month_inputs.loan_repayment if month_inputs is not None else 0.0
@@ -92,6 +99,6 @@ def apply_cash_flow_inputs(
         applied_variable_loan=variable_loan,
         loan_repay_from_lumpsum=prem_to_loan_from_lumpsum,
         loan_repay_from_scheduled=prem_to_loan_from_scheduled,
-        ln_repay_left_over=leftover,
+        ln_repay_left_over=leftover if excess_repayment_to_premium else 0.0,
         loan_cap_repay=result.detail or {},
     )
