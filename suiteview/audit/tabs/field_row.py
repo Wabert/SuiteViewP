@@ -21,8 +21,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QFont, QDrag, QMouseEvent, QPainter, QColor, QPen, QPolygon
 
-from suiteview.audit.query_builder_menu import QUERY_BUILDER_MENU_STYLE
-
 from ._styles import TightItemDelegate, style_combo
 
 logger = logging.getLogger(__name__)
@@ -1046,7 +1044,14 @@ class FieldRow(QWidget):
 
     # ── Context menu (right-click on label) ─────────────────────────
 
-    _MENU_STYLE = QUERY_BUILDER_MENU_STYLE
+    _MENU_STYLE = (
+        "QMenu { background-color: white; border: 1px solid #1E5BA8;"
+        "  font-size: 9pt; }"
+        "QMenu::item { padding: 3px 16px; }"
+        "QMenu::item:selected { background-color: #A0C4E8; color: black; }"
+        "QMenu::item:disabled { color: #999; }"
+        "QMenu::separator { height: 1px; background: #C8D8E8;"
+        "  margin: 2px 4px; }")
 
     def _show_label_menu(self, pos):
         # If multiple siblings are selected, delegate to the grid's bulk menu

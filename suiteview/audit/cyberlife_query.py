@@ -437,10 +437,6 @@ def build_cyberlife_sql(
     cov_base_issue_hi = normalize_date(_bw["issue_date_hi"].text()) or ""
     cov_base_change_lo = normalize_date(_bw["change_date_lo"].text()) or ""
     cov_base_change_hi = normalize_date(_bw["change_date_hi"].text()) or ""
-    cov_base_vpu_lo = _bw["vpu_lo"].text().strip()
-    cov_base_vpu_hi = _bw["vpu_hi"].text().strip()
-    cov_base_spec_amt_lo = _bw["spec_amt_lo"].text().strip()
-    cov_base_spec_amt_hi = _bw["spec_amt_hi"].text().strip()
     # Base needs MODCOV1 join (TH_COV_PHA) for prod_ind, cola_ind, gio_fio
     cov_needs_modcov1 = bool(cov_base_prod_ind or cov_base_cola_ind or cov_base_gio_fio)
     # Base needs COV1_RENEWALS join (LH_COV_INS_RNL_RT) for rateclass/sex67
@@ -476,10 +472,6 @@ def build_cyberlife_sql(
         info["issue_date_hi"] = normalize_date(widgets["issue_date_hi"].text()) or ""
         info["change_date_lo"] = normalize_date(widgets["change_date_lo"].text()) or ""
         info["change_date_hi"] = normalize_date(widgets["change_date_hi"].text()) or ""
-        info["vpu_lo"] = widgets["vpu_lo"].text().strip()
-        info["vpu_hi"] = widgets["vpu_hi"].text().strip()
-        info["spec_amt_lo"] = widgets["spec_amt_lo"].text().strip()
-        info["spec_amt_hi"] = widgets["spec_amt_hi"].text().strip()
         info["active"] = any([
             info["plancode"], info["prod_line"], info["prod_ind"],
             info["rateclass"], info["sex_code_67"], info["sex_code_02"],
@@ -488,8 +480,6 @@ def build_cyberlife_sql(
             info["table_03"], info["flat_03"], info["post_issue"],
             info["issue_date_lo"], info["issue_date_hi"],
             info["change_date_lo"], info["change_date_hi"],
-            info["vpu_lo"], info["vpu_hi"],
-            info["spec_amt_lo"], info["spec_amt_hi"],
         ])
         info["needs_covmod"] = bool(info["prod_ind"] or info["cola_ind"] or info["gio_fio"])
         info["needs_renewals"] = bool(info["rateclass"] or info["sex_code_67"])
@@ -497,17 +487,6 @@ def build_cyberlife_sql(
 
     rider1_info = _rider_info(covt.rider1_widgets)
     rider2_info = _rider_info(covt.rider2_widgets)
-
-    # Show the coverage VPU / Specified Amount in the results when any coverage
-    # column (base or rider) filters on it.
-    cov_show_vpu = bool(
-        cov_base_vpu_lo or cov_base_vpu_hi
-        or rider1_info["vpu_lo"] or rider1_info["vpu_hi"]
-        or rider2_info["vpu_lo"] or rider2_info["vpu_hi"])
-    cov_show_spec_amt = bool(
-        cov_base_spec_amt_lo or cov_base_spec_amt_hi
-        or rider1_info["spec_amt_lo"] or rider1_info["spec_amt_hi"]
-        or rider2_info["spec_amt_lo"] or rider2_info["spec_amt_hi"])
 
     # Coverages tab needs MODCOVSALL (for cov_gio / cov_cola on any coverage)
     cov_needs_modcovsall = bool(cov_gio or cov_cola)
@@ -950,14 +929,6 @@ def build_cyberlife_sql(
     if disp_spec_amt or multi_base_covs:
         sql_parts.append("  , COVSUMMARY.TOTAL_SA TotalFace")
         sql_parts.append("  , COVSUMMARY.TOTAL_ORIGINAL_SA TotalOriginalFace")
-
-    # Coverage VPU / Specified Amount (shown when a coverage column filters on it)
-    if cov_show_vpu:
-        sql_parts.append(f"  , {result_cov_alias}.COV_VPU_AMT VPU")
-    if cov_show_spec_amt:
-        sql_parts.append(
-            f"  , ROUND(REAL({result_cov_alias}.COV_UNT_QTY) * "
-            f"REAL({result_cov_alias}.COV_VPU_AMT), 2) SpecifiedAmount")
 
     # Circle 7: Simple POLICY1 / COVERAGE1 display columns
     if disp_tch_pol_id:
@@ -1639,34 +1610,6 @@ def build_cyberlife_sql(
         change_hi = info["change_date_hi"]
         if change_hi:
             sql_parts.append(f"    AND {alias}.NXT_CHG_DT <= '{esc(change_hi)}'")
-        vpu_lo = info["vpu_lo"]
-        if vpu_lo:
-            try:
-                sql_parts.append(f"    AND {alias}.COV_VPU_AMT >= {float(vpu_lo)}")
-            except ValueError:
-                pass
-        vpu_hi = info["vpu_hi"]
-        if vpu_hi:
-            try:
-                sql_parts.append(f"    AND {alias}.COV_VPU_AMT <= {float(vpu_hi)}")
-            except ValueError:
-                pass
-        spec_lo = info["spec_amt_lo"]
-        if spec_lo:
-            try:
-                sql_parts.append(
-                    f"    AND ROUND(REAL({alias}.COV_UNT_QTY) * "
-                    f"REAL({alias}.COV_VPU_AMT), 2) >= {float(spec_lo)}")
-            except ValueError:
-                pass
-        spec_hi = info["spec_amt_hi"]
-        if spec_hi:
-            try:
-                sql_parts.append(
-                    f"    AND ROUND(REAL({alias}.COV_UNT_QTY) * "
-                    f"REAL({alias}.COV_VPU_AMT), 2) <= {float(spec_hi)}")
-            except ValueError:
-                pass
         lives = info["lives_cov"]
         if lives:
             code = lives[0]
@@ -2275,12 +2218,6 @@ def build_cyberlife_sql(
                    _bw["issue_date_lo"], _bw["issue_date_hi"])
     add_date_range(wheres, "COVERAGE1.NXT_CHG_DT",
                    _bw["change_date_lo"], _bw["change_date_hi"])
-    add_decimal_range(wheres, "COVERAGE1.COV_VPU_AMT",
-                      _bw["vpu_lo"], _bw["vpu_hi"])
-    add_decimal_range(
-        wheres,
-        "ROUND(REAL(COVERAGE1.COV_UNT_QTY) * REAL(COVERAGE1.COV_VPU_AMT), 2)",
-        _bw["spec_amt_lo"], _bw["spec_amt_hi"])
     # Base coverage MODCOV1 fields (prod_ind, cola_ind, gio_fio)
     if cov_base_prod_ind:
         code = cov_base_prod_ind[0]

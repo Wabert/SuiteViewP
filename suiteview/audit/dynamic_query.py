@@ -8,6 +8,7 @@ Adapts SQL dialect (quoting, row limiting) based on the target backend.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -36,6 +37,30 @@ def _q(col: str, dialect: str = SQL_SERVER) -> str:
         return f'"{col}"'
     # SQL_SERVER and ACCESS both use square brackets
     return f"[{col}]"
+
+
+# A name safe to emit unquoted in any supported dialect.
+_PLAIN_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_$#@]*$")
+
+
+def _q_table(table_name: str, dialect: str = SQL_SERVER) -> str:
+    """Quote a (possibly schema-qualified) table name for the target dialect.
+
+    File Source tables are named after their files, so they can start with a
+    digit or contain spaces (``07_2026_IUL_Fund_Values_RGA``) — DuckDB requires
+    those to be double-quoted. Plain identifiers and already-quoted names pass
+    through untouched, so existing DB2/SQL Server SQL is unchanged.
+    """
+    name = (table_name or "").strip()
+    if not name or name.startswith('"') or name.startswith("["):
+        return table_name
+    if dialect == DUCKDB:
+        # No schemas for file tables — the whole name is one identifier.
+        return name if _PLAIN_IDENT.match(name) else _q(name, dialect)
+    return ".".join(
+        part if _PLAIN_IDENT.match(part) else _q(part, dialect)
+        for part in name.split(".")
+    )
 
 
 def _alias(name: str, dialect: str = SQL_SERVER) -> str:
@@ -175,7 +200,8 @@ def build_dynamic_sql(
             if qcol not in plain_cols:
                 plain_cols.append(qcol)
 
-    sql = f"SELECT {_select_prefix(top_clause, distinct, dialect)}{col_expr}\nFROM {table_name}"
+    sql = (f"SELECT {_select_prefix(top_clause, distinct, dialect)}{col_expr}"
+           f"\nFROM {_q_table(table_name, dialect)}")
     if wheres:
         sql += "\nWHERE " + "\n  AND ".join(wheres)
     if has_agg and plain_cols:
@@ -223,11 +249,12 @@ def collect_field_filters(field_grid) -> list[dict]:
 
 # ── Join-aware SQL builder ───────────────────────────────────────────
 
-def _table_alias(table_name: str, alias: str) -> str:
+def _table_alias(table_name: str, alias: str, dialect: str = SQL_SERVER) -> str:
     """Return 'table alias' or just 'table' if no alias."""
+    quoted = _q_table(table_name, dialect)
     if alias:
-        return f"{table_name} {alias}"
-    return table_name
+        return f"{quoted} {alias}"
+    return quoted
 
 
 def _col_ref(alias: str, col: str, dialect: str) -> str:
@@ -260,7 +287,7 @@ def _resolve_field_key(field_key: str, alias_map: dict[str, str],
         if alias:
             return f"{alias}.{q(col)}"
         if table_name in alias_map:
-            return f"{table_name}.{q(col)}"
+            return f"{_q_table(table_name, dialect)}.{q(col)}"
 
     # Fallback: bare column (shouldn't happen with properly keyed fields)
     return q(col)
@@ -331,7 +358,7 @@ def build_join_sql(
         a = alias_map.get(primary_table, "")
         if a:
             return f"{a}.{q(col)}"
-        return f"{primary_table}.{q(col)}"
+        return f"{_q_table(primary_table, dialect)}.{q(col)}"
 
     # ── WHERE clauses from field filters ─────────────────────────
     wheres: list[str] = []
@@ -425,7 +452,7 @@ def build_join_sql(
                 plain_cols.append(qcol)
 
     # ── Build FROM + JOINs ───────────────────────────────────────
-    from_expr = _table_alias(primary_table, primary_alias)
+    from_expr = _table_alias(primary_table, primary_alias, dialect)
 
     join_clauses: list[str] = []
     joined_tables: set[str] = {primary_table}
@@ -445,7 +472,7 @@ def build_join_sql(
             swapped = True
 
         joined_tables.add(rt)
-        join_target = _table_alias(rt, ar)
+        join_target = _table_alias(rt, ar, dialect)
 
         # Build ON clause — use alias_map for globally consistent aliases
         al_eff = alias_map.get(lt, al)
@@ -455,8 +482,10 @@ def build_join_sql(
         for left_col, right_col in ji["on_pairs"]:
             if swapped:
                 left_col, right_col = right_col, left_col
-            l_ref = _col_ref(al_eff, left_col, dialect) if al_eff else f"{lt}.{q(left_col)}"
-            r_ref = _col_ref(ar_eff, right_col, dialect) if ar_eff else f"{rt}.{q(right_col)}"
+            l_ref = (_col_ref(al_eff, left_col, dialect) if al_eff
+                     else f"{_q_table(lt, dialect)}.{q(left_col)}")
+            r_ref = (_col_ref(ar_eff, right_col, dialect) if ar_eff
+                     else f"{_q_table(rt, dialect)}.{q(right_col)}")
             on_parts.append(f"{l_ref} = {r_ref}")
 
         # Extra conditions go into ON clause
