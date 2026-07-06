@@ -1042,6 +1042,7 @@ def build_cyberlife_sql(
     if disp_sex_rateclass:
         sql_parts.append(f"  , {result_rnw_alias}.RT_CLS_CD RenewalClass")
         sql_parts.append(f"  , {result_rnw_alias}.RT_SEX_CD RenewalSex")
+        sql_parts.append(f"  , {result_rnw_alias}.RT_BAN_CD RenewalBand")
     if disp_tamra:
         sql_parts.append("  , TAMRA.SVPY_LVL_PRM_AMT TAMRA7PAY")
     if disp_gsp:

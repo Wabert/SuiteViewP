@@ -144,7 +144,7 @@ class DisplayTab(QWidget):
         c3 = QVBoxLayout()
         c3.setSpacing(_V_SPACING)
         self.chk_disp_substandard = _cb("Display Substandard (03)")
-        self.chk_disp_sex_rateclass = _cb("Display Sex and Rateclass (67)")
+        self.chk_disp_sex_rateclass = _cb("Display Sex and Rateclass and Band (67)")
         self.chk_disp_sex_02 = _cb("Display Sex(02)")
         self.chk_subseries_code = _cb("Subseries Code(02)")
         self.chk_disp_mkt_org = _cb("Display Market Org Code (01)")
