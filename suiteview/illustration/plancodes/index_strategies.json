@@ -1,0 +1,335 @@
+{
+  "_source": "RERUN (v20.0).xlsm \u2014 'Illustration Values' mIndex_Illustrated_Rates / mIndex_Strategy_Parameters (MB column folded into M1)",
+  "strategies": [
+    {
+      "fund_id": "U1",
+      "label": "Fixed Strategy",
+      "column": "CD"
+    },
+    {
+      "fund_id": "IS",
+      "label": "1 Yr PtP w/ Specified Rate",
+      "column": "BW"
+    },
+    {
+      "fund_id": "IX",
+      "label": "1 Yr PtP w/ Cap",
+      "column": "BU"
+    },
+    {
+      "fund_id": "IC",
+      "label": "1 Yr PtP 1.5% Floor w/ Cap",
+      "column": "BX"
+    },
+    {
+      "fund_id": "IF",
+      "label": "1 Yr PtP Uncapped",
+      "column": "BV"
+    },
+    {
+      "fund_id": "IP",
+      "label": "Index w/ Low Multiplier",
+      "column": "BY"
+    },
+    {
+      "fund_id": "IR",
+      "label": "Index w/ High Multiplier",
+      "column": "BZ"
+    },
+    {
+      "fund_id": "NX",
+      "label": "NASDAQ-100 1 Yr PtP w/ Cap",
+      "column": "CA"
+    },
+    {
+      "fund_id": "M1",
+      "label": "MARC5 1 Yr PtP w/ Participation",
+      "column": "CB"
+    }
+  ],
+  "multiplier_strategies": {
+    "IP": {
+      "asset_charge": 0.0215,
+      "multiplier": 0.24,
+      "max_asset_charge": 0.04
+    },
+    "IR": {
+      "asset_charge": 0.0415,
+      "multiplier": 0.6,
+      "max_asset_charge": 0.06
+    }
+  },
+  "ag49": {
+    "default_index": 2,
+    "loan_credit_spread_by_index": [
+      0.0,
+      0.01,
+      0.005,
+      0.005
+    ]
+  },
+  "plancodes": {
+    "1U144600": {
+      "product": "IUL08",
+      "illustrated_rates": {
+        "U1": 0.035,
+        "IX": 0.0623
+      },
+      "strategy_parameters": {
+        "IX": 0.0975
+      }
+    },
+    "1U144700": {
+      "product": "IULU08",
+      "illustrated_rates": {
+        "U1": 0.035,
+        "IX": 0.0623
+      },
+      "strategy_parameters": {
+        "IX": 0.0975
+      }
+    },
+    "1U144800": {
+      "product": "IULU08",
+      "illustrated_rates": {
+        "U1": 0.035,
+        "IX": 0.0623
+      },
+      "strategy_parameters": {
+        "IX": 0.0975
+      }
+    },
+    "1U145500": {
+      "product": "IUL14",
+      "illustrated_rates": {
+        "U1": 0.035,
+        "IS": 0.0556,
+        "IX": 0.0623,
+        "IC": 0.0599,
+        "IF": 0.0623
+      },
+      "strategy_parameters": {
+        "IS": 0.075,
+        "IX": 0.0975,
+        "IC": 0.085,
+        "IF": 0.065
+      }
+    },
+    "1U145600": {
+      "product": "IUL14(NY)",
+      "illustrated_rates": {
+        "U1": 0.041,
+        "IS": 0.0519,
+        "IX": 0.0557,
+        "IC": 0.0514,
+        "IF": 0.0557
+      },
+      "strategy_parameters": {
+        "IS": 0.0685,
+        "IX": 0.085,
+        "IC": 0.07,
+        "IF": 0.092
+      }
+    },
+    "1U145800": {
+      "product": "IUL14 - Bonus",
+      "illustrated_rates": {
+        "U1": 0.0325,
+        "IS": 0.0445,
+        "IX": 0.0487,
+        "IC": 0.0453,
+        "IF": 0.0487
+      },
+      "strategy_parameters": {
+        "IS": 0.06,
+        "IX": 0.0725,
+        "IC": 0.06,
+        "IF": 0.09
+      }
+    },
+    "1U145900": {
+      "product": "IUL14(NY) - Bonus",
+      "illustrated_rates": {
+        "U1": 0.041,
+        "IS": 0.0445,
+        "IX": 0.0516,
+        "IC": 0.0438,
+        "IF": 0.0516
+      },
+      "strategy_parameters": {
+        "IS": 0.06,
+        "IX": 0.0775,
+        "IC": 0.0575,
+        "IF": 0.103
+      }
+    },
+    "1U146400": {
+      "product": "IUL14U",
+      "illustrated_rates": {
+        "U1": 0.035,
+        "IS": 0.0556,
+        "IX": 0.0623,
+        "IC": 0.0599,
+        "IF": 0.0623
+      },
+      "strategy_parameters": {
+        "IS": 0.075,
+        "IX": 0.0975,
+        "IC": 0.085,
+        "IF": 0.065
+      }
+    },
+    "1U146500": {
+      "product": "IUL14U(NY)",
+      "illustrated_rates": {
+        "U1": 0.041,
+        "IS": 0.0519,
+        "IX": 0.0557,
+        "IC": 0.0514,
+        "IF": 0.0557
+      },
+      "strategy_parameters": {
+        "IS": 0.0685,
+        "IX": 0.085,
+        "IC": 0.07,
+        "IF": 0.092
+      }
+    },
+    "1U146900": {
+      "product": "IUL14R(NY)",
+      "illustrated_rates": {
+        "U1": 0.041,
+        "IS": 0.0519,
+        "IX": 0.0557,
+        "IC": 0.0514,
+        "IF": 0.0557
+      },
+      "strategy_parameters": {
+        "IS": 0.0685,
+        "IX": 0.085,
+        "IC": 0.07,
+        "IF": 0.092
+      }
+    },
+    "1U146800": {
+      "product": "IUL19",
+      "illustrated_rates": {
+        "U1": 0.035,
+        "IX": 0.0623,
+        "IF": 0.0623,
+        "IP": 0.0727,
+        "IR": 0.0727
+      },
+      "strategy_parameters": {
+        "IX": 0.0975,
+        "IF": 0.065,
+        "IP": 0.12,
+        "IR": 0.12
+      }
+    },
+    "1U147500": {
+      "product": "IUL21",
+      "illustrated_rates": {
+        "U1": 0.035,
+        "IX": 0.0,
+        "IF": 0.0,
+        "IP": 0.0,
+        "IR": 0.0,
+        "NX": 0.0,
+        "M1": 0.0625
+      },
+      "strategy_parameters": {
+        "IX": 0.1025,
+        "IF": 0.065,
+        "IP": 0.12,
+        "IR": 0.12,
+        "NX": 0.1025,
+        "M1": 2.4
+      }
+    },
+    "1U147800": {
+      "product": "IUL23",
+      "illustrated_rates": {
+        "U1": 0.035,
+        "IX": 0.0,
+        "IF": 0.0,
+        "IP": 0.0,
+        "IR": 0.0,
+        "NX": 0.0,
+        "M1": 0.0625
+      },
+      "strategy_parameters": {
+        "IX": 0.1,
+        "IF": 0.065,
+        "IP": 0.12,
+        "IR": 0.12,
+        "NX": 0.1,
+        "M1": 2.4
+      }
+    },
+    "1U147400": {
+      "product": "GIUL21",
+      "illustrated_rates": {
+        "U1": 0.031,
+        "IX": 0.0,
+        "IF": 0.0,
+        "NX": 0.0,
+        "M1": 0.0575
+      },
+      "strategy_parameters": {
+        "IX": 0.0925,
+        "IF": 0.07,
+        "NX": 0.0925,
+        "M1": 2.2
+      }
+    },
+    "1U147900": {
+      "product": "GIUL23",
+      "illustrated_rates": {
+        "U1": 0.031,
+        "IX": 0.0,
+        "IF": 0.0,
+        "NX": 0.0,
+        "M1": 0.0
+      },
+      "strategy_parameters": {
+        "IX": 0.095,
+        "IF": 0.075,
+        "NX": 0.095,
+        "M1": 2.2
+      }
+    },
+    "1U148000": {
+      "product": "GIUL23",
+      "illustrated_rates": {
+        "U1": 0.031,
+        "IX": 0.0,
+        "IF": 0.0,
+        "NX": 0.0,
+        "M1": 0.0575
+      },
+      "strategy_parameters": {
+        "IX": 0.095,
+        "IF": 0.075,
+        "NX": 0.095,
+        "M1": 2.2
+      }
+    },
+    "1U148100": {
+      "product": "GIUL23",
+      "illustrated_rates": {
+        "U1": 0.031,
+        "IX": 0.0,
+        "IF": 0.0,
+        "NX": 0.0,
+        "M1": 0.0575
+      },
+      "strategy_parameters": {
+        "IX": 0.095,
+        "IF": 0.075,
+        "NX": 0.095,
+        "M1": 2.2
+      }
+    }
+  }
+}

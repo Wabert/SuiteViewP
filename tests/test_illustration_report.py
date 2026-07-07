@@ -134,6 +134,129 @@ def test_report_ledger_annualizes_and_marks():
     assert any("PREMIUM WAIVER" in line for line in report.rider_lines)
 
 
+def test_seven_pay_restart_marks_ledger_and_footnotes():
+    """A TAMRA material change restarts the 7-pay window: the ledger year is
+    marked '+', the footnote legend states the new start date, and the change
+    section's estimated limits show the new period start."""
+    rows = [MonthlyState(policy_year=7, policy_month=6, duration=78,
+                         gsp=31311.48, glp=2880.24, accumulated_glp=20162.31,
+                         tamra_year=7, tamra_7pay_start_date=date(2019, 11, 9))]
+    for month in range(1, 13):
+        rows.append(_month(8, month, tamra_7pay_start_date=date(2019, 11, 9)))
+    for month in range(1, 13):
+        rows.append(_month(9, month, tamra_year=1,
+                           tamra_7pay_start_date=date(2027, 11, 9),
+                           tamra_7pay_level=5407.11))
+    inputs = IllustrationInputSet(policy_changes=[
+        PolicyChangeEvent(kind=PolicyChangeKind.FACE_AMOUNT,
+                          effective_date=date(2027, 11, 9), value=150000.0),
+    ])
+    report = build_ul_report(_policy(), rows, future_inputs=inputs,
+                             run_date=date(2026, 7, 3))
+
+    assert report.seven_pay_restarts == [(9, date(2027, 11, 9))]
+    year9 = next(row for row in report.ledger if row.year == 9)
+    assert "+" in year9.markers
+    year8 = next(row for row in report.ledger if row.year == 8)
+    assert "+" not in year8.markers
+    legend = next(l for l in report.footnote_legends if l.startswith("+"))
+    assert "11-09-2027" in legend
+    section = report.change_sections[0]
+    assert any("7-PAY PREMIUM = $5,407.11" in line for line in section.limit_lines)
+    assert any("NEW 7-PAY PERIOD STARTS = 11-09-2027" in line
+               for line in section.limit_lines)
+
+    # Both surface on the rendered pages: the ledger footnote and the
+    # riders/regulatory page's estimated-limits block.
+    from suiteview.illustration.ui.report_tab import format_report_pages
+    flat = "\n".join(line for page in format_report_pages(report) for line in page)
+    assert "+ A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON 11-09-2027" in flat
+    assert "NEW 7-PAY PERIOD STARTS = 11-09-2027" in flat
+
+
+def test_no_seven_pay_restart_without_material_change():
+    """An unchanged 7-pay start date produces no '+' marker or legend."""
+    report = build_ul_report(_policy(), _results(), run_date=date(2026, 7, 3))
+    assert report.seven_pay_restarts == []
+    assert not any("+" in row.markers for row in report.ledger)
+    assert not any(legend.startswith("+") for legend in report.footnote_legends)
+
+
+def test_request_lines_fold_partial_years_into_runs():
+    """Partial first/last years join their runs instead of annualized artifacts.
+
+    $75 monthly requested from mid-year 12 (dated payments under a zero-amount
+    silencing schedule) through year 19, then $50 monthly until the policy
+    terminates 7 months into year 53 — two lines, no 'ANNUAL PREMIUM OF
+    $150.00 IN POLICY YEAR 12' and no 'MONTHLY PREMIUM OF $29.17 IN YEAR 53'.
+    """
+    rows = [MonthlyState(policy_year=12, policy_month=10, duration=142)]
+    for month in (11, 12):                      # remaining months of year 12
+        rows.append(_month(12, month, requested_premium=75.0, gross_premium=75.0))
+    for year in range(13, 53):
+        for month in range(1, 13):
+            amount = 75.0 if year <= 19 else 50.0
+            rows.append(_month(year, month, requested_premium=amount, gross_premium=amount))
+    for month in range(1, 8):                   # lapse-truncated final year
+        rows.append(_month(53, month, requested_premium=50.0, gross_premium=50.0))
+
+    inputs = IllustrationInputSet(scheduled_transactions=[
+        ScheduledTransaction(kind=TransactionKind.PREMIUM, policy_year=12, amount=0.0, mode="A"),
+        ScheduledTransaction(kind=TransactionKind.PREMIUM, policy_year=13, amount=75.0, mode="M"),
+        ScheduledTransaction(kind=TransactionKind.PREMIUM, policy_year=20, amount=50.0, mode="M"),
+    ])
+    report = build_ul_report(_policy(), rows, future_inputs=inputs,
+                             run_date=date(2026, 7, 3))
+
+    premium_lines = [line for line in report.request_lines if "PREMIUM OF" in line]
+    assert premium_lines == [
+        "MONTHLY PREMIUM OF $75.00 FOR POLICY YEARS 12 THROUGH 19",
+        "MONTHLY PREMIUM OF $50.00 FOR POLICY YEARS 20 THROUGH 53",
+    ]
+
+
+def test_values_at_maturity_strip_when_policy_endows():
+    """A projection that reaches maturity gets a VALUES AT MATURITY strip."""
+    policy = _policy()
+    policy.maturity_age = 58                    # year 9 EOY attained age
+    report = build_ul_report(policy, _results(), run_date=date(2026, 7, 3),
+                             guaranteed_results=_guaranteed_results())
+
+    row = report.maturity_row
+    assert row is not None
+    final = _results()[-1]
+    assert row.accum_value == final.av_end_of_month
+    assert row.surr_value == final.surrender_value
+    assert row.death_benefit == final.ending_db
+    # Guaranteed run lapsed before maturity -> guaranteed columns show zero.
+    assert row.guar_accum == 0.0 and row.guar_surr == 0.0 and row.guar_death == 0.0
+
+    from suiteview.illustration.ui.report_tab import PAGE_WIDTH, format_report_pages
+    ledger_page = format_report_pages(report)[1]
+    strip = ledger_page.index(next(l for l in ledger_page if "VALUES AT MATURITY" in l))
+    assert ledger_page[strip - 1] == "-" * PAGE_WIDTH
+    assert ledger_page[strip + 1] == "-" * PAGE_WIDTH
+    assert f"{final.av_end_of_month:,.0f}" in ledger_page[strip]
+
+
+def test_no_maturity_strip_before_maturity_or_on_lapse():
+    from suiteview.illustration.ui.report_tab import format_report_pages
+
+    # Default policy matures at 121 — the age-58 projection shows no strip.
+    report = build_ul_report(_policy(), _results(), run_date=date(2026, 7, 3))
+    assert report.maturity_row is None
+    assert not any("VALUES AT MATURITY" in line
+                   for page in format_report_pages(report) for line in page)
+
+    # Lapsing in the maturity year does not count as reaching maturity.
+    policy = _policy()
+    policy.maturity_age = 58
+    rows = _results()
+    rows[-1].lapsed = True
+    report = build_ul_report(policy, rows, run_date=date(2026, 7, 3))
+    assert report.maturity_row is None
+
+
 def test_report_pages_render_fixed_width():
     from suiteview.illustration.ui.report_tab import PAGE_WIDTH, format_report_pages
 

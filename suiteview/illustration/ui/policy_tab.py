@@ -114,11 +114,14 @@ class IllustrationPolicyTab(QWidget):
 
         unimpaired_block, self.unimpaired_table = self._make_fund_subtable("Unimpaired Funds")
         impaired_block, self.impaired_table = self._make_fund_subtable("Impaired Funds")
+        allocation_block, self.allocation_table = self._make_fund_subtable(
+            "Premium Allocations", value_header="Alloc %")
         fund_tables_row = QHBoxLayout()
         fund_tables_row.setContentsMargins(0, 4, 0, 0)
         fund_tables_row.setSpacing(8)
         fund_tables_row.addWidget(unimpaired_block)
         fund_tables_row.addWidget(impaired_block)
+        fund_tables_row.addWidget(allocation_block)
         # Nest the tables inside the Fund Values group, just below the info fields
         # (before the trailing stretch added when show_table=False).
         self.fund_values.layout().insertLayout(1, fund_tables_row)
@@ -244,8 +247,8 @@ class IllustrationPolicyTab(QWidget):
             group.add_field(label, attr, 150, 105)
         return group
 
-    def _make_fund_subtable(self, title: str):
-        """A captioned, compact Fund ID / Fund Value table for nesting inside the
+    def _make_fund_subtable(self, title: str, value_header: str = "Fund Value"):
+        """A captioned, compact Fund ID / value table for nesting inside the
         Fund Values group. Returns (container_widget, table)."""
         container = QWidget()
         container.setStyleSheet("background: transparent;")
@@ -258,7 +261,7 @@ class IllustrationPolicyTab(QWidget):
         box.addWidget(caption)
         table = FixedHeaderTableWidget()
         table.setColumnCount(2)
-        table.setHorizontalHeaderLabels(["Fund ID", "Fund Value"])
+        table.setHorizontalHeaderLabels(["Fund ID", value_header])
         table._data_table.horizontalHeader().setVisible(True)
         table._outer_frame.setStyleSheet(FUND_TABLE_STYLE)
         table._data_table.setStyleSheet(FUND_TABLE_STYLE)
@@ -316,6 +319,7 @@ class IllustrationPolicyTab(QWidget):
         self.set_rate_warnings([])
         self.unimpaired_table.setRowCount(0)
         self.impaired_table.setRowCount(0)
+        self.allocation_table.setRowCount(0)
         self._clear_buttons()
 
     def _populate_policy_info(self, policy, policy_info: dict):
@@ -440,6 +444,24 @@ class IllustrationPolicyTab(QWidget):
         # portion. The two together reconcile to Account Value.
         self._fill_fund_table(self.unimpaired_table, self._current_fund_values_by_fund(policy))
         self._fill_fund_table(self.impaired_table, self._impaired_fund_values_by_fund(policy))
+        self._fill_allocation_table(policy)
+
+    def _fill_allocation_table(self, policy):
+        """Premium allocation % by fund (IUL — empty on declared-rate plans)."""
+        try:
+            allocations = policy.get_premium_allocation_dict()
+        except Exception:
+            allocations = {}
+        rows = [(fund, pct) for fund, pct in sorted(allocations.items())
+                if self._is_nonzero(pct)]
+        # DB2 FND_ALC_PCT arrives percent- or decimal-form; normalize by total.
+        total = sum(float(pct) for _, pct in rows)
+        scale = 1.0 if total > 1.5 else 100.0
+        self.allocation_table.setRowCount(len(rows))
+        for row, (fund, pct) in enumerate(rows):
+            self._set_table_item(self.allocation_table, row, 0, fund)
+            self._set_table_item(self.allocation_table, row, 1, f"{float(pct) * scale:.2f}%")
+        self.allocation_table.autoFitAllColumns()
 
     def _fill_fund_table(self, table, fund_values):
         rows = [(fund, value) for fund, value in sorted(fund_values.items()) if self._is_nonzero(value)]

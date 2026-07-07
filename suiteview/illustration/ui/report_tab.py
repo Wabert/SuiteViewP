@@ -4,14 +4,15 @@ Print-preview style: white fixed-width "sheets" stacked on the purple
 Illustration background, formatted from the structured
 ``IllustrationReport`` (core/report_builder.py). Mirrors RERUN's
 "UL - Illustration Pages" layout. Print to PDF renders the same fixed-width
-pages through Qt's PDF printer.
+pages through Qt's PDF printer in landscape, sized so the 112-character lines
+fill the page width.
 """
 from __future__ import annotations
 
 from html import escape
 from typing import List, Optional
 
-from PyQt6.QtCore import QMarginsF, Qt, QUrl
+from PyQt6.QtCore import QMarginsF, QSizeF, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont, QPageLayout, QPageSize, QTextDocument
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import (
@@ -31,7 +32,9 @@ from suiteview.illustration.core.report_builder import IllustrationReport, Ledge
 from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_LIGHT
 
 PAGE_WIDTH = 112          # characters
-LEDGER_ROWS_PER_PAGE = 45
+# Rows per ledger page — bounded by the landscape PDF page height (Letter
+# landscape at 10pt Courier holds ~46 text lines inside the margins).
+LEDGER_ROWS_PER_PAGE = 30
 
 
 def _center(text: str) -> str:
@@ -94,6 +97,15 @@ def _ledger_line(row: LedgerRow) -> str:
     return (
         f"{row.eoy_age:>4}{row.year:>5}{row.premium_outlay:>11,.0f}"
         f"{row.markers:>5}{row.cash_from_policy:>8,.0f}{row.loan_balance:>10,.0f}  "
+        f"{_money(row.guar_accum):>10}{_money(row.guar_surr):>10}{_money(row.guar_death):>12}  "
+        f"{_money(row.accum_value):>10}{_money(row.surr_value):>10}{_money(row.death_benefit):>12}"
+    )
+
+
+def _maturity_line(row: LedgerRow) -> str:
+    """VALUES AT MATURITY strip — value columns aligned with the ledger."""
+    return (
+        f"{'VALUES AT MATURITY':<45}"
         f"{_money(row.guar_accum):>10}{_money(row.guar_surr):>10}{_money(row.guar_death):>12}  "
         f"{_money(row.accum_value):>10}{_money(row.surr_value):>10}{_money(row.death_benefit):>12}"
     )
@@ -168,10 +180,16 @@ def format_report_pages(report: IllustrationReport) -> List[List[str]]:
             # RERUN groups the ledger into blocks of five rows.
             if (base + row_index + 1) % 5 == 0 and row_index + 1 < len(chunk):
                 page.blank()
-        if index == len(ledger_chunks) - 1 and report.footnote_legends:
-            page.blank()
-            for legend in report.footnote_legends:
-                page.add_wrapped(legend)
+        if index == len(ledger_chunks) - 1:
+            if report.maturity_row is not None:
+                page.blank()
+                page.add("-" * PAGE_WIDTH)
+                page.add(_maturity_line(report.maturity_row))
+                page.add("-" * PAGE_WIDTH)
+            if report.footnote_legends:
+                page.blank()
+                for legend in report.footnote_legends:
+                    page.add_wrapped(legend)
         pages.append(page.lines)
 
     # ── Notes page ──
@@ -332,26 +350,49 @@ class IllustrationReportTab(QWidget):
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     @staticmethod
-    def write_pdf(report: IllustrationReport, path: str):
-        """Render the fixed-width report pages to a PDF file."""
+    def _pdf_printer(path: str) -> QPrinter:
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
         printer.setOutputFileName(path)
         printer.setPageSize(QPageSize(QPageSize.PageSizeId.Letter))
+        printer.setPageOrientation(QPageLayout.Orientation.Landscape)
         printer.setPageMargins(QMarginsF(0.6, 0.5, 0.6, 0.5), QPageLayout.Unit.Inch)
+        return printer
 
+    @staticmethod
+    def _print_document(report: IllustrationReport, printer: QPrinter) -> QTextDocument:
+        """Lay the report out as a paginated QTextDocument for the printer."""
         pages = format_report_pages(report)
         parts: List[str] = []
         for index, lines in enumerate(pages):
             style = (
-                "font-family:'Courier New',monospace; font-size:7pt;"
+                "font-family:'Courier New',monospace; font-size:9pt;"
                 " white-space:pre; margin:0;"
             )
             if index < len(pages) - 1:
                 style += " page-break-after:always;"
-            parts.append(f'<pre style="{style}">{escape(chr(10).join(lines))}</pre>')
+            # Join with <br/> instead of newlines: Qt splits a <pre> into a new
+            # text block at every literal newline, and each block inherits
+            # page-break-after:always — one line per PDF page. <br/> keeps the
+            # whole page in a single block so the break fires once.
+            body = "<br/>".join(escape(line) for line in lines)
+            parts.append(f'<pre style="{style}">{body}</pre>')
 
         document = QTextDocument()
-        document.setDefaultFont(QFont("Courier New", 7))
+        # Lay out at the printer's DPI — without this the fonts are sized for
+        # the 96dpi screen while the page rect below is in 1200dpi device
+        # pixels, printing the text at ~1/12 scale.
+        document.documentLayout().setPaintDevice(printer)
+        document.setDefaultFont(QFont("Courier New", 9))
         document.setHtml("".join(parts))
+        # Pre-paginate to the printer's page rect: an unpaginated document makes
+        # QTextDocument.print() re-lay it out with hardcoded 2cm margins.
+        document.setPageSize(QSizeF(printer.pageRect(QPrinter.Unit.DevicePixel).size()))
+        return document
+
+    @staticmethod
+    def write_pdf(report: IllustrationReport, path: str):
+        """Render the fixed-width report pages to a landscape PDF file."""
+        printer = IllustrationReportTab._pdf_printer(path)
+        document = IllustrationReportTab._print_document(report, printer)
         document.print(printer)

@@ -167,12 +167,16 @@ class GuidelinePvDetailView(QWidget):
         den = rollup.get("denominator") or 0.0
         glp = rollup.get("premium") or 0.0
 
+        av0 = rollup.get("starting AV offset") or 0.0
+
         load_piece = f" + {load_d:,.2f}" if abs(load_d) >= 0.005 else ""
         load_sym = "  +  Load $" if load_piece else ""
+        av_piece = f" − {av0:,.2f}" if abs(av0) >= 0.005 else ""
+        av_sym = "  −  Starting AV" if av_piece else ""
         return (
             f"{label} = (Σ PV Death Benefit + Σ PV Endowment + Σ PV Charges"
-            f"{load_sym})  ÷  ((1 − load%) × Σ PV Annuity)\n"
-            f"    = ({db:,.2f} + {endow:,.2f} + {chg:,.2f}{load_piece})"
+            f"{load_sym}{av_sym})  ÷  ((1 − load%) × Σ PV Annuity)\n"
+            f"    = ({db:,.2f} + {endow:,.2f} + {chg:,.2f}{load_piece}{av_piece})"
             f"  ÷  ((1 − {load_pct:.3%}) × {gross:,.6f})\n"
             f"    = {num:,.2f}  ÷  {den:,.6f}\n"
             f"    = {glp:,.2f}"

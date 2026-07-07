@@ -45,8 +45,10 @@ from typing import List, Optional, Tuple
 from suiteview.illustration.core.monthly_guideline import (
     GLP_RATE_FLOOR,
     GSP_RATE_SPREAD,
+    SEVEN_PAY_YEARS,
     GuidelineBasis,
     _anniversary_months,
+    _net_premium_basis,
 )
 
 # Stable, ordered charge columns that always appear (benefit columns are added
@@ -207,8 +209,10 @@ def _guideline_premium_detail(
     annual_rate: float,
     premium_months: set[int],
     db_option: str | None = None,
+    starting_av: float = 0.0,
 ) -> dict:
-    rows, rollup = guideline_pv_rows(basis, annual_rate, premium_months)
+    rows, rollup = guideline_pv_rows(
+        basis, annual_rate, premium_months, starting_av=starting_av)
     return {
         "premium_label": premium_label,
         "attained_age": basis.months[0].attained_age if basis.months else 0,
@@ -250,4 +254,29 @@ def guideline_gsp_detail(basis: GuidelineBasis) -> dict:
         annual_rate=gsp_rate,
         premium_months={0},
         db_option="A",
+    )
+
+
+def guideline_7pay_detail(basis: GuidelineBasis, *, starting_av: float = 0.0) -> dict:
+    """Monthly-PV 7-pay vectors + roll-up for the TAMRA recalc drill-down.
+
+    The 7702A 7-pay premium is a NET premium — guaranteed COI and benefit/rider
+    charges only (no policy fee, per-unit charges, or premium loads) — paid at
+    the 7-pay period start and the next six anniversaries, on LEVEL-DB
+    mechanics at max(guaranteed, 4%), offset by the account value at the period
+    start. Same premium months and basis strip as
+    ``monthly_guideline.solve_guideline_premiums``' 7-pay solve, so the roll-up
+    reconciles to the solved level.
+    """
+    net = _net_premium_basis(basis)
+    seven_pay_months = {0} | _anniversary_months(net, limit_years=SEVEN_PAY_YEARS)
+    if len(seven_pay_months) > SEVEN_PAY_YEARS:
+        seven_pay_months = set(sorted(seven_pay_months)[:SEVEN_PAY_YEARS])
+    return _guideline_premium_detail(
+        net,
+        premium_label="7-Pay",
+        annual_rate=max(basis.guaranteed_rate, GLP_RATE_FLOOR),
+        premium_months=seven_pay_months,
+        db_option="A",
+        starting_av=starting_av,
     )

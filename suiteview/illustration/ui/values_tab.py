@@ -258,9 +258,102 @@ def _fmt_recalc_date(value) -> str:
     return f"{value:%m/%d/%Y}" if value else ""
 
 
+def _add_years(value, years: int):
+    """Anniversary-style date add (Feb-29 clamps to Feb-28)."""
+    if value is None:
+        return None
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:
+        return value.replace(year=value.year + years, day=28)
+
+
+def _seven_pay_backtest(
+    policy, states: list, recalc_index: int, detail: dict,
+) -> dict | None:
+    """Back-test the current 7-pay window against the NEW 7-pay premium.
+
+    A recalc INSIDE the 7-pay window applies the recomputed limit retroactively
+    to the whole window, so every TAMRA year's cumulative net premiums must be
+    re-tested — exceeding ``year × new 7-pay`` in any year makes the policy a
+    MEC. Cumulative premiums come from the engine's 7-pay accumulator
+    (``accumulated_7pay``) for projected months and from the policy's
+    historical per-year contributions for TAMRA years completed before the
+    valuation date. The in-progress year tests premiums received through the
+    month BEFORE the change.
+    """
+    new_level = float(detail.get("seven_pay_new") or 0.0)
+    window_start = detail.get("seven_pay_window_start")
+    change_year = int(detail.get("tamra_year_at_change") or 0)
+    if new_level <= 0.0 or window_start is None or not (1 <= change_year <= 7):
+        return None
+    recalc_state = states[recalc_index]
+
+    # Cumulative net premiums at the end of each projected TAMRA year of THIS
+    # window (the last month of a year carries the year-end accumulator).
+    projected_cum: dict[int, float] = {}
+    for st in states[1:recalc_index + 1]:
+        if st.tamra_7pay_start_date == window_start and 1 <= st.tamra_year <= 7:
+            projected_cum[st.tamra_year] = st.accumulated_7pay
+    # The change year only tests premiums received BEFORE the change month.
+    projected_cum[change_year] = recalc_state.amount_in_7pay
+
+    # Historical per-year contributions only apply when the window predates the
+    # valuation (a window opened mid-projection is fully covered by the states).
+    contributions = list(getattr(policy, "tamra_7year_contributions", None) or [])
+    window_is_original = states[0].tamra_7pay_start_date == window_start
+
+    rows: list[dict] = []
+    mec_year: int | None = None
+    prior_cum = 0.0
+    for year in range(1, 8):
+        if year > change_year:
+            cumulative = None
+        elif year in projected_cum:
+            cumulative = projected_cum[year]
+        elif window_is_original and year <= len(contributions):
+            cumulative = sum(contributions[:year])
+        else:
+            cumulative = None
+        limit = year * new_level
+        if cumulative is None:
+            result = "not reached"
+        elif cumulative > limit + 0.005:
+            result = "MEC"
+            if mec_year is None:
+                mec_year = year
+        else:
+            result = "OK"
+        rows.append({
+            "TAMRA Year": year,
+            "Year Begins": _fmt_recalc_date(_add_years(window_start, year - 1)),
+            "Net Prems (Year)": None if cumulative is None else cumulative - prior_cum,
+            "Net Prems (Cum)": cumulative,
+            "7-Pay Limit (Cum)": limit,
+            "Margin": None if cumulative is None else limit - cumulative,
+            "Result": result,
+        })
+        if cumulative is not None:
+            prior_cum = cumulative
+    return {
+        "rows": rows,
+        "is_mec": mec_year is not None,
+        "mec_year": mec_year,
+        "new_level": new_level,
+        "window_start": window_start,
+        "through_date": recalc_state.date,
+    }
+
+
+_NA_NOTE_STYLE = (
+    "color: #6A5A8A; background: transparent; font-size: 12px; font-style: italic;")
+
+
 class GuidelineRecalcDetailView(QWidget):
     """Calc detail for one 7702 guideline re-solve: the before/after GLP & GSP
-    summary plus the four present-value breakdown tabs."""
+    summary, the four present-value breakdown tabs, and the TAMRA sheets —
+    the 7-pay calc detail, the MEC back-test, and the new-7-pay-period notice
+    (each greyed with an italic note when it doesn't apply to the change)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -309,6 +402,70 @@ class GuidelineRecalcDetailView(QWidget):
             self.pv_views[key] = view
             self.tabs.addTab(view, title)
 
+        # ── TAMRA Calc: the 7-pay re-solve (or why none is needed) ──
+        tamra_page = QWidget(self.tabs)
+        tamra_layout = QVBoxLayout(tamra_page)
+        tamra_layout.setContentsMargins(4, 4, 4, 4)
+        tamra_layout.setSpacing(4)
+        self.tamra_note = QLabel("", tamra_page)
+        self.tamra_note.setWordWrap(True)
+        self.tamra_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.tamra_note.setStyleSheet(_NA_NOTE_STYLE)
+        tamra_layout.addWidget(self.tamra_note, 1)
+        self.tamra_info = QLabel("", tamra_page)
+        self.tamra_info.setWordWrap(True)
+        self.tamra_info.setStyleSheet(
+            "background-color: #2A1458; color: #FFD54F; border: 1px solid #5E35A5;"
+            " border-radius: 4px; font-size: 11px; font-weight: bold; padding: 4px 8px;"
+        )
+        tamra_layout.addWidget(self.tamra_info)
+        self.tamra_pv = GuidelinePvDetailView(tamra_page, search_visible=False)
+        tamra_layout.addWidget(self.tamra_pv, 4)
+        self.tabs.addTab(tamra_page, "TAMRA Calc")
+
+        # ── MEC Back-Test: the window's premiums re-tested at the new 7-pay ──
+        backtest_page = QWidget(self.tabs)
+        backtest_layout = QVBoxLayout(backtest_page)
+        backtest_layout.setContentsMargins(4, 4, 4, 4)
+        backtest_layout.setSpacing(4)
+        self.backtest_note = QLabel("", backtest_page)
+        self.backtest_note.setWordWrap(True)
+        self.backtest_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.backtest_note.setStyleSheet(_NA_NOTE_STYLE)
+        backtest_layout.addWidget(self.backtest_note, 1)
+        self.backtest_verdict = QLabel("", backtest_page)
+        self.backtest_verdict.setWordWrap(True)
+        backtest_layout.addWidget(self.backtest_verdict)
+        self.backtest_grid = FilterTableView(backtest_page)
+        self.backtest_grid.set_search_visible(False)
+        self.backtest_grid.apply_ledger_style()
+        self.backtest_grid.set_sort_enabled(False)
+        self.backtest_grid.set_filtering_enabled(False)
+        self.backtest_grid.set_full_row_selection(True)
+        backtest_layout.addWidget(self.backtest_grid, 4)
+        self.tabs.addTab(backtest_page, "MEC Back-Test")
+
+        # ── New 7-Pay Period: the material-change notice ──
+        new_period_page = QWidget(self.tabs)
+        new_period_layout = QVBoxLayout(new_period_page)
+        new_period_layout.setContentsMargins(4, 4, 4, 4)
+        new_period_layout.setSpacing(8)
+        new_period_layout.addStretch(1)
+        self.new_period_label = QLabel("", new_period_page)
+        self.new_period_label.setWordWrap(True)
+        self.new_period_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.new_period_label.setStyleSheet(
+            "color: #2A1458; background: transparent;"
+            " font-size: 15px; font-weight: bold;")
+        new_period_layout.addWidget(self.new_period_label)
+        self.new_period_detail = QLabel("", new_period_page)
+        self.new_period_detail.setWordWrap(True)
+        self.new_period_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.new_period_detail.setStyleSheet(_NA_NOTE_STYLE)
+        new_period_layout.addWidget(self.new_period_detail)
+        new_period_layout.addStretch(2)
+        self.tabs.addTab(new_period_page, "New 7-Pay Period")
+
         layout.addWidget(self.tabs, 1)
 
     def show_recalc(self, detail: dict):
@@ -345,7 +502,129 @@ class GuidelineRecalcDetailView(QWidget):
         pv = detail.get("monthly_pv_recalc") or {}
         for (basis, side), view in self.pv_views.items():
             view.show_detail(((pv.get(side) or {}).get(basis)) or None)
+        self._show_tamra_sheets(detail)
         self.tabs.setCurrentIndex(0)
+
+    def _show_tamra_sheets(self, detail: dict):
+        """Populate the TAMRA Calc / MEC Back-Test / New 7-Pay Period sheets.
+
+        Which sheet carries content follows the change's position in the 7-pay
+        window (``tamra_case``); the other sheets stay visible with an italic
+        not-applicable note.
+        """
+        case = str(detail.get("tamra_case") or "")
+        window_start = detail.get("seven_pay_window_start")
+        prior = detail.get("seven_pay_prior")
+        new = detail.get("seven_pay_new")
+        start_av = detail.get("seven_pay_start_av")
+
+        # ── TAMRA Calc ──
+        if case == "no_recalc":
+            prior_start = detail.get("seven_pay_prior_start")
+            if prior_start:
+                text = (
+                    "The TAMRA 7-pay premium does not need to be recalculated — "
+                    "this change does not start a new 7-pay period and the policy "
+                    "is outside its 7-pay period (the period ended "
+                    f"{_fmt_recalc_date(_add_years(prior_start, 7))}).")
+            else:
+                text = (
+                    "The TAMRA 7-pay premium does not need to be recalculated — "
+                    "this change does not start a new 7-pay period and the policy "
+                    "has no active 7-pay period.")
+            if prior is not None and new is not None and abs(new - prior) > 0.005:
+                text += (
+                    "\n\nThe 7-pay level shown in the Values grid is recomputed "
+                    "for reference but has no effect outside the 7-pay period.")
+            self.tamra_note.setText(text)
+            self.tamra_note.setVisible(True)
+            self.tamra_info.setVisible(False)
+            self.tamra_pv.setVisible(False)
+        elif case in ("within_period", "new_period"):
+            bits = [f"7-pay period start {_fmt_recalc_date(window_start)}"]
+            if start_av:
+                bits.append(f"starting AV {start_av:,.2f}")
+            if prior is not None and new is not None:
+                bits.append(f"7-pay premium {prior:,.2f} → {new:,.2f}")
+            if case == "new_period":
+                bits.append("a new 7-pay period starts at this change")
+            else:
+                bits.append(
+                    f"recalculated within the 7-pay period "
+                    f"(TAMRA year {detail.get('tamra_year_at_change', '')})")
+            self.tamra_info.setText("   ·   ".join(bits))
+            self.tamra_info.setVisible(True)
+            self.tamra_note.setVisible(False)
+            self.tamra_pv.setVisible(True)
+            self.tamra_pv.show_detail(detail.get("seven_pay_pv") or None)
+        else:
+            self.tamra_note.setText("No TAMRA detail captured for this recalc.")
+            self.tamra_note.setVisible(True)
+            self.tamra_info.setVisible(False)
+            self.tamra_pv.setVisible(False)
+
+        # ── MEC Back-Test ──
+        backtest = detail.get("seven_pay_backtest") if case == "within_period" else None
+        if backtest:
+            self.backtest_note.setVisible(False)
+            if backtest.get("is_mec"):
+                self.backtest_verdict.setText(
+                    "⚠ Policy becomes a MEC — cumulative net premiums exceed the "
+                    f"new 7-pay limit in TAMRA year {backtest.get('mec_year')}.")
+                self.backtest_verdict.setStyleSheet(
+                    "background-color: #7A1020; color: #FFD54F; border-radius: 4px;"
+                    " font-size: 12px; font-weight: bold; padding: 5px 9px;")
+            else:
+                self.backtest_verdict.setText(
+                    "Policy does not become a MEC — net premiums paid through "
+                    f"{_fmt_recalc_date(backtest.get('through_date'))} stay within "
+                    f"the new 7-pay limit ({backtest.get('new_level', 0.0):,.2f}/year).")
+                self.backtest_verdict.setStyleSheet(
+                    "background-color: #1B5E20; color: #E8F5E9; border-radius: 4px;"
+                    " font-size: 12px; font-weight: bold; padding: 5px 9px;")
+            self.backtest_verdict.setVisible(True)
+            frame = pd.DataFrame(backtest.get("rows") or [])
+            self.backtest_grid.set_dataframe(frame, limit_rows=False)
+            self.backtest_grid.set_numeric_formatting(
+                default_decimals=2, column_decimals={"TAMRA Year": 0})
+            if self.backtest_grid.model is not None:
+                self.backtest_grid.model._left_align_columns = {1, 6}
+            self.backtest_grid.autofit_columns_to_data()
+            self.backtest_grid.setVisible(True)
+        else:
+            if case == "new_period":
+                note = ("Not applicable — this change starts a new 7-pay period; "
+                        "prior premiums are not re-tested against the new 7-pay premium.")
+            elif case == "no_recalc":
+                note = ("Not applicable — the policy is outside its 7-pay period; "
+                        "no back-test is required.")
+            elif case == "within_period":
+                note = "Back-test unavailable — no premium history for this window."
+            else:
+                note = "No TAMRA detail captured for this recalc."
+            self.backtest_note.setText(note)
+            self.backtest_note.setVisible(True)
+            self.backtest_verdict.setVisible(False)
+            self.backtest_grid.setVisible(False)
+
+        # ── New 7-Pay Period ──
+        if case == "new_period":
+            begins = window_start or detail.get("change_date")
+            self.new_period_label.setText(
+                f"A new TAMRA 7-pay period begins on {_fmt_recalc_date(begins)}.")
+            bits = []
+            if new is not None:
+                bits.append(f"7-pay premium {new:,.2f}")
+            if begins:
+                bits.append(f"period ends {_fmt_recalc_date(_add_years(begins, 7))}")
+            if start_av is not None:
+                bits.append(f"starting AV {start_av:,.2f}")
+            self.new_period_detail.setText("   ·   ".join(bits))
+            self.new_period_label.setVisible(True)
+        else:
+            self.new_period_label.setVisible(False)
+            self.new_period_detail.setText(
+                "Not applicable — this change does not start a new 7-pay period.")
 
 
 class TefraTamraRecalcView(QWidget):
@@ -1298,12 +1577,17 @@ class IllustrationValuesTab(QWidget):
                 "seven_pay_level": seed.tamra_7pay_level,
             }
         recalcs = []
-        for state in result_list:
+        for index, state in enumerate(result_list):
             if state.guideline_recalc:
                 # The 7-pay level/start live on the state, not the recalc detail.
                 detail = dict(state.guideline_recalc)
                 detail["seven_pay_start"] = state.tamra_7pay_start_date
                 detail["seven_pay_level"] = state.tamra_7pay_level
+                # A recalc inside the 7-pay window re-tests the window's
+                # premiums at the new 7-pay premium (the MEC back-test sheet).
+                if detail.get("tamra_case") == "within_period":
+                    detail["seven_pay_backtest"] = _seven_pay_backtest(
+                        policy, result_list, index, detail)
                 recalcs.append(detail)
         self.recalc_view.show_recalcs(baseline, recalcs)
         self._rebuild_navigator(navigator_columns)

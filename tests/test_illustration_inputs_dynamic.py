@@ -120,6 +120,41 @@ def test_min_level_available_for_loan_policy():
         "INPUT", "Max Level Allowed", "Min to Maturity", "Monthly Deduction"]
 
 
+def test_new_premium_row_defaults_span_to_maturity():
+    # Typing a start year on a fresh premium row fills For Years / To Age out
+    # to maturity (the user narrows it afterwards if they want less).
+    panel = _panel()
+    row = panel.premium_section.add_row()
+    row.year_edit.set_value(20)
+    row._year_edited()
+    assert row.for_years_edit.value() == 52    # years 20..71 (maturity 121 @ issue 50)
+    assert row.to_age_edit.value() == 121
+
+    # Entering by age works the same way.
+    other = panel.premium_section.add_row()
+    other.age_edit.set_value(90)
+    other._age_edited()
+    assert other.year() == 41                  # age 90 -> policy year 41
+    assert other.to_age_edit.value() == 121
+
+    # An already-set span is respected — moving the year keeps For Years.
+    row.for_years_edit.set_value(5)
+    row._for_years_edited()
+    row.year_edit.set_value(25)
+    row._year_edited()
+    assert row.for_years_edit.value() == 5
+
+
+def test_loan_row_span_stays_empty():
+    # Only premiums default the span to maturity.
+    panel = _panel()
+    row = panel.loan_section.rows()[0]
+    row.year_edit.set_value(10)
+    row._year_edited()
+    assert row.for_years_edit.value() is None
+    assert row.to_age_edit.value() is None
+
+
 def test_allow_gp_exception_premium_checked_by_default():
     # Allow GP Exception Premium is on by default for a normal (non-shadow) policy.
     panel = _panel()
@@ -291,6 +326,81 @@ def test_premium_age_auto_adjusts_prior_span():
     assert first.end_year() == 15
     assert first.for_years_edit.value() == 9
     assert first.to_age_edit.value() == 65
+
+
+def test_added_row_continues_from_prior_to_age():
+    # ＋ starts the new row where the previous span ends: its Age is the prior
+    # row's To Age (year = the year after the prior span).
+    panel = _panel()
+    section = panel.loan_section
+    first = section.rows()[0]
+    first.year_edit.set_value(10)
+    first._year_edited()
+    first.for_years_edit.set_value(5)          # years 10..14, to age 64
+    first._for_years_edited()
+
+    row = section.add_row()
+    assert row.year() == 15
+    assert row.age_edit.value() == 64          # prior row's To Age
+    assert row.for_years_edit.value() is None  # loans leave the span open
+    assert not section.has_overlap()
+
+
+def test_added_premium_row_prefills_and_spans_to_maturity():
+    panel = _panel()
+    section = panel.premium_section
+    first = section.rows()[0]
+    first.for_years_edit.set_value(3)          # years 7..9
+    first._for_years_edited()
+
+    row = section.add_row()
+    assert row.year() == 10
+    assert row.age_edit.value() == 59
+    assert row.to_age_edit.value() == 121      # premiums default to maturity
+    assert not section.has_overlap()
+
+
+def test_added_row_blank_when_prior_row_reaches_maturity():
+    # The default premium row already runs to maturity (To Age 121) — the new
+    # row stays blank and waits for the user.
+    panel = _panel()
+    row = panel.premium_section.add_row()
+    assert row.year() is None
+    assert row.age_edit.value() is None
+
+
+def test_overlap_shows_nonblocking_notice(monkeypatch):
+    from types import SimpleNamespace
+
+    calls = []
+    monkeypatch.setattr(
+        "suiteview.illustration.ui.inputs_dynamic.QToolTip",
+        SimpleNamespace(showText=lambda *args, **kwargs: calls.append(args)))
+    panel = _panel()
+    section = panel.loan_section
+    first = section.rows()[0]
+    first.year_edit.set_value(10)
+    first._year_edited()
+    first.for_years_edit.set_value(5)          # years 10..14
+    first._for_years_edited()
+    second = section.add_row()                 # prefilled to year 15 — clean
+    assert calls == []
+
+    second.year_edit.set_value(12)             # overlaps years 10..14
+    second._year_edited()
+    assert section.has_overlap()
+    assert len(calls) == 1                     # notified once, non-blocking
+
+    second.year_edit.set_value(13)             # still overlapping — no repeat
+    second._year_edited()
+    assert len(calls) == 1
+
+    second.year_edit.set_value(20)             # cleared
+    second._year_edited()
+    assert not section.has_overlap()
+    second.year_edit.set_value(12)             # a NEW overlap notifies again
+    second._year_edited()
+    assert len(calls) == 2
 
 
 def test_annual_premium_current_year_not_applied_on_forecast_date():

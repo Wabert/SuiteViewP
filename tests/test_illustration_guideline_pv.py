@@ -6,6 +6,7 @@ PV roll-up premium must equal the solver to the cent. These tests assert that on
 hand-built bases (no DB), plus the structural shape of the rows.
 """
 from suiteview.illustration.core.guideline_pv import (
+    guideline_7pay_detail,
     guideline_glp_detail,
     guideline_gsp_detail,
     guideline_pv_rows,
@@ -14,6 +15,7 @@ from suiteview.illustration.core.monthly_guideline import (
     GuidelineBasis,
     GuidelineMonth,
     solve_endowment_premium,
+    solve_guideline_premiums,
 )
 
 
@@ -152,6 +154,39 @@ def test_gsp_detail_reconciles_to_solver_single_premium():
     assert detail["premium_label"] == "GSP"
     assert detail["glp_rate"] == 0.06
     assert abs(detail["glp_rollup"]["premium"] - solver) < 0.01
+
+
+def test_7pay_detail_reconciles_to_solver():
+    """The 7-pay PV roll-up equals the account-value solver's seven_pay —
+    same NET basis (no fee/EPU/loads), same premium months, same AV offset."""
+    months = _level_months(240, benefit=4.56)
+    basis = _basis(months)
+
+    detail = guideline_7pay_detail(basis, starting_av=5_000.0)
+    solver = solve_guideline_premiums(basis, starting_av=5_000.0).seven_pay
+
+    assert detail["premium_label"] == "7-Pay"
+    assert detail["db_option"] == "A"
+    assert detail["glp_rate"] == 0.04
+    assert abs(detail["glp_rollup"]["premium"] - solver) < 0.01
+    assert detail["glp_rollup"]["starting AV offset"] == 5_000.0
+    # NET basis: the fee/EPU columns from the source basis are stripped.
+    assert detail["glp_rows"][0]["EPU"] == 0.0
+    assert detail["glp_rows"][0]["MFEE"] == 0.0
+    # Exactly seven premium months.
+    assert sum(1 for r in detail["glp_rows"] if r["PV Annuity"]) == 7
+
+
+def test_equation_text_shows_starting_av_offset():
+    from suiteview.illustration.ui.guideline_pv_view import GuidelinePvDetailView
+
+    detail = guideline_7pay_detail(_basis(_level_months(120)), starting_av=2_500.0)
+    text = GuidelinePvDetailView._equation_text(detail["glp_rollup"], "7-Pay")
+    assert "Starting AV" in text
+    assert "2,500.00" in text
+
+    no_av = guideline_glp_detail(_basis(_level_months(120)))
+    assert "Starting AV" not in GuidelinePvDetailView._equation_text(no_av["glp_rollup"])
 
 
 def test_pv_detail_view_renders_detail():

@@ -86,6 +86,24 @@ def build_illustration_data(
     guaranteed_rate = plancode_config.gint
     current_rate = plancode_config.gint
 
+    # ── IUL funds / allocations ───────────────────────────────
+    # Loaded for every advanced policy (cheap, and the Policy tab shows them);
+    # only IUL plans consume the allocations for the blended crediting rate.
+    try:
+        fund_values = {
+            str(fund): float(value)
+            for fund, value in pi.get_fund_values_dict().items()
+        }
+    except Exception:
+        fund_values = {}
+    try:
+        premium_allocations = {
+            str(fund): float(pct)
+            for fund, pct in pi.get_premium_allocation_dict().items()
+        }
+    except Exception:
+        premium_allocations = {}
+
     # ── 7702 / Guideline ──────────────────────────────────────
     doli_code = str(pi.def_of_life_ins_code or "")
     def_of_life_ins = _translate_doli(doli_code)
@@ -356,6 +374,8 @@ def build_illustration_data(
         premiums_ytd=premiums_ytd,
         guaranteed_interest_rate=guaranteed_rate,
         current_interest_rate=current_rate,
+        fund_values=fund_values,
+        premium_allocations=premium_allocations,
         policy_year=policy_year,
         policy_month=policy_month,
         duration=duration,

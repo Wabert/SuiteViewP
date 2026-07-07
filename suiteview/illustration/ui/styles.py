@@ -218,3 +218,36 @@ STATUS_BAR_STYLE = f"""
         stop:0 {PURPLE_DARK}, stop:1 {PURPLE_PRIMARY});
     border-top: 2px solid {GOLD_PRIMARY};
 """
+
+# ── Shared input-field styles (Inputs tab + Allocations panel) ──────────────
+
+INPUT_EDIT_STYLE = (
+    "QLineEdit { background: white; color: #2A1458; border: 1px solid #B79CDE;"
+    " border-radius: 3px; padding: 1px 4px; min-height: 18px; font-size: 11px; }"
+    "QLineEdit:read-only { background: #E8DDF8; color: #4B2383; }"
+    "QLineEdit:disabled { background: #E8DDF8; color: #7A6B91; }"
+    "QLineEdit[invalid=\"true\"] { border: 1px solid #C62828; background: #FDECEA; }"
+)
+INPUT_COMBO_STYLE = (
+    "QComboBox { background: white; color: #2A1458; border: 1px solid #B79CDE;"
+    " border-radius: 3px; padding: 1px 4px; min-height: 18px; font-size: 11px; }"
+    "QComboBox:disabled { background: #E8DDF8; color: #7A6B91; }"
+    "QComboBox::drop-down { border-left: 1px solid #B79CDE; width: 14px; }"
+)
+INPUT_SMALL_BTN_STYLE = (
+    "QPushButton { background: #F3ECFC; color: #4B2383; border: 1px solid #7E57C2;"
+    " border-radius: 9px; min-width: 18px; max-width: 18px; min-height: 18px;"
+    " max-height: 18px; font-size: 12px; font-weight: bold; padding: 0; }"
+    "QPushButton:hover { background: #E6DAF8; }"
+)
+INPUT_CAPTION_STYLE = (
+    f"color: {PURPLE_DARK}; background: transparent; font-size: 9px; font-weight: bold;"
+)
+INPUT_CHECKBOX_STYLE = (
+    f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
+    " font-weight: bold; spacing: 6px; }"
+    "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px;"
+    " background-color: white; }"
+    "QCheckBox::indicator:disabled { background-color: #E8DDF8; }"
+    "QCheckBox::indicator:checked { background-color: #5E35A5; }"
+)

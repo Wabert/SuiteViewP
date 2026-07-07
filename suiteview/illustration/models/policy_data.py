@@ -148,6 +148,14 @@ class IllustrationPolicyData:
     guaranteed_interest_rate: float = 0.0
     current_interest_rate: float = 0.0
 
+    # ── IUL Funds / Strategies ────────────────────────────────
+    # Current fund value by fund ID (LH_POL_FND_VAL_TOT; includes SW sweep).
+    fund_values: dict[str, float] = field(default_factory=dict)
+    # Inforce premium allocation % by fund ID (LH_FND_ALC, type "P").
+    premium_allocations: dict[str, float] = field(default_factory=dict)
+    # Sweep account minimum.  # TODO: verify DB2 source (CyberLife segment 53)
+    sweep_account_min: float = 0.0
+
     # ── Duration / Timing ─────────────────────────────────────
     policy_year: int = 1
     policy_month: int = 1          # 1-12 within year

@@ -12,7 +12,8 @@ Sources in the workbook (decoded 2026-06-10):
     Mode, Distribution from Policy; EOY AV / SV / DB / Loan Balance.
   - Row markers (UL pages R17): '*' GP-capped (and no exception prem),
     '@' force-out, '^' exception premiums, '&' forecast year of MEC,
-    '#' premiums repaid loans, '%' maturity with SV endowment.
+    '#' premiums repaid loans, '%' maturity with SV endowment,
+    '+' a new 7-pay test period starts (TAMRA material change).
   - Notes page (BT block): assumptions paragraphs + conditional legends.
   - Riders/regulatory page (CI block): riders list, GSP/GLP/AccumGLP (+7-pay
     within the TAMRA window), per-policy-change estimated limits.
@@ -88,7 +89,7 @@ class LedgerRow:
     eoy_age: int = 0
     year: int = 0
     premium_outlay: float = 0.0
-    markers: str = ""               # '* @ ^ & # %' combination for the year
+    markers: str = ""               # '* @ ^ & # % +' combination for the year
     cash_from_policy: float = 0.0   # Distribution from Policy (WDs + force-outs)
     loan_balance: float = 0.0
     # Guaranteed columns; None (blank) when no guaranteed run was supplied.
@@ -135,7 +136,13 @@ class IllustrationReport:
 
     # Ledger
     ledger: List[LedgerRow] = field(default_factory=list)
+    # End-of-projection values, set only when the policy reaches maturity
+    # (rendered as a VALUES AT MATURITY strip under the ledger).
+    maturity_row: Optional[LedgerRow] = None
     footnote_legends: List[str] = field(default_factory=list)
+    # (policy year, start date) for each NEW 7-pay test period the projection
+    # starts — a TAMRA material change restarts the 7-pay window.
+    seven_pay_restarts: List[tuple] = field(default_factory=list)
 
     # Notes page
     note_paragraphs: List[List[str]] = field(default_factory=list)
@@ -226,6 +233,24 @@ def _annualize(
     return rows, year_of_mec, termination_year
 
 
+def _seven_pay_restarts(results: List[MonthlyState]) -> List[tuple]:
+    """(policy_year, start_date) for each new 7-pay period the projection starts.
+
+    A TAMRA material change (specified-amount increase, B->A option change)
+    restarts the 7-pay test period at the change date; the engine stamps the
+    new start date on every subsequent month's state, so a restart shows as
+    the state's ``tamra_7pay_start_date`` moving.
+    """
+    restarts: List[tuple] = []
+    previous = results[0].tamra_7pay_start_date if results else None
+    for state in results[1:]:
+        start = state.tamra_7pay_start_date
+        if start is not None and start != previous:
+            restarts.append((state.policy_year, start))
+        previous = start
+    return restarts
+
+
 def _fill_guaranteed_columns(
     rows: List[LedgerRow],
     guaranteed_results: List[MonthlyState],
@@ -257,17 +282,7 @@ def _fill_guaranteed_columns(
 
 # ── Requested premium / loan / withdrawal lines ─────────────────────────────
 
-def _compress_years(per_year: dict[int, tuple[float, str]]) -> List[tuple[int, int, float, str]]:
-    """RLE-compress {year: (amount, mode)} into (start, end, amount, mode) runs."""
-    runs: List[tuple[int, int, float, str]] = []
-    for year in sorted(per_year):
-        amount, mode = per_year[year]
-        if runs and runs[-1][1] == year - 1 and runs[-1][2] == amount and runs[-1][3] == mode:
-            start, _, _, _ = runs[-1]
-            runs[-1] = (start, year, amount, mode)
-        else:
-            runs.append((year, year, amount, mode))
-    return runs
+_INTERVAL_MODE_LABELS = {1: "MONTHLY", 3: "QUARTERLY", 6: "SEMI-ANNUAL", 12: "ANNUAL"}
 
 
 def _request_lines(
@@ -280,15 +295,20 @@ def _request_lines(
     if not projected:
         return []
 
-    # Premiums: annualized per year from the projection's REQUESTED premium
-    # (pre-cap), labeled by the schedule mode when one applies, else the
-    # policy's billing mode.
+    # Premiums: from the projection's REQUESTED per-payment premiums (pre-cap).
+    # Consecutive equal payments at a steady month interval compress into one
+    # run, so a partial first year (forecast mid-year, paid as dated
+    # transactions under a zero-amount silencing schedule) or a truncated
+    # final year (lapse/maturity) folds into its neighboring years instead of
+    # rendering as a bogus annualized amount. The mode comes from the payment
+    # spacing; a single payment falls back to the active nonzero schedule's
+    # mode, else the policy's billing mode.
     billed_label = _MODE_LABELS.get(policy.billing_frequency, "MONTHLY")
-    premium_years: dict[int, tuple[float, str]] = {}
     schedule_modes: dict[int, str] = {}
     if future_inputs is not None:
         premium_schedules = sorted(
-            (t for t in future_inputs.scheduled_transactions if t.kind == TransactionKind.PREMIUM),
+            (t for t in future_inputs.scheduled_transactions
+             if t.kind == TransactionKind.PREMIUM and t.amount > 0.005),
             key=lambda t: t.policy_year,
         )
         for state in projected:
@@ -299,21 +319,35 @@ def _request_lines(
             if active is not None:
                 schedule_modes[state.policy_year] = _SCHEDULE_MODE_LABELS.get(
                     (active.mode or "M").strip().upper(), "MONTHLY")
+
+    runs: List[dict] = []
     for state in projected:
-        year = state.policy_year
-        amount, label = premium_years.get(year, (0.0, schedule_modes.get(year, billed_label)))
-        premium_years[year] = (amount + state.requested_premium, label)
+        amount = round(state.requested_premium, 2)
+        if amount <= 0.005:
+            continue
+        run = runs[-1] if runs else None
+        gap = state.duration - run["last_duration"] if run else None
+        if run and amount == run["amount"] and run["interval"] in (None, gap):
+            run["interval"] = gap
+            run["end_year"] = state.policy_year
+            run["last_duration"] = state.duration
+        else:
+            runs.append({
+                "start_year": state.policy_year, "end_year": state.policy_year,
+                "amount": amount, "interval": None, "last_duration": state.duration,
+            })
 
     lines: List[str] = []
-    for start, end, total, label in _compress_years(
-        {y: (round(a, 2), m) for y, (a, m) in premium_years.items() if a > 0.005}
-    ):
-        per_payment = {
-            "MONTHLY": total / 12.0, "QUARTERLY": total / 4.0,
-            "SEMI-ANNUAL": total / 2.0, "ANNUAL": total,
-        }.get(label, total / 12.0)
-        span = f"FOR POLICY YEARS {start} THROUGH {end}" if end != start else f"IN POLICY YEAR {start}"
-        lines.append(f"{label} PREMIUM OF {_money(per_payment)} {span}")
+    for run in runs:
+        label = _INTERVAL_MODE_LABELS.get(run["interval"])
+        if label is None:
+            label = schedule_modes.get(run["start_year"], billed_label)
+        span = (
+            f"FOR POLICY YEARS {run['start_year']} THROUGH {run['end_year']}"
+            if run["end_year"] != run["start_year"]
+            else f"IN POLICY YEAR {run['start_year']}"
+        )
+        lines.append(f"{label} PREMIUM OF {_money(run['amount'])} {span}")
 
     if future_inputs is None:
         return lines
@@ -404,6 +438,14 @@ def _change_sections(
             ]
             if 1 <= eff.tamra_year <= 7 and eff.tamra_7pay_level > 0:
                 section.limit_lines.append(f"7-PAY PREMIUM = {_money(eff.tamra_7pay_level)}")
+                # A material change restarts the 7-pay test period — the state
+                # before the change still carries the old window's start date.
+                before = [s for s in projected if s.date and s.date < change.effective_date]
+                prior_start = (before[-1] if before else results[0]).tamra_7pay_start_date
+                new_start = eff.tamra_7pay_start_date
+                if new_start is not None and new_start != prior_start:
+                    section.limit_lines.append(
+                        f"NEW 7-PAY PERIOD STARTS = {new_start.strftime('%m-%d-%Y')}")
         sections.append(section)
     return sections
 
@@ -456,10 +498,37 @@ def build_ul_report(
     # ── Ledger + derived facts ──
     report.ledger, report.year_of_mec, report.termination_year = _annualize(
         policy, results, options)
+    report.seven_pay_restarts = _seven_pay_restarts(results)
+    for restart_year, _start in report.seven_pay_restarts:
+        for row in report.ledger:
+            if row.year == restart_year and "+" not in row.markers:
+                row.markers = f"{row.markers} +".strip()
     if guaranteed_results:
         report.has_guaranteed_values = True
         report.guaranteed_termination_year = _fill_guaranteed_columns(
             report.ledger, guaranteed_results)
+
+    # ── Values at maturity (only when the projection endows) ──
+    last = projected[-1] if projected else None
+    if last is not None and not last.lapsed and last.attained_age >= policy.maturity_age:
+        maturity = LedgerRow(
+            eoy_age=last.attained_age,
+            year=last.policy_year,
+            loan_balance=last.policy_debt,
+            accum_value=last.av_end_of_month,
+            surr_value=last.surrender_value,
+            death_benefit=last.ending_db,
+        )
+        if guaranteed_results:
+            guar_last = guaranteed_results[-1] if len(guaranteed_results) > 1 else None
+            if (guar_last is None or guar_last.lapsed
+                    or guar_last.attained_age < policy.maturity_age):
+                maturity.guar_accum = maturity.guar_surr = maturity.guar_death = 0.0
+            else:
+                maturity.guar_accum = max(guar_last.av_end_of_month, 0.0)
+                maturity.guar_surr = max(guar_last.surrender_value, 0.0)
+                maturity.guar_death = max(guar_last.ending_db, 0.0)
+        report.maturity_row = maturity
 
     # ── Cover ──
     valuation = policy.valuation_date or policy.issue_date
@@ -569,6 +638,10 @@ def build_ul_report(
         legends.append(
             "% ACCORDING TO THE CONTRACT, THE DEATH BENEFIT AFTER MATURITY IS EQUAL TO THE "
             "SURRENDER VALUE")
+    for _year, start in report.seven_pay_restarts:
+        legends.append(
+            f"+ A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON {start.strftime('%m-%d-%Y')} "
+            "DUE TO A MATERIAL POLICY CHANGE")
     report.footnote_legends = legends
 
     # ── Notes page ──

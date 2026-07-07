@@ -404,6 +404,7 @@ def test_tefra_tamra_recalc_detail_page_renders_summary_and_pv_tabs():
     recalc_tabs = detail_view.tabs
     assert [recalc_tabs.tabText(index) for index in range(recalc_tabs.count())] == [
         "Summary", "GLP Before", "GLP After", "GSP Before", "GSP After",
+        "TAMRA Calc", "MEC Back-Test", "New 7-Pay Period",
     ]
     assert detail_view.pv_views[("glp", "before")]._detail["premium_label"] == "GLP"
     assert detail_view.pv_views[("gsp", "after")]._detail["premium_label"] == "GSP"

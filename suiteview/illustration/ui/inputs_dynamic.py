@@ -25,7 +25,7 @@ from datetime import date
 from typing import Optional
 
 from dateutil.relativedelta import relativedelta
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator, QIntValidator
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -39,6 +39,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSizePolicy,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -53,10 +54,20 @@ from suiteview.illustration.models.input_set import (
 )
 from suiteview.illustration.core.illustration_policy_service import coverage_or_benefit_matured
 from suiteview.illustration.core.target_premium import floor_monthly_cent
+from suiteview.illustration.models.index_strategies import is_iul_plan, load_index_strategies
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.polview.ui.formatting import format_amount, format_date
 
-from .styles import GROUP_STYLE, PURPLE_DARK
+from .allocations_panel import AllocationsPanel
+from .styles import (
+    GROUP_STYLE,
+    INPUT_CAPTION_STYLE as _CAPTION_STYLE,
+    INPUT_CHECKBOX_STYLE as _CHECKBOX_STYLE,
+    INPUT_COMBO_STYLE as _COMBO_STYLE,
+    INPUT_EDIT_STYLE as _EDIT_STYLE,
+    INPUT_SMALL_BTN_STYLE as _SMALL_BTN_STYLE,
+    PURPLE_DARK,
+)
 
 _MODE_INTERVALS = {"M": 1, "Q": 3, "S": 6, "A": 12}
 _RATE_CLASSES = [
@@ -72,37 +83,6 @@ _W_YEAR = 36
 _W_AGE = 36
 _W_MODE = 48
 _W_SPAN = 64
-
-_EDIT_STYLE = (
-    "QLineEdit { background: white; color: #2A1458; border: 1px solid #B79CDE;"
-    " border-radius: 3px; padding: 1px 4px; min-height: 18px; font-size: 11px; }"
-    "QLineEdit:read-only { background: #E8DDF8; color: #4B2383; }"
-    "QLineEdit:disabled { background: #E8DDF8; color: #7A6B91; }"
-    "QLineEdit[invalid=\"true\"] { border: 1px solid #C62828; background: #FDECEA; }"
-)
-_COMBO_STYLE = (
-    "QComboBox { background: white; color: #2A1458; border: 1px solid #B79CDE;"
-    " border-radius: 3px; padding: 1px 4px; min-height: 18px; font-size: 11px; }"
-    "QComboBox:disabled { background: #E8DDF8; color: #7A6B91; }"
-    "QComboBox::drop-down { border-left: 1px solid #B79CDE; width: 14px; }"
-)
-_SMALL_BTN_STYLE = (
-    "QPushButton { background: #F3ECFC; color: #4B2383; border: 1px solid #7E57C2;"
-    " border-radius: 9px; min-width: 18px; max-width: 18px; min-height: 18px;"
-    " max-height: 18px; font-size: 12px; font-weight: bold; padding: 0; }"
-    "QPushButton:hover { background: #E6DAF8; }"
-)
-_CAPTION_STYLE = (
-    f"color: {PURPLE_DARK}; background: transparent; font-size: 9px; font-weight: bold;"
-)
-_CHECKBOX_STYLE = (
-    f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
-    " font-weight: bold; spacing: 6px; }"
-    "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px;"
-    " background-color: white; }"
-    "QCheckBox::indicator:disabled { background-color: #E8DDF8; }"
-    "QCheckBox::indicator:checked { background-color: #5E35A5; }"
-)
 
 
 def _first_float(source, *names: str) -> float:
@@ -132,6 +112,10 @@ class PolicyContext:
     rate_class: str = ""          # Cov 1
     table_rating: int = 0         # Cov 1
     illustrated_rate: float = 0.0
+    plancode: str = ""
+    is_iul: bool = False          # plan has an index-strategy row → allocation grid
+    gint: float = 0.0             # plan guaranteed interest (guaranteed blend basis)
+    premium_allocations: Optional[dict] = None  # inforce premium allocation % by fund ID
     suspended: bool = False
     valuation_date: Optional[date] = None
 
@@ -253,8 +237,10 @@ def context_from_policy(policy) -> PolicyContext:
         table_rating = 0
     plancode = str(getattr(policy, "base_plancode", "") or getattr(policy, "plancode", "") or "")
     illustrated_rate = 0.0
+    gint = 0.0
     if plancode:
-        illustrated_rate = load_plancode(plancode).gint
+        gint = load_plancode(plancode).gint
+        illustrated_rate = gint
     if illustrated_rate == 0.0:
         illustrated_rate = float(
             getattr(policy, "current_interest_rate", None)
@@ -303,9 +289,33 @@ def context_from_policy(policy) -> PolicyContext:
         rate_class=str(getattr(policy, "base_rate_class", "") or getattr(policy, "rate_class", "") or ""),
         table_rating=table_rating,
         illustrated_rate=illustrated_rate,
+        plancode=plancode,
+        is_iul=is_iul_plan(plancode),
+        gint=gint,
+        premium_allocations=_premium_allocations_from_policy(policy),
         suspended=status_code == "2",
         valuation_date=valuation,
     )
+
+
+def _premium_allocations_from_policy(policy) -> Optional[dict]:
+    """Inforce premium allocation % by fund ID, from either data shape.
+
+    ``IllustrationPolicyData`` carries ``premium_allocations`` directly;
+    ``PolicyInformation`` looks it up in DB2 (LH_FND_ALC). Missing tables or
+    a non-IUL policy simply return None → the grid defaults to 100% fixed.
+    """
+    direct = getattr(policy, "premium_allocations", None)
+    if direct:
+        return dict(direct)
+    getter = getattr(policy, "get_premium_allocation_dict", None)
+    if callable(getter):
+        try:
+            allocations = getter()
+            return {str(k): float(v) for k, v in allocations.items()} or None
+        except Exception:
+            return None
+    return None
 
 
 class _Field(QLineEdit):
@@ -417,6 +427,13 @@ class InputRow(QWidget):
         self.age_edit.editingFinished.connect(self._age_edited)
         layout.addWidget(self.age_edit)
 
+        # The value column is the row's ONE flexible width. Every other field
+        # is fixed, so when a section gets less than its natural width (the
+        # four change sections share a window row) Qt would otherwise clamp
+        # the trailing widgets inward and draw the − button ON the value
+        # field. Letting the value give up width absorbs the squeeze instead:
+        # it grows to its design width when there is room (stretch 1, capped
+        # by the maximum) and shrinks toward its minimum when there isn't.
         self.value_combo: Optional[QComboBox] = None
         self.amount_edit: Optional[_Field] = None
         if spec.value_options is not None:
@@ -424,13 +441,16 @@ class InputRow(QWidget):
             for code, label in spec.value_options:
                 self.value_combo.addItem(label, code)
             self.value_combo.setStyleSheet(_COMBO_STYLE)
-            self.value_combo.setFixedWidth(spec.value_width)
+            self.value_combo.setMinimumWidth(80)
+            self.value_combo.setMaximumWidth(spec.value_width)
             self.value_combo.currentIndexChanged.connect(lambda _i: self.changed.emit())
-            layout.addWidget(self.value_combo)
+            layout.addWidget(self.value_combo, 1)
         else:
             self.amount_edit = _Field(spec.value_width, decimals=2)
+            self.amount_edit.setMinimumWidth(64)
+            self.amount_edit.setMaximumWidth(spec.value_width)
             self.amount_edit.editingFinished.connect(lambda: self.changed.emit())
-            layout.addWidget(self.amount_edit)
+            layout.addWidget(self.amount_edit, 1)
 
         self.mode_combo: Optional[QComboBox] = None
         self.for_years_edit: Optional[_Field] = None
@@ -455,9 +475,19 @@ class InputRow(QWidget):
         self.remove_btn.setStyleSheet(_SMALL_BTN_STYLE)
         self.remove_btn.setToolTip("Remove this row")
         self.remove_btn.clicked.connect(lambda: self.remove_requested.emit(self))
+        # Reserve the button's slot even when hidden (the first row has no −)
+        # so every row lays out identically and the section is sized with room
+        # for the button — otherwise adding a row squeezes the − into the
+        # section edge, overlapping the value field.
+        policy = self.remove_btn.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self.remove_btn.setSizePolicy(policy)
         self.remove_btn.setVisible(removable)
         layout.addWidget(self.remove_btn)
-        layout.addStretch(1)
+        # Zero-stretch tail: it absorbs leftover width only AFTER the value
+        # column (stretch 1) has grown to its design width, and gives width
+        # up first when the section is squeezed.
+        layout.addStretch(0)
 
     # ── sync handlers ─────────────────────────────────────────
 
@@ -620,6 +650,9 @@ class InputRow(QWidget):
         if self.for_years_edit is None or self._ctx is None:
             return
         for_years = self.for_years_edit.value()
+        if for_years is None and self._section.spec.default_span_to_maturity:
+            # A fresh premium row runs to maturity until the user says otherwise.
+            for_years = self._ctx.maturity_year - year + 1
         if for_years is not None:
             self._set_span_from_years(year, int(for_years))
 
@@ -717,6 +750,7 @@ class SectionSpec:
     value_width: int = 110
     value_options: Optional[list] = None       # [(code, label)] -> combo instead of amount
     default_first_row: bool = False            # premium defaults from the policy
+    default_span_to_maturity: bool = False     # empty For Years/To Age -> maturity
     auto_adjust_prior_span: bool = False
     allow_max_level_premium: bool = False
     type_width: int = _W_TYPE                   # Type column width (wider for level types)
@@ -789,7 +823,31 @@ class DynamicSection(QGroupBox):
         row.remove_requested.connect(self._remove_row)
         self._rows.append(row)
         self._rows_layout.addWidget(row)
+        self._prefill_continuation(row)
         return row
+
+    def _prefill_continuation(self, row: InputRow):
+        """Start a new span row where the previous rows end.
+
+        The added row's Age defaults to the latest To Age among the other
+        rows (its Year is the year after that span ends), so consecutive
+        requests chain without overlapping. A prior row already running to
+        maturity leaves the new row blank for the user to fill.
+        """
+        ctx = self._ctx
+        if ctx is None or not self.spec.has_span:
+            return
+        ends = [other.end_year() for other in self._rows
+                if other is not row and other.year() is not None]
+        if not ends:
+            return
+        next_year = max(ends) + 1
+        if next_year > ctx.maturity_year:
+            return
+        row.year_edit.set_value(next_year)
+        row.age_edit.set_value(ctx.age_for_year(next_year))
+        row._resync_span(next_year)
+        self._validate()
 
     def _remove_row(self, row: InputRow):
         if row in self._rows and len(self._rows) > 1:
@@ -836,15 +894,29 @@ class DynamicSection(QGroupBox):
         filled = [(row.year(), row.end_year(), row) for row in self._rows if row.year() is not None]
         filled.sort(key=lambda entry: entry[0])
         overlapped: set = set()
+        offending: Optional[InputRow] = None
         for (start_a, end_a, row_a), (start_b, end_b, row_b) in zip(filled, filled[1:]):
             if end_a is not None and start_b is not None and start_b <= end_a:
                 overlapped.add(row_a)
                 overlapped.add(row_b)
+                if offending is None:
+                    offending = row_b
         for row in self._rows:
             row.set_overlap(row in overlapped)
+        was_overlapping = self._has_overlap
         self._has_overlap = bool(overlapped)
         self.warning.setVisible(self._has_overlap)
+        if self._has_overlap and not was_overlapping and offending is not None:
+            self._notify_overlap(offending)
         self.changed.emit()
+
+    def _notify_overlap(self, row: InputRow):
+        """Non-blocking heads-up at the offending row when an overlap appears
+        (on top of the red field outlines and the footer warning)."""
+        anchor = row.year_edit
+        QToolTip.showText(
+            anchor.mapToGlobal(QPoint(0, anchor.height() + 2)),
+            self.warning.text(), anchor, QRect(), 4000)
 
     def _auto_adjust_prior_spans(self):
         if not self.spec.auto_adjust_prior_span:
@@ -1330,12 +1402,21 @@ class DynamicInputsPanel(QWidget):
         rate_row.addStretch(1)
         outer.addLayout(rate_row)
 
+        # IUL plans: the strategy-allocation grid computes the blended rate; the
+        # Illustrated Rate field becomes its read-only mirror (Blended Effective —
+        # RERUN feeds the engine PolicyRates!CH4 = the effective blend). Declared-
+        # rate plans keep the editable field and the panel greys out (visible,
+        # never hidden, per the Not-Applicable convention).
+        self.allocations_panel = AllocationsPanel(self)
+        self.allocations_panel.changed.connect(self._on_allocations_changed)
+        outer.addWidget(self.allocations_panel)
+
         # Transactions: a 2×2 grid spanning the full width — Premiums next to
         # Loans, Withdrawals next to Loan Repayments below — so each gets room
         # for its entry fields.
         self.premium_section = DynamicSection(SectionSpec(
-            "Premiums", default_first_row=True, auto_adjust_prior_span=True,
-            allow_max_level_premium=True, type_width=150))
+            "Premiums", default_first_row=True, default_span_to_maturity=True,
+            auto_adjust_prior_span=True, allow_max_level_premium=True, type_width=150))
         self.loan_section = DynamicSection(SectionSpec("Loans"))
         self.withdrawal_section = DynamicSection(SectionSpec("Withdrawals"))
         self.repayment_section = DynamicSection(SectionSpec("Loan Repayments"))
@@ -1405,7 +1486,16 @@ class DynamicInputsPanel(QWidget):
                         self.repayment_section, self.face_section, self.dbo_section,
                         self.rateclass_section, self.table_section):
             section.set_context(self._ctx)
-        self.illustrated_rate_edit.set_rate(self._ctx.illustrated_rate)
+        if self._ctx.is_iul:
+            plan = load_index_strategies(self._ctx.plancode)
+            self.illustrated_rate_edit.setReadOnly(True)
+            self.allocations_panel.set_plan(
+                plan, self._ctx.gint, self._ctx.premium_allocations)
+            # set_plan recomputes and _on_allocations_changed mirrors the blend
+        else:
+            self.allocations_panel.set_plan(None)
+            self.illustrated_rate_edit.setReadOnly(False)
+            self.illustrated_rate_edit.set_rate(self._ctx.illustrated_rate)
         self.riders_panel.set_policy(policy, self._ctx)
         # Reset the lock state + exception notice/checkbox for the freshly loaded
         # policy (the premium section reset to one INPUT row doesn't emit changed).
@@ -1426,6 +1516,18 @@ class DynamicInputsPanel(QWidget):
 
     def illustrated_rate(self) -> float:
         return self.illustrated_rate_edit.rate()
+
+    def _on_allocations_changed(self):
+        """Mirror the Blended Effective rate into the read-only rate field."""
+        blended = self.allocations_panel.blended()
+        if blended is not None and self._ctx.is_iul:
+            self.illustrated_rate_edit.set_rate(blended.effective)
+
+    def allocation_problems(self) -> list[str]:
+        """Validation messages from the IUL allocation grid (empty for non-IUL)."""
+        if not self._ctx.is_iul:
+            return []
+        return self.allocations_panel.problems()
 
     def lumpsum_to_next_enabled(self) -> bool:
         return self.lumpsum_to_next_check.isChecked()

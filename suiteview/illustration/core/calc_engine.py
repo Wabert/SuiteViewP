@@ -2192,6 +2192,34 @@ def _safe_guideline_pv_detail(
         policy, config, attained_age, change_date, active_as_of) or {}).get("glp", {})
 
 
+def _safe_seven_pay_pv_detail(policy, config, change_date) -> Dict[str, object]:
+    """Month-by-month present-value 7-pay breakdown for the TAMRA recalc sheet.
+
+    Solved at the CURRENT 7-pay period start (the change date after a material
+    change) with that period's starting account value and benefit-active flags
+    from the change row — the same basis as the level re-solve. Supplementary
+    display only — returns an empty dict rather than failing the projection.
+    """
+    try:
+        from suiteview.illustration.core.guideline_pv import guideline_7pay_detail
+        from suiteview.illustration.core.monthly_guideline import build_guideline_basis
+
+        start = policy.tamra_7pay_start_date or change_date
+        guar = load_rates(policy, config, coi_scale=0)
+        basis = build_guideline_basis(
+            policy, config, guar,
+            attained_age=_attained_age_at(policy, start), as_of=start,
+            months_into_year=_months_into_policy_year(policy, start),
+            active_as_of=change_date,
+        )
+        detail = guideline_7pay_detail(basis, starting_av=policy.tamra_7pay_start_av)
+        detail["solve_date"] = start
+        return detail
+    except Exception:
+        logger.debug("7-pay monthly-PV recalc detail unavailable", exc_info=True)
+        return {}
+
+
 # Friendly recalc labels for the Values-tab "Guideline Recalc" group.
 _CHANGE_KIND_LABELS = {
     PolicyChangeKind.FACE_AMOUNT: "Specified Amount Change",
@@ -2232,6 +2260,14 @@ def _recalc_guideline_on_change(
     new_glp = md.get("new_glp")
     new_gsp = md.get("new_gsp")
     new_7pay = md.get("new_7pay")
+
+    # TAMRA context BEFORE any reset: the change's position in the current
+    # 7-pay window decides which TAMRA sheet the Values tab shows —
+    # no recalc needed (outside the window, no new period), a recalc inside
+    # the window (back-tested for MEC), or a brand-new 7-pay period.
+    tamra_year_at_change = _tamra_year(policy, change_date)
+    seven_pay_prior = policy.tamra_7pay_level
+    seven_pay_prior_start = policy.tamra_7pay_start_date
 
     # A MATERIAL change restarts the 7-pay period at the change date with the
     # current account value as the period's starting AV (CH24 "Starting AV").
@@ -2301,6 +2337,29 @@ def _recalc_guideline_on_change(
             active_as_of=change_date,
         )
         policy.tamra_7pay_level = floor_monthly_cent(seven_solve.seven_pay)
+
+    # TAMRA sheet detail: classify the change against the 7-pay window and
+    # (when the recalc matters) attach the 7-pay PV breakdown. Only recalcs
+    # with a genuine before/after solve carry drill-down detail.
+    if recalc_detail:
+        if material_change:
+            tamra_case = "new_period"
+        elif tamra_year_at_change <= 7:
+            tamra_case = "within_period"
+        else:
+            tamra_case = "no_recalc"
+        recalc_detail.update({
+            "tamra_case": tamra_case,
+            "tamra_year_at_change": tamra_year_at_change,
+            "seven_pay_prior": seven_pay_prior,
+            "seven_pay_new": policy.tamra_7pay_level,
+            "seven_pay_prior_start": seven_pay_prior_start,
+            "seven_pay_window_start": policy.tamra_7pay_start_date or change_date,
+            "seven_pay_start_av": policy.tamra_7pay_start_av,
+        })
+        if tamra_case != "no_recalc":
+            recalc_detail["seven_pay_pv"] = _safe_seven_pay_pv_detail(
+                policy, config, change_date)
 
     return recalc_detail
 
