@@ -120,6 +120,10 @@ class IllustrationReport:
     prepared_for: str = ""
     run_date: Optional[date] = None
 
+    # Identity used for default output filenames (policy number - plancode).
+    policy_number: str = ""
+    plancode: str = ""
+
     # Cover blocks
     insured_lines: List[str] = field(default_factory=list)
     agent_lines: List[str] = field(default_factory=list)
@@ -494,6 +498,8 @@ def build_ul_report(
     )
     prepared_name = (policy.insured_name or "").strip() or f"POLICY {policy.policy_number}"
     report.prepared_for = f"PREPARED FOR {prepared_name}"
+    report.policy_number = (policy.policy_number or "").strip()
+    report.plancode = (getattr(policy, "plancode", "") or "").strip()
 
     # ── Ledger + derived facts ──
     report.ledger, report.year_of_mec, report.termination_year = _annualize(

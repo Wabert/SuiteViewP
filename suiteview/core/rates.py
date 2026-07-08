@@ -78,6 +78,12 @@ class Rates:
     
     # Class-level rate cache
     _cache: Dict[str, Any] = {}
+
+    # Plancodes whose surrender charges actually vary by state (i.e. have any
+    # non-"AA" State row in Select_RATE_SCR). This set is small (~10) and is
+    # loaded once per process; every other plancode uses the "AA" default in a
+    # single query. None = not yet loaded.
+    _scr_state_plancodes: Optional[set] = None
     
     # Default SQL Server connection settings for UL_Rates database
     DEFAULT_DSN = "UL_Rates"
@@ -131,7 +137,8 @@ class Rates:
         rateclass: str = None,
         band: int = None,
         scale: int = None,
-        benefit_type: str = None
+        benefit_type: str = None,
+        state: str = None
     ) -> str:
         """
         Generate unique cache key for rate lookup.
@@ -163,7 +170,7 @@ class Rates:
         elif rate_type in ("EPU", "COI"):
             key_parts.extend([issue_age, sex, rateclass, band, scale])
         elif rate_type in ("SCR",):
-            key_parts.extend([issue_age, sex, rateclass, band])
+            key_parts.extend([issue_age, sex, rateclass, band, state])
         elif rate_type in ("BENMTP", "BENCTP"):
             key_parts.extend([issue_age, sex, rateclass, band, benefit_type])
         elif rate_type in ("BENCOI",):
@@ -186,7 +193,8 @@ class Rates:
         rateclass: str = None,
         scale: int = None,
         band: int = None,
-        benefit_type: str = None
+        benefit_type: str = None,
+        state: str = None
     ) -> Tuple[str, list]:
         """
         Create a parameterized SQL query for rate lookup.
@@ -217,7 +225,11 @@ class Rates:
             "TBL1MTP": ("SELECT Rate FROM Select_RATE_TBL1MTP WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, issue_age, sex, rateclass, band]),
             "EPU": ("SELECT Rate FROM Select_RATE_EPU WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND Scale=? AND [Band]=?", [plancode, issue_age, sex, rateclass, scale, band]),
             "COI": ("SELECT Rate FROM Select_RATE_COI WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND Scale=? AND [Band]=?", [plancode, issue_age, sex, rateclass, scale, band]),
-            "SCR": ("SELECT Rate FROM Select_RATE_SCR WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, issue_age, sex, rateclass, band]),
+            "SCR": (
+                "SELECT Rate FROM Select_RATE_SCR WHERE Plancode=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?"
+                + (" AND [State]=?" if state else ""),
+                [plancode, issue_age, sex, rateclass, band] + ([state] if state else []),
+            ),
             "BENMTP": ("SELECT Rate FROM Select_RATE_BENMTP WHERE Plancode=? AND BenefitType=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, benefit_type, issue_age, sex, rateclass, band]),
             "BENCTP": ("SELECT Rate FROM Select_RATE_BENCTP WHERE Plancode=? AND BenefitType=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, benefit_type, issue_age, sex, rateclass, band]),
             "BENCOI": ("SELECT Rate FROM Select_RATE_BENCOI WHERE Plancode=? AND BenefitType=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=? AND Scale=?", [plancode, benefit_type, issue_age, sex, rateclass, band, scale]),
@@ -260,6 +272,42 @@ class Rates:
             return None
 
         return rows
+
+    def _scr_plancode_varies(self, plancode: str) -> bool:
+        """True if this plancode has any state-specific (non-"AA") surrender
+        charge schedule.
+
+        The set of such plancodes is small (~10) and is loaded once per process,
+        so the common case (plancodes that only have an "AA" schedule) never
+        pays for a wasted state-specific query.
+        """
+        if Rates._scr_state_plancodes is None:
+            self._load_scr_state_plancodes()
+        return (plancode or "").strip().upper() in Rates._scr_state_plancodes
+
+    def _load_scr_state_plancodes(self) -> None:
+        """Populate the cached set of plancodes that have non-"AA" SCR schedules.
+
+        A failure here must not break rate lookups: on error the set is left
+        empty, so every plancode falls back to the "AA" default schedule.
+        """
+        plancodes: set = set()
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT DISTINCT Plancode FROM Select_RATE_SCR WHERE [State] <> 'AA'"
+                )
+                plancodes = {
+                    str(row[0]).strip().upper()
+                    for row in cursor.fetchall() if row[0] is not None
+                }
+            finally:
+                cursor.close()
+        except Exception as e:
+            logger.warning("Could not load state-varying SCR plancodes: %s", e)
+        Rates._scr_state_plancodes = plancodes
     
     def get_rates(
         self,
@@ -271,7 +319,8 @@ class Rates:
         scale: int = 1,
         band: int = None,
         specified_amount: float = 0,
-        benefit_type: str = ""
+        benefit_type: str = "",
+        state: str = None
     ) -> Optional[Union[List[float], List[List]]]:
         """
         Get rates from cache or database.
@@ -286,7 +335,10 @@ class Rates:
             band: Face amount band
             specified_amount: Specified amount (for band lookup)
             benefit_type: Benefit type code (for benefit rates)
-            
+            state: Issue state (2-letter) for state-varying SCR rates; falls
+                back to the "AA" default schedule when the plancode has no
+                schedule for that state. Ignored for non-SCR rate types.
+
         Returns:
             List of rates (1-indexed by duration for most types)
             or None if not found
@@ -299,10 +351,24 @@ class Rates:
             band = int(band)
         if rateclass == "0":
             rateclass = "N"
-        
+
+        # Surrender-charge rates vary by state for only a handful of plancodes
+        # (a few states such as DE, NY, NJ, MD differ); every other plancode
+        # and state uses the "AA" default schedule. Only those few plancodes pay
+        # for a state-specific lookup — all others go straight to "AA" in a single
+        # query. The local-dev Select_RATE_SCR has no State column, so state is
+        # never applied there.
+        scr_state = None
+        if rate_type.upper() == "SCR" and not local_data_enabled():
+            requested_state = (state or "AA").strip().upper() or "AA"
+            if requested_state != "AA" and self._scr_plancode_varies(plancode):
+                scr_state = requested_state
+            else:
+                scr_state = "AA"
+
         # Generate cache key
         rate_key = self._get_rate_key(
-            rate_type, plancode, issue_age, sex, rateclass, band, scale, benefit_type
+            rate_type, plancode, issue_age, sex, rateclass, band, scale, benefit_type, scr_state
         )
         
         # Check cache
@@ -311,11 +377,19 @@ class Rates:
         
         # Fetch from database
         sql, params = self._create_sql(
-            rate_type, plancode, issue_age, sex, rateclass, scale, band, benefit_type
+            rate_type, plancode, issue_age, sex, rateclass, scale, band, benefit_type, scr_state
         )
 
         rows = self._fetch_rates(sql, params)
-        
+
+        # State fallback: a policy whose state has no plancode-specific
+        # surrender-charge schedule uses the "AA" default schedule.
+        if rows is None and scr_state is not None and scr_state != "AA":
+            sql, params = self._create_sql(
+                rate_type, plancode, issue_age, sex, rateclass, scale, band, benefit_type, "AA"
+            )
+            rows = self._fetch_rates(sql, params)
+
         if rows is None:
             self._cache[rate_key] = None
             return None
@@ -488,10 +562,16 @@ class Rates:
         sex: str,
         rateclass: str,
         band: int,
-        duration: int = None
+        duration: int = None,
+        state: str = None
     ) -> Optional[Union[List[float], float]]:
-        """Get Surrender Charge rates."""
-        rates = self.get_rates("SCR", plancode, issue_age, sex, rateclass, band=band)
+        """Get Surrender Charge rates.
+
+        ``state`` is the policy's 2-letter issue state; the lookup uses the
+        state-specific schedule when the plancode has one and otherwise falls
+        back to the "AA" default.
+        """
+        rates = self.get_rates("SCR", plancode, issue_age, sex, rateclass, band=band, state=state)
         if rates is None:
             return None
         if duration is not None:

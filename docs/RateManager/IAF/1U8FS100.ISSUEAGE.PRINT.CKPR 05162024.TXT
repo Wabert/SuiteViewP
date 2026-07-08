@@ -1,0 +1,1328 @@
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE     1
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 000 000  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .08000     991H0**    .34000     991K0**    .34000     992G0**    .07000       
+                                           992H0**    .24000     992K0**    .24000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .08000     991H0**    .34000     991K0**    .34000     992G0**    .07000       
+                                           992H0**    .24000     992K0**    .24000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .960     001H0**     4.080     001K0**     4.080     002G0**      .840       
+                                           002H0**     2.880     002K0**     2.880                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .960     001H0**     4.080     001K0**     4.080     002G0**      .840       
+                                           002H0**     2.880     002K0**     2.880                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 001 001  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .08000     991H0**    .08000     991K0**    .08000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .07000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .08000     991H0**    .08000     991K0**    .08000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .07000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .960     001H0**      .960     001K0**      .960     002G0**      .840       
+                                           002H0**      .840     002K0**      .840                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .960     001H0**      .960     001K0**      .960     002G0**      .840       
+                                           002H0**      .840     002K0**      .840                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 002 002  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .08000     991H0**    .08000     991K0**    .08000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .08000     991H0**    .08000     991K0**    .08000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .960     001H0**      .960     001K0**      .960     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .960     001H0**      .960     001K0**      .960     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE     2
+  1U8FS100      01011900 003 003  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .08000     991H0**    .08000     991K0**    .08000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .08000     991H0**    .08000     991K0**    .08000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .960     001H0**      .960     001K0**      .960     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .960     001H0**      .960     001K0**      .960     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 004 004  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .07000     991H0**    .07000     991K0**    .07000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .07000     991H0**    .07000     991K0**    .07000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .840     001H0**      .840     001K0**      .840     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .840     001H0**      .840     001K0**      .840     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 005 005  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .07000     991H0**    .07000     991K0**    .07000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .07000     991H0**    .07000     991K0**    .07000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .840     001H0**      .840     001K0**      .840     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .840     001H0**      .840     001K0**      .840     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 006 006  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE     3
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .06000     991H0**    .06000     991K0**    .06000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .06000     991H0**    .06000     991K0**    .06000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .720     001H0**      .720     001K0**      .720     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .720     001H0**      .720     001K0**      .720     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 007 007  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .06000     991H0**    .06000     991K0**    .06000     992G0**    .06000       
+                                           992H0**    .05000     992K0**    .05000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .06000     991H0**    .06000     991K0**    .06000     992G0**    .06000       
+                                           992H0**    .05000     992K0**    .05000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .720     001H0**      .720     001K0**      .720     002G0**      .720       
+                                           002H0**      .600     002K0**      .600                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .720     001H0**      .720     001K0**      .720     002G0**      .720       
+                                           002H0**      .600     002K0**      .600                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 008 008  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .04000     991H0**    .04000     991K0**    .04000     992G0**    .04000       
+                                           992H0**    .04000     992K0**    .04000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .04000     991H0**    .04000     991K0**    .04000     992G0**    .04000       
+                                           992H0**    .04000     992K0**    .04000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .480     001H0**      .480     001K0**      .480     002G0**      .480       
+                                           002H0**      .480     002K0**      .480                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .480     001H0**      .480     001K0**      .480     002G0**      .480       
+                                           002H0**      .480     002K0**      .480                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 009 009  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE     4
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .04000     991H0**    .04000     991K0**    .04000     992G0**    .04000       
+                                           992H0**    .04000     992K0**    .04000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .04000     991H0**    .04000     991K0**    .04000     992G0**    .04000       
+                                           992H0**    .04000     992K0**    .04000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .480     001H0**      .480     001K0**      .480     002G0**      .480       
+                                           002H0**      .480     002K0**      .480                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .480     001H0**      .480     001K0**      .480     002G0**      .480       
+                                           002H0**      .480     002K0**      .480                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 010 010  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .04000     991H0**    .04000     991K0**    .04000     992G0**    .04000       
+                                           992H0**    .04000     992K0**    .04000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .04000     991H0**    .04000     991K0**    .04000     992G0**    .04000       
+                                           992H0**    .04000     992K0**    .04000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .480     001H0**      .480     001K0**      .480     002G0**      .480       
+                                           002H0**      .480     002K0**      .480                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .480     001H0**      .480     001K0**      .480     002G0**      .480       
+                                           002H0**      .480     002K0**      .480                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 011 011  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .04000     991H0**    .04000     991K0**    .04000     992G0**    .04000       
+                                           992H0**    .04000     992K0**    .04000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .04000     991H0**    .04000     991K0**    .04000     992G0**    .04000       
+                                           992H0**    .04000     992K0**    .04000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .480     001H0**      .480     001K0**      .480     002G0**      .480       
+                                           002H0**      .480     002K0**      .480                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .480     001H0**      .480     001K0**      .480     002G0**      .480       
+                                           002H0**      .480     002K0**      .480                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 012 012  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE     5
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .04000     991H0**    .04000     991K0**    .04000     992G0**    .04000       
+                                           992H0**    .04000     992K0**    .04000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .04000     991H0**    .04000     991K0**    .04000     992G0**    .04000       
+                                           992H0**    .04000     992K0**    .04000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .480     001H0**      .480     001K0**      .480     002G0**      .480       
+                                           002H0**      .480     002K0**      .480                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .480     001H0**      .480     001K0**      .480     002G0**      .480       
+                                           002H0**      .480     002K0**      .480                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 013 013  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .06000     991H0**    .06000     991K0**    .06000     992G0**    .05000       
+                                           992H0**    .05000     992K0**    .05000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .06000     991H0**    .06000     991K0**    .06000     992G0**    .05000       
+                                           992H0**    .05000     992K0**    .05000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .720     001H0**      .720     001K0**      .720     002G0**      .600       
+                                           002H0**      .600     002K0**      .600                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .720     001H0**      .720     001K0**      .720     002G0**      .600       
+                                           002H0**      .600     002K0**      .600                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 014 014  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .07000     991H0**    .07000     991K0**    .07000     992G0**    .05000       
+                                           992H0**    .05000     992K0**    .05000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .07000     991H0**    .07000     991K0**    .07000     992G0**    .05000       
+                                           992H0**    .05000     992K0**    .05000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**      .840     001H0**      .840     001K0**      .840     002G0**      .600       
+                                           002H0**      .600     002K0**      .600                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**      .840     001H0**      .840     001K0**      .840     002G0**      .600       
+                                           002H0**      .600     002K0**      .600                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 015 015  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE     6
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .09000     991H0**    .09000     991K0**    .09000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .09000     991H0**    .09000     991K0**    .09000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.080     001H0**     1.080     001K0**     1.080     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.080     001H0**     1.080     001K0**     1.080     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 016 016  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .10000     991H0**    .10000     991K0**    .10000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .10000     991H0**    .10000     991K0**    .10000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .06000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.200     001H0**     1.200     001K0**     1.200     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.200     001H0**     1.200     001K0**     1.200     002G0**      .720       
+                                           002H0**      .720     002K0**      .720                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 017 017  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .11000     991H0**    .11000     991K0**    .12000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .07000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .11000     991H0**    .11000     991K0**    .12000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .07000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.320     001H0**     1.320     001K0**     1.440     002G0**      .840       
+                                           002H0**      .840     002K0**      .840                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.320     001H0**     1.320     001K0**     1.440     002G0**      .840       
+                                           002H0**      .840     002K0**      .840                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 018 018  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE     7
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .13000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .07000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .13000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .07000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     1.560     002G0**      .720       
+                                           002H0**      .720     002K0**      .840                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     1.560     002G0**      .720       
+                                           002H0**      .720     002K0**      .840                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 019 019  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .14000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .08000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .14000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .08000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     1.680     002G0**      .840       
+                                           002H0**      .840     002K0**      .960                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     1.680     002G0**      .840       
+                                           002H0**      .840     002K0**      .960                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 020 020  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .14000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .09000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .14000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .09000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     1.680     002G0**      .720       
+                                           002H0**      .720     002K0**     1.080                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     1.680     002G0**      .720       
+                                           002H0**      .720     002K0**     1.080                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 021 021  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE     8
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .09000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .09000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .840       
+                                           002H0**      .840     002K0**     1.080                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .840       
+                                           002H0**      .840     002K0**     1.080                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 022 022  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .10000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .10000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .840       
+                                           002H0**      .840     002K0**     1.200                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .840       
+                                           002H0**      .840     002K0**     1.200                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 023 023  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .10000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .10000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .840       
+                                           002H0**      .840     002K0**     1.200                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .840       
+                                           002H0**      .840     002K0**     1.200                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 024 024  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE     9
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .10000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .10000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .840       
+                                           002H0**      .840     002K0**     1.200                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .840       
+                                           002H0**      .840     002K0**     1.200                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 025 025  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .11000     991H0**    .11000     991K0**    .17000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .10000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .11000     991H0**    .11000     991K0**    .17000     992G0**    .06000       
+                                           992H0**    .06000     992K0**    .10000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.320     001H0**     1.320     001K0**     2.040     002G0**      .720       
+                                           002H0**      .720     002K0**     1.200                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.320     001H0**     1.320     001K0**     2.040     002G0**      .720       
+                                           002H0**      .720     002K0**     1.200                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 026 026  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .11000     991H0**    .11000     991K0**    .17000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .11000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .11000     991H0**    .11000     991K0**    .17000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .11000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.320     001H0**     1.320     001K0**     2.040     002G0**      .840       
+                                           002H0**      .840     002K0**     1.320                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.320     001H0**     1.320     001K0**     2.040     002G0**      .840       
+                                           002H0**      .840     002K0**     1.320                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 027 027  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    10
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .11000     991H0**    .11000     991K0**    .17000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .11000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .11000     991H0**    .11000     991K0**    .17000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .11000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.320     001H0**     1.320     001K0**     2.040     002G0**      .840       
+                                           002H0**      .840     002K0**     1.320                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.320     001H0**     1.320     001K0**     2.040     002G0**      .840       
+                                           002H0**      .840     002K0**     1.320                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 028 028  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .17000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .11000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .17000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .11000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.040     002G0**      .840       
+                                           002H0**      .840     002K0**     1.320                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.040     002G0**      .840       
+                                           002H0**      .840     002K0**     1.320                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 029 029  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .17000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .11000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .17000     992G0**    .07000       
+                                           992H0**    .07000     992K0**    .11000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.040     002G0**      .840       
+                                           002H0**      .840     002K0**     1.320                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.040     002G0**      .840       
+                                           002H0**      .840     002K0**     1.320                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 030 030  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    11
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .17000     992G0**    .08000       
+                                           992H0**    .08000     992K0**    .12000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .17000     992G0**    .08000       
+                                           992H0**    .08000     992K0**    .12000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.040     002G0**      .960       
+                                           002H0**      .960     002K0**     1.440                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.040     002G0**      .960       
+                                           002H0**      .960     002K0**     1.440                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 031 031  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .08000       
+                                           992H0**    .08000     992K0**    .13000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .08000       
+                                           992H0**    .08000     992K0**    .13000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .960       
+                                           002H0**      .960     002K0**     1.560                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .960       
+                                           002H0**      .960     002K0**     1.560                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 032 032  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .08000       
+                                           992H0**    .08000     992K0**    .13000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .18000     992G0**    .08000       
+                                           992H0**    .08000     992K0**    .13000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .960       
+                                           002H0**      .960     002K0**     1.560                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.160     002G0**      .960       
+                                           002H0**      .960     002K0**     1.560                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 033 033  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    12
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .12000     991H0**    .12000     991K0**    .19000     992G0**    .09000       
+                                           992H0**    .09000     992K0**    .14000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .12000     991H0**    .12000     991K0**    .19000     992G0**    .09000       
+                                           992H0**    .09000     992K0**    .14000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.280     002G0**     1.080       
+                                           002H0**     1.080     002K0**     1.680                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.440     001H0**     1.440     001K0**     2.280     002G0**     1.080       
+                                           002H0**     1.080     002K0**     1.680                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 034 034  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .13000     991H0**    .13000     991K0**    .20000     992G0**    .09000       
+                                           992H0**    .09000     992K0**    .15000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .13000     991H0**    .13000     991K0**    .20000     992G0**    .09000       
+                                           992H0**    .09000     992K0**    .15000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.560     001H0**     1.560     001K0**     2.400     002G0**     1.080       
+                                           002H0**     1.080     002K0**     1.800                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.560     001H0**     1.560     001K0**     2.400     002G0**     1.080       
+                                           002H0**     1.080     002K0**     1.800                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 035 035  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .14000     991H0**    .14000     991K0**    .21000     992G0**    .10000       
+                                           992H0**    .10000     992K0**    .16000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .14000     991H0**    .14000     991K0**    .21000     992G0**    .10000       
+                                           992H0**    .10000     992K0**    .16000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.680     001H0**     1.680     001K0**     2.520     002G0**     1.200       
+                                           002H0**     1.200     002K0**     1.920                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.680     001H0**     1.680     001K0**     2.520     002G0**     1.200       
+                                           002H0**     1.200     002K0**     1.920                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 036 036  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    13
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .14000     991H0**    .14000     991K0**    .23000     992G0**    .11000       
+                                           992H0**    .11000     992K0**    .17000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .14000     991H0**    .14000     991K0**    .23000     992G0**    .11000       
+                                           992H0**    .11000     992K0**    .17000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.680     001H0**     1.680     001K0**     2.760     002G0**     1.320       
+                                           002H0**     1.320     002K0**     2.040                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.680     001H0**     1.680     001K0**     2.760     002G0**     1.320       
+                                           002H0**     1.320     002K0**     2.040                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 037 037  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .15000     991H0**    .15000     991K0**    .25000     992G0**    .12000       
+                                           992H0**    .12000     992K0**    .19000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .15000     991H0**    .15000     991K0**    .25000     992G0**    .12000       
+                                           992H0**    .12000     992K0**    .19000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.800     001H0**     1.800     001K0**     3.000     002G0**     1.440       
+                                           002H0**     1.440     002K0**     2.280                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.800     001H0**     1.800     001K0**     3.000     002G0**     1.440       
+                                           002H0**     1.440     002K0**     2.280                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 038 038  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .16000     991H0**    .16000     991K0**    .27000     992G0**    .13000       
+                                           992H0**    .13000     992K0**    .20000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .16000     991H0**    .16000     991K0**    .27000     992G0**    .13000       
+                                           992H0**    .13000     992K0**    .20000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     1.920     001H0**     1.920     001K0**     3.240     002G0**     1.560       
+                                           002H0**     1.560     002K0**     2.400                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     1.920     001H0**     1.920     001K0**     3.240     002G0**     1.560       
+                                           002H0**     1.560     002K0**     2.400                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 039 039  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    14
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .17000     991H0**    .17000     991K0**    .30000     992G0**    .14000       
+                                           992H0**    .14000     992K0**    .22000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .17000     991H0**    .17000     991K0**    .30000     992G0**    .14000       
+                                           992H0**    .14000     992K0**    .22000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     2.040     001H0**     2.040     001K0**     3.600     002G0**     1.680       
+                                           002H0**     1.680     002K0**     2.640                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     2.040     001H0**     2.040     001K0**     3.600     002G0**     1.680       
+                                           002H0**     1.680     002K0**     2.640                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 040 040  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .19000     991H0**    .19000     991K0**    .32000     992G0**    .14000       
+                                           992H0**    .14000     992K0**    .23000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .19000     991H0**    .19000     991K0**    .32000     992G0**    .14000       
+                                           992H0**    .14000     992K0**    .23000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     2.280     001H0**     2.280     001K0**     3.840     002G0**     1.680       
+                                           002H0**     1.680     002K0**     2.760                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     2.280     001H0**     2.280     001K0**     3.840     002G0**     1.680       
+                                           002H0**     1.680     002K0**     2.760                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 041 041  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .20000     991H0**    .20000     991K0**    .36000     992G0**    .15000       
+                                           992H0**    .15000     992K0**    .24000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .20000     991H0**    .20000     991K0**    .36000     992G0**    .15000       
+                                           992H0**    .15000     992K0**    .24000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     2.400     001H0**     2.400     001K0**     4.320     002G0**     1.800       
+                                           002H0**     1.800     002K0**     2.880                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     2.400     001H0**     2.400     001K0**     4.320     002G0**     1.800       
+                                           002H0**     1.800     002K0**     2.880                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 042 042  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    15
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .21000     991H0**    .21000     991K0**    .38000     992G0**    .15000       
+                                           992H0**    .15000     992K0**    .24000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .21000     991H0**    .21000     991K0**    .38000     992G0**    .15000       
+                                           992H0**    .15000     992K0**    .24000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     2.520     001H0**     2.520     001K0**     4.560     002G0**     1.800       
+                                           002H0**     1.800     002K0**     2.880                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     2.520     001H0**     2.520     001K0**     4.560     002G0**     1.800       
+                                           002H0**     1.800     002K0**     2.880                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 043 043  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .23000     991H0**    .23000     991K0**    .40000     992G0**    .17000       
+                                           992H0**    .17000     992K0**    .25000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .23000     991H0**    .23000     991K0**    .40000     992G0**    .17000       
+                                           992H0**    .17000     992K0**    .25000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     2.760     001H0**     2.760     001K0**     4.800     002G0**     2.040       
+                                           002H0**     2.040     002K0**     3.000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     2.760     001H0**     2.760     001K0**     4.800     002G0**     2.040       
+                                           002H0**     2.040     002K0**     3.000                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 044 044  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .25000     991H0**    .25000     991K0**    .41000     992G0**    .18000       
+                                           992H0**    .18000     992K0**    .25000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .25000     991H0**    .25000     991K0**    .41000     992G0**    .18000       
+                                           992H0**    .18000     992K0**    .25000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     3.000     001H0**     3.000     001K0**     4.920     002G0**     2.160       
+                                           002H0**     2.160     002K0**     3.000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     3.000     001H0**     3.000     001K0**     4.920     002G0**     2.160       
+                                           002H0**     2.160     002K0**     3.000                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 045 045  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    16
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .27000     991H0**    .27000     991K0**    .43000     992G0**    .19000       
+                                           992H0**    .19000     992K0**    .26000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .27000     991H0**    .27000     991K0**    .43000     992G0**    .19000       
+                                           992H0**    .19000     992K0**    .26000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     3.240     001H0**     3.240     001K0**     5.160     002G0**     2.280       
+                                           002H0**     2.280     002K0**     3.120                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     3.240     001H0**     3.240     001K0**     5.160     002G0**     2.280       
+                                           002H0**     2.280     002K0**     3.120                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 046 046  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .29000     991H0**    .29000     991K0**    .47000     992G0**    .21000       
+                                           992H0**    .21000     992K0**    .29000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .29000     991H0**    .29000     991K0**    .47000     992G0**    .21000       
+                                           992H0**    .21000     992K0**    .29000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     3.480     001H0**     3.480     001K0**     5.640     002G0**     2.520       
+                                           002H0**     2.520     002K0**     3.480                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     3.480     001H0**     3.480     001K0**     5.640     002G0**     2.520       
+                                           002H0**     2.520     002K0**     3.480                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 047 047  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .32000     991H0**    .32000     991K0**    .51000     992G0**    .23000       
+                                           992H0**    .23000     992K0**    .32000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .32000     991H0**    .32000     991K0**    .51000     992G0**    .23000       
+                                           992H0**    .23000     992K0**    .32000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     3.840     001H0**     3.840     001K0**     6.120     002G0**     2.760       
+                                           002H0**     2.760     002K0**     3.840                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     3.840     001H0**     3.840     001K0**     6.120     002G0**     2.760       
+                                           002H0**     2.760     002K0**     3.840                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 048 048  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    17
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .34000     991H0**    .34000     991K0**    .53000     992G0**    .24000       
+                                           992H0**    .24000     992K0**    .32000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .34000     991H0**    .34000     991K0**    .53000     992G0**    .24000       
+                                           992H0**    .24000     992K0**    .32000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     4.080     001H0**     4.080     001K0**     6.360     002G0**     2.880       
+                                           002H0**     2.880     002K0**     3.840                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     4.080     001H0**     4.080     001K0**     6.360     002G0**     2.880       
+                                           002H0**     2.880     002K0**     3.840                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 049 049  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .36000     991H0**    .36000     991K0**    .58000     992G0**    .27000       
+                                           992H0**    .27000     992K0**    .35000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .36000     991H0**    .36000     991K0**    .58000     992G0**    .27000       
+                                           992H0**    .27000     992K0**    .35000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     4.320     001H0**     4.320     001K0**     6.960     002G0**     3.240       
+                                           002H0**     3.240     002K0**     4.200                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     4.320     001H0**     4.320     001K0**     6.960     002G0**     3.240       
+                                           002H0**     3.240     002K0**     4.200                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 050 050  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .38000     991H0**    .38000     991K0**    .63000     992G0**    .25000       
+                                           992H0**    .25000     992K0**    .37000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .38000     991H0**    .38000     991K0**    .63000     992G0**    .25000       
+                                           992H0**    .25000     992K0**    .37000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     4.560     001H0**     4.560     001K0**     7.560     002G0**     3.000       
+                                           002H0**     3.000     002K0**     4.440                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     4.560     001H0**     4.560     001K0**     7.560     002G0**     3.000       
+                                           002H0**     3.000     002K0**     4.440                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 051 051  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    18
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .41000     991H0**    .41000     991K0**    .69000     992G0**    .26000       
+                                           992H0**    .26000     992K0**    .41000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .41000     991H0**    .41000     991K0**    .69000     992G0**    .26000       
+                                           992H0**    .26000     992K0**    .41000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     4.920     001H0**     4.920     001K0**     8.280     002G0**     3.120       
+                                           002H0**     3.120     002K0**     4.920                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     4.920     001H0**     4.920     001K0**     8.280     002G0**     3.120       
+                                           002H0**     3.120     002K0**     4.920                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 052 052  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .44000     991H0**    .44000     991K0**    .75000     992G0**    .28000       
+                                           992H0**    .28000     992K0**    .44000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .44000     991H0**    .44000     991K0**    .75000     992G0**    .28000       
+                                           992H0**    .28000     992K0**    .44000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     5.280     001H0**     5.280     001K0**     9.000     002G0**     3.360       
+                                           002H0**     3.360     002K0**     5.280                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     5.280     001H0**     5.280     001K0**     9.000     002G0**     3.360       
+                                           002H0**     3.360     002K0**     5.280                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 053 053  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .47000     991H0**    .47000     991K0**    .83000     992G0**    .30000       
+                                           992H0**    .30000     992K0**    .49000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .47000     991H0**    .47000     991K0**    .83000     992G0**    .30000       
+                                           992H0**    .30000     992K0**    .49000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     5.640     001H0**     5.640     001K0**     9.960     002G0**     3.600       
+                                           002H0**     3.600     002K0**     5.880                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     5.640     001H0**     5.640     001K0**     9.960     002G0**     3.600       
+                                           002H0**     3.600     002K0**     5.880                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 054 054  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    19
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .51000     991H0**    .51000     991K0**    .91000     992G0**    .31000       
+                                           992H0**    .31000     992K0**    .53000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .51000     991H0**    .51000     991K0**    .91000     992G0**    .31000       
+                                           992H0**    .31000     992K0**    .53000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     6.120     001H0**     6.120     001K0**    10.920     002G0**     3.720       
+                                           002H0**     3.720     002K0**     6.360                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     6.120     001H0**     6.120     001K0**    10.920     002G0**     3.720       
+                                           002H0**     3.720     002K0**     6.360                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 055 055  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .56000     991H0**    .56000     991K0**    .99000     992G0**    .33000       
+                                           992H0**    .33000     992K0**    .59000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .56000     991H0**    .56000     991K0**    .99000     992G0**    .33000       
+                                           992H0**    .33000     992K0**    .59000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     6.720     001H0**     6.720     001K0**    11.880     002G0**     3.960       
+                                           002H0**     3.960     002K0**     7.080                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     6.720     001H0**     6.720     001K0**    11.880     002G0**     3.960       
+                                           002H0**     3.960     002K0**     7.080                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 056 056  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .61000     991H0**    .61000     991K0**   1.06000     992G0**    .36000       
+                                           992H0**    .36000     992K0**    .62000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .61000     991H0**    .61000     991K0**   1.06000     992G0**    .36000       
+                                           992H0**    .36000     992K0**    .62000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     7.320     001H0**     7.320     001K0**    12.720     002G0**     4.320       
+                                           002H0**     4.320     002K0**     7.440                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     7.320     001H0**     7.320     001K0**    12.720     002G0**     4.320       
+                                           002H0**     4.320     002K0**     7.440                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 057 057  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    20
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .66000     991H0**    .66000     991K0**   1.14000     992G0**    .38000       
+                                           992H0**    .38000     992K0**    .66000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .66000     991H0**    .66000     991K0**   1.14000     992G0**    .38000       
+                                           992H0**    .38000     992K0**    .66000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     7.920     001H0**     7.920     001K0**    13.680     002G0**     4.560       
+                                           002H0**     4.560     002K0**     7.920                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     7.920     001H0**     7.920     001K0**    13.680     002G0**     4.560       
+                                           002H0**     4.560     002K0**     7.920                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 058 058  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .72000     991H0**    .72000     991K0**   1.24000     992G0**    .40000       
+                                           992H0**    .40000     992K0**    .71000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .72000     991H0**    .72000     991K0**   1.24000     992G0**    .40000       
+                                           992H0**    .40000     992K0**    .71000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     8.640     001H0**     8.640     001K0**    14.880     002G0**     4.800       
+                                           002H0**     4.800     002K0**     8.520                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     8.640     001H0**     8.640     001K0**    14.880     002G0**     4.800       
+                                           002H0**     4.800     002K0**     8.520                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 059 059  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .77000     991H0**    .77000     991K0**   1.34000     992G0**    .43000       
+                                           992H0**    .43000     992K0**    .77000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .77000     991H0**    .77000     991K0**   1.34000     992G0**    .43000       
+                                           992H0**    .43000     992K0**    .77000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     9.240     001H0**     9.240     001K0**    16.080     002G0**     5.160       
+                                           002H0**     5.160     002K0**     9.240                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     9.240     001H0**     9.240     001K0**    16.080     002G0**     5.160       
+                                           002H0**     5.160     002K0**     9.240                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 060 060  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    21
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .83000     991H0**    .83000     991K0**   1.45000     992G0**    .47000       
+                                           992H0**    .47000     992K0**    .85000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .83000     991H0**    .83000     991K0**   1.45000     992G0**    .47000       
+                                           992H0**    .47000     992K0**    .85000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**     9.960     001H0**     9.960     001K0**    17.400     002G0**     5.640       
+                                           002H0**     5.640     002K0**    10.200                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**     9.960     001H0**     9.960     001K0**    17.400     002G0**     5.640       
+                                           002H0**     5.640     002K0**    10.200                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 061 061  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .90000     991H0**    .90000     991K0**   1.59000     992G0**    .51000       
+                                           992H0**    .51000     992K0**    .91000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .90000     991H0**    .90000     991K0**   1.59000     992G0**    .51000       
+                                           992H0**    .51000     992K0**    .91000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**    10.800     001H0**    10.800     001K0**    19.080     002G0**     6.120       
+                                           002H0**     6.120     002K0**    10.920                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**    10.800     001H0**    10.800     001K0**    19.080     002G0**     6.120       
+                                           002H0**     6.120     002K0**    10.920                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 062 062  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**    .98000     991H0**    .98000     991K0**   1.75000     992G0**    .54000       
+                                           992H0**    .54000     992K0**    .97000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**    .98000     991H0**    .98000     991K0**   1.75000     992G0**    .54000       
+                                           992H0**    .54000     992K0**    .97000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**    11.760     001H0**    11.760     001K0**    21.000     002G0**     6.480       
+                                           002H0**     6.480     002K0**    11.640                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**    11.760     001H0**    11.760     001K0**    21.000     002G0**     6.480       
+                                           002H0**     6.480     002K0**    11.640                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 063 063  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    22
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**   1.09000     991H0**   1.09000     991K0**   1.90000     992G0**    .58000       
+                                           992H0**    .58000     992K0**   1.03000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**   1.09000     991H0**   1.09000     991K0**   1.90000     992G0**    .58000       
+                                           992H0**    .58000     992K0**   1.03000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**    13.080     001H0**    13.080     001K0**    22.800     002G0**     6.960       
+                                           002H0**     6.960     002K0**    12.360                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**    13.080     001H0**    13.080     001K0**    22.800     002G0**     6.960       
+                                           002H0**     6.960     002K0**    12.360                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 064 064  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**   1.21000     991H0**   1.21000     991K0**   2.08000     992G0**    .62000       
+                                           992H0**    .62000     992K0**   1.09000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**   1.21000     991H0**   1.21000     991K0**   2.08000     992G0**    .62000       
+                                           992H0**    .62000     992K0**   1.09000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**    14.520     001H0**    14.520     001K0**    24.960     002G0**     7.440       
+                                           002H0**     7.440     002K0**    13.080                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**    14.520     001H0**    14.520     001K0**    24.960     002G0**     7.440       
+                                           002H0**     7.440     002K0**    13.080                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 065 065  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**   1.34000     991H0**   1.34000     991K0**   2.28000     992G0**    .67000       
+                                           992H0**    .67000     992K0**   1.18000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**   1.34000     991H0**   1.34000     991K0**   2.28000     992G0**    .67000       
+                                           992H0**    .67000     992K0**   1.18000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**    16.080     001H0**    16.080     001K0**    27.360     002G0**     8.040       
+                                           002H0**     8.040     002K0**    14.160                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**    16.080     001H0**    16.080     001K0**    27.360     002G0**     8.040       
+                                           002H0**     8.040     002K0**    14.160                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 066 066  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    23
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**   1.49000     991H0**   1.49000     991K0**   2.47000     992G0**    .74000       
+                                           992H0**    .74000     992K0**   1.27000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**   1.49000     991H0**   1.49000     991K0**   2.47000     992G0**    .74000       
+                                           992H0**    .74000     992K0**   1.27000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**    17.880     001H0**    17.880     001K0**    29.640     002G0**     8.880       
+                                           002H0**     8.880     002K0**    15.240                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**    17.880     001H0**    17.880     001K0**    29.640     002G0**     8.880       
+                                           002H0**     8.880     002K0**    15.240                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 067 067  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**   1.64000     991H0**   1.64000     991K0**   2.69000     992G0**    .79000       
+                                           992H0**    .79000     992K0**   1.38000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**   1.64000     991H0**   1.64000     991K0**   2.69000     992G0**    .79000       
+                                           992H0**    .79000     992K0**   1.38000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**    19.680     001H0**    19.680     001K0**    32.280     002G0**     9.480       
+                                           002H0**     9.480     002K0**    16.560                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**    19.680     001H0**    19.680     001K0**    32.280     002G0**     9.480       
+                                           002H0**     9.480     002K0**    16.560                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 068 068  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**   1.81000     991H0**   1.81000     991K0**   2.92000     992G0**    .88000       
+                                           992H0**    .88000     992K0**   1.50000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**   1.81000     991H0**   1.81000     991K0**   2.92000     992G0**    .88000       
+                                           992H0**    .88000     992K0**   1.50000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**    21.720     001H0**    21.720     001K0**    35.040     002G0**    10.560       
+                                           002H0**    10.560     002K0**    18.000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**    21.720     001H0**    21.720     001K0**    35.040     002G0**    10.560       
+                                           002H0**    10.560     002K0**    18.000                                                   
+                                                                                                                                     
+   PLAN CODE  V  EFFDATE FST LST USE PAY-AGE USE  ME-AGE USE  VAL PER UNIT  PROD CRED AMT USE MDRT DEF SPEC BENEFITS  R LV DUR       
+  1U8FS100      01011900 069 069  0      070  1      070  1       1,000.00            .00  0        0       NONE        C1  00       
+ *** PLAN SEARCH KEYS          1U8FS100      01011900                                                                                
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+1                                                  ANICO                                                                             
+0DATE 05/16/24                                     PRINT ISSUE AGE DESCRIPTION FILE                                        PAGE    24
+ *** ADV PROD. CTL.  INIT PREM (MIN) - (MAX)    RULE   PER PREM (MIN) - (MAX)     F/Y PREM  CORR RULE    PCNT       AMT  MAP PERIOD  
+                                    0  9,999,999 1                   0  9,999,999          0    1         .000          0            
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   C   01011900            991G0**   2.00000     991H0**   2.00000     991K0**   3.17000     992G0**    .97000       
+                                           992H0**    .97000     992K0**   1.65000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   G   01011900            991G0**   2.00000     991H0**   2.00000     991K0**   3.17000     992G0**    .97000       
+                                           992H0**    .97000     992K0**   1.65000                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   M   01011900            001G0**    24.000     001H0**    24.000     001K0**    38.040     002G0**    11.640       
+                                           002H0**    11.640     002K0**    19.800                                                   
+ **PREMIUM RATES- TYP    START     STOP     IDENT      RATE       IDENT      RATE       IDENT      RATE       IDENT      RATE        
+                   T   01011900            001G0**    24.000     001H0**    24.000     001K0**    38.040     002G0**    11.640       
+                                           002H0**    11.640     002K0**    19.800                                                   

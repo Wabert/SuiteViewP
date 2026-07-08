@@ -9,7 +9,10 @@ fill the page width.
 """
 from __future__ import annotations
 
+import re
+from datetime import datetime
 from html import escape
+from pathlib import Path
 from typing import List, Optional
 
 from PyQt6.QtCore import QMarginsF, QSizeF, Qt, QUrl
@@ -20,6 +23,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -28,8 +32,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from suiteview.core.json_store import read_json, write_json
 from suiteview.illustration.core.report_builder import IllustrationReport, LedgerRow
 from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_LIGHT
+
+# Persisted illustration UI settings (output folder for printed PDFs).
+_SETTINGS_FILE = Path.home() / ".suiteview" / "illustration_settings.json"
+_OUTPUT_FOLDER_KEY = "report_output_folder"
 
 PAGE_WIDTH = 112          # characters
 # Rows per ledger page — bounded by the landscape PDF page height (Letter
@@ -273,6 +282,36 @@ class IllustrationReportTab(QWidget):
         top_row.addWidget(self.print_pdf_btn)
         layout.addLayout(top_row)
 
+        # ── Output folder row (persisted across sessions) ──
+        folder_row = QHBoxLayout()
+        folder_row.setSpacing(6)
+        folder_label = QLabel("Output folder:")
+        folder_label.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;")
+        folder_row.addWidget(folder_label)
+        self.output_folder_edit = QLineEdit()
+        self.output_folder_edit.setPlaceholderText("Prompt for a folder each time (not set)")
+        self.output_folder_edit.setToolTip(
+            "Folder where illustration PDFs are saved. Saved across sessions.")
+        self.output_folder_edit.setStyleSheet(
+            "QLineEdit { background: white; color: #1A1A2E; border: 1px solid #7E57C2;"
+            " border-radius: 4px; padding: 1px 6px; min-height: 18px; font-size: 10px; }")
+        self.output_folder_edit.editingFinished.connect(self._on_output_folder_edited)
+        folder_row.addWidget(self.output_folder_edit, 1)
+        self.browse_folder_btn = QPushButton("Browse…")
+        self.browse_folder_btn.setToolTip("Choose the folder illustration PDFs are saved to.")
+        self.browse_folder_btn.setStyleSheet(
+            f"QPushButton {{ background-color: #F3ECFC; color: {PURPLE_DARK};"
+            " border: 1px solid #7E57C2; border-radius: 4px; padding: 1px 10px;"
+            " min-height: 18px; font-size: 10px; font-weight: bold; }")
+        self.browse_folder_btn.clicked.connect(self._on_browse_output_folder)
+        folder_row.addWidget(self.browse_folder_btn)
+        layout.addLayout(folder_row)
+
+        self._output_folder = self._load_output_folder()
+        if self._output_folder:
+            self.output_folder_edit.setText(self._output_folder)
+
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -329,18 +368,66 @@ class IllustrationReportTab(QWidget):
 
     # ── Print to PDF ────────────────────────────────────────────────────
 
+    @staticmethod
+    def _load_output_folder() -> str:
+        settings = read_json(_SETTINGS_FILE, default={}) or {}
+        folder = settings.get(_OUTPUT_FOLDER_KEY, "")
+        return folder if isinstance(folder, str) else ""
+
+    def _save_output_folder(self, folder: str) -> None:
+        settings = read_json(_SETTINGS_FILE, default={}) or {}
+        settings[_OUTPUT_FOLDER_KEY] = folder
+        try:
+            write_json(_SETTINGS_FILE, settings)
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "Output folder",
+                f"Could not save the output folder setting: {exc}")
+
+    def _set_output_folder(self, folder: str) -> None:
+        self._output_folder = folder
+        if self.output_folder_edit.text() != folder:
+            self.output_folder_edit.setText(folder)
+        self._save_output_folder(folder)
+
+    def _on_output_folder_edited(self) -> None:
+        self._set_output_folder(self.output_folder_edit.text().strip())
+
+    def _on_browse_output_folder(self) -> None:
+        start_dir = self._output_folder if self._output_folder and Path(self._output_folder).is_dir() else ""
+        folder = QFileDialog.getExistingDirectory(
+            self, "Choose output folder", start_dir)
+        if folder:
+            self._set_output_folder(folder)
+
+    def _default_pdf_name(self) -> str:
+        """policynumber - plancode - yyyy-mm-dd hh-mm (filesystem-safe)."""
+        report = self._report
+        policy = (getattr(report, "policy_number", "") or "").strip() if report else ""
+        plancode = (getattr(report, "plancode", "") or "").strip() if report else ""
+        stamp = datetime.now().strftime("%Y-%m-%d %H-%M")
+        parts = [p for p in (policy, plancode, stamp) if p]
+        name = " - ".join(parts) if parts else "Illustration"
+        # Strip characters illegal in Windows filenames.
+        name = re.sub(r'[<>:"/\\|?*]', "", name)
+        return f"{name}.pdf"
+
     def _on_print_pdf(self):
         if self._report is None:
             return
-        default_name = (
-            (self._report.prepared_for or "Illustration")
-            .replace("PREPARED FOR ", "").strip().replace(" ", "_")
-        )
+        default_name = self._default_pdf_name()
+        if self._output_folder and Path(self._output_folder).is_dir():
+            start_path = str(Path(self._output_folder) / default_name)
+        else:
+            start_path = default_name
         path, _ = QFileDialog.getSaveFileName(
-            self, "Print to PDF", f"{default_name}_Illustration.pdf",
-            "PDF Files (*.pdf)")
+            self, "Print to PDF", start_path, "PDF Files (*.pdf)")
         if not path:
             return
+        # Remember the folder the user actually saved to.
+        chosen_dir = str(Path(path).resolve().parent)
+        if chosen_dir != self._output_folder:
+            self._set_output_folder(chosen_dir)
         try:
             self.write_pdf(self._report, path)
         except Exception as exc:

@@ -8,7 +8,12 @@ Takes a ParseResult (from IAFParser) and produces three CSV files:
   2. Guaranteed COI rates (RATE table, Scale=0)  — ultimate expanded to fully select
   3. Target premiums     (RATE_TRGPRM table)     — CTP, TBL1CTP, MTP, TBL1MTP
 
-Also produces a POINTER table CSV mapping (Sex, RateClass, Band) → Index.
+Also produces a POINTER table CSV mapping (Sex, RateClass, Band) →
+  Index(COI) and Index(TRGPREM).  IssueVersion is always 1 and State is "AA".
+  Index(COI) keys the current + guaranteed COI tables; Index(TRGPREM) keys
+  the target-premium table.  Each index space starts at *starting_index* and
+  increments per distinct rate table (combos with identical rates share one
+  index), matching the benefit-DB convention.
 
 Key transformations:
   - Select+Ultimate → Fully Select:  durations beyond the select period
@@ -22,7 +27,7 @@ Key transformations:
 
 import csv
 import os
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Callable
@@ -37,12 +42,14 @@ from suiteview.ratemanager.parser import ParseResult
 @dataclass
 class PointerRecord:
     """One row of the POINTER table."""
-    index: int
     plancode: str
     issue_version: str
     sex: str
     rate_class: str
     band: str
+    state: str
+    index_coi: Optional[int]
+    index_trgprem: Optional[int]
 
 
 @dataclass
@@ -57,6 +64,9 @@ class ReformatResult:
     guaranteed_coi_rows: int = 0
     target_rows: int = 0
     error: Optional[str] = None
+    # Distinct index counts (after dedup) per index space.
+    coi_index_count: int = 0
+    trg_index_count: int = 0
     # Multi-scale current COI info: list of (scale_number, date_string) pairs
     # Scale 0 = Guaranteed, Scale 1 = most recent current, Scale 2 = next, etc.
     current_scales: List[Tuple[int, str]] = field(default_factory=list)
@@ -274,6 +284,98 @@ class RateReformatter:
         return (combo[0], combo[1], '0')
 
     # ------------------------------------------------------------------
+    # Guaranteed COI lookup (band-robust)
+    # ------------------------------------------------------------------
+
+    def _guar_rates_for(self, combo: ComboKey) -> Dict[int, float]:
+        """Return the guaranteed ultimate rates for *combo*.
+
+        Guaranteed rates are usually unbanded (stored at band='0').  Try the
+        combo's own band first, then fall back to the class-level band='0'
+        table so banded combos still resolve to the shared guaranteed rates
+        via the POINTER mapping.
+        """
+        rates = self._guar_ultimate.get(combo)
+        if rates:
+            return rates
+        return self._guar_ultimate.get(self._guar_class_combo(combo), {})
+
+    # ------------------------------------------------------------------
+    # Index assignment (dedup: identical rate tables share an index)
+    # ------------------------------------------------------------------
+
+    def _coi_signature(self, combo: ComboKey) -> tuple:
+        """Signature of a combo's COI content (current across scales + guar)."""
+        parts = []
+        for dt in self._coi_dates:
+            sel = self._coi_select_by_date.get(dt, {}).get(combo, {})
+            ult = self._coi_ultimate_by_date.get(dt, {}).get(combo, {})
+            parts.append((
+                dt,
+                tuple(sorted(sel.items())),
+                tuple(sorted(ult.items())),
+            ))
+        parts.append(('G', tuple(sorted(self._guar_rates_for(combo).items()))))
+        return tuple(parts)
+
+    def _trg_signature(self, combo: ComboKey) -> tuple:
+        """Signature of a combo's target-premium content."""
+        return (
+            tuple(sorted(self._ctp_base.get(self._ctp_class_combo(combo), {}).items())),
+            tuple(sorted(self._ctp_tbl4.get(combo, {}).items())),
+            tuple(sorted(self._mtp_base.get(combo, {}).items())),
+            tuple(sorted(self._mtp_tbl4.get(combo, {}).items())),
+        )
+
+    def _assign_coi_indices(
+        self, combos: List[ComboKey],
+    ) -> Tuple[Dict[ComboKey, int], List[Tuple[int, ComboKey]]]:
+        """Assign Index(COI) per distinct COI rate table.
+
+        Returns ``(combo→index, [(index, representative_combo)])``.  Combos
+        with identical COI content share one index; each distinct table is
+        emitted once using its representative combo.
+        """
+        coi_index: Dict[ComboKey, int] = {}
+        groups: "OrderedDict[tuple, int]" = OrderedDict()
+        reps: List[Tuple[int, ComboKey]] = []
+        next_idx = self.starting_index
+        for combo in combos:
+            sig = self._coi_signature(combo)
+            idx = groups.get(sig)
+            if idx is None:
+                idx = next_idx
+                groups[sig] = idx
+                reps.append((idx, combo))
+                next_idx += 1
+            coi_index[combo] = idx
+        return coi_index, reps
+
+    def _assign_trg_indices(
+        self, combos: List[ComboKey],
+    ) -> Tuple[Dict[ComboKey, int], List[Tuple[int, ComboKey]]]:
+        """Assign Index(TRGPREM) per distinct target-premium table.
+
+        Combos without any target content are omitted (blank Index(TRGPREM)).
+        """
+        trg_index: Dict[ComboKey, int] = {}
+        groups: "OrderedDict[tuple, int]" = OrderedDict()
+        reps: List[Tuple[int, ComboKey]] = []
+        next_idx = self.starting_index
+        for combo in combos:
+            sig = self._trg_signature(combo)
+            if not any(sig):
+                continue
+            idx = groups.get(sig)
+            if idx is None:
+                idx = next_idx
+                groups[sig] = idx
+                reps.append((idx, combo))
+                next_idx += 1
+            trg_index[combo] = idx
+        return trg_index, reps
+
+    # ------------------------------------------------------------------
     # Public: run the full reformat
     # ------------------------------------------------------------------
 
@@ -286,12 +388,13 @@ class RateReformatter:
         res = ReformatResult()
 
         try:
-            # 1. Build POINTER
+            # 1. Build POINTER + per-table index assignments (with dedup).
             combos = self._get_banded_combos()
-            pointer: Dict[ComboKey, int] = {}
-            for i, combo in enumerate(combos):
-                pointer[combo] = self.starting_index + i
+            coi_index, coi_reps = self._assign_coi_indices(combos)
+            trg_index, trg_reps = self._assign_trg_indices(combos)
             res.combo_count = len(combos)
+            res.coi_index_count = len(coi_reps)
+            res.trg_index_count = len(trg_reps)
 
             select_period = self._get_select_period()
             ia_min, ia_max = self._get_issue_age_range()
@@ -306,7 +409,7 @@ class RateReformatter:
 
             # 2. POINTER CSV
             res.pointer_csv = os.path.join(output_dir, "POINTER.csv")
-            self._write_pointer_csv(res.pointer_csv, combos, pointer)
+            self._write_pointer_csv(res.pointer_csv, combos, coi_index, trg_index)
             step += 1
             if self._progress:
                 self._progress(step, total_steps)
@@ -314,7 +417,7 @@ class RateReformatter:
             # 3. Current COI (all scales in one file)
             res.current_coi_csv = os.path.join(output_dir, "RATE_COI_CURRENT.csv")
             res.current_coi_rows = self._write_current_coi(
-                res.current_coi_csv, combos, pointer,
+                res.current_coi_csv, coi_reps,
                 select_period, ia_min, ia_max,
             )
             step += 1
@@ -324,7 +427,7 @@ class RateReformatter:
             # 4. Guaranteed COI
             res.guaranteed_coi_csv = os.path.join(output_dir, "RATE_COI_GUARANTEED.csv")
             res.guaranteed_coi_rows = self._write_guaranteed_coi(
-                res.guaranteed_coi_csv, combos, pointer,
+                res.guaranteed_coi_csv, coi_reps,
                 ia_min, ia_max,
             )
             step += 1
@@ -334,7 +437,7 @@ class RateReformatter:
             # 5. Target premiums
             res.target_csv = os.path.join(output_dir, "RATE_TRGPRM.csv")
             res.target_rows = self._write_target_premiums(
-                res.target_csv, combos, pointer,
+                res.target_csv, trg_reps,
                 ia_min, ia_max,
             )
             step += 1
@@ -354,19 +457,27 @@ class RateReformatter:
         self,
         filepath: str,
         combos: List[ComboKey],
-        pointer: Dict[ComboKey, int],
+        coi_index: Dict[ComboKey, int],
+        trg_index: Dict[ComboKey, int],
     ):
         with open(filepath, 'w', newline='') as f:
             w = csv.writer(f)
-            w.writerow(["Index", "Plancode", "IssueVersion", "Sex", "RateClass", "Band"])
+            w.writerow([
+                "Plancode", "IssueVersion", "Sex", "RateClass", "Band",
+                "State", "Index(COI)", "Index(TRGPREM)",
+            ])
             for combo in combos:
+                ci = coi_index.get(combo)
+                ti = trg_index.get(combo)
                 w.writerow([
-                    pointer[combo],
                     self.plancode,
-                    self.issue_version,
-                    combo[0],   # sex / gender
-                    combo[1],   # rate_class
-                    combo[2],   # band
+                    "1",                                  # IssueVersion always 1
+                    combo[0],                             # sex / gender
+                    combo[1],                             # rate_class
+                    combo[2],                             # band
+                    "AA",                                 # State always AA
+                    ci if ci is not None else "",
+                    ti if ti is not None else "",
                 ])
 
     # ------------------------------------------------------------------
@@ -376,8 +487,7 @@ class RateReformatter:
     def _write_current_coi(
         self,
         filepath: str,
-        combos: List[ComboKey],
-        pointer: Dict[ComboKey, int],
+        coi_reps: List[Tuple[int, ComboKey]],
         select_period: int,
         ia_min: int,
         ia_max: int,
@@ -406,8 +516,7 @@ class RateReformatter:
                 # Use per-date select period if it differs
                 dt_select_period = self._get_select_period(dt) or select_period
 
-                for combo in combos:
-                    idx = pointer[combo]
+                for idx, combo in coi_reps:
                     sel_rates = self._coi_select_by_date.get(dt, {}).get(combo, {})
                     ult_rates = self._coi_ultimate_by_date.get(dt, {}).get(combo, {})
 
@@ -440,8 +549,7 @@ class RateReformatter:
     def _write_guaranteed_coi(
         self,
         filepath: str,
-        combos: List[ComboKey],
-        pointer: Dict[ComboKey, int],
+        coi_reps: List[Tuple[int, ComboKey]],
         ia_min: int,
         ia_max: int,
     ) -> int:
@@ -457,10 +565,8 @@ class RateReformatter:
             w = csv.writer(f)
             w.writerow(["Index", "Scale", "IssueAge", "Duration", "Rate"])
 
-            for combo in combos:
-                idx = pointer[combo]
-                guar_combo = self._guar_class_combo(combo)
-                ult_rates = self._guar_ultimate.get(guar_combo, {})
+            for idx, combo in coi_reps:
+                ult_rates = self._guar_rates_for(combo)
 
                 if not ult_rates:
                     continue  # no guaranteed rates for this class
@@ -488,8 +594,7 @@ class RateReformatter:
     def _write_target_premiums(
         self,
         filepath: str,
-        combos: List[ComboKey],
-        pointer: Dict[ComboKey, int],
+        trg_reps: List[Tuple[int, ComboKey]],
         ia_min: int,
         ia_max: int,
     ) -> int:
@@ -507,8 +612,7 @@ class RateReformatter:
             w = csv.writer(f)
             w.writerow(["Index", "IssueAge", "CTP", "TBL1CTP", "MTP", "TBL1MTP"])
 
-            for combo in combos:
-                idx = pointer[combo]
+            for idx, combo in trg_reps:
 
                 # CTP comes from the class-level (band='0') T rates
                 ctp_combo = self._ctp_class_combo(combo)

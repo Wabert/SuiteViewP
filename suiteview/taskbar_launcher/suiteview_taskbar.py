@@ -3783,6 +3783,17 @@ class SuiteViewTaskbar(QWidget):
                     widget.depth_search_locked = False
                     widget.depth_search_active_results = None
                 
+                # Unregister BookmarkContainers from the global registry so no
+                # deleted widget is left behind (prevents crashes when a later
+                # bookmark hover/drag/refresh broadcasts across all containers).
+                from suiteview.ui.widgets.bookmark_widgets import BookmarkContainerRegistry
+                if hasattr(widget, 'bookmark_bar'):
+                    BookmarkContainerRegistry.unregister(
+                        widget.bookmark_bar.bar_id, widget.bookmark_bar)
+                if hasattr(widget, 'bookmark_container'):
+                    BookmarkContainerRegistry.unregister(
+                        widget.bookmark_container.bar_id, widget.bookmark_container)
+                
             except Exception as e:
                 logger.error(f"Error disconnecting signals during tab close: {e}")
         

@@ -71,3 +71,10 @@ tmp_compare/
 
 # Office temp/lock files (e.g. ~$RERUN (v20.0).xlsm)
 ~$*
+
+# Large RateManager raw report dumps (exceed GitHub's 100 MB file limit / bloat
+# history). These are regenerable mainframe report inputs — keep them local only.
+docs/RateManager/CKULTB04/CKULTBC4 03-31-2026.txt
+docs/RateManager/CKULTB04/CKULTBF4 07-07-2026.txt
+docs/RateManager/CKULTB01/CKULTB01 (EPU).COMPANY 00.CKPR.TXT
+docs/RateManager/MPF/MPF CKAS 2019-04-04.txt

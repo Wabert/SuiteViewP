@@ -126,6 +126,7 @@ def load_rates(
         segment_scr[base_seg.coverage_phase] = rates_db.get_rates(
             "SCR", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
             base_seg.rate_class, scale=1, band=base_seg.band,
+            state=policy.issue_state,
         ) or []
 
     result = IllustrationRates(

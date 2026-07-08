@@ -3142,7 +3142,8 @@ class PolicyInformation:
             issue_age=self.cov_issue_age(cov_index),
             sex=sex,
             rateclass=self.renewal_cov_rateclass_by_cov(cov_index),
-            band=band
+            band=band,
+            state=self.issue_state
         )
     
     def rates_corr(self) -> Optional[List[float]]:

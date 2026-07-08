@@ -3638,6 +3638,16 @@ class BookmarkContainer(QWidget):
         # Register with the global registry for cross-bar communication
         BookmarkContainerRegistry.register(bar_id, self)
         
+        # Auto-unregister when the underlying C++ widget is destroyed so the
+        # global registry never holds a dangling reference. Without this, closing
+        # a tab that owns a container leaves a deleted widget in the registry;
+        # a later hover/drag/refresh broadcast then delivers events to freed
+        # memory and hard-crashes the app. Capture bar_id/self at connect time
+        # and use identity-only removal so the slot is safe during teardown.
+        self.destroyed.connect(
+            lambda _obj=None, b=bar_id, c=self: BookmarkContainerRegistry.unregister(b, c)
+        )
+        
         self.setAcceptDrops(True)
         
         self._setup_ui()

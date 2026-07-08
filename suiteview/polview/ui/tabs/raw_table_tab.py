@@ -1,18 +1,23 @@
 """
-Raw Table tab – transposed/normal data view with Excel export.
+Raw Table tab – transposed/normal data view with column filtering & Excel export.
 """
 
 from datetime import datetime
 
+import pandas as pd
+
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QTableWidgetItem, QMessageBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QStackedWidget, QMessageBox,
 )
 from PyQt6.QtCore import Qt
 
 from suiteview.core.db2_connection import DB2Connection
-from ..styles import BLUE_LIGHT, BLUE_DARK, BLUE_PRIMARY, GOLD_LIGHT, GOLD_PRIMARY
-from ..widgets import CopyableLabel, TableDataWidget
+from suiteview.ui.widgets.filter_table_view import FilterTableView
+from ..styles import (
+    BLUE_LIGHT, BLUE_DARK, BLUE_PRIMARY, GOLD_LIGHT, GOLD_PRIMARY,
+    GREEN_SUBTLE, GREEN_DARK, GREEN_PRIMARY,
+)
+from ..widgets import CopyableLabel
 
 
 class RawTableTab(QWidget):
@@ -24,6 +29,10 @@ class RawTableTab(QWidget):
         self._current_cols = []
         self._current_rows = []
         self._current_table_name = ""
+        # Cached DataFrames per orientation so repeated transposing never
+        # rebuilds the frame or recomputes each grid's unique-value filters.
+        self._df_normal = None
+        self._df_transposed = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -94,8 +103,30 @@ class RawTableTab(QWidget):
 
         layout.addLayout(header_layout)
 
-        self.data_table = TableDataWidget()
-        layout.addWidget(self.data_table)
+        # Two Excel-style filter grids (the same widget used by the Query
+        # results view) — one per orientation. Only the active one is shown;
+        # toggling transpose swaps the stacked page so each grid keeps its own
+        # column filters and cached unique values with no recompute.
+        self._stack = QStackedWidget()
+        self._normal_grid = self._make_grid()
+        self._transposed_grid = self._make_grid()
+        self._stack.addWidget(self._normal_grid)      # index 0 – normal
+        self._stack.addWidget(self._transposed_grid)  # index 1 – transposed
+        layout.addWidget(self._stack)
+
+        self._update_active_grid()
+
+    def _make_grid(self) -> FilterTableView:
+        """Create a FilterTableView themed to match the PolView tabs."""
+        grid = FilterTableView(self)
+        grid.apply_ledger_style(
+            header_bg=GREEN_SUBTLE,
+            header_fg=GREEN_DARK,
+            border=GREEN_PRIMARY,
+            selection_bg=GOLD_LIGHT,
+            selection_fg=GREEN_DARK,
+        )
+        return grid
 
     # ── clear / reset ────────────────────────────────────────────────────
 
@@ -104,43 +135,70 @@ class RawTableTab(QWidget):
         self._current_cols = []
         self._current_rows = []
         self._current_table_name = ""
+        self._df_normal = None
+        self._df_transposed = None
         self.table_label.setText("Select a table from the left panel")
-        self.data_table.clear()
-        self.data_table.setRowCount(0)
-        self.data_table.setColumnCount(0)
+        empty = pd.DataFrame()
+        self._normal_grid.set_dataframe(empty, limit_rows=False)
+        self._transposed_grid.set_dataframe(empty, limit_rows=False)
 
     # ── view toggling ────────────────────────────────────────────────────
 
     def _toggle_transpose(self):
         """Toggle between transposed and normal view."""
         self._is_transposed = not self._is_transposed
-        if self._current_cols and self._current_rows:
-            self._display_data()
+        self._update_active_grid()
+
+    def _update_active_grid(self):
+        """Show the grid for the current orientation (no recompute)."""
+        self._stack.setCurrentWidget(
+            self._transposed_grid if self._is_transposed else self._normal_grid
+        )
 
     def _display_data(self):
-        """Display data in current mode (transposed or normal)."""
+        """Build (and cache) both orientation frames, then show the active one.
+
+        Each frame is built once per loaded table and handed to its own grid,
+        so toggling transpose only swaps the visible page — the per-column
+        unique-value filters for each orientation are never recomputed.
+        """
         if not self._current_cols or not self._current_rows:
             return
 
-        if self._is_transposed:
-            # Fields as rows, records as columns (current behavior)
-            self.data_table.load_data(self._current_cols, self._current_rows)
-        else:
-            # Normal view: fields as columns, records as rows
-            self.data_table.clear()
-            self.data_table.setRowCount(len(self._current_rows))
-            self.data_table.setColumnCount(len(self._current_cols))
-            self.data_table.setHorizontalHeaderLabels(self._current_cols)
-            self.data_table.horizontalHeader().setVisible(True)
-            self.data_table.verticalHeader().setVisible(False)
+        if self._df_normal is None:
+            self._df_normal = self._build_normal_df()
+            self._normal_grid.set_dataframe(self._df_normal, limit_rows=False)
 
-            for row_idx, row in enumerate(self._current_rows):
-                for col_idx, value in enumerate(row):
-                    item = QTableWidgetItem(str(value) if value is not None else "")
-                    self.data_table.setItem(row_idx, col_idx, item)
+        if self._df_transposed is None:
+            self._df_transposed = self._build_transposed_df()
+            self._transposed_grid.set_dataframe(self._df_transposed, limit_rows=False)
 
-            # Resize columns to content
-            self.data_table.resizeColumnsToContents()
+        self._update_active_grid()
+
+    def _build_normal_df(self) -> pd.DataFrame:
+        """Normal orientation: DB2 fields as columns, records as rows."""
+        return pd.DataFrame(list(self._current_rows), columns=list(self._current_cols))
+
+    def _build_transposed_df(self) -> pd.DataFrame:
+        """Transposed orientation: a 'Field' column plus one column per record."""
+        data = {"Field": list(self._current_cols)}
+        for rec_idx, row in enumerate(self._current_rows):
+            data[f"Row {rec_idx + 1}"] = [
+                row[field_idx] if field_idx < len(row) else None
+                for field_idx in range(len(self._current_cols))
+            ]
+        return pd.DataFrame(data)
+
+    def _show_message(self, message: str):
+        """Show a single-cell placeholder (no data / error) in both grids."""
+        self._current_cols = []
+        self._current_rows = []
+        self._df_normal = None
+        self._df_transposed = None
+        df = pd.DataFrame({"Result": [message]})
+        self._normal_grid.set_dataframe(df, limit_rows=False)
+        self._transposed_grid.set_dataframe(df, limit_rows=False)
+        self._update_active_grid()
 
     # ── Excel export ─────────────────────────────────────────────────────
 
@@ -265,21 +323,16 @@ class RawTableTab(QWidget):
             cols, rows = db.execute_query_with_headers(sql)
 
             if rows:
-                self._current_cols = cols
-                self._current_rows = rows
+                self._current_cols = list(cols)
+                # fetchall() yields pyodbc.Row objects; pandas treats those as
+                # scalars (→ "Shape of passed values" error), so normalize to
+                # plain tuples before building the DataFrames.
+                self._current_rows = [tuple(r) for r in rows]
+                self._df_normal = None
+                self._df_transposed = None
                 self._display_data()
             else:
-                self._current_cols = []
-                self._current_rows = []
-                self.data_table.clear()
-                self.data_table.setRowCount(1)
-                self.data_table.setColumnCount(1)
-                self.data_table.setItem(0, 0, QTableWidgetItem("No data found"))
+                self._show_message("No data found")
 
         except Exception as e:
-            self._current_cols = []
-            self._current_rows = []
-            self.data_table.clear()
-            self.data_table.setRowCount(1)
-            self.data_table.setColumnCount(1)
-            self.data_table.setItem(0, 0, QTableWidgetItem(f"Error: {e}"))
+            self._show_message(f"Error: {e}")
