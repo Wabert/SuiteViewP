@@ -16,6 +16,16 @@ Usage:
 
 import os
 import sys
+from pathlib import Path
+
+# Bundle every JSON in the illustration plancodes directory so a newly added
+# data file (e.g. index_strategies.json, rider_table.json) is never silently
+# left out of the build. Runtime paths resolve to
+# _internal/suiteview/illustration/plancodes/<file>.json.
+_PLANCODES_DATAS = [
+    (str(p), 'suiteview/illustration/plancodes')
+    for p in Path('suiteview/illustration/plancodes').glob('*.json')
+]
 
 
 a = Analysis(
@@ -32,13 +42,10 @@ a = Analysis(
         ('suiteview/polview/data/policy_record_db2_tables.json', 'suiteview/polview/data'),
         # PolView config
         ('suiteview/polview/config/field_tooltips.json', 'suiteview/polview/config'),
-        # Illustration / GLP Exception plancode and rate data
-        ('suiteview/illustration/plancodes/plancode_table.json', 'suiteview/illustration/plancodes'),
-        ('suiteview/illustration/plancodes/tRates_CORR.json', 'suiteview/illustration/plancodes'),
-        ('suiteview/illustration/plancodes/tRates_IntBonus.json', 'suiteview/illustration/plancodes'),
-        ('suiteview/illustration/plancodes/tRates_MDBR.json', 'suiteview/illustration/plancodes'),
         # Audit Tool assets
         ('suiteview/audit/tabs/_checkmark.png', 'suiteview/audit/tabs'),
+        # Illustration / GLP Exception plancode and rate data (all JSON files)
+        *_PLANCODES_DATAS,
     ],
     hiddenimports=[
         'PyQt6', 'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets',
