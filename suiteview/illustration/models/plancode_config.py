@@ -48,6 +48,10 @@ class PlancodeConfig:
     # Substandard
     table_rating_factor: float = 0.25
 
+    # Company subsidiary (RERUN sCompanySub) — "FFL" switches the premium
+    # waiver targets to the FFL basis (CalcEngine IW..JD via sblnFFL).
+    company_sub: str = "ANICO"
+
     # Target premiums (MTP/CTP) — RERUN sTarget_SA_Basis / sTarget_BandLock.
     # Defaults validated against RERUN for the EXECUL family: targets use the
     # CURRENT specified amount and re-band to the current total-SA band.
@@ -99,6 +103,11 @@ class PlancodeConfig:
     shadow_dbd_rate: str = "0.05"        # "Table" or flat rate for DB discount
     shadow_int_rate_code: str = "0.05"   # "Table" or flat interest rate
     shadow_loan_impact: str = "Reduce"   # "Reduce" or "None"
+
+    @property
+    def is_ffl(self) -> bool:
+        """RERUN sblnFFL = (sCompanySub = "FFL")."""
+        return self.company_sub == "FFL"
 
 
 def _load_plancode_table() -> Dict[str, dict]:
@@ -170,6 +179,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         dbd=float(data.get("DBD", 0)),
         gint=float(data.get("GINT", data.get("DBD", 0))),
         table_rating_factor=float(data.get("TableRatingFactor", 0.25)),
+        company_sub=str(data.get("CompanySub", "ANICO")).strip(),
         target_sa_basis=data.get("Target_SA_Basis", "CurrentSA"),
         target_band_lock=bool(data.get("Target_BandLock", False)),
         withdrawal_fee=float(data.get("WithdrawalFee", 25)),

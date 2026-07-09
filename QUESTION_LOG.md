@@ -627,3 +627,28 @@ on FilterTableView — icon zone reclaimed, autofit tighter).
 - **Report:** dashed separator between the as-of and each policy-change
   rider/regulatory block; duplicate change sections (same kind/date/value
   entered via both input styles) dedupe.
+
+## J. 2026-07-08 (minipc) — FFL premium waiver targets (CalcEngine IW..JD)
+
+Implemented the FFL premium-waiver target basis in `target_premium.py`:
+plancodes with `CompanySub = "FFL"` (new plancode-table column, merged from
+RERUN Rates_Control C12:BE206 by `tools/merge_plancode_company_sub.py`;
+`sblnFFL = sCompanySub="FFL"`, 49 plancodes) compute PWoC (benefit type 3,
+IV=JB=TRUNC(pwRate·IZ·(1+factor·table),2)) and PWoT/PWSTP (benefit type 4,
+IK=JD=TRUNC(JA·JC,2), CTP KE=JC·vMTP) from cost bases. IZ = benefit MTPs/12 +
+current base COI on SA (IW, re-snapshotted at each policy change) + table
+extra (IX) + flat term (IY) + monthly fee (PolicyRates FE). Non-FFL PWoT
+(units·rate·(1+factor·table)) implemented in the same change (was a TODO).
+Unit tests: `tests/test_illustration_ffl_waiver_targets.py` (4 green); live
+FFL-case validation deferred → WORK_LAPTOP_SPEC §1.13.
+
+### Question — IY (vMin_Base_Flat) missing /1000 and /12?
+
+RERUN: `IY = SUM(EU:EW)·vFlat1` — total SA times the ANNUAL per-1000 flat
+extra, with no /1000 and no /12, feeding the otherwise-monthly PWoC basis IZ.
+IW and IX both divide by 1000; a $2.50 flat on $150K face would add $375,000
+to a ~$13 monthly basis. Looks like a workbook bug that never bites because
+FFL cases with flat extras don't occur (?). I replicated it EXACTLY so
+comparison runs stay lockstep — flagged in code
+(`target_premium.py::compute_target_premiums`, IY comment). Confirm intent if
+a rated FFL case ever shows up.

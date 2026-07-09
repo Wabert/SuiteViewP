@@ -8,8 +8,23 @@ Computes the annual target premiums from rates, exactly as RERUN does when
       + ROUND(tableRating·tblRate·SA/1000, 2)        (CTP caps tblRate at 6)
       + ROUND((12·TRUNC(flat/12,2))·SA/1000, 2)
     + benefit targets (CCV: rate·SA/1000; others: units·rate)
-    + Premium Waiver (IV): pwRate·(target w/o PW, MTP basis)·(1 + factor·table)
+    + Stipulated Premium Waiver / PWoT (IK): units·pwstRate·(1 + factor·table)
+    + Premium Waiver of Charges / PWoC (IV): pwRate·(target w/o PW, MTP basis)
+      ·(1 + factor·table)
       — the PW component of vCTP is the SAME MTP-basis value, ROUNDed (KP=IV).
+
+FFL products (plancode CompanySub = "FFL", RERUN sblnFFL) replace both waiver
+targets with the "FFL Premium Waivers" basis calc (CalcEngine IW..JD):
+
+    IW  vMin_Base       = Σcov currentCOIRate·SA/1000     (at the change month)
+    IX  vMin_Base_Table = Σcov currentCOIRate·table·SA·factor/1000
+    IY  vMin_Base_Flat  = TotalSA·flat1                   (RERUN as-is; no /1000, /12)
+    IZ  PWoC MinBasis   = Σbenefit MTPs/12 + IW + IX + IY + monthly fee
+    JB  PWoC_MTP (IV)   = TRUNC(pwRate·IZ·(1 + factor·table), 2)
+    JA  PWoT MinBasis   = Σcov MTPs + Σbenefit MTPs + JB  (no CCV, no PWoT)
+    JC  PWoT_wTable     = TRUNC(x/(1−x), 5),  x = pwstRate/100·(1 + table·factor)
+    JD  PWoT_MTP (IK)   = TRUNC(JA·JC, 2)
+    KE  PWoT CTP        = JC·vMTP                          (vs units·rate non-FFL)
 
     vMTP = MTP components + IV                       (IV at full precision)
     vCTP = CTP components + ROUND(IV, 2)
@@ -48,10 +63,35 @@ def _trunc2(value: float) -> float:
     return float(Decimal(f"{value:.12f}").quantize(Decimal("0.01"), rounding=ROUND_DOWN))
 
 
+def _trunc5(value: float) -> float:
+    return float(Decimal(f"{value:.12f}").quantize(Decimal("0.00001"), rounding=ROUND_DOWN))
+
+
 def _active(cease_date: Optional[date], as_of: Optional[date]) -> bool:
     if cease_date is None or as_of is None:
         return True
     return as_of <= cease_date
+
+
+def _years_since(start: Optional[date], as_of: Optional[date]) -> int:
+    """1-based year duration at ``as_of`` (year 1 = first policy/coverage year)."""
+    if start is None or as_of is None:
+        return 1
+    years = as_of.year - start.year
+    if (as_of.month, as_of.day) < (start.month, start.day):
+        years -= 1
+    return max(1, years + 1)
+
+
+def _schedule_rate(schedule, index: int) -> float:
+    """Rate array lookup — arrays are 1-indexed by duration, last value carries."""
+    if not schedule or len(schedule) < 2:
+        return 0.0
+    if index < 1:
+        index = 1
+    if index >= len(schedule):
+        return float(schedule[-1] or 0.0)
+    return float(schedule[index] or 0.0)
 
 
 @dataclass
@@ -75,6 +115,18 @@ class TargetPremiumResult:
     pw_rate: float = 0.0        # IU — PW MTPR
     mtp_wo_pw: float = 0.0      # IT
     ctp_wo_pw: float = 0.0      # KN basis (cov + benefit CTPs before PW)
+
+    # Stipulated Premium Waiver / PWoT (benefit type 4).
+    pwst_rate: float = 0.0          # IJ — PWSTP MTPR
+    pwst_ctp_rate: float = 0.0      # KD — PWSTP CTPR (non-FFL)
+    pwst_component: float = 0.0     # IK — PWoT MTP
+    pwst_ctp_component: float = 0.0  # KE — PWoT CTP
+
+    # FFL premium waiver bases (CalcEngine IW..JD) — zero for non-FFL products.
+    ffl_min_base: float = 0.0       # IW
+    ffl_pwoc_basis: float = 0.0     # IZ
+    ffl_pwot_basis: float = 0.0     # JA
+    ffl_pwot_factor: float = 0.0    # JC
 
     @property
     def mtp_monthly(self) -> float:
@@ -103,6 +155,70 @@ def _segment_target(
         + _round2(table_rating * tbl * sa / 1000.0)
         + _round2(12.0 * flat_monthly * sa / 1000.0)
     )
+
+
+def _ffl_min_base(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db,
+    current_band: int,
+    as_of: Optional[date],
+) -> tuple[float, float]:
+    """FFL vMin_Base / vMin_Base_Table (CalcEngine IW / IX).
+
+    Current-scale COI select rate per coverage at its duration for the as-of
+    month, applied to the specified amount. RERUN freezes IW between policy
+    changes; we recompute per call, which matches because targets are only
+    computed at issue/inforce and on policy changes.
+    """
+    iw = 0.0
+    ix = 0.0
+    for seg in policy.segments:
+        if seg.face_amount <= 0:
+            continue
+        cov_year = _years_since(seg.issue_date, as_of)
+        if seg.issue_age + cov_year - 1 >= config.premium_cease_age:
+            continue
+        # PolicyRates EH..EJ band: original band only when dynamic banding is
+        # off ("0"), else the current total-SA band (FD).
+        band = seg.original_band if config.dynamic_banding == 0 else current_band
+        schedule = rates_db.get_rates(
+            "COI", policy.plancode, seg.issue_age, seg.rate_sex,
+            seg.rate_class, scale=1, band=band,
+        ) or []
+        rate = _schedule_rate(schedule, cov_year)
+        table = (
+            seg.table_rating
+            if seg.table_rating > 0 and _active(seg.table_cease_date, as_of)
+            else 0
+        )
+        iw += rate * seg.face_amount / 1000.0
+        ix += rate * table * seg.face_amount * config.table_rating_factor / 1000.0
+    return iw, ix
+
+
+def _ffl_monthly_fee(
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    rates_db,
+    current_band: int,
+    as_of: Optional[date],
+) -> float:
+    """FFL monthly expense fee term of the PWoC basis (PolicyRates FE)."""
+    policy_year = _years_since(policy.issue_date, as_of)
+    if policy.issue_age + policy_year - 1 >= config.premium_cease_age:
+        return 0.0
+    if config.mfee == "Table":
+        base = policy.base_segment
+        schedule = rates_db.get_rates(
+            "MFEE", policy.plancode, base.issue_age, base.rate_sex,
+            base.rate_class, scale=1, band=current_band,
+        ) or []
+        return _schedule_rate(schedule, policy_year)
+    try:
+        return float(config.mfee)
+    except (ValueError, TypeError):
+        return 0.0
 
 
 def compute_target_premiums(
@@ -180,8 +296,14 @@ def compute_target_premiums(
     # the target band. PW is applied last against the MTP-without-PW total.
     ben_band = base.original_band if config.target_band_lock else current_band
     pw_rate = 0.0
-    mtp_ben_sum = 0.0
-    ctp_ben_sum = 0.0
+    pwst_rate = 0.0
+    pwst_ctp_rate = 0.0
+    pwst_units = 0.0
+    pwst_key = ""
+    mtp_ben_generic = 0.0   # IO/IQ/IS analog — units x rate benefits
+    ctp_ben_generic = 0.0
+    mtp_ben_ccv = 0.0       # IM
+    ctp_ben_ccv = 0.0
     for ben in policy.benefits:
         ben_type = ben.benefit_type or ""
         if not ben.is_active or ben_type.startswith("#"):
@@ -198,50 +320,117 @@ def compute_target_premiums(
         )
         ben_mtp_rate = rates_db.get_ben_mtp(*ben_args) or 0.0
         ben_ctp_rate = rates_db.get_ben_ctp(*ben_args) or 0.0
-        if ben_key in ("39", "3#"):
+        if ben_type == "3":
+            # Premium Waiver of Charges (PWoC) — applied last against the
+            # MTP-without-PW total (IV), or the FFL PWoC basis (JB).
             pw_rate = ben_mtp_rate
+            continue
+        if ben_type == "4":
+            # Stipulated Premium Waiver (PWoT/PWSTP) — applied last (IK);
+            # RERUN gates on vPWST_Units > 0 (an illustration input); the
+            # presence of an active, un-ceased type-4 benefit is our analog.
+            pwst_rate = ben_mtp_rate
+            pwst_ctp_rate = ben_ctp_rate
+            pwst_units = ben.units or 0.0
+            pwst_key = ben_key
             continue
         if ben_type == "A":
             # CCV (IM/KG): rate x current total SA / 1000.
             mtp_val = ben_mtp_rate * total_face / 1000.0
             ctp_val = ben_ctp_rate * total_face / 1000.0
+            mtp_ben_ccv += mtp_val
+            ctp_ben_ccv += ctp_val
         else:
             # ADB/CTR/GIO etc. (IO/IQ/IS): units x rate.
-            # TODO: verify PWST (stipulated premium waiver) if a case appears —
-            # RERUN multiplies its units-x-rate by (1 + factor*table) (IK).
             mtp_val = (ben.units or 0.0) * ben_mtp_rate
             ctp_val = (ben.units or 0.0) * ben_ctp_rate
+            mtp_ben_generic += mtp_val
+            ctp_ben_generic += ctp_val
         result.mtp_benefits[ben_key] = mtp_val
         result.ctp_benefits[ben_key] = ctp_val
-        mtp_ben_sum += mtp_val
-        ctp_ben_sum += ctp_val
 
     # Riders: RERUN's rider target tables (tRates_Rider_SigTerm_Targets) are
     # dead references for this product family — UL riders contribute no target
     # premium. Revisit if a product with rider target rates appears.
 
-    mtp_wo_pw = mtp_cov_sum + mtp_ben_sum
-    ctp_wo_pw = ctp_cov_sum + ctp_ben_sum
+    base_table = (
+        base.table_rating
+        if base.table_rating > 0 and _active(base.table_cease_date, as_of)
+        else 0
+    )
+    factor = config.table_rating_factor
+    pwst_active = bool(pwst_key)
+    pw_component = 0.0        # IV
+    pwst_component = 0.0      # IK
+    pwst_ctp_component = 0.0  # KE
 
-    # PW (IV): pwRate x (MTP w/o PW) x (1 + factor x base table rating).
-    pw_component = 0.0
+    if config.is_ffl:
+        # FFL Premium Waivers (CalcEngine IW..JD) — both waiver targets come
+        # from cost bases instead of units x rate.
+        iw, ix = _ffl_min_base(policy, config, rates_db, current_band, as_of)
+        base_flat = (
+            base.flat_extra
+            if base.flat_extra and base.flat_extra > 0
+            and _active(base.flat_cease_date, as_of)
+            else 0.0
+        )
+        # IY = TotalSA x vFlat1, replicated EXACTLY as RERUN computes it —
+        # the workbook applies neither /1000 nor /12 to this term (suspected
+        # workbook bug; keep in lockstep for comparison runs).
+        iy = total_face * base_flat
+        mfee_monthly = _ffl_monthly_fee(policy, config, rates_db, current_band, as_of)
+        # IZ — PWoC min basis: monthly benefit targets + current base COI on
+        # SA + its table extra + flat term + monthly expense fee.
+        pwoc_basis = mtp_ben_generic / 12.0 + iw + ix + iy + mfee_monthly
+        if pw_rate > 0.0:
+            # JB — PWoC_MTP.
+            pw_component = _trunc2(pw_rate * pwoc_basis * (1.0 + factor * base_table))
+        # JA — PWoT min basis: coverage + benefit targets + the PWoC target
+        # (excludes CCV and the PWoT target itself).
+        pwot_basis = mtp_cov_sum + mtp_ben_generic + pw_component
+        pwot_factor = 0.0
+        if pwst_active:
+            x = pwst_rate / 100.0 * (1.0 + base_table * factor)
+            if x < 1.0:
+                pwot_factor = _trunc5(x / (1.0 - x))   # JC
+            pwst_component = _trunc2(pwot_basis * pwot_factor)  # IK = JD
+        result.ffl_min_base = iw
+        result.ffl_pwoc_basis = pwoc_basis
+        result.ffl_pwot_basis = pwot_basis
+        result.ffl_pwot_factor = pwot_factor
+    elif pwst_active:
+        # IK / KE non-FFL: units x rate x (1 + factor x base table rating).
+        pwst_component = pwst_units * pwst_rate * (1.0 + factor * base_table)
+        pwst_ctp_component = pwst_units * pwst_ctp_rate * (1.0 + factor * base_table)
+
+    # IT — MTP w/o PW (includes CCV and the PWoT target).
+    mtp_wo_pw = mtp_cov_sum + mtp_ben_generic + mtp_ben_ccv + pwst_component
+
+    if not config.is_ffl and pw_rate > 0.0:
+        # IV — PW (PWoC): pwRate x (MTP w/o PW) x (1 + factor x table).
+        pw_component = pw_rate * mtp_wo_pw * (1.0 + factor * base_table)
+
+    result.mtp_annual = mtp_wo_pw + pw_component   # JG
+    if config.is_ffl and pwst_active:
+        # KE — FFL PWoT CTP = JC x vMTP (the full annual MTP, not JA).
+        pwst_ctp_component = result.ffl_pwot_factor * result.mtp_annual
+    ctp_wo_pw = ctp_cov_sum + ctp_ben_generic + ctp_ben_ccv + pwst_ctp_component
+
     if pw_rate > 0.0:
-        base_table = (
-            base.table_rating
-            if base.table_rating > 0 and _active(base.table_cease_date, as_of)
-            else 0
-        )
-        pw_component = pw_rate * mtp_wo_pw * (
-            1.0 + config.table_rating_factor * base_table
-        )
         result.mtp_benefits["39"] = pw_component
         result.ctp_benefits["39"] = _round2(pw_component)
+    if pwst_active:
+        result.mtp_benefits[pwst_key] = pwst_component
+        result.ctp_benefits[pwst_key] = pwst_ctp_component
 
     result.pw_rate = pw_rate
+    result.pwst_rate = pwst_rate
+    result.pwst_ctp_rate = pwst_ctp_rate
+    result.pwst_component = pwst_component
+    result.pwst_ctp_component = pwst_ctp_component
     result.mtp_wo_pw = mtp_wo_pw
     result.ctp_wo_pw = ctp_wo_pw
     result.pw_component = pw_component
-    result.mtp_annual = mtp_wo_pw + pw_component
     result.ctp_annual = ctp_wo_pw + _round2(pw_component)
     return result
 
@@ -255,9 +444,9 @@ def build_target_detail_snapshots(
     Mirrors CalcEngine HO..JG (MTP) and JI..KQ (CTP). The engine's base
     segments map onto RERUN's Cov 1..3 slots (same convention as the Cov After
     Change snapshot); APB is not modeled, so its slots stay 0. Benefit slots:
-    PW = type 39, GIR/GIO = type+subtype 76, CCV = type A; PWSTP/CTR/ADB have
-    no target rates for this product family — unmapped benefit targets land in
-    "Other Benefits" so nothing silently disappears.
+    PW = type 3 (PWoC), PWSTP = type 4 (PWoT), GIR/GIO = type+subtype 76,
+    CCV = type A; other unmapped benefit targets land in "Other Benefits" so
+    nothing silently disappears.
     """
     segments = sorted(
         (s for s in policy.segments if getattr(s, "is_base", True)),
@@ -288,10 +477,20 @@ def build_target_detail_snapshots(
         ctp[f"{label} CTP"] = _ben(result.ctp_benefits, slot)
     other_keys = [
         k for k in result.mtp_benefits
-        if k not in named and k not in ccv_keys
+        if k not in named and k not in ccv_keys and not k.startswith("4")
     ]
     mtp["Other Benefits MTP"] = sum(result.mtp_benefits[k] for k in other_keys)
     ctp["Other Benefits CTP"] = sum(result.ctp_benefits.get(k, 0.0) for k in other_keys)
+
+    mtp["PWSTP MTPR"] = result.pwst_rate          # IJ
+    mtp["PWSTP MTP"] = result.pwst_component      # IK
+    ctp["PWSTP CTP"] = result.pwst_ctp_component  # KE
+    if result.ffl_pwoc_basis or result.ffl_pwot_basis:
+        # FFL Premium Waivers section (IW..JD) — shown only for FFL products.
+        mtp["FFL Min Base"] = result.ffl_min_base           # IW
+        mtp["FFL PWoC MinBasis"] = result.ffl_pwoc_basis    # IZ
+        mtp["FFL PWoT MinBasis"] = result.ffl_pwot_basis    # JA
+        mtp["FFL PWoT Factor"] = result.ffl_pwot_factor     # JC
 
     mtp["MTP w/o PW"] = result.mtp_wo_pw          # IT
     mtp["PW MTPR"] = result.pw_rate               # IU

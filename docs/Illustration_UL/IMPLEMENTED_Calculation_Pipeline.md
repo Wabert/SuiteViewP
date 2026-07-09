@@ -266,6 +266,14 @@ Face increases append a new base `CoverageSegment`:
 
 On any specified-amount change the engine now recomputes the target premiums (vMTP/vCTP) from rates via `target_premium.py`, recalculates GLP/GSP by the attained-age delta method (guaranteed-COI commutation, monthly-cent floor), and on a material change (face increase, DBO B-to-A) restarts the 7-pay period and recomputes the 7-pay level. `PolicyChangeEvent.metadata` can inject RERUN's recalculated guideline values (`new_glp`/`new_gsp`/`new_7pay`) for mechanics-only validation. Validated EXACT vs RERUN on U0688012 (increase, decrease, DBO A-to-B at the year-9 anniversary; all comparison groups 0.0 over 40 months). Still open: the engine's own guideline recalc calibration vs RERUN's Guideline_Premiums calculator, B-to-A validation, and mid-year (non-anniversary) AccumGLP pro-ration.
 
+**FFL premium waiver targets (2026-07-08).** Plancodes with `CompanySub = "FFL"` in the plancode table (RERUN `sblnFFL = sCompanySub="FFL"`, ~49 plancodes) compute both premium-waiver targets from cost bases instead of units×rate — RERUN CalcEngine's "FFL Premium Waivers" section IW..JD:
+
+- PWoC (benefit type 3, `IV`) = `JB = TRUNC(pwRate·IZ·(1+factor·table), 2)` where `IZ` = benefit MTPs/12 + current base COI on SA (`IW`) + table extra (`IX`) + flat term (`IY`, replicated exactly — RERUN applies neither /1000 nor /12 there, suspected workbook bug) + monthly expense fee.
+- PWoT/PWSTP (benefit type 4, `IK`) = `JD = TRUNC(JA·JC, 2)` where `JA` = coverage MTPs + benefit MTPs + PWoC target (no CCV, no PWoT itself) and `JC = TRUNC(x/(1−x), 5)`, `x = pwstRate/100·(1+table·factor)` — the self-grossing waiver factor.
+- PWoT CTP (`KE`) = `JC·vMTP` (the full annual MTP) for FFL, vs `units·rate·(1+factor·table)` non-FFL; the PWoC CTP component stays `ROUND(IV, 2)` (`KP`).
+
+The non-FFL PWoT target (`IK = units·pwstRate·(1+factor·table)`) was implemented in the same change (previously a TODO). `CompanySub` was merged into `plancode_table.json` from RERUN Rates_Control C12:BE206 via `tools/merge_plancode_company_sub.py`; `PlancodeConfig.is_ffl` exposes the switch. Unit-tested against hand-computed RERUN formulas in `tests/test_illustration_ffl_waiver_targets.py`; not yet compared against a live RERUN FFL case (needs an FFL policy fixture — laptop work).
+
 ### 4.6 Step 7 - Coverage After Change
 
 This section shows all active coverages after the face amount and DB option change sections have run.
