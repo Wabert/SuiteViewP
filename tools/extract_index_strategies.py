@@ -124,11 +124,19 @@ def main():
                    "mIndex_Strategy_Parameters (MB column folded into M1)",
         "strategies": STRATEGIES,
         "multiplier_strategies": multiplier,
-        # RERUN Rates_Control CP79/CP80: index = MAX(2, date-based tier);
-        # variable-loan credit spread by AG49 index (1-based CHOOSE list).
+        # RERUN Rates_Control CR78:CS83 — AG49 regimes by policy issue date
+        # (index = MATCH(issue date, start dates)); CP79: RERUN's applicable
+        # index = MAX(2, date tier); CP80: variable-loan credit spread by AG49
+        # index (1-based CHOOSE list).
         "ag49": {
             "default_index": 2,
             "loan_credit_spread_by_index": [0.0, 0.01, 0.005, 0.005],
+            "regimes": [
+                {"index": 1, "name": "Prior to AG49", "start": "1900-01-01"},
+                {"index": 2, "name": "AG49", "start": "2015-09-01"},
+                {"index": 3, "name": "AG49A", "start": "2020-11-25"},
+                {"index": 4, "name": "AG49B", "start": "2023-05-01"},
+            ],
         },
         "plancodes": plancodes,
     }

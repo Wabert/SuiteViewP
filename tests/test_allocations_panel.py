@@ -40,7 +40,8 @@ def test_allocations_panel_blends_from_inforce_allocations(qtbot):
     panel.set_plan(plan, gint=0.035, inforce_allocations={"U1": 50.0, "IX": 50.0})
 
     blended = panel.blended()
-    # Defaults to the AG49 max rates: 0.5*0.035 + 0.5*0.0623 = 0.04865 -> TRUNC 0.0486
+    # Defaults: U1 -> gint 0.035, IX -> min(6.25%, AG49 6.23%) = 0.0623.
+    # 0.5*0.035 + 0.5*0.0623 = 0.04865 -> TRUNC 0.0486
     assert blended.nominal == 0.0486
     assert blended.effective == 0.0486
     assert blended.guaranteed == pytest.approx(0.0175)
@@ -82,3 +83,35 @@ def test_inputs_panel_declared_rate_keeps_editable_field(qtbot):
     assert not panel.illustrated_rate_edit.isReadOnly()
     assert panel.allocations_panel.blended() is None
     assert panel.allocation_problems() == []
+
+
+def test_sweep_account_min_round_trips_through_panel(qtbot):
+    panel = AllocationsPanel()
+    qtbot.addWidget(panel)
+    plan = load_index_strategies("1U145500")
+    panel.set_plan(plan, gint=0.035, sweep_account_min=250.0)
+    assert panel.sweep_account_min() == pytest.approx(250.0)
+
+    panel._sweep_min_edit.setText("")
+    assert panel.sweep_account_min() is None      # blank = no override
+
+    panel._sweep_min_edit.setText("1200.50")
+    assert panel.sweep_account_min() == pytest.approx(1200.50)
+
+
+def test_sweep_account_min_none_for_declared_rate_plans(qtbot):
+    panel = DynamicInputsPanel()
+    qtbot.addWidget(panel)
+    policy = _fake_policy("1U143900")
+    policy.premium_allocations = {}
+    panel.load_from_policy(policy)
+    assert panel.sweep_account_min() is None
+
+
+def test_iul_panel_defaults_sweep_min_from_policy(qtbot):
+    panel = DynamicInputsPanel()
+    qtbot.addWidget(panel)
+    policy = _fake_policy("1U145500")
+    policy.sweep_account_min = 300.0
+    panel.load_from_policy(policy)
+    assert panel.sweep_account_min() == pytest.approx(300.0)

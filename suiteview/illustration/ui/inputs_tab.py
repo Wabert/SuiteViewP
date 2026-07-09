@@ -425,8 +425,44 @@ class IllustrationInputsTab(QWidget):
         layout.addWidget(note)
 
         outer.addWidget(group, 0, Qt.AlignmentFlag.AlignTop)
+        outer.addWidget(self._build_iul_crediting_group(), 0, Qt.AlignmentFlag.AlignTop)
         outer.addStretch(1)
         return tab
+
+    def _build_iul_crediting_group(self):
+        """IUL-only controls — ignored on declared-rate plans."""
+        group = QGroupBox("IUL Crediting")
+        group.setStyleSheet(GROUP_STYLE)
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 18, 10, 10)
+        layout.setSpacing(6)
+
+        self.iul_rate_method_group = QButtonGroup(self)
+        self.iul_rate_method_group.setExclusive(True)
+        self.blended_rate_radio = self._make_control_radio("Blended Rate")
+        self.blended_rate_radio.setToolTip(
+            "Credit one blended rate — Σ allocation % × illustrated rate (the "
+            "RERUN INPUT-sheet blend). The simpler method; the default.")
+        self.wair_radio = self._make_control_radio("Weighted Average Interest Rate (WAIR)")
+        self.wair_radio.setToolTip(
+            "Weight the sweep-minimum, loaned, and indexed slices of the account "
+            "value by their own rates (RERUN CalcEngine TAV/WAIR block).")
+        self.iul_rate_method_group.addButton(self.blended_rate_radio)
+        self.iul_rate_method_group.addButton(self.wair_radio)
+        self.blended_rate_radio.setChecked(True)
+        layout.addWidget(self.blended_rate_radio)
+        layout.addWidget(self.wair_radio)
+
+        self.policy_ag49_check = self._make_control_checkbox("Use Policy AG49 Regime")
+        self.policy_ag49_check.setToolTip(
+            "Illustrate under the AG49 regime in effect at policy issue (Prior to "
+            "AG49 / AG49 / AG49A / AG49B by issue date) instead of the current "
+            "regime. Affects multiplier crediting, the IP/IR asset charge, and "
+            "the variable-loan credit spread.")
+        self.policy_ag49_check.toggled.connect(
+            self.dynamic_panel.set_use_policy_ag49_regime)
+        layout.addWidget(self.policy_ag49_check)
+        return group
 
     def _build_illustration_duration_group(self):
         group = QGroupBox("Illustration Duration")
@@ -881,6 +917,8 @@ class IllustrationInputsTab(QWidget):
             pay_monthly_deduction=md_request is not None,
             monthly_deduction_start_year=(
                 md_request["start_year"] if md_request else None),
+            iul_wair_crediting=self.wair_radio.isChecked(),
+            use_policy_ag49_regime=self.policy_ag49_check.isChecked(),
         )
 
     def min_level_request(self) -> Optional[dict]:
@@ -930,6 +968,7 @@ class IllustrationInputsTab(QWidget):
     def export_inforce_overrides(self) -> InforceOverrideSet:
         return InforceOverrideSet(
             current_interest_rate=self.dynamic_panel.illustrated_rate(),
+            sweep_account_min=self.dynamic_panel.sweep_account_min(),
         )
 
     @staticmethod

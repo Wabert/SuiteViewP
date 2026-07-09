@@ -257,6 +257,18 @@ def test_scenario_builder_applies_current_interest_rate_override():
     assert scenario.projectable_policy.current_interest_rate == 0.03
 
 
+def test_scenario_builder_applies_sweep_account_min_override():
+    base_policy = IllustrationPolicyData(sweep_account_min=0.0)
+
+    scenario = build_illustration_scenario(
+        base_policy,
+        inforce_overrides=InforceOverrideSet(sweep_account_min=500.0),
+    )
+
+    assert scenario.base_policy.sweep_account_min == 0.0
+    assert scenario.projectable_policy.sweep_account_min == 500.0
+
+
 def test_year_age_sync_and_bounds():
     panel = _panel()
     row = panel.premium_section.rows()[0]

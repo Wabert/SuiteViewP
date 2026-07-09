@@ -94,6 +94,52 @@ The minipc built/tested the logic cores; these need the app and/or live data:
 These are committed behavior changes that compiled clean but were never run
 against live data. Test each before relying on them.
 
+### 1.14 Illustration — IUL input UI: illustrated rates, sweep min (2026-07-08, minipc)
+IUL groundwork UI finished on the minipc; three items need live IUL data:
+- **Sweep Account Minimum DB2 source** — NOT in the extracted VBA (searched
+  cls_PolicyInformation/mdlDataMap/mdlWorksheetFunctions: only fund-ID
+  translation + LH_POL_FND_VAL_TOT / LH_FND_ALC / LH_FND_TRS_ALC_SET reads;
+  RERUN has no sweep-min named input either). RERUN's "Value Mapping
+  (Inforce)" sheet row 52: *"If this amount is different vs E.I., check the
+  53 segment"* — i.e. CyberLife screen segment 53; find the backing DB2
+  table/column, add a `PolicyInformation` property + load into
+  `IllustrationPolicyData.sweep_account_min`. Meanwhile the Input tab's
+  Allocations panel carries an editable "Sweep Acct Min $" override →
+  `InforceOverrideSet.sweep_account_min` → applied by `scenario_builder`.
+- **FND_ALC_PCT scale** — verify percent- vs decimal-form on a live IUL
+  policy (`allocations_panel._normalized_allocations` TODO normalizes by
+  total > 1.5 heuristic).
+- **Fund Values display** — load a live IUL policy and confirm the Policy
+  tab's Unimpaired/Impaired/Allocations tables show the index buckets with
+  strategy labels ("IX  1 Yr PtP w/ Cap"), and that maturing index buckets
+  (VBA: matured + zero-value buckets excluded) don't clutter the list.
+- Illustrated-rate defaults are a **6.25% placeholder** for index strategies
+  (capped at AG49 max; `DEFAULT_INDEX_ILLUSTRATED_RATE`) and plan GINT for the
+  fixed strategy + sweep display row — replace with the illustrated-rate
+  table when Robert supplies it.
+
+### 1.13 Illustration — FFL premium waiver targets (2026-07-08, minipc) — VALIDATE vs RERUN
+`target_premium.py` now implements the RERUN CalcEngine **IW..JD "FFL Premium
+Waivers"** basis: for plancodes with `CompanySub = "FFL"` (new column merged
+into `plancode_table.json` from RERUN Rates_Control C12:BE206 via
+`tools/merge_plancode_company_sub.py`; `PlancodeConfig.is_ffl` = RERUN
+`sblnFFL`), PWoC (benefit type 3, IV=JB) and PWoT/PWSTP (benefit type 4,
+IK=JD, CTP KE=JC·vMTP) are computed from cost bases. The non-FFL PWoT target
+(units·rate·(1+factor·table)) was implemented in the same change (was a TODO).
+- **Headless:** 4 unit tests vs hand-computed formulas
+  (`tests/test_illustration_ffl_waiver_targets.py`); full illustration suite
+  green (222 passed, only the 3 pre-existing minipc fixture failures).
+- **VALIDATE on laptop:** run `rerun_com → run_engine_case → compare_case` on a
+  real FFL policy (plancodes like `NU1F3A00`, `1U14I100`) carrying a PWoC
+  and/or PWoT benefit — confirm vMTP/vCTP and the IW/IZ/JA/JC columns match
+  RERUN row-for-row, including after a face change (IW re-snapshots at the
+  change month's COI durations). Also confirm the local rates DB has
+  `Select_RATE_BENMTP/BENCTP` rows for the type-4 benefit keys ("49" etc.) on
+  FFL plancodes, and export an FFL policy + rates locally for a saved case.
+- **Flagged RERUN quirk:** IY (`vMin_Base_Flat`) = TotalSA·flat1 with **no
+  /1000 and no /12** — replicated exactly for lockstep, but looks like a
+  workbook bug; ask/verify before trusting a flat-extra FFL case.
+
 ### 1.12 Illustration — Apply Premium NC..NZ allowance chain (2026-06-20, minipc) — VALIDATE vs RERUN
 New `core/premium_allowance.py` (`compute_premium_allowances`) implements the full
 RERUN CalcEngine **NC..NZ** premium-acceptance chain, replacing the single-cap

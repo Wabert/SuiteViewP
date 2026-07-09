@@ -26,10 +26,11 @@ def main() -> None:
     from suiteview.core.policy_service import clear_cache, get_policy_info
     from suiteview.illustration.ui.policy_tab import IllustrationPolicyTab
 
+    policy_number = sys.argv[1] if len(sys.argv) > 1 else "U0688012"
     clear_cache()
-    policy = get_policy_info("U0688012", region="CKPR")
+    policy = get_policy_info(policy_number, region="CKPR")
     tab = IllustrationPolicyTab()
-    tab.load_data_from_policy(policy, {"PolicyNumber": "U0688012", "Region": "CKPR"})
+    tab.load_data_from_policy(policy, {"PolicyNumber": policy_number, "Region": "CKPR"})
     tab.resize(1180, 760)
     tab.show()
     app.processEvents()

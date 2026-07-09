@@ -122,6 +122,7 @@ class IllustrationPolicyTab(QWidget):
         fund_tables_row.addWidget(unimpaired_block)
         fund_tables_row.addWidget(impaired_block)
         fund_tables_row.addWidget(allocation_block)
+        fund_tables_row.addStretch(1)
         # Nest the tables inside the Fund Values group, just below the info fields
         # (before the trailing stretch added when show_table=False).
         self.fund_values.layout().insertLayout(1, fund_tables_row)
@@ -146,9 +147,10 @@ class IllustrationPolicyTab(QWidget):
         ]:
             self.loan_values.add_field(label, attr, 120, 95)
             self.loan_values.add_field(rate_label, rate_attr, 40, 60)
-        values_row.addWidget(self.fund_values)
-        values_row.addWidget(self.premium_values)
-        values_row.addWidget(self.loan_values)
+        # Fund Values needs the widest slot — it hosts the three fund tables.
+        values_row.addWidget(self.fund_values, 2)
+        values_row.addWidget(self.premium_values, 1)
+        values_row.addWidget(self.loan_values, 1)
         layout.addLayout(values_row)
 
         tax_row = QHBoxLayout()
@@ -261,12 +263,22 @@ class IllustrationPolicyTab(QWidget):
         box.addWidget(caption)
         table = FixedHeaderTableWidget()
         table.setColumnCount(2)
-        table.setHorizontalHeaderLabels(["Fund ID", value_header])
+        table.setHorizontalHeaderLabels(["Fund", value_header])
         table._data_table.horizontalHeader().setVisible(True)
         table._outer_frame.setStyleSheet(FUND_TABLE_STYLE)
         table._data_table.setStyleSheet(FUND_TABLE_STYLE)
+        table.setMinimumHeight(120)
         box.addWidget(table)
         return container, table
+
+    @staticmethod
+    def _fit_fund_table(table):
+        """Autofit columns, then pin the table's width to its content so all
+        columns show without a horizontal scrollbar (plus room for the
+        vertical scrollbar when the fund list overflows)."""
+        table.autoFitAllColumns()
+        total = sum(table.columnWidth(col) for col in range(table.columnCount()))
+        table.setFixedWidth(total + 20)
 
     def load_data_from_policy(self, policy, policy_info: dict | None = None, md_check=None):
         self._policy = policy
@@ -386,7 +398,9 @@ class IllustrationPolicyTab(QWidget):
         definition = "GP" if policy.gpt_cvat == "GPT" else policy.gpt_cvat
         self.fund_values.set_value("fund_account_value", format_currency(policy.mv_av(0), "$"))
         self.fund_values.set_value("shadow_account_value", format_currency(policy.gav, "$"))
-        self.fund_values.set_value("sweep_account_min", "")
+        # Sweep Account Min: DB2 source still unknown (work laptop item) — the
+        # Input tab carries an editable override meanwhile. "—" = not loaded.
+        self.fund_values.set_value("sweep_account_min", "—")
         self.fund_values.set_value(
             "guaranteed_int_rate", self._format_rate(policy.guaranteed_interest_rate))
         self.account_values.set_value("deemed_cash_value", format_currency(policy.mv_av(0), "$"))
@@ -459,17 +473,22 @@ class IllustrationPolicyTab(QWidget):
         scale = 1.0 if total > 1.5 else 100.0
         self.allocation_table.setRowCount(len(rows))
         for row, (fund, pct) in enumerate(rows):
-            self._set_table_item(self.allocation_table, row, 0, fund)
+            self._set_table_item(self.allocation_table, row, 0, self._fund_label(fund))
             self._set_table_item(self.allocation_table, row, 1, f"{float(pct) * scale:.2f}%")
-        self.allocation_table.autoFitAllColumns()
+        self._fit_fund_table(self.allocation_table)
 
     def _fill_fund_table(self, table, fund_values):
         rows = [(fund, value) for fund, value in sorted(fund_values.items()) if self._is_nonzero(value)]
         table.setRowCount(len(rows))
         for row, (fund, value) in enumerate(rows):
-            self._set_table_item(table, row, 0, fund)
+            self._set_table_item(table, row, 0, self._fund_label(fund))
             self._set_table_item(table, row, 1, format_currency(value, "$"))
-        table.autoFitAllColumns()
+        self._fit_fund_table(table)
+
+    def _fund_label(self, fund_id: str) -> str:
+        """The bare fund ID — descriptions live in the Index Allocations
+        dialog, not these compact tables."""
+        return str(fund_id or "").strip()
 
     def _impaired_fund_values_by_fund(self, policy):
         try:

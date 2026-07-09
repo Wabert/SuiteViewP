@@ -66,6 +66,28 @@
       0.01,
       0.005,
       0.005
+    ],
+    "regimes": [
+      {
+        "index": 1,
+        "name": "Prior to AG49",
+        "start": "1900-01-01"
+      },
+      {
+        "index": 2,
+        "name": "AG49",
+        "start": "2015-09-01"
+      },
+      {
+        "index": 3,
+        "name": "AG49A",
+        "start": "2020-11-25"
+      },
+      {
+        "index": 4,
+        "name": "AG49B",
+        "start": "2023-05-01"
+      }
     ]
   },
   "plancodes": {

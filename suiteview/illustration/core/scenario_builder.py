@@ -57,6 +57,8 @@ def apply_inforce_overrides(
         policy.variable_loan_accrued = overrides.variable_loan_accrued
     if overrides.current_interest_rate is not None:
         policy.current_interest_rate = overrides.current_interest_rate
+    if overrides.sweep_account_min is not None:
+        policy.sweep_account_min = overrides.sweep_account_min
 
     if overrides.face_amount is not None:
         policy.face_amount = overrides.face_amount

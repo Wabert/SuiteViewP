@@ -70,6 +70,7 @@ class InforceOverrideSet:
     variable_loan_principal: Optional[float] = None
     variable_loan_accrued: Optional[float] = None
     current_interest_rate: Optional[float] = None
+    sweep_account_min: Optional[float] = None   # IUL sweep retained minimum
 
     def is_empty(self) -> bool:
         return all(value is None for value in self.__dict__.values())
@@ -167,6 +168,21 @@ class IllustrationOptions:
     # None -> derive from conform_to_tefra. Used by the PolView GLP solver, which
     # solves a premium that is allowed to breach the guideline.
     cap_premiums_at_acceptance: Optional[bool] = None
+
+    # IUL crediting method — False credits the single blended rate (RERUN INPUT
+    # B52/E52, mirrored into current_interest_rate); True requests the Weighted
+    # Average Interest Rate (RERUN CalcEngine TAV/WAIR block, columns US..VL).
+    # TODO: engine-side WAIR is not implemented yet (see
+    # docs/Illustration_UL/IUL_AG49_WAIR.md); the switch is recorded per run.
+    iul_wair_crediting: bool = False
+
+    # Use the AG49 regime in effect at policy issue (RERUN Rates_Control CP79 =
+    # MAX(2, issue-date tier)) instead of the current regime. Gates IP/IR
+    # multiplier crediting and asset charge (index ≤ 2) and selects the
+    # variable-loan credit spread. The UI re-bases the allocation blend on the
+    # resolved index; engine-side asset charge / loan spread are pending (same
+    # doc as WAIR).
+    use_policy_ag49_regime: bool = False
 
     @property
     def force_out_enabled(self) -> bool:

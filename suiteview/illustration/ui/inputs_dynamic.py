@@ -54,11 +54,16 @@ from suiteview.illustration.models.input_set import (
 )
 from suiteview.illustration.core.illustration_policy_service import coverage_or_benefit_matured
 from suiteview.illustration.core.target_premium import floor_monthly_cent
-from suiteview.illustration.models.index_strategies import is_iul_plan, load_index_strategies
+from suiteview.illustration.models.index_strategies import (
+    ag49_index_for_issue_date,
+    current_ag49_index,
+    is_iul_plan,
+    load_index_strategies,
+)
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.polview.ui.formatting import format_amount, format_date
 
-from .allocations_panel import AllocationsPanel
+from .allocations_panel import AllocationsDialog, AllocationsPanel
 from .styles import (
     GROUP_STYLE,
     INPUT_CAPTION_STYLE as _CAPTION_STYLE,
@@ -67,6 +72,15 @@ from .styles import (
     INPUT_EDIT_STYLE as _EDIT_STYLE,
     INPUT_SMALL_BTN_STYLE as _SMALL_BTN_STYLE,
     PURPLE_DARK,
+)
+
+_INDEX_ALLOC_BTN_STYLE = (
+    "QPushButton { background-color: #F3ECFC; color: #4B2383;"
+    " border: 1px solid #7E57C2; border-radius: 4px; padding: 2px 12px;"
+    " font-size: 11px; font-weight: bold; }"
+    "QPushButton:hover { background-color: #E8DDF8; }"
+    "QPushButton:disabled { background-color: #ECE9F1; color: #9C8DB8;"
+    " border: 1px solid #C9BBE2; }"
 )
 
 _MODE_INTERVALS = {"M": 1, "Q": 3, "S": 6, "A": 12}
@@ -116,6 +130,7 @@ class PolicyContext:
     is_iul: bool = False          # plan has an index-strategy row → allocation grid
     gint: float = 0.0             # plan guaranteed interest (guaranteed blend basis)
     premium_allocations: Optional[dict] = None  # inforce premium allocation % by fund ID
+    sweep_account_min: float = 0.0  # sweep fund retained minimum (DB2 source TBD)
     suspended: bool = False
     valuation_date: Optional[date] = None
 
@@ -293,6 +308,7 @@ def context_from_policy(policy) -> PolicyContext:
         is_iul=is_iul_plan(plancode),
         gint=gint,
         premium_allocations=_premium_allocations_from_policy(policy),
+        sweep_account_min=float(getattr(policy, "sweep_account_min", 0.0) or 0.0),
         suspended=status_code == "2",
         valuation_date=valuation,
     )
@@ -1334,6 +1350,10 @@ class DynamicInputsPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._ctx = PolicyContext()
+        # Illustration Control's "Use Policy AG49 Regime": checked illustrates
+        # under the regime at policy issue (RERUN CP79 = MAX(2, date tier));
+        # unchecked under the current regime.
+        self._use_policy_ag49 = False
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(8)
@@ -1390,9 +1410,22 @@ class DynamicInputsPanel(QWidget):
             "lumpsum on the forecast date that keeps it in force until that premium is "
             "collected. Sized from the surrender-value (or AV-less-loans) shortfall, or "
             "the safety-net gap when lower, then refined on the engine.")
+        # IUL plans: the Index Allocations dialog computes the blended rate; the
+        # Illustrated Rate field becomes its read-only mirror (Blended Effective —
+        # RERUN feeds the engine PolicyRates!CH4 = the effective blend). Declared-
+        # rate plans keep the editable field and the button greys out (visible,
+        # never hidden, per the Not-Applicable convention).
+        self.index_alloc_btn = QPushButton("Index Allocations…")
+        self.index_alloc_btn.setStyleSheet(_INDEX_ALLOC_BTN_STYLE)
+        self.index_alloc_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.index_alloc_btn.clicked.connect(self._open_allocations_dialog)
+        self.index_alloc_btn.setEnabled(False)
+        self.index_alloc_btn.setToolTip("Not applicable — declared-rate product")
         rate_row.addWidget(rate_label)
         rate_row.addWidget(self.illustrated_rate_edit)
         rate_row.addWidget(rate_suffix)
+        rate_row.addSpacing(12)
+        rate_row.addWidget(self.index_alloc_btn)
         rate_row.addSpacing(24)
         rate_row.addWidget(self.exception_prem_check)
         rate_row.addSpacing(16)
@@ -1402,14 +1435,11 @@ class DynamicInputsPanel(QWidget):
         rate_row.addStretch(1)
         outer.addLayout(rate_row)
 
-        # IUL plans: the strategy-allocation grid computes the blended rate; the
-        # Illustrated Rate field becomes its read-only mirror (Blended Effective —
-        # RERUN feeds the engine PolicyRates!CH4 = the effective blend). Declared-
-        # rate plans keep the editable field and the panel greys out (visible,
-        # never hidden, per the Not-Applicable convention).
-        self.allocations_panel = AllocationsPanel(self)
+        # The allocations panel lives inside its popup dialog; this widget keeps
+        # querying it (blended/problems/sweep min) between openings.
+        self.allocations_panel = AllocationsPanel()
         self.allocations_panel.changed.connect(self._on_allocations_changed)
-        outer.addWidget(self.allocations_panel)
+        self._allocations_dialog = AllocationsDialog(self.allocations_panel, self)
 
         # Transactions: a 2×2 grid spanning the full width — Premiums next to
         # Loans, Withdrawals next to Loan Repayments below — so each gets room
@@ -1489,11 +1519,19 @@ class DynamicInputsPanel(QWidget):
         if self._ctx.is_iul:
             plan = load_index_strategies(self._ctx.plancode)
             self.illustrated_rate_edit.setReadOnly(True)
+            self.index_alloc_btn.setEnabled(True)
+            self.index_alloc_btn.setToolTip(
+                "Index strategy allocations and illustrated rates — the blended "
+                "rate mirrors into the Illustrated Rate field.")
             self.allocations_panel.set_plan(
-                plan, self._ctx.gint, self._ctx.premium_allocations)
+                plan, self._ctx.gint, self._ctx.premium_allocations,
+                sweep_account_min=self._ctx.sweep_account_min)
+            self.allocations_panel.set_ag49_index(self._resolved_ag49_index())
             # set_plan recomputes and _on_allocations_changed mirrors the blend
         else:
             self.allocations_panel.set_plan(None)
+            self.index_alloc_btn.setEnabled(False)
+            self.index_alloc_btn.setToolTip("Not applicable — declared-rate product")
             self.illustrated_rate_edit.setReadOnly(False)
             self.illustrated_rate_edit.set_rate(self._ctx.illustrated_rate)
         self.riders_panel.set_policy(policy, self._ctx)
@@ -1516,6 +1554,24 @@ class DynamicInputsPanel(QWidget):
 
     def illustrated_rate(self) -> float:
         return self.illustrated_rate_edit.rate()
+
+    def sweep_account_min(self) -> Optional[float]:
+        """Sweep minimum from the allocations panel (None for non-IUL plans)."""
+        return self.allocations_panel.sweep_account_min()
+
+    def _open_allocations_dialog(self):
+        self._allocations_dialog.exec()
+
+    def _resolved_ag49_index(self) -> int:
+        if self._use_policy_ag49:
+            return ag49_index_for_issue_date(self._ctx.issue_date)
+        return current_ag49_index()
+
+    def set_use_policy_ag49_regime(self, checked: bool):
+        """Re-base the allocation blend on the regime at policy issue (checked)
+        or the current regime (unchecked)."""
+        self._use_policy_ag49 = bool(checked)
+        self.allocations_panel.set_ag49_index(self._resolved_ag49_index())
 
     def _on_allocations_changed(self):
         """Mirror the Blended Effective rate into the read-only rate field."""

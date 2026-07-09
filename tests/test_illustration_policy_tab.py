@@ -116,7 +116,7 @@ def test_fund_values_split_into_unimpaired_and_impaired_tables():
     for table in (tab.unimpaired_table, tab.impaired_table):
         assert table.columnCount() == 2
         headers = [table._data_table.horizontalHeaderItem(c).text() for c in range(2)]
-        assert headers == ["Fund ID", "Fund Value"]
+        assert headers == ["Fund", "Fund Value"]
         # Both tables live inside the single Fund Values group (not separate groups).
         assert tab.fund_values.isAncestorOf(table)
 

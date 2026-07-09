@@ -53,3 +53,54 @@ def test_excess_repayment_checkbox_defaults_off_and_drives_options():
 
     tab.dynamic_panel.excess_repay_as_premium_check.setChecked(True)
     assert tab.export_options().apply_excess_repayment_as_premium is True
+
+
+def test_iul_crediting_switches_default_and_drive_options():
+    _app()
+    tab = IllustrationInputsTab()
+
+    # Blended Rate is the default crediting method; WAIR is the opt-in.
+    assert tab.blended_rate_radio.isChecked() is True
+    assert tab.export_options().iul_wair_crediting is False
+    tab.wair_radio.setChecked(True)
+    assert tab.export_options().iul_wair_crediting is True
+
+    # "Use Policy AG49 Regime" defaults off (current regime).
+    assert tab.policy_ag49_check.isChecked() is False
+    assert tab.export_options().use_policy_ag49_regime is False
+    tab.policy_ag49_check.setChecked(True)
+    assert tab.export_options().use_policy_ag49_regime is True
+
+
+def test_policy_ag49_checkbox_rebases_allocation_blend():
+    from datetime import date
+
+    from suiteview.illustration.models.index_strategies import (
+        load_index_strategies,
+    )
+
+    _app()
+    tab = IllustrationInputsTab()
+    panel = tab.dynamic_panel.allocations_panel
+
+    # IUL19 policy issued 2019 -> policy regime = AG49 (index 2); the current
+    # regime is AG49B (index 4). 100% IP so the multiplier shows in the blend.
+    plan = load_index_strategies("1U146800")
+    tab.dynamic_panel._ctx.is_iul = True
+    tab.dynamic_panel._ctx.issue_date = date(2019, 6, 1)
+    panel.set_plan(plan, gint=0.035, inforce_allocations={"IP": 1.0})
+    panel.set_ag49_index(4)  # what load_from_policy resolves with the box off
+
+    rate = panel.rates()["IP"]
+    assert panel.blended().effective == panel.blended().nominal
+
+    # Checking the box re-bases to index 2: IP credits rate x 1.24 and the
+    # 2.15% asset charge turns on — without disturbing the user's entries.
+    tab.policy_ag49_check.setChecked(True)
+    assert panel.allocations()["IP"] == 1.0
+    assert panel.blended().effective > panel.blended().nominal
+    assert panel.blended().asset_charge_rate > 0.0
+
+    tab.policy_ag49_check.setChecked(False)
+    assert panel.blended().effective == panel.blended().nominal
+    assert panel.blended().asset_charge_rate == 0.0

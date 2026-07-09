@@ -95,7 +95,7 @@ def test_validation_flags_total_unoffered_and_over_max():
     text = " ".join(problems)
     assert "must equal 100%" in text
     assert "IF" in text and "not available" in text
-    assert "exceeds the AG49 maximum" in text
+    assert "exceeds the current illustrated rate" in text
 
 
 def test_validation_passes_clean_inputs():
@@ -103,3 +103,87 @@ def test_validation_passes_clean_inputs():
     problems = allocation_problems(
         plan, {"U1": 0.4, "IX": 0.6}, {"U1": 0.035, "IX": 0.0623})
     assert problems == []
+
+
+def test_default_rates_placeholder_capped_at_ag49_and_gint_for_fixed():
+    # Index strategies default to the 6.25% placeholder capped at the AG49
+    # max; the fixed strategy defaults to the plan guaranteed rate.
+    plan = load_index_strategies("1U146800")   # IUL19 — offers IP/IR too
+    defaults = plan.default_rates(gint=0.02)
+    assert defaults["U1"] == pytest.approx(0.02)
+    for strat in plan.strategies:
+        if strat.is_offered and strat.fund_id != "U1":
+            assert defaults[strat.fund_id] == pytest.approx(
+                min(0.0625, float(strat.max_rate)))
+
+
+def test_default_rates_without_gint_falls_back_to_table_rate():
+    plan = load_index_strategies("1U144600")
+    defaults = plan.default_rates()
+    assert defaults["U1"] == pytest.approx(0.035)   # JSON table rate
+    assert defaults["IX"] == pytest.approx(0.0623)  # min(6.25%, 6.23%)
+
+
+# ── AG49 regimes (Rates_Control CR78:CS83 / CP79 / CP80) ─────────
+
+
+def test_ag49_regime_table_loads():
+    from suiteview.illustration.models.index_strategies import ag49_regimes
+    regimes = ag49_regimes()
+    assert [r["name"] for r in regimes] == [
+        "Prior to AG49", "AG49", "AG49A", "AG49B"]
+    assert regimes[1]["start"].isoformat() == "2015-09-01"
+    assert regimes[3]["start"].isoformat() == "2023-05-01"
+
+
+def test_ag49_index_for_issue_date_floors_at_2():
+    # RERUN CP79 = MAX(2, date tier): pre-AG49 issues still illustrate at 2.
+    from datetime import date
+    from suiteview.illustration.models.index_strategies import (
+        ag49_index_for_issue_date,
+    )
+    assert ag49_index_for_issue_date(date(1985, 7, 23)) == 2
+    assert ag49_index_for_issue_date(date(2015, 8, 31)) == 2
+    assert ag49_index_for_issue_date(date(2015, 9, 1)) == 2
+    assert ag49_index_for_issue_date(date(2020, 11, 25)) == 3
+    assert ag49_index_for_issue_date(date(2023, 5, 1)) == 4
+    assert ag49_index_for_issue_date(None) == 2
+
+
+def test_current_ag49_index_is_latest_regime():
+    from suiteview.illustration.models.index_strategies import current_ag49_index
+    assert current_ag49_index() == 4
+
+
+def test_loan_credit_spread_by_index():
+    # Rates_Control CP80: CHOOSE(index, 0, 0.01, 0.005, 0.005)
+    from suiteview.illustration.models.index_strategies import (
+        loan_credit_spread_for_index,
+    )
+    assert loan_credit_spread_for_index(1) == pytest.approx(0.0)
+    assert loan_credit_spread_for_index(2) == pytest.approx(0.01)
+    assert loan_credit_spread_for_index(3) == pytest.approx(0.005)
+    assert loan_credit_spread_for_index(4) == pytest.approx(0.005)
+
+
+def test_plan_with_ag49_index_gates_multiplier_crediting():
+    from suiteview.illustration.models.index_strategies import (
+        plan_with_ag49_index,
+    )
+    plan = load_index_strategies("1U146800")   # IUL19 offers IP/IR
+    at2 = plan_with_ag49_index(plan, 2)
+    at4 = plan_with_ag49_index(plan, 4)
+    assert at2.multiplier_active and not at4.multiplier_active
+    assert at2.loan_credit_spread == pytest.approx(0.01)
+    assert at4.loan_credit_spread == pytest.approx(0.005)
+
+    allocs = {"IP": 1.0}
+    rates = {"IP": 0.06}
+    blended2 = compute_blended_rates(at2, allocs, rates, gint=0.035)
+    blended4 = compute_blended_rates(at4, allocs, rates, gint=0.035)
+    # Index 2: IP credits rate x (1 + 0.24) and charges the 2.15% asset fee.
+    assert blended2.effective == pytest.approx(0.0744)
+    assert blended2.asset_charge_rate == pytest.approx(0.0215)
+    # Index 4 (AG49B): no multiplier crediting, no asset charge.
+    assert blended4.effective == pytest.approx(0.06)
+    assert blended4.asset_charge_rate == 0.0
