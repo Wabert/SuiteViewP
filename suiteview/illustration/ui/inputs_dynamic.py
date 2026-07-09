@@ -788,6 +788,8 @@ class DynamicSection(QGroupBox):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(6, 14, 6, 6)
         outer.setSpacing(2)
+        self._outer = outer
+        self._header_count = 0
 
         captions = QHBoxLayout()
         captions.setContentsMargins(0, 0, 0, 0)
@@ -830,6 +832,11 @@ class DynamicSection(QGroupBox):
     def add_footer_widget(self, widget: QWidget):
         """Place an extra control in the section footer, left of the stretch."""
         self._footer.insertWidget(self._footer.count() - 1, widget)
+
+    def add_header_widget(self, widget: QWidget):
+        """Place a control at the top of the section, above the column captions."""
+        self._outer.insertWidget(self._header_count, widget)
+        self._header_count += 1
 
     def add_row(self, removable: bool = True) -> InputRow:
         row = InputRow(self, removable, self)
@@ -1400,6 +1407,18 @@ class DynamicInputsPanel(QWidget):
             "Apply the requested premium to repay the policy loan first. The lumpsum "
             "then the scheduled premium repay the loan up to its payoff; only what "
             "remains is loaded onto the account value.")
+        # Lump Sum: a one-off premium the user applies on the forecast date. It
+        # runs through the premium-acceptance chain like any unscheduled premium.
+        # Disabled while "Lumpsum to Next Premium" solves the bridge instead — the
+        # solved amount is then displayed here after a run.
+        self.lumpsum_caption = QLabel("Lump Sum")
+        self.lumpsum_caption.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;")
+        self.lumpsum_edit = _Field(90, decimals=2)
+        self.lumpsum_edit.setToolTip(
+            "A one-off premium applied on the forecast date, through the premium-"
+            "acceptance chain. Disabled while 'Lumpsum to Next Premium' is checked; "
+            "the solved bridge amount is shown here after a run.")
         # Lumpsum to Next Premium: when the policy is too thin to coast from the
         # forecast date to its next modal premium, apply a solved lumpsum on the
         # forecast date that carries it in force until that premium is collected.
@@ -1410,6 +1429,7 @@ class DynamicInputsPanel(QWidget):
             "lumpsum on the forecast date that keeps it in force until that premium is "
             "collected. Sized from the surrender-value (or AV-less-loans) shortfall, or "
             "the safety-net gap when lower, then refined on the engine.")
+        self.lumpsum_to_next_check.toggled.connect(self._on_lumpsum_to_next_toggled)
         # IUL plans: the Index Allocations dialog computes the blended rate; the
         # Illustrated Rate field becomes its read-only mirror (Blended Effective —
         # RERUN feeds the engine PolicyRates!CH4 = the effective blend). Declared-
@@ -1430,8 +1450,6 @@ class DynamicInputsPanel(QWidget):
         rate_row.addWidget(self.exception_prem_check)
         rate_row.addSpacing(16)
         rate_row.addWidget(self.apply_prem_to_loan_check)
-        rate_row.addSpacing(16)
-        rate_row.addWidget(self.lumpsum_to_next_check)
         rate_row.addStretch(1)
         outer.addLayout(rate_row)
 
@@ -1447,6 +1465,17 @@ class DynamicInputsPanel(QWidget):
         self.premium_section = DynamicSection(SectionSpec(
             "Premiums", default_first_row=True, default_span_to_maturity=True,
             auto_adjust_prior_span=True, allow_max_level_premium=True, type_width=150))
+        # Lump sum controls live at the top of the Premiums group.
+        lumpsum_header = QWidget()
+        lumpsum_row = QHBoxLayout(lumpsum_header)
+        lumpsum_row.setContentsMargins(0, 0, 0, 8)
+        lumpsum_row.setSpacing(4)
+        lumpsum_row.addWidget(self.lumpsum_caption)
+        lumpsum_row.addWidget(self.lumpsum_edit)
+        lumpsum_row.addSpacing(12)
+        lumpsum_row.addWidget(self.lumpsum_to_next_check)
+        lumpsum_row.addStretch(1)
+        self.premium_section.add_header_widget(lumpsum_header)
         self.loan_section = DynamicSection(SectionSpec("Loans"))
         self.withdrawal_section = DynamicSection(SectionSpec("Withdrawals"))
         self.repayment_section = DynamicSection(SectionSpec("Loan Repayments"))
@@ -1512,6 +1541,8 @@ class DynamicInputsPanel(QWidget):
     def load_from_policy(self, policy, *, has_shadow: bool = False):
         self._ctx = context_from_policy(policy)
         self._ctx.has_shadow = has_shadow
+        # A freshly retrieved policy starts with an empty lump sum.
+        self.lumpsum_edit.clear()
         for section in (self.premium_section, self.loan_section, self.withdrawal_section,
                         self.repayment_section, self.face_section, self.dbo_section,
                         self.rateclass_section, self.table_section):
@@ -1587,6 +1618,23 @@ class DynamicInputsPanel(QWidget):
 
     def lumpsum_to_next_enabled(self) -> bool:
         return self.lumpsum_to_next_check.isChecked()
+
+    def _on_lumpsum_to_next_toggled(self, checked: bool):
+        # Solving the bridge owns the lump sum: disable the manual field while
+        # checked, and clear it on either toggle — a stale figure never rides
+        # along, and unchecking discards the solved amount just shown.
+        self.lumpsum_edit.setEnabled(not checked)
+        self.lumpsum_edit.clear()
+
+    def manual_lumpsum(self) -> Optional[float]:
+        """The typed lump sum, or None while the bridge solver owns it."""
+        if self.lumpsum_to_next_check.isChecked():
+            return None
+        return self.lumpsum_edit.value()
+
+    def set_lumpsum_amount(self, value: Optional[float]):
+        """Display the solved bridge lumpsum after a run (field stays disabled)."""
+        self.lumpsum_edit.set_value(value, decimals=2)
 
     # ── Level-premium types (Max / Min Level to Maturity) ─────
 
@@ -1783,6 +1831,15 @@ class DynamicInputsPanel(QWidget):
             self._expand_dated(dated_prem, TransactionKind.PREMIUM, on_due_dates=True))
         input_set.scheduled_transactions.extend(
             self._scheduled(sched_prem, TransactionKind.PREMIUM))
+
+        # Manual lump sum: a one-off premium applied on the forecast date, through
+        # the acceptance chain. The bridge solver owns it while 'Lumpsum to Next
+        # Premium' is checked, so manual_lumpsum() returns None in that case.
+        lumpsum = self.manual_lumpsum()
+        if lumpsum and ctx.forecast_date is not None:
+            input_set.dated_transactions.append(DatedTransaction(
+                kind=TransactionKind.PREMIUM, effective_date=ctx.forecast_date,
+                amount=float(lumpsum), subtype="manual_lumpsum"))
 
         # A level premium type (Max/Min Level to Maturity) locks every other
         # input — honor only the premium rows above.

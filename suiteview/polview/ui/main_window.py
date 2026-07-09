@@ -969,12 +969,9 @@ class GetPolicyWindow(FramelessWindowBase):
                 headers = matrix[0]
                 data_rows = [tuple(row) for row in matrix[1:]]
 
-                self.raw_table_tab.table_label.setText(display_title)
-                self.raw_table_tab._current_table_name = display_title
-                self.raw_table_tab._current_cols = headers
-                self.raw_table_tab._current_rows = data_rows
-                self.raw_table_tab._is_transposed = False
-                self.raw_table_tab._display_data()
+                self.raw_table_tab.set_data(
+                    headers, data_rows, table_name=display_title, transposed=False
+                )
 
                 rate_col_start = next(
                     (i for i, h in enumerate(headers) if h in ("COI", "TPP")), -1
@@ -1000,12 +997,12 @@ class GetPolicyWindow(FramelessWindowBase):
             else:
                 diag = ""
                 if matrix is None:
+                    ok = 'OK'
+                    miss = 'MISSING'
                     if category == "Coverages":
                         iss_dt = self._policy.cov_issue_date(index)
                         iss_age = self._policy.cov_issue_age(index)
                         band = self._policy.cov_band(index)
-                        ok = 'OK'
-                        miss = 'MISSING'
                         miss_rates = 'MISSING -- check UL_Rates connection'
                         diag = (
                             f" (issue_date={ok if iss_dt else miss}"

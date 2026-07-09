@@ -329,13 +329,52 @@ class IllustrationWindow(FramelessWindowBase):
 
             self._last_scenario = scenario
 
-            # "Min Level to Maturity" premium type: solve the minimum level
-            # premium that keeps the policy in force to maturity, honoring the
-            # prior premium rows, then layer it on top from its start year under
-            # the same guideline + exception basis the solver used (or the premium
-            # won't behave as solved). Other modes run as the user configured them.
             future_inputs = scenario.future_inputs
             run_options = self.inputs_tab.export_options()
+            engine = IllustrationEngine()
+
+            # "Lumpsum to Next Premium": solve FIRST so every later solve (e.g.
+            # Min to Maturity) sees the bridging lumpsum already funding the early
+            # months. If the policy would lapse before its next modal premium,
+            # solve a bridging lumpsum and layer it in as an unscheduled premium
+            # on the forecast date.
+            lumpsum_result = None
+            if self.inputs_tab.lumpsum_to_next_enabled():
+                from suiteview.illustration.core.solve_lumpsum_to_next_premium import (
+                    solve_lumpsum_to_next_premium,
+                )
+                from suiteview.illustration.models.input_set import (
+                    DatedTransaction, IllustrationInputSet, TransactionKind,
+                )
+                lumpsum_result = solve_lumpsum_to_next_premium(
+                    scenario.projectable_policy,
+                    base_future_inputs=future_inputs,
+                    base_options=run_options,
+                    engine=engine,
+                )
+                if lumpsum_result is not None and lumpsum_result.lumpsum > 0:
+                    dated = list(future_inputs.dated_transactions)
+                    dated.append(DatedTransaction(
+                        kind=TransactionKind.PREMIUM,
+                        effective_date=lumpsum_result.forecast_date,
+                        amount=lumpsum_result.lumpsum,
+                        subtype="lumpsum_to_next_premium"))
+                    future_inputs = IllustrationInputSet(
+                        scheduled_transactions=list(future_inputs.scheduled_transactions),
+                        dated_transactions=dated,
+                        policy_changes=list(future_inputs.policy_changes))
+                    self.inputs_tab.set_lumpsum_amount(lumpsum_result.lumpsum)
+                else:
+                    # No bridge was needed — show 0 so the disabled field reads
+                    # as "solved, nothing required" rather than blank.
+                    self.inputs_tab.set_lumpsum_amount(0.0)
+
+            # "Min Level to Maturity" premium type: solve the minimum level
+            # premium that keeps the policy in force to maturity, honoring the
+            # prior premium rows AND any lumpsum already merged into future_inputs
+            # above, then layer it on top from its start year under the same
+            # guideline + exception basis the solver used (or the premium won't
+            # behave as solved). Other modes run as the user configured them.
             min_level = self.inputs_tab.min_level_request()
             if min_level is not None:
                 from suiteview.illustration.core.solve_level_to_exception import (
@@ -381,39 +420,6 @@ class IllustrationWindow(FramelessWindowBase):
                     policy_changes=list(future_inputs.policy_changes))
                 run_options = level_to_exception_options(run_options, allow_exceptions)
                 self.inputs_tab.set_min_level_amount(lte.premium)
-
-            engine = IllustrationEngine()
-
-            # "Lumpsum to Next Premium": if the policy would lapse before its
-            # next modal premium, solve a bridging lumpsum and layer it in as an
-            # unscheduled premium on the forecast date. It layers on top of any
-            # level premium type, bridging with the solved premium already merged
-            # into future_inputs above.
-            lumpsum_result = None
-            if self.inputs_tab.lumpsum_to_next_enabled():
-                from suiteview.illustration.core.solve_lumpsum_to_next_premium import (
-                    solve_lumpsum_to_next_premium,
-                )
-                from suiteview.illustration.models.input_set import (
-                    DatedTransaction, IllustrationInputSet, TransactionKind,
-                )
-                lumpsum_result = solve_lumpsum_to_next_premium(
-                    scenario.projectable_policy,
-                    base_future_inputs=future_inputs,
-                    base_options=run_options,
-                    engine=engine,
-                )
-                if lumpsum_result is not None and lumpsum_result.lumpsum > 0:
-                    dated = list(future_inputs.dated_transactions)
-                    dated.append(DatedTransaction(
-                        kind=TransactionKind.PREMIUM,
-                        effective_date=lumpsum_result.forecast_date,
-                        amount=lumpsum_result.lumpsum,
-                        subtype="lumpsum_to_next_premium"))
-                    future_inputs = IllustrationInputSet(
-                        scheduled_transactions=list(future_inputs.scheduled_transactions),
-                        dated_transactions=dated,
-                        policy_changes=list(future_inputs.policy_changes))
 
             results = engine.project(
                 scenario.projectable_policy,

@@ -42,6 +42,7 @@ from suiteview.illustration.models.input_set import (
     DatedTransaction,
     IllustrationInputSet,
     IllustrationOptions,
+    ScheduledTransaction,
     TransactionKind,
 )
 from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -91,16 +92,18 @@ def _forecast_date(policy: IllustrationPolicyData) -> Optional[date]:
 
 
 def _next_modal_due(policy: IllustrationPolicyData, forecast: date) -> tuple[date, int]:
-    """The next modal premium due date strictly after the forecast date, and the
-    number of whole months from the forecast date to it.
+    """The next modal premium due date after the forecast date, and the number of
+    whole months from the forecast date to it.
 
     Modal due dates fall on the anniversary cadence (anniversary + k·interval),
     i.e. at whole-month counts since issue that are multiples of the interval.
+    When the forecast date already lands on a modal date the gap is 0 — a premium
+    is collected on the forecast date itself, so there is nothing to bridge.
     """
     interval = _billing_interval(policy)
     months_at_forecast = policy.duration          # whole months issue → forecast
     remainder = months_at_forecast % interval
-    gap = (interval - remainder) if remainder else interval
+    gap = (interval - remainder) if remainder else 0
     next_due = policy.issue_date + relativedelta(months=months_at_forecast + gap)
     return next_due, gap
 
@@ -184,6 +187,7 @@ def solve_lumpsum_to_next_premium(
     # Project a touch past the next due date so its lapse test is fully formed.
     project_months = gap + 2
     base = base_future_inputs
+    forecast_year = max(1, policy.duration // 12 + 1)
 
     def project(lumpsum: float) -> List[MonthlyState]:
         dated = list(base.dated_transactions) if base is not None else []
@@ -191,8 +195,17 @@ def solve_lumpsum_to_next_premium(
             dated.append(DatedTransaction(
                 kind=TransactionKind.PREMIUM, effective_date=forecast,
                 amount=float(lumpsum), subtype=LUMPSUM_SUBTYPE))
+        # Silence premium billing across the bridge: the lumpsum must carry the
+        # policy to the next scheduled premium on the inforce account value
+        # ALONE, independent of whatever ongoing premium is planned. The two
+        # never overlap — the ongoing premium resumes only at that next modal
+        # date, which is the target we bridge to, not a month we lean on here.
+        scheds = [s for s in (base.scheduled_transactions if base is not None else [])
+                  if s.kind != TransactionKind.PREMIUM]
+        scheds.append(ScheduledTransaction(
+            kind=TransactionKind.PREMIUM, policy_year=forecast_year, amount=0.0, mode="A"))
         future = IllustrationInputSet(
-            scheduled_transactions=list(base.scheduled_transactions) if base is not None else [],
+            scheduled_transactions=scheds,
             dated_transactions=dated,
             policy_changes=list(base.policy_changes) if base is not None else [])
         # stop_on_lapse off so the whole window is populated even past a lapse.
@@ -200,8 +213,11 @@ def solve_lumpsum_to_next_premium(
                               options=options, stop_on_lapse=False)
 
     def window(states: List[MonthlyState]) -> List[MonthlyState]:
+        # Up to BUT NOT INCLUDING the next modal date: the scheduled premium is
+        # collected there and rescues that month, so the bridge only has to keep
+        # the policy alive through every deduction before it.
         return [s for s in states
-                if s.date is not None and forecast <= s.date <= next_due]
+                if s.date is not None and forecast <= s.date < next_due]
 
     def survives(states: List[MonthlyState]) -> bool:
         return not any(s.lapsed for s in window(states))

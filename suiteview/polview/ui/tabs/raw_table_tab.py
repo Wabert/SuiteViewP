@@ -168,10 +168,12 @@ class RawTableTab(QWidget):
         if self._df_normal is None:
             self._df_normal = self._build_normal_df()
             self._normal_grid.set_dataframe(self._df_normal, limit_rows=False)
+            self._normal_grid.autofit_columns_to_data()
 
         if self._df_transposed is None:
             self._df_transposed = self._build_transposed_df()
             self._transposed_grid.set_dataframe(self._df_transposed, limit_rows=False)
+            self._transposed_grid.autofit_columns_to_data()
 
         self._update_active_grid()
 
@@ -199,6 +201,27 @@ class RawTableTab(QWidget):
         self._normal_grid.set_dataframe(df, limit_rows=False)
         self._transposed_grid.set_dataframe(df, limit_rows=False)
         self._update_active_grid()
+
+    def set_data(self, cols, rows, table_name: str = None, transposed: bool = None):
+        """Load column/row data directly (e.g. the Rates view builds a matrix).
+
+        Unlike setting the internal attributes by hand, this resets the cached
+        orientation frames so a new selection always rebuilds and displays
+        instead of re-showing the previously cached grids.
+        """
+        self._current_cols = list(cols)
+        self._current_rows = [tuple(r) for r in rows]
+        if table_name is not None:
+            self._current_table_name = table_name
+            self.table_label.setText(table_name)
+        if transposed is not None:
+            self._is_transposed = transposed
+        self._df_normal = None
+        self._df_transposed = None
+        if self._current_cols and self._current_rows:
+            self._display_data()
+        else:
+            self._show_message("No data")
 
     # ── Excel export ─────────────────────────────────────────────────────
 

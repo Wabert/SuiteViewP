@@ -927,6 +927,9 @@ class IllustrationInputsTab(QWidget):
     def lumpsum_to_next_enabled(self) -> bool:
         return self.dynamic_panel.lumpsum_to_next_enabled()
 
+    def set_lumpsum_amount(self, value: Optional[float]):
+        self.dynamic_panel.set_lumpsum_amount(value)
+
     def level_premium_active(self) -> bool:
         return self.dynamic_panel.active_level_premium_type() is not None
 
