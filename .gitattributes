@@ -3,3 +3,6 @@ docs/RateManager/CKULTB04/CKULTBC4[[:space:]]03-31-2026.txt filter=lfs diff=lfs 
 docs/RateManager/CKULTB04/CKULTBF4[[:space:]]07-07-2026.txt filter=lfs diff=lfs merge=lfs -text
 docs/RateManager/CKULTB01/CKULTB01[[:space:]](EPU).COMPANY[[:space:]]00.CKPR.TXT filter=lfs diff=lfs merge=lfs -text
 docs/RateManager/MPF/MPF[[:space:]]CKAS[[:space:]]2019-04-04.txt filter=lfs diff=lfs merge=lfs -text
+docs/RateManager/1U1F4M00_DB/1U1F4M00_Workup/RATE_SCR.csv filter=lfs diff=lfs merge=lfs -text
+docs/RateManager/1U1F4M00_DB/1U1F4M00_Workup/RATE_COI.csv filter=lfs diff=lfs merge=lfs -text
+docs/RateManager/1U1F4M00_DB/1U1F4M00_Workup/RATE_BENCOI.csv filter=lfs diff=lfs merge=lfs -text

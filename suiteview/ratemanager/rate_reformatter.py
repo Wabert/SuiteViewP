@@ -19,10 +19,18 @@ Key transformations:
   - Select+Ultimate → Fully Select:  durations beyond the select period
     are filled with the ultimate rate at the corresponding attained age.
   - Table 4 target rates (plan_option='E*') are divided by 4 to get Table 1.
-  - Guaranteed COI (pure ultimate) is expanded to fully select for all
-    issue ages, using the ultimate rate at attained_age = issue_age + duration.
+  - Guaranteed COI is expanded to fully select the same way as current:
+    select-period G rates (durations 1..N) are used where present, ultimate
+    G rates fill the rest at attained_age = issue_age + duration - 1.
+  - Duration-00-only rates (no select rows, no duration-99 ultimate) act as
+    ultimate rates keyed by attained age — some plans (e.g. 1A130D29,
+    NU1F3B00) store their entire rate table this way.
   - Multiple start dates for type C rates produce multiple scales
     (e.g. 01/01/2015 → Scale 1, 01/01/1900 → Scale 2).
+
+Anything the reformat cannot map (unknown rate types like N/W, duration-00
+rows alongside a select table) is counted in ``self.warnings`` — never
+silently dropped.
 """
 
 import csv
@@ -101,10 +109,15 @@ class RateReformatter:
         parse_result: ParseResult,
         starting_index: int = 13400,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        trg_starting_index: Optional[int] = None,
     ):
         self.result = parse_result
         self.starting_index = starting_index
+        self.trg_starting_index = (
+            trg_starting_index if trg_starting_index is not None else starting_index
+        )
         self._progress = progress_callback
+        self.warnings: List[str] = []
 
         # Derived from product info
         self.pay_age: int = self._get_pay_age()
@@ -157,7 +170,9 @@ class RateReformatter:
             _coi_select_by_date[date][combo][(issue_age, duration)] = rate
             _coi_ultimate_by_date[date][combo][attained_age]        = rate
             _coi_dur0_by_date[date][combo][attained_age]             = rate
+            _guar_select[combo][(issue_age, duration)] = rate
             _guar_ultimate[combo][attained_age]        = rate
+            _guar_dur0[combo][attained_age]            = rate
             _ctp_base[combo][attained_age]             = rate   (T, opt='**')
             _ctp_tbl4[combo][attained_age]             = rate   (T, opt='E*')
             _mtp_base[combo][attained_age]             = rate   (M, opt='**')
@@ -167,11 +182,14 @@ class RateReformatter:
         self._coi_select_by_date: Dict[str, Dict[ComboKey, Dict[Tuple[int, int], float]]] = defaultdict(lambda: defaultdict(dict))
         self._coi_ultimate_by_date: Dict[str, Dict[ComboKey, Dict[int, float]]] = defaultdict(lambda: defaultdict(dict))
         self._coi_dur0_by_date: Dict[str, Dict[ComboKey, Dict[int, float]]] = defaultdict(lambda: defaultdict(dict))
+        self._guar_select: Dict[ComboKey, Dict[Tuple[int, int], float]] = defaultdict(dict)
         self._guar_ultimate: Dict[ComboKey, Dict[int, float]] = defaultdict(dict)
+        self._guar_dur0: Dict[ComboKey, Dict[int, float]] = defaultdict(dict)
         self._ctp_base: Dict[ComboKey, Dict[int, float]] = defaultdict(dict)
         self._ctp_tbl4: Dict[ComboKey, Dict[int, float]] = defaultdict(dict)
         self._mtp_base: Dict[ComboKey, Dict[int, float]] = defaultdict(dict)
         self._mtp_tbl4: Dict[ComboKey, Dict[int, float]] = defaultdict(dict)
+        unmapped_types: Dict[str, int] = defaultdict(int)
 
         for r in self.result.rates:
             combo: ComboKey = (r.gender, r.rate_class, r.band)
@@ -187,8 +205,15 @@ class RateReformatter:
                     self._coi_select_by_date[dt][combo][(r.issue_age, r.duration)] = r.rate
 
             elif r.rate_type == 'G' and opt == '**':
-                # Guaranteed COI — always ultimate (dur=99)
-                self._guar_ultimate[combo][r.attained_age] = r.rate
+                # Guaranteed COI — usually ultimate (dur=99) but some plans
+                # carry a full select+ultimate guaranteed table (1U135D00)
+                # or duration-00-only rates (NU1F3B00).
+                if r.duration == 99:
+                    self._guar_ultimate[combo][r.attained_age] = r.rate
+                elif r.duration == 0:
+                    self._guar_dur0[combo][r.attained_age] = r.rate
+                else:
+                    self._guar_select[combo][(r.issue_age, r.duration)] = r.rate
 
             elif r.rate_type == 'T':
                 if opt == '**':
@@ -202,11 +227,58 @@ class RateReformatter:
                 elif opt == 'E*':
                     self._mtp_tbl4[combo][r.attained_age] = r.rate
 
+            elif r.rate_type not in ('C', 'G', 'T', 'M') and opt in ('**', 'E*'):
+                unmapped_types[r.rate_type] += 1
+
+        # Duration-00-only rates act as ultimate rates keyed by attained age.
+        # If a combo has select or dur-99 ultimate rates too, the dur-0 rows
+        # are ambiguous — leave them out and warn instead of guessing.
+        unused_dur0 = 0
+        for dt in list(self._coi_dur0_by_date.keys()):
+            for combo, dur0 in list(self._coi_dur0_by_date[dt].items()):
+                has_other = (
+                    bool(self._coi_select_by_date.get(dt, {}).get(combo))
+                    or bool(self._coi_ultimate_by_date.get(dt, {}).get(combo))
+                )
+                if has_other:
+                    unused_dur0 += len(dur0)
+                else:
+                    self._coi_ultimate_by_date[dt][combo] = dur0
+        if unused_dur0:
+            self.warnings.append(
+                f"{unused_dur0:,} duration-00 current-COI rows coexist with a "
+                "select/ultimate table and were not used (ambiguous).")
+
+        unused_g_dur0 = 0
+        for combo, dur0 in list(self._guar_dur0.items()):
+            has_other = (
+                bool(self._guar_select.get(combo))
+                or bool(self._guar_ultimate.get(combo))
+            )
+            if has_other:
+                unused_g_dur0 += len(dur0)
+            else:
+                self._guar_ultimate[combo] = dur0
+        if unused_g_dur0:
+            self.warnings.append(
+                f"{unused_g_dur0:,} duration-00 guaranteed-COI rows coexist "
+                "with a select/ultimate table and were not used (ambiguous).")
+
+        for rt, count in sorted(unmapped_types.items()):
+            if rt == 'W':
+                # W = surrender target — no longer used; intentionally skipped.
+                self.warnings.append(
+                    f"Rate type 'W' (surrender target — not used): "
+                    f"{count:,} rows skipped.")
+            else:
+                self.warnings.append(
+                    f"Rate type '{rt}': {count:,} base-plan rows are not "
+                    "mapped to any output table (unhandled type).")
+
         # Build sorted list of current COI scale dates (most recent first → Scale 1)
         all_c_dates = set()
         all_c_dates.update(self._coi_select_by_date.keys())
         all_c_dates.update(self._coi_ultimate_by_date.keys())
-        all_c_dates.update(self._coi_dur0_by_date.keys())
         self._coi_dates: List[str] = sorted(
             all_c_dates, key=self._parse_scale_date, reverse=True
         )
@@ -214,6 +286,12 @@ class RateReformatter:
         self._scale_for_date: Dict[str, int] = {
             dt: i + 1 for i, dt in enumerate(self._coi_dates)
         }
+
+        # Guaranteed select period (0 when G is ultimate-only).
+        self._guar_select_period: int = max(
+            (dur for rates in self._guar_select.values() for (_ia, dur) in rates),
+            default=0,
+        )
 
     # ------------------------------------------------------------------
     # Determine combos & select period
@@ -300,6 +378,13 @@ class RateReformatter:
             return rates
         return self._guar_ultimate.get(self._guar_class_combo(combo), {})
 
+    def _guar_select_for(self, combo: ComboKey) -> Dict[Tuple[int, int], float]:
+        """Guaranteed select rates for *combo* (same band='0' fallback)."""
+        rates = self._guar_select.get(combo)
+        if rates:
+            return rates
+        return self._guar_select.get(self._guar_class_combo(combo), {})
+
     # ------------------------------------------------------------------
     # Index assignment (dedup: identical rate tables share an index)
     # ------------------------------------------------------------------
@@ -316,6 +401,7 @@ class RateReformatter:
                 tuple(sorted(ult.items())),
             ))
         parts.append(('G', tuple(sorted(self._guar_rates_for(combo).items()))))
+        parts.append(('Gsel', tuple(sorted(self._guar_select_for(combo).items()))))
         return tuple(parts)
 
     def _trg_signature(self, combo: ComboKey) -> tuple:
@@ -361,7 +447,7 @@ class RateReformatter:
         trg_index: Dict[ComboKey, int] = {}
         groups: "OrderedDict[tuple, int]" = OrderedDict()
         reps: List[Tuple[int, ComboKey]] = []
-        next_idx = self.starting_index
+        next_idx = self.trg_starting_index
         for combo in combos:
             sig = self._trg_signature(combo)
             if not any(sig):
@@ -374,6 +460,63 @@ class RateReformatter:
                 next_idx += 1
             trg_index[combo] = idx
         return trg_index, reps
+
+    # ------------------------------------------------------------------
+    # Artifact issue-age filtering
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def filter_artifact_issue_ages(rows, removed: Optional[set] = None):
+        """Drop ``(index, scale, issue_age)`` series whose first duration > 1.
+
+        Some IAFs pad issue ages outside the product's true issue range with
+        default rates (below the real minimum, and sometimes above the real
+        maximum). The giveaway is a rate series that does not start at
+        duration 1 — e.g. issue age 0 whose first rate is at duration 17 on
+        a 16+ plan. Those series are meaningless and are removed; removed
+        keys are collected into ``removed`` when given.
+        """
+        current = None
+        skipping = False
+        for row in rows:
+            key = (row[0], row[1], row[2])     # (index, scale, issue_age)
+            if key != current:
+                current = key
+                skipping = row[3] > 1
+                if skipping and removed is not None:
+                    removed.add(key)
+            if not skipping:
+                yield row
+
+    # ------------------------------------------------------------------
+    # Public: compute combos + index assignments (no files written)
+    # ------------------------------------------------------------------
+
+    def compute(self) -> dict:
+        """Return the pointer combos and index assignments for this IAF.
+
+        Used by the Rate Workup builder, which writes its own merged output
+        files from the row generators. Keys:
+          combos, coi_index, coi_reps, trg_index, trg_reps,
+          select_period, ia_min, ia_max, current_scales
+        """
+        combos = self._get_banded_combos()
+        coi_index, coi_reps = self._assign_coi_indices(combos)
+        trg_index, trg_reps = self._assign_trg_indices(combos)
+        ia_min, ia_max = self._get_issue_age_range()
+        return {
+            "combos": combos,
+            "coi_index": coi_index,
+            "coi_reps": coi_reps,
+            "trg_index": trg_index,
+            "trg_reps": trg_reps,
+            "select_period": self._get_select_period(),
+            "ia_min": ia_min,
+            "ia_max": ia_max,
+            "current_scales": [
+                (self._scale_for_date[dt], dt) for dt in self._coi_dates
+            ],
+        }
 
     # ------------------------------------------------------------------
     # Public: run the full reformat
@@ -492,12 +635,34 @@ class RateReformatter:
         ia_min: int,
         ia_max: int,
     ) -> int:
-        """Expand select+ultimate C rates into fully select format.
+        row_count = 0
+        removed: set = set()
+        with open(filepath, 'w', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(["Index", "Scale", "IssueAge", "Duration", "Rate"])
+            for idx, scale, ia, dur, rate in self.filter_artifact_issue_ages(
+                    self.current_coi_rows(coi_reps, select_period, ia_min, ia_max),
+                    removed):
+                w.writerow([idx, scale, ia, dur, f"{rate:.6f}"])
+                row_count += 1
+        if removed:
+            self.warnings.append(
+                f"Current COI: dropped {len(removed)} artifact issue-age "
+                "series (first duration > 1 — outside the true issue range).")
+        return row_count
 
-        Multiple start dates produce multiple scales:
-          Scale 1 = most recent start date
-          Scale 2 = next most recent
-          ...etc.
+    def current_coi_rows(
+        self,
+        coi_reps: List[Tuple[int, ComboKey]],
+        select_period: int,
+        ia_min: int,
+        ia_max: int,
+    ):
+        """Yield ``(index, scale, issue_age, duration, rate)`` for current COI.
+
+        Expands select+ultimate C rates into fully select format. Multiple
+        start dates produce multiple scales:
+          Scale 1 = most recent start date, Scale 2 = next most recent, etc.
 
         For each scale, combo and issue_age:
           - dur 1..select_period  →  use select rate from data
@@ -505,42 +670,33 @@ class RateReformatter:
           - att_age = issue_age + duration - 1  (age 55 dur 1 = attained 55)
           - max_dur such that att_age <= max_att_age
         """
-        row_count = 0
+        for dt in self._coi_dates:
+            scale = self._scale_for_date[dt]
+            # Use per-date select period if it differs
+            dt_select_period = self._get_select_period(dt) or select_period
 
-        with open(filepath, 'w', newline='') as f:
-            w = csv.writer(f)
-            w.writerow(["Index", "Scale", "IssueAge", "Duration", "Rate"])
+            for idx, combo in coi_reps:
+                sel_rates = self._coi_select_by_date.get(dt, {}).get(combo, {})
+                ult_rates = self._coi_ultimate_by_date.get(dt, {}).get(combo, {})
 
-            for dt in self._coi_dates:
-                scale = self._scale_for_date[dt]
-                # Use per-date select period if it differs
-                dt_select_period = self._get_select_period(dt) or select_period
+                if not sel_rates and not ult_rates:
+                    continue  # no C rates for this combo at this date
 
-                for idx, combo in coi_reps:
-                    sel_rates = self._coi_select_by_date.get(dt, {}).get(combo, {})
-                    ult_rates = self._coi_ultimate_by_date.get(dt, {}).get(combo, {})
+                for ia in range(ia_min, ia_max + 1):
+                    # att_age = ia + dur - 1, so max dur where att_age <= max_att_age
+                    max_dur = self.max_att_age - ia + 1
+                    if max_dur < 1:
+                        continue
 
-                    if not sel_rates and not ult_rates:
-                        continue  # no C rates for this combo at this date
+                    for dur in range(1, max_dur + 1):
+                        att_age = ia + dur - 1
+                        if dur <= dt_select_period:
+                            rate = sel_rates.get((ia, dur))
+                        else:
+                            rate = ult_rates.get(att_age)
 
-                    for ia in range(ia_min, ia_max + 1):
-                        # att_age = ia + dur - 1, so max dur where att_age <= max_att_age
-                        max_dur = self.max_att_age - ia + 1
-                        if max_dur < 1:
-                            continue
-
-                        for dur in range(1, max_dur + 1):
-                            att_age = ia + dur - 1
-                            if dur <= dt_select_period:
-                                rate = sel_rates.get((ia, dur))
-                            else:
-                                rate = ult_rates.get(att_age)
-
-                            if rate is not None:
-                                w.writerow([idx, scale, ia, dur, f"{rate:.6f}"])
-                                row_count += 1
-
-        return row_count
+                        if rate is not None:
+                            yield idx, scale, ia, dur, rate
 
     # ------------------------------------------------------------------
     # Guaranteed COI (RATE table, Scale=0)
@@ -553,39 +709,60 @@ class RateReformatter:
         ia_min: int,
         ia_max: int,
     ) -> int:
-        """Expand G ultimate rates into fully select format.
-
-        G rates exist only at band='0' (class-level).  For each banded
-        combo we look up the class-level guaranteed rate and replicate it.
-        """
         row_count = 0
-        scale = 0
-
+        removed: set = set()
         with open(filepath, 'w', newline='') as f:
             w = csv.writer(f)
             w.writerow(["Index", "Scale", "IssueAge", "Duration", "Rate"])
+            for idx, scale, ia, dur, rate in self.filter_artifact_issue_ages(
+                    self.guaranteed_coi_rows(coi_reps, ia_min, ia_max), removed):
+                w.writerow([idx, scale, ia, dur, f"{rate:.6f}"])
+                row_count += 1
+        if removed:
+            self.warnings.append(
+                f"Guaranteed COI: dropped {len(removed)} artifact issue-age "
+                "series (first duration > 1 — outside the true issue range).")
+        return row_count
 
-            for idx, combo in coi_reps:
-                ult_rates = self._guar_rates_for(combo)
+    def guaranteed_coi_rows(
+        self,
+        coi_reps: List[Tuple[int, ComboKey]],
+        ia_min: int,
+        ia_max: int,
+    ):
+        """Yield ``(index, 0, issue_age, duration, rate)`` for guaranteed COI.
 
-                if not ult_rates:
-                    continue  # no guaranteed rates for this class
+        Expands G rates into fully select format exactly like current COI:
+        select-period G rates are used where present (some plans carry a full
+        select+ultimate guaranteed table), the ultimate rate at attained age
+        fills the rest. G rates are usually stored at band='0' (class-level);
+        each banded combo falls back to the class-level table.
+        """
+        scale = 0
+        for idx, combo in coi_reps:
+            sel_rates = self._guar_select_for(combo)
+            ult_rates = self._guar_rates_for(combo)
 
-                for ia in range(ia_min, ia_max + 1):
-                    # att_age = ia + dur - 1
-                    max_dur = self.max_att_age - ia + 1
-                    if max_dur < 1:
-                        continue
+            if not sel_rates and not ult_rates:
+                continue  # no guaranteed rates for this class
 
-                    for dur in range(1, max_dur + 1):
-                        att_age = ia + dur - 1
+            for ia in range(ia_min, ia_max + 1):
+                # att_age = ia + dur - 1
+                max_dur = self.max_att_age - ia + 1
+                if max_dur < 1:
+                    continue
+
+                for dur in range(1, max_dur + 1):
+                    att_age = ia + dur - 1
+                    if dur <= self._guar_select_period:
+                        rate = sel_rates.get((ia, dur))
+                        if rate is None:
+                            rate = ult_rates.get(att_age)
+                    else:
                         rate = ult_rates.get(att_age)
 
-                        if rate is not None:
-                            w.writerow([idx, scale, ia, dur, f"{rate:.6f}"])
-                            row_count += 1
-
-        return row_count
+                    if rate is not None:
+                        yield idx, scale, ia, dur, rate
 
     # ------------------------------------------------------------------
     # Target premiums (RATE_TRGPRM)
@@ -598,58 +775,58 @@ class RateReformatter:
         ia_min: int,
         ia_max: int,
     ) -> int:
-        """Write target premium data.
+        row_count = 0
+        with open(filepath, 'w', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(["Index", "IssueAge", "CTP", "TBL1CTP", "MTP", "TBL1MTP"])
+            for idx, ia, ctp, tbl1ctp, mtp, tbl1mtp in self.target_rows(
+                    trg_reps, ia_min, ia_max):
+                w.writerow([
+                    idx,
+                    ia,
+                    f"{ctp:.6f}" if ctp is not None else "",
+                    f"{tbl1ctp:.6f}" if tbl1ctp is not None else "",
+                    f"{mtp:.6f}" if mtp is not None else "",
+                    f"{tbl1mtp:.6f}" if tbl1mtp is not None else "",
+                ])
+                row_count += 1
+        return row_count
 
-        Columns:
+    def target_rows(
+        self,
+        trg_reps: List[Tuple[int, ComboKey]],
+        ia_min: int,
+        ia_max: int,
+    ):
+        """Yield ``(index, issue_age, ctp, tbl1ctp, mtp, tbl1mtp)`` values.
+
+        Values are floats or None:
           CTP      = T rate (opt='**') at class-level band='0'
           TBL1CTP  = T rate (opt='E*') / 4  (Table 4 → Table 1)
           MTP      = M rate (opt='**') at band level
           TBL1MTP  = M rate (opt='E*') / 4
         """
-        row_count = 0
+        for idx, combo in trg_reps:
+            # CTP comes from the class-level (band='0') T rates
+            ctp_rates = self._ctp_base.get(self._ctp_class_combo(combo), {})
+            # TBL1CTP from table-4 T rates at the banded combo level
+            tbl1ctp_rates = self._ctp_tbl4.get(combo, {})
+            # MTP at the banded combo level
+            mtp_rates = self._mtp_base.get(combo, {})
+            # TBL1MTP from table-4 M rates
+            tbl1mtp_rates = self._mtp_tbl4.get(combo, {})
 
-        with open(filepath, 'w', newline='') as f:
-            w = csv.writer(f)
-            w.writerow(["Index", "IssueAge", "CTP", "TBL1CTP", "MTP", "TBL1MTP"])
+            for ia in range(ia_min, ia_max + 1):
+                ctp = ctp_rates.get(ia)
+                tbl1ctp = tbl1ctp_rates.get(ia)
+                mtp = mtp_rates.get(ia)
+                tbl1mtp = tbl1mtp_rates.get(ia)
 
-            for idx, combo in trg_reps:
+                # Divide table-4 values by 4 to get table-1
+                tbl1ctp_val = tbl1ctp / 4.0 if tbl1ctp is not None else None
+                tbl1mtp_val = tbl1mtp / 4.0 if tbl1mtp is not None else None
 
-                # CTP comes from the class-level (band='0') T rates
-                ctp_combo = self._ctp_class_combo(combo)
-                ctp_rates = self._ctp_base.get(ctp_combo, {})
+                if ctp is None and tbl1ctp_val is None and mtp is None and tbl1mtp_val is None:
+                    continue
 
-                # TBL1CTP from table-4 T rates at the banded combo level
-                tbl1ctp_rates = self._ctp_tbl4.get(combo, {})
-
-                # MTP at the banded combo level
-                mtp_rates = self._mtp_base.get(combo, {})
-
-                # TBL1MTP from table-4 M rates
-                tbl1mtp_rates = self._mtp_tbl4.get(combo, {})
-
-                # Only write rows where at least one value exists
-                for ia in range(ia_min, ia_max + 1):
-                    ctp = ctp_rates.get(ia)
-                    tbl1ctp = tbl1ctp_rates.get(ia)
-                    mtp = mtp_rates.get(ia)
-                    tbl1mtp = tbl1mtp_rates.get(ia)
-
-                    # Divide table-4 values by 4 to get table-1
-                    tbl1ctp_val = tbl1ctp / 4.0 if tbl1ctp is not None else None
-                    tbl1mtp_val = tbl1mtp / 4.0 if tbl1mtp is not None else None
-
-                    # Skip if nothing to write
-                    if ctp is None and tbl1ctp_val is None and mtp is None and tbl1mtp_val is None:
-                        continue
-
-                    w.writerow([
-                        idx,
-                        ia,
-                        f"{ctp:.6f}" if ctp is not None else "",
-                        f"{tbl1ctp_val:.6f}" if tbl1ctp_val is not None else "",
-                        f"{mtp:.6f}" if mtp is not None else "",
-                        f"{tbl1mtp_val:.6f}" if tbl1mtp_val is not None else "",
-                    ])
-                    row_count += 1
-
-        return row_count
+                yield idx, ia, ctp, tbl1ctp_val, mtp, tbl1mtp_val

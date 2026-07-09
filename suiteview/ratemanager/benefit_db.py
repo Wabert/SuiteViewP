@@ -81,7 +81,10 @@ def _plancode(result: ParseResult) -> str:
 
 
 def _issue_version(result: ParseResult) -> str:
-    return result.products[0].version.strip() if result.products else ""
+    """The plan's issue version — '1' when the IAF's V column is blank."""
+    if result.products and result.products[0].version.strip():
+        return result.products[0].version.strip()
+    return "1"
 
 
 def _benefit_rates_by_combo(
@@ -174,13 +177,17 @@ def _write_sheet(ws, headers: List[str], rows: List[list]) -> None:
         ws.column_dimensions[letter].width = max(len(str(header)) + 2, 12)
 
 
-def build_benefit_db(
+def build_benefit_rows(
     result: ParseResult,
     specs: List[BenefitDBSpec],
-    output_path: str,
     progress_cb: Optional[Callable[[float], None]] = None,
-) -> Dict[str, Dict[str, int]]:
-    """Build the combined DB Format workbook. Returns per-benefit counts."""
+) -> Tuple[List[list], List[list], List[list], Dict[str, Dict[str, int]]]:
+    """Build the benefit DB rows without writing a workbook.
+
+    Returns ``(pointer_rows, bencoi_rows, bentrg_rows, counts)`` — the row
+    lists match POINTER_HEADERS / BENCOI_HEADERS / BENTRG_HEADERS. Used by
+    both the Benefits DB workbook export and the Rate Workup builder.
+    """
     plancode = _plancode(result)
     issue_version = _issue_version(result)
     max_att_age = _pay_age(result) - 1
@@ -267,6 +274,19 @@ def build_benefit_db(
         }
         if progress_cb:
             progress_cb((si + 1) / total)
+
+    return pointer_rows, bencoi_rows, bentrg_rows, counts
+
+
+def build_benefit_db(
+    result: ParseResult,
+    specs: List[BenefitDBSpec],
+    output_path: str,
+    progress_cb: Optional[Callable[[float], None]] = None,
+) -> Dict[str, Dict[str, int]]:
+    """Build the combined DB Format workbook. Returns per-benefit counts."""
+    pointer_rows, bencoi_rows, bentrg_rows, counts = build_benefit_rows(
+        result, specs, progress_cb=progress_cb)
 
     wb = Workbook()
     wb.remove(wb.active)

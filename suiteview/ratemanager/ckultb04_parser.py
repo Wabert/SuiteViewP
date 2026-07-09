@@ -16,9 +16,10 @@ memory-light on the very large (100 MB+) print files.
 
 from __future__ import annotations
 
-import os
 import re
 from typing import Callable, Dict, Iterator, List, Optional, Tuple
+
+from suiteview.ratemanager.online_tables import iter_report_lines
 
 # Ordered dict keys for a parsed record.
 RAW_KEYS: List[str] = [
@@ -131,44 +132,27 @@ def iter_records(
     Yields one dict per record (keys are ``RAW_KEYS``). ``progress_cb`` is
     called periodically with a 0.0-1.0 fraction of the file read.
     """
-    size = os.path.getsize(input_path) or 1
     pending: Optional[Dict] = None
-    lines_seen = 0
+    for line in iter_report_lines(input_path, progress_cb=progress_cb):
+        if is_skip_line(line):
+            continue
 
-    with open(input_path, "r", encoding="utf-8", errors="replace") as fh:
-        # NOTE: read via readline() rather than ``for line in fh`` — the file
-        # iterator protocol disables fh.tell() ("telling position disabled by
-        # next() call"), which we need for progress reporting.
-        while True:
-            line = fh.readline()
-            if not line:
-                break
-            lines_seen += 1
-            if progress_cb is not None and (lines_seen & 0x3FFF) == 0:
-                progress_cb(min(fh.tell() / size, 1.0))
-
-            if is_skip_line(line):
-                continue
-
-            parts = line.split()
-            if is_data_line1(parts):
-                # A new line-1 starts; flush any pending record without a
-                # continuation line first.
-                if pending is not None:
-                    yield pending
-                pending = _record_from_line1(parts)
-            else:
-                # Continuation line for the pending record.
-                if pending is not None:
-                    _apply_line2(pending, parts)
-                    yield pending
-                    pending = None
+        parts = line.split()
+        if is_data_line1(parts):
+            # A new line-1 starts; flush any pending record without a
+            # continuation line first.
+            if pending is not None:
+                yield pending
+            pending = _record_from_line1(parts)
+        else:
+            # Continuation line for the pending record.
+            if pending is not None:
+                _apply_line2(pending, parts)
+                yield pending
+                pending = None
 
     if pending is not None:
         yield pending
-
-    if progress_cb is not None:
-        progress_cb(1.0)
 
 
 def list_plan_codes(

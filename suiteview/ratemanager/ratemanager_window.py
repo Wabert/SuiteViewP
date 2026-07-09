@@ -14,7 +14,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFileDialog, QLineEdit, QTextEdit, QProgressBar,
-    QMessageBox, QRadioButton, QTabWidget,
+    QMessageBox, QRadioButton, QStackedWidget, QTabWidget,
     QCheckBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 
@@ -26,27 +26,12 @@ from suiteview.ratemanager.exporter import (
 from suiteview.ratemanager.rate_reformatter import RateReformatter
 
 
-# ---------------------------------------------------------------------------
-# Standard SuiteView palette (blue & gold)
-# ---------------------------------------------------------------------------
-
-BLUE        = "#1A3A7A"
-BLUE_LIGHT  = "#2A5AAA"
-BLUE_DARK   = "#0D3A7A"
-GOLD        = "#D4A017"
-GOLD_TEXT   = "#FFD54F"
-GOLD_PRIMARY = "#FFC107"
-
-BG_DARK     = "#1E1E2E"
-BG_MID      = "#2D2D44"
-BG_INPUT    = "#252540"
-TEXT        = "#E8E8F0"
-TEXT_MID    = "#A0A0B8"
-BORDER      = "#3D3D5C"
-
-# Header colours for FramelessWindowBase
-HEADER_COLORS = ("#1E5BA8", "#0D3A7A", "#082B5C")
-BORDER_COLOR  = "#D4A017"
+# Shared RateManager palette + stylesheet (also used by the Workup window).
+from suiteview.ratemanager.rm_styles import (
+    BLUE, BLUE_LIGHT, GOLD, GOLD_TEXT,
+    BG_DARK, BG_MID, TEXT, TEXT_MID, BORDER,
+    HEADER_COLORS, BORDER_COLOR, body_stylesheet,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -434,198 +419,6 @@ class MPFExportWorker(QThread):
         except Exception as exc:
             self.error.emit(str(exc))
 
-
-# ---------------------------------------------------------------------------
-# Shared stylesheet
-# ---------------------------------------------------------------------------
-
-def _body_stylesheet() -> str:
-    return f"""
-        #RateManagerBody {{
-            background: {BG_DARK};
-        }}
-
-        #Subtitle {{
-            color: {TEXT_MID};
-            font-size: 12px;
-            font-style: italic;
-        }}
-
-        #SectionLabel {{
-            color: {GOLD_TEXT};
-            font-weight: bold;
-            font-size: 13px;
-        }}
-
-        QLineEdit {{
-            background: {BG_INPUT};
-            color: {TEXT};
-            border: 1px solid {BORDER};
-            border-radius: 4px;
-            padding: 5px 8px;
-            font-size: 13px;
-            selection-background-color: {BLUE};
-        }}
-        QLineEdit:focus {{
-            border-color: {GOLD};
-        }}
-
-        #SecondaryBtn {{
-            background: {BG_MID};
-            color: {TEXT};
-            border: 1px solid {BORDER};
-            border-radius: 4px;
-            padding: 6px 14px;
-            font-size: 13px;
-        }}
-        #SecondaryBtn:hover {{
-            background: {BLUE};
-            border-color: {GOLD};
-        }}
-        #SecondaryBtn:disabled {{
-            color: #555;
-        }}
-
-        #PrimaryBtn {{
-            background: {BLUE};
-            color: {GOLD_TEXT};
-            border: 2px solid {GOLD};
-            border-radius: 4px;
-            padding: 8px 28px;
-            font-size: 14px;
-            font-weight: bold;
-        }}
-        #PrimaryBtn:hover {{
-            background: {BLUE_LIGHT};
-        }}
-        #PrimaryBtn:disabled {{
-            background: #333;
-            color: #666;
-            border-color: #444;
-        }}
-
-        #LogArea {{
-            background: {BG_INPUT};
-            color: {TEXT};
-            border: 1px solid {BORDER};
-            border-radius: 4px;
-            font-family: 'Cascadia Code', 'Consolas', monospace;
-            font-size: 12px;
-        }}
-
-        #LogToggle {{
-            background: transparent;
-            color: {TEXT_MID};
-            border: none;
-            text-align: left;
-            padding: 2px 2px;
-            font-size: 12px;
-            font-weight: bold;
-        }}
-        #LogToggle:hover {{
-            color: {GOLD_TEXT};
-        }}
-        #LogToggle:checked {{
-            color: {GOLD_TEXT};
-        }}
-
-        #BenefitTable {{
-            background: {BG_INPUT};
-            color: {TEXT};
-            border: 1px solid {BORDER};
-            border-radius: 4px;
-            font-size: 13px;
-            gridline-color: {BORDER};
-        }}
-        #BenefitTable QHeaderView::section {{
-            background: {BG_MID};
-            color: {GOLD_TEXT};
-            border: none;
-            border-right: 1px solid {BORDER};
-            border-bottom: 1px solid {BORDER};
-            padding: 3px 6px;
-            font-size: 12px;
-            font-weight: bold;
-        }}
-        #BenefitTable::item {{
-            padding: 2px 4px;
-        }}
-        #BenefitIndex {{
-            background: {BG_DARK};
-            color: {TEXT};
-            border: 1px solid {GOLD};
-            border-radius: 3px;
-            padding: 2px 6px;
-            font-size: 12px;
-            min-width: 78px;
-        }}
-
-        QCheckBox#BenefitCheck::indicator {{
-            width: 17px;
-            height: 17px;
-            border: 2px solid {GOLD};
-            border-radius: 4px;
-            background: {BG_DARK};
-        }}
-        QCheckBox#BenefitCheck::indicator:hover {{
-            border-color: {GOLD_PRIMARY};
-            background: {BG_MID};
-        }}
-        QCheckBox#BenefitCheck::indicator:checked {{
-            background: {GOLD_PRIMARY};
-            border-color: {GOLD};
-            image: none;
-        }}
-
-        QProgressBar {{
-            background: {BG_INPUT};
-            border: 1px solid {BORDER};
-            border-radius: 4px;
-            text-align: center;
-            color: {TEXT};
-            font-size: 12px;
-        }}
-        QProgressBar::chunk {{
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                stop:0 {BLUE}, stop:1 {GOLD});
-            border-radius: 3px;
-        }}
-
-        #FilePreview {{
-            color: {TEXT_MID};
-            font-size: 11px;
-            font-style: italic;
-            padding-left: 8px;
-        }}
-
-        QTabWidget::pane {{
-            border: 1px solid {BORDER};
-            border-radius: 4px;
-            top: -1px;
-            background: {BG_DARK};
-        }}
-        QTabBar::tab {{
-            background: {BG_MID};
-            color: {TEXT_MID};
-            border: 1px solid {BORDER};
-            border-bottom: none;
-            border-top-left-radius: 4px;
-            border-top-right-radius: 4px;
-            padding: 6px 18px;
-            margin-right: 2px;
-            font-size: 13px;
-            font-weight: bold;
-        }}
-        QTabBar::tab:selected {{
-            background: {BLUE};
-            color: {GOLD_TEXT};
-            border-color: {GOLD};
-        }}
-        QTabBar::tab:hover:!selected {{
-            background: {BLUE_LIGHT};
-            color: {TEXT};
-        }}
-    """
 
 
 # ---------------------------------------------------------------------------
@@ -1444,26 +1237,65 @@ class _ConverterPanel(QWidget):
 # ---------------------------------------------------------------------------
 
 class RateManagerWindow(FramelessWindowBase):
-    """SuiteView Rate File Converter — frameless blue/gold themed window."""
+    """SuiteView Rate Manager — opens straight to the Rate Workup.
+
+    The universal single-plancode workup is the main view; the header toggle
+    switches to the per-file converter tabs (IAF, IAF-Benefits, MPF,
+    CKULTB04) and back.
+    """
 
     def __init__(self, parent=None):
+        self._view_btn = QPushButton("⇄ Converters")
+        self._view_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: rgba(0, 0, 0, 60);
+                color: {GOLD_TEXT};
+                border: 1px solid {GOLD};
+                border-radius: 4px;
+                padding: 3px 12px;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: {BLUE_LIGHT};
+                color: white;
+            }}
+        """)
+        self._view_btn.setToolTip(
+            "Switch between the Rate Workup and the individual file "
+            "converters.")
+        self._view_btn.clicked.connect(self._toggle_view)
+
         super().__init__(
-            title="SuiteView:  Rate File Converter",
-            default_size=(760, 680),
-            min_size=(580, 480),
+            title="SuiteView:  Rate Manager",
+            default_size=(900, 850),
+            min_size=(720, 620),
             parent=parent,
             header_colors=HEADER_COLORS,
             border_color=BORDER_COLOR,
+            header_widgets=[self._view_btn],
         )
 
+    def _toggle_view(self):
+        to_converters = self._stack.currentIndex() == 0
+        self._stack.setCurrentIndex(1 if to_converters else 0)
+        self._view_btn.setText(
+            "⇄ Rate Workup" if to_converters else "⇄ Converters")
+
     def build_content(self) -> QWidget:
+        from suiteview.ratemanager.workup.workup_window import RateWorkupPanel
+
         body = QWidget()
         body.setObjectName("RateManagerBody")
-        body.setStyleSheet(_body_stylesheet())
+        body.setStyleSheet(body_stylesheet())
 
         layout = QVBoxLayout(body)
         layout.setContentsMargins(10, 8, 10, 10)
         layout.setSpacing(0)
+
+        self._stack = QStackedWidget()
+        self.workup_panel = RateWorkupPanel()
+        self._stack.addWidget(self.workup_panel)
 
         tabs = QTabWidget()
         tabs.setObjectName("ConverterTabs")
@@ -1524,5 +1356,6 @@ class RateManagerWindow(FramelessWindowBase):
         )
         tabs.addTab(self.ckultb04_panel, "CKULTB04")
 
-        layout.addWidget(tabs)
+        self._stack.addWidget(tabs)
+        layout.addWidget(self._stack)
         return body

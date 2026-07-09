@@ -73,6 +73,16 @@ def summarize(
     return out
 
 
+def _rate_value(entry: tuple) -> float:
+    """Loadable rate from a ``(val, prem_str, is_pct)`` entry.
+
+    Percent premiums load as decimals (``5.64%`` → 0.0564); factor premiums
+    load unchanged.
+    """
+    val, _prem_str, is_pct = entry
+    return val / 100.0 if is_pct else val
+
+
 def _expand(table: Dict[int, tuple], renewable: bool) -> List[Tuple[int, int, float]]:
     """Expand an attained-age table into ``(issue_age, duration, rate)`` rows."""
     ages = sorted(table)
@@ -85,9 +95,9 @@ def _expand(table: Dict[int, tuple], renewable: bool) -> List[Tuple[int, int, fl
             att = ia + dur - 1
             if renewable:
                 if att in table:
-                    rows.append((ia, dur, table[att][0]))
+                    rows.append((ia, dur, _rate_value(table[att])))
             else:
-                rows.append((ia, dur, table[ia][0]))
+                rows.append((ia, dur, _rate_value(table[ia])))
     return rows
 
 

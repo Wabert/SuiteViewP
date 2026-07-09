@@ -1,0 +1,35 @@
+﻿RATE WORKUP — 1U1F4M00  (IssueVersion 1)
+================================================================
+
+Sources:
+  IAF:      C:/Users/Robert/Documents/File System HQ/01_Active_Projects/2026-06 SuiteViewP/docs/RateManager/IAF/1U1F4M00.ISSUEAGE.PRINT.CKAS 02252022.txt
+  MPF:      C:/Users/Robert/Documents/File System HQ/01_Active_Projects/2026-06 SuiteViewP/docs/RateManager/MPF/MPF CKAS 2019-04-04.txt
+  CKULTB04: C:/Users/Robert/Documents/File System HQ/01_Active_Projects/2026-06 SuiteViewP/docs/RateManager/CKULTB04/CKULTBF4 07-07-2026.txt   (plan '78')
+  CKULTB01: —
+
+Rate space:  Sexes 1,2  ·  Classes E F G H I K  ·  Bands A B C D  ·  Issue ages 0–85  ·  Select period 0  ·  Scales: 1=01/01/2015, 2=01/01/1900
+Maturity age: 100   Pay age: 100   Base index: 13400
+Output codes:  Sex 1→M, 2→F (unisex unchanged)   Bands A→1, B→2, C→3, D→4
+
+Benefits included:
+  15   (IAF)  level
+  21   (IAF)  level
+  3F   (COI from MPF 312)  renewable
+  4M   (IAF)  level
+  7G   (IAF)  level
+
+Tables written:
+  POINT_PVSRB            136 rows
+  RATE_COI           124,740 rows   indexes 13400–13411  (12 index(es))
+  RATE_TRGPREM         2,968 rows   indexes 13400–13443  (44 index(es))
+  RATE_SCR           542,475 rows   indexes 13400–13568  (169 index(es))
+  RATE_EPU                 0 rows
+  POINT_BENEFIT          192 rows
+  RATE_BENCOI         90,492 rows   indexes 13400–13424  (25 index(es))
+  RATE_BENTRG            843 rows   indexes 13400–13424  (25 index(es))
+
+Warnings (4):
+  ⚠ Rate type 'W' (surrender target — not used): 3,584 rows skipped.
+  ⚠ COI: dropped 576 artifact issue-age series (first duration > 1) — issue ages 0-15 lie outside the product's true issue range.
+  ⚠ Benefit 3F (MPF 312): 2,112 percent premiums converted to decimals (5.64% → 0.0564).
+  ⚠ SCR: no CKULTB04 rates for 4 base combo(s): 1/E/A, 1/F/A, 2/E/A, 2/F/A
