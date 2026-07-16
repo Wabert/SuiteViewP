@@ -831,6 +831,10 @@ class FilterTableView(QWidget):
         self._syncing_vertical_scroll = False
         self._filtering_enabled = True
 
+        # Optional hook so owners can append actions to the cell context menu.
+        # Signature: callback(menu: QMenu, index: QModelIndex) -> None
+        self.context_menu_hook = None
+
         self.init_ui()
 
     def init_ui(self):
@@ -1781,7 +1785,11 @@ class FilterTableView(QWidget):
             copy_table_action = QAction("📋 Copy Entire Table", self)
             copy_table_action.triggered.connect(self.copy_entire_table)
             menu.addAction(copy_table_action)
-        
+
+        # Let the owning widget append its own actions (e.g. Copy File).
+        if callable(self.context_menu_hook):
+            self.context_menu_hook(menu, index)
+
         menu.exec(self.table_view.viewport().mapToGlobal(pos))
     
     def copy_cell(self, index: QModelIndex):

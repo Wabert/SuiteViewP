@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QApplication, QSizeGrip, QComboBox, QFileIconProvider,
     QStyledItemDelegate, QStyle
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QFileInfo
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QFileInfo, QUrl, QMimeData
 from PyQt6.QtGui import QIcon
 
 from suiteview.ui.widgets.filter_table_view import FilterTableView
@@ -73,6 +73,25 @@ def _get_file_type(filename):
     return ext[1:] if ext.startswith('.') else ext
 
 
+def _format_file_size(num_bytes):
+    """Format a byte count as a compact human-readable size (e.g. '12 KB', '3.4 MB')."""
+    try:
+        size = float(num_bytes)
+    except (TypeError, ValueError):
+        return ''
+    if size <= 0:
+        return ''
+    for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
+        if size < 1024 or unit == 'TB':
+            if unit == 'B':
+                return f"{int(size)} {unit}"
+            if size < 10:
+                return f"{size:.1f} {unit}"
+            return f"{int(round(size))} {unit}"
+        size /= 1024
+    return f"{int(round(size))} TB"
+
+
 def _process_attachment_dataframe(df):
     """Apply standard column transformations, filtering, and sorting to an attachment DataFrame.
     
@@ -85,6 +104,9 @@ def _process_attachment_dataframe(df):
     df['Domain'] = df['sender'].apply(_get_sender_domain)
     df['Subject'] = df['email_subject'].fillna('')
     df['File Type'] = df['attachment_name'].apply(_get_file_type)
+    if 'attachment_size' not in df.columns:
+        df['attachment_size'] = 0
+    df['File Size'] = df['attachment_size'].apply(_format_file_size)
     
     # Filter out embedded image types - show only true file attachments
     df = df[~df['File Type'].str.upper().isin(_IMAGE_TYPES)].reset_index(drop=True)
@@ -98,8 +120,8 @@ def _process_attachment_dataframe(df):
     df = df.drop('sort_date', axis=1)
     
     # Select and rename columns for display
-    display_df = df[['Full Name', 'Sender Name', 'Domain', 'Sent Date', 'Subject', 'File Type', 'attachment_name']].copy()
-    display_df.columns = ['Full Name', 'Sender', 'Domain', 'Sent Date', 'Subject', 'Type', 'Attachment']
+    display_df = df[['Full Name', 'Sender Name', 'Domain', 'Sent Date', 'Subject', 'File Type', 'File Size', 'attachment_name']].copy()
+    display_df.columns = ['Full Name', 'Sender', 'Domain', 'Sent Date', 'Subject', 'Type', 'Size', 'Attachment']
     
     return display_df, df
 
@@ -440,6 +462,7 @@ class AttachmentLoaderThread(QThread):
                                     'email_subject': email_subject,
                                     'date': received_time,
                                     'attachment_name': filename,
+                                    'attachment_size': getattr(attachment, 'Size', 0),
                                     'email_id': email_id,
                                     'attachment_index': idx
                                 }
@@ -701,14 +724,16 @@ class EmailAttachmentsWindow(QWidget):
             self.attachments_grid.table_view.verticalHeader().setVisible(False)
             self.attachments_grid.table_view.setShowGrid(False)
             self.attachments_grid.table_view.setAlternatingRowColors(False)
-            # Set file icon delegate for the Attachment column (column 6)
+            # Set file icon delegate for the Attachment column (column 7)
             self.file_icon_delegate = FileIconDelegate(self.attachments_grid.table_view)
-            self.attachments_grid.table_view.setItemDelegateForColumn(6, self.file_icon_delegate)
+            self.attachments_grid.table_view.setItemDelegateForColumn(7, self.file_icon_delegate)
         content_layout.addWidget(self.attachments_grid)
         
         # Connect double-click handler
         if hasattr(self.attachments_grid, 'table_view'):
             self.attachments_grid.table_view.doubleClicked.connect(self.on_double_click)
+            # Append our own actions to the grid's built-in right-click menu
+            self.attachments_grid.context_menu_hook = self._add_attachment_menu_actions
         
         # Status bar
         self.status_label = QLabel("Loading attachments...")
@@ -1008,6 +1033,7 @@ class EmailAttachmentsWindow(QWidget):
                 'email_subject': cached.get('email_subject', ''),
                 'date': cached_date,
                 'attachment_name': cached['attachment_name'],
+                'attachment_size': cached.get('attachment_size', 0),
                 'email_id': cached['email_id'],
                 'attachment_index': cached['attachment_index']
             })
@@ -1077,9 +1103,9 @@ class EmailAttachmentsWindow(QWidget):
     
     def _configure_grid_columns(self):
         """Set column widths and alignment after loading data"""
-        # Columns: Full Name(0), Sender(1), Domain(2), Sent Date(3), Subject(4), Type(5), Attachment(6)
+        # Columns: Full Name(0), Sender(1), Domain(2), Sent Date(3), Subject(4), Type(5), Size(6), Attachment(7)
         if hasattr(self.attachments_grid, 'model') and self.attachments_grid.model:
-            self.attachments_grid.model._left_align_columns = {0, 4, 6}  # Full Name, Subject, Attachment
+            self.attachments_grid.model._left_align_columns = {0, 4, 7}  # Full Name, Subject, Attachment
         if hasattr(self.attachments_grid, 'table_view'):
             self.attachments_grid.table_view.setColumnWidth(4, 300)  # Subject
 
@@ -1113,9 +1139,9 @@ class EmailAttachmentsWindow(QWidget):
         email_id = attachment['email_id']
         attachment_index = attachment['attachment_index']
         
-        # Column 6 is Attachment - open attachment
+        # Column 7 is Attachment - open attachment
         # Other columns - open email
-        if col == 6:
+        if col == 7:
             self.open_attachment(email_id, attachment_index)
         else:
             self.open_email(email_id)
@@ -1164,6 +1190,73 @@ class EmailAttachmentsWindow(QWidget):
         except Exception as e:
             QApplication.restoreOverrideCursor()
             QMessageBox.warning(self, "Error", f"Failed to open attachment: {e}")
+
+    def _attachment_at_row(self, row: int):
+        """Resolve the attachment record for a view row (handles filtering)."""
+        if self.attachment_data is None or self.attachment_data.empty:
+            return None
+        if hasattr(self.attachments_grid, 'model') and self.attachments_grid.model:
+            display_indices = self.attachments_grid.model._display_indices
+            if row < 0 or row >= len(display_indices):
+                return None
+            return self.attachment_data.loc[display_indices[row]]
+        if row < 0 or row >= len(self.attachment_data):
+            return None
+        return self.attachment_data.iloc[row]
+
+    def _add_attachment_menu_actions(self, menu, index):
+        """Hook: append attachment actions to the grid's built-in context menu."""
+        attachment = self._attachment_at_row(index.row())
+        if attachment is None:
+            return
+        email_id = attachment['email_id']
+        attachment_index = attachment['attachment_index']
+
+        menu.addSeparator()
+        open_action = menu.addAction("📎 Open Attachment")
+        open_action.triggered.connect(
+            lambda: self.open_attachment(email_id, attachment_index))
+        copy_action = menu.addAction("📋 Copy File to Clipboard")
+        copy_action.triggered.connect(
+            lambda: self.copy_attachment_to_clipboard(email_id, attachment_index))
+        open_email_action = menu.addAction("✉ Open Email")
+        open_email_action.triggered.connect(lambda: self.open_email(email_id))
+
+    def copy_attachment_to_clipboard(self, email_id: str, attachment_index: int):
+        """Copy the attachment file to the clipboard so it can be pasted (Ctrl+V)
+        into a folder or another application."""
+        # Lazy-initialize Outlook connection only when needed
+        if self.outlook is None:
+            self.outlook = get_outlook_manager()
+
+        if not self.outlook.is_connected():
+            QMessageBox.warning(
+                self, "Outlook Not Connected",
+                "Please ensure Microsoft Outlook is running."
+            )
+            return
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
+
+        try:
+            temp_path = self.outlook.get_attachment_preview_path(email_id, attachment_index)
+            QApplication.restoreOverrideCursor()
+
+            if not temp_path or not os.path.exists(temp_path):
+                QMessageBox.warning(self, "Error", "Failed to retrieve attachment")
+                return
+
+            mime_data = QMimeData()
+            mime_data.setUrls([QUrl.fromLocalFile(temp_path)])
+            QApplication.clipboard().setMimeData(mime_data)
+
+            self.status_label.setText(
+                f"Copied '{os.path.basename(temp_path)}' to clipboard — "
+                "Ctrl+V to paste")
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Error", f"Failed to copy attachment: {e}")
     
     def _toggle_maximize(self):
         """Toggle maximize/restore"""
