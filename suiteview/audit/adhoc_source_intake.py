@@ -286,7 +286,10 @@ def _resolve_text_format_spec(path: Path, format_spec: dict[str, Any] | None) ->
 def _sniff_delimiter(path: Path) -> str:
     try:
         sample = path.read_text(encoding="utf-8-sig", errors="replace")[:8192]
-        dialect = csv.Sniffer().sniff(sample, delimiters=[",", "\t", "|", ";", "~"])
+        # \x1f (Unit Separator) and \x1e (Record Separator) are the field/row
+        # delimiters used by SAP / mainframe flat-file extracts (often .dat).
+        dialect = csv.Sniffer().sniff(
+            sample, delimiters=[",", "\t", "|", ";", "~", "\x1f", "\x1e"])
         return dialect.delimiter
     except Exception:
         return ","

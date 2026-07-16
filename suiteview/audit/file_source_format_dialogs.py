@@ -89,20 +89,46 @@ def prompt_text_format_spec(parent, path: str) -> dict | None:
     return None
 
 
+def _decode_delimiter(text: str) -> str:
+    r"""Turn a user-typed delimiter into the literal character.
+
+    Accepts the ``\t`` tab shorthand and ``\xNN`` hex escapes so mainframe / SAP
+    extracts that use non-printing separators — most commonly ``\x1f`` (Unit
+    Separator) — can be entered by hand.
+    """
+    escapes = {"\\t": "\t", "\\r": "\r", "\\n": "\n"}
+    if text in escapes:
+        return escapes[text]
+    if len(text) == 4 and text[:2] == "\\x":
+        try:
+            return chr(int(text[2:], 16))
+        except ValueError:
+            pass
+    return text
+
+
+def _encode_delimiter(delimiter: str) -> str:
+    r"""Render a stored delimiter back as editable text (inverse of decode)."""
+    if delimiter == "\t":
+        return "\\t"
+    if delimiter and (ord(delimiter[0]) < 0x20 or ord(delimiter[0]) == 0x7F):
+        return f"\\x{ord(delimiter[0]):02x}"
+    return delimiter
+
+
 def _prompt_delimited_spec(parent, path: str, current: dict | None = None) -> dict:
     suffix = Path(path).suffix.lower()
     if current and current.get("delimiter") is not None:
-        cur_delim = current["delimiter"]
-        default_delimiter = "\\t" if cur_delim == "\t" else cur_delim
+        default_delimiter = _encode_delimiter(current["delimiter"])
     else:
         default_delimiter = {".tsv": "\\t", ".psv": "|"}.get(suffix, ",")
     delimiter_text, ok = QInputDialog.getText(
-        parent, "Delimited Text Settings", "Delimiter (use \\t for tab):",
+        parent, "Delimited Text Settings",
+        "Delimiter (use \\t for tab, or \\x1f for a Unit Separator):",
         text=default_delimiter)
     if not ok:
         raise DialogCancelled
-    delimiter = delimiter_text or default_delimiter
-    delimiter = "\t" if delimiter == "\\t" else delimiter
+    delimiter = _decode_delimiter(delimiter_text or default_delimiter)
     header_default = (QMessageBox.StandardButton.Yes
                       if (current is None or current.get("has_header", True))
                       else QMessageBox.StandardButton.No)

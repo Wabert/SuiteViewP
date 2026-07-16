@@ -182,5 +182,6 @@ def datasource_label(file_source: FileDataSource) -> str:
         return "Excel"
     if st == SOURCE_TYPE_CSV:
         delim = (file_source.parse_spec or {}).get("delimiter", ",")
-        return {",": "CSV", "\t": "TSV", "|": "PSV", ";": "SSV"}.get(delim, "Delimited")
+        return {",": "CSV", "\t": "TSV", "|": "PSV", ";": "SSV",
+                "\x1f": "USV"}.get(delim, "Delimited")
     return st or "File"
