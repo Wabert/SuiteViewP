@@ -3846,9 +3846,7 @@ class QueryObjectViewerWindow(FramelessWindowBase):
                              open_folder=False, delete=False, save=True,
                              edit_format=True)
         else:
-            # Saved File Sources must offer New Query (Visual / Manual SQL) —
-            # it is the only entry point for building a query on a file.
-            dash.set_actions(test=False, edit=False, new_query=True,
+            dash.set_actions(test=False, edit=False, new_query=False,
                              open_folder=False, delete=False, save=True,
                              edit_format=True)
         dash.set_test_button("Refresh", "Re-check that the member files still exist")
