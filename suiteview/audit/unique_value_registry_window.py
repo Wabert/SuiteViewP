@@ -429,6 +429,8 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self._expanded = False  # More/Less state
         self._show_inactive = False
         self._value_rows: list[dict] = []  # raw data backing the model
+        # (dsn, table_name) while the column list is shown; None otherwise
+        self._table_columns_context: tuple[str, str] | None = None
         super().__init__(
             title="Unique Value Registry",
             default_size=(saved.get("w", 1100), saved.get("h", 540)),
@@ -743,6 +745,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
     def _show_values(self, field_id: int):
         """Load and display values for the selected field."""
         self._current_field_id = field_id
+        self._table_columns_context = None
         self._value_rows = registry.get_values_full(
             field_id, include_inactive=self._show_inactive)
 
@@ -862,6 +865,23 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
 
     def _on_item_changed(self, item: QStandardItem):
         """Persist description or notes edits to SQL Server."""
+        # Column-notes context: the value table is showing a table's columns.
+        if self._table_columns_context is not None:
+            if item.column() != 1:  # only the Notes column is editable here
+                return
+            dsn, table_name = self._table_columns_context
+            col_name = item.data(Qt.ItemDataRole.UserRole)
+            if not col_name:
+                return
+            try:
+                registry.set_column_note(
+                    dsn, table_name, str(col_name), item.text().strip())
+            except Exception as exc:
+                logger.error("Failed to save note for %s.%s: %s",
+                             table_name, col_name, exc)
+                QMessageBox.warning(self, "Save Error",
+                                    f"Could not save note:\n\n{exc}")
+            return
         col = item.column()
         if col not in (_COL_DESC, _COL_NOTES):
             return
@@ -912,6 +932,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
                             table_node: QTreeWidgetItem):
         """Show all columns of the table; highlight registered ones."""
         self._current_field_id = None
+        self._table_columns_context = (dsn, table_name)
         self.lbl_field_title.setText(f"{table_name}  (all columns)")
 
         # Collect registered column names from child nodes
@@ -930,14 +951,21 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             self.value_model.itemChanged.disconnect(self._on_item_changed)
             self.value_model.clear()
             self.value_model.setHorizontalHeaderLabels(
-                ["Column", "Type", "Size", "Nullable", "Registered"])
+                ["Column", "Notes", "Type", "Size", "Nullable", "Registered"])
             self.value_model.itemChanged.connect(self._on_item_changed)
             self.btn_export.setEnabled(False)
             return
 
+        # Saved per-column notes (column_name upper → note)
+        try:
+            col_notes = registry.get_column_notes(dsn, table_name)
+        except Exception as exc:
+            logger.error("Failed to load column notes for %s: %s", table_name, exc)
+            col_notes = {}
+
         self.value_model.itemChanged.disconnect(self._on_item_changed)
         self.value_model.clear()
-        headers = ["Column", "Type", "Size", "Nullable", "Registered"]
+        headers = ["Column", "Notes", "Type", "Size", "Nullable", "Registered"]
         self.value_model.setHorizontalHeaderLabels(headers)
 
         registered_count = 0
@@ -951,6 +979,11 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
             if is_reg:
                 item_name.setFont(_FONT_BOLD)
                 item_name.setForeground(QColor("#1E5BA8"))
+
+            item_notes = QStandardItem(col_notes.get(col_name.upper(), ""))
+            item_notes.setEditable(True)
+            # Stash the column name so edits can be saved back
+            item_notes.setData(col_name, Qt.ItemDataRole.UserRole)
 
             item_type = QStandardItem(str(type_name))
             item_type.setEditable(False)
@@ -974,7 +1007,8 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
                 item_reg.setFont(_FONT_BOLD)
 
             self.value_model.appendRow(
-                [item_name, item_type, item_size, item_null, item_reg])
+                [item_name, item_notes, item_type, item_size,
+                 item_null, item_reg])
 
         self.value_model.itemChanged.connect(self._on_item_changed)
 
@@ -982,13 +1016,14 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         self.value_table.resizeColumnsToContents()
         hdr = self.value_table.horizontalHeader()
         hdr.setStretchLastSection(False)
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        for c in range(2, 5):
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)  # Column
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)      # Notes
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)      # Type
+        for c in range(3, 6):
             hdr.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
 
         # Hide extended value columns that don't apply
-        for col in range(5, self.value_model.columnCount()):
+        for col in range(6, self.value_model.columnCount()):
             self.value_table.setColumnHidden(col, True)
 
         self.lbl_stats.setText(
@@ -1001,6 +1036,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
         from suiteview.core.odbc_utils import get_dsn_details
 
         self._current_field_id = None
+        self._table_columns_context = None
         self.lbl_field_title.setText(f"Connection: {dsn}")
 
         details = get_dsn_details(dsn)

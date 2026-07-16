@@ -56,8 +56,44 @@ def _ensure_source_dsn_column() -> None:
         conn.close()
 
 
+def _ensure_column_note_table() -> None:
+    """Create ABATBL_COLUMN_NOTE if it doesn't exist yet.
+
+    Stores free-text notes for individual table columns, keyed by
+    (dsn, table_name, column_name).  Independent of whether the column
+    is registered for unique-value tracking.
+    """
+    conn = _connect()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_NAME = 'ABATBL_COLUMN_NOTE'"
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                "CREATE TABLE [ABATBL_COLUMN_NOTE] ("
+                "  note_id INT IDENTITY(1,1) PRIMARY KEY, "
+                "  dsn VARCHAR(128) NOT NULL, "
+                "  table_name VARCHAR(256) NOT NULL, "
+                "  column_name VARCHAR(256) NOT NULL, "
+                "  note VARCHAR(MAX) NULL, "
+                "  created_by VARCHAR(128) NULL, "
+                "  created_at VARCHAR(32) NULL, "
+                "  updated_by VARCHAR(128) NULL, "
+                "  updated_at VARCHAR(32) NULL"
+                ")"
+            )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        conn.close()
+
+
 # Run once on import
 _ensure_source_dsn_column()
+_ensure_column_note_table()
 
 
 def fetch_and_register(table_name: str, column_name: str,
@@ -438,6 +474,70 @@ def permanently_delete_table(table_name: str) -> None:
             "WHERE table_name = ? AND database_name = ?",
             (table_name, _DATABASE),
         )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_column_notes(dsn: str, table_name: str) -> dict[str, str]:
+    """Return a mapping of ``column_name`` → note for a table.
+
+    Keys are upper-cased column names so lookups are case-insensitive.
+    """
+    live_dsn = dsn or _DSN
+    conn = _connect()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT column_name, note FROM [ABATBL_COLUMN_NOTE] "
+            "WHERE dsn = ? AND table_name = ?",
+            (live_dsn, table_name),
+        )
+        return {row[0].upper(): (row[1] or "") for row in cursor.fetchall()}
+    finally:
+        conn.close()
+
+
+def set_column_note(dsn: str, table_name: str, column_name: str,
+                    note: str) -> None:
+    """Insert, update, or clear the note for a single table column."""
+    live_dsn = dsn or _DSN
+    note = (note or "").strip()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    user = _user()
+    conn = _connect()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT note_id FROM [ABATBL_COLUMN_NOTE] "
+            "WHERE dsn = ? AND table_name = ? AND column_name = ?",
+            (live_dsn, table_name, column_name),
+        )
+        row = cursor.fetchone()
+        if not note:
+            if row:
+                cursor.execute(
+                    "DELETE FROM [ABATBL_COLUMN_NOTE] WHERE note_id = ?",
+                    (row[0],),
+                )
+        elif row:
+            cursor.execute(
+                "UPDATE [ABATBL_COLUMN_NOTE] SET note = ?, "
+                "  updated_by = ?, updated_at = ? WHERE note_id = ?",
+                (note, user, now, row[0]),
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO [ABATBL_COLUMN_NOTE] "
+                "  (dsn, table_name, column_name, note, "
+                "   created_by, created_at, updated_by, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (live_dsn, table_name, column_name, note,
+                 user, now, user, now),
+            )
         conn.commit()
     except Exception:
         conn.rollback()
