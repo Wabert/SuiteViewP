@@ -323,7 +323,9 @@ def outputs_from_config(config: dict[str, Any]) -> list[OutputColumn] | None:
     return [
         OutputColumn(source=o["source"], column=o["column"],
                      alias=o.get("alias"),
-                     agg=o.get("agg", o.get("aggregate")))
+                     agg=o.get("agg", o.get("aggregate")),
+                     sort=o.get("sort", ""),
+                     sort_order=o.get("sort_order", 0))
         for o in raw
     ]
 

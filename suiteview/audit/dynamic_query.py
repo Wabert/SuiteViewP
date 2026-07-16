@@ -75,6 +75,25 @@ def _aggregate_alias(aggregate: str, column: str) -> str:
     return f"{aggregate}_{column}"
 
 
+def _order_by_clause(select_columns, expr_fn) -> str:
+    """Build an ORDER BY clause from sorted select columns.
+
+    Each spec may carry ``sort`` ("ASC"/"DESC") and ``sort_order`` (int).
+    ``expr_fn(spec)`` returns the SQL expression to order by. Returns "" when
+    no column requests a sort.
+    """
+    sortable = []
+    for sc in (select_columns or []):
+        direction = (sc.get("sort") or "").upper()
+        if direction in ("ASC", "DESC"):
+            sortable.append((sc.get("sort_order", 0) or 0, sc, direction))
+    if not sortable:
+        return ""
+    sortable.sort(key=lambda t: t[0])
+    terms = [f"{expr_fn(sc)} {direction}" for _, sc, direction in sortable]
+    return "\nORDER BY " + ", ".join(terms)
+
+
 def _select_prefix(top_clause: str, distinct: bool, dialect: str) -> str:
     if distinct and dialect != DB2:
         return f"DISTINCT {top_clause}"
@@ -206,6 +225,15 @@ def build_dynamic_sql(
         sql += "\nWHERE " + "\n  AND ".join(wheres)
     if has_agg and plain_cols:
         sql += "\nGROUP BY " + ", ".join(plain_cols)
+
+    def _order_expr(sc):
+        col = sc["column"]
+        agg = sc.get("aggregate", "display")
+        if agg == "display":
+            return q(col)
+        return _alias(_aggregate_alias(agg, col), dialect)
+
+    sql += _order_by_clause(select_columns, _order_expr)
     sql += fetch_clause
 
     return sql
@@ -504,6 +532,15 @@ def build_join_sql(
         sql += "\nWHERE " + "\n  AND ".join(wheres)
     if has_agg and plain_cols:
         sql += "\nGROUP BY " + ", ".join(plain_cols)
+
+    def _order_expr(sc):
+        col = sc["column"]
+        agg = sc.get("aggregate", "display")
+        if agg == "display":
+            return _qualify(sc.get("field_key", ""), col)
+        return _alias(_aggregate_alias(agg, col), dialect)
+
+    sql += _order_by_clause(select_columns, _order_expr)
     sql += fetch_clause
 
     return sql

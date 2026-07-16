@@ -46,6 +46,9 @@ from suiteview.audit.query_runner import (
 )
 from suiteview.audit.query_builder_menu import query_builder_menu
 from suiteview.audit.dataforge.query_field_picker import FORGE_FIELD_DRAG_MIME
+from suiteview.audit.tabs._sort_controls import (
+    SortControl, handle_direction_changed, handle_order_edited, renumber,
+)
 # Phase 2 join UI: the MS-Access-style canvas (field-linked Source boxes with
 # drawn join lines) replaces the old card-based ForgeJoinsTab. JoinCanvasView
 # is API-compatible (update_queries / get_merge_ops / get_state / set_state /
@@ -611,6 +614,9 @@ class ForgeDisplayFieldRow(QFrame):
         lay.addWidget(self.lbl_key)
         lay.addStretch()
 
+        self.sort_ctrl = SortControl(self)
+        lay.addWidget(self.sort_ctrl)
+
         self.btn_remove = QPushButton("x")
         self.btn_remove.setFont(QFont("Segoe UI", 7))
         self.btn_remove.setFixedSize(16, 16)
@@ -627,6 +633,14 @@ class ForgeDisplayFieldRow(QFrame):
     @property
     def display_name(self) -> str:
         return self._display_name
+
+    @property
+    def sort_direction(self) -> str:
+        return self.sort_ctrl.direction
+
+    @property
+    def sort_order(self) -> int:
+        return self.sort_ctrl.order
 
     def _cycle_agg(self):
         self._agg_idx = (self._agg_idx + 1) % len(_DISPLAY_AGGREGATES)
@@ -656,6 +670,8 @@ class ForgeDisplayFieldRow(QFrame):
             "field_key": self.field_key,
             "display_name": self._display_name,
             "aggregate": self._agg_idx,
+            "sort": self.sort_ctrl.direction,
+            "sort_order": self.sort_ctrl.order,
         }
 
     def set_state(self, state: dict):
@@ -666,6 +682,8 @@ class ForgeDisplayFieldRow(QFrame):
         if display_name:
             self._display_name = display_name
             self.lbl_name.setText(display_name)
+        self.sort_ctrl.set_direction(state.get("sort", ""))
+        self.sort_ctrl.set_order(state.get("sort_order", 0))
 
     def set_selected(self, selected: bool):
         self._selected = selected
@@ -790,6 +808,9 @@ class ForgeDisplayTab(QScrollArea):
         row.customContextMenuRequested.connect(
             lambda pos, r=row: self._show_selection_menu(r, r.mapTo(self._container, pos)))
         row.state_changed.connect(self.state_changed)
+        row.sort_ctrl.dir_changed.connect(lambda r=row: self._on_sort_dir_changed(r))
+        row.sort_ctrl.order_edited.connect(
+            lambda val, r=row: self._on_sort_order_edited(r, val))
         self._rows.append(row)
         self._field_set.add(field_key)
         self._layout.insertWidget(self._layout.count() - 1, row)
@@ -810,7 +831,16 @@ class ForgeDisplayTab(QScrollArea):
         self._layout.removeWidget(row)
         row.setParent(None)
         row.deleteLater()
+        renumber(self._rows)
         self._update_hint_visibility()
+        self.state_changed.emit()
+
+    def _on_sort_dir_changed(self, row: ForgeDisplayFieldRow):
+        handle_direction_changed(self._rows, row)
+        self.state_changed.emit()
+
+    def _on_sort_order_edited(self, row: ForgeDisplayFieldRow, val: int):
+        handle_order_edited(self._rows, row, val)
         self.state_changed.emit()
 
     def _update_hint_visibility(self):
@@ -910,6 +940,8 @@ class ForgeDisplayTab(QScrollArea):
                 "field_key": row.field_key,
                 "display_name": row.display_name,
                 "aggregate": row.aggregate,
+                "sort": row.sort_direction,
+                "sort_order": row.sort_order,
             })
         return result
 
@@ -1761,6 +1793,18 @@ class DataForgeGroup(QWidget):
         if not resolved:
             return result
 
+        def _apply_sort(df: pd.DataFrame) -> pd.DataFrame:
+            pairs = [(spec, col) for spec, col in resolved
+                     if (spec.get("sort") or "").upper() in ("ASC", "DESC")
+                     and col in df.columns]
+            pairs.sort(key=lambda pc: pc[0].get("sort_order", 0) or 0)
+            if not pairs:
+                return df
+            by = [col for _s, col in pairs]
+            ascending = [(_s.get("sort") or "").upper() == "ASC"
+                         for _s, _c in pairs]
+            return df.sort_values(by=by, ascending=ascending, kind="stable")
+
         display_cols = [
             column for spec, column in resolved
             if spec.get("aggregate", "display") == "display"
@@ -1770,7 +1814,8 @@ class DataForgeGroup(QWidget):
             if spec.get("aggregate", "display") != "display"
         ]
         if not aggregate_specs:
-            return result[[c for c in display_cols if c in result.columns]]
+            selected = result[[c for c in display_cols if c in result.columns]]
+            return _apply_sort(selected)
 
         used_names = set(display_cols)
         named_aggs = {}
@@ -1782,7 +1827,7 @@ class DataForgeGroup(QWidget):
 
         if display_cols:
             grouped = result.groupby(display_cols, dropna=False).agg(**named_aggs).reset_index()
-            return grouped[[*display_cols, *named_aggs.keys()]]
+            return _apply_sort(grouped[[*display_cols, *named_aggs.keys()]])
 
         values = {}
         for output_name, (column, aggregate) in named_aggs.items():
@@ -2102,13 +2147,17 @@ class DataForgeGroup(QWidget):
             if source not in valid_sources or not column:
                 continue
             outputs.append({"source": source, "column": column,
-                            "agg": spec.get("aggregate", "display")})
+                            "agg": spec.get("aggregate", "display"),
+                            "sort": spec.get("sort", ""),
+                            "sort_order": spec.get("sort_order", 0)})
         return outputs
 
     def _engine_outputs(self) -> list[OutputColumn] | None:
         """OutputColumns for compilation, or None for select-everything."""
         outputs = [OutputColumn(source=o["source"], column=o["column"],
-                                agg=o["agg"])
+                                agg=o["agg"],
+                                sort=o.get("sort", ""),
+                                sort_order=o.get("sort_order", 0))
                    for o in self._outputs_config()]
         return outputs or None
 

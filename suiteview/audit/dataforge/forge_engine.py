@@ -143,6 +143,8 @@ class OutputColumn:
     column: str
     alias: str | None = None  # output name; defaults to collision-safe name
     agg: str | None = None
+    sort: str = ""            # "", "ASC" or "DESC" — ORDER BY direction
+    sort_order: int = 0       # sort priority (1 = ordered first)
 
     def __post_init__(self):
         a = (self.agg or "").lower()
@@ -324,8 +326,8 @@ def _resolve_outputs(
     sources: list[str],
     schemas: dict[str, list[str]],
     outputs: list[OutputColumn] | None,
-) -> tuple[list[str], dict[str, tuple[str, str]], list[str]]:
-    """Return (select_exprs, column_sources, group_by_exprs).
+) -> tuple[list[str], dict[str, tuple[str, str]], list[str], list[str]]:
+    """Return (select_exprs, column_sources, group_by_exprs, order_by_exprs).
 
     When ``outputs`` is None, select every column from every Source in join
     order, giving collision-safe output names (``col`` when unique so far,
@@ -335,14 +337,19 @@ def _resolve_outputs(
     it lists the source-qualified expressions of the non-aggregated outputs
     (the GROUP BY keys). An all-aggregate output yields an empty list (a
     whole-set aggregate, no GROUP BY clause).
+
+    ``order_by_exprs`` lists ``"name" DIR`` terms for any output carrying a
+    sort direction, ordered by its ``sort_order`` priority.
     """
     select_exprs: list[str] = []
     column_sources: dict[str, tuple[str, str]] = {}
     group_by_exprs: list[str] = []
+    order_specs: list[tuple[int, str, str]] = []  # (priority, out_name, dir)
     seen: dict[str, str] = {}  # output name -> source that claimed it
     any_agg = False
 
-    def add(src: str, col: str, want: str | None, agg: str | None = None):
+    def add(src: str, col: str, want: str | None, agg: str | None = None,
+            sort: str = "", sort_order: int = 0):
         nonlocal any_agg
         if want:
             out_name = want
@@ -371,6 +378,10 @@ def _resolve_outputs(
             group_by_exprs.append(col_expr)
         select_exprs.append(f"{value_expr} AS {_qi(out_name)}")
 
+        direction = (sort or "").upper()
+        if direction in ("ASC", "DESC"):
+            order_specs.append((sort_order or 0, out_name, direction))
+
     if outputs:
         for oc in outputs:
             if oc.source not in schemas:
@@ -380,14 +391,20 @@ def _resolve_outputs(
                 raise ForgeEngineError(
                     f"Output column {oc.source}.{oc.column} not found in "
                     f"that Source's Snapshot.")
-            add(oc.source, oc.column, oc.alias, oc.agg)
+            add(oc.source, oc.column, oc.alias, oc.agg,
+                oc.sort, oc.sort_order)
     else:
         for src in sources:
             for col in schemas[src]:
                 add(src, col, None)
 
+    order_specs.sort(key=lambda t: t[0])
+    order_by_exprs = [f"{_qi(name)} {direction}"
+                      for _p, name, direction in order_specs]
+
     # GROUP BY keys are only meaningful when something aggregates.
-    return select_exprs, column_sources, (group_by_exprs if any_agg else [])
+    return (select_exprs, column_sources,
+            (group_by_exprs if any_agg else []), order_by_exprs)
 
 
 # ── Main entry point ───────────────────────────────────────────────────────
@@ -530,7 +547,7 @@ def compile_forge_sql(
             already_joined.add(new)
         from_clause = "\n".join(lines)
 
-    select_exprs, column_sources, group_by_exprs = _resolve_outputs(
+    select_exprs, column_sources, group_by_exprs, order_by_exprs = _resolve_outputs(
         sources, schemas, outputs)
     select_clause = "SELECT\n  " + ",\n  ".join(select_exprs)
 
@@ -557,6 +574,11 @@ def compile_forge_sql(
         if preds:
             sql = (f"SELECT * FROM (\n{sql}\n) AS {_qi(outer)}"
                    f"\nWHERE " + " AND ".join(preds))
+
+    # ORDER BY references output column names, which survive the result-filter
+    # wrap (SELECT *), so it applies last to the final query.
+    if order_by_exprs:
+        sql += "\nORDER BY " + ", ".join(order_by_exprs)
 
     if limit is not None and int(limit) > 0:
         sql += f"\nLIMIT {int(limit)}"

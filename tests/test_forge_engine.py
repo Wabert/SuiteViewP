@@ -192,6 +192,33 @@ def test_output_column_selection_and_aliases():
     print("  output selection + aliases:", list(df.columns), " OK")
 
 
+def test_output_order_by_priority():
+    # Sort by status ASC (priority 2), face_amount DESC (priority 1).
+    res = run_forge(
+        {"pol": _policies()},
+        [],
+        outputs=[
+            OutputColumn("pol", "policy_number"),
+            OutputColumn("pol", "status", sort="ASC", sort_order=2),
+            OutputColumn("pol", "face_amount", sort="DESC", sort_order=1),
+        ],
+    )
+    assert 'ORDER BY "face_amount" DESC, "status" ASC' in res.sql, res.sql
+    faces = res.dataframe["face_amount"].tolist()
+    assert faces == sorted(faces, reverse=True), faces
+    print("  output ORDER BY priority:", faces, " OK")
+
+
+def test_no_order_by_without_sort():
+    res = run_forge(
+        {"pol": _policies()},
+        [],
+        outputs=[OutputColumn("pol", "policy_number")],
+    )
+    assert "ORDER BY" not in res.sql, res.sql
+    print("  no ORDER BY when unsorted  OK")
+
+
 def test_contains_escapes_wildcards():
     # A value with a literal % must not act as a SQL wildcard.
     df = pd.DataFrame({"note": ["50% off", "discount", "100 percent"]})

@@ -62,6 +62,75 @@ class DynamicQuerySqlTests(unittest.TestCase):
         self.assertTrue(sql.endswith("FETCH FIRST 25 ROWS ONLY"))
 
 
+class DynamicQueryOrderByTests(unittest.TestCase):
+    def test_db2_order_by_respects_priority(self):
+        sql = build_dynamic_sql(
+            "DB2TAB.LH_BAS_POL",
+            "",
+            [],
+            select_columns=[
+                {"column": "A", "field_key": "DB2TAB.LH_BAS_POL.A",
+                 "aggregate": "display", "sort": "ASC", "sort_order": 2},
+                {"column": "B", "field_key": "DB2TAB.LH_BAS_POL.B",
+                 "aggregate": "display", "sort": "DESC", "sort_order": 1},
+                {"column": "C", "field_key": "DB2TAB.LH_BAS_POL.C",
+                 "aggregate": "display"},
+            ],
+            dialect=DB2,
+        )
+        # B (priority 1) before A (priority 2); C is unsorted and absent.
+        self.assertIn('ORDER BY "B" DESC, "A" ASC', sql)
+        self.assertNotIn('"C"', sql.split("ORDER BY")[1])
+
+    def test_order_by_precedes_fetch_first(self):
+        sql = build_dynamic_sql(
+            "DB2TAB.LH_BAS_POL",
+            "25",
+            [],
+            select_columns=[
+                {"column": "A", "field_key": "DB2TAB.LH_BAS_POL.A",
+                 "aggregate": "display", "sort": "ASC", "sort_order": 1},
+            ],
+            dialect=DB2,
+        )
+        self.assertLess(sql.index("ORDER BY"), sql.index("FETCH FIRST"))
+
+    def test_no_order_by_when_no_sort(self):
+        sql = build_dynamic_sql(
+            "DB2TAB.LH_BAS_POL",
+            "",
+            [],
+            select_columns=[
+                {"column": "A", "field_key": "DB2TAB.LH_BAS_POL.A",
+                 "aggregate": "display"},
+            ],
+            dialect=DB2,
+        )
+        self.assertNotIn("ORDER BY", sql)
+
+    def test_join_sql_order_by_uses_qualified_column(self):
+        sql = build_join_sql(
+            "dbo.orion_pcr3_r",
+            "",
+            [],
+            join_infos=[{
+                "left_table": "dbo.orion_pcr3_r",
+                "right_table": "dbo.other_table",
+                "join_type": "INNER JOIN",
+                "alias_left": "r",
+                "alias_right": "o",
+                "on_pairs": [("Pol", "Pol")],
+                "extra_conditions": [],
+            }],
+            select_columns=[
+                {"column": "Co", "field_key": "dbo.orion_pcr3_r.Co",
+                 "aggregate": "display", "sort": "DESC", "sort_order": 1},
+            ],
+            dialect=SQL_SERVER,
+        )
+        self.assertIn("ORDER BY r.[Co] DESC", sql)
+
+
 class DynamicQueryUiTests(unittest.TestCase):
     def test_sql_assist_shows_only_explicit_selected_tables(self):
         app = QApplication.instance()

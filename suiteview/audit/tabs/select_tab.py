@@ -19,6 +19,9 @@ from PyQt6.QtWidgets import (
 from suiteview.audit.query_builder_menu import query_builder_menu
 
 from ._styles import make_checkbox
+from ._sort_controls import (
+    SortControl, handle_direction_changed, handle_order_edited, renumber,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +107,10 @@ class SelectFieldRow(QFrame):
 
         lay.addStretch()
 
+        # Sort direction toggle + priority order
+        self.sort_ctrl = SortControl(self)
+        lay.addWidget(self.sort_ctrl)
+
         # Remove button
         self.btn_remove = QPushButton("✕")
         self.btn_remove.setFont(QFont("Segoe UI", 7))
@@ -144,11 +151,21 @@ class SelectFieldRow(QFrame):
 
     # ── State ────────────────────────────────────────────────────────
 
+    @property
+    def sort_direction(self) -> str:
+        return self.sort_ctrl.direction
+
+    @property
+    def sort_order(self) -> int:
+        return self.sort_ctrl.order
+
     def get_state(self) -> dict:
         return {
             "field_key": self.field_key,
             "display_name": self._display_name,
             "aggregate": self._agg_idx,
+            "sort": self.sort_ctrl.direction,
+            "sort_order": self.sort_ctrl.order,
         }
 
     def set_state(self, s: dict):
@@ -158,6 +175,8 @@ class SelectFieldRow(QFrame):
         if dn:
             self._display_name = dn
             self.lbl_name.setText(dn)
+        self.sort_ctrl.set_direction(s.get("sort", ""))
+        self.sort_ctrl.set_order(s.get("sort_order", 0))
 
     def set_selected(self, selected: bool):
         self._selected = selected
@@ -293,6 +312,9 @@ class SelectTab(QScrollArea):
         row.customContextMenuRequested.connect(
             lambda pos, r=row: self._show_selection_menu(r, r.mapTo(self._container, pos)))
         row.state_changed.connect(self.state_changed)
+        row.sort_ctrl.dir_changed.connect(lambda r=row: self._on_sort_dir_changed(r))
+        row.sort_ctrl.order_edited.connect(
+            lambda val, r=row: self._on_sort_order_edited(r, val))
         self._rows.append(row)
         self._field_set.add(field_key)
         # Insert before the stretch
@@ -311,7 +333,16 @@ class SelectTab(QScrollArea):
         self._layout.removeWidget(row)
         row.setParent(None)
         row.deleteLater()
+        renumber(self._rows)
         self._update_hint_visibility()
+        self.state_changed.emit()
+
+    def _on_sort_dir_changed(self, row: SelectFieldRow):
+        handle_direction_changed(self._rows, row)
+        self.state_changed.emit()
+
+    def _on_sort_order_edited(self, row: SelectFieldRow, val: int):
+        handle_order_edited(self._rows, row, val)
         self.state_changed.emit()
 
     def _clear_selection(self):
@@ -458,6 +489,8 @@ class SelectTab(QScrollArea):
                 "column": col,
                 "field_key": row.field_key,
                 "aggregate": row.aggregate,
+                "sort": row.sort_direction,
+                "sort_order": row.sort_order,
             })
         return result
 
