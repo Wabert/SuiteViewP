@@ -69,6 +69,33 @@ def test_recalc_summary_shows_accum_glp_adjustment():
     ) == "none — GLP unchanged"
 
 
+def test_recalc_detail_sheet_verbose_accum_glp_text():
+    # The per-recalc Summary sheet renders the SAME helper verbose: the worked
+    # equation for a mid-year true-up, or the reason there is none.
+    from suiteview.illustration.ui.values_tab import _accum_glp_adjust_text
+
+    assert _accum_glp_adjust_text(
+        {
+            "accum_glp_adjustment": -2250.0,
+            "accum_glp_months_remaining": 9,
+            "glp_prior": 3999.96,
+            "glp_new": 999.96,
+        },
+        verbose=True,
+    ) == (
+        "AccumGLP adjustment = months remaining ÷ 12 × (new GLP − prior GLP)\n"
+        "    = 9/12 × (999.96 − 3,999.96)\n"
+        "    = -2,250.00  applied to AccumGLP at the recalc"
+    )
+    assert _accum_glp_adjust_text(
+        {"glp_prior": 3999.96, "glp_new": 999.96}, verbose=True
+    ) == ("No AccumGLP adjustment — recalc on anniversary "
+          "(the full year accrues at the new GLP)")
+    assert _accum_glp_adjust_text(
+        {"glp_prior": 999.96, "glp_new": 999.96}, verbose=True
+    ) == "No AccumGLP adjustment — GLP unchanged"
+
+
 def test_anniversary_recalc_needs_no_adjustment():
     # m=1: the anniversary accumulation this month already reads the new GLP.
     policy = _policy(glp=4000.0)

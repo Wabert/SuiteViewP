@@ -274,6 +274,68 @@ def test_values_group_navigator_is_permanent():
     assert not tab.navigator.isHidden()
 
 
+def test_view_toggle_defaults_to_current_and_hides_until_guaranteed_run():
+    _app()
+    tab = IllustrationValuesTab()
+
+    # Mutually-exclusive segmented pair; Current Values is the default.
+    assert tab.view_toggle_group.exclusive()
+    assert tab.current_toggle.isChecked()
+    assert not tab.guaranteed_toggle.isChecked()
+    assert not tab.current_toggle.isVisibleTo(tab)
+    assert not tab.guaranteed_toggle.isVisibleTo(tab)
+
+    # A current-only run keeps the pair hidden — no guaranteed side to offer.
+    tab.display_projection(_policy(), [_state()])
+    assert not tab.current_toggle.isVisibleTo(tab)
+    assert not tab.guaranteed_toggle.isVisibleTo(tab)
+    assert tab.current_toggle.isChecked()
+
+
+def test_view_toggle_switches_between_current_and_guaranteed_projections():
+    _app()
+    tab = IllustrationValuesTab()
+    current = replace(_state(), av_end_of_month=9990.0)
+    guaranteed = replace(_state(), av_end_of_month=5555.0)
+
+    tab.display_projection(_policy(), [current])
+    tab.set_guaranteed_results(_policy(), [guaranteed])
+
+    # The pair appears once a guaranteed run exists; Current stays selected.
+    assert tab.current_toggle.isVisibleTo(tab)
+    assert tab.guaranteed_toggle.isVisibleTo(tab)
+    assert tab.current_toggle.isChecked()
+    assert tab._tab_grids["Summary"].df.iloc[0]["EAV"] == 9990.0
+
+    # Guaranteed Values: the exclusive group unchecks Current and the grids
+    # re-render from the guaranteed run.
+    tab.guaranteed_toggle.setChecked(True)
+    assert not tab.current_toggle.isChecked()
+    assert tab._tab_grids["Summary"].df.iloc[0]["EAV"] == 5555.0
+    assert tab.status_label.text().startswith("GUARANTEED")
+
+    # Current Values: back to the current-assumption projection.
+    tab.current_toggle.setChecked(True)
+    assert not tab.guaranteed_toggle.isChecked()
+    assert tab._tab_grids["Summary"].df.iloc[0]["EAV"] == 9990.0
+    assert tab.status_label.text().startswith("Showing valuation snapshot")
+
+
+def test_new_projection_resets_view_toggle_to_current():
+    _app()
+    tab = IllustrationValuesTab()
+    tab.display_projection(_policy(), [_state()])
+    tab.set_guaranteed_results(_policy(), [_state()])
+    tab.guaranteed_toggle.setChecked(True)
+
+    tab.display_projection(_policy(), [_state()])
+
+    assert tab.current_toggle.isChecked()
+    assert not tab.guaranteed_toggle.isChecked()
+    assert not tab.current_toggle.isVisibleTo(tab)
+    assert not tab.guaranteed_toggle.isVisibleTo(tab)
+
+
 def _recalc_pv_detail(label, premium):
     return {
         "premium_label": label,

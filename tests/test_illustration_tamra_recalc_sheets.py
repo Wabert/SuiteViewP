@@ -298,6 +298,37 @@ def test_within_period_sheet_shows_calc_and_backtest():
     assert view.new_period_label.isHidden()
 
 
+def test_summary_sheet_shows_midyear_accum_glp_equation():
+    # Mid-year recalc: the worked pro-rata equation renders under the GLP/GSP
+    # table; the anniversary note stays hidden.
+    view = _view()
+    view.show_recalc(_base_detail(
+        accum_glp_adjustment=18.0,
+        accum_glp_months_remaining=9,
+    ))
+
+    assert not view.accum_glp_equation.isHidden()
+    assert view.accum_glp_note.isHidden()
+    assert view.accum_glp_equation.text() == (
+        "AccumGLP adjustment = months remaining ÷ 12 × (new GLP − prior GLP)\n"
+        "    = 9/12 × (120.00 − 96.00)\n"
+        "    = +18.00  applied to AccumGLP at the recalc"
+    )
+
+
+def test_summary_sheet_notes_no_adjustment_on_anniversary():
+    # Anniversary recalc (GLP changed, no adjustment in the detail): the greyed
+    # italic note explains why, instead of leaving empty space.
+    view = _view()
+    view.show_recalc(_base_detail())
+
+    assert view.accum_glp_equation.isHidden()
+    assert not view.accum_glp_note.isHidden()
+    assert view.accum_glp_note.text() == (
+        "No AccumGLP adjustment — recalc on anniversary "
+        "(the full year accrues at the new GLP)")
+
+
 def test_new_period_sheet_states_the_start_date():
     view = _view()
     view.show_recalc(_base_detail(

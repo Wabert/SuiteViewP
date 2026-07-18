@@ -383,7 +383,6 @@ def _ledger_cells(
 class ValuesOverview(QWidget):
     """KPI strip + annual/monthly drill-down ledger."""
 
-    monthSelected = pyqtSignal(int)        # result-row index of the highlighted month
     cellActivated = pyqtSignal(int, str)   # double-click: (result-row index, ledger column)
 
     def __init__(self, parent=None):
@@ -438,7 +437,6 @@ class ValuesOverview(QWidget):
         self.ledger.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.ledger.customContextMenuRequested.connect(
             lambda pos: self._show_ledger_menu(self.ledger.viewport().mapToGlobal(pos)))
-        self.ledger.currentItemChanged.connect(self._on_current_item)
         self.ledger.itemDoubleClicked.connect(self._on_item_double_clicked)
 
         # ── Frozen locator pane ── Year | Month | Age | Date stay visible while
@@ -552,13 +550,6 @@ class ValuesOverview(QWidget):
         row_index = index.siblingAtColumn(0).data(Qt.ItemDataRole.UserRole)
         if row_index is not None:
             self.cellActivated.emit(int(row_index), LEDGER_COLUMNS[index.column()])
-
-    def _on_current_item(self, current, _previous):
-        if current is None:
-            return
-        index = current.data(0, Qt.ItemDataRole.UserRole)
-        if index is not None:
-            self.monthSelected.emit(int(index))
 
     def _on_item_double_clicked(self, item, column):
         index = item.data(0, Qt.ItemDataRole.UserRole)

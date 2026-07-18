@@ -85,7 +85,10 @@ def main():
                               seven_pay_window_start=date(2024, 1, 15),
                               seven_pay_start_av=5_000.0,
                               seven_pay_pv=_seven_pay_pv(),
-                              seven_pay_backtest=_backtest()),
+                              seven_pay_backtest=_backtest(),
+                              # Mid-year change: 9/12 x (120 - 96) AccumGLP true-up.
+                              accum_glp_adjustment=18.0,
+                              accum_glp_months_remaining=9),
         "new_period": dict(base, tamra_case="new_period", tamra_year_at_change=12,
                            seven_pay_prior=60.0, seven_pay_new=48.0,
                            seven_pay_window_start=date(2026, 6, 9),
@@ -95,8 +98,8 @@ def main():
 
     out_dir = Path.home() / ".suiteview"
     out_dir.mkdir(exist_ok=True)
-    tamra_tabs = {"TAMRA Calc": "calc", "MEC Back-Test": "backtest",
-                  "New 7-Pay Period": "newperiod"}
+    tamra_tabs = {"Summary": "summary", "TAMRA Calc": "calc",
+                  "MEC Back-Test": "backtest", "New 7-Pay Period": "newperiod"}
     written = []
     for case, detail in cases.items():
         view = GuidelineRecalcDetailView()

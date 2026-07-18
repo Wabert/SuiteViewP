@@ -71,6 +71,9 @@ def test_values_tab_session_state_round_trips_without_engine():
     tab = IllustrationValuesTab()
     tab.display_projection(_policy_data(), [_state()], months=1)
     tab.set_guaranteed_results(_policy_data(), [_state()])
+    # Leave the tab showing the guaranteed side — restore must come back on
+    # Current Values, the default for a fresh render.
+    tab.guaranteed_toggle.setChecked(True)
 
     snapshot = tab.capture_session_state()
     assert snapshot is not None
@@ -82,9 +85,13 @@ def test_values_tab_session_state_round_trips_without_engine():
     assert tab.restore_session_state(snapshot) is True
     assert len(tab._results) == 1
     assert tab._current_view is not None
-    # The guaranteed side re-attaches and its toggle is offered again.
+    # The guaranteed side re-attaches: the Current | Guaranteed pair is offered
+    # again, reset to its Current Values default.
     assert tab._guaranteed_view is not None
+    assert tab.current_toggle.isVisibleTo(tab)
     assert tab.guaranteed_toggle.isVisibleTo(tab)
+    assert tab.current_toggle.isChecked()
+    assert not tab.guaranteed_toggle.isChecked()
     # Grids repopulated from the snapshot.
     assert len(tab._tab_grids["Summary"].df) == 1
     assert tab.status_label.text() == "Showing valuation snapshot plus 1 projected months."

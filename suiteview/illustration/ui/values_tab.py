@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Iterable
 
 import pandas as pd
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -23,8 +23,7 @@ from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.ui.widgets.filter_table_view import FilterTableView
 
 from .guideline_pv_view import GuidelinePvDetailView
-from .styles import PURPLE_BG, PURPLE_DARK
-from .values_inspector import MonthInspector
+from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_PRIMARY, PURPLE_SUBTLE
 from .values_overview import (
     AccumulatedChargesChart,
     PolicyValueChart,
@@ -253,20 +252,36 @@ def _recalc_delta(detail: dict, key: str):
     return after - before
 
 
-def _accum_glp_adjust_text(detail: dict) -> str:
+def _accum_glp_adjust_text(detail: dict, *, verbose: bool = False) -> str:
     """How the recalc trued up AccumGLP: a mid-year change replaces the
     remaining months of the banked prior GLP with the new one (m/12 x ΔGLP);
     an anniversary change accrues the full year at the new GLP with no
-    adjustment."""
+    adjustment.
+
+    The compact form feeds the recalc summary's "AccumGLP Adjust" column;
+    ``verbose`` renders the worked-out equation (or the reason there is none)
+    shown under the GLP/GSP table on a recalc's Summary sheet."""
     adj = detail.get("accum_glp_adjustment")
-    if adj:
-        months = detail.get("accum_glp_months_remaining")
-        how = f"  ({months}/12 × GLP Δ)" if months else ""
-        return f"{adj:+,.2f}{how}"
     glp_prior = detail.get("glp_prior")
     glp_new = detail.get("glp_new")
+    if adj:
+        months = detail.get("accum_glp_months_remaining")
+        if not verbose:
+            how = f"  ({months}/12 × GLP Δ)" if months else ""
+            return f"{adj:+,.2f}{how}"
+        lines = ["AccumGLP adjustment = months remaining ÷ 12 × (new GLP − prior GLP)"]
+        if months and glp_prior is not None and glp_new is not None:
+            lines.append(
+                f"    = {months}/12 × ({glp_new:,.2f} − {glp_prior:,.2f})")
+        lines.append(f"    = {adj:+,.2f}  applied to AccumGLP at the recalc")
+        return "\n".join(lines)
     if glp_prior is not None and glp_new is not None and abs(glp_new - glp_prior) > 1e-9:
+        if verbose:
+            return ("No AccumGLP adjustment — recalc on anniversary "
+                    "(the full year accrues at the new GLP)")
         return "none — anniversary (full year at new GLP)"
+    if verbose:
+        return "No AccumGLP adjustment — GLP unchanged"
     return "none — GLP unchanged"
 
 
@@ -406,6 +421,23 @@ class GuidelineRecalcDetailView(QWidget):
         self.summary_grid.set_filtering_enabled(False)
         self.summary_grid.set_full_row_selection(True)
         summary_layout.addWidget(self.summary_grid, 1)
+        # ── AccumGLP pro-rata true-up, worked out under the GLP/GSP table
+        # (styled like the PV sheets' bottom equation line); when the recalc
+        # lands on an anniversary the italic note explains why there is none.
+        self.accum_glp_equation = QLabel("", summary_page)
+        self.accum_glp_equation.setWordWrap(True)
+        self.accum_glp_equation.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.accum_glp_equation.setFont(QFont("Consolas", 10))
+        self.accum_glp_equation.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: {PURPLE_SUBTLE};"
+            f" border: 1px solid {PURPLE_PRIMARY}; border-radius: 4px; padding: 6px 9px;")
+        summary_layout.addWidget(self.accum_glp_equation)
+        self.accum_glp_note = QLabel("", summary_page)
+        self.accum_glp_note.setWordWrap(True)
+        self.accum_glp_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.accum_glp_note.setStyleSheet(_NA_NOTE_STYLE)
+        summary_layout.addWidget(self.accum_glp_note)
         self.tabs.addTab(summary_page, "Summary")
 
         self.pv_views: dict[tuple[str, str], GuidelinePvDetailView] = {}
@@ -515,6 +547,18 @@ class GuidelineRecalcDetailView(QWidget):
         if self.summary_grid.model is not None:
             self.summary_grid.model._left_align_columns = {0}
         self.summary_grid.autofit_columns_to_data()
+
+        # AccumGLP true-up under the table: the worked equation for a mid-year
+        # recalc, the greyed italic note when no adjustment applies.
+        accum_text = _accum_glp_adjust_text(detail, verbose=True)
+        if detail.get("accum_glp_adjustment"):
+            self.accum_glp_equation.setText(accum_text)
+            self.accum_glp_equation.setVisible(True)
+            self.accum_glp_note.setVisible(False)
+        else:
+            self.accum_glp_note.setText(accum_text)
+            self.accum_glp_note.setVisible(True)
+            self.accum_glp_equation.setVisible(False)
 
         pv = detail.get("monthly_pv_recalc") or {}
         for (basis, side), view in self.pv_views.items():
@@ -1151,28 +1195,38 @@ class IllustrationValuesTab(QWidget):
         self._content_widgets_by_title: dict[str, QWidget] = {}
         self._content_titles: list[str] = []
         self._results: list[MonthlyState] = []
-        self._inspected_row: int | None = None
         # Current-assumption and guaranteed-assumption views: (policy, results,
-        # months, injected first-row columns). The Guaranteed toggle re-renders
-        # the grids from whichever view is active.
+        # months, injected first-row columns). The Current | Guaranteed toggle
+        # re-renders the grids from whichever view is active.
         self._current_view: tuple | None = None
         self._guaranteed_view: tuple | None = None
         self._setup_ui()
         self.clear_results()
 
     def _setup_ui(self):
-        from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QSplitter, QTreeWidget
+        from PyQt6.QtWidgets import (
+            QButtonGroup,
+            QHBoxLayout,
+            QLineEdit,
+            QPushButton,
+            QSplitter,
+            QTreeWidget,
+        )
 
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        toggle_style = (
+        # Segmented toggle — one clearly-lit selection, matching the
+        # inputs-panel segment pattern at the Values-tab header's compact size.
+        segment_style = (
             f"QPushButton {{ background-color: #F3ECFC; color: {PURPLE_DARK};"
-            " border: 1px solid #7E57C2; border-radius: 4px; padding: 1px 10px;"
+            " border: 1px solid #7E57C2; padding: 1px 10px;"
             " min-height: 18px; font-size: 10px; font-weight: bold; }"
-            "QPushButton:checked { background-color: #5E35A5; color: #FFD54F; }"
+            "QPushButton:hover:enabled { background-color: #E6DAF8; }"
+            "QPushButton:checked { background-color: #5E35A5; color: #FFD54F;"
+            " border-color: #4B2383; }"
         )
         top_row = QHBoxLayout()
         top_row.setSpacing(6)
@@ -1182,25 +1236,30 @@ class IllustrationValuesTab(QWidget):
         )
         top_row.addWidget(self.status_label)
         top_row.addStretch(1)
+        # Current | Guaranteed view toggle — hidden until a run supplies a
+        # guaranteed-assumption projection. Current Values is the default.
+        toggle_row = QHBoxLayout()
+        toggle_row.setSpacing(0)
+        self.view_toggle_group = QButtonGroup(self)
+        self.view_toggle_group.setExclusive(True)
+        self.current_toggle = QPushButton("Current Values")
+        self.current_toggle.setToolTip("Show the current-assumption projection.")
         self.guaranteed_toggle = QPushButton("Guaranteed Values")
-        self.guaranteed_toggle.setCheckable(True)
-        self.guaranteed_toggle.setStyleSheet(toggle_style)
         self.guaranteed_toggle.setToolTip(
-            "Switch between current and guaranteed assumptions. The guaranteed run\n"
-            "uses guaranteed COIs and the guaranteed interest rate with the current\n"
+            "Switch to guaranteed assumptions. The guaranteed run uses\n"
+            "guaranteed COIs and the guaranteed interest rate with the current\n"
             "side's premiums, withdrawals, and loans locked in (RERUN LockValues)."
         )
-        self.guaranteed_toggle.setVisible(False)
+        for button in (self.current_toggle, self.guaranteed_toggle):
+            button.setCheckable(True)
+            button.setStyleSheet(segment_style)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setVisible(False)
+            self.view_toggle_group.addButton(button)
+            toggle_row.addWidget(button)
+        self.current_toggle.setChecked(True)
         self.guaranteed_toggle.toggled.connect(self._on_guaranteed_toggled)
-        top_row.addWidget(self.guaranteed_toggle)
-        self.inspector_toggle = QPushButton("Inspect Month")
-        self.inspector_toggle.setCheckable(True)
-        self.inspector_toggle.setStyleSheet(toggle_style)
-        self.inspector_toggle.setToolTip(
-            "Explain the selected month: the full premium → deduction → interest waterfall."
-        )
-        self.inspector_toggle.toggled.connect(self._on_inspector_toggled)
-        top_row.addWidget(self.inspector_toggle)
+        top_row.addLayout(toggle_row)
         layout.addLayout(top_row)
 
         self.body = QSplitter(Qt.Orientation.Horizontal, self)
@@ -1239,7 +1298,6 @@ class IllustrationValuesTab(QWidget):
 
         self.content_stack = QStackedWidget(self)
         self.overview = ValuesOverview(self.content_stack)
-        self.overview.monthSelected.connect(self._inspect_month)
         self.overview.cellActivated.connect(self._drill_down)
         self._add_content_page("Overview", self.overview)
         self.chart = PolicyValueChart(self.content_stack)
@@ -1264,15 +1322,9 @@ class IllustrationValuesTab(QWidget):
         self._add_content_page(self.TEFRA_TAMRA_RECALC_GROUP, self.recalc_view)
         self.body.addWidget(self.content_stack)
 
-        # ── Month Inspector: the per-month waterfall ──
-        self.inspector = MonthInspector(self)
-        self.inspector.setVisible(False)
-        self.body.addWidget(self.inspector)
-
         self.body.setStretchFactor(0, 0)
         self.body.setStretchFactor(1, 1)
-        self.body.setStretchFactor(2, 0)
-        self.body.setSizes([180, 760, 270])
+        self.body.setSizes([180, 760])
         layout.addWidget(self.body, 1)
 
     def _add_content_page(self, title: str, widget: QWidget):
@@ -1287,23 +1339,6 @@ class IllustrationValuesTab(QWidget):
 
     # ── Drill-down plumbing ───────────────────────────────────
 
-    def _on_inspector_toggled(self, on: bool):
-        self.inspector.setVisible(on)
-        if on and self._results and self._inspected_row is not None:
-            self._show_inspector_row(self._inspected_row)
-
-    def _inspect_month(self, result_row: int):
-        """Pin the inspector to a month (selection in the ledger or any grid)."""
-        self._inspected_row = result_row
-        if self.inspector.isVisible():
-            self._show_inspector_row(result_row)
-
-    def _show_inspector_row(self, result_row: int):
-        if not self._results or not (0 <= result_row < len(self._results)):
-            return
-        prior = self._results[result_row - 1] if result_row > 0 else None
-        self.inspector.show_month(self._results[result_row], prior)
-
     def _drill_down(self, result_row: int, ledger_column: str):
         """Overview double-click: open the detail tab for that value at that month."""
         title = LEDGER_DRILL_TABS.get(ledger_column, self.SUMMARY_GROUP)
@@ -1312,9 +1347,6 @@ class IllustrationValuesTab(QWidget):
             return
         self.content_stack.setCurrentWidget(grid)
         self._select_grid_row(grid, result_row)
-        if not self.inspector_toggle.isChecked():
-            self.inspector_toggle.setChecked(True)
-        self._inspect_month(result_row)
 
     @staticmethod
     def _select_grid_row(grid: FilterTableView, result_row: int):
@@ -1330,14 +1362,6 @@ class IllustrationValuesTab(QWidget):
             grid.table_view.model().index(position, 0),
             grid.table_view.ScrollHint.PositionAtCenter,
         )
-
-    def _on_grid_cursor(self, grid: FilterTableView, current):
-        if not current.isValid() or grid.model is None:
-            return
-        display = grid.model.get_display_data()
-        if current.row() >= len(display.index):
-            return
-        self._inspect_month(int(display.index[current.row()]))
 
     # ── Navigator ─────────────────────────────────────────────
 
@@ -1472,8 +1496,8 @@ class IllustrationValuesTab(QWidget):
         """Re-render a captured projection without touching the engine.
 
         Returns False (leaving the tab as-is) when there is nothing to
-        restore. The Guaranteed toggle and values-group selection reset to
-        their defaults, matching a fresh render of the same results.
+        restore. The view toggle resets to Current Values and the values-group
+        selection to its default, matching a fresh render of the same results.
         """
         if not state or state.get("current_view") is None:
             return False
@@ -1491,17 +1515,12 @@ class IllustrationValuesTab(QWidget):
         self.overview.clear()
         self.chart.clear()
         self.charges_chart.clear()
-        self.inspector.clear()
         self.recalc_view.clear()
         self.nav_tree.clear()
         self._results = []
-        self._inspected_row = None
         self._current_view = None
         self._guaranteed_view = None
-        self.guaranteed_toggle.blockSignals(True)
-        self.guaranteed_toggle.setChecked(False)
-        self.guaranteed_toggle.blockSignals(False)
-        self.guaranteed_toggle.setVisible(False)
+        self._reset_view_toggle(offer_guaranteed=False)
         for grid in self._tab_grids.values():
             grid.set_dataframe(pd.DataFrame(), limit_rows=False)
 
@@ -1512,14 +1531,11 @@ class IllustrationValuesTab(QWidget):
         months: int = 24,
         injected_first_row_columns: set[str] | None = None,
     ):
-        """Show a current-assumption projection (resets the Guaranteed toggle)."""
+        """Show a current-assumption projection (resets the toggle to Current)."""
         result_list = list(results)
         self._current_view = (policy, result_list, months, injected_first_row_columns)
         self._guaranteed_view = None
-        self.guaranteed_toggle.blockSignals(True)
-        self.guaranteed_toggle.setChecked(False)
-        self.guaranteed_toggle.blockSignals(False)
-        self.guaranteed_toggle.setVisible(False)
+        self._reset_view_toggle(offer_guaranteed=False)
         self._render_projection(policy, result_list, months, injected_first_row_columns)
 
     def set_guaranteed_results(
@@ -1527,12 +1543,21 @@ class IllustrationValuesTab(QWidget):
         policy: IllustrationPolicyData,
         results: Iterable[MonthlyState],
     ):
-        """Cache the guaranteed-assumption run and show the Guaranteed toggle."""
+        """Cache the guaranteed-assumption run and offer the view toggle."""
         result_list = list(results)
         if not result_list:
             return
         self._guaranteed_view = (policy, result_list, max(len(result_list) - 1, 0), None)
+        self.current_toggle.setVisible(True)
         self.guaranteed_toggle.setVisible(True)
+
+    def _reset_view_toggle(self, *, offer_guaranteed: bool):
+        """Select Current Values without re-rendering; show or hide the pair."""
+        self.guaranteed_toggle.blockSignals(True)
+        self.current_toggle.setChecked(True)
+        self.guaranteed_toggle.blockSignals(False)
+        self.current_toggle.setVisible(offer_guaranteed)
+        self.guaranteed_toggle.setVisible(offer_guaranteed)
 
     def _on_guaranteed_toggled(self, on: bool):
         view = self._guaranteed_view if on else self._current_view
@@ -1610,13 +1635,7 @@ class IllustrationValuesTab(QWidget):
                 grid.autofit_columns_to_data(padding=36, max_width=520)
             else:
                 grid.autofit_columns_to_data()
-            selection = grid.table_view.selectionModel()
-            if selection is not None:
-                selection.currentChanged.connect(
-                    lambda current, _previous, g=grid: self._on_grid_cursor(g, current))
         self._results = result_list
-        self._inspected_row = None
-        self.inspector.clear()
         seed = result_list[0] if result_list else None
         baseline = None
         if seed is not None:
