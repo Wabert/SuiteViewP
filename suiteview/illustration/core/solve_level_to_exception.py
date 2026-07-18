@@ -69,6 +69,7 @@ def _default_mode(policy: IllustrationPolicyData) -> str:
 def level_to_exception_options(
     base: Optional[IllustrationOptions], allow_exceptions: bool = True,
     apply_prem_to_loan: Optional[bool] = None,
+    conform_to_tamra: bool = True,
 ) -> IllustrationOptions:
     """Guideline-conforming basis for the solve.
 
@@ -86,6 +87,9 @@ def level_to_exception_options(
     the policy loan before funding the account value — required to solve a policy
     that carries a loan. ``None`` inherits it from ``base`` (e.g. the UI's "Apply
     Premium to Loan First" toggle); a bool forces it.
+
+    ``conform_to_tamra`` keeps the 7-pay (TAMRA/MEC) cap on by default; a batch
+    caller can turn it off to solve on a guideline-only basis.
     """
     exact = getattr(base, "exact_days_interest", None) if base is not None else None
     levelizing = bool(getattr(base, "levelizing_premium", False)) if base is not None else False
@@ -93,7 +97,7 @@ def level_to_exception_options(
         apply_prem_to_loan = bool(getattr(base, "apply_prem_to_loan", False)) if base is not None else False
     return IllustrationOptions(
         conform_to_tefra=True,
-        conform_to_tamra=True,
+        conform_to_tamra=conform_to_tamra,
         allow_exception_prems=allow_exceptions,
         exact_days_interest=exact,
         levelizing_premium=levelizing,
@@ -109,6 +113,7 @@ def solve_level_to_exception(
     base_future_inputs: Optional[IllustrationInputSet] = None,
     allow_exceptions: bool = True,
     apply_prem_to_loan: Optional[bool] = None,
+    conform_to_tamra: bool = True,
     resolution: float = 0.01,
     base_options: Optional[IllustrationOptions] = None,
     engine: Optional[IllustrationEngine] = None,
@@ -140,7 +145,8 @@ def solve_level_to_exception(
         raise LevelToExceptionError("Level-to-Exception applies to GPT policies only.")
 
     mode = (mode or _default_mode(policy)).upper()
-    options = level_to_exception_options(base_options, allow_exceptions, apply_prem_to_loan)
+    options = level_to_exception_options(
+        base_options, allow_exceptions, apply_prem_to_loan, conform_to_tamra)
     engine = engine or IllustrationEngine()
 
     base = base_future_inputs
