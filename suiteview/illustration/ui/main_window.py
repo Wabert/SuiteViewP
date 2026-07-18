@@ -369,6 +369,64 @@ class IllustrationWindow(FramelessWindowBase):
                     # as "solved, nothing required" rather than blank.
                     self.inputs_tab.set_lumpsum_amount(0.0)
 
+            # "Max Level Allowed" premium type: solve the largest level premium
+            # the guideline acceptance chain never caps, on the real projection —
+            # so a Face Amount or DB Option change's effect on the guideline
+            # premiums (GLP/GSP recalc, AccumGLP stream) is reflected, including
+            # the final GSP/AccumGLP at age 100 and any tighter mid-projection
+            # point a guideline drop creates. The row's instant closed-form
+            # estimate is replaced by the solved amount, and the premium is
+            # layered in from its start year under the same guideline basis the
+            # solver used (or the premium won't behave as solved).
+            max_level = self.inputs_tab.max_level_request()
+            if max_level is not None:
+                from suiteview.illustration.core.solve_level_to_exception import (
+                    level_to_exception_options,
+                )
+                from suiteview.illustration.core.solve_max_level_allowed import (
+                    MaxLevelAllowedError, solve_max_level_allowed,
+                )
+                from suiteview.illustration.models.input_set import (
+                    IllustrationInputSet, ScheduledTransaction, TransactionKind,
+                )
+                allow_exceptions = bool(run_options.allow_exception_prems)
+                try:
+                    mla = solve_max_level_allowed(
+                        scenario.projectable_policy,
+                        mode=max_level["mode"],
+                        start_policy_year=max_level["start_year"],
+                        base_future_inputs=future_inputs,
+                        allow_exceptions=allow_exceptions,
+                        base_options=run_options,
+                        engine=engine)
+                except MaxLevelAllowedError as exc:
+                    QApplication.restoreOverrideCursor()
+                    self.run_values_btn.setEnabled(True)
+                    self.inputs_tab.set_max_level_amount(None)
+                    QMessageBox.information(self, "Max Level Allowed", str(exc))
+                    self._show_status(str(exc))
+                    return
+                sched = list(future_inputs.scheduled_transactions)
+                sched.append(ScheduledTransaction(
+                    kind=TransactionKind.PREMIUM,
+                    policy_year=int(max_level["start_year"]),
+                    amount=mla.premium, mode=mla.mode))
+                # Premiums stop at age 100 — AccumGLP freezes there, so any
+                # later payment would always be capped (mirrors the solver's
+                # own schedule).
+                policy_for_stop = scenario.projectable_policy
+                if policy_for_stop.maturity_age > 100:
+                    sched.append(ScheduledTransaction(
+                        kind=TransactionKind.PREMIUM,
+                        policy_year=100 - int(policy_for_stop.issue_age or 0) + 1,
+                        amount=0.0, mode="A"))
+                future_inputs = IllustrationInputSet(
+                    scheduled_transactions=sched,
+                    dated_transactions=list(future_inputs.dated_transactions),
+                    policy_changes=list(future_inputs.policy_changes))
+                run_options = level_to_exception_options(run_options, allow_exceptions)
+                self.inputs_tab.set_max_level_amount(mla.premium)
+
             # "Min Level to Maturity" premium type: solve the minimum level
             # premium that keeps the policy in force to maturity, honoring the
             # prior premium rows AND any lumpsum already merged into future_inputs
@@ -420,6 +478,53 @@ class IllustrationWindow(FramelessWindowBase):
                     policy_changes=list(future_inputs.policy_changes))
                 run_options = level_to_exception_options(run_options, allow_exceptions)
                 self.inputs_tab.set_min_level_amount(lte.premium)
+
+            # "Pay-off" loan repayment rows: solve the level modal repayment
+            # that zeroes the loan by the end of each row's window. Repayments
+            # apply before new loans in the month order, so the balance is zero
+            # just before any new loan that follows a window. Solved
+            # chronologically — a later payoff window sees the earlier one's
+            # repayments (and any loans borrowed between them) already layered
+            # into the inputs.
+            payoff_requests = self.inputs_tab.loan_payoff_requests()
+            if payoff_requests:
+                from suiteview.illustration.core.solve_loan_payoff import (
+                    PAYOFF_SUBTYPE, LoanPayoffError, solve_loan_payoff,
+                )
+                from suiteview.illustration.models.input_set import (
+                    DatedTransaction, IllustrationInputSet, TransactionKind,
+                )
+                solved_amounts = []
+                try:
+                    for request in payoff_requests:
+                        payoff = solve_loan_payoff(
+                            scenario.projectable_policy,
+                            repayment_dates=request["dates"],
+                            check_date=request["check_date"],
+                            base_future_inputs=future_inputs,
+                            base_options=run_options,
+                            engine=engine)
+                        solved_amounts.append(payoff.repayment)
+                        if payoff.repayment > 0:
+                            dated = list(future_inputs.dated_transactions)
+                            dated.extend(DatedTransaction(
+                                kind=TransactionKind.LOAN_REPAYMENT,
+                                effective_date=when, amount=payoff.repayment,
+                                subtype=PAYOFF_SUBTYPE)
+                                for when in request["dates"])
+                            future_inputs = IllustrationInputSet(
+                                scheduled_transactions=list(future_inputs.scheduled_transactions),
+                                dated_transactions=dated,
+                                policy_changes=list(future_inputs.policy_changes))
+                except LoanPayoffError as exc:
+                    QApplication.restoreOverrideCursor()
+                    self.run_values_btn.setEnabled(True)
+                    self.inputs_tab.set_loan_payoff_amounts(
+                        [None] * len(payoff_requests))
+                    QMessageBox.information(self, "Loan Pay-off", str(exc))
+                    self._show_status(str(exc))
+                    return
+                self.inputs_tab.set_loan_payoff_amounts(solved_amounts)
 
             results = engine.project(
                 scenario.projectable_policy,

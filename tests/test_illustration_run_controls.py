@@ -42,17 +42,23 @@ def test_apply_prem_to_loan_checkbox_defaults_off_and_drives_options():
     assert tab.export_options().apply_prem_to_loan is True
 
 
-def test_excess_repayment_checkbox_defaults_off_and_drives_options():
+def test_excess_repayment_toggle_defaults_to_stop_and_drives_options():
     _app()
     tab = IllustrationInputsTab()
 
-    # "Apply excess as premium" lives in the Loan Repayments group and is off
-    # by default — repayments stop once the loan is repaid.
-    assert tab.dynamic_panel.excess_repay_as_premium_check.isChecked() is False
+    # The excess-repayment toggle sits at the top of the Loan Repayments group
+    # and defaults to "Stop at payoff" — repayments stop once the loan is
+    # repaid, matching the engine's flag-off behavior.
+    assert tab.dynamic_panel.excess_stop_btn.isChecked() is True
+    assert tab.dynamic_panel.excess_apply_btn.isChecked() is False
     assert tab.export_options().apply_excess_repayment_as_premium is False
 
-    tab.dynamic_panel.excess_repay_as_premium_check.setChecked(True)
+    # "Apply excess as premium" flows straight through to the run options —
+    # and toggling back to "Stop at payoff" clears the flag again.
+    tab.dynamic_panel.excess_apply_btn.setChecked(True)
     assert tab.export_options().apply_excess_repayment_as_premium is True
+    tab.dynamic_panel.excess_stop_btn.setChecked(True)
+    assert tab.export_options().apply_excess_repayment_as_premium is False
 
 
 def test_iul_crediting_switches_default_and_drive_options():
@@ -70,6 +76,64 @@ def test_iul_crediting_switches_default_and_drive_options():
     assert tab.export_options().use_policy_ag49_regime is False
     tab.policy_ag49_check.setChecked(True)
     assert tab.export_options().use_policy_ag49_regime is True
+
+
+def test_iul_crediting_group_greyed_unless_iul_plan():
+    _app()
+    tab = IllustrationInputsTab()
+
+    # No policy loaded -> the whole IUL Crediting group is greyed with the
+    # not-applicable note showing (greyed, never hidden).
+    assert tab.iul_crediting_group.isEnabled() is False
+    assert tab.iul_na_note.isVisible() is False  # not shown yet — widget itself hidden with parent
+    assert tab.iul_na_note.isVisibleTo(tab.iul_crediting_group) is True
+
+    # An IUL plancode enables the group and drops the note.
+    tab._set_iul_crediting_applicable(True)
+    assert tab.iul_crediting_group.isEnabled() is True
+    assert tab.iul_na_note.isVisibleTo(tab.iul_crediting_group) is False
+
+    # Back to a declared-rate plan -> greyed again.
+    tab._set_iul_crediting_applicable(False)
+    assert tab.iul_crediting_group.isEnabled() is False
+    assert tab.iul_na_note.isVisibleTo(tab.iul_crediting_group) is True
+
+
+def test_ag49_regime_panel_selects_issue_date_regime():
+    from datetime import date
+
+    _app()
+    tab = IllustrationInputsTab()
+    tab._set_iul_crediting_applicable(True)  # regime rows live inside the IUL group
+
+    # One display row per regime: (none) / AG49 / AG49A / AG49B.
+    assert sorted(tab._ag49_regime_radios) == [1, 2, 3, 4]
+
+    # Box off -> panel greyed, nothing selected.
+    assert tab._ag49_regime_panel.isEnabled() is False
+    assert not any(r.isChecked() for r in tab._ag49_regime_radios.values())
+
+    # Box on with no policy loaded -> enabled but still no selection.
+    tab.policy_ag49_check.setChecked(True)
+    assert tab._ag49_regime_panel.isEnabled() is True
+    assert not any(r.isChecked() for r in tab._ag49_regime_radios.values())
+
+    # The row matching the policy issue date is auto-selected.
+    for issue, expected in [
+        (date(2014, 1, 1), 1),   # pre-AG49 -> (none)
+        (date(2016, 6, 1), 2),   # AG49
+        (date(2021, 1, 1), 3),   # AG49A
+        (date(2024, 1, 1), 4),   # AG49B
+    ]:
+        tab._issue_date = issue
+        tab._update_ag49_regime_panel()
+        checked = [i for i, r in tab._ag49_regime_radios.items() if r.isChecked()]
+        assert checked == [expected]
+
+    # Unchecking the box clears the selection and greys the panel again.
+    tab.policy_ag49_check.setChecked(False)
+    assert tab._ag49_regime_panel.isEnabled() is False
+    assert not any(r.isChecked() for r in tab._ag49_regime_radios.values())
 
 
 def test_policy_ag49_checkbox_rebases_allocation_blend():

@@ -164,7 +164,7 @@ class MonthInspector(QWidget):
         self._row(values, "Surrender Charge", f"−{_money(state.surrender_charge)}")
         if state.policy_debt:
             self._row(values, "Policy Debt", f"−{_money(state.policy_debt)}")
-        self._row(values, "Surrender Value", _money(state.surrender_value), bold=True)
+        self._row(values, "Surrender Value", _money(state.ending_sv), bold=True)
         self._row(values, "Ending Death Benefit", _money(state.ending_db or state.gross_db, 0), bold=True)
 
         guideline = self._section("Guideline (7702)")

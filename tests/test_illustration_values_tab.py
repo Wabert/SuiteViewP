@@ -11,7 +11,9 @@ from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
 from suiteview.illustration.ui.values_tab import IllustrationValuesTab
 from suiteview.illustration.ui.values_overview import (
+    FROZEN_LEDGER_COLUMN_COUNT,
     LEDGER_COLUMNS,
+    SPACER_COLUMN,
     ValuesOverview,
     build_charge_bands,
     build_chart_series,
@@ -346,7 +348,7 @@ def test_tefra_tamra_recalc_summary_table_leads_with_valuation_baseline():
     summary = tab.recalc_view.summary_grid.df
     assert list(summary.columns) == [
         "Effective Date",
-        "GLPb", "GLPa", "GLP Delta", "GLP", "blank1",
+        "GLPb", "GLPa", "GLP Delta", "GLP", "AccumGLP Adjust", "blank1",
         "GSPb", "GSPa", "GSP Delta", "GSP", "blank2",
         "7-Pay Start Date", "7-Pay Premium",
     ]
@@ -359,6 +361,7 @@ def test_tefra_tamra_recalc_summary_table_leads_with_valuation_baseline():
     base = summary.iloc[0]
     assert base["Effective Date"] == "06/01/2026"
     assert base["GLP"] == 90.0 and base["GSP"] == 1100.0
+    assert base["AccumGLP Adjust"] == ""
     assert base["7-Pay Start Date"] == "01/01/2026" and base["7-Pay Premium"] == 80.0
     for blank in ("GLPb", "GLPa", "GLP Delta", "GSPb", "GSPa", "GSP Delta"):
         assert pd.isna(base[blank]), blank
@@ -368,6 +371,7 @@ def test_tefra_tamra_recalc_summary_table_leads_with_valuation_baseline():
     assert row["Effective Date"] == "05/15/2026"
     assert (row["GLPb"], row["GLPa"], row["GLP Delta"], row["GLP"]) == (100.0, 125.0, 25.0, 115.0)
     assert (row["GSPb"], row["GSPa"], row["GSP Delta"], row["GSP"]) == (1000.0, 950.0, -50.0, 1050.0)
+    assert row["AccumGLP Adjust"] == "none — anniversary (full year at new GLP)"
     assert row["7-Pay Start Date"] == "05/15/2026" and row["7-Pay Premium"] == 95.0
 
     # The navigator gets a TEFRA/TAMRA Recalc parent with a child per recalc date.
@@ -525,6 +529,30 @@ def test_chart_cumulative_premium_uses_premium_outlay():
     assert cum_premium.points == [(1.0, 10_025.0), (1 + 1 / 12, 20_030.0)]
 
 
+def test_chart_adds_policy_debt_series_when_projection_has_a_loan():
+    # policy_debt is the end-of-month total of all six loan buckets (principal
+    # + accrued interest) — the same figure as the ledger LN / Ending LB.
+    first = MonthlyState(policy_year=1, policy_month=1, policy_debt=0.0)
+    second = MonthlyState(policy_year=1, policy_month=2, policy_debt=1_250.75)
+
+    series = build_chart_series([first, second])
+    debt = next(entry for entry in series if entry.name == "Policy Debt")
+
+    assert debt.points == [(1.0, 0.0), (1 + 1 / 12, 1_250.75)]
+    assert debt.visible
+
+
+def test_chart_omits_policy_debt_series_when_never_borrowed():
+    # No loan at any point (existing or illustrated) → no series, no dead
+    # legend chip.
+    first = MonthlyState(policy_year=1, policy_month=1, policy_debt=0.0)
+    second = MonthlyState(policy_year=1, policy_month=2, policy_debt=0.0)
+
+    series = build_chart_series([first, second])
+
+    assert all(entry.name != "Policy Debt" for entry in series)
+
+
 def test_charge_chart_separates_base_coi_from_riders_and_benefits():
     state = MonthlyState(
         policy_year=1,
@@ -549,8 +577,48 @@ def test_charge_chart_separates_base_coi_from_riders_and_benefits():
     assert by_name["Monthly Fee"] == 3.0
     assert by_name["Premium Waiver"] == 4.0
     assert by_name["GIO"] == 6.0
-    assert by_name["LTR"] == 7.0
+    assert by_name["SIGTERM"] == 7.0  # 1U536C00 CovType in rider_table.json
     assert 999.0 not in by_name.values()
+
+
+def test_charge_chart_sums_same_label_rider_keys_into_one_band():
+    # Two occurrences of the same rider plancode share a display label and
+    # must stack into a single summed band, not two identically-named ones.
+    first = MonthlyState(
+        policy_year=1,
+        policy_month=1,
+        rider_charge_detail={"1U538229_1": 3.0, "1U538229_2": 5.0},
+    )
+    second = MonthlyState(
+        policy_year=1,
+        policy_month=2,
+        rider_charge_detail={"1U538229_1": 2.0, "1U538229_2": 4.0},
+    )
+
+    bands = build_charge_bands([first, second])
+    ctr_bands = [band for band in bands if band.name == "CTR"]
+
+    assert len(ctr_bands) == 1
+    assert ctr_bands[0].points[-1][1] == 14.0  # 3+5 then +2+4, cumulative
+
+
+def test_charge_chart_labels_riders_by_full_plancode_from_rider_table():
+    # Policy U0356726: 1U538F00 is a Children's Term Rider, 1U538I00 a Spouse
+    # Term Rider — the label is the CovType from rider_table.json keyed by the
+    # FULL plancode (a 1U538-prefix guess showed both as "CTR"). Plancodes not
+    # in the rider table fall back to the honest "Rider <plancode>".
+    state = MonthlyState(
+        policy_year=1,
+        policy_month=1,
+        rider_charge_detail={"1U538F00_1": 0.5, "1U538I00_1": 3.8, "9ZZZZZ99_1": 1.1},
+    )
+
+    bands = build_charge_bands([state])
+    by_name = {band.name: band.points[-1][1] for band in bands}
+
+    assert by_name["CTR"] == 0.5
+    assert by_name["STR"] == 3.8
+    assert by_name["Rider 9ZZZZZ99"] == 1.1
 
 
 def test_charge_chart_uses_legacy_coi_when_no_base_breakout_exists():
@@ -561,7 +629,10 @@ def test_charge_chart_uses_legacy_coi_when_no_base_breakout_exists():
     assert [(band.name, band.points[-1][1]) for band in bands] == [("Base COI", 12.5)]
 
 
-def test_overview_premium_column_uses_premium_outlay():
+def test_overview_prem_column_excludes_gp_exception_premium():
+    # Prem = premium_outlay − GP exception prem (gross + MD premium only);
+    # the exception premium has its own column, so Prem + Exception Prem
+    # reconstructs the full outlay with no double count.
     _app()
     overview = ValuesOverview()
     inforce = MonthlyState(policy_year=0, policy_month=0, attained_age=44,
@@ -574,10 +645,14 @@ def test_overview_premium_column_uses_premium_outlay():
     overview.display(_policy(), [inforce, first, second])
 
     prem_col = LEDGER_COLUMNS.index("Prem")
+    exc_col = LEDGER_COLUMNS.index("Exception Prem")
     year_item = overview.ledger.topLevelItem(0)
-    assert year_item.text(prem_col) == "140.00"
-    assert year_item.child(0).text(prem_col) == "125.00"
-    assert year_item.child(1).text(prem_col) == "15.00"
+    assert year_item.text(prem_col) == "110.00"           # outlay 140 − exc 30
+    assert year_item.child(0).text(prem_col) == "100.00"  # outlay 125 − exc 25
+    assert year_item.child(1).text(prem_col) == "10.00"   # outlay 15 − exc 5
+    assert year_item.text(exc_col) == "30.00"
+    assert year_item.child(0).text(exc_col) == "25.00"
+    assert year_item.child(1).text(exc_col) == "5.00"
 
 
 def test_summary_tab_uses_requested_illustration_values_order():
@@ -639,6 +714,9 @@ def test_summary_tab_uses_requested_illustration_values_order():
         vbl_loan_charge=3.0,
         policy_debt=72.0,
         surrender_value=900.0,
+        # Ending SV = EAV − SC − Ending LB (1000 − 90 − 72); deliberately
+        # distinct from the lapse-check surrender_value above.
+        ending_sv=838.0,
         ending_db=150000.0,
     )
     second = MonthlyState(
@@ -695,6 +773,7 @@ def test_summary_tab_uses_requested_illustration_values_order():
         vbl_loan_charge=6.0,
         policy_debt=180.0,
         surrender_value=1100.0,
+        ending_sv=940.0,           # EAV − SC − Ending LB (1200 − 80 − 180)
         ending_db=151000.0,
     )
 
@@ -720,12 +799,15 @@ def test_summary_tab_uses_requested_illustration_values_order():
         "Rider COI": 2.0, "Benefit COI": 4.0, "EPU": 6.0, "MFEE": 8.0,
         "MD": 11.0, "Exception Prem": 25.0, "AV": 950.0, "New Loan": 6.0,
         "Interest Rate": 4.9, "Interest": 4.0, "EAV": 1000.0, "SC": 90.0,
-        "ESV": 900.0, "Var Loan": 36.0, "Pref Loan": 24.0, "Reg Loan": 12.0,
+        "ESV": 838.0, "Var Loan": 36.0, "Pref Loan": 24.0, "Reg Loan": 12.0,
         "Ending LB": 72.0, "IllustratedDB": 150000.0,
     }
     assert summary.df.iloc[1]["AV"] == 1050.0
     assert summary.df.iloc[1]["Interest Rate"] == 5.0
     assert summary.df.iloc[1]["EAV"] == 1200.0
+    # ESV is the ENDING surrender value (EAV − SC − Ending LB), not the
+    # lapse-check surrender_value.
+    assert summary.df.iloc[1]["ESV"] == 940.0
 
 
 def test_overview_ledger_restores_compact_values_order():
@@ -733,6 +815,7 @@ def test_overview_ledger_restores_compact_values_order():
     overview = ValuesOverview()
     inforce = MonthlyState(policy_year=0, policy_month=0, attained_age=44)
     first = MonthlyState(
+        date=date(2026, 1, 15),
         policy_year=1,
         policy_month=1,
         attained_age=45,
@@ -749,10 +832,12 @@ def test_overview_ledger_restores_compact_values_order():
         av_end_of_month=1000.0,
         surrender_charge=90.0,
         policy_debt=10.0,
-        surrender_value=900.0,
+        surrender_value=880.0,
+        ending_sv=900.0,           # EAV − SC − LN (1000 − 90 − 10)
         ending_db=150000.0,
     )
     second = MonthlyState(
+        date=date(2026, 2, 15),
         policy_year=1,
         policy_month=2,
         attained_age=45,
@@ -769,7 +854,8 @@ def test_overview_ledger_restores_compact_values_order():
         av_end_of_month=1200.0,
         surrender_charge=80.0,
         policy_debt=20.0,
-        surrender_value=1100.0,
+        surrender_value=1080.0,
+        ending_sv=1100.0,          # EAV − SC − LN (1200 − 80 − 20)
         ending_db=151000.0,
         lapsed=True,
     )
@@ -778,24 +864,122 @@ def test_overview_ledger_restores_compact_values_order():
 
     headers = [overview.ledger.headerItem().text(index) for index in range(overview.ledger.columnCount())]
     assert headers == [
-        "Year", "Month", "Age", "Withdrawals", "ForceOuts", "Loan Repay", "Prem",
-        "MD", "Exception Prem", "AV", "SV", "Interest", "EAV", "SC",
-        "New Loan", "LN", "ESV", "Death Benefit", "Status",
+        "Year", "Month", "Age", "Date",
+        "Contributions", "Distributions",
+        "MD", "AV", "SV", "Interest", "EAV", "SC", "LN", "ESV",
+        "Death Benefit", "Status",
+        "",
+        "Withdrawals", "ForceOuts", "Loan Repay", "Prem", "Exception Prem", "New Loan",
     ]
     year_item = overview.ledger.topLevelItem(0)
     assert [year_item.text(index) for index in range(overview.ledger.columnCount())] == [
-        "1", "2", "45", "50.00", "5.00", "45.00", "140.00",
-        "23.00", "30.00", "1,150.00", "1,050.00", "10.00", "1,200.00", "80.00",
-        "10.00", "20.00", "1,100.00",
+        "1", "2", "45", "02/15/2026",
+        "185.00", "65.00",     # 45+110+30 in  |  50+5+10 out
+        "23.00", "1,150.00", "1,050.00", "10.00", "1,200.00", "80.00",
+        "20.00", "1,100.00",
         "151,000", "LAPSED",
+        "",
+        "50.00", "5.00", "45.00", "110.00", "30.00", "10.00",
     ]
+
+
+def _overview_two_month_projection():
+    """inforce + two projected months with distinct cash flows and dates."""
+    inforce = MonthlyState(policy_year=0, policy_month=0, attained_age=44)
+    first = MonthlyState(
+        date=date(2026, 1, 15), policy_year=1, policy_month=1, attained_age=45,
+        gross_premium=100.0, gp_exception_prem=25.0,
+        withdrawals_to_date=20.0, guideline_forceout=3.0,
+        applied_regular_loan=6.0, applied_loan_repayment=30.0,
+    )
+    second = MonthlyState(
+        date=date(2026, 2, 15), policy_year=1, policy_month=2, attained_age=45,
+        gross_premium=10.0, gp_exception_prem=5.0,
+        withdrawals_to_date=50.0, guideline_forceout=2.0,
+        applied_regular_loan=4.0, applied_loan_repayment=15.0,
+    )
+    return [inforce, first, second]
+
+
+def test_overview_date_column_follows_age_with_row_dates():
+    _app()
+    overview = ValuesOverview()
+
+    overview.display(_policy(), _overview_two_month_projection())
+
+    date_col = LEDGER_COLUMNS.index("Date")
+    assert date_col == LEDGER_COLUMNS.index("Age") + 1 == 3
+    year_item = overview.ledger.topLevelItem(0)
+    # Annual row carries the year-end (EOY) date the row aggregates to;
+    # monthly children carry their own month's date.
+    assert year_item.text(date_col) == "02/15/2026"
+    assert year_item.child(0).text(date_col) == "01/15/2026"
+    assert year_item.child(1).text(date_col) == "02/15/2026"
+
+
+def test_overview_contributions_and_distributions_roll_up_cash_flows():
+    _app()
+    overview = ValuesOverview()
+
+    overview.display(_policy(), _overview_two_month_projection())
+
+    contrib = LEDGER_COLUMNS.index("Contributions")
+    distrib = LEDGER_COLUMNS.index("Distributions")
+    assert (contrib, distrib) == (4, 5)  # right after the frozen locators
+
+    year_item = overview.ledger.topLevelItem(0)
+    # Contributions = Loan Repay + Prem + Exception Prem, same aggregation as
+    # those columns. Prem excludes the GP exception premium (broken out in its
+    # own column), so this is true money-in with no double count.
+    assert year_item.text(contrib) == "185.00"           # 45 + 110 + 30
+    assert year_item.child(0).text(contrib) == "155.00"  # 30 + 100 + 25
+    assert year_item.child(1).text(contrib) == "30.00"   # 15 + 10 + 5
+    # Distributions = Withdrawals + ForceOuts + New Loan, displayed positive.
+    assert year_item.text(distrib) == "65.00"            # 50 + 5 + 10
+    assert year_item.child(0).text(distrib) == "29.00"   # 20 + 3 + 6
+    assert year_item.child(1).text(distrib) == "36.00"   # 30 + 2 + 4
+
+
+def test_overview_relocated_cashflow_columns_sit_after_spacer():
+    _app()
+    overview = ValuesOverview()
+
+    overview.display(_policy(), _overview_two_month_projection())
+
+    assert LEDGER_COLUMNS[SPACER_COLUMN] == ""
+    assert SPACER_COLUMN == LEDGER_COLUMNS.index("Status") + 1
+    assert LEDGER_COLUMNS[SPACER_COLUMN + 1:] == [
+        "Withdrawals", "ForceOuts", "Loan Repay", "Prem", "Exception Prem", "New Loan",
+    ]
+    year_item = overview.ledger.topLevelItem(0)
+    assert year_item.text(SPACER_COLUMN) == ""
+    assert year_item.text(LEDGER_COLUMNS.index("Withdrawals")) == "50.00"
+    assert year_item.text(LEDGER_COLUMNS.index("New Loan")) == "10.00"
+
+
+def test_overview_freeze_pane_sits_right_after_date():
+    _app()
+    overview = ValuesOverview()
+
+    # Year | Month | Age | Date stay put; everything after scrolls.
+    assert FROZEN_LEDGER_COLUMN_COUNT == LEDGER_COLUMNS.index("Date") + 1 == 4
+    for column in range(FROZEN_LEDGER_COLUMN_COUNT):
+        assert not overview.frozen_ledger.isColumnHidden(column), column
+        assert overview.ledger.isColumnHidden(column), column
+    for column in range(FROZEN_LEDGER_COLUMN_COUNT, len(LEDGER_COLUMNS)):
+        assert overview.frozen_ledger.isColumnHidden(column), column
+        assert not overview.ledger.isColumnHidden(column), column
+    # The panes share the model and selection model so rows stay in lockstep.
+    assert overview.frozen_ledger.model() is overview.ledger.model()
+    assert overview.frozen_ledger.selectionModel() is overview.ledger.selectionModel()
 
 
 def test_ending_values_floor_illustration_sv_but_not_esv():
     row = IllustrationValuesTab._ending_values(MonthlyState(
         av_end_of_month=50.0,
         policy_debt=0.0,
-        surrender_value=-125.0,
+        surrender_value=-999.0,    # lapse-check SV — must NOT feed ES
+        ending_sv=-125.0,          # ending SV (EAV − SC − LN)
         ending_db=100_000.0,
     ))
 

@@ -181,11 +181,16 @@ def test_max_level_premium_defaults_and_changes_with_mode():
     row.mode_combo.setCurrentText("A")
     assert abs(row.amount() - 47600.0 / 43) < 0.005       # 1,106.98 annual
 
+    # The displayed amount is only a closed-form ESTIMATE — the authoritative
+    # premium is solved on Run Values (so face/DBO changes can move the
+    # guidelines). The export therefore carries NO premium schedule for the
+    # row; main_window reads the request and layers the solved premium in.
     row.mode_combo.setCurrentText("Q")
     input_set = IllustrationInputSet()
     panel.collect_into(input_set)
     premium_schedule = [t for t in input_set.scheduled_transactions if t.kind == TransactionKind.PREMIUM]
-    assert any(t.policy_year == 8 and abs(t.amount - 47600.0 / 173) < 0.005 for t in premium_schedule)
+    assert premium_schedule == []
+    assert panel.max_level_request() == {"start_year": 7, "mode": "Q"}
 
 
 def test_max_level_premium_uses_attained_age_and_age_100_cap():
@@ -456,6 +461,42 @@ def test_withdrawals_expand_to_monthliversary_dates():
     assert len(wds) == 1
     assert wds[0].effective_date == date(2029, 11, 9)   # year-11 anniversary
     assert wds[0].amount == 1000.0
+    assert wds[0].subtype == "net"                      # basis defaults to Net
+
+
+def test_withdrawal_basis_toggle_defaults_net_and_exports_gross():
+    # Each withdrawal row ends with a compact Net/Gross combo, defaulting to
+    # Net; the chosen basis rides the dated transaction's subtype. Other
+    # transaction sections have no basis control and export a blank subtype.
+    panel = _panel()
+    row = panel.withdrawal_section.rows()[0]
+    assert row.basis_combo is not None
+    assert row.basis_combo.currentText() == "Net"
+    assert row.basis() == "net"
+    assert panel.loan_section.rows()[0].basis_combo is None
+
+    row.year_edit.setText("11")
+    row._year_edited()
+    row.amount_edit.setText("500")
+    row.mode_combo.setCurrentText("A")
+    row.for_years_edit.setText("2")
+    row._for_years_edited()
+    row.basis_combo.setCurrentText("Gross")
+
+    entries = panel.withdrawal_section.entries()
+    assert entries == [{
+        "year": 11, "end_year": 12, "amount": 500.0, "value": None,
+        "mode": "A", "type": "Input", "basis": "gross",
+    }]
+
+    input_set = IllustrationInputSet()
+    panel.collect_into(input_set)
+    wds = [t for t in input_set.dated_transactions if t.kind == TransactionKind.WITHDRAWAL]
+    assert [t.subtype for t in wds] == ["gross", "gross"]
+
+    # A fresh policy load resets the toggle back to Net.
+    panel.load_from_policy(_FakePolicy())
+    assert panel.withdrawal_section.rows()[0].basis() == "net"
 
 
 def test_change_sections_export_policy_changes():
@@ -499,6 +540,165 @@ def test_current_year_change_lands_on_forecast_date():
     assert change.effective_date == date(2026, 6, 9)
 
 
+def test_level_types_keep_face_and_dbo_sections_enabled():
+    # Both level types lock withdrawals/loans/repayments (and the other change
+    # sections) but keep Face Amount and DB Option changes editable — clients
+    # want to see how a face reduction or DBO switch lowers the solved minimum
+    # premium, and those same changes move the guideline premiums that bound
+    # the solved maximum.
+    panel = _panel()
+    row = panel.premium_section.rows()[0]
+
+    for level_type in ("Min to Maturity", "Max Level Allowed"):
+        row.type_combo.setCurrentText(level_type)
+        assert panel.face_section.isEnabled() is True
+        assert panel.dbo_section.isEnabled() is True
+        for section in (panel.loan_section, panel.withdrawal_section,
+                        panel.repayment_section, panel.rateclass_section,
+                        panel.table_section, panel.riders_panel):
+            assert section.isEnabled() is False
+
+    row.type_combo.setCurrentText("INPUT")
+    for section in (panel.face_section, panel.dbo_section, panel.loan_section,
+                    panel.withdrawal_section, panel.repayment_section,
+                    panel.rateclass_section, panel.table_section,
+                    panel.riders_panel):
+        assert section.isEnabled() is True
+
+
+def test_min_level_collects_face_and_dbo_changes_only():
+    # With Min to Maturity selected the export still carries the Face Amount /
+    # DB Option change events (they feed the solve), while the locked sections
+    # — withdrawals, loans, repayments, rate class — stay excluded even if
+    # they hold values.
+    panel = _panel()
+    panel.premium_section.rows()[0].type_combo.setCurrentText("Min to Maturity")
+
+    face = panel.face_section.rows()[0]
+    face.year_edit.setText("9")
+    face._year_edited()
+    face.amount_edit.setText("75000")
+
+    dbo = panel.dbo_section.rows()[0]
+    dbo.year_edit.setText("10")
+    dbo._year_edited()
+    dbo.value_combo.setCurrentIndex(1)         # "B"
+
+    # Values left in locked sections must not leak into the export.
+    wd = panel.withdrawal_section.rows()[0]
+    wd.year_edit.setText("11")
+    wd._year_edited()
+    wd.amount_edit.setText("1000")
+    loan = panel.loan_section.rows()[0]
+    loan.year_edit.setText("12")
+    loan._year_edited()
+    loan.amount_edit.setText("2000")
+    rc = panel.rateclass_section.rows()[0]
+    rc.year_edit.setText("10")
+    rc._year_edited()
+    rc.value_combo.setCurrentIndex(1)
+
+    input_set = IllustrationInputSet()
+    panel.collect_into(input_set)
+
+    changes = {(c.kind, c.effective_date, c.value) for c in input_set.policy_changes}
+    assert (PolicyChangeKind.FACE_AMOUNT, date(2027, 11, 9), 75000.0) in changes
+    assert (PolicyChangeKind.DB_OPTION, date(2028, 11, 9), "B") in changes
+    assert not any(c.kind == PolicyChangeKind.RATE_CLASS for c in input_set.policy_changes)
+    kinds = {t.kind for t in input_set.dated_transactions}
+    kinds |= {t.kind for t in input_set.scheduled_transactions}
+    assert TransactionKind.WITHDRAWAL not in kinds
+    assert TransactionKind.LOAN not in kinds
+    assert TransactionKind.LOAN_REPAYMENT not in kinds
+
+
+def test_max_level_collects_face_and_dbo_changes_only():
+    # Max Level Allowed honors the Face Amount / DB Option change events (they
+    # alter the guideline premiums the solve is bounded by), while the locked
+    # sections — withdrawals, loans, repayments, rate class — stay excluded
+    # even if they hold values.
+    panel = _panel()
+    panel.premium_section.rows()[0].type_combo.setCurrentText("Max Level Allowed")
+
+    face = panel.face_section.rows()[0]
+    face.year_edit.setText("9")
+    face._year_edited()
+    face.amount_edit.setText("75000")
+
+    dbo = panel.dbo_section.rows()[0]
+    dbo.year_edit.setText("10")
+    dbo._year_edited()
+    dbo.value_combo.setCurrentIndex(1)         # "B"
+
+    # Values left in locked sections must not leak into the export.
+    wd = panel.withdrawal_section.rows()[0]
+    wd.year_edit.setText("11")
+    wd._year_edited()
+    wd.amount_edit.setText("1000")
+    loan = panel.loan_section.rows()[0]
+    loan.year_edit.setText("12")
+    loan._year_edited()
+    loan.amount_edit.setText("2000")
+    rc = panel.rateclass_section.rows()[0]
+    rc.year_edit.setText("10")
+    rc._year_edited()
+    rc.value_combo.setCurrentIndex(1)
+
+    input_set = IllustrationInputSet()
+    panel.collect_into(input_set)
+
+    changes = {(c.kind, c.effective_date, c.value) for c in input_set.policy_changes}
+    assert (PolicyChangeKind.FACE_AMOUNT, date(2027, 11, 9), 75000.0) in changes
+    assert (PolicyChangeKind.DB_OPTION, date(2028, 11, 9), "B") in changes
+    assert not any(c.kind == PolicyChangeKind.RATE_CLASS for c in input_set.policy_changes)
+    kinds = {t.kind for t in input_set.dated_transactions}
+    kinds |= {t.kind for t in input_set.scheduled_transactions}
+    assert TransactionKind.WITHDRAWAL not in kinds
+    assert TransactionKind.LOAN not in kinds
+    assert TransactionKind.LOAN_REPAYMENT not in kinds
+
+
+def test_min_level_solve_projection_includes_policy_changes():
+    # The Min to Maturity solver must project on the SAME policy changes the
+    # user entered — every bracketing/bisection run carries the base input
+    # set's policy_changes through, so the solved minimum premium reflects a
+    # face reduction or DBO switch.
+    from types import SimpleNamespace
+
+    from suiteview.illustration.core.solve_level_to_exception import (
+        solve_level_to_exception,
+    )
+    from suiteview.illustration.models.input_set import PolicyChangeEvent
+
+    policy = IllustrationPolicyData(def_of_life_ins="GPT", maturity_age=121,
+                                    billing_frequency=1, modal_premium=100.0)
+    change = PolicyChangeEvent(
+        kind=PolicyChangeKind.FACE_AMOUNT, effective_date=date(2027, 11, 9),
+        value=75000.0)
+    base = IllustrationInputSet(policy_changes=[change])
+
+    captured = []
+
+    class _StubEngine:
+        def project(self, _policy, *, options=None, future_inputs=None, **_kw):
+            captured.append(future_inputs)
+            # Every premium "survives" so the solve returns at zero premium.
+            return [SimpleNamespace(
+                attained_age=121, av_end_of_month=1.0, premiums_to_date=0.0,
+                exception_prem_mode=False, gp_exception_prem_gross=0.0,
+                applied_loan_repayment=0.0, date=date(2096, 11, 9),
+                policy_year=71)]
+
+    result = solve_level_to_exception(
+        policy, mode="M", start_policy_year=7,
+        base_future_inputs=base, engine=_StubEngine())
+
+    assert result.premium == 0.0
+    assert captured, "the solve never projected"
+    for future in captured:
+        assert future.policy_changes == [change]
+
+
 def test_riders_panel_excludes_base_coverages():
     """Riders & Benefits should list riders only — never base coverage
     segments (is_base, including base increases beyond phase 1)."""
@@ -524,6 +724,38 @@ def test_riders_panel_excludes_base_coverages():
     assert cov_keys == {"cov:3"}
 
 
+def test_riders_panel_enables_renewal_rated_benefit():
+    """A waiver benefit (e.g. ULDW91) has a zero issue rate (BNF_ANN_PPU_AMT)
+    but a real charge in the renewal-rate segment — it must be adjustable.
+    Free ABR (#-type) benefits stay disabled."""
+    from types import SimpleNamespace
+
+    def _ben(type_cd, subtype_cd, form, coi_rate, renewal_rate):
+        return SimpleNamespace(
+            cov_pha_nbr=1, benefit_code=type_cd + subtype_cd,
+            benefit_type_cd=type_cd, benefit_subtype_cd=subtype_cd,
+            benefit_desc=type_cd, form_number=form,
+            issue_date=date(2019, 11, 9), cease_date=None,
+            units=250.0, benefit_amount=250000.0, issue_age=50,
+            coi_rate=coi_rate, renewal_rate=renewal_rate)
+
+    class PolicyWithWaiver(_FakePolicy):
+        def get_benefits(self):
+            return [
+                _ben("#", "4", "ABR14-TM", None, None),
+                _ben("3", "9", "ULDW91", None, 7100.0),
+            ]
+
+    _app()
+    panel = DynamicInputsPanel()
+    panel.load_from_policy(PolicyWithWaiver())
+
+    assert not panel.riders_panel._buttons["ben:#4:1"].isEnabled()
+    waiver_btn = panel.riders_panel._buttons["ben:39:1"]
+    assert waiver_btn.isEnabled()
+    assert waiver_btn.toolTip() == "Keep / change / drop this rider"
+
+
 def test_suspended_banner():
     _app()
 
@@ -536,3 +768,40 @@ def test_suspended_banner():
     assert "SUSPENDED" in panel.suspended_banner.text()
     assert "05/09/2026" in panel.suspended_banner.text()   # valuation date
     assert "06/09/2026" in panel.suspended_banner.text()   # forecast date
+
+
+def test_excess_repayment_toggle_states_and_placement():
+    panel = _panel()
+
+    # Two-state segmented toggle: exactly one side lit, "Stop at payoff" by
+    # default (the engine's flag-off behavior — the excess is discarded).
+    assert panel.excess_stop_btn.isChecked() is True
+    assert panel.excess_apply_btn.isChecked() is False
+    assert panel.excess_repayment_as_premium() is False
+
+    panel.excess_apply_btn.setChecked(True)
+    assert panel.excess_stop_btn.isChecked() is False
+    assert panel.excess_repayment_as_premium() is True
+
+    panel.excess_stop_btn.setChecked(True)
+    assert panel.excess_apply_btn.isChecked() is False
+    assert panel.excess_repayment_as_premium() is False
+
+    # The toggle lives at the TOP of the Loan Repayments group (a header
+    # widget above the column captions), mirroring the Premiums lumpsum row.
+    header_item = panel.repayment_section.layout().itemAt(0)
+    header_widget = header_item.widget()
+    assert header_widget is not None
+    assert panel.excess_stop_btn in header_widget.findChildren(type(panel.excess_stop_btn))
+
+
+def test_sections_pack_to_top_with_trailing_stretch():
+    # Every DynamicSection ends with a stretch so grid-row surplus height
+    # collects at the bottom instead of spreading the controls apart (the
+    # Loans group next to the taller Premiums group showed this).
+    panel = _panel()
+    for section in (panel.premium_section, panel.loan_section,
+                    panel.withdrawal_section, panel.repayment_section):
+        layout = section.layout()
+        last = layout.itemAt(layout.count() - 1)
+        assert last.spacerItem() is not None

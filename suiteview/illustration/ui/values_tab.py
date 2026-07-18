@@ -253,6 +253,23 @@ def _recalc_delta(detail: dict, key: str):
     return after - before
 
 
+def _accum_glp_adjust_text(detail: dict) -> str:
+    """How the recalc trued up AccumGLP: a mid-year change replaces the
+    remaining months of the banked prior GLP with the new one (m/12 x ΔGLP);
+    an anniversary change accrues the full year at the new GLP with no
+    adjustment."""
+    adj = detail.get("accum_glp_adjustment")
+    if adj:
+        months = detail.get("accum_glp_months_remaining")
+        how = f"  ({months}/12 × GLP Δ)" if months else ""
+        return f"{adj:+,.2f}{how}"
+    glp_prior = detail.get("glp_prior")
+    glp_new = detail.get("glp_new")
+    if glp_prior is not None and glp_new is not None and abs(glp_new - glp_prior) > 1e-9:
+        return "none — anniversary (full year at new GLP)"
+    return "none — GLP unchanged"
+
+
 def _fmt_recalc_date(value) -> str:
     """Recalc dates render MM/DD/YYYY; a missing date renders blank."""
     return f"{value:%m/%d/%Y}" if value else ""
@@ -638,7 +655,7 @@ class TefraTamraRecalcView(QWidget):
 
     SUMMARY_COLUMNS = [
         "Effective Date",
-        "GLPb", "GLPa", "GLP Delta", "GLP", "blank1",
+        "GLPb", "GLPa", "GLP Delta", "GLP", "AccumGLP Adjust", "blank1",
         "GSPb", "GSPa", "GSP Delta", "GSP", "blank2",
         "7-Pay Start Date", "7-Pay Premium",
     ]
@@ -721,7 +738,7 @@ class TefraTamraRecalcView(QWidget):
             rows.append({
                 "Effective Date": _fmt_recalc_date(baseline.get("date")),
                 "GLPb": None, "GLPa": None, "GLP Delta": None,
-                "GLP": baseline.get("glp"), "blank1": "",
+                "GLP": baseline.get("glp"), "AccumGLP Adjust": "", "blank1": "",
                 "GSPb": None, "GSPa": None, "GSP Delta": None,
                 "GSP": baseline.get("gsp"), "blank2": "",
                 "7-Pay Start Date": _fmt_recalc_date(baseline.get("seven_pay_start")),
@@ -735,7 +752,8 @@ class TefraTamraRecalcView(QWidget):
                 "GLPb": detail.get("glp_before"),
                 "GLPa": detail.get("glp_after"),
                 "GLP Delta": _recalc_delta(detail, "glp"),
-                "GLP": detail.get("glp_new"), "blank1": "",
+                "GLP": detail.get("glp_new"),
+                "AccumGLP Adjust": _accum_glp_adjust_text(detail), "blank1": "",
                 "GSPb": detail.get("gsp_before"),
                 "GSPa": detail.get("gsp_after"),
                 "GSP Delta": _recalc_delta(detail, "gsp"),
@@ -756,8 +774,9 @@ class TefraTamraRecalcView(QWidget):
             column_decimals={column: 2 for column in self._NUMERIC_COLUMNS},
         )
         if self.summary_grid.model is not None:
-            # Left-align the two date columns (Effective Date, 7-Pay Start Date).
-            self.summary_grid.model._left_align_columns = {0, 11}
+            # Left-align the date columns (Effective Date, 7-Pay Start Date)
+            # and the AccumGLP Adjust explanation text.
+            self.summary_grid.model._left_align_columns = {0, 5, 12}
         self.summary_grid.autofit_columns_to_data()
         self.stack.setCurrentIndex(0)
 
@@ -1712,7 +1731,7 @@ class IllustrationValuesTab(QWidget):
             "Interest Rate": state.effective_annual_rate * 100.0,
             "EAV": state.av_end_of_month,
             "SC": state.surrender_charge,
-            "ESV": state.surrender_value,
+            "ESV": state.ending_sv,
             "Var Loan": state.end_vbl_loan_princ + state.end_vbl_loan_accrued,
             "Pref Loan": state.end_pf_loan_princ + state.end_pf_loan_accrued,
             "Reg Loan": state.end_rg_loan_princ + state.end_rg_loan_accrued,
@@ -2440,7 +2459,7 @@ class IllustrationValuesTab(QWidget):
         return {
             "EA": state.av_end_of_month,
             "ELN": state.policy_debt,
-            "ES": state.surrender_value,
+            "ES": state.ending_sv,
             "EDBwoCORR": 0.0,
             "EDB_CORR": 0.0,
             "EDBwLNs": 0.0,
@@ -2448,7 +2467,7 @@ class IllustrationValuesTab(QWidget):
             "IllustrationAV": state.av_end_of_month,
             "IllustrationInterestRate": state.annual_interest_rate * 100.0,
             "IllustrationLN": state.policy_debt,
-            "IllustrationSV": max(state.surrender_value, 0.0),
+            "IllustrationSV": max(state.ending_sv, 0.0),
             "IllustrationDB": state.ending_db,
             "PremiumOutlay": state.premium_outlay,
             "ForceOutDisplay": state.guideline_forceout,

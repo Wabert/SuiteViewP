@@ -21,12 +21,14 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QTreeView,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from ..models.rider_config import load_rider_config
 from .styles import PURPLE_BG, PURPLE_DARK
 
 CHART_BG = QColor("#FFFFFF")
@@ -42,6 +44,7 @@ SERIES_COLORS = {
     "Cum Premium": QColor("#C9A227"),
     "Guideline Limit": QColor("#4A6FA5"),
     "Accum 7-Pay Prem": QColor("#B03A8C"),
+    "Policy Debt": QColor("#BF360C"),   # burnt copper — the liability line
 }
 DASHED_SERIES = {"Guideline Limit", "Cum Premium", "Accum 7-Pay Prem"}
 # Default view: AV vs cumulative premium vs the guideline ceiling.
@@ -327,12 +330,54 @@ class _KpiChip(QWidget):
             " font-size: 13px; font-weight: bold;")
 
 
+# Ledger layout: locators (frozen) | rollups | value waterfall | spacer | the
+# individual cash-flow columns the rollups summarize.
 LEDGER_COLUMNS = [
-    "Year", "Month", "Age", "Withdrawals", "ForceOuts", "Loan Repay", "Prem",
-    "MD", "Exception Prem", "AV", "SV", "Interest", "EAV", "SC",
-    "New Loan", "LN", "ESV", "Death Benefit", "Status",
+    "Year", "Month", "Age", "Date",
+    "Contributions", "Distributions",
+    "MD", "AV", "SV", "Interest", "EAV", "SC", "LN", "ESV",
+    "Death Benefit", "Status",
+    "",  # spacer — visual break before the relocated cash-flow detail
+    "Withdrawals", "ForceOuts", "Loan Repay", "Prem", "Exception Prem", "New Loan",
 ]
-NUMERIC_LEDGER = set(range(len(LEDGER_COLUMNS) - 1))
+# Year | Month | Age | Date stay put while the value columns scroll.
+FROZEN_LEDGER_COLUMN_COUNT = LEDGER_COLUMNS.index("Date") + 1
+SPACER_COLUMN = LEDGER_COLUMNS.index("")
+NUMERIC_LEDGER = {
+    index for index, name in enumerate(LEDGER_COLUMNS) if name not in ("Status", "")
+}
+
+
+def _fmt_date(when) -> str:
+    return f"{when:%m/%d/%Y}" if when else ""
+
+
+def _ledger_cells(
+    year, month, age, when, *,
+    withdrawals, forceouts, loan_repay, premium, monthly_deduction,
+    exception_prem, av, sv, interest, eav, sc, new_loan, loan_balance,
+    esv, death_benefit, status,
+) -> list[str]:
+    """One ledger row in LEDGER_COLUMNS order (annual and monthly share it).
+
+    Contributions rolls up the money-in columns (Loan Repay + Prem + Exception
+    Prem); Distributions the money-out columns (Withdrawals + ForceOuts + New
+    Loan). Both keep the source columns' display signs.
+    """
+    contributions = loan_repay + premium + exception_prem
+    distributions = withdrawals + forceouts + new_loan
+    return [
+        str(year), str(month), str(age), _fmt_date(when),
+        _fmt_money(contributions, 2), _fmt_money(distributions, 2),
+        _fmt_money(monthly_deduction, 2), _fmt_money(av, 2), _fmt_money(sv, 2),
+        _fmt_money(interest, 2), _fmt_money(eav, 2), _fmt_money(sc, 2),
+        _fmt_money(loan_balance, 2), _fmt_money(esv, 2),
+        _fmt_money(death_benefit, 0), status,
+        "",
+        _fmt_money(withdrawals, 2), _fmt_money(forceouts, 2),
+        _fmt_money(loan_repay, 2), _fmt_money(premium, 2),
+        _fmt_money(exception_prem, 2), _fmt_money(new_loan, 2),
+    ]
 
 
 class ValuesOverview(QWidget):
@@ -344,6 +389,7 @@ class ValuesOverview(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._year_items: dict[int, QTreeWidgetItem] = {}
+        self._updating_frozen_width = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -367,28 +413,145 @@ class ValuesOverview(QWidget):
         kpi_row.addStretch(1)
         layout.addLayout(kpi_row)
 
+        # QTreeView selector so the SAME sheet styles both the QTreeWidget
+        # ledger and its frozen QTreeView twin.
+        ledger_style = (
+            "QTreeView { background: white; border: 1px solid #B79CDE; font-size: 11px; }"
+            "QTreeView::item { height: 17px; padding: 0px; }"
+            "QTreeView::item:selected { background: #E8DDF8; color: #2A1458; }"
+            "QHeaderView::section { background: #E8DDF8; color: #2A1458; font-size: 10px;"
+            " font-weight: bold; border: none; border-right: 1px solid #B79CDE;"
+            " border-bottom: 1px solid #B79CDE; padding: 2px 6px; height: 18px; }"
+        )
         self.ledger = QTreeWidget(self)
         self.ledger.setColumnCount(len(LEDGER_COLUMNS))
         self.ledger.setHeaderLabels(LEDGER_COLUMNS)
         self.ledger.setRootIsDecorated(True)
         self.ledger.setUniformRowHeights(True)
         self.ledger.setAlternatingRowColors(False)
-        self.ledger.setStyleSheet(
-            "QTreeWidget { background: white; border: 1px solid #B79CDE; font-size: 11px; }"
-            "QTreeWidget::item { height: 17px; padding: 0px; }"
-            "QTreeWidget::item:selected { background: #E8DDF8; color: #2A1458; }"
-            "QHeaderView::section { background: #E8DDF8; color: #2A1458; font-size: 10px;"
-            " font-weight: bold; border: none; border-right: 1px solid #B79CDE;"
-            " border-bottom: 1px solid #B79CDE; padding: 2px 6px; height: 18px; }"
-        )
+        self.ledger.setStyleSheet(ledger_style)
         header = self.ledger.header()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setStretchLastSection(True)
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(SPACER_COLUMN, QHeaderView.ResizeMode.Fixed)
+        self.ledger.setColumnWidth(SPACER_COLUMN, 14)
         self.ledger.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.ledger.customContextMenuRequested.connect(self._on_ledger_menu)
+        self.ledger.customContextMenuRequested.connect(
+            lambda pos: self._show_ledger_menu(self.ledger.viewport().mapToGlobal(pos)))
         self.ledger.currentItemChanged.connect(self._on_current_item)
         self.ledger.itemDoubleClicked.connect(self._on_item_double_clicked)
-        layout.addWidget(self.ledger, 1)
+
+        # ── Frozen locator pane ── Year | Month | Age | Date stay visible while
+        # the value columns scroll. Same sibling-pane pattern as
+        # FilterTableView.set_frozen_column_count: a narrow QTreeView shares the
+        # ledger's model + selection model; each pane hides the other's columns.
+        self.frozen_ledger = QTreeView(self)
+        self.frozen_ledger.setModel(self.ledger.model())
+        self.frozen_ledger.setSelectionModel(self.ledger.selectionModel())
+        self.frozen_ledger.setRootIsDecorated(True)
+        self.frozen_ledger.setUniformRowHeights(True)
+        self.frozen_ledger.setAlternatingRowColors(False)
+        self.frozen_ledger.setStyleSheet(ledger_style)
+        self.frozen_ledger.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.frozen_ledger.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        frozen_header = self.frozen_ledger.header()
+        # Interactive + explicit resizeColumnToContents (not ResizeToContents):
+        # the lazy mode re-sizes during paint without a reliable signal, leaving
+        # the pane's fixed width stale/clipped.
+        frozen_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        frozen_header.setStretchLastSection(False)
+        for column in range(len(LEDGER_COLUMNS)):
+            frozen = column < FROZEN_LEDGER_COLUMN_COUNT
+            self.frozen_ledger.setColumnHidden(column, not frozen)
+            self.ledger.setColumnHidden(column, frozen)
+        self.frozen_ledger.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.frozen_ledger.customContextMenuRequested.connect(
+            lambda pos: self._show_ledger_menu(self.frozen_ledger.viewport().mapToGlobal(pos)))
+        self.frozen_ledger.doubleClicked.connect(self._on_frozen_double_clicked)
+
+        # Keep the panes in lockstep: rows (vertical scroll) and tree expansion.
+        # Cross-connected setValue/expand terminate naturally — a no-op change
+        # emits no signal.
+        self.ledger.verticalScrollBar().valueChanged.connect(
+            self.frozen_ledger.verticalScrollBar().setValue)
+        self.frozen_ledger.verticalScrollBar().valueChanged.connect(
+            self.ledger.verticalScrollBar().setValue)
+        self.ledger.expanded.connect(self._on_ledger_expand_changed)
+        self.ledger.collapsed.connect(self._on_ledger_collapse_changed)
+        self.frozen_ledger.expanded.connect(self._on_frozen_expand_changed)
+        self.frozen_ledger.collapsed.connect(self._on_frozen_collapse_changed)
+        # The scrolling pane loses viewport height to its horizontal scrollbar;
+        # reserve the same strip under the frozen pane so rows stay aligned.
+        self.ledger.horizontalScrollBar().rangeChanged.connect(
+            lambda *_args: self._sync_frozen_bottom_inset())
+        frozen_header.sectionResized.connect(
+            lambda *_args: self._update_frozen_ledger_width())
+
+        ledger_row = QWidget(self)
+        row_layout = QHBoxLayout(ledger_row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(0)
+        frozen_container = QWidget(ledger_row)
+        frozen_column = QVBoxLayout(frozen_container)
+        frozen_column.setContentsMargins(0, 0, 0, 0)
+        frozen_column.setSpacing(0)
+        frozen_column.addWidget(self.frozen_ledger, 1)
+        self.frozen_bottom_spacer = QWidget(frozen_container)
+        self.frozen_bottom_spacer.setFixedHeight(0)
+        frozen_column.addWidget(self.frozen_bottom_spacer)
+        row_layout.addWidget(frozen_container)
+        row_layout.addWidget(self.ledger, 1)
+        layout.addWidget(ledger_row, 1)
+        self._update_frozen_ledger_width()
+
+    def _update_frozen_ledger_width(self):
+        if self._updating_frozen_width:
+            return
+        self._updating_frozen_width = True
+        try:
+            header = self.frozen_ledger.header()
+            for column in range(FROZEN_LEDGER_COLUMN_COUNT):
+                self.frozen_ledger.resizeColumnToContents(column)
+            width = sum(header.sectionSize(column) for column in range(FROZEN_LEDGER_COLUMN_COUNT))
+            self.frozen_ledger.setFixedWidth(width + self.frozen_ledger.frameWidth() * 2)
+        finally:
+            self._updating_frozen_width = False
+
+    # Expansion state is per-view; mirror it so both panes lay out the same
+    # rows, then refit the locator widths (children indent under Year).
+    def _on_ledger_expand_changed(self, index):
+        self.frozen_ledger.expand(index)
+        self._update_frozen_ledger_width()
+
+    def _on_ledger_collapse_changed(self, index):
+        self.frozen_ledger.collapse(index)
+        self._update_frozen_ledger_width()
+
+    def _on_frozen_expand_changed(self, index):
+        self.ledger.expand(index)
+        self._update_frozen_ledger_width()
+
+    def _on_frozen_collapse_changed(self, index):
+        self.ledger.collapse(index)
+        self._update_frozen_ledger_width()
+
+    def _sync_frozen_bottom_inset(self):
+        scrollbar = self.ledger.horizontalScrollBar()
+        needs_scrollbar = scrollbar.maximum() > scrollbar.minimum()
+        inset = scrollbar.height() if (needs_scrollbar and scrollbar.isVisible()) else 0
+        if inset == 0 and needs_scrollbar:
+            inset = scrollbar.sizeHint().height()
+        self.frozen_bottom_spacer.setFixedHeight(inset)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # A width change can add/remove the ledger's horizontal scrollbar.
+        self._sync_frozen_bottom_inset()
+
+    def _on_frozen_double_clicked(self, index):
+        row_index = index.siblingAtColumn(0).data(Qt.ItemDataRole.UserRole)
+        if row_index is not None:
+            self.cellActivated.emit(int(row_index), LEDGER_COLUMNS[index.column()])
 
     def _on_current_item(self, current, _previous):
         if current is None:
@@ -402,13 +565,13 @@ class ValuesOverview(QWidget):
         if index is not None:
             self.cellActivated.emit(int(index), LEDGER_COLUMNS[column])
 
-    def _on_ledger_menu(self, pos):
+    def _show_ledger_menu(self, global_pos):
         from PyQt6.QtWidgets import QMenu
 
         menu = QMenu(self.ledger)
         dump_annual = menu.addAction("Dump Annual Rows to Excel")
         dump_monthly = menu.addAction("Dump Annual + Monthly Rows to Excel")
-        chosen = menu.exec(self.ledger.viewport().mapToGlobal(pos))
+        chosen = menu.exec(global_pos)
         if chosen is dump_annual:
             self._dump_ledger(include_months=False)
         elif chosen is dump_monthly:
@@ -454,7 +617,7 @@ class ValuesOverview(QWidget):
         self.kpi_horizon.set(
             f"Yr {final.policy_year}  ·  Age {final.attained_age}")
         self.kpi_av.set(_fmt_money(final.av_end_of_month), alert=final.av_end_of_month < 0)
-        self.kpi_sv.set(_fmt_money(final.surrender_value))
+        self.kpi_sv.set(_fmt_money(final.ending_sv))
         self.kpi_db.set(_fmt_money(final.ending_db or final.gross_db))
         lapse_state = next((s for s in projected if s.lapsed), None)
         if lapse_state is not None:
@@ -480,7 +643,9 @@ class ValuesOverview(QWidget):
             month_entries = by_year[year]
             months = [state for _, state in month_entries]
             eoy_index, eoy = month_entries[-1]
-            premium = sum(s.premium_outlay for s in months)
+            # Prem excludes the GP exception premium (it has its own column), so
+            # Prem + Exception Prem == premium_outlay with no double count.
+            premium = sum(s.premium_outlay - s.gp_exception_prem for s in months)
             loan_repay = sum(s.applied_loan_repayment for s in months)
             exception_prem = sum(s.gp_exception_prem for s in months)
             forceouts = sum(s.guideline_forceout for s in months)
@@ -493,20 +658,19 @@ class ValuesOverview(QWidget):
             # loans and the surrender charge out of that AV.
             av_pre_interest = eoy.av_after_exception
             sv_pre_interest = av_pre_interest - eoy.policy_debt - eoy.surrender_charge
-            item = QTreeWidgetItem([
-                str(year), str(eoy.policy_month), str(eoy.attained_age),
-                _fmt_money(withdrawals, 2), _fmt_money(forceouts, 2),
-                _fmt_money(loan_repay, 2),
-                _fmt_money(premium, 2), _fmt_money(monthly_deduction, 2),
-                _fmt_money(exception_prem, 2), _fmt_money(av_pre_interest, 2),
-                _fmt_money(sv_pre_interest, 2), _fmt_money(interest, 2),
-                _fmt_money(eoy.av_end_of_month, 2), _fmt_money(eoy.surrender_charge, 2),
-                _fmt_money(new_loan, 2), _fmt_money(eoy.policy_debt, 2),
-                _fmt_money(eoy.surrender_value, 2),
-                _fmt_money(eoy.ending_db or eoy.gross_db, 0), _status_text(eoy),
-            ])
+            item = QTreeWidgetItem(_ledger_cells(
+                year, eoy.policy_month, eoy.attained_age, eoy.date,
+                withdrawals=withdrawals, forceouts=forceouts,
+                loan_repay=loan_repay, premium=premium,
+                monthly_deduction=monthly_deduction, exception_prem=exception_prem,
+                av=av_pre_interest, sv=sv_pre_interest, interest=interest,
+                eav=eoy.av_end_of_month, sc=eoy.surrender_charge,
+                new_loan=new_loan, loan_balance=eoy.policy_debt,
+                esv=eoy.ending_sv, death_benefit=eoy.ending_db or eoy.gross_db,
+                status=_status_text(eoy),
+            ))
             for column in range(len(LEDGER_COLUMNS)):
-                if column in NUMERIC_LEDGER or column < 2:
+                if column in NUMERIC_LEDGER:
                     item.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 item.setFont(column, bold)
             if eoy.lapsed and not getattr(eoy, "matured", False):
@@ -525,33 +689,41 @@ class ValuesOverview(QWidget):
                 previous_wd = state.withdrawals_to_date
                 av_pre_interest = state.av_after_exception
                 sv_pre_interest = av_pre_interest - state.policy_debt - state.surrender_charge
-                child = QTreeWidgetItem([
-                    str(state.policy_year), str(state.policy_month), str(state.attained_age),
-                    _fmt_money(month_wd, 2), _fmt_money(state.guideline_forceout, 2),
-                    _fmt_money(state.applied_loan_repayment, 2),
-                    _fmt_money(state.premium_outlay, 2), _fmt_money(state.total_deduction, 2),
-                    _fmt_money(state.gp_exception_prem, 2), _fmt_money(av_pre_interest, 2),
-                    _fmt_money(sv_pre_interest, 2), _fmt_money(state.interest_credited, 2),
-                    _fmt_money(state.av_end_of_month, 2), _fmt_money(state.surrender_charge, 2),
-                    _fmt_money(state.applied_new_loan, 2), _fmt_money(state.policy_debt, 2),
-                    _fmt_money(state.surrender_value, 2),
-                    _fmt_money(state.ending_db or state.gross_db, 0), _status_text(state),
-                ])
+                child = QTreeWidgetItem(_ledger_cells(
+                    state.policy_year, state.policy_month, state.attained_age, state.date,
+                    withdrawals=month_wd, forceouts=state.guideline_forceout,
+                    loan_repay=state.applied_loan_repayment,
+                    premium=state.premium_outlay - state.gp_exception_prem,
+                    monthly_deduction=state.total_deduction,
+                    exception_prem=state.gp_exception_prem,
+                    av=av_pre_interest, sv=sv_pre_interest,
+                    interest=state.interest_credited,
+                    eav=state.av_end_of_month, sc=state.surrender_charge,
+                    new_loan=state.applied_new_loan, loan_balance=state.policy_debt,
+                    esv=state.ending_sv,
+                    death_benefit=state.ending_db or state.gross_db,
+                    status=_status_text(state),
+                ))
                 for column in range(len(LEDGER_COLUMNS)):
-                    if column in NUMERIC_LEDGER or column < 2:
+                    if column in NUMERIC_LEDGER:
                         child.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 if state.lapsed and not getattr(state, "matured", False):
                     for column in range(len(LEDGER_COLUMNS)):
                         child.setForeground(column, QColor("#B71C1C"))
                 child.setData(0, Qt.ItemDataRole.UserRole, result_index)
                 item.addChild(child)
+        self._update_frozen_ledger_width()
+        self._sync_frozen_bottom_inset()
 
     def jump_to_year(self, year: int):
         """Expand and scroll the ledger to a policy year (chart click-through)."""
         item = self._year_items.get(year)
         if item is None:
             return
+        # collapseAll does not emit per-item collapsed signals, so collapse the
+        # frozen twin explicitly to keep the panes' row layouts identical.
         self.ledger.collapseAll()
+        self.frozen_ledger.collapseAll()
         item.setExpanded(True)
         self.ledger.scrollToItem(item, QTreeWidget.ScrollHint.PositionAtTop)
         self.ledger.setCurrentItem(item)
@@ -572,11 +744,18 @@ def build_chart_series(projected: list) -> list[ChartSeries]:
 
     series = [
         ChartSeries("Account Value", [(xs(s), s.av_end_of_month) for s in projected]),
-        ChartSeries("Surrender Value", [(xs(s), s.surrender_value) for s in projected]),
+        ChartSeries("Surrender Value", [(xs(s), s.ending_sv) for s in projected]),
         ChartSeries("Death Benefit", [(xs(s), s.ending_db or s.gross_db) for s in projected]),
         ChartSeries("Cum Premium", premium_points),
         ChartSeries("Guideline Limit", [(xs(s), s.guideline_limit) for s in projected]),
     ]
+    # Total policy debt (all six ending loan buckets: principal + accrued
+    # interest — the ledger's LN / Loan group's Ending LB). Only charted when
+    # the policy actually borrows at some point (existing or illustrated
+    # loan); a loan-free projection gets no series and no dead legend chip.
+    if any(s.policy_debt > 0 for s in projected):
+        series.append(ChartSeries(
+            "Policy Debt", [(xs(s), s.policy_debt) for s in projected]))
     # Accumulated 7-pay contributions, only while a 7-pay window is running
     # (TAMRA year 1-7). A material change restarts the window mid-projection,
     # so the line can break and resume against the NEW window's accumulation.
@@ -605,11 +784,6 @@ _CHARGE_BAND_PALETTE = [
 ]
 
 _BENEFIT_CHARGE_LABELS = {"39": "Premium Waiver", "3#": "Stip Premium Waiver", "76": "GIO"}
-_RIDER_CHARGE_LABELS = {
-    "1U536": "LTR",
-    "1U538": "CTR",
-    "1U539": "STR",
-}
 
 
 @dataclass
@@ -624,10 +798,12 @@ def _benefit_charge_label(key: str) -> str:
 
 
 def _rider_charge_label(key: str) -> str:
+    """Short legend alias (CTR/STR/LTR/...) from rider_table.json, looked up
+    by the full plancode — never a prefix guess."""
     plancode = key.split("_", 1)[0]
-    for prefix, label in _RIDER_CHARGE_LABELS.items():
-        if plancode.startswith(prefix):
-            return label
+    config = load_rider_config(plancode)
+    if config is not None and config.cov_type:
+        return config.cov_type
     return f"Rider {plancode}"
 
 
@@ -651,15 +827,19 @@ def build_charge_bands(projected: list) -> list[ChargeBand]:
     def xs(state):
         return state.policy_year + (state.policy_month - 1) / 12.0
 
-    benefit_keys: list[str] = []
-    rider_keys: list[str] = []
+    # Keys grouped by display label (first-seen order) — multiple charge
+    # streams resolving to the same label stack into a single band.
+    benefit_keys: dict[str, list[str]] = {}
+    rider_keys: dict[str, list[str]] = {}
     for state in projected:
         for key in state.benefit_charge_detail:
-            if key not in benefit_keys:
-                benefit_keys.append(key)
+            keys = benefit_keys.setdefault(_benefit_charge_label(key), [])
+            if key not in keys:
+                keys.append(key)
         for key in state.rider_charge_detail:
-            if key not in rider_keys:
-                rider_keys.append(key)
+            keys = rider_keys.setdefault(_rider_charge_label(key), [])
+            if key not in keys:
+                keys.append(key)
 
     bands = [ChargeBand("Base COI")]
     bands.append(ChargeBand("Expense / Unit"))
@@ -667,10 +847,10 @@ def build_charge_bands(projected: list) -> list[ChargeBand]:
     has_av_charge = any(s.av_charge > 0 for s in projected)
     if has_av_charge:
         bands.append(ChargeBand("AV Charge"))
-    for key in benefit_keys:
-        bands.append(ChargeBand(_benefit_charge_label(key)))
-    for key in rider_keys:
-        bands.append(ChargeBand(_rider_charge_label(key)))
+    for label in benefit_keys:
+        bands.append(ChargeBand(label))
+    for label in rider_keys:
+        bands.append(ChargeBand(label))
 
     totals = [0.0] * len(bands)
     for state in projected:
@@ -678,8 +858,10 @@ def build_charge_bands(projected: list) -> list[ChargeBand]:
         values = [_base_coi_charge(state), state.epu_charge, state.mfee_charge]
         if has_av_charge:
             values.append(state.av_charge)
-        values.extend(state.benefit_charge_detail.get(key, 0.0) for key in benefit_keys)
-        values.extend(state.rider_charge_detail.get(key, 0.0) for key in rider_keys)
+        values.extend(sum(state.benefit_charge_detail.get(key, 0.0) for key in keys)
+                      for keys in benefit_keys.values())
+        values.extend(sum(state.rider_charge_detail.get(key, 0.0) for key in keys)
+                      for keys in rider_keys.values())
         for index, value in enumerate(values):
             totals[index] += max(value, 0.0)
             bands[index].points.append((x, totals[index]))

@@ -3,7 +3,10 @@
 Saves ~/.suiteview/mock_illustration_charts.png for inspection.
 
 Usage:
-    venv\\Scripts\\python.exe tools/mock_illustration_charts.py
+    venv\\Scripts\\python.exe tools/mock_illustration_charts.py [synthetic-debt]
+
+Pass ``synthetic-debt`` to inject a growing loan balance into the projected
+states (display-layer check of the conditional Policy Debt chart series).
 """
 from __future__ import annotations
 
@@ -36,6 +39,12 @@ def main() -> None:
     options = IllustrationOptions(conform_to_tefra=False, conform_to_tamra=True,
                                   exact_days_interest=True)
     results = IllustrationEngine().project(policy, months=120, options=options)
+
+    if "synthetic-debt" in sys.argv[1:]:
+        # Fake a loan taken in year 3 growing at ~6%/yr — verifies the
+        # conditional Policy Debt series renders (color, legend chip, hover).
+        for index, state in enumerate(results[1:], start=0):
+            state.policy_debt = 2_000.0 * 1.06 ** (index / 12.0) if index >= 24 else 0.0
 
     host = QWidget()
     host.setStyleSheet("background-color: #EDE7F6;")

@@ -31,7 +31,6 @@ from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
-    QDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -62,15 +61,19 @@ from suiteview.illustration.models.index_strategies import (
 )
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.polview.ui.formatting import format_amount, format_date
+from suiteview.ui.widgets.frameless_window import FramelessDialog
 
 from .allocations_panel import AllocationsDialog, AllocationsPanel
 from .styles import (
     GROUP_STYLE,
+    ILLUSTRATION_BORDER_COLOR,
+    ILLUSTRATION_HEADER_COLORS,
     INPUT_CAPTION_STYLE as _CAPTION_STYLE,
     INPUT_CHECKBOX_STYLE as _CHECKBOX_STYLE,
     INPUT_COMBO_STYLE as _COMBO_STYLE,
     INPUT_EDIT_STYLE as _EDIT_STYLE,
     INPUT_SMALL_BTN_STYLE as _SMALL_BTN_STYLE,
+    PURPLE_BG,
     PURPLE_DARK,
 )
 
@@ -97,6 +100,7 @@ _W_YEAR = 36
 _W_AGE = 36
 _W_MODE = 48
 _W_SPAN = 64
+_W_BASIS = 60
 
 
 def _first_float(source, *names: str) -> float:
@@ -392,13 +396,16 @@ class _RateField(QLineEdit):
 
 
 # Premium-type dropdown values (premium section only). The two level types are a
-# GPT-only "solve" the engine fills in: Max Level is the closed-form maximum
-# guideline premium; Min Level is the minimum level premium that keeps the policy
-# in force to maturity (solved on Run Values).
+# GPT-only "solve" the engine fills in on Run Values: Max Level is the largest
+# level premium the guideline acceptance chain never caps; Min Level is the
+# minimum level premium that keeps the policy in force to maturity.
 _TYPE_INPUT = "INPUT"
-# "Max Level Allowed" is the closed-form maximum guideline premium (may not reach
-# maturity). "Min Level to Maturity" is solved by the engine (amount filled on
-# Run Values); whether it rides the GLP exception period is up to the user's
+# "Max Level Allowed" is the maximum level guideline premium (may not reach
+# maturity). The row shows a closed-form estimate from the CURRENT guideline
+# room immediately; Run Values solves it exactly on the real projection so any
+# Face Amount / DB Option change's effect on the guidelines is reflected.
+# "Min Level to Maturity" is solved by the engine (amount filled on Run
+# Values); whether it rides the GLP exception period is up to the user's
 # Allow GP Exception toggle.
 _TYPE_MAX_LEVEL = "Max Level Allowed"
 _TYPE_MIN_LEVEL = "Min to Maturity"
@@ -409,6 +416,12 @@ _LEVEL_TYPES = (_TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL)
 # exception premium machinery, retargeted; it is mutually exclusive with the
 # Allow GP Exception Premium toggle. The mode is forced to M (monthly).
 _TYPE_MONTHLY_DEDUCTION = "Monthly Deduction"
+# "Pay-off" (Loan Repayments section only) is a solved repayment: the user
+# picks the window (Year/Age, mode, For Years/To Age) and Run Values solves
+# the level modal repayment that zeroes the loan by the end of the window —
+# repayments apply before new loans, so the balance is zero just before any
+# new loan that follows. The amount field is display-only.
+_TYPE_PAYOFF = "Pay-off"
 
 
 class InputRow(QWidget):
@@ -487,6 +500,22 @@ class InputRow(QWidget):
             self.to_age_edit.editingFinished.connect(self._to_age_edited)
             layout.addWidget(self.to_age_edit)
 
+        # Withdrawal basis: Net (default) means the client receives the entered
+        # amount and the policy is charged that plus any fee/surrender charge;
+        # Gross means the entered amount is what comes out of the policy.
+        self.basis_combo: Optional[QComboBox] = None
+        if spec.has_basis:
+            self.basis_combo = QComboBox(self)
+            self.basis_combo.addItems(["Net", "Gross"])
+            self.basis_combo.setStyleSheet(_COMBO_STYLE)
+            self.basis_combo.setFixedWidth(_W_BASIS)
+            self.basis_combo.setToolTip(
+                "Net: the client receives this amount (charges come out of the "
+                "policy on top). Gross: this amount leaves the policy (the client "
+                "receives it less charges).")
+            self.basis_combo.currentIndexChanged.connect(lambda _i: self.changed.emit())
+            layout.addWidget(self.basis_combo)
+
         self.remove_btn = QPushButton("−")
         self.remove_btn.setStyleSheet(_SMALL_BTN_STYLE)
         self.remove_btn.setToolTip("Remove this row")
@@ -530,6 +559,12 @@ class InputRow(QWidget):
             self.type_combo.setFixedWidth(self._section.spec.type_width)
             if current in options:
                 self.type_combo.setCurrentText(current)
+        elif self._section.spec.allow_payoff:
+            options = ["Input", _TYPE_PAYOFF]
+            self.type_combo.addItems(options)
+            self.type_combo.setFixedWidth(self._section.spec.type_width)
+            if current in options:
+                self.type_combo.setCurrentText(current)
         else:
             self.type_combo.addItems(["Input", "Solve"])
             model_item = self.type_combo.model().item(1)
@@ -556,8 +591,17 @@ class InputRow(QWidget):
         return (self._section.spec.allow_max_level_premium
                 and self.type_combo.currentText() == _TYPE_MIN_LEVEL)
 
+    def is_max_level(self) -> bool:
+        return (self._section.spec.allow_max_level_premium
+                and self.type_combo.currentText() == _TYPE_MAX_LEVEL)
+
     def is_monthly_deduction(self) -> bool:
         return self.type_combo.currentText() == _TYPE_MONTHLY_DEDUCTION
+
+    def is_payoff(self) -> bool:
+        """A Loan Repayments "Pay-off" row — amount is solved on Run Values."""
+        return (self._section.spec.allow_payoff
+                and self.type_combo.currentText() == _TYPE_PAYOFF)
 
     def set_amount_display(self, value: Optional[float]):
         """Fill the (disabled) amount field with a solved value for display."""
@@ -581,13 +625,19 @@ class InputRow(QWidget):
             and not self._ctx.is_cvat
         )
         if level_capable and ptype == _TYPE_MAX_LEVEL:
-            # Closed-form maximum guideline premium — read-only, filled now.
+            # Closed-form ESTIMATE from the current guideline room — read-only,
+            # filled now. Run Values solves the exact maximum on the real
+            # projection (reflecting any Face Amount / DB Option changes) and
+            # overwrites this display.
             self.amount_edit.setEnabled(True)
             self.amount_edit.setReadOnly(True)
             self.amount_edit.set_value(self._ctx.max_modal_level_premium(self.mode()), decimals=2)
             self.amount_edit.setToolTip(
-                "Maximum level premium: remaining guideline room divided by the modal "
-                "payments to maturity, capped at age 100.")
+                "Maximum level premium the guideline limits allow — estimated here "
+                "from the current guideline room divided by the modal payments to "
+                "maturity (capped at age 100). Solved exactly when you Run Values, "
+                "including the effect of any Face Amount / DB Option changes on "
+                "the guideline premiums.")
         elif level_capable and ptype == _TYPE_MIN_LEVEL:
             # Solved on Run Values — disabled and blank until the run fills it.
             self.amount_edit.setText("")
@@ -606,6 +656,15 @@ class InputRow(QWidget):
                 "Pays the policy's monthly deduction each month — grossed up for the "
                 "COI rate and premium load — so the account value stays where it was "
                 "just before the deduction. The mode is forced to M.")
+        elif self.is_payoff():
+            # Solved on Run Values — disabled and blank until the run fills it.
+            self.amount_edit.setText("")
+            self.amount_edit.setReadOnly(True)
+            self.amount_edit.setEnabled(False)
+            self.amount_edit.setToolTip(
+                "Level repayment at this mode that pays the loan off completely by "
+                "the end of the period — the balance is zero just before any new "
+                "loan that follows. Solved when you Run Values.")
         else:
             self.amount_edit.setEnabled(True)
             self.amount_edit.setReadOnly(False)
@@ -737,6 +796,12 @@ class InputRow(QWidget):
     def mode(self) -> str:
         return self.mode_combo.currentText() if self.mode_combo is not None else "A"
 
+    def basis(self) -> str:
+        """Withdrawal basis — "net" (default) or "gross"."""
+        if self.basis_combo is None:
+            return "net"
+        return self.basis_combo.currentText().lower()
+
     def is_filled(self) -> bool:
         if self.year() is None:
             return False
@@ -769,7 +834,9 @@ class SectionSpec:
     default_span_to_maturity: bool = False     # empty For Years/To Age -> maturity
     auto_adjust_prior_span: bool = False
     allow_max_level_premium: bool = False
+    allow_payoff: bool = False                  # "Pay-off" solve type (loan repayments)
     type_width: int = _W_TYPE                   # Type column width (wider for level types)
+    has_basis: bool = False                     # Net/Gross basis combo (withdrawals)
 
 
 class DynamicSection(QGroupBox):
@@ -799,6 +866,9 @@ class DynamicSection(QGroupBox):
         if spec.has_span:
             widths += [_W_MODE, _W_SPAN, _W_SPAN]
             labels += ["Mode", "For Years", "To Age"]
+        if spec.has_basis:
+            widths += [_W_BASIS]
+            labels += ["Net/Gross"]
         for text, width in zip(labels, widths):
             caption = QLabel(text)
             caption.setStyleSheet(_CAPTION_STYLE)
@@ -826,6 +896,13 @@ class DynamicSection(QGroupBox):
         self._footer.addWidget(self.warning)
         self._footer.addStretch(1)
         outer.addLayout(self._footer)
+        # Pack the contents to the TOP. Sections share grid rows with taller
+        # neighbors (e.g. Loans next to Premiums with its lumpsum header), and
+        # without a trailing stretch the QVBoxLayout distributes the surplus
+        # height between the caption row, the rows, and the ＋ footer — the
+        # controls spread apart. The stretch absorbs the leftover at the
+        # bottom instead, keeping the spacing tight and consistent.
+        outer.addStretch(1)
 
         self.add_row(removable=False)
 
@@ -896,6 +973,8 @@ class DynamicSection(QGroupBox):
         if first.for_years_edit is not None:
             first.for_years_edit.setText("")
             first.to_age_edit.setText("")
+        if first.basis_combo is not None:
+            first.basis_combo.setCurrentIndex(0)   # back to the Net default
         if self.spec.default_first_row:
             first.type_combo.setCurrentIndex(0)
             first.year_edit.set_value(ctx.forecast_year)
@@ -961,14 +1040,17 @@ class DynamicSection(QGroupBox):
         for row in self._rows:
             if not row.is_filled():
                 continue
-            out.append({
+            entry = {
                 "year": row.year(),
                 "end_year": row.end_year(),
                 "amount": row.amount(),
                 "value": row.chosen_value(),
                 "mode": row.mode(),
                 "type": row.premium_type(),
-            })
+            }
+            if self.spec.has_basis:
+                entry["basis"] = row.basis()       # "net" (default) | "gross"
+            out.append(entry)
         out.sort(key=lambda e: e["year"])
         return out
 
@@ -994,11 +1076,21 @@ _SEGMENT_STYLE = f"""
         font-size: 11px;
         font-weight: bold;
     }}
-    QPushButton:hover {{ background-color: #E6DAF8; }}
+    QPushButton:hover:enabled {{ background-color: #E6DAF8; }}
     QPushButton:checked {{
         background-color: #5E35A5;
         color: #FFD54F;
         border-color: #4B2383;
+    }}
+    QPushButton:disabled {{
+        background-color: #EDE7F6;
+        color: #A89BC0;
+        border-color: #C9BBE2;
+    }}
+    QPushButton:checked:disabled {{
+        background-color: #D5C9E8;
+        color: #8E82A8;
+        border-color: #C9BBE2;
     }}
 """
 
@@ -1086,7 +1178,12 @@ class RiderButtonsPanel(QGroupBox):
         for ben in benefits:
             label = ben.form_number or ben.benefit_code or f"Benefit {ben.cov_pha_nbr}"
             benefit_type = str(getattr(ben, "benefit_type_cd", "") or "")
-            premium_paying = bool(getattr(ben, "coi_rate", None)) and not benefit_type.startswith("#")
+            # Charged benefits are adjustable. Waiver-style benefits (e.g.
+            # ULDW91) carry a zero issue rate (BNF_ANN_PPU_AMT) with the real
+            # charge in the renewal-rate segment, so check both rate sources.
+            has_charge = bool(getattr(ben, "coi_rate", None)) or bool(
+                getattr(ben, "renewal_rate", None))
+            premium_paying = has_charge and not benefit_type.startswith("#")
             rows = [
                 ("Code:", ben.benefit_code), ("Type:", ben.benefit_type_cd),
                 ("Description:", ben.benefit_desc), ("Issue Date:", format_date(ben.issue_date)),
@@ -1138,12 +1235,14 @@ class RiderButtonsPanel(QGroupBox):
     def _open_dialog(self, key: str, label: str, rows: list, current_amount: float):
         ctx = self._ctx or PolicyContext()
         adj = self._adjustments[key]
-        dlg = QDialog(self)
-        dlg.setWindowTitle(label)
+        dlg = FramelessDialog(
+            label, self,
+            header_colors=ILLUSTRATION_HEADER_COLORS,
+            border_color=ILLUSTRATION_BORDER_COLOR,
+            body_color=PURPLE_BG,
+        )
         dlg.setMinimumWidth(380)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout = dlg.body_layout
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
@@ -1407,6 +1506,13 @@ class DynamicInputsPanel(QWidget):
             "Apply the requested premium to repay the policy loan first. The lumpsum "
             "then the scheduled premium repay the loan up to its payoff; only what "
             "remains is loaded onto the account value.")
+        # Conform to TAMRA lives on the Input sheet next to Apply Premium to
+        # Loan First (moved from the Illustration Control tab). On by default.
+        self.tamra_check = QCheckBox("Conform to TAMRA")
+        self.tamra_check.setChecked(True)
+        self.tamra_check.setStyleSheet(_CHECKBOX_STYLE)
+        self.tamra_check.setToolTip(
+            "Enforce the 7-pay premium room while the policy is inside the TAMRA window.")
         # Lump Sum: a one-off premium the user applies on the forecast date. It
         # runs through the premium-acceptance chain like any unscheduled premium.
         # Disabled while "Lumpsum to Next Premium" solves the bridge instead — the
@@ -1450,6 +1556,8 @@ class DynamicInputsPanel(QWidget):
         rate_row.addWidget(self.exception_prem_check)
         rate_row.addSpacing(16)
         rate_row.addWidget(self.apply_prem_to_loan_check)
+        rate_row.addSpacing(16)
+        rate_row.addWidget(self.tamra_check)
         rate_row.addStretch(1)
         outer.addLayout(rate_row)
 
@@ -1477,20 +1585,44 @@ class DynamicInputsPanel(QWidget):
         lumpsum_row.addStretch(1)
         self.premium_section.add_header_widget(lumpsum_header)
         self.loan_section = DynamicSection(SectionSpec("Loans"))
-        self.withdrawal_section = DynamicSection(SectionSpec("Withdrawals"))
-        self.repayment_section = DynamicSection(SectionSpec("Loan Repayments"))
-        # Apply excess as premium (apply_excess_repayment_as_premium): a loan
-        # repayment larger than the loan payoff applies its excess as premium —
-        # through the acceptance chain, with the premium load. Off by default:
-        # repayments stop once the loan is repaid.
-        self.excess_repay_as_premium_check = QCheckBox("Apply excess as premium")
-        self.excess_repay_as_premium_check.setStyleSheet(_CHECKBOX_STYLE)
-        self.excess_repay_as_premium_check.setToolTip(
-            "When a loan repayment exceeds the loan payoff, apply the excess as "
-            "premium — it runs through the premium-acceptance chain and gets the "
-            "premium load. Unchecked, repayments stop once the loan is repaid and "
+        self.withdrawal_section = DynamicSection(SectionSpec("Withdrawals", has_basis=True))
+        self.repayment_section = DynamicSection(SectionSpec(
+            "Loan Repayments", allow_payoff=True))
+        # Excess-repayment behavior (apply_excess_repayment_as_premium): what a
+        # repayment larger than the loan payoff does with its excess. A segmented
+        # two-state toggle (same pattern as the rider keep/change/drop buttons)
+        # at the top of the group, mirroring the Premiums lumpsum header.
+        # "Stop at payoff" is the default — the excess is discarded; "Apply
+        # excess as premium" runs it through the acceptance chain instead.
+        self.excess_stop_btn = QPushButton("Stop at payoff")
+        self.excess_stop_btn.setToolTip(
+            "A loan repayment larger than the loan payoff stops at the payoff — "
             "the excess is discarded.")
-        self.repayment_section.add_footer_widget(self.excess_repay_as_premium_check)
+        self.excess_apply_btn = QPushButton("Apply excess as premium")
+        self.excess_apply_btn.setToolTip(
+            "A loan repayment larger than the loan payoff applies its excess as "
+            "premium — it runs through the premium-acceptance chain and gets the "
+            "premium load.")
+        self._excess_repay_group = QButtonGroup(self)
+        self._excess_repay_group.setExclusive(True)
+        excess_header = QWidget()
+        excess_row = QHBoxLayout(excess_header)
+        excess_row.setContentsMargins(0, 0, 0, 8)
+        excess_row.setSpacing(0)
+        excess_caption = QLabel("Excess Repayment")
+        excess_caption.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;")
+        excess_row.addWidget(excess_caption)
+        excess_row.addSpacing(8)
+        for button in (self.excess_stop_btn, self.excess_apply_btn):
+            button.setCheckable(True)
+            button.setStyleSheet(_SEGMENT_STYLE)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._excess_repay_group.addButton(button)
+            excess_row.addWidget(button)
+        excess_row.addStretch(1)
+        self.excess_stop_btn.setChecked(True)   # current-default: stop at payoff
+        self.repayment_section.add_header_widget(excess_header)
 
         transactions = QGridLayout()
         transactions.setHorizontalSpacing(10)
@@ -1532,7 +1664,8 @@ class DynamicInputsPanel(QWidget):
         self.riders_panel = RiderButtonsPanel(self)
         outer.addWidget(self.riders_panel)
 
-        # A level type (Max/Min) on a premium row locks the other sections;
+        # A level type (Max/Min) on a premium row locks the other sections
+        # (Min to Maturity keeps Face Amount / DB Option changes open);
         # Min Level also forces the exception toggle on.
         self.premium_section.changed.connect(self._on_premium_changed)
 
@@ -1619,6 +1752,12 @@ class DynamicInputsPanel(QWidget):
     def lumpsum_to_next_enabled(self) -> bool:
         return self.lumpsum_to_next_check.isChecked()
 
+    def excess_repayment_as_premium(self) -> bool:
+        """Excess-repayment toggle state — True when the excess of a loan
+        repayment over the payoff is applied as premium (default: stop at
+        payoff, the excess is discarded)."""
+        return self.excess_apply_btn.isChecked()
+
     def _on_lumpsum_to_next_toggled(self, checked: bool):
         # Solving the bridge owns the lump sum: disable the manual field while
         # checked, and clear it on either toggle — a stale figure never rides
@@ -1667,6 +1806,31 @@ class DynamicInputsPanel(QWidget):
                 row.set_amount_display(value)
                 return
 
+    def max_level_request(self) -> Optional[dict]:
+        """``{'start_year', 'mode'}`` for the Max Level Allowed row, or None.
+
+        The row shows a closed-form estimate from the current guideline room,
+        but the authoritative amount is solved on Run Values against the real
+        projection — the cumulative guideline allowance chain, including any
+        Face Amount / DB Option change's effect on GLP/GSP mid-projection —
+        so main_window detects the row here and solves on the projectable
+        policy, then fills the display.
+        """
+        if self._ctx is None or self._ctx.is_cvat:
+            return None
+        for row in self.premium_section.rows():
+            if row.is_max_level():
+                year = row.year() or self._ctx.forecast_year
+                return {"start_year": int(year), "mode": row.mode()}
+        return None
+
+    def set_max_level_amount(self, value: Optional[float]):
+        """Fill the Max Level row's (read-only) amount field after a run."""
+        for row in self.premium_section.rows():
+            if row.is_max_level():
+                row.set_amount_display(value)
+                return
+
     def monthly_deduction_request(self) -> Optional[dict]:
         """``{'start_year'}`` for an active Monthly Deduction premium row, or None.
 
@@ -1681,11 +1845,61 @@ class DynamicInputsPanel(QWidget):
                 return {"start_year": int(year)}
         return None
 
+    def loan_payoff_requests(self) -> list[dict]:
+        """The Pay-off rows in the Loan Repayments section, ready to solve.
+
+        One dict per row, sorted by start year so main_window can solve them
+        chronologically (an earlier payoff's repayments — and any new loans
+        between windows — feed the later window's balance):
+        ``{'start_year', 'end_year', 'mode', 'dates', 'check_date'}`` where
+        ``dates`` are the expanded modal repayment dates (forecast-clamped like
+        any repayment row) and ``check_date`` is the anniversary ending the
+        window — where the solver requires the loan balance to be zero, just
+        before any new loan that month.
+        """
+        ctx = self._ctx
+        if (ctx is None or self.active_level_premium_type() is not None
+                or self.repayment_section.has_overlap()):
+            return []
+        out = []
+        for row in self.repayment_section.rows():
+            if not row.is_payoff() or row.year() is None:
+                continue
+            end_year = row.end_year() or row.year()
+            entry = {"year": row.year(), "end_year": end_year,
+                     "amount": 1.0, "mode": row.mode()}
+            dates = [t.effective_date for t in
+                     self._expand_dated([entry], TransactionKind.LOAN_REPAYMENT)]
+            if not dates:
+                continue
+            out.append({
+                "start_year": row.year(), "end_year": end_year,
+                "mode": row.mode(), "dates": dates,
+                "check_date": ctx.anniversary(end_year + 1),
+            })
+        out.sort(key=lambda request: request["start_year"])
+        return out
+
+    def set_loan_payoff_amounts(self, values: list):
+        """Fill the Pay-off rows' (disabled) amount fields after a run.
+
+        ``values`` line up with :meth:`loan_payoff_requests` — start-year order.
+        """
+        rows = [row for row in self.repayment_section.rows()
+                if row.is_payoff() and row.year() is not None]
+        rows.sort(key=lambda row: row.year())
+        for row, value in zip(rows, values):
+            row.set_amount_display(value)
+
     def _on_premium_changed(self):
-        # A level type (Max/Min) locks every non-premium input; prior premium
-        # rows stay editable. The exception toggle is refreshed too.
-        level = self.active_level_premium_type()
-        self._set_other_sections_locked(level is not None)
+        # A level type (Max/Min) locks the non-premium inputs; prior premium
+        # rows stay editable. Both level types keep the Face Amount and DB
+        # Option changes open — clients want to see how a face reduction or
+        # DBO switch moves the solved minimum premium, and those same changes
+        # move the guideline premiums that bound the solved maximum — while
+        # withdrawals, loans and repayments stay locked. The exception toggle
+        # is refreshed too.
+        self._set_other_sections_locked(bool(self._selected_level_types()))
         # A Lumpsum to Next Premium bridge can layer on top of a level premium
         # type, so the checkbox stays available regardless of the premium type.
         self._refresh_exception_checkbox()
@@ -1711,12 +1925,19 @@ class DynamicInputsPanel(QWidget):
         else:
             self.exception_prem_check.setEnabled(True)
 
+    def _selected_level_types(self) -> set[str]:
+        """The level premium types selected across the premium rows."""
+        return {row.premium_type() for row in self.premium_section.rows()
+                if row.premium_type() in _LEVEL_TYPES}
+
     def _set_other_sections_locked(self, locked: bool):
-        # Everything except the premium rows and the illustrated rate.
+        # Everything except the premium rows and the illustrated rate. The
+        # Face Amount and DB Option change sections stay editable under BOTH
+        # level types so the solves can reflect them (they alter the guideline
+        # premiums that bound Max Level and the funding need behind Min Level).
         for section in (
             self.loan_section, self.withdrawal_section, self.repayment_section,
-            self.face_section, self.dbo_section, self.rateclass_section,
-            self.table_section, self.riders_panel,
+            self.rateclass_section, self.table_section, self.riders_panel,
         ):
             section.setEnabled(not locked)
 
@@ -1742,6 +1963,9 @@ class DynamicInputsPanel(QWidget):
         for entry in entries:
             if not entry["amount"]:
                 continue
+            # Withdrawal rows carry a Net/Gross basis; it rides along on the
+            # transaction subtype ("net" | "gross", "" for kinds without one).
+            subtype = entry.get("basis") or ""
             interval = _MODE_INTERVALS.get(entry["mode"], 12)
             for year in range(entry["year"], (entry["end_year"] or entry["year"]) + 1):
                 anniversary = ctx.anniversary(year)
@@ -1756,7 +1980,8 @@ class DynamicInputsPanel(QWidget):
                         when = when + relativedelta(months=interval)
                         continue
                     out.append(DatedTransaction(
-                        kind=kind, effective_date=when, amount=float(entry["amount"])))
+                        kind=kind, effective_date=when, amount=float(entry["amount"]),
+                        subtype=subtype))
                     when = when + relativedelta(months=interval)
         return out
 
@@ -1808,14 +2033,16 @@ class DynamicInputsPanel(QWidget):
         ctx = self._ctx
         level_active = self.active_level_premium_type() is not None
         md_active = self.monthly_deduction_request() is not None
-        # Min Level rows carry no amount until the run solves them, and Monthly
-        # Deduction rows are solved in-engine — exclude both here. main_window
-        # solves Min Level separately; the engine pays Monthly Deduction from a
-        # run option.
+        # Level rows (Max/Min) are solved on Run Values — the Max Level row's
+        # displayed amount is only a closed-form estimate — and Monthly
+        # Deduction rows are solved in-engine, so all three are excluded here.
+        # main_window solves the level premiums separately and layers them in;
+        # the engine pays Monthly Deduction from a run option.
         prem_entries = [
             e for e in self.premium_section.entries()
             if e["amount"] is not None
-            and e.get("type") not in (_TYPE_MIN_LEVEL, _TYPE_MONTHLY_DEDUCTION)
+            and e.get("type") not in (
+                _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL, _TYPE_MONTHLY_DEDUCTION)
         ]
         dated_prem, sched_prem = self._split_current_year(prem_entries)
         if prem_entries or md_active:
@@ -1841,9 +2068,15 @@ class DynamicInputsPanel(QWidget):
                 kind=TransactionKind.PREMIUM, effective_date=ctx.forecast_date,
                 amount=float(lumpsum), subtype="manual_lumpsum"))
 
-        # A level premium type (Max/Min Level to Maturity) locks every other
-        # input — honor only the premium rows above.
+        # A level premium type (Max/Min Level) locks the other transaction
+        # inputs — honor only the premium rows above. Both level types still
+        # honor the Face Amount / DB Option change sections (they stay enabled
+        # so the solved premium reflects the entered policy changes — a face or
+        # DBO change moves the guideline premiums that bound Max Level and the
+        # funding need behind Min Level); the solvers carry the input set's
+        # policy_changes into every projection they run.
         if level_active:
+            self._collect_face_dbo_changes(input_set)
             return
 
         loan_entries = [e for e in self.loan_section.entries() if e["amount"] is not None]
@@ -1854,21 +2087,14 @@ class DynamicInputsPanel(QWidget):
             self._scheduled(sched_loan, TransactionKind.LOAN, metadata={"loan_type": "fixed"}))
         input_set.dated_transactions.extend(
             self._expand_dated(self.withdrawal_section.entries(), TransactionKind.WITHDRAWAL))
+        # Pay-off rows are solved on Run Values and layered in by main_window —
+        # exclude them here even after a run has filled their display amount.
+        repay_entries = [e for e in self.repayment_section.entries()
+                         if e.get("type") != _TYPE_PAYOFF]
         input_set.dated_transactions.extend(
-            self._expand_dated(self.repayment_section.entries(), TransactionKind.LOAN_REPAYMENT))
+            self._expand_dated(repay_entries, TransactionKind.LOAN_REPAYMENT))
 
-        for entry in self.face_section.entries():
-            when = ctx.effective_date(entry["year"])
-            if when is not None and entry["amount"]:
-                input_set.policy_changes.append(PolicyChangeEvent(
-                    kind=PolicyChangeKind.FACE_AMOUNT, effective_date=when,
-                    value=float(entry["amount"])))
-        for entry in self.dbo_section.entries():
-            when = ctx.effective_date(entry["year"])
-            if when is not None and entry["value"]:
-                input_set.policy_changes.append(PolicyChangeEvent(
-                    kind=PolicyChangeKind.DB_OPTION, effective_date=when,
-                    value=entry["value"]))
+        self._collect_face_dbo_changes(input_set)
         for entry in self.rateclass_section.entries():
             when = ctx.effective_date(entry["year"])
             if when is not None and entry["value"]:
@@ -1882,3 +2108,22 @@ class DynamicInputsPanel(QWidget):
                     kind=PolicyChangeKind.SUBSTANDARD, effective_date=when,
                     value=int(entry["value"])))
         input_set.policy_changes.extend(self.riders_panel.collect_changes(ctx))
+
+    def _collect_face_dbo_changes(self, input_set: IllustrationInputSet):
+        """Face Amount / DB Option change rows -> policy-change events.
+
+        Shared by the normal export and the level-premium paths (both Max
+        Level Allowed and Min to Maturity keep these two sections editable)."""
+        ctx = self._ctx
+        for entry in self.face_section.entries():
+            when = ctx.effective_date(entry["year"])
+            if when is not None and entry["amount"]:
+                input_set.policy_changes.append(PolicyChangeEvent(
+                    kind=PolicyChangeKind.FACE_AMOUNT, effective_date=when,
+                    value=float(entry["amount"])))
+        for entry in self.dbo_section.entries():
+            when = ctx.effective_date(entry["year"])
+            if when is not None and entry["value"]:
+                input_set.policy_changes.append(PolicyChangeEvent(
+                    kind=PolicyChangeKind.DB_OPTION, effective_date=when,
+                    value=entry["value"]))

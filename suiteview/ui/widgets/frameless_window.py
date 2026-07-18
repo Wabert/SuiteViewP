@@ -18,7 +18,7 @@ from PyQt6.QtCore import Qt, QPoint, QRect
 from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QSizeGrip, QApplication,
+    QFrame, QSizeGrip, QApplication, QDialog,
 )
 
 logger = logging.getLogger(__name__)
@@ -604,5 +604,116 @@ class _SnapPreview(QWidget):
         # Subtle border
         painter.setPen(QPen(QColor(212, 160, 23, 140), 2))
         painter.drawRect(self.rect().adjusted(1, 1, -2, -2))
+        painter.end()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Frameless dialog — themed modal popup
+# ═══════════════════════════════════════════════════════════════════════════
+
+class FramelessDialog(QDialog):
+    """Modal dialog wearing the SuiteView custom frame: gradient header with
+    title and close button, painted border, drag-to-move on the header.
+
+    A lightweight sibling of :class:`FramelessWindowBase` for popups — no
+    resize grips, snap, or min/max. Callers add content to ``body_layout``
+    (a QVBoxLayout inside the bordered frame) and theme via the same
+    *header_colors* / *border_color* pair their main window uses.
+    """
+
+    def __init__(self, title: str, parent=None,
+                 header_colors=None, border_color: str = "#D4A017",
+                 body_color: str = "#FFFFFF"):
+        super().__init__(parent, Qt.WindowType.Dialog
+                         | Qt.WindowType.FramelessWindowHint)
+        self._header_colors = header_colors or (
+            "#1E5BA8", "#0D3A7A", "#082B5C"  # default SuiteView blue
+        )
+        self._border_color = border_color
+        self._drag_pos: Optional[QPoint] = None
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(2, 2, 2, 2)
+        root.setSpacing(0)
+        root.addWidget(self._build_header_bar(title))
+
+        body = QWidget()
+        body.setObjectName("framelessDialogBody")
+        body.setStyleSheet(
+            f"#framelessDialogBody {{ background-color: {body_color}; }}")
+        self.body_layout = QVBoxLayout(body)
+        self.body_layout.setContentsMargins(12, 12, 12, 12)
+        self.body_layout.setSpacing(8)
+        root.addWidget(body, 1)
+
+    def _build_header_bar(self, title: str) -> QFrame:
+        bar = QFrame()
+        bar.setFixedHeight(30)
+        c1, c2, c3 = self._header_colors
+        bar.setStyleSheet(f"""
+            QFrame {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 {c1}, stop:0.5 {c2}, stop:1 {c3});
+                border: none;
+            }}
+        """)
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(12, 2, 4, 2)
+        layout.setSpacing(8)
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet(
+            "QLabel { color: #FFFFFF; font-size: 13px; font-weight: bold;"
+            " font-style: italic; background: transparent; }")
+        layout.addWidget(title_label)
+        layout.addStretch()
+
+        close_btn = QPushButton("✕")
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none;
+                min-width: 32px; max-width: 32px;
+                min-height: 24px; max-height: 24px;
+                font-size: 13px; font-weight: bold;
+                color: {self._border_color};
+            }}
+            QPushButton:hover {{
+                background-color: #E81123;
+                color: {self._border_color};
+            }}
+        """)
+        close_btn.setToolTip("Close")
+        close_btn.clicked.connect(self.reject)
+        layout.addWidget(close_btn)
+
+        self._header_bar = bar
+        return bar
+
+    # Drag-to-move on the header bar
+    def mousePressEvent(self, event):
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self._header_bar.geometry().contains(event.position().toPoint())):
+            self._drag_pos = (event.globalPosition().toPoint()
+                              - self.frameGeometry().topLeft())
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setPen(QPen(QColor(self._border_color), 2))
+        painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
         painter.end()
 

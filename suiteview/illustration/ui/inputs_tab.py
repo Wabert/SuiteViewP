@@ -41,10 +41,27 @@ from suiteview.illustration.models.input_set import (
     TransactionKind,
 )
 from suiteview.audit.tabs._styles import _CHECKMARK_PATH, _ensure_checkmark
+from suiteview.illustration.models.index_strategies import ag49_regimes, is_iul_plan
 from suiteview.polview.ui.formatting import format_date
 
 from .inputs_dynamic import DynamicInputsPanel
 from .styles import GROUP_STYLE, INPUT_TABLE_STYLE, PURPLE_BG, PURPLE_DARK
+
+
+# What each AG49 regime means for the illustration, keyed by regime index
+# (the regime names/dates themselves come from index_strategies.json).
+AG49_REGIME_NOTES = {
+    1: "Issued before AG49 — the illustration still applies the original "
+       "AG49 rules (the regime floor).",
+    2: "Illustrated index rates capped at the benchmark index account's "
+       "maximum; IP/IR multiplier crediting and asset charge apply; "
+       "variable-loan credit spread up to 1.00%.",
+    3: "Multipliers and bonuses may not illustrate better than the fixed "
+       "account — IP/IR multiplier crediting and asset charge drop out; "
+       "variable-loan credit spread capped at 0.50%.",
+    4: "Extends the AG49-A caps to strategies benchmarked on the fixed "
+       "account; variable-loan credit spread remains capped at 0.50%.",
+}
 
 
 def _ordinal(day: int) -> str:
@@ -322,6 +339,7 @@ class IllustrationInputsTab(QWidget):
         self.banner_policy_year_label = _pair("Policy Year")
         self.banner_face_label = _pair("Face Amount")
         self.banner_rateclass_label = _pair("Rateclass")
+        self.banner_db_option_label = _pair("DB Option")
         row.addStretch(1)
         return banner
 
@@ -386,13 +404,8 @@ class IllustrationInputsTab(QWidget):
         self.tefra_check.setToolTip("Enforce 7702 guideline premium room for force-outs and accepted premiums.")
         layout.addWidget(self.tefra_check)
 
-        self.tamra_check = self._make_control_checkbox("Conform to TAMRA")
-        self.tamra_check.setChecked(True)
-        self.tamra_check.setToolTip("Enforce the 7-pay premium room while the policy is inside the TAMRA window.")
-        layout.addWidget(self.tamra_check)
-
-        # Allow GP Exception Premium moved to the Input sheet (dynamic_panel);
-        # read it from there in export_options().
+        # Conform to TAMRA and Allow GP Exception Premium moved to the Input
+        # sheet (dynamic_panel); read them from there in export_options().
 
         self.cap_acceptance_check = self._make_control_checkbox("Cap Premiums at Acceptance")
         self.cap_acceptance_check.setChecked(True)
@@ -430,12 +443,21 @@ class IllustrationInputsTab(QWidget):
         return tab
 
     def _build_iul_crediting_group(self):
-        """IUL-only controls — ignored on declared-rate plans."""
+        """IUL-only controls — greyed out on declared-rate plans."""
         group = QGroupBox("IUL Crediting")
-        group.setStyleSheet(GROUP_STYLE)
+        group.setStyleSheet(GROUP_STYLE + (
+            "QGroupBox:disabled { border: 2px solid #C9B8E4; background-color: #F2EEF8; }"
+            "QGroupBox::title:disabled { color: #F2EEF8; background-color: #9B8BBE; border: 1px solid #C9B8E4; }"
+        ))
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 18, 10, 10)
         layout.setSpacing(6)
+
+        self.iul_na_note = QLabel("Not applicable — declared-rate plan (no index strategies).")
+        self.iul_na_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.iul_na_note.setStyleSheet(
+            "color: #8A7BA8; background: transparent; font-size: 10px; font-style: italic;")
+        layout.addWidget(self.iul_na_note)
 
         self.iul_rate_method_group = QButtonGroup(self)
         self.iul_rate_method_group.setExclusive(True)
@@ -461,8 +483,80 @@ class IllustrationInputsTab(QWidget):
             "the variable-loan credit spread.")
         self.policy_ag49_check.toggled.connect(
             self.dynamic_panel.set_use_policy_ag49_regime)
+        self.policy_ag49_check.toggled.connect(self._update_ag49_regime_panel)
         layout.addWidget(self.policy_ag49_check)
+        layout.addWidget(self._build_ag49_regime_panel())
+        self._update_ag49_regime_panel()
+        self.iul_crediting_group = group
+        # Greyed until an IUL policy loads — declared-rate plans don't credit
+        # an indexed rate.
+        self._set_iul_crediting_applicable(False)
         return group
+
+    def _set_iul_crediting_applicable(self, applicable: bool):
+        """Grey the IUL Crediting group on non-IUL plans (greyed, never hidden)."""
+        self.iul_crediting_group.setEnabled(applicable)
+        self.iul_na_note.setVisible(not applicable)
+
+    def _build_ag49_regime_panel(self):
+        """Read-only regime rows under 'Use Policy AG49 Regime' — one per AG49
+        regime with its effective date and what it means for the illustration.
+        The row matching the policy issue date is auto-selected; the panel is
+        greyed while the checkbox is off."""
+        panel = QWidget(self)
+        panel.setStyleSheet("background: transparent;")
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(22, 2, 0, 0)
+        panel_layout.setSpacing(1)
+
+        self._ag49_regime_radios: dict[int, QRadioButton] = {}
+        regimes = ag49_regimes()
+        for pos, regime in enumerate(regimes):
+            if regime["index"] == 1:
+                next_start = regimes[pos + 1]["start"] if pos + 1 < len(regimes) else None
+                title = "(none)"
+                if next_start is not None:
+                    title += f" — issued before {format_date(next_start)}"
+            else:
+                title = f"{regime['name']} — effective {format_date(regime['start'])}"
+            radio = self._make_control_radio(title)
+            # Display-only: the selection is derived from the policy issue
+            # date, never clicked by the user.
+            radio.setAutoExclusive(False)
+            radio.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            radio.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            note = QLabel(AG49_REGIME_NOTES.get(regime["index"], ""))
+            note.setWordWrap(True)
+            note.setStyleSheet(
+                f"QLabel {{ color: {PURPLE_DARK}; background: transparent;"
+                " font-size: 10px; font-style: italic; margin-left: 18px; }"
+                "QLabel:disabled { color: #9A8FB0; }"
+            )
+            panel_layout.addWidget(radio)
+            panel_layout.addWidget(note)
+            self._ag49_regime_radios[regime["index"]] = radio
+
+        self._ag49_regime_panel = panel
+        return panel
+
+    def _ag49_issue_tier(self) -> Optional[int]:
+        """The AG49 regime in effect on the policy issue date — unfloored, so a
+        pre-AG49 issue resolves to the '(none)' row (the engine still floors
+        its applicable index at AG49)."""
+        if self._issue_date is None:
+            return None
+        tier = None
+        for regime in ag49_regimes():
+            if self._issue_date >= regime["start"]:
+                tier = regime["index"]
+        return tier
+
+    def _update_ag49_regime_panel(self):
+        use_policy = self.policy_ag49_check.isChecked()
+        self._ag49_regime_panel.setEnabled(use_policy)
+        tier = self._ag49_issue_tier() if use_policy else None
+        for index, radio in self._ag49_regime_radios.items():
+            radio.setChecked(index == tier)
 
     def _build_illustration_duration_group(self):
         group = QGroupBox("Illustration Duration")
@@ -525,6 +619,12 @@ class IllustrationInputsTab(QWidget):
             "  background-color: #5E35A5; border: 1px solid #4B2383;"
             f"  image: url({icon_path});"
             "}"
+            "QCheckBox:disabled { color: #9A8FB0; }"
+            "QCheckBox::indicator:disabled { border: 1px solid #C9B8E4; background-color: #EEE7F9; }"
+            "QCheckBox::indicator:checked:disabled {"
+            "  background-color: #B7A6D6; border: 1px solid #C9B8E4;"
+            f"  image: url({icon_path});"
+            "}"
         )
         return checkbox
 
@@ -535,6 +635,9 @@ class IllustrationInputsTab(QWidget):
             "QRadioButton::indicator { border: 1px solid #5E35A5; border-radius: 6px; width: 12px; height: 12px; background-color: white; }"
             "QRadioButton::indicator:hover { border: 1px solid #4B2383; background-color: #FBF9FE; }"
             "QRadioButton::indicator:checked { background-color: #5E35A5; border: 1px solid #4B2383; }"
+            "QRadioButton:disabled { color: #9A8FB0; }"
+            "QRadioButton::indicator:disabled { border: 1px solid #C9B8E4; background-color: #EEE7F9; }"
+            "QRadioButton::indicator:checked:disabled { background-color: #B7A6D6; border: 1px solid #C9B8E4; }"
         )
         return radio
 
@@ -795,6 +898,9 @@ class IllustrationInputsTab(QWidget):
             label.setText(self._warning_text(base_text))
 
         self._update_valuation_banner(policy)
+        plancode = str(getattr(policy, "base_plancode", "") or getattr(policy, "plancode", "") or "")
+        self._set_iul_crediting_applicable(is_iul_plan(plancode))
+        self._update_ag49_regime_panel()
         self.dynamic_panel.load_from_policy(policy, has_shadow=has_shadow)
 
     def _update_valuation_banner(self, policy):
@@ -823,6 +929,13 @@ class IllustrationInputsTab(QWidget):
         rateclass = (getattr(policy, "base_rate_class", None)
                      or getattr(policy, "rate_class", None))
         self.banner_rateclass_label.setText(str(rateclass) if rateclass else "—")
+        # DTH_BNF_PLN_OPT_CD "1"/"2"/"3" -> Option A/B/C
+        db_code = str(getattr(policy, "db_option_code", "") or
+                      getattr(policy, "db_option", "") or "").strip().upper()
+        db_display = {"1": "A - Level", "A": "A - Level",
+                      "2": "B - Increasing", "B": "B - Increasing",
+                      "3": "C - ROP", "C": "C - ROP"}.get(db_code)
+        self.banner_db_option_label.setText(db_display or (db_code or "—"))
 
     def export_input_set(self) -> IllustrationInputSet:
         input_set = IllustrationInputSet()
@@ -905,7 +1018,7 @@ class IllustrationInputsTab(QWidget):
         md_request = self.dynamic_panel.monthly_deduction_request()
         return IllustrationOptions(
             conform_to_tefra=self.tefra_check.isChecked(),
-            conform_to_tamra=self.tamra_check.isChecked(),
+            conform_to_tamra=self.dynamic_panel.tamra_check.isChecked(),
             allow_exception_prems=self.dynamic_panel.exception_prem_check.isChecked(),
             exact_days_interest=self.exact_days_check.isChecked(),
             cap_premiums_at_acceptance=self.cap_acceptance_check.isChecked(),
@@ -913,7 +1026,7 @@ class IllustrationInputsTab(QWidget):
             guideline_by_search=self.gp_search_check.isChecked(),
             apply_prem_to_loan=self.dynamic_panel.apply_prem_to_loan_check.isChecked(),
             apply_excess_repayment_as_premium=(
-                self.dynamic_panel.excess_repay_as_premium_check.isChecked()),
+                self.dynamic_panel.excess_repayment_as_premium()),
             pay_monthly_deduction=md_request is not None,
             monthly_deduction_start_year=(
                 md_request["start_year"] if md_request else None),
@@ -923,6 +1036,12 @@ class IllustrationInputsTab(QWidget):
 
     def min_level_request(self) -> Optional[dict]:
         return self.dynamic_panel.min_level_request()
+
+    def max_level_request(self) -> Optional[dict]:
+        return self.dynamic_panel.max_level_request()
+
+    def set_max_level_amount(self, value: Optional[float]):
+        self.dynamic_panel.set_max_level_amount(value)
 
     def lumpsum_to_next_enabled(self) -> bool:
         return self.dynamic_panel.lumpsum_to_next_enabled()
@@ -935,6 +1054,12 @@ class IllustrationInputsTab(QWidget):
 
     def set_min_level_amount(self, value: Optional[float]):
         self.dynamic_panel.set_min_level_amount(value)
+
+    def loan_payoff_requests(self) -> list:
+        return self.dynamic_panel.loan_payoff_requests()
+
+    def set_loan_payoff_amounts(self, values: list):
+        self.dynamic_panel.set_loan_payoff_amounts(values)
 
     def stop_on_lapse_enabled(self) -> bool:
         return self.stop_on_lapse_check.isChecked()
