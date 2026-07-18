@@ -60,7 +60,7 @@ _PIPELINE_ORDER = [
     "end_vbl_loan_princ", "end_vbl_loan_accrued",
     "policy_debt",
     # END OF MONTH
-    "scr_rate", "surrender_charge", "surrender_value", "ending_db",
+    "scr_rate", "surrender_charge", "surrender_value", "ending_sv", "ending_db",
     # SHADOW ACCOUNT (CCV)
     "shadow_bav", "shadow_wd_charges", "shadow_sa",
     "shadow_target_prem", "shadow_prem_under_target", "shadow_prem_over_target",
@@ -135,7 +135,7 @@ _CURRENCY_FIELDS = {
     "md_check_calculated_deduction", "md_check_deduction_variance",
     "md_check_calculated_av_after_deduction", "md_check_av_variance",
     "reg_impaired_int", "pref_impaired_int", "interest_credited",
-    "av_end_of_month", "surrender_charge", "surrender_value",
+    "av_end_of_month", "surrender_charge", "surrender_value", "ending_sv",
     "ending_db", "premiums_ytd", "premiums_to_date", "withdrawals_to_date", "cost_basis",
     "cumulative_interest", "cumulative_charges",
     "rg_loan_princ", "rg_loan_accrued",

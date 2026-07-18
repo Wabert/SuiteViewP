@@ -94,6 +94,20 @@ The minipc built/tested the logic cores; these need the app and/or live data:
 These are committed behavior changes that compiled clean but were never run
 against live data. Test each before relying on them.
 
+### 1.15 Illustration — Max Level Allowed is now an engine solve (2026-07-17, minipc)
+"Max Level Allowed" no longer schedules the Input tab's closed-form estimate;
+Run Values solves the largest level premium the guideline acceptance chain
+never caps (`core/solve_max_level_allowed.py`, bisection like Min to Maturity)
+so illustrated **Face Amount / DB Option changes** move the answer through the
+GLP/GSP recalc. Face/DBO sections are now unlocked under Max Level (same as
+Min to Maturity). Verified offline on local data (U0356726: no change
+249.29/mo vs closed-form est 242.93; face→25k @yr31 → 124.82; DBO B→A @yr31 →
+87.34). RERUN has no Max Level equivalent (only the manual BisectionSearch
+macro), so there is no saved-case comparison.
+- **Live check:** pick a live GPT UL policy, select Max Level Allowed + a face
+  decrease, Run Values, and confirm the projection never shows Premium Capped
+  and the final-year AccumGLP/GSP is (nearly) exhausted.
+
 ### 1.14 Illustration — IUL input UI: illustrated rates, sweep min (2026-07-08, minipc)
 IUL groundwork UI finished on the minipc; three items need live IUL data:
 - **Sweep Account Minimum DB2 source** — NOT in the extracted VBA (searched
@@ -643,7 +657,52 @@ proceed with the cleanup below:**
 
 ---
 
+## §5 — Local rate-export gaps found by the offline RERUN pipeline (2026-07-16)
+
+The offline RERUN tooling (`tools/rerun_load_local_rates.py` +
+`tools/rerun_build_case_inputs.py`) surfaced three gaps that need a laptop
+export session (`tools/export_local_rate_data.py` on the UL_Rates DSN):
+
+1. **`Select_RATE_SHDINT` missing from `bundled_data/dev/rates.sqlite`** — the
+   Span_ShadowINT block cannot be loaded offline. Only matters for plancodes
+   with `ShadowIntRateCode = "Table"`: 1U145700, 1U146000, 1U146100,
+   1U146200, 1U146300. (1U146600/UE050703 uses a flat 0.045 — unaffected;
+   verified clean offline 2026-07-16.) Add SHDINT to the export script if a
+   test policy on those five plancodes is ever needed.
+2. **Plancode `1U144600` (IUL08) has no rates in the local export** — all five
+   DEV1000x offline IUL test policies use it. Export its COI/SCR/EPU/targets.
+3. ~~RERUN `tBenefitDefinitionFile` has no 1U plancodes~~ — **RETRACTED
+   2026-07-16 (later)**: a proper scan found 492 `1U*` keys; benefit
+   definitions ARE fully hard-coded in the workbook. The case-7 #N/A was a
+   builder bug (blank benefit code), fixed the same day. `skip_benefits`
+   remains available but is not normally needed.
+4. **Benefit-TARGET-index rates (`tRates_Benefit_Targets`) not mirrored
+   locally (2026-07-17)** — RERUN looks the PW target rate up by the
+   Rates_Control TARGET index (key `sRates_PW_TargetIndex`&Sex&"0"&"0"&IssueAge,
+   e.g. `300M00024` → 0.044 for 1U135100) while the app's
+   `Rates.get_ben_mtp` keys `Select_RATE_BENMTP` by benefit code `39`/sex/
+   rateclass/band (→ 0.042). The 2-bp PW-rate difference makes the recomputed
+   vMTP after a policy change land ~0.8/yr low (36.04 vs 35.97 monthly on
+   U0356726-DBO), which ripples pennies into the PW charge inside the
+   guideline recalc (GLP/GSP/7-pay ~0.12–0.68 off after the change; before-
+   change solves are exact). Laptop: export the target-index keyed rows
+   (Select_RATE_BENTRG or equivalent) and point the PW/PWST target lookups at
+   them. Repro: `tools/repro_pw_target_rate_gap.py` — patching the PW rate to
+   0.044 makes the recalc'd 7-pay exact and GSP/GLP land within one
+   monthly-cent floor step of RERUN.
+
+---
+
 ## Changelog
+- **2026-07-17 (minipc)** — Guideline expense-basis fix (7702 rule: guaranteed
+  COI + statutory interest + CURRENT expenses): `build_guideline_basis` now
+  includes rider charge streams (CTR/spouse term, current COI — the same
+  `rates.rider_rates` the deduction uses), excludes ADB (non-QAB), and gates
+  base COI at PremiumCeaseAge / fee at MaturityAge (RERUN Guideline_Premiums
+  COIR/Fee). `compute_target_premiums` gained rider targets (CTR hardcoded
+  7.80/unit/yr per Rates_Control, term riders from their own plancode's
+  MTP/CTP tables). U0356726-DBO before-change GLP/GSP now match RERUN to 12
+  decimals; after-change within cents (residual = §5.4 PW target-index rate).
 - **2026-06-22 (minipc, later)** — File Sources Phases 2a/2b/2c/3 built +
   screenshot-verified in-app on the minipc (§3c updated): the File Source editor
   (drag-drop member files), Manual SQL + Visual builder over a File Source via

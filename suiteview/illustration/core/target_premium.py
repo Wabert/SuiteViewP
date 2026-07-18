@@ -52,7 +52,20 @@ from decimal import ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Dict, Optional
 
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import IllustrationPolicyData
+from suiteview.illustration.models.policy_data import (
+    IllustrationPolicyData,
+    rider_active_on,
+)
+
+# Child Term Rider target — RERUN Rates_Control hardcodes 7.80/unit/yr
+# (HA12/HB12); no MTP/CTP table rows exist for CTR plancodes in UL_Rates.
+CTR_TARGET_RATE = 7.80
+# "Uses CTR with MTP=0" (Rates_Control GZ19:GZ34): base plancodes whose CTR
+# contributes no MTP (the CTP side stays 7.80).
+CTR_MTP_ZERO_PLANCODES = frozenset({
+    "1U145700", "1U146600", "1U147200", "1U147600", "1U146000",
+    "1U146700", "1U147300", "1U147900", "1U148000", "1U148100",
+})
 
 
 def _round2(value: float) -> float:
@@ -104,6 +117,10 @@ class TargetPremiumResult:
     ctp_by_coverage: Dict[int, float] = field(default_factory=dict)
     mtp_benefits: Dict[str, float] = field(default_factory=dict)
     ctp_benefits: Dict[str, float] = field(default_factory=dict)
+    # Rider targets keyed by RiderInfo.export_key (CTR hardcoded 7.80/unit/yr;
+    # spouse/other term riders from their own plancode's MTP/CTP tables).
+    mtp_riders: Dict[str, float] = field(default_factory=dict)
+    ctp_riders: Dict[str, float] = field(default_factory=dict)
     pw_component: float = 0.0   # IV — full precision, MTP basis
     target_band: int = 0
 
@@ -349,9 +366,41 @@ def compute_target_premiums(
         result.mtp_benefits[ben_key] = mtp_val
         result.ctp_benefits[ben_key] = ctp_val
 
-    # Riders: RERUN's rider target tables (tRates_Rider_SigTerm_Targets) are
-    # dead references for this product family — UL riders contribute no target
-    # premium. Revisit if a product with rider target rates appears.
+    # ── Rider targets (verified vs RERUN on U0356726 DBO recalc) ──
+    # * CTR (child term): RERUN Rates_Control hardcodes 7.80/unit/yr — "the
+    #   CTR rate structure is very simple and does not need to be queried from
+    #   the database" (mdl_GetRates). The MTP side is zeroed for a small
+    #   legacy plancode list ("Uses CTR with MTP=0", GZ19:GZ34); CTP is
+    #   always 7.80.
+    # * Other term riders (spouse STR etc.): annual rate/unit from the MTP/CTP
+    #   tables keyed by the RIDER's plancode/issue-age/sex/class (band from
+    #   the rider's own BANDSPECS, same convention as its COI load).
+    mtp_rider_sum = 0.0
+    ctp_rider_sum = 0.0
+    for rider in policy.riders:
+        if not rider.is_active or not rider.plancode:
+            continue
+        if not rider_active_on(rider, policy, as_of):
+            continue
+        units = rider.units or 0.0
+        if (rider.cov_type or "").upper() == "CTR":
+            mtp_rate_r = 0.0 if policy.plancode in CTR_MTP_ZERO_PLANCODES else CTR_TARGET_RATE
+            ctp_rate_r = CTR_TARGET_RATE
+        else:
+            r_band = rates_db.get_band(rider.plancode, rider.face_amount)
+            r_band = int(r_band) if r_band is not None else rider.band
+            r_args = (rider.plancode, rider.issue_age, rider.rate_sex,
+                      rider.rate_class, r_band)
+            mtp_rate_r = rates_db.get_mtp(*r_args) or 0.0
+            ctp_rate_r = rates_db.get_ctp(*r_args) or 0.0
+        mtp_val = units * mtp_rate_r
+        ctp_val = units * ctp_rate_r
+        if not mtp_val and not ctp_val:
+            continue
+        result.mtp_riders[rider.export_key] = mtp_val
+        result.ctp_riders[rider.export_key] = ctp_val
+        mtp_rider_sum += mtp_val
+        ctp_rider_sum += ctp_val
 
     base_table = (
         base.table_rating
@@ -403,8 +452,8 @@ def compute_target_premiums(
         pwst_component = pwst_units * pwst_rate * (1.0 + factor * base_table)
         pwst_ctp_component = pwst_units * pwst_ctp_rate * (1.0 + factor * base_table)
 
-    # IT — MTP w/o PW (includes CCV and the PWoT target).
-    mtp_wo_pw = mtp_cov_sum + mtp_ben_generic + mtp_ben_ccv + pwst_component
+    # IT — MTP w/o PW (includes CCV, riders and the PWoT target).
+    mtp_wo_pw = mtp_cov_sum + mtp_ben_generic + mtp_ben_ccv + mtp_rider_sum + pwst_component
 
     if not config.is_ffl and pw_rate > 0.0:
         # IV — PW (PWoC): pwRate x (MTP w/o PW) x (1 + factor x table).
@@ -414,7 +463,7 @@ def compute_target_premiums(
     if config.is_ffl and pwst_active:
         # KE — FFL PWoT CTP = JC x vMTP (the full annual MTP, not JA).
         pwst_ctp_component = result.ffl_pwot_factor * result.mtp_annual
-    ctp_wo_pw = ctp_cov_sum + ctp_ben_generic + ctp_ben_ccv + pwst_ctp_component
+    ctp_wo_pw = ctp_cov_sum + ctp_ben_generic + ctp_ben_ccv + ctp_rider_sum + pwst_ctp_component
 
     if pw_rate > 0.0:
         result.mtp_benefits["39"] = pw_component
@@ -481,6 +530,8 @@ def build_target_detail_snapshots(
     ]
     mtp["Other Benefits MTP"] = sum(result.mtp_benefits[k] for k in other_keys)
     ctp["Other Benefits CTP"] = sum(result.ctp_benefits.get(k, 0.0) for k in other_keys)
+    mtp["Riders MTP"] = sum(result.mtp_riders.values())   # IG..II analog (CTR/STR)
+    ctp["Riders CTP"] = sum(result.ctp_riders.values())
 
     mtp["PWSTP MTPR"] = result.pwst_rate          # IJ
     mtp["PWSTP MTP"] = result.pwst_component      # IK

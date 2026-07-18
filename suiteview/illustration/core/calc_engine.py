@@ -263,6 +263,8 @@ class IllustrationEngine:
         )
         lapse_check_debt_0 = loan0.policy_debt
         surrender_value_0 = policy.account_value - surrender_charge_0 - lapse_check_debt_0
+        # Ending SV (vESV): end-of-month AV less surrender charge and debt.
+        ending_sv_0 = intr0.av_end_of_month - surrender_charge_0 - loan0.policy_debt
         positive_sv_0 = config.lapse_value == "SV" and surrender_value_0 > 0
         av_less_loans_0 = policy.account_value - lapse_check_debt_0
 
@@ -442,6 +444,7 @@ class IllustrationEngine:
             surrender_charge=surrender_charge_0,
             surrender_charges_by_coverage=surrender_charges_by_coverage_0,
             surrender_value=surrender_value_0,
+            ending_sv=ending_sv_0,
         )
 
         if timing == ProjectionTiming.CYBERLIFE_MONTHLIVERSARY:
@@ -449,6 +452,9 @@ class IllustrationEngine:
                 inforce,
                 av_after_deduction=policy.account_value,
                 av_end_of_month=policy.account_value,
+                # EOM AV collapses to the inforce AV, so ending SV matches the
+                # lapse-check SV (same AV, same charge, same debt).
+                ending_sv=surrender_value_0,
                 unimpaired_int=0.0,
                 interest_credited=0.0,
                 cumulative_interest=0.0,
@@ -614,6 +620,12 @@ class IllustrationEngine:
         accumulated_glp = _accumulate_guideline_premium(
             state, policy, is_anniversary, attained_age
         )
+        # Mid-year guideline recalc trues up AccumGLP pro-rata for the rest of
+        # the policy year (see _recalc_guideline_on_change); one-time add that
+        # persists via the state carry-forward. Frozen with the accrual at 100.
+        if attained_age < 100:
+            accumulated_glp += float(
+                guideline_recalc.get("accum_glp_adjustment", 0.0) or 0.0)
         guideline_limit = max(gsp_floored, accumulated_glp)
 
         # Force-out: limit is the GREATER of GSP and AccumGLP, capped by
@@ -829,6 +841,12 @@ class IllustrationEngine:
         ending_db = (edb_wo_corr + edb_corr - accrual_loan.policy_debt
                      + _primary_insured_rider_face(policy, month_date))
 
+        # Ending surrender value (CalcEngine VZ vESV = vEAV − FullSC − vELN):
+        # END-of-month AV less the full surrender charge and the END-of-month
+        # loan balance. Distinct from surrender_value above (RERUN vLapseSV),
+        # which nets the PRE-interest lapse-check AV and pre-accrual debt.
+        ending_sv = av - surrender_charge - accrual_loan.policy_debt
+
         positive_sv = config.lapse_value == "SV" and surrender_value > 0
         av_less_loans = lapse_check_av - lapse_check_debt
         av_loans_test = config.lapse_value == "AV" and av_less_loans > 0
@@ -1007,6 +1025,7 @@ class IllustrationEngine:
             surrender_charge=surrender_charge,
             surrender_charges_by_coverage=surrender_charges_by_coverage,
             surrender_value=surrender_value,
+            ending_sv=ending_sv,
             ending_db=ending_db,
             # Tracking
             premiums_ytd=prem.premiums_ytd,
@@ -1491,11 +1510,17 @@ def _reband_segment(rates, segment, plancode: str) -> None:
         getattr(rates, attr)[segment.coverage_phase] = schedule
 
 
-def _load_segment_rates(rates, segment, plancode: str) -> None:
+def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
     """Load COI/EPU/SCR schedules for a NEW segment at its issue age + band.
 
     The face-increase segment carries its OWN surrender charge schedule from
     its issue age (RERUN TI — vFullSC sums every coverage's charge).
+
+    On a ratchet-banded plancode the segment ALSO needs explicit band-1 and
+    band-2 COI schedules (RERUN PP-QX charges every segment's NAR split at
+    those rates — PolicyRates keys cov 2/3 by the coverage's own issue age,
+    same as cov 1). rate_loader only loads them for segments present at load
+    time; without this a face-increase segment silently contributes 0 COI.
     """
     from suiteview.core.rates import Rates
 
@@ -1506,6 +1531,12 @@ def _load_segment_rates(rates, segment, plancode: str) -> None:
             segment.rate_class, scale=1, band=segment.band,
         ) or []
         getattr(rates, attr)[segment.coverage_phase] = schedule
+    if config is not None and getattr(config, "rachet_banding", False):
+        for band, attr in ((1, "segment_coi_band1"), (2, "segment_coi_band2")):
+            getattr(rates, attr)[segment.coverage_phase] = rates_db.get_rates(
+                "COI", plancode, segment.issue_age, segment.rate_sex,
+                segment.rate_class, scale=1, band=band,
+            ) or []
 
 
 def _reband_benefits(rates, policy) -> None:
@@ -1775,7 +1806,7 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
         status="A",
     )
     policy.segments.append(new_seg)
-    _load_segment_rates(rates, new_seg, policy.plancode)
+    _load_segment_rates(rates, new_seg, policy.plancode, config)
     policy.face_amount = sum(s.face_amount for s in policy.segments)
 
 
@@ -2004,7 +2035,7 @@ def _apply_policy_change(
         if base is not None and new_class and new_class != (base.rate_class or "").upper():
             base.rate_class = new_class
             policy.rate_class = new_class
-            _load_segment_rates(rates, base, policy.plancode)
+            _load_segment_rates(rates, base, policy.plancode, config)
             _reband_benefits(rates, policy)
             outcome.coverage_changed = True
     elif change.kind == PolicyChangeKind.SUBSTANDARD:
@@ -2293,6 +2324,24 @@ def _recalc_guideline_on_change(
     elif after is not None:
         policy.gsp = floor_annual_cent(gsp_prior + after.gsp - before.gsp)
 
+    # Mid-year recalc: the anniversary already banked a FULL year of the prior
+    # GLP into AccumGLP, so true it up pro-rata for the months remaining in the
+    # policy year — change at BOM m keeps (m-1)/12 of the old GLP and accrues
+    # (13-m)/12 at the new one. An anniversary-month change (m=1) needs no
+    # adjustment: the accumulation later this month reads the already-updated
+    # policy.glp (same net effect as RERUN's KT->KU ordering). RERUN's annual
+    # input vectors cannot express a mid-year change, so this rule is spec'd by
+    # Robert (2026-07-17), not the workbook.
+    accum_glp_adjustment = 0.0
+    accum_glp_months_remaining = 0
+    if policy.issue_date is not None:
+        month_in_year = ((change_date.year - policy.issue_date.year) * 12
+                         + (change_date.month - policy.issue_date.month)) % 12 + 1
+        if month_in_year > 1 and abs(policy.glp - glp_prior) > 1e-9:
+            accum_glp_months_remaining = 13 - month_in_year
+            accum_glp_adjustment = round(
+                accum_glp_months_remaining / 12.0 * (policy.glp - glp_prior), 2)
+
     # Expose the before/after solve so the Values tab can explain the recalc.
     # Only the genuine attained-age delta path (a before AND after solve) has
     # calc detail to show; a fully-injected recalc has no before/after solve.
@@ -2360,6 +2409,13 @@ def _recalc_guideline_on_change(
         if tamra_case != "no_recalc":
             recalc_detail["seven_pay_pv"] = _safe_seven_pay_pv_detail(
                 policy, config, change_date)
+
+    # Carried even on the injected-values path (empty recalc_detail): the
+    # accumulation step in process_month reads it via .get(); the Values-tab
+    # recalc summary shows the amount with its months-remaining factor.
+    if accum_glp_adjustment:
+        recalc_detail["accum_glp_adjustment"] = accum_glp_adjustment
+        recalc_detail["accum_glp_months_remaining"] = accum_glp_months_remaining
 
     return recalc_detail
 

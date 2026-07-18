@@ -129,6 +129,10 @@ def _compile_dated_transactions(
         elif entry.kind == TransactionKind.LOAN_REPAYMENT:
             month_inputs.loan_repayment += entry.amount
         elif entry.kind == TransactionKind.WITHDRAWAL:
+            # entry.subtype carries the requested basis from the inputs UI —
+            # "net"/"Net" (default, also "") or "gross"/"Gross".
+            # TODO: engine consumes withdrawal basis (net vs gross - RERUN
+            # charges a flat $25 WD fee on top of net)
             month_inputs.withdrawal += entry.amount
 
 

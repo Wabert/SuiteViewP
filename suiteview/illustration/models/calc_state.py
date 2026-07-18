@@ -252,7 +252,8 @@ class MonthlyState:
     scr_rates_by_coverage: Dict[str, float] = field(default_factory=dict)
     surrender_charge: float = 0.0
     surrender_charges_by_coverage: Dict[str, float] = field(default_factory=dict)
-    surrender_value: float = 0.0
+    surrender_value: float = 0.0        # Lapse-check SV (RERUN vLapseSV): PRE-interest AV − FullSC − pre-accrual debt
+    ending_sv: float = 0.0              # Ending SV (RERUN vESV): EAV − FullSC − ending loan balance
     ending_db: float = 0.0
 
     # ── 5. Shadow Account (CCV) (cols 614-648) ─

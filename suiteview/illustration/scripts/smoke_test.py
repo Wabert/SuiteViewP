@@ -104,7 +104,7 @@ def main():
     print(f"Interest:   ${result.interest_credited:,.2f}")
     print(f"End AV:     ${result.av_end_of_month:,.2f}")
     print(f"SCR:        ${result.surrender_charge:,.2f}")
-    print(f"Surr Val:   ${result.surrender_value:,.2f}")
+    print(f"End SV:     ${result.ending_sv:,.2f}")
     print(f"End DB:     ${result.ending_db:,.2f}")
     print(f"Lapsed:     {result.lapsed}")
     print()

@@ -116,6 +116,12 @@ def test_lapse_check_uses_policy_values_av_and_loan_cap_debt():
     assert result.av_less_loans == -10.0
     assert result.surrender_value == -10.0
     assert result.lapsed is True
+    # Ending SV (RERUN vESV) derives from the END-of-month AV — EAV − FullSC −
+    # ending loan balance — unlike the pre-interest lapse-check surrender_value.
+    assert result.ending_sv == (
+        result.av_end_of_month - result.surrender_charge - result.policy_debt
+    )
+    assert result.ending_sv > result.surrender_value
 
 
 def test_engine_does_not_take_monthly_deduction_on_maturity_date(monkeypatch):

@@ -149,7 +149,7 @@ def main() -> None:
         last = results[-1]
         print(f"\n--- Summary ---")
         print(f"Final AV:            ${last.av_end_of_month:,.2f}")
-        print(f"Final Surrender Val: ${last.surrender_value:,.2f}")
+        print(f"Final Surrender Val: ${last.ending_sv:,.2f}")
         print(f"Final DB:            ${last.ending_db:,.2f}")
         print(f"Total Interest:      ${last.cumulative_interest:,.2f}")
         print(f"Total Charges:       ${last.cumulative_charges:,.2f}")

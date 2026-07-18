@@ -54,6 +54,15 @@ Multiple base coverages are approximated the way the workbook approximates
 them: ONE guaranteed-COI stream (the base segment's) applied to the TOTAL
 specified amount, with per-segment EPU charges. This is the main case where
 the formula and the engine-search routine can diverge.
+
+Charge basis (the 7702 rule, per Robert 2026-07-17, matching the workbook):
+  * COI — GUARANTEED (scale 0), zeroed from the premium-cease age on.
+  * Interest — max(statutory floor, guaranteed rate).
+  * Expenses — ALWAYS CURRENT: policy fee (zero from the contract maturity
+    age on), per-unit EPU, premium loads, waiver/GIO benefit charges, and
+    rider COI streams (CTR / spouse term — the same current schedules the
+    monthly deduction charges). ADB is not a QAB: its charges never load the
+    guideline even though the deduction charges them monthly.
 """
 from __future__ import annotations
 
@@ -64,10 +73,21 @@ from typing import List, Optional
 
 from suiteview.illustration.core.rate_loader import IllustrationRates, _safe_rate
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import IllustrationPolicyData
+from suiteview.illustration.models.policy_data import (
+    IllustrationPolicyData,
+    rider_active_on,
+)
 
 
 SEVEN_PAY_YEARS = 7
+
+# Benefit types whose CURRENT charge streams load the 7702 guideline premium —
+# the workbook's Guideline_Premiums charge columns are exactly PWoC (type 3),
+# PWoT/stipulated waiver (type 4) and GIO (type 5) plus the rider columns.
+# ADB (type 1) is NOT a qualified additional benefit and has no column there;
+# its charges never enter the guideline (verified vs RERUN on U0356726).
+# TODO: verify the GIO type code ("5") against a live GIO policy.
+_GUIDELINE_BENEFIT_TYPES = {"3", "4", "5"}
 COI_MONTHLY_CAP = 83.333          # per $1000 per month — Guideline_Premiums T column
 DEEMED_MATURITY_AGE = 100         # s7702_MaturityAge
 GLP_RATE_FLOOR = 0.04             # s7702_GLP_Rate (pre-2021 contracts)
@@ -168,16 +188,24 @@ def build_guideline_basis(
             is_anniversary=(month_in_year == 0),
         )
 
-        # ── Guaranteed COI per $1 SA (T): substandard + flats, capped ──
-        raw_coi = _safe_rate(rates.segment_coi.get(base.coverage_phase, rates.coi), policy_year)
+        # ── Guaranteed COI per $1 SA (T): substandard + flats, capped.
+        #    The workbook zeroes the base COI from the premium-cease age on
+        #    (Guideline_Premiums COIR: IF(age>=sPremiumCeaseAge,0,...)). ──
+        if age >= config.premium_cease_age:
+            raw_coi = 0.0
+        else:
+            raw_coi = _safe_rate(rates.segment_coi.get(base.coverage_phase, rates.coi), policy_year)
         table = base.table_rating if base.table_rating > 0 and _active(base.table_cease_date, as_of, policy_year) else 0
         adjusted = raw_coi * (1.0 + config.table_rating_factor * table)
         if base.flat_extra and base.flat_extra > 0 and _active(base.flat_cease_date, as_of, policy_year):
             adjusted += _trunc2(base.flat_extra / 12.0)
         gm.coi_rate = min(adjusted, COI_MONTHLY_CAP) / 1000.0
 
-        # ── Monthly policy fee ──
-        if config.mfee == "Table":
+        # ── Monthly policy fee (zero from the contract maturity age on —
+        #    Guideline_Premiums Fee: IF(age>=sMaturityAge,0,...)) ──
+        if age >= config.maturity_age:
+            gm.fee = 0.0
+        elif config.mfee == "Table":
             gm.fee = _safe_rate(rates.mfee, policy_year)
         else:
             try:
@@ -213,6 +241,10 @@ def build_guideline_basis(
             ben_type = ben.benefit_type or ""
             if not ben.is_active or ben_type.startswith("#"):
                 continue
+            # Only waiver/GIO-style QAB charges load the guideline; ADB and
+            # other non-QAB benefits are excluded (see _GUIDELINE_BENEFIT_TYPES).
+            if ben_type not in _GUIDELINE_BENEFIT_TYPES:
+                continue
             # A benefit already ceased at the calculation date contributes
             # nothing anywhere in the solve (strict, matching vPW_Active).
             if (
@@ -239,8 +271,38 @@ def build_guideline_basis(
             gm.benefit_charge_detail[_benefit_label(ben_type, ben.benefit_subtype)] = charge
         gm.benefit_charges = ben_total
 
-        # QAB rider charge streams would add here; UL rider target/QAB data is
-        # not present for the current product family (see QUESTION_LOG §E.4).
+        # ── Rider charges (CTR / spouse-term / other UL riders): the CURRENT
+        #    rider COI stream — the SAME rates.rider_rates schedules the
+        #    monthly deduction charges (guideline expenses are always current;
+        #    RERUN Guideline_Premiums CTR/Rider1..3 columns key
+        #    tRates_Select_CCOI, Scale 1). Each rider charges while active on
+        #    the policy-year anniversary and is excluded entirely when already
+        #    ceased at the change row (vR*_Active@change / vCTR_Active). ──
+        year_date = _policy_year_start(policy, policy_year)
+        rider_total = 0.0
+        for rider in policy.riders:
+            if not rider.is_active:
+                continue
+            if active_as_of is not None and not rider_active_on(rider, policy, active_as_of):
+                continue
+            if year_date is not None and not rider_active_on(rider, policy, year_date):
+                continue
+            rider_year = max(1, policy_year - _coverage_start_year_offset(policy, rider))
+            rate = _safe_rate(rates.rider_rates.get(rider.export_key, []), rider_year)
+            if rate <= 0.0 and rider.coi_rate is not None:
+                rate = float(rider.coi_rate)
+            if rate <= 0.0:
+                continue
+            # Same substandard adjustment as the deduction path.
+            rider_table = rider.table_rating or 0
+            rider_flat = rider.flat_extra or 0.0
+            adjusted_rate = (
+                rate * (1.0 + config.table_rating_factor * rider_table)
+                + _trunc2(rider_flat / 12.0)
+            )
+            charge = (rider.units or 0.0) * adjusted_rate
+            rider_total += charge
+        gm.rider_charges = rider_total
 
         # ── Premium loads (zero past the premium cease age) ──
         if age < config.premium_cease_age:
@@ -266,6 +328,18 @@ def _active(cease_date: Optional[date], as_of: Optional[date], years_ahead: int)
     # Compare by year horizon — within-year precision is not needed because
     # guideline-basis rates are constant within a policy year anyway.
     return (as_of.year + years_ahead - 1) <= cease_date.year
+
+
+def _policy_year_start(policy: IllustrationPolicyData, policy_year: int) -> Optional[date]:
+    """Anniversary date that STARTS the given policy year (Feb-29 → Feb-28)."""
+    issue = policy.issue_date
+    if issue is None:
+        return None
+    year = issue.year + policy_year - 1
+    try:
+        return issue.replace(year=year)
+    except ValueError:
+        return issue.replace(year=year, day=28)
 
 
 def _coverage_start_year_offset(policy: IllustrationPolicyData, seg) -> int:

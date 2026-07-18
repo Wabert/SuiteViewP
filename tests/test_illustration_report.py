@@ -58,7 +58,7 @@ def _month(year: int, month_in_year: int, **kw) -> MonthlyState:
         gross_premium=100.0,
         requested_premium=100.0,
         av_end_of_month=5000.0 + duration,
-        surrender_value=4000.0 + duration,
+        ending_sv=4000.0 + duration,
         ending_db=100000.0,
         policy_debt=0.0,
         annual_interest_rate=0.0635,
@@ -226,7 +226,7 @@ def test_values_at_maturity_strip_when_policy_endows():
     assert row is not None
     final = _results()[-1]
     assert row.accum_value == final.av_end_of_month
-    assert row.surr_value == final.surrender_value
+    assert row.surr_value == final.ending_sv
     assert row.death_benefit == final.ending_db
     # Guaranteed run lapsed before maturity -> guaranteed columns show zero.
     assert row.guar_accum == 0.0 and row.guar_surr == 0.0 and row.guar_death == 0.0
@@ -287,7 +287,7 @@ def _guaranteed_results():
             rows.append(_month(
                 year, month,
                 av_end_of_month=0.0 if lapsed else 1000.0,
-                surrender_value=-50.0 if lapsed else 800.0,
+                ending_sv=-50.0 if lapsed else 800.0,
                 ending_db=0.0 if lapsed else 100000.0,
                 lapsed=lapsed,
             ))

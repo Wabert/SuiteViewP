@@ -230,7 +230,7 @@ def _annualize(
             cash_from_policy=withdrawals + forceout,
             loan_balance=eoy.policy_debt,
             accum_value=eoy.av_end_of_month,
-            surr_value=eoy.surrender_value,
+            surr_value=eoy.ending_sv,
             death_benefit=eoy.ending_db,
             lapsed=eoy.lapsed,
         ))
@@ -279,7 +279,7 @@ def _fill_guaranteed_columns(
             row.guar_death = 0.0
         else:
             row.guar_accum = max(eoy.av_end_of_month, 0.0)
-            row.guar_surr = max(eoy.surrender_value, 0.0)
+            row.guar_surr = max(eoy.ending_sv, 0.0)
             row.guar_death = max(eoy.ending_db, 0.0)
     return termination_year
 
@@ -522,7 +522,7 @@ def build_ul_report(
             year=last.policy_year,
             loan_balance=last.policy_debt,
             accum_value=last.av_end_of_month,
-            surr_value=last.surrender_value,
+            surr_value=last.ending_sv,
             death_benefit=last.ending_db,
         )
         if guaranteed_results:
@@ -532,7 +532,7 @@ def build_ul_report(
                 maturity.guar_accum = maturity.guar_surr = maturity.guar_death = 0.0
             else:
                 maturity.guar_accum = max(guar_last.av_end_of_month, 0.0)
-                maturity.guar_surr = max(guar_last.surrender_value, 0.0)
+                maturity.guar_surr = max(guar_last.ending_sv, 0.0)
                 maturity.guar_death = max(guar_last.ending_db, 0.0)
         report.maturity_row = maturity
 
