@@ -4,7 +4,17 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCursor
-from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QSizePolicy, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QStackedWidget,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.odbc_utils import is_password_error
@@ -48,6 +58,15 @@ class IllustrationWindow(FramelessWindowBase):
         self._policy_cache: dict = {}
         self._history_panel_visible = False
         self._last_scenario = None
+        # Per-policy session state, keyed like _policy_cache by
+        # (policy_number, region, company_code). Each entry keeps the policy's
+        # live IllustrationInputsTab widget (the inputs ARE the widget state —
+        # dynamic rows, grids, control toggles, solved amounts) plus snapshots
+        # of the last computed values/report/status, so switching back to a
+        # visited policy restores everything without re-entering or re-running.
+        # Session-only: never persisted to disk.
+        self._session_states: dict[tuple, dict] = {}
+        self._current_key: tuple | None = None
 
         super().__init__(
             title="SuiteView:  Illustration",
@@ -98,11 +117,16 @@ class IllustrationWindow(FramelessWindowBase):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(TAB_WIDGET_STYLE)
         self.policy_tab = IllustrationPolicyTab()
+        # One IllustrationInputsTab per visited policy lives in this stack;
+        # self.inputs_tab always points at the active one. Swapping the whole
+        # widget preserves every input exactly across policy switches.
+        self._inputs_stack = QStackedWidget()
         self.inputs_tab = IllustrationInputsTab()
+        self._inputs_stack.addWidget(self.inputs_tab)
         self.values_tab = IllustrationValuesTab()
         self.report_tab = IllustrationReportTab()
         self.tabs.addTab(self.policy_tab, "Policy")
-        self.tabs.addTab(self.inputs_tab, "Illustration Inputs")
+        self.tabs.addTab(self._inputs_stack, "Illustration Inputs")
         self.tabs.addTab(self.values_tab, "Values")
         self.tabs.addTab(self.report_tab, "Report")
         tabs_layout.addWidget(self.tabs)
@@ -150,15 +174,66 @@ class IllustrationWindow(FramelessWindowBase):
         keys_to_remove = [key for key in self._policy_cache if key[0] == policy_number and key[1] == region]
         for key in keys_to_remove:
             del self._policy_cache[key]
+        session_keys = [key for key in self._session_states if key[0] == policy_number and key[1] == region]
+        for key in session_keys:
+            self._drop_session_state(key)
 
     def _on_all_policies_removed(self):
         self._policy_cache.clear()
+        for key in list(self._session_states):
+            self._drop_session_state(key)
+
+    # ── Per-policy session state (inputs + computed values) ──────────
+
+    def _drop_session_state(self, key: tuple):
+        """Forget a policy's session inputs/values. The active inputs widget
+        stays on screen until the next switch (then it is unregistered and
+        cleaned up by _set_active_inputs_tab)."""
+        entry = self._session_states.pop(key, None)
+        if entry is None:
+            return
+        inputs_tab = entry["inputs"]
+        if inputs_tab is not self.inputs_tab:
+            self._inputs_stack.removeWidget(inputs_tab)
+            inputs_tab.deleteLater()
+
+    def _registered_inputs_tabs(self) -> set:
+        return {entry["inputs"] for entry in self._session_states.values()}
+
+    def _set_active_inputs_tab(self, inputs_tab):
+        """Front the given inputs widget; delete the outgoing one if no
+        session entry owns it (the startup placeholder or a removed policy)."""
+        previous = self.inputs_tab
+        if inputs_tab is previous:
+            return
+        if self._inputs_stack.indexOf(inputs_tab) == -1:
+            self._inputs_stack.addWidget(inputs_tab)
+        self.inputs_tab = inputs_tab
+        self._inputs_stack.setCurrentWidget(inputs_tab)
+        if previous is not None and previous not in self._registered_inputs_tabs():
+            self._inputs_stack.removeWidget(previous)
+            previous.deleteLater()
+
+    def _snapshot_active_session(self):
+        """Capture the displayed values/report/status for the current policy
+        before switching away. The inputs need no capture — each policy owns
+        its live inputs widget in the stack."""
+        entry = self._session_states.get(self._current_key) if self._current_key else None
+        if entry is None:
+            return
+        entry["values"] = self.values_tab.capture_session_state()
+        entry["report"] = self.report_tab.current_report()
+        entry["status"] = self._status_label.text()
+        entry["scenario"] = self._last_scenario
 
     def _show_status(self, message: str):
         self._status_label.setText(message)
 
     def _on_get_policy(self, policy_number: str, region: str, company_code: str = ""):
         self.lookup_bar.hide_company_chooser()
+        # Preserve the displayed values/report/status for the policy being
+        # switched away from — restored if the user comes back this session.
+        self._snapshot_active_session()
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
         cache_key = (policy_number, region, company_code)
 
@@ -195,6 +270,9 @@ class IllustrationWindow(FramelessWindowBase):
                 self.run_values_btn.setEnabled(False)
                 self.values_tab.clear_results("Load a policy, then click Run Values.")
                 self.report_tab.clear("Load a policy, then click Run Values.")
+                # The cleared display no longer belongs to the previous policy;
+                # detach so a later snapshot cannot overwrite its saved session.
+                self._current_key = None
                 return
 
             company_code = self._policy.company_code
@@ -249,14 +327,50 @@ class IllustrationWindow(FramelessWindowBase):
         )
         self.policy_tab.load_data_from_policy(self._policy, self._policy_info, md_check=md_check)
         self.policy_tab.set_rate_warnings(warnings)
-        self.inputs_tab.load_data_from_policy(
-            self._policy,
-            has_shadow=bool(getattr(self._illustration_data, "has_shadow_account", False)))
-        self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")
-        self.report_tab.clear()
+
+        key = (
+            self._policy_info.get("PolicyNumber", self._policy.policy_number),
+            region,
+            company_code,
+        )
+        session = self._session_states.get(key)
+        if session is None:
+            # First visit this session: fresh inputs from the policy, empty values.
+            inputs_tab = IllustrationInputsTab()
+            self._session_states[key] = {
+                "inputs": inputs_tab,
+                "values": None,
+                "report": None,
+                "status": None,
+                "scenario": None,
+            }
+            self._set_active_inputs_tab(inputs_tab)
+            inputs_tab.load_data_from_policy(
+                self._policy,
+                has_shadow=bool(getattr(self._illustration_data, "has_shadow_account", False)))
+            self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")
+            self.report_tab.clear()
+        else:
+            # Revisit: the policy's own inputs widget comes back untouched and
+            # the last computed values/report re-render from the snapshot —
+            # no engine run.
+            self._set_active_inputs_tab(session["inputs"])
+            if not self.values_tab.restore_session_state(session.get("values")):
+                self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")
+            report = session.get("report")
+            if report is not None:
+                self.report_tab.display_report(report)
+            else:
+                self.report_tab.clear()
+            self._last_scenario = session.get("scenario")
+
+        self._current_key = key
         self.run_values_btn.setEnabled(True)
-        cache_note = " (cached)" if cached else ""
-        self._show_status(f"Loaded policy {self._policy.policy_number} ({company_code}) - {self._policy.status_description}{cache_note}")
+        if session is not None and session.get("status"):
+            self._show_status(session["status"])
+        else:
+            cache_note = " (cached)" if cached else ""
+            self._show_status(f"Loaded policy {self._policy.policy_number} ({company_code}) - {self._policy.status_description}{cache_note}")
 
     def _policy_load_checks(self, policy_number: str, region: str, company_code: str):
         warnings: list[str] = []

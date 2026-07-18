@@ -338,6 +338,11 @@ class IllustrationReportTab(QWidget):
             if widget is not None:
                 widget.deleteLater()
 
+    def current_report(self) -> Optional[IllustrationReport]:
+        """The report currently displayed (None when cleared) — used by the
+        main window's per-policy session cache."""
+        return self._report
+
     def display_report(self, report: IllustrationReport):
         self.clear("")
         self._report = report

@@ -1454,6 +1454,38 @@ class IllustrationValuesTab(QWidget):
         }.get(title, {})
         return {**COMPACT_HEADER_LABELS, **tab_specific}
 
+    def capture_session_state(self) -> dict | None:
+        """The displayed projection as a restorable snapshot, or None if empty.
+
+        Only references are captured (the same view tuples the Guaranteed
+        toggle re-renders from), so this is cheap enough to call on every
+        policy switch.
+        """
+        if self._current_view is None:
+            return None
+        return {
+            "current_view": self._current_view,
+            "guaranteed_view": self._guaranteed_view,
+        }
+
+    def restore_session_state(self, state: dict | None) -> bool:
+        """Re-render a captured projection without touching the engine.
+
+        Returns False (leaving the tab as-is) when there is nothing to
+        restore. The Guaranteed toggle and values-group selection reset to
+        their defaults, matching a fresh render of the same results.
+        """
+        if not state or state.get("current_view") is None:
+            return False
+        policy, results, months, injected = state["current_view"]
+        self.display_projection(
+            policy, results, months=months, injected_first_row_columns=injected)
+        guaranteed = state.get("guaranteed_view")
+        if guaranteed is not None:
+            guaranteed_policy, guaranteed_results, _months, _injected = guaranteed
+            self.set_guaranteed_results(guaranteed_policy, guaranteed_results)
+        return True
+
     def clear_results(self, message: str = "Load a policy, then click Run Values."):
         self.status_label.setText(message)
         self.overview.clear()

@@ -411,6 +411,10 @@ class PandasTableModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if role == Qt.ItemDataRole.DisplayRole:
             if orientation == Qt.Orientation.Horizontal:
+                # The header view can repaint with stale section indices while
+                # the model shrinks (e.g. clearing results) — ignore them.
+                if section >= len(self._original_df.columns):
+                    return None
                 column_key = str(self._original_df.columns[section])
                 return self._header_labels.get(column_key, column_key)
             else:
