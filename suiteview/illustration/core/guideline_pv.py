@@ -15,28 +15,32 @@ It follows the layout of the ABR "ABA monthly calc." sheet / the ABR ``APVEngine
 
 Reconciliation
 ==============
-For a level death benefit (DBO A) the account-value endowment premium equals the
-prospective net level premium by the retrospective = prospective reserve
-identity, so this PV roll-up matches ``solve_guideline_premiums(basis).glp`` to
-the cent (``tools/check_guideline_pv.py`` asserts it on real policies). Both run
+The roll-up is an EXACT algebraic unrolling of the solver's monthly recursion
+``AV' = (AV·(1+T_eff) − fixed)·(1+i_m)`` — divide the endowment condition
+``AV_end = SA`` through by the accumulated fund-growth factor ∏(1+T_eff)(1+i_m)
+and every term becomes a survival-discounted PV. So the roll-up premium matches
+``solve_guideline_premiums(basis).glp`` to the cent for BOTH death-benefit
+options (``tools/check_guideline_pv.py`` asserts it on real policies). Both run
 off the **same** :class:`~suiteview.illustration.core.monthly_guideline.GuidelineBasis`
 (guaranteed COI, current expense charges, statutory interest), so the COI cap,
 flat-extra truncation, PW-on-MTP basis, and load handling are shared exactly.
 
 Conventions (matched to the solver):
-  * q'x = the month's guaranteed COI per $1 of specified amount (the monthly
-    mortality used by the contract); p'x = 1 − q'x; tp'x = ∏ p'x to month start.
-  * Death benefit valued at month END  → discounted v^(t+1).
+  * T_eff is the solver's option-adjusted COI coefficient: T for DBO A,
+    T − T/d for DBO B (NAR = the full SA — the fund gets no COI offset).
+  * q'x = T_eff/(1+T_eff) — the fund-implied monthly decrement; p'x = 1 − q'x
+    (= 1/(1+T_eff)); tp'x = ∏ p'x to month start. Under DBO A this is the
+    contract's NAR-consistent mortality; under DBO B it is ≈ 0 (deaths cost
+    the fund nothing beyond the COI charge, which is on the fixed SA).
+  * Death-benefit cost = the month's COI charge on SA (T·SA/d), valued at
+    month END on the survivors → SA·T·tp'ₓ₊₁·v^(t+1). For DBO A this is the
+    textbook SA·q'x·tp'x·v^(t+1).
   * Expense charges and premiums at month START → discounted v^t (annuity-due).
   * A maturity pure endowment (survive to the deemed maturity age, receive SA)
     closes the endowment, exactly as the commutation A_{x:n} does.
   * Premium load: each premium is net of the excess load (1 − epp); the
     target/excess difference is charged as the dollar term (tpp − epp)·CTP, both
     matching ``solve_endowment_premium``.
-
-DBO B note: the solver shrinks the COI coefficient for an increasing death
-benefit; this level-DB PV view is therefore exact for DBO A and approximate for
-DBO B. GLP is requested on the contract's option; the drill-down flags it.
 """
 from __future__ import annotations
 
@@ -62,12 +66,15 @@ def guideline_pv_rows(
     premium_months: set[int],
     *,
     starting_av: float = 0.0,
+    db_option: Optional[str] = None,
 ) -> Tuple[List[dict], dict]:
     """Month-by-month present-value decomposition of one endowment premium.
 
     ``annual_rate`` is the statutory basis rate (e.g. max(guaranteed, 4%) for the
     GLP). ``premium_months`` are the 0-based indices where a level premium is
-    paid (anniversary months for the GLP). Returns ``(rows, rollup)``:
+    paid (anniversary months for the GLP). ``db_option`` overrides the basis
+    option, exactly like ``solve_endowment_premium`` (the GSP and 7-pay are
+    always valued on level-DB mechanics). Returns ``(rows, rollup)``:
 
     * ``rows`` — one dict per policy month plus a final maturity-endowment row.
     * ``rollup`` — the numerator / denominator pieces and the resulting premium,
@@ -75,8 +82,10 @@ def guideline_pv_rows(
     """
     months = basis.months
     sa = basis.total_sa
+    option = (db_option or basis.db_option or "A").upper()
     i_m = (1.0 + annual_rate) ** (1.0 / 12.0) - 1.0
     v = 1.0 / (1.0 + i_m)
+    d_m = 1.0 + i_m               # one-month NAR discount at the statutory rate (AW20)
 
     # Benefit columns present anywhere in this basis (stable, sorted order).
     benefit_cols: List[str] = sorted({
@@ -89,18 +98,24 @@ def guideline_pv_rows(
     pv_db_cum = pv_chg_cum = pv_ann_cum = pv_load_cum = pv_ann_gross_cum = 0.0
 
     for m, gm in enumerate(months):
-        # NAR-consistent monthly mortality implied by the account-value
-        # recursion: the COI per $1 (t) competes with the interest credit on the
-        # fund, so q'x = t/(1+t), p'x = 1/(1+t). This is what makes the roll-up
-        # reconcile to the solver to the cent (t/(1+t) ≈ t for small t).
+        # Fund-implied monthly decrement from the account-value recursion:
+        # the option-adjusted COI coefficient T_eff (T for DBO A; T − T/d for
+        # DBO B, where the NAR is the full SA so the fund gets no COI offset)
+        # competes with the interest credit, so q'x = T_eff/(1+T_eff),
+        # p'x = 1/(1+T_eff). This is exactly ``solve_endowment_premium``'s
+        # growth factor, which makes the roll-up reconcile to the cent for
+        # both options.
         t = gm.coi_rate
-        q = t / (1.0 + t)
-        p = 1.0 - q               # = 1/(1+t)
+        t_eff = (t - t / d_m) if option == "B" else t
+        q = t_eff / (1.0 + t_eff)
+        p = 1.0 - q               # = 1/(1+t_eff)
         tp_next = tp * p          # survival to month END (COI + charges share it)
         v_end = disc * v          # v^(t+1) — death benefit paid at month end
 
-        # ── Death benefit this month (level SA, paid on death at month end) ──
-        pv_db = sa * q * tp * v_end
+        # ── Death-benefit cost this month: the COI charge on SA (T·SA/d),
+        #    valued at month end on the survivors. For DBO A, T·p'x = q'x so
+        #    this is the textbook SA·q'x·tp'x·v^(t+1). ──
+        pv_db = sa * t * tp_next * v_end
         pv_db_cum += pv_db
 
         # ── Charges this month (deducted with the COI → month-end survivors) ──
@@ -212,7 +227,8 @@ def _guideline_premium_detail(
     starting_av: float = 0.0,
 ) -> dict:
     rows, rollup = guideline_pv_rows(
-        basis, annual_rate, premium_months, starting_av=starting_av)
+        basis, annual_rate, premium_months,
+        starting_av=starting_av, db_option=db_option)
     return {
         "premium_label": premium_label,
         "attained_age": basis.months[0].attained_age if basis.months else 0,

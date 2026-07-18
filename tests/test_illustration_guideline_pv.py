@@ -1,9 +1,10 @@
 """The month-by-month guideline PV must reconcile to the account-value solver.
 
 ``guideline_pv`` is only an alternative *presentation* of the GLP that
-``solve_endowment_premium`` produces, so for a level death benefit (DBO A) the
-PV roll-up premium must equal the solver to the cent. These tests assert that on
-hand-built bases (no DB), plus the structural shape of the rows.
+``solve_endowment_premium`` produces — an exact algebraic unrolling of the same
+monthly recursion — so the PV roll-up premium must equal the solver to the cent
+for BOTH death-benefit options. These tests assert that on hand-built bases
+(no DB), plus the structural shape of the rows.
 """
 from suiteview.illustration.core.guideline_pv import (
     guideline_7pay_detail,
@@ -55,6 +56,37 @@ def test_pv_glp_reconciles_to_solver_level_db():
 
     _, rollup = guideline_pv_rows(basis, rate, prem)
     solver = solve_endowment_premium(basis, rate, prem)
+
+    assert abs(rollup["premium"] - solver) < 0.01
+
+
+def test_pv_glp_reconciles_to_solver_dbo_b():
+    """DBO B (NAR = full SA) uses the solver's t_eff mechanics — exact, not an
+    approximation. Non-level COI keeps the check strict."""
+    months = _level_months(240)
+    for m, gm in enumerate(months):
+        gm.coi_rate = (1.0 + 0.35 * (m // 12)) / 1000.0
+    basis = _basis(months, db_option="B")
+    prem = _anniversaries(months)
+
+    _, rollup = guideline_pv_rows(basis, 0.04, prem)
+    solver = solve_endowment_premium(basis, 0.04, prem)
+
+    assert abs(rollup["premium"] - solver) < 0.01
+    # The DBO B GLP is materially larger than the level-DB one — the old
+    # level-DB-only view would have missed this by a wide margin.
+    level_solver = solve_endowment_premium(basis, 0.04, prem, db_option="A")
+    assert rollup["premium"] > level_solver * 1.1
+
+
+def test_pv_rows_db_option_override_forces_level_mechanics():
+    """The GSP/7-pay path: an explicit db_option="A" on a DBO B basis must value
+    on level-DB mechanics, matching the solver's own override."""
+    months = _level_months(120)
+    basis = _basis(months, db_option="B")
+
+    _, rollup = guideline_pv_rows(basis, 0.06, {0}, db_option="A")
+    solver = solve_endowment_premium(basis, 0.06, {0}, db_option="A")
 
     assert abs(rollup["premium"] - solver) < 0.01
 

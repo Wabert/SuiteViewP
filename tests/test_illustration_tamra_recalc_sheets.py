@@ -17,7 +17,16 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from suiteview.illustration.core import calc_engine
-from suiteview.illustration.core.monthly_guideline import GuidelineSolveResult
+from suiteview.illustration.core.guideline_pv import (
+    guideline_glp_detail,
+    guideline_gsp_detail,
+)
+from suiteview.illustration.core.monthly_guideline import (
+    GuidelineBasis,
+    GuidelineMonth,
+    GuidelineSolveResult,
+    solve_guideline_premiums,
+)
 from suiteview.illustration.models.input_set import PolicyChangeEvent, PolicyChangeKind
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
@@ -92,6 +101,68 @@ def test_material_change_starts_new_period_at_change_date(monkeypatch):
     assert detail["seven_pay_start_av"] == 5_000.0
     assert detail["seven_pay_pv"] == {"premium_label": "7-Pay"}
     assert policy.tamra_7pay_start_date == CHANGE_DATE
+
+
+# ── Detail-sheet reconciliation ───────────────────────────────────────────
+# The GLP/GSP Before/After sheets are guideline_pv details rendered verbatim,
+# so their roll-up AND the visible row arithmetic must land on the engine's
+# solved value — for a DBO B contract too (the U0351626 bug: the sheets used
+# level-DB mechanics and showed 36,920 against the engine's 62,419).
+
+
+def _recalc_basis(sa, *, db_option="B", years=25):
+    """A before/after-style basis: DBO B, non-level COI, fees and loads."""
+    months = []
+    for m in range(years * 12):
+        year = m // 12
+        months.append(GuidelineMonth(
+            attained_age=60 + year,
+            coi_rate=(2.0 + 0.4 * year) / 1000.0,
+            fee=6.0,
+            epu=3.5,
+            tpp=0.05,
+            epp=0.05,
+            is_anniversary=(m % 12 == 0),
+        ))
+    return GuidelineBasis(
+        months=months, total_sa=sa, db_option=db_option,
+        ctp=0.0, guaranteed_rate=0.04)
+
+
+def _sheet_premium(detail):
+    """The premium re-derived from the SHEET ROWS, i.e. the visible grid math:
+    (Σ PVDB + Σ PV Charges + Σ PV Target Load Diff) ÷ Σ PV Annuity."""
+    rows = detail["glp_rows"]
+    numerator = (
+        sum(r["PVDB"] for r in rows)
+        + sum(r["PV Charges"] for r in rows)
+        + sum(r["PV Target Load Diff"] for r in rows)
+    )
+    return numerator / sum(r["PV Annuity"] for r in rows)
+
+
+def test_glp_sheets_reconcile_to_engine_before_and_after():
+    # SA 100k = the "before" basis; SA 80k = the "after" basis of an SA change.
+    for sa in (100_000.0, 80_000.0):
+        basis = _recalc_basis(sa)
+        engine_glp = solve_guideline_premiums(basis).glp
+        detail = guideline_glp_detail(basis)
+
+        assert detail["db_option"] == "B"
+        assert abs(detail["glp_rollup"]["premium"] - engine_glp) < 0.01
+        assert abs(_sheet_premium(detail) - engine_glp) < 0.01
+
+
+def test_gsp_sheets_reconcile_to_engine_before_and_after():
+    # GSP is pinned to level-DB mechanics in solver and sheet alike.
+    for sa in (100_000.0, 80_000.0):
+        basis = _recalc_basis(sa)
+        engine_gsp = solve_guideline_premiums(basis).gsp
+        detail = guideline_gsp_detail(basis)
+
+        assert detail["db_option"] == "A"
+        assert abs(detail["glp_rollup"]["premium"] - engine_gsp) < 0.01
+        assert abs(_sheet_premium(detail) - engine_gsp) < 0.01
 
 
 # ── MEC back-test builder ─────────────────────────────────────────────────

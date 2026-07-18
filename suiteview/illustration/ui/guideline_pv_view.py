@@ -152,7 +152,8 @@ class GuidelinePvDetailView(QWidget):
         line = "   ·   ".join(bits)
         note = "Σ PVDB includes the maturity endowment (survive to maturity → receive SA)"
         if dbo == "B":
-            note += "   ·   DBO B: increasing-DB approximation (exact for level DB)"
+            note += ("   ·   DBO B: NAR = full SA — COI is charged on SA with no fund"
+                     " offset, so q'x ≈ 0 (the fund loses nothing extra on death)")
         return f"{line}\n{note}"
 
     @staticmethod
