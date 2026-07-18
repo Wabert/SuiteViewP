@@ -158,6 +158,27 @@ def test_fund_tables_reconcile_to_account_value():
     assert tab.impaired_table.item(0, 1).text() == "$200.00"
 
 
+def test_fund_table_height_tracks_row_count_and_caps():
+    _app()
+    tab = IllustrationPolicyTab()
+
+    from decimal import Decimal
+
+    table = tab.unimpaired_table
+    row_height = table._data_table.verticalHeader().defaultSectionSize()
+    # Empty table reserves a single blank row, not an IUL-sized block.
+    empty_height = table.maximumHeight()
+
+    tab._fill_fund_table(table, {f"{i:02d}": Decimal("100") for i in range(3)})
+    assert table.maximumHeight() == empty_height + 2 * row_height
+
+    # Beyond the visible-row cap the height stops growing (scrollbar takes over).
+    tab._fill_fund_table(table, {f"{i:02d}": Decimal("100") for i in range(25)})
+    cap = tab._FUND_TABLE_MAX_VISIBLE_ROWS
+    assert table.rowCount() == 25
+    assert table.maximumHeight() == empty_height + (cap - 1) * row_height
+
+
 def test_7pay_start_date_is_directly_under_cost_basis():
     _app()
     tab = IllustrationPolicyTab()

@@ -1,9 +1,10 @@
 """Render the Illustration Policy tab from a real local policy.
 
-Saves ~/.suiteview/mock_illustration_policy_tab.png for inspection.
+Saves ~/.suiteview/mock_illustration_policy_tab.png (or the given output path)
+for inspection.
 
 Usage:
-    venv\\Scripts\\python.exe tools/mock_illustration_policy_tab.py
+    venv\\Scripts\\python.exe tools/mock_illustration_policy_tab.py [policy] [out.png]
 """
 from __future__ import annotations
 
@@ -35,7 +36,8 @@ def main() -> None:
     tab.show()
     app.processEvents()
 
-    out = Path.home() / ".suiteview" / "mock_illustration_policy_tab.png"
+    out = (Path(sys.argv[2]) if len(sys.argv) > 2
+           else Path.home() / ".suiteview" / "mock_illustration_policy_tab.png")
     out.parent.mkdir(parents=True, exist_ok=True)
     tab.grab().save(str(out))
     print(f"saved {out}")

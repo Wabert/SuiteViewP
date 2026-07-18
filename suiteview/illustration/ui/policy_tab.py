@@ -48,6 +48,11 @@ RATE_WARNING_STYLE = """
 class IllustrationPolicyTab(QWidget):
     """Initial Illustration Policy tab."""
 
+    # Fund mini-tables grow with their row count up to this many visible rows,
+    # then scroll. Local IUL policies top out around 8 index strategies
+    # (UE209026), so 10 covers real plans without reserving empty space.
+    _FUND_TABLE_MAX_VISIBLE_ROWS = 10
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._policy = None
@@ -119,9 +124,11 @@ class IllustrationPolicyTab(QWidget):
         fund_tables_row = QHBoxLayout()
         fund_tables_row.setContentsMargins(0, 4, 0, 0)
         fund_tables_row.setSpacing(8)
-        fund_tables_row.addWidget(unimpaired_block)
-        fund_tables_row.addWidget(impaired_block)
-        fund_tables_row.addWidget(allocation_block)
+        # Top-align so tables with different fund counts pack to the top edge
+        # instead of centering in the tallest sibling's slot.
+        fund_tables_row.addWidget(unimpaired_block, 0, Qt.AlignmentFlag.AlignTop)
+        fund_tables_row.addWidget(impaired_block, 0, Qt.AlignmentFlag.AlignTop)
+        fund_tables_row.addWidget(allocation_block, 0, Qt.AlignmentFlag.AlignTop)
         fund_tables_row.addStretch(1)
         # Nest the tables inside the Fund Values group, just below the info fields
         # (before the trailing stretch added when show_table=False).
@@ -267,18 +274,26 @@ class IllustrationPolicyTab(QWidget):
         table._data_table.horizontalHeader().setVisible(True)
         table._outer_frame.setStyleSheet(FUND_TABLE_STYLE)
         table._data_table.setStyleSheet(FUND_TABLE_STYLE)
-        table.setMinimumHeight(120)
+        self._fit_fund_table(table)
         box.addWidget(table)
         return container, table
 
-    @staticmethod
-    def _fit_fund_table(table):
-        """Autofit columns, then pin the table's width to its content so all
-        columns show without a horizontal scrollbar (plus room for the
-        vertical scrollbar when the fund list overflows)."""
+    @classmethod
+    def _fit_fund_table(cls, table):
+        """Autofit columns, then pin the table's size to its content: width so
+        all columns show without a horizontal scrollbar, height to header +
+        actual fund rows so a one-fund UL doesn't reserve IUL-sized empty
+        space. Past _FUND_TABLE_MAX_VISIBLE_ROWS rows the height caps and the
+        vertical scrollbar takes over."""
         table.autoFitAllColumns()
         total = sum(table.columnWidth(col) for col in range(table.columnCount()))
         table.setFixedWidth(total + 20)
+        inner = table._data_table
+        header_height = inner.horizontalHeader().minimumHeight()
+        row_height = inner.verticalHeader().defaultSectionSize()
+        # Keep one blank row of space when empty so the table still reads as one.
+        visible_rows = max(1, min(table.rowCount(), cls._FUND_TABLE_MAX_VISIBLE_ROWS))
+        table.setFixedHeight(header_height + visible_rows * row_height + 6)
 
     def load_data_from_policy(self, policy, policy_info: dict | None = None, md_check=None):
         self._policy = policy
