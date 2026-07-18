@@ -99,13 +99,70 @@ def _sqlite_value(value: Any) -> Any:
     return value
 
 
+def synthetic_birth_date(issue_date: date, ins_age: int) -> date:
+    """Synthetic (non-PII) DOB: policy issue date minus ``ins_age`` years.
+
+    Keeping the issue date's month/day puts the DOB on an exact policy
+    anniversary, so age-last-birthday and age-nearest-birthday both
+    reproduce ``ins_age`` on the issue date (see
+    ``calc_engine._age_on_date``: ALB = completed years; ANB adds 1 only
+    when >= 183 days past the last birthday — 0 days on an anniversary).
+    Feb-29 issue dates land on Feb-28 in non-leap birth years.
+    """
+    year = issue_date.year - int(ins_age)
+    try:
+        return date(year, issue_date.month, issue_date.day)
+    except ValueError:
+        return date(year, 2, 28)
+
+
+def is_meaningful_person(ins_age: Any, gender_cd: Any) -> bool:
+    """A client row represents a real person if it has an age or a gender."""
+    try:
+        age = int(ins_age or 0)
+    except (TypeError, ValueError):
+        age = 0
+    gender = str(gender_cd or "").strip()
+    return age > 0 or bool(gender)
+
+
+def _is_dob_column(column: str) -> bool:
+    column_upper = column.upper()
+    return "DOB" in column_upper or "BIR" in column_upper or "BIRTH" in column_upper
+
+
+def _redact_row(
+    table: str,
+    columns: list[str],
+    row: tuple,
+    issue_date: date | None,
+) -> tuple:
+    """Row-level redaction hook (needs cross-column context).
+
+    LH_CTT_CLIENT DOB/BIR/BIRTH columns get a *synthetic* issue-anniversary
+    DOB (issue date minus that row's INS_AGE) instead of the real value.
+    Placeholder rows with no meaningful person (INS_AGE=0 and blank
+    GENDER_CD) stay NULL.
+    """
+    if table.upper() != "LH_CTT_CLIENT":
+        return row
+    col_index = {column.upper(): i for i, column in enumerate(columns)}
+    values = list(row)
+    ins_age = values[col_index["INS_AGE"]] if "INS_AGE" in col_index else None
+    gender = values[col_index["GENDER_CD"]] if "GENDER_CD" in col_index else None
+    if issue_date is not None and is_meaningful_person(ins_age, gender):
+        dob: date | None = synthetic_birth_date(issue_date, int(ins_age or 0))
+    else:
+        dob = None
+    for i, column in enumerate(columns):
+        if _is_dob_column(column):
+            values[i] = dob
+    return tuple(values)
+
+
 def _redacted_value(table: str, column: str, value: Any) -> Any:
     column_upper = column.upper()
     table_upper = table.upper()
-    if table_upper == "LH_CTT_CLIENT" and (
-        "DOB" in column_upper or "BIR" in column_upper or "BIRTH" in column_upper
-    ):
-        return None
     if table_upper == "VH_POL_HAS_LOC_CLT":
         name_tokens = ("FST_NM", "LST_NM", "MID_NM", "NM", "NAME", "FIRST", "LAST")
         phone_tokens = ("PHN", "PHONE", "TEL", "FAX")
@@ -278,6 +335,7 @@ def _append_table(
     policy_id: str,
     company_code: str,
     system_code: str,
+    issue_date: date | None = None,
 ) -> None:
     if not rows:
         return
@@ -327,7 +385,7 @@ def _append_table(
             _redacted_export_row(
                 table,
                 columns,
-                tuple(row),
+                _redact_row(table, columns, tuple(row), issue_date),
                 policy_number,
                 policy_id,
                 company_code,
@@ -412,7 +470,14 @@ def _write_metadata_summary(conn: sqlite3.Connection) -> None:
         {"KEY": "policy_numbers", "VALUE": ",".join(policies)},
         {"KEY": "policy_count", "VALUE": str(len(policies))},
         {"KEY": "updated_at", "VALUE": datetime.now().isoformat(timespec="seconds")},
-        {"KEY": "redaction", "VALUE": "LH_CTT_CLIENT DOB/BIR/BIRTH; VH_POL_HAS_LOC_CLT names/phones/taxpayer identifiers"},
+        {
+            "KEY": "redaction",
+            "VALUE": (
+                "LH_CTT_CLIENT DOB/BIR/BIRTH synthesized (issue-anniversary: "
+                "issue date minus INS_AGE, not real; placeholder person rows NULL); "
+                "VH_POL_HAS_LOC_CLT names/phones/taxpayer identifiers redacted"
+            ),
+        },
     ]
     _write_table(
         conn,
@@ -469,6 +534,7 @@ def main() -> None:
             policy_id = policy.policy_id
             company_code = policy.company_code
             system_code = policy.system_code
+            issue_date = policy.issue_date  # base-coverage LH_COV_PHA.ISSUE_DT
             where_clause = (
                 f"CK_SYS_CD = '{system_code}' "
                 f"AND TCH_POL_ID = '{policy_id}' "
@@ -491,10 +557,11 @@ def main() -> None:
                     continue
 
                 columns = [str(column).upper() for column in columns]
-                if args.append:
-                    _append_table(out_conn, table, columns, rows, policy.policy_number, policy_id, company_code, system_code)
-                else:
-                    _append_table(out_conn, table, columns, rows, policy.policy_number, policy_id, company_code, system_code)
+                _append_table(
+                    out_conn, table, columns, rows,
+                    policy.policy_number, policy_id, company_code, system_code,
+                    issue_date=issue_date,
+                )
                 exported.append({"table": table, "rows": len(rows)})
 
             exported_at = datetime.now().isoformat(timespec="seconds")
