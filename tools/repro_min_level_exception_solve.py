@@ -1,7 +1,11 @@
-"""Reproduce the Min-to-Maturity solve with Allow GP Exception ON vs OFF.
+"""Reproduce the Prem-to-Maturity solve with Allow GP Exception ON vs OFF.
+
+NOTE: the app itself now ALWAYS solves Prem to Maturity with exceptions
+allowed (the checkbox is ignored for this premium type); this tool keeps the
+ON/OFF comparison for diagnostics.
 
 Faithful to the app's Run Values path for a policy whose only premium row is
-"Min to Maturity" (UI defaults everywhere else):
+"Prem to Maturity" (UI defaults everywhere else):
 
   * scenario = build_illustration_scenario(policy_data, overrides, empty inputs)
     with overrides.current_interest_rate = the UI's default illustrated rate

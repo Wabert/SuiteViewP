@@ -448,7 +448,7 @@ class IllustrationWindow(FramelessWindowBase):
             engine = IllustrationEngine()
 
             # "Lumpsum to Next Premium": solve FIRST so every later solve (e.g.
-            # Min to Maturity) sees the bridging lumpsum already funding the early
+            # Prem to Maturity) sees the bridging lumpsum already funding the early
             # months. If the policy would lapse before its next modal premium,
             # solve a bridging lumpsum and layer it in as an unscheduled premium
             # on the forecast date.
@@ -541,7 +541,7 @@ class IllustrationWindow(FramelessWindowBase):
                 run_options = level_to_exception_options(run_options, allow_exceptions)
                 self.inputs_tab.set_max_level_amount(mla.premium)
 
-            # "Min Level to Maturity" premium type: solve the minimum level
+            # "Prem to Maturity" premium type: solve the minimum level
             # premium that keeps the policy in force to maturity, honoring the
             # prior premium rows AND any lumpsum already merged into future_inputs
             # above, then layer it on top from its start year under the same
@@ -556,11 +556,14 @@ class IllustrationWindow(FramelessWindowBase):
                 from suiteview.illustration.models.input_set import (
                     IllustrationInputSet, ScheduledTransaction, TransactionKind,
                 )
-                # Min Level to Maturity endows on its own unless the user allowed
-                # GP exceptions (the Allow GP Exception toggle, on by default and
-                # disabled only for an active shadow account). On a loan policy the
-                # solve applies premium to the loan first when that toggle is on.
-                allow_exceptions = bool(run_options.allow_exception_prems)
+                # Prem to Maturity ALWAYS allows GP exception premiums — the
+                # solve rides the GLP exception period when the guideline caps
+                # further funding, regardless of the Allow GP Exception Premium
+                # checkbox (which still governs INPUT-premium runs and Max
+                # Level). The displayed run below inherits the same basis via
+                # level_to_exception_options, or the solved premium wouldn't
+                # behave as solved.
+                allow_exceptions = True
                 try:
                     lte = solve_level_to_exception(
                         scenario.projectable_policy,
@@ -573,12 +576,7 @@ class IllustrationWindow(FramelessWindowBase):
                     QApplication.restoreOverrideCursor()
                     self.run_values_btn.setEnabled(True)
                     self.inputs_tab.set_min_level_amount(None)
-                    msg = str(exc)
-                    if not allow_exceptions:
-                        # It can't endow on its own — exceptions would carry it.
-                        msg += ("  GP exception premiums will be required.  "
-                                "Select Allow GP Exception Premium and run again.")
-                    QMessageBox.information(self, "Min to Maturity", msg)
+                    QMessageBox.information(self, "Prem to Maturity", str(exc))
                     self._show_status(str(exc))
                     return
                 sched = list(future_inputs.scheduled_transactions)

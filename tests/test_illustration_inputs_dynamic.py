@@ -86,27 +86,33 @@ def test_input_tab_illustrated_rate_defaults_from_plancode_gint():
 def test_loan_policy_allows_gp_exception_but_shadow_still_blocks():
     # A policy loan no longer disables Allow GP Exception — the premium is applied
     # to the loan first, so the policy can ride the GLP exception period with a
-    # loan outstanding. An active shadow account still blocks it.
+    # loan outstanding. An active shadow account still blocks it: the checkbox
+    # lives on the Illustration Control tab now, so the panel signals
+    # availability and the tab forces the checkbox off.
     _app()
 
     class _LoanPolicy(_FakePolicy):
         total_loan_balance = 5_000.0
 
-    panel = DynamicInputsPanel()
-    panel.load_from_policy(_LoanPolicy())
-    assert panel._ctx.has_loans is True
-    assert panel.exception_notice.text() == ""
-    assert panel.exception_prem_check.isEnabled() is True
+    tab = IllustrationInputsTab()
+    tab.dynamic_panel.load_from_policy(_LoanPolicy())
+    assert tab.dynamic_panel._ctx.has_loans is True
+    assert tab.dynamic_panel.exception_notice.text() == ""
+    assert tab.exception_prem_check.isEnabled() is True
+    assert tab.exception_prem_check.isChecked() is True
 
-    shadow_panel = DynamicInputsPanel()
-    shadow_panel.load_from_policy(_LoanPolicy(), has_shadow=True)
-    assert "shadow account" in shadow_panel.exception_notice.text()
-    assert shadow_panel.exception_prem_check.isEnabled() is False
+    shadow_tab = IllustrationInputsTab()
+    shadow_tab.dynamic_panel.load_from_policy(_LoanPolicy(), has_shadow=True)
+    assert "shadow account" in shadow_tab.dynamic_panel.exception_notice.text()
+    assert shadow_tab.exception_prem_check.isEnabled() is False
+    assert shadow_tab.exception_prem_check.isChecked() is False
+    assert "shadow account" in shadow_tab.exception_prem_check.toolTip()
+    assert shadow_tab.export_options().allow_exception_prems is False
 
 
 def test_min_level_available_for_loan_policy():
-    # The Min Level solver is loan-capable (it applies premium to the loan first),
-    # so the premium-type dropdown offers it even with a loan outstanding.
+    # The Prem to Maturity solver is loan-capable (it applies premium to the loan
+    # first), so the premium-type dropdown offers it even with a loan outstanding.
     _app()
 
     class _LoanPolicy(_FakePolicy):
@@ -117,7 +123,7 @@ def test_min_level_available_for_loan_policy():
     row = panel.premium_section.rows()[0]
     options = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
     assert options == [
-        "INPUT", "Max Level Allowed", "Min to Maturity", "Monthly Deduction"]
+        "INPUT", "Max Level Allowed", "Prem to Maturity", "Monthly Deduction"]
 
 
 def test_new_premium_row_defaults_span_to_maturity():
@@ -176,9 +182,13 @@ def test_loan_and_withdrawal_modes_default_to_annual():
 
 
 def test_allow_gp_exception_premium_checked_by_default():
-    # Allow GP Exception Premium is on by default for a normal (non-shadow) policy.
-    panel = _panel()
-    assert panel.exception_prem_check.isChecked() is True
+    # Allow GP Exception Premium lives in the Illustration Control tab's Run
+    # Controls and is on by default for a normal (non-shadow) policy.
+    _app()
+    tab = IllustrationInputsTab()
+    tab.dynamic_panel.load_from_policy(_FakePolicy())
+    assert tab.exception_prem_check.isChecked() is True
+    assert tab.export_options().allow_exception_prems is True
 
 
 def test_max_level_premium_defaults_and_changes_with_mode():
@@ -186,7 +196,7 @@ def test_max_level_premium_defaults_and_changes_with_mode():
     row = panel.premium_section.rows()[0]
 
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
-        "INPUT", "Max Level Allowed", "Min to Maturity", "Monthly Deduction"]
+        "INPUT", "Max Level Allowed", "Prem to Maturity", "Monthly Deduction"]
 
     # Forecast is policy year 7, month 8, so the current year still has modes
     # left (5 monthly / 1 quarterly), which the payment count now includes:
@@ -569,7 +579,7 @@ def test_level_types_keep_face_and_dbo_sections_enabled():
     panel = _panel()
     row = panel.premium_section.rows()[0]
 
-    for level_type in ("Min to Maturity", "Max Level Allowed"):
+    for level_type in ("Prem to Maturity", "Max Level Allowed"):
         row.type_combo.setCurrentText(level_type)
         assert panel.face_section.isEnabled() is True
         assert panel.dbo_section.isEnabled() is True
@@ -587,12 +597,12 @@ def test_level_types_keep_face_and_dbo_sections_enabled():
 
 
 def test_min_level_collects_face_and_dbo_changes_only():
-    # With Min to Maturity selected the export still carries the Face Amount /
+    # With Prem to Maturity selected the export still carries the Face Amount /
     # DB Option change events (they feed the solve), while the locked sections
     # — withdrawals, loans, repayments, rate class — stay excluded even if
     # they hold values.
     panel = _panel()
-    panel.premium_section.rows()[0].type_combo.setCurrentText("Min to Maturity")
+    panel.premium_section.rows()[0].type_combo.setCurrentText("Prem to Maturity")
 
     face = panel.face_section.rows()[0]
     face.year_edit.setText("9")
@@ -679,7 +689,7 @@ def test_max_level_collects_face_and_dbo_changes_only():
 
 
 def test_min_level_solve_projection_includes_policy_changes():
-    # The Min to Maturity solver must project on the SAME policy changes the
+    # The Prem to Maturity solver must project on the SAME policy changes the
     # user entered — every bracketing/bisection run carries the base input
     # set's policy_changes through, so the solved minimum premium reflects a
     # face reduction or DBO switch.

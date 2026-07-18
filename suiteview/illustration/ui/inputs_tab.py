@@ -281,6 +281,12 @@ class IllustrationInputsTab(QWidget):
     WARNING_BG = QColor("#FFF0B3")
     NORMAL_BG = QColor("#FFFFFF")
 
+    _EXCEPTION_TOOLTIP = (
+        "Allow the guideline-premium exception premium when the policy is "
+        "guideline-limited and would otherwise lapse. A Prem to Maturity run "
+        "always allows exceptions regardless of this setting."
+    )
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._warning_labels: dict[str, QLabel] = {}
@@ -410,8 +416,21 @@ class IllustrationInputsTab(QWidget):
         self.tefra_check.setToolTip("Enforce 7702 guideline premium room for force-outs and accepted premiums.")
         layout.addWidget(self.tefra_check)
 
-        # Conform to TAMRA and Allow GP Exception Premium moved to the Input
-        # sheet (dynamic_panel); read them from there in export_options().
+        # Conform to TAMRA lives on the Input sheet (dynamic_panel); read it
+        # from there in export_options().
+
+        # Allow GP Exception Premium (sINPUT_AllowExceptionPrems). On by
+        # default. The Input panel signals availability — an active shadow
+        # account forces it off (the shadow account governs lapse, not the
+        # exception premium). A Prem to Maturity run always allows exceptions
+        # regardless of this checkbox (main_window forces them on for that
+        # solve and its displayed run).
+        self.exception_prem_check = self._make_control_checkbox("Allow GP Exception Premium")
+        self.exception_prem_check.setChecked(True)
+        self.exception_prem_check.setToolTip(self._EXCEPTION_TOOLTIP)
+        layout.addWidget(self.exception_prem_check)
+        self.dynamic_panel.exception_availability_changed.connect(
+            self._apply_exception_availability)
 
         self.cap_acceptance_check = self._make_control_checkbox("Cap Premiums at Acceptance")
         self.cap_acceptance_check.setChecked(True)
@@ -612,6 +631,18 @@ class IllustrationInputsTab(QWidget):
         self.illustration_years_radio.toggled.connect(self._sync_duration_controls)
         self._sync_duration_controls()
         return group
+
+    def _apply_exception_availability(self, available: bool, reason: str):
+        """The Input panel gates GP exceptions per policy (active shadow
+        account): force the Run Controls checkbox off with the reason as its
+        tooltip while blocked; re-enable it when the block lifts."""
+        if available:
+            self.exception_prem_check.setEnabled(True)
+            self.exception_prem_check.setToolTip(self._EXCEPTION_TOOLTIP)
+        else:
+            self.exception_prem_check.setChecked(False)
+            self.exception_prem_check.setEnabled(False)
+            self.exception_prem_check.setToolTip(reason)
 
     def _make_control_checkbox(self, text: str):
         _ensure_checkmark()
@@ -1017,7 +1048,7 @@ class IllustrationInputsTab(QWidget):
         return IllustrationOptions(
             conform_to_tefra=self.tefra_check.isChecked(),
             conform_to_tamra=self.dynamic_panel.tamra_check.isChecked(),
-            allow_exception_prems=self.dynamic_panel.exception_prem_check.isChecked(),
+            allow_exception_prems=self.exception_prem_check.isChecked(),
             exact_days_interest=self.exact_days_check.isChecked(),
             cap_premiums_at_acceptance=self.cap_acceptance_check.isChecked(),
             levelizing_premium=self.levelizing_check.isChecked(),

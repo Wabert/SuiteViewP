@@ -311,5 +311,5 @@ def test_level_premium_type_suppresses_payoff_requests():
     panel = _panel()
     _fill_payoff_row(panel.repayment_section.rows()[0], 8, "A", 3)
     assert panel.loan_payoff_requests()
-    panel.premium_section.rows()[0].type_combo.setCurrentText("Min to Maturity")
+    panel.premium_section.rows()[0].type_combo.setCurrentText("Prem to Maturity")
     assert panel.loan_payoff_requests() == []

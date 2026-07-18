@@ -1,7 +1,7 @@
-"""Render the dynamic Input tab with "Min to Maturity" selected, offscreen.
+"""Render the dynamic Input tab with "Prem to Maturity" selected, offscreen.
 
 Loads a real policy from the local SQLite data (SUITEVIEW_LOCAL_DATA=1), sets
-the premium row's type to Min to Maturity, and saves a PNG so the section
+the premium row's type to Prem to Maturity, and saves a PNG so the section
 enable/disable states can be eyeballed: Face Amount Change and Death Benefit
 Option Change stay editable while withdrawals / loans / loan repayments (and
 the rate-class / table-rating changes and riders) grey out.
@@ -43,7 +43,7 @@ def main():
     tab = IllustrationInputsTab()
     tab.load_data_from_policy(pi)
     panel = tab.dynamic_panel
-    panel.premium_section.rows()[0].type_combo.setCurrentText("Min to Maturity")
+    panel.premium_section.rows()[0].type_combo.setCurrentText("Prem to Maturity")
     tab.input_tabs.setCurrentIndex(0)  # dynamic Input tab
     tab.resize(1300, 900)
     tab.show()

@@ -399,18 +399,19 @@ class _RateField(QLineEdit):
 
 # Premium-type dropdown values (premium section only). The two level types are a
 # GPT-only "solve" the engine fills in on Run Values: Max Level is the largest
-# level premium the guideline acceptance chain never caps; Min Level is the
-# minimum level premium that keeps the policy in force to maturity.
+# level premium the guideline acceptance chain never caps; Prem to Maturity is
+# the minimum level premium that keeps the policy in force to maturity.
 _TYPE_INPUT = "INPUT"
 # "Max Level Allowed" is the maximum level guideline premium (may not reach
 # maturity). The row shows a closed-form estimate from the CURRENT guideline
 # room immediately; Run Values solves it exactly on the real projection so any
 # Face Amount / DB Option change's effect on the guidelines is reflected.
-# "Min Level to Maturity" is solved by the engine (amount filled on Run
-# Values); whether it rides the GLP exception period is up to the user's
-# Allow GP Exception toggle.
+# "Prem to Maturity" is solved by the engine (amount filled on Run Values);
+# GP exception premiums are ALWAYS allowed for this premium type — the solve
+# rides the GLP exception period when the guideline caps further funding,
+# regardless of the Allow GP Exception Premium checkbox.
 _TYPE_MAX_LEVEL = "Max Level Allowed"
-_TYPE_MIN_LEVEL = "Min to Maturity"
+_TYPE_MIN_LEVEL = "Prem to Maturity"
 _LEVEL_TYPES = (_TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL)
 # "Monthly Deduction" pays, each month, exactly the policy's monthly deduction
 # (grossed up by the COI rate and premium load) so the account value after the
@@ -648,7 +649,9 @@ class InputRow(QWidget):
             self.amount_edit.setEnabled(False)
             self.amount_edit.setToolTip(
                 "Minimum level premium that keeps the policy in force to maturity. "
-                "Solved when you Run Values.")
+                "Solved when you Run Values. GP exception premiums are always "
+                "allowed for this premium type — the run ignores the Allow GP "
+                "Exception Premium checkbox.")
         elif ptype == _TYPE_MONTHLY_DEDUCTION:
             # Solved in-engine each month (varies with the deduction) — blank and
             # disabled; only the start year is read off this row.
@@ -1459,6 +1462,13 @@ class RiderButtonsPanel(QGroupBox):
 class DynamicInputsPanel(QWidget):
     """The "Input" tab: suspended banner, request sections, rider buttons."""
 
+    # GP exception availability for the loaded policy: (available, reason).
+    # The Allow GP Exception Premium checkbox lives on the Illustration
+    # Control tab (Run Controls); the tab listens to this signal and forces
+    # the checkbox off — with the reason as its tooltip — when an active
+    # shadow account blocks exceptions.
+    exception_availability_changed = pyqtSignal(bool, str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._ctx = PolicyContext()
@@ -1494,15 +1504,6 @@ class DynamicInputsPanel(QWidget):
         self.illustrated_rate_edit = _RateField(self)
         rate_suffix = QLabel("%")
         rate_suffix.setStyleSheet(_CAPTION_STYLE)
-        # Allow GP Exception Premium lives on the Input sheet (moved from the
-        # Illustration Control tab). On by default; disabled with a notice only for
-        # an active shadow account; otherwise the user decides whether to allow it.
-        self.exception_prem_check = QCheckBox("Allow GP Exception Premium")
-        self.exception_prem_check.setChecked(True)
-        self.exception_prem_check.setStyleSheet(_CHECKBOX_STYLE)
-        self.exception_prem_check.setToolTip(
-            "Allow the guideline-premium exception premium when the policy is guideline-"
-            "limited and would otherwise lapse.")
         # Apply Premium to Loan First (sInput_ApplyPremToLoan): the requested
         # premium repays the policy loan before any of it loads onto the account
         # value. A no-op on a loan-free policy.
@@ -1559,8 +1560,6 @@ class DynamicInputsPanel(QWidget):
         rate_row.addSpacing(12)
         rate_row.addWidget(self.index_alloc_btn)
         rate_row.addSpacing(24)
-        rate_row.addWidget(self.exception_prem_check)
-        rate_row.addSpacing(16)
         rate_row.addWidget(self.apply_prem_to_loan_check)
         rate_row.addSpacing(16)
         rate_row.addWidget(self.tamra_check)
@@ -1671,8 +1670,7 @@ class DynamicInputsPanel(QWidget):
         outer.addWidget(self.riders_panel)
 
         # A level type (Max/Min) on a premium row locks the other sections
-        # (Min to Maturity keeps Face Amount / DB Option changes open);
-        # Min Level also forces the exception toggle on.
+        # (Prem to Maturity keeps Face Amount / DB Option changes open).
         self.premium_section.changed.connect(self._on_premium_changed)
 
     # ── loading ───────────────────────────────────────────────
@@ -1781,7 +1779,7 @@ class DynamicInputsPanel(QWidget):
         """Display the solved bridge lumpsum after a run (field stays disabled)."""
         self.lumpsum_edit.set_value(value, decimals=2)
 
-    # ── Level-premium types (Max / Min Level to Maturity) ─────
+    # ── Level-premium types (Max Level / Prem to Maturity) ────
 
     def active_level_premium_type(self) -> Optional[str]:
         """The level type selected on any premium row, or None."""
@@ -1791,11 +1789,12 @@ class DynamicInputsPanel(QWidget):
         return None
 
     def min_level_request(self) -> Optional[dict]:
-        """``{'start_year', 'mode'}`` for the Min Level to Maturity row, or None.
+        """``{'start_year', 'mode'}`` for the Prem to Maturity row, or None.
 
         The row has no amount until the run solves it, so main_window detects it
-        here and solves on the projectable policy. Whether the solve may ride the
-        GLP exception period follows the user's Allow GP Exception toggle.
+        here and solves on the projectable policy. GP exception premiums are
+        always allowed for this premium type — the solve (and its displayed run)
+        ignores the Allow GP Exception Premium checkbox.
         """
         if self._ctx is None or self._ctx.is_cvat:
             return None
@@ -1806,7 +1805,7 @@ class DynamicInputsPanel(QWidget):
         return None
 
     def set_min_level_amount(self, value: Optional[float]):
-        """Fill the Min Level row's (disabled) amount field after a run."""
+        """Fill the Prem to Maturity row's (disabled) amount field after a run."""
         for row in self.premium_section.rows():
             if row.is_min_level():
                 row.set_amount_display(value)
@@ -1903,14 +1902,12 @@ class DynamicInputsPanel(QWidget):
         # Option changes open — clients want to see how a face reduction or
         # DBO switch moves the solved minimum premium, and those same changes
         # move the guideline premiums that bound the solved maximum — while
-        # withdrawals, loans and repayments stay locked. The exception toggle
-        # is refreshed too.
+        # withdrawals, loans and repayments stay locked. The exception
+        # availability is refreshed too.
         self._set_other_sections_locked(bool(self._selected_level_types()))
-        # A Lumpsum to Next Premium bridge can layer on top of a level premium
-        # type, so the checkbox stays available regardless of the premium type.
-        self._refresh_exception_checkbox()
+        self._refresh_exception_availability()
 
-    def _refresh_exception_checkbox(self):
+    def _refresh_exception_availability(self):
         # An active shadow account blocks GP exceptions (the shadow account
         # governs lapse, not the exception premium). A policy loan no longer
         # blocks them — premium is applied to the loan first, so the policy can
@@ -1918,6 +1915,9 @@ class DynamicInputsPanel(QWidget):
         # Deduction premium does NOT block it — the two work together: the MD
         # premium funds the deduction up to the guideline limit, and the GP
         # exception is the backstop once the policy caps out and runs negative.
+        # The Allow GP Exception Premium checkbox itself lives on the
+        # Illustration Control tab; the panel shows the notice here and signals
+        # the tab, which forces the checkbox off while blocked.
         ctx = self._ctx
         if ctx is not None and ctx.has_shadow:
             reason = "Allow Exceptions is not available due to an active shadow account."
@@ -1925,11 +1925,7 @@ class DynamicInputsPanel(QWidget):
             reason = ""
         self.exception_notice.setText(reason)
         self.exception_notice.setVisible(bool(reason))
-        if reason:
-            self.exception_prem_check.setChecked(False)
-            self.exception_prem_check.setEnabled(False)
-        else:
-            self.exception_prem_check.setEnabled(True)
+        self.exception_availability_changed.emit(not reason, reason)
 
     def _selected_level_types(self) -> set[str]:
         """The level premium types selected across the premium rows."""
@@ -2119,7 +2115,7 @@ class DynamicInputsPanel(QWidget):
         """Face Amount / DB Option change rows -> policy-change events.
 
         Shared by the normal export and the level-premium paths (both Max
-        Level Allowed and Min to Maturity keep these two sections editable)."""
+        Level Allowed and Prem to Maturity keep these two sections editable)."""
         ctx = self._ctx
         for entry in self.face_section.entries():
             when = ctx.effective_date(entry["year"])

@@ -16,6 +16,59 @@ def _app():
     return _QT_APP
 
 
+def test_allow_gp_exception_checkbox_lives_in_run_controls_and_drives_options():
+    _app()
+    tab = IllustrationInputsTab()
+
+    # "Allow GP Exception Premium" sits in the Illustration Control tab's Run
+    # Controls group (moved back from the Input sheet) and is on by default.
+    assert tab.exception_prem_check.isChecked() is True
+    assert tab.export_options().allow_exception_prems is True
+
+    # Unchecking flows straight through to the run options.
+    tab.exception_prem_check.setChecked(False)
+    assert tab.export_options().allow_exception_prems is False
+
+
+def test_shadow_account_signal_forces_exception_checkbox_off():
+    from datetime import date
+
+    _app()
+
+    class _ShadowPolicy:
+        issue_date = date(2019, 11, 9)
+        base_issue_age = 50
+        attained_age = 56
+        valuation_date = date(2026, 5, 9)
+        policy_year = 7
+        maturity_age = 121
+        billing_frequency = 1
+        modal_premium = 153.56
+        def_of_life_ins = "GPT"
+        base_plancode = ""
+        status_code = "0"
+
+        def get_coverages(self):
+            return []
+
+        def get_benefits(self):
+            return []
+
+    # The Input panel signals exception availability; the tab applies it to
+    # the Run Controls checkbox — forced off (with the reason as tooltip) for
+    # an active shadow account, re-enabled when a non-shadow policy loads.
+    tab = IllustrationInputsTab()
+    tab.dynamic_panel.load_from_policy(_ShadowPolicy(), has_shadow=True)
+    assert tab.exception_prem_check.isChecked() is False
+    assert tab.exception_prem_check.isEnabled() is False
+    assert "shadow account" in tab.exception_prem_check.toolTip()
+    assert tab.export_options().allow_exception_prems is False
+
+    tab.dynamic_panel.load_from_policy(_ShadowPolicy(), has_shadow=False)
+    assert tab.exception_prem_check.isEnabled() is True
+    assert "shadow account" not in tab.exception_prem_check.toolTip()
+
+
 def test_levelizing_checkbox_defaults_on_and_drives_options():
     _app()
     tab = IllustrationInputsTab()
