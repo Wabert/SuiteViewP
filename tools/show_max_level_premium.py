@@ -1,7 +1,15 @@
-"""Show the Illustration Input tab Max Level premium calculation for a policy.
+"""Show the Illustration Max Level premium for a policy — the Input tab's
+closed-form estimate AND the engine-solved maximum (the largest level premium
+the guideline acceptance chain never caps), optionally with a face-amount or
+DB-option change so the solved figure reflects the recalculated guidelines.
 
 Usage:
     venv\\Scripts\\python.exe tools/show_max_level_premium.py --policy U0361706 --region CKPR
+    venv\\Scripts\\python.exe tools/show_max_level_premium.py --policy U0356726 --solve
+    venv\\Scripts\\python.exe tools/show_max_level_premium.py --policy U0356726 --solve \
+        --face-year 10 --face-amount 50000
+    venv\\Scripts\\python.exe tools/show_max_level_premium.py --policy U0356726 --solve \
+        --dbo-year 10 --dbo-option A
 """
 from __future__ import annotations
 
@@ -38,6 +46,17 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--policy", required=True, help="Policy number")
     parser.add_argument("--region", default="CKPR", help="DB2 region code")
     parser.add_argument("--company", default=None, help="Optional company code")
+    parser.add_argument("--solve", action="store_true",
+                        help="Also run the engine solve (largest never-capped level premium)")
+    parser.add_argument("--mode", default=None, help="Modal cadence for the solve (M/Q/S/A)")
+    parser.add_argument("--face-year", type=int, default=None,
+                        help="Policy year of an illustrated face amount change")
+    parser.add_argument("--face-amount", type=float, default=None,
+                        help="New total face amount at --face-year")
+    parser.add_argument("--dbo-year", type=int, default=None,
+                        help="Policy year of an illustrated DB option change")
+    parser.add_argument("--dbo-option", default=None,
+                        help="New DB option (A/B) at --dbo-year")
     return parser.parse_args()
 
 
@@ -91,15 +110,80 @@ def main() -> None:
         "default_mode": ctx.default_mode,
     }
 
+    if args.solve:
+        result["solve"] = _run_solve(args, ctx)
+
     print(json.dumps(result, indent=2, default=str))
     if not ctx.is_cvat:
         print()
         print(
-            "Formula: "
+            "Closed-form estimate: "
             f"(({_money(accumulated_glp)} + {_money(glp)} * {ctx.max_level_years}) "
             f"- ({_money(premiums_paid_to_date)} - {_money(withdrawals_to_date)})) "
             f"/ {ctx.payment_count('A')} = {_money(ctx.max_annual_level_premium)}"
         )
+
+
+def _run_solve(args: argparse.Namespace, ctx) -> dict:
+    """Engine-solved max level premium, without and (optionally) with the
+    requested face/DBO change — mirrors the Run Values Max Level path."""
+    from suiteview.illustration.core.illustration_policy_service import (
+        build_illustration_data,
+    )
+    from suiteview.illustration.core.solve_max_level_allowed import (
+        MaxLevelAllowedError,
+        solve_max_level_allowed,
+    )
+    from suiteview.illustration.models.input_set import (
+        IllustrationInputSet,
+        PolicyChangeEvent,
+        PolicyChangeKind,
+    )
+
+    mode = (args.mode or ctx.default_mode).upper()
+    start_year = int(ctx.forecast_year)
+
+    changes = []
+    if args.face_year is not None and args.face_amount is not None:
+        changes.append(PolicyChangeEvent(
+            kind=PolicyChangeKind.FACE_AMOUNT,
+            effective_date=ctx.effective_date(args.face_year),
+            value=float(args.face_amount)))
+    if args.dbo_year is not None and args.dbo_option:
+        changes.append(PolicyChangeEvent(
+            kind=PolicyChangeKind.DB_OPTION,
+            effective_date=ctx.effective_date(args.dbo_year),
+            value=str(args.dbo_option).upper()))
+
+    out: dict = {"mode": mode, "start_policy_year": start_year}
+
+    def _solve(policy_changes) -> dict:
+        policy_data = build_illustration_data(
+            args.policy, region=args.region, company_code=args.company)
+        base = IllustrationInputSet(policy_changes=list(policy_changes))
+        try:
+            solved = solve_max_level_allowed(
+                policy_data, mode=mode, start_policy_year=start_year,
+                base_future_inputs=base)
+        except MaxLevelAllowedError as exc:
+            return {"error": str(exc)}
+        return {
+            "premium": solved.premium,
+            "survives_to_maturity": solved.survives_to_maturity,
+            "end_age": solved.end_age,
+            "total_premium_paid": solved.total_premium_paid,
+            "iterations": solved.iterations,
+        }
+
+    out["no_change"] = _solve([])
+    if changes:
+        out["with_change"] = _solve(changes)
+        out["changes"] = [
+            {"kind": c.kind.name, "effective_date": str(c.effective_date),
+             "value": c.value}
+            for c in changes
+        ]
+    return out
 
 
 if __name__ == "__main__":

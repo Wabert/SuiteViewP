@@ -158,6 +158,27 @@ def _write_named_range(wb, name: str, values: list) -> None:
     rng.Value = tuple(data)
 
 
+def assert_comparison_inputs(wb, case) -> None:
+    """Fail loudly if a loaded case violates the mandatory comparison toggles.
+
+    Comparison policy: ALL RERUN testing runs with sINPUT_TEFRA_Force = TRUE
+    (guideline premium cap on; engine conform_to_tefra=True) and
+    sINPUT_Exact_Days_Boolean = FALSE (no exact-days interest; engine
+    exact_days_interest=False).  Called after a Saved Case's inputs are written
+    to the live named ranges, so a stray old case can never silently produce a
+    bogus run.  Required values live in check_comparison_inputs.REQUIRED.
+    """
+    from check_comparison_inputs import REQUIRED, _as_bool
+
+    for name, required in REQUIRED.items():
+        val = wb.Names(name).RefersToRange.Value
+        if _as_bool(val) is not required:
+            raise RuntimeError(
+                f"{name} is {val!r} (must be {required!r}) after loading Saved "
+                f"Case {case!r} — fix the case with tools/check_comparison_inputs.py "
+                "'{\"fix\": true}' and rerun.")
+
+
 def _temp_copy(workbook: str) -> Path:
     src = Path(workbook)
     tmp = Path(tempfile.gettempdir()) / f"rerun_com_{src.stem}.xlsm"
@@ -238,6 +259,8 @@ def mode_run(cmd):
                 report["inputs_written"] += 1
             except Exception as exc:
                 report["input_failures"].append({"name": name, "error": str(exc)})
+
+        assert_comparison_inputs(wb, cmd["case"])
 
         # ── Scenario overrides (e.g. construct a face increase/decrease or DBO
         # change on top of a loaded case). Each: {"target": "INPUT!J14:J126" or a

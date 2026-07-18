@@ -73,7 +73,9 @@ GROUPS = [
     ]},
     {"name": "Values", "level": "summary", "fields": [
         ("surr_charge",   "surrender_charge", "TK", "val"),   # vFullSC — all coverages
-        ("surr_value",    "surrender_value",  "WG", "val"),
+        # WG vIllustrationSV = MAX(0, vESV) — the ENDING SV (EAV − SC − ELN),
+        # not vLapseSV (engine surrender_value).
+        ("surr_value",    "ending_sv",        "WG", "val"),
         ("death_benefit", "ending_db",        "WB", "val"),
         # NA displays the BEGINNING-of-month debt (before new loans/accrual).
         ("policy_debt",   ["rg_loan_princ", "rg_loan_accrued", "pf_loan_princ",

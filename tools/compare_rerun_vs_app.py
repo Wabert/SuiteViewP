@@ -17,7 +17,7 @@ Usage (optional single JSON arg; all keys optional):
     venv\\Scripts\\python.exe tools/compare_rerun_vs_app.py
     venv\\Scripts\\python.exe tools/compare_rerun_vs_app.py '{"cases":[1,2,3,4],"months":750}'
 
-    {"workbook": "docs/Illustration_UL/RERUN (v19.1).xlsm",
+    {"workbook": "docs/Illustration_UL/RERUN (v20.0).xlsm",
      "cases":    [1,2,3,4],          # case numbers or CaseID strings (default: 4 baselines)
      "months":   750,                # months to project/compare (engine caps at maturity)
      "company":  "01", "region": "CKPR",
@@ -45,7 +45,7 @@ from rerun_debug_map import (  # noqa: E402
     DEBUG_COLUMNS, KIND_TOL, LABEL_ROW, LAST_COL,
 )
 
-DEFAULT_WORKBOOK = ROOT / "docs" / "Illustration_UL" / "RERUN (v19.1).xlsm"
+DEFAULT_WORKBOOK = ROOT / "docs" / "Illustration_UL" / "RERUN (v20.0).xlsm"
 DEFAULT_CASES = [1, 2, 3, 4]
 DEFAULT_MONTHS = 750
 DEFAULT_OUT_DIR = Path.home() / "Documents" / "SuiteView_DevTest"
@@ -84,11 +84,38 @@ def _engine_value(row: dict, engine):
     return _num(row.get(engine))
 
 
+def _excel_date(v):
+    """Coerce a Saved-Cases date cell (Excel serial float or datetime) to date."""
+    if v is None:
+        return None
+    if isinstance(v, datetime.datetime):
+        return v.date()
+    if isinstance(v, datetime.date):
+        return v
+    n = _num(v)
+    if n is None:
+        return None
+    return (datetime.datetime(1899, 12, 30) + datetime.timedelta(days=n)).date()
+
+
+def _anniv(issue: datetime.date, year: int) -> datetime.date:
+    """Anniversary date starting policy year `year` (1-based)."""
+    y = issue.year + year - 1
+    try:
+        return issue.replace(year=y)
+    except ValueError:  # Feb 29 issue
+        return issue.replace(year=y, day=28)
+
+
 def _app_cmd_from_case(pairs, months, company, region):
-    """Translate a Saved Case's inputs into a run_engine_case command (baselines).
+    """Translate a Saved Case's inputs into a run_engine_case command.
 
     Baselines: policy + billable premium + GPT/TAMRA/exact-days toggles.  Premium
     overrides REPLACE the billed premium from year 1 on (mirrors RERUN's vector).
+    Scenario cases: transitions in the face/DBO vectors become dated
+    PolicyChangeEvents at the anniversary starting that policy year; non-zero
+    withdrawal-vector rows become dated withdrawals at the same anniversary
+    (RERUN takes withdrawals at BOY).
     """
     d = {}
     for name, vals in pairs:
@@ -108,6 +135,33 @@ def _app_cmd_from_case(pairs, months, company, region):
         "exact_days": _as_bool(first("sINPUT_Exact_Days_Boolean")),
         "premiums": [{"year": 1, "amount": prem, "mode": mode}],
     }
+
+    issue = _excel_date(first("sINPUT_Issue_Date"))
+    if issue is not None:
+        changes, withdrawals = [], []
+        sa = d.get("vINPUT_Specified_Amount") or []
+        for i in range(1, len(sa)):
+            prev, cur = _num(sa[i - 1]), _num(sa[i])
+            if prev is not None and cur is not None and abs(cur - prev) > 1e-6:
+                changes.append({"kind": "face_amount", "value": cur,
+                                "date": _anniv(issue, i + 1).isoformat()})
+        dbo = d.get("vINPUT_DBO") or []
+        for i in range(1, len(dbo)):
+            prev = str(dbo[i - 1] or "").strip().upper()
+            cur = str(dbo[i] or "").strip().upper()
+            if prev and cur and cur != prev:
+                changes.append({"kind": "db_option", "value": cur,
+                                "date": _anniv(issue, i + 1).isoformat()})
+        for i, v in enumerate(d.get("vINPUT_Withdrawal") or []):
+            amt = _num(v)
+            if amt:
+                withdrawals.append({"amount": amt,
+                                    "date": _anniv(issue, i + 1).isoformat()})
+        if changes:
+            cmd["changes"] = changes
+        if withdrawals:
+            cmd["withdrawals"] = withdrawals
+
     meta = {
         "case_id": str(first("sINPUT_CaseID") or "").strip(),
         "description": str(first("sINPUT_CaseDescription") or "").strip(),
@@ -139,7 +193,7 @@ def run_rerun_side(workbook, cases, months):
     """Open Excel once; for each case load+recalc+read Debug File."""
     from rerun_com import (
         _enable_iteration, _open_excel, _temp_copy, _write_named_range,
-        read_case_inputs, XL_CALC_MANUAL,
+        assert_comparison_inputs, read_case_inputs, XL_CALC_MANUAL,
     )
 
     xl = _open_excel()
@@ -147,9 +201,12 @@ def run_rerun_side(workbook, cases, months):
     results = {}
     try:
         _enable_iteration(xl)
-        wb = xl.Workbooks.Open(str(tmp), UpdateLinks=0, ReadOnly=False)
-        xl.Calculation = XL_CALC_MANUAL  # avoid a recalc storm on each cell write
+        # One workbook OPEN per case: the AV chain is iterative, so an Excel
+        # error (#N/A etc.) from one case latches in the circular cells and
+        # contaminates every case loaded after it in the same session.
         for case in cases:
+            wb = xl.Workbooks.Open(str(tmp), UpdateLinks=0, ReadOnly=False)
+            xl.Calculation = XL_CALC_MANUAL  # avoid a recalc storm on each cell write
             pairs, src_col = read_case_inputs(workbook, case)
             written, failed = 0, []
             for name, vals in pairs:
@@ -158,6 +215,10 @@ def run_rerun_side(workbook, cases, months):
                     written += 1
                 except Exception as exc:  # noqa: BLE001
                     failed.append({"name": name, "error": str(exc)})
+            # Comparison policy: every case must run TEFRA-forced and with
+            # exact-days OFF; fail loudly before the (expensive) recalc if a
+            # stray case says otherwise.
+            assert_comparison_inputs(wb, case)
             xl.CalculateFull()
             labels, rrows = _read_debug_file(wb, months)
             # RERUN injects the current shadow account value here at valuation; feed
@@ -171,7 +232,7 @@ def run_rerun_side(workbook, cases, months):
                 "shadow_seed": _num(shadow_seed),
                 "inputs_written": written, "input_failures": failed,
             }
-        wb.Close(SaveChanges=False)
+            wb.Close(SaveChanges=False)
     finally:
         xl.Quit()
         try:

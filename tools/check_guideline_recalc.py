@@ -128,7 +128,8 @@ def main() -> None:
     if len(sys.argv) < 2:
         print(json.dumps({"error": "missing JSON arg"}))
         sys.exit(1)
-    print(json.dumps(run(json.loads(sys.argv[1])), indent=1))
+    # default=str: recalc detail nests dates (7-pay window/solve dates).
+    print(json.dumps(run(json.loads(sys.argv[1])), indent=1, default=str))
 
 
 if __name__ == "__main__":

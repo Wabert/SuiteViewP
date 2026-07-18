@@ -141,9 +141,9 @@ def forecast_termination(policy_number: str, *, exact_days_interest: bool):
 
     for st in results[1:]:
         if st.lapsed:
-            return st.date, round(st.av_end_of_month, 2), round(st.surrender_value, 2), rider_benefit_codes, md_diff, "termination"
+            return st.date, round(st.av_end_of_month, 2), round(st.ending_sv, 2), rider_benefit_codes, md_diff, "termination"
     maturity = results[-1]
-    return maturity.date, round(maturity.av_end_of_month, 2), round(maturity.surrender_value, 2), rider_benefit_codes, md_diff, "maturity"
+    return maturity.date, round(maturity.av_end_of_month, 2), round(maturity.ending_sv, 2), rider_benefit_codes, md_diff, "maturity"
 
 
 def main() -> None:

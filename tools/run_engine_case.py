@@ -218,7 +218,7 @@ def main() -> None:
             "date", "policy_year", "duration", "attained_age",
             "gross_premium", "av_after_premium", "total_deduction",
             "av_after_deduction", "interest_credited", "av_end_of_month",
-            "surrender_value", "ending_db",
+            "surrender_value", "ending_sv", "ending_db",
         ]
         summary["preview"] = [
             {"row": r["row"], **{f: r.get(f) for f in preview_fields}}
