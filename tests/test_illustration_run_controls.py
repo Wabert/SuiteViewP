@@ -46,18 +46,18 @@ def test_excess_repayment_toggle_defaults_to_stop_and_drives_options():
     _app()
     tab = IllustrationInputsTab()
 
-    # The excess-repayment toggle sits at the top of the Loan Repayments group
-    # and defaults to "Stop at payoff" — repayments stop once the loan is
+    # The excess-repayment radios sit at the top of the Loan Repayments group
+    # and default to "Stop at payoff" — repayments stop once the loan is
     # repaid, matching the engine's flag-off behavior.
-    assert tab.dynamic_panel.excess_stop_btn.isChecked() is True
-    assert tab.dynamic_panel.excess_apply_btn.isChecked() is False
+    assert tab.dynamic_panel.excess_stop_radio.isChecked() is True
+    assert tab.dynamic_panel.excess_apply_radio.isChecked() is False
     assert tab.export_options().apply_excess_repayment_as_premium is False
 
     # "Apply excess as premium" flows straight through to the run options —
-    # and toggling back to "Stop at payoff" clears the flag again.
-    tab.dynamic_panel.excess_apply_btn.setChecked(True)
+    # and switching back to "Stop at payoff" clears the flag again.
+    tab.dynamic_panel.excess_apply_radio.setChecked(True)
     assert tab.export_options().apply_excess_repayment_as_premium is True
-    tab.dynamic_panel.excess_stop_btn.setChecked(True)
+    tab.dynamic_panel.excess_stop_radio.setChecked(True)
     assert tab.export_options().apply_excess_repayment_as_premium is False
 
 

@@ -45,7 +45,13 @@ from suiteview.illustration.models.index_strategies import ag49_regimes, is_iul_
 from suiteview.polview.ui.formatting import format_date
 
 from .inputs_dynamic import DynamicInputsPanel
-from .styles import GROUP_STYLE, INPUT_TABLE_STYLE, PURPLE_BG, PURPLE_DARK
+from .styles import (
+    GROUP_STYLE,
+    INPUT_RADIO_STYLE,
+    INPUT_TABLE_STYLE,
+    PURPLE_BG,
+    PURPLE_DARK,
+)
 
 
 # What each AG49 regime means for the illustration, keyed by regime index
@@ -630,15 +636,7 @@ class IllustrationInputsTab(QWidget):
 
     def _make_control_radio(self, text: str):
         radio = QRadioButton(text, self)
-        radio.setStyleSheet(
-            f"QRadioButton {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold; spacing: 6px; }}"
-            "QRadioButton::indicator { border: 1px solid #5E35A5; border-radius: 6px; width: 12px; height: 12px; background-color: white; }"
-            "QRadioButton::indicator:hover { border: 1px solid #4B2383; background-color: #FBF9FE; }"
-            "QRadioButton::indicator:checked { background-color: #5E35A5; border: 1px solid #4B2383; }"
-            "QRadioButton:disabled { color: #9A8FB0; }"
-            "QRadioButton::indicator:disabled { border: 1px solid #C9B8E4; background-color: #EEE7F9; }"
-            "QRadioButton::indicator:checked:disabled { background-color: #B7A6D6; border: 1px solid #C9B8E4; }"
-        )
+        radio.setStyleSheet(INPUT_RADIO_STYLE)
         return radio
 
     @staticmethod

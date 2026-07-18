@@ -793,26 +793,26 @@ def test_suspended_banner():
 def test_excess_repayment_toggle_states_and_placement():
     panel = _panel()
 
-    # Two-state segmented toggle: exactly one side lit, "Stop at payoff" by
+    # Two exclusive radio buttons: exactly one selected, "Stop at payoff" by
     # default (the engine's flag-off behavior — the excess is discarded).
-    assert panel.excess_stop_btn.isChecked() is True
-    assert panel.excess_apply_btn.isChecked() is False
+    assert panel.excess_stop_radio.isChecked() is True
+    assert panel.excess_apply_radio.isChecked() is False
     assert panel.excess_repayment_as_premium() is False
 
-    panel.excess_apply_btn.setChecked(True)
-    assert panel.excess_stop_btn.isChecked() is False
+    panel.excess_apply_radio.setChecked(True)
+    assert panel.excess_stop_radio.isChecked() is False
     assert panel.excess_repayment_as_premium() is True
 
-    panel.excess_stop_btn.setChecked(True)
-    assert panel.excess_apply_btn.isChecked() is False
+    panel.excess_stop_radio.setChecked(True)
+    assert panel.excess_apply_radio.isChecked() is False
     assert panel.excess_repayment_as_premium() is False
 
-    # The toggle lives at the TOP of the Loan Repayments group (a header
+    # The radios live at the TOP of the Loan Repayments group (a header
     # widget above the column captions), mirroring the Premiums lumpsum row.
     header_item = panel.repayment_section.layout().itemAt(0)
     header_widget = header_item.widget()
     assert header_widget is not None
-    assert panel.excess_stop_btn in header_widget.findChildren(type(panel.excess_stop_btn))
+    assert panel.excess_stop_radio in header_widget.findChildren(type(panel.excess_stop_radio))
 
 
 def test_sections_pack_to_top_with_trailing_stretch():

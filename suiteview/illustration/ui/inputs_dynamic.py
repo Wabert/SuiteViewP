@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QToolTip,
     QVBoxLayout,
@@ -72,6 +73,7 @@ from .styles import (
     INPUT_CHECKBOX_STYLE as _CHECKBOX_STYLE,
     INPUT_COMBO_STYLE as _COMBO_STYLE,
     INPUT_EDIT_STYLE as _EDIT_STYLE,
+    INPUT_RADIO_STYLE as _RADIO_STYLE,
     INPUT_SMALL_BTN_STYLE as _SMALL_BTN_STYLE,
     PURPLE_BG,
     PURPLE_DARK,
@@ -1594,17 +1596,17 @@ class DynamicInputsPanel(QWidget):
         self.repayment_section = DynamicSection(SectionSpec(
             "Loan Repayments", allow_payoff=True))
         # Excess-repayment behavior (apply_excess_repayment_as_premium): what a
-        # repayment larger than the loan payoff does with its excess. A segmented
-        # two-state toggle (same pattern as the rider keep/change/drop buttons)
-        # at the top of the group, mirroring the Premiums lumpsum header.
-        # "Stop at payoff" is the default — the excess is discarded; "Apply
-        # excess as premium" runs it through the acceptance chain instead.
-        self.excess_stop_btn = QPushButton("Stop at payoff")
-        self.excess_stop_btn.setToolTip(
+        # repayment larger than the loan payoff does with its excess. Two
+        # exclusive radio buttons at the top of the group, mirroring the
+        # Premiums lumpsum header. "Stop at payoff" is the default — the excess
+        # is discarded; "Apply excess as premium" runs it through the
+        # acceptance chain instead.
+        self.excess_stop_radio = QRadioButton("Stop at payoff")
+        self.excess_stop_radio.setToolTip(
             "A loan repayment larger than the loan payoff stops at the payoff — "
             "the excess is discarded.")
-        self.excess_apply_btn = QPushButton("Apply excess as premium")
-        self.excess_apply_btn.setToolTip(
+        self.excess_apply_radio = QRadioButton("Apply excess as premium")
+        self.excess_apply_radio.setToolTip(
             "A loan repayment larger than the loan payoff applies its excess as "
             "premium — it runs through the premium-acceptance chain and gets the "
             "premium load.")
@@ -1618,15 +1620,14 @@ class DynamicInputsPanel(QWidget):
         excess_caption.setStyleSheet(
             f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;")
         excess_row.addWidget(excess_caption)
-        excess_row.addSpacing(8)
-        for button in (self.excess_stop_btn, self.excess_apply_btn):
-            button.setCheckable(True)
-            button.setStyleSheet(_SEGMENT_STYLE)
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            self._excess_repay_group.addButton(button)
-            excess_row.addWidget(button)
+        for radio in (self.excess_stop_radio, self.excess_apply_radio):
+            radio.setStyleSheet(_RADIO_STYLE)
+            radio.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._excess_repay_group.addButton(radio)
+            excess_row.addSpacing(10)
+            excess_row.addWidget(radio)
         excess_row.addStretch(1)
-        self.excess_stop_btn.setChecked(True)   # current-default: stop at payoff
+        self.excess_stop_radio.setChecked(True)   # current-default: stop at payoff
         self.repayment_section.add_header_widget(excess_header)
 
         transactions = QGridLayout()
@@ -1758,10 +1759,10 @@ class DynamicInputsPanel(QWidget):
         return self.lumpsum_to_next_check.isChecked()
 
     def excess_repayment_as_premium(self) -> bool:
-        """Excess-repayment toggle state — True when the excess of a loan
+        """Excess-repayment radio state — True when the excess of a loan
         repayment over the payoff is applied as premium (default: stop at
         payoff, the excess is discarded)."""
-        return self.excess_apply_btn.isChecked()
+        return self.excess_apply_radio.isChecked()
 
     def _on_lumpsum_to_next_toggled(self, checked: bool):
         # Solving the bridge owns the lump sum: disable the manual field while
