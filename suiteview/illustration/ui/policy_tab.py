@@ -288,12 +288,26 @@ class IllustrationPolicyTab(QWidget):
         table.autoFitAllColumns()
         total = sum(table.columnWidth(col) for col in range(table.columnCount()))
         table.setFixedWidth(total + 20)
+        cls._pin_fund_table_height(table, table.rowCount())
+
+    @classmethod
+    def _pin_fund_table_height(cls, table, row_count: int):
+        """Fix the table's height to header + row_count rows (at least one so
+        an empty table still reads as one, at most the visible-row cap)."""
         inner = table._data_table
         header_height = inner.horizontalHeader().minimumHeight()
         row_height = inner.verticalHeader().defaultSectionSize()
-        # Keep one blank row of space when empty so the table still reads as one.
-        visible_rows = max(1, min(table.rowCount(), cls._FUND_TABLE_MAX_VISIBLE_ROWS))
+        visible_rows = max(1, min(row_count, cls._FUND_TABLE_MAX_VISIBLE_ROWS))
         table.setFixedHeight(header_height + visible_rows * row_height + 6)
+
+    def _equalize_fund_tables(self):
+        """Give all three fund mini-tables one shared height — the tallest
+        table's content (capped) — so the row reads as a unit instead of
+        ragged blocks of different heights."""
+        tables = (self.unimpaired_table, self.impaired_table, self.allocation_table)
+        shared_rows = max(table.rowCount() for table in tables)
+        for table in tables:
+            self._pin_fund_table_height(table, shared_rows)
 
     def load_data_from_policy(self, policy, policy_info: dict | None = None, md_check=None):
         self._policy = policy
@@ -347,6 +361,7 @@ class IllustrationPolicyTab(QWidget):
         self.unimpaired_table.setRowCount(0)
         self.impaired_table.setRowCount(0)
         self.allocation_table.setRowCount(0)
+        self._equalize_fund_tables()
         self._clear_buttons()
 
     def _populate_policy_info(self, policy, policy_info: dict):
@@ -474,6 +489,7 @@ class IllustrationPolicyTab(QWidget):
         self._fill_fund_table(self.unimpaired_table, self._current_fund_values_by_fund(policy))
         self._fill_fund_table(self.impaired_table, self._impaired_fund_values_by_fund(policy))
         self._fill_allocation_table(policy)
+        self._equalize_fund_tables()
 
     def _fill_allocation_table(self, policy):
         """Premium allocation % by fund (IUL — empty on declared-rate plans)."""

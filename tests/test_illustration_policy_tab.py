@@ -179,6 +179,34 @@ def test_fund_table_height_tracks_row_count_and_caps():
     assert table.maximumHeight() == empty_height + (cap - 1) * row_height
 
 
+def test_fund_tables_equalize_to_tallest_tables_height():
+    _app()
+    tab = IllustrationPolicyTab()
+
+    from decimal import Decimal
+
+    row_height = tab.unimpaired_table._data_table.verticalHeader().defaultSectionSize()
+    one_row_height = tab.unimpaired_table.maximumHeight()
+
+    # UE013383-shaped load: 6 unimpaired funds, 0 impaired, 5 allocations.
+    tab._fill_fund_table(tab.unimpaired_table, {f"{i:02d}": Decimal("100") for i in range(6)})
+    tab._fill_fund_table(tab.impaired_table, {})
+    tab._fill_fund_table(tab.allocation_table, {f"{i:02d}": Decimal("10") for i in range(5)})
+    tab._equalize_fund_tables()
+
+    six_row_height = one_row_height + 5 * row_height
+    for table in (tab.unimpaired_table, tab.impaired_table, tab.allocation_table):
+        assert table.maximumHeight() == six_row_height
+
+    # Single-fund policies keep the compact uniform 1-row look.
+    for table in (tab.unimpaired_table, tab.impaired_table, tab.allocation_table):
+        table.setRowCount(0)
+    tab._fill_fund_table(tab.unimpaired_table, {"U1": Decimal("100")})
+    tab._equalize_fund_tables()
+    for table in (tab.unimpaired_table, tab.impaired_table, tab.allocation_table):
+        assert table.maximumHeight() == one_row_height
+
+
 def test_7pay_start_date_is_directly_under_cost_basis():
     _app()
     tab = IllustrationPolicyTab()
