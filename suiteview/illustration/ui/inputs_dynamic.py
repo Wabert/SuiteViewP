@@ -487,6 +487,7 @@ class InputRow(QWidget):
         if spec.has_span:
             self.mode_combo = QComboBox(self)
             self.mode_combo.addItems(["M", "Q", "S", "A"])
+            self.mode_combo.setCurrentText(spec.default_mode)
             self.mode_combo.setStyleSheet(_COMBO_STYLE)
             self.mode_combo.setFixedWidth(_W_MODE)
             self.mode_combo.currentIndexChanged.connect(self._mode_changed)
@@ -837,6 +838,7 @@ class SectionSpec:
     allow_payoff: bool = False                  # "Pay-off" solve type (loan repayments)
     type_width: int = _W_TYPE                   # Type column width (wider for level types)
     has_basis: bool = False                     # Net/Gross basis combo (withdrawals)
+    default_mode: str = "M"                     # Mode combo default for new rows
 
 
 class DynamicSection(QGroupBox):
@@ -975,6 +977,8 @@ class DynamicSection(QGroupBox):
             first.to_age_edit.setText("")
         if first.basis_combo is not None:
             first.basis_combo.setCurrentIndex(0)   # back to the Net default
+        if first.mode_combo is not None:
+            first.mode_combo.setCurrentText(self.spec.default_mode)
         if self.spec.default_first_row:
             first.type_combo.setCurrentIndex(0)
             first.year_edit.set_value(ctx.forecast_year)
@@ -1584,8 +1588,9 @@ class DynamicInputsPanel(QWidget):
         lumpsum_row.addWidget(self.lumpsum_to_next_check)
         lumpsum_row.addStretch(1)
         self.premium_section.add_header_widget(lumpsum_header)
-        self.loan_section = DynamicSection(SectionSpec("Loans"))
-        self.withdrawal_section = DynamicSection(SectionSpec("Withdrawals", has_basis=True))
+        self.loan_section = DynamicSection(SectionSpec("Loans", default_mode="A"))
+        self.withdrawal_section = DynamicSection(SectionSpec(
+            "Withdrawals", has_basis=True, default_mode="A"))
         self.repayment_section = DynamicSection(SectionSpec(
             "Loan Repayments", allow_payoff=True))
         # Excess-repayment behavior (apply_excess_repayment_as_premium): what a

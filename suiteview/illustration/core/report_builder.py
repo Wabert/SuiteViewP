@@ -449,7 +449,7 @@ def _change_sections(
                 new_start = eff.tamra_7pay_start_date
                 if new_start is not None and new_start != prior_start:
                     section.limit_lines.append(
-                        f"NEW 7-PAY PERIOD STARTS = {new_start.strftime('%m-%d-%Y')}")
+                        f"NEW 7-PAY PERIOD STARTS = {new_start.strftime('%m/%d/%Y')}")
         sections.append(section)
     return sections
 
@@ -558,7 +558,7 @@ def build_ul_report(
         f"{policy.issue_date:%B} {policy.issue_date.day}, {policy.issue_date.year}"
         if policy.issue_date else ""
     )
-    as_of_short = valuation.strftime("%m-%d-%Y") if valuation else ""
+    as_of_short = valuation.strftime("%m/%d/%Y") if valuation else ""
     # Two-column cover block (RERUN page 1): identity on the left, the
     # CURRENT policy elements on the right. ("", "") rows are separators.
     report.policy_block = [
@@ -646,7 +646,7 @@ def build_ul_report(
             "SURRENDER VALUE")
     for _year, start in report.seven_pay_restarts:
         legends.append(
-            f"+ A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON {start.strftime('%m-%d-%Y')} "
+            f"+ A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON {start.strftime('%m/%d/%Y')} "
             "DUE TO A MATERIAL POLICY CHANGE")
     report.footnote_legends = legends
 
@@ -739,5 +739,5 @@ def build_ul_report(
                 f"7-PAY PREMIUM = {_money(policy.tamra_7pay_level)}")
             if policy.tamra_7pay_start_date:
                 report.regulatory_lines.append(
-                    f"7-PAY START DATE = {policy.tamra_7pay_start_date.strftime('%m-%d-%Y')}")
+                    f"7-PAY START DATE = {policy.tamra_7pay_start_date.strftime('%m/%d/%Y')}")
     return report

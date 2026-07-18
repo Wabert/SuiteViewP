@@ -160,18 +160,39 @@ def test_seven_pay_restart_marks_ledger_and_footnotes():
     year8 = next(row for row in report.ledger if row.year == 8)
     assert "+" not in year8.markers
     legend = next(l for l in report.footnote_legends if l.startswith("+"))
-    assert "11-09-2027" in legend
+    assert "11/09/2027" in legend
     section = report.change_sections[0]
     assert any("7-PAY PREMIUM = $5,407.11" in line for line in section.limit_lines)
-    assert any("NEW 7-PAY PERIOD STARTS = 11-09-2027" in line
+    assert any("NEW 7-PAY PERIOD STARTS = 11/09/2027" in line
                for line in section.limit_lines)
 
     # Both surface on the rendered pages: the ledger footnote and the
     # riders/regulatory page's estimated-limits block.
     from suiteview.illustration.ui.report_tab import format_report_pages
     flat = "\n".join(line for page in format_report_pages(report) for line in page)
-    assert "+ A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON 11-09-2027" in flat
-    assert "NEW 7-PAY PERIOD STARTS = 11-09-2027" in flat
+    assert "+ A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON 11/09/2027" in flat
+    assert "NEW 7-PAY PERIOD STARTS = 11/09/2027" in flat
+
+
+def test_report_dates_all_use_slash_mm_dd_yyyy():
+    """Every numeric date in the report renders mm/dd/yyyy. The regulatory
+    page's 7-PAY START DATE and the cover's premiums-paid AS OF date were
+    formerly dash-formatted (mm-dd-yyyy)."""
+    report = build_ul_report(_policy(), _results(), run_date=date(2026, 6, 10))
+
+    # Riders/regulatory page: 7-pay start date (was 11-09-2019).
+    assert any("7-PAY START DATE = 11/09/2019" in line
+               for line in report.regulatory_lines)
+    # Cover block: premiums-paid AS OF valuation date (was 05-09-2026).
+    as_of_line = next(right for _left, right in report.policy_block
+                      if "AS OF" in right)
+    assert "(AS OF 05/09/2026)" in as_of_line
+
+    # No dash-formatted date survives anywhere on the rendered pages.
+    import re
+    from suiteview.illustration.ui.report_tab import format_report_pages
+    flat = "\n".join(line for page in format_report_pages(report) for line in page)
+    assert not re.search(r"\d{2}-\d{2}-\d{4}", flat)
 
 
 def test_no_seven_pay_restart_without_material_change():

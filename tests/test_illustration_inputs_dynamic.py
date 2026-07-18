@@ -155,6 +155,26 @@ def test_loan_row_span_stays_empty():
     assert row.to_age_edit.value() is None
 
 
+def test_loan_and_withdrawal_modes_default_to_annual():
+    # Loans and Withdrawals default their Mode to Annual; Premiums follow the
+    # policy billing mode and Loan Repayments keep the Monthly default.
+    panel = _panel()
+    assert panel.loan_section.rows()[0].mode() == "A"
+    assert panel.withdrawal_section.rows()[0].mode() == "A"
+    assert panel.premium_section.rows()[0].mode() == "M"
+    assert panel.repayment_section.rows()[0].mode() == "M"
+
+    # Rows added with ＋ inherit the section default too.
+    assert panel.loan_section.add_row().mode() == "A"
+    assert panel.withdrawal_section.add_row().mode() == "A"
+    assert panel.repayment_section.add_row().mode() == "M"
+
+    # A fresh policy load resets a user-changed mode back to the default.
+    panel.loan_section.rows()[0].mode_combo.setCurrentText("Q")
+    panel.load_from_policy(_FakePolicy())
+    assert panel.loan_section.rows()[0].mode() == "A"
+
+
 def test_allow_gp_exception_premium_checked_by_default():
     # Allow GP Exception Premium is on by default for a normal (non-shadow) policy.
     panel = _panel()
