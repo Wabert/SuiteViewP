@@ -57,7 +57,8 @@ class ABRQuoteWindow(FramelessWindowBase):
         "3. Output",
     ]
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, initial_policy: str = "",
+                 initial_region: str = "CKPR", initial_company: str = ""):
         # State
         self._policy: Optional[ABRPolicyData] = None
         self._assessment: Optional[MedicalAssessment] = None
@@ -81,6 +82,25 @@ class ABRQuoteWindow(FramelessWindowBase):
         self._add_header_menu()
 
         # Policy label will be placed in the step bar (built in build_content)
+
+        # Optionally pull in a policy on open (e.g. launched from the taskbar).
+        if initial_policy:
+            self.load_policy(initial_policy, region=initial_region,
+                             company_code=initial_company)
+
+    def load_policy(self, policy_number: str, region: str = "CKPR",
+                    company_code: str = ""):
+        """Load *policy_number* through Step 1's existing retrieve path.
+
+        Public entry point reused by the taskbar policy launcher. ABR always
+        uses region CKPR and auto-detects the company, so *region* /
+        *company_code* are accepted for a uniform launcher signature but not
+        used. Returns to Step 1 so the loaded policy is visible.
+        """
+        if not (policy_number or "").strip():
+            return
+        self._set_step(0)
+        self.policy_panel.load_policy(policy_number)
 
     def build_content(self) -> QWidget:
         """Build the main body widget with step indicator and stacked panels."""

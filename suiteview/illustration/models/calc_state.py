@@ -88,6 +88,8 @@ class MonthlyState:
     gross_premium: float = 0.0
     prem_under_target: float = 0.0  # Portion at TPP rate (under CTP)
     prem_over_target: float = 0.0   # Portion at EPP rate (over CTP)
+    tpp_rate: float = 0.0           # Target premium load rate (OG) — shown even with no premium
+    epp_rate: float = 0.0           # Excess premium load rate (OH)
     target_load: float = 0.0
     excess_load: float = 0.0
     flat_load: float = 0.0
@@ -221,6 +223,11 @@ class MonthlyState:
     md_check_calculated_av_after_deduction: float = 0.0
     md_check_av_variance: float = 0.0
 
+    # ── 2c. IUL asset charge (RERUN SS..SX) — IP/IR multiplier strategies,
+    #        deducted with the monthly deduction under AG49 regimes 1-2 only ──
+    asset_charge_rate: float = 0.0      # SU — annual blended asset-charge rate
+    asset_charge: float = 0.0           # SV — this month's charge (deducted from AV)
+
     # ── 3. Interest Credit (cols 548-585) ─────
     days_in_month: float = 0.0
     annual_interest_rate: float = 0.0
@@ -234,6 +241,13 @@ class MonthlyState:
     unimpaired_int: float = 0.0         # Interest on AV not backing loans
     interest_credited: float = 0.0
     av_end_of_month: float = 0.0
+
+    # ── 3a. IUL WAIR crediting (RERUN US..VL) — populated only when the run
+    #        uses Weighted Average Interest Rate crediting ──
+    wair_tav: float = 0.0               # VG — one-year TAV projection (display)
+    wair_swam: float = 0.0              # VH — SWAM used in the WAIR weighting
+    wair_held: float = 0.0              # VI/VJ — WAIR recomputed at BOY, held all year
+    wair_rate: float = 0.0              # VK — after the guaranteed-basis declared cap
 
     # ── 3b. Loan Interest Accrual (cols 587-592) ──
     reg_loan_charge: float = 0.0        # Regular loan interest accrued this month

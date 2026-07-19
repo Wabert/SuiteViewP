@@ -117,7 +117,7 @@ def test_load_rates_uses_current_scale_for_expenses_with_guaranteed_coi():
             # Distinct arrays per scale so a wrong-scale read is visible.
             return [None, 100.0 + scale]
 
-        def get_band(self, plancode, face):
+        def get_band(self, plancode, face, issue_date=None):
             return 1
 
         def get_mtp(self, *a, **k):

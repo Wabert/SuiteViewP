@@ -115,18 +115,33 @@ class FramelessWindowBase(QWidget):
 
     # â”€â”€ Header bar (custom title bar) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    def _build_header_bar(self, title: str) -> QFrame:
-        bar = QFrame()
-        bar.setFixedHeight(38)
-        bar.setMouseTracking(True)
+    def _apply_header_gradient(self):
+        """(Re)paint the header bar with the current 3-stop gradient."""
         c1, c2, c3 = self._header_colors
-        bar.setStyleSheet(f"""
+        self.header_bar.setStyleSheet(f"""
             QFrame {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 {c1}, stop:0.5 {c2}, stop:1 {c3});
                 border: none;
             }}
         """)
+
+    def set_header_colors(self, colors):
+        """Swap the header gradient at runtime (e.g. a mode indicator)."""
+        self._header_colors = tuple(colors)
+        self._apply_header_gradient()
+
+    def set_title(self, title: str):
+        """Update the header title text at runtime."""
+        self._window_title_text = title
+        self._title_label.setText(title)
+
+    def _build_header_bar(self, title: str) -> QFrame:
+        bar = QFrame()
+        bar.setFixedHeight(38)
+        bar.setMouseTracking(True)
+        self.header_bar = bar
+        self._apply_header_gradient()
         bar.setCursor(Qt.CursorShape.ArrowCursor)
         bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         bar.customContextMenuRequested.connect(self._header_context_menu)
@@ -135,8 +150,10 @@ class FramelessWindowBase(QWidget):
         layout.setContentsMargins(12, 4, 8, 4)
         layout.setSpacing(8)
 
-        # Title
+        # Title (always plain text — a runtime set_title may carry
+        # user-entered strings, e.g. a saved-case name)
         self._title_label = QLabel(title)
+        self._title_label.setTextFormat(Qt.TextFormat.PlainText)
         self._title_label.setStyleSheet("""
             QLabel {
                 color: #FFFFFF;

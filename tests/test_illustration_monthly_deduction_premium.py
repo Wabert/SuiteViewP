@@ -150,6 +150,44 @@ def test_md_premium_hands_off_to_gp_exception_when_capped(monkeypatch):
         assert s.gp_exception_prem > 0.0
 
 
+def test_monthly_deduction_premium_active_honors_windows():
+    # The fix locus: a Monthly-Deduction premium row must be active ONLY within
+    # its year window. Without windows the premium runs the whole projection
+    # (the plain "pay the deduction" case); with windows it is active only in a
+    # window's policy years, so the window's END is honored and later premium
+    # rows can take over once it ends. (Engine-level; hermetic — no rate DB.)
+    from suiteview.illustration.core.calc_engine import (
+        _monthly_deduction_premium_active as active,
+    )
+
+    # Master toggle off -> never active.
+    assert active(IllustrationOptions(pay_monthly_deduction=False), 30) is False
+
+    # No windows -> active every year (whole projection).
+    whole = IllustrationOptions(pay_monthly_deduction=True)
+    assert all(active(whole, year) for year in (1, 30, 121))
+
+    # A single bounded window 10..12 -> active only inside it.
+    one = IllustrationOptions(
+        pay_monthly_deduction=True, monthly_deduction_windows=[(10, 12)])
+    assert [active(one, y) for y in range(8, 15)] == [
+        False, False, True, True, True, False, False]
+
+    # An open-ended window (end None) runs to maturity from its start.
+    open_ended = IllustrationOptions(
+        pay_monthly_deduction=True, monthly_deduction_windows=[(30, None)])
+    assert active(open_ended, 29) is False
+    assert active(open_ended, 30) is True
+    assert active(open_ended, 121) is True
+
+    # Two separate windows each engage/disengage on their own bounds; the gap
+    # between them is inactive (later premium rows apply there).
+    two = IllustrationOptions(
+        pay_monthly_deduction=True, monthly_deduction_windows=[(10, 11), (20, 22)])
+    assert [active(two, y) for y in (9, 10, 11, 12, 19, 20, 22, 23)] == [
+        False, True, True, False, False, True, True, False]
+
+
 def test_account_value_declines_without_monthly_deduction_premium(monkeypatch):
     _patch(monkeypatch)
     states = IllustrationEngine().project(

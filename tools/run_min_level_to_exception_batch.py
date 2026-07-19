@@ -6,6 +6,10 @@ level premium that keeps the GPT policy in force to maturity, with GLP
 exception premiums allowed), and writes the solved premium plus a snapshot of
 the policy back into the same sheet — one row per policy.
 
+The per-policy solve logic lives in
+``suiteview/illustration/core/batch_runner.py`` (shared with the Illustration
+app's Batch tab); this tool owns only the workbook I/O around it.
+
 Columns are matched to the workbook by HEADER LABEL at runtime (see HEADERS), so
 the tool follows whatever order the headers are in and tolerates reordering. A
 header that isn't present is simply skipped (and reported). Output fields:
@@ -42,9 +46,10 @@ Run Status decides whether the Min Level to Exception solve runs, and its outcom
       "Matured w/o Except Prem" - the level premium endows on its own.
       "Except Prem Required"    - it rides the GLP exception period to maturity.
 
-The solve uses each policy's own billing mode. Every column except the solve
-set (Min Level Prem / Total Prem Paid / Exception Duration / Exception Date) is
-the policy's current inforce snapshot and is written regardless of Run Status.
+The solve uses each policy's own billing mode, with Lumpsum to Next Prem always
+layered on top of the solved premium. Every column except the solve set (Min
+Level Prem / Total Prem Paid / Exception Duration / Exception Date) is the
+policy's current inforce snapshot and is written regardless of Run Status.
 
 Live data: this reads policy data through PolicyInformation / DB2 like the rest
 of the app. It does NOT enable local SQLite fixtures — set SUITEVIEW_LOCAL_DATA=1
@@ -82,7 +87,6 @@ import json
 import os
 import re
 import sys
-from copy import deepcopy
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -98,42 +102,16 @@ except ImportError:
                       "venv\\Scripts\\python.exe -m pip install openpyxl"}))
     sys.exit(1)
 
-# Field key -> exact header text in row 1. Columns are resolved by label at
-# runtime (see _resolve_columns) so the tool follows the user's column order
-# wherever each header lands. Missing output columns are appended automatically.
-# A=Company / B=Policy are read directly, not here.
-HEADERS = {
-    "plancode": "Plancode",
-    "form": "Form",
-    "riders": "Active Riders and Benefits",
-    "run_status": "Run Status",
-    "abs_max": "Absolute Max Prem",
-    "abs_max_av": "Absolute Max AV",
-    "min_prem": "Min Level Prem",
-    "exc_dur": "Exception Duration",
-    "duration": "Current Duration",
-    "md": "MD",
-    "md_diff": "MD Diff",
-    "loan": "Loan Amount",
-    "exc_date": "Exception Date",
-    "face": "Face Amount",
-    "issue_date": "Issue date",
-    "maturity_date": "Maturity Date",
-    "maturity_duration": "Maturity Duration",
-    "maturity_age": "Maturity Age",
-    "issue_age": "Issue Age",
-    "attained_age": "Attained Age",
-    "gsp": "GSP",
-    "glp": "GLP",
-    "accum_lp": "AccumLP",
-    "prem_td": "PremTD",
-    "accum_wd": "AccumWD",
-    "valuation_date": "Valuation Date",
-    "suspense_code": "Suspense Code",
-    "total_prem_paid": "Total Prem Paid",
-    "lumpsum": "Lumpsum to Next Prem",
-    "def_life_ins": "Def Life Ins",
-}
+from suiteview.illustration.core.batch_runner import (  # noqa: E402
+    FMT_DATE, FMT_INT, FMT_MONEY, MINLEVEL_COLUMNS, MINLEVEL_FORMATS,
+    MINLEVEL_SOLVE_KEYS, STATUS_ERROR, STATUS_EXCEPT, STATUS_MATURED,
+)
+
+# Field key -> exact header text in row 1 (shared with the Batch tab via
+# batch_runner.MINLEVEL_COLUMNS). Columns are resolved by label at runtime (see
+# _resolve_columns) so the tool follows the user's column order. Missing output
+# columns are appended. A=Company / B=Policy are read directly, not here.
+HEADERS = dict(MINLEVEL_COLUMNS)
 
 # Resolved at runtime: field key -> column letter (only headers actually found).
 COL: dict = {}
@@ -142,47 +120,9 @@ MONEY_FMT = "#,##0.00"
 DATE_FMT = "m/d/yyyy"
 INT_FMT = "0"
 
-MONEY_KEYS = {
-    "abs_max_av",
-    "min_prem",
-    "md",
-    "md_diff",
-    "loan",
-    "face",
-    "gsp",
-    "glp",
-    "accum_lp",
-    "prem_td",
-    "accum_wd",
-    "total_prem_paid",
-    "lumpsum",
-}
-DATE_KEYS = {"exc_date", "issue_date", "maturity_date", "valuation_date"}
-INT_KEYS = {
-    "exc_dur",
-    "duration",
-    "maturity_duration",
-    "maturity_age",
-    "issue_age",
-    "attained_age",
-}
-
-# Premium that always trips the guideline cap, so the policy is funded to its
-# absolute maximum each month (exceptions off — see _absolute_max_result).
-ABSOLUTE_MAX_PREMIUM = 999_999_999.0
-
-# Lumpsum to Next Prem is always on in this batch: after the level premium is
-# solved, a bridging lumpsum is solved on the forecast date to carry a thin
-# policy to its first modal premium, exactly like the illustration UI's
-# "Lumpsum to Next Premium" checkbox layered on top of a level premium type.
-LUMPSUM_TO_NEXT_ALWAYS = True
-
-# Run Status values. Bypassed rows get a dynamic "bypass (<codes>)" status whose
-# codes name the reason(s): A=shadow account, LN=loan, MD=MD diff, rates missing,
-# CVAT, no solution.
-STATUS_MATURED = "Matured w/o Except Prem"   # solve ran, policy endows on its own
-STATUS_EXCEPT = "Except Prem Required"       # solve ran, rides the GLP exception
-STATUS_ERROR = "Error"
+MONEY_KEYS = {k for k, f in MINLEVEL_FORMATS.items() if f == FMT_MONEY}
+DATE_KEYS = {k for k, f in MINLEVEL_FORMATS.items() if f == FMT_DATE}
+INT_KEYS = {k for k, f in MINLEVEL_FORMATS.items() if f == FMT_INT}
 
 
 def _resolve_columns(ws) -> list:
@@ -205,6 +145,28 @@ def _put(ws, row: int, key: str, value, fmt: Optional[str] = None) -> None:
     cell.value = value
     if fmt and value is not None:
         cell.number_format = fmt
+
+
+def _cell_format(key: str) -> Optional[str]:
+    fmt = MINLEVEL_FORMATS.get(key)
+    if fmt == FMT_MONEY:
+        return MONEY_FMT
+    if fmt == FMT_DATE:
+        return DATE_FMT
+    if fmt == FMT_INT:
+        return INT_FMT
+    return None
+
+
+def _write_result(ws, row: int, result) -> None:
+    """Write one PolicyResult's values into the row (clearing solve cells first
+    so bypassed/error rows never keep stale solve values)."""
+    for key in MINLEVEL_SOLVE_KEYS:
+        _put(ws, row, key, None)
+    for key, value in result.values.items():
+        if key.startswith("_"):
+            continue
+        _put(ws, row, key, value, _cell_format(key))
 
 
 def _ensure_output_columns(ws) -> None:
@@ -293,7 +255,7 @@ def _replay_sidecar(ws, sidecar_path: Path) -> dict:
     counts = {}
     rows = []
     with sidecar_path.open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
+        for line in handle:
             line = line.strip()
             if not line:
                 continue
@@ -315,104 +277,6 @@ def _replay_sidecar(ws, sidecar_path: Path) -> dict:
         "end_row": max(rows) if rows else None,
         "status_counts": counts,
     }
-
-
-def _maturity_date(policy) -> Optional[date]:
-    """Base-coverage maturity date, falling back to issue date + term in years."""
-    seg = policy.base_segment
-    if seg is not None and seg.maturity_date is not None:
-        return seg.maturity_date
-    if policy.issue_date is not None and policy.maturity_age and policy.issue_age:
-        years = int(policy.maturity_age) - int(policy.issue_age)
-        try:
-            return policy.issue_date.replace(year=policy.issue_date.year + years)
-        except ValueError:  # Feb 29 issue
-            return policy.issue_date.replace(
-                year=policy.issue_date.year + years, day=28)
-    return None
-
-
-def _maturity_duration(policy) -> Optional[int]:
-    """Policy-year count to maturity (the term in years) = maturity age − issue age.
-
-    Parallels the "Current Duration" column (which is the policy year); this is the
-    policy year the contract runs to, matching ``PolicyContext.maturity_year``.
-    """
-    if policy.maturity_age and policy.issue_age:
-        return max(0, int(policy.maturity_age) - int(policy.issue_age))
-    return None
-
-
-def _write_snapshot(ws, row: int, policy) -> None:
-    """Write the policy's current inforce snapshot columns (no solve, no MD diff)."""
-    _put(ws, row, "plancode", (policy.plancode or "").strip())
-    _put(ws, row, "form", (policy.form_number or "").strip())
-    _put(ws, row, "loan", round(policy.total_loan_balance, 2), MONEY_FMT)
-    _put(ws, row, "face", round(policy.face_amount, 2), MONEY_FMT)
-    _put(ws, row, "issue_date", policy.issue_date, DATE_FMT)
-    _put(ws, row, "maturity_date", _maturity_date(policy), DATE_FMT)
-    _put(ws, row, "maturity_duration", _maturity_duration(policy), INT_FMT)
-    _put(ws, row, "maturity_age", int(policy.maturity_age) if policy.maturity_age else None, INT_FMT)
-    _put(ws, row, "valuation_date", policy.valuation_date, DATE_FMT)
-    _put(ws, row, "issue_age", policy.issue_age, INT_FMT)
-    _put(ws, row, "duration", policy.policy_year, INT_FMT)
-    _put(ws, row, "attained_age", policy.attained_age, INT_FMT)
-    _put(ws, row, "gsp", round(policy.gsp, 2), MONEY_FMT)
-    _put(ws, row, "glp", round(policy.glp, 2), MONEY_FMT)
-    _put(ws, row, "accum_lp", round(policy.accumulated_glp, 2), MONEY_FMT)
-    _put(ws, row, "prem_td", round(policy.premiums_paid_to_date, 2), MONEY_FMT)
-    _put(ws, row, "accum_wd", round(policy.withdrawals_to_date, 2), MONEY_FMT)
-    _put(ws, row, "def_life_ins", (policy.def_of_life_ins or "").strip() or None)
-
-
-def _write_solve(ws, row: int, lte, lumpsum: Optional[float] = None) -> None:
-    """Write the solve-derived columns (premium, exception date/duration, total paid)."""
-    _put(ws, row, "min_prem", lte.premium, MONEY_FMT)
-    _put(ws, row, "total_prem_paid", round(lte.total_premium_paid, 2), MONEY_FMT)
-    _put(ws, row, "lumpsum", round(lumpsum, 2) if lumpsum else None, MONEY_FMT)
-    if lte.enters_exception:
-        _put(ws, row, "exc_date", lte.exception_start, DATE_FMT)
-        _put(ws, row, "exc_dur", lte.exception_duration, INT_FMT)
-    else:
-        _put(ws, row, "exc_date", None)
-        _put(ws, row, "exc_dur", None)
-
-
-def _clear_solve(ws, row: int) -> None:
-    for key in ("min_prem", "total_prem_paid", "lumpsum", "exc_date", "exc_dur"):
-        _put(ws, row, key, None)
-
-
-def _absolute_max_result(engine, policy):
-    """Forecast funded to the absolute max (guideline cap), exceptions OFF.
-
-    Pays a premium so large the guideline cap binds every month, so the policy
-    is funded to the most the guideline allows — with no GLP-exception rescue.
-    Returns ``(label, maturity_av)``: label is "Maturity" if it still reaches the
-    maturity age (and ``maturity_av`` is the account value then), otherwise the
-    policy year in which it lapses (and ``maturity_av`` is ``None`` — there is no
-    maturity). ``(None, None)`` if the projection yields nothing.
-    """
-    from suiteview.illustration.core.solve_level_to_exception import (
-        level_to_exception_options,
-    )
-    from suiteview.illustration.models.input_set import (
-        IllustrationInputSet, ScheduledTransaction, TransactionKind,
-    )
-
-    options = level_to_exception_options(None, allow_exceptions=False)
-    future = IllustrationInputSet(scheduled_transactions=[
-        ScheduledTransaction(
-            kind=TransactionKind.PREMIUM, policy_year=1,
-            amount=ABSOLUTE_MAX_PREMIUM, mode="M")])
-    states = engine.project(
-        policy, future_inputs=future, options=options, stop_on_lapse=True)
-    if not states:
-        return None, None
-    if states[-1].attained_age >= policy.maturity_age:
-        return "Maturity", round(float(states[-1].av_end_of_month or 0.0), 2)
-    lapse = next((s for s in states if s.lapsed), states[-1])
-    return lapse.policy_year, None
 
 
 def _parse_args(argv: list) -> dict:
@@ -480,23 +344,8 @@ def main() -> None:
     sidecar_arg = cmd.get("sidecar")
     replay_sidecar = cmd.get("replay_sidecar")
 
-    from suiteview.core.policy_service import clear_cache, get_policy_info
+    from suiteview.illustration.core.batch_runner import run_min_level_policy
     from suiteview.illustration.core.calc_engine import IllustrationEngine
-    from suiteview.illustration.core.illustration_policy_service import (
-        active_rider_benefit_codes, build_illustration_data,
-    )
-    from suiteview.illustration.core.rate_loader import load_rates
-    from suiteview.illustration.core.rate_validation import (
-        missing_required_rate_warnings,
-    )
-    from suiteview.illustration.core.solve_level_to_exception import (
-        LevelToExceptionError, level_to_exception_options, solve_level_to_exception,
-        _build_result,
-    )
-    from suiteview.illustration.core.solve_lumpsum_to_next_premium import (
-        solve_lumpsum_to_next_premium,
-    )
-    from suiteview.illustration.models.plancode_config import load_plancode
 
     wb = openpyxl.load_workbook(workbook_path)
     ws = wb[cmd["sheet"]] if cmd.get("sheet") else wb[wb.sheetnames[0]]
@@ -598,206 +447,62 @@ def main() -> None:
         for row in data_rows:
             company = str(ws[f"A{row}"].value or "").strip() or None
             policy_number = str(ws[f"B{row}"].value or "").strip()
-            record = {"row": row, "policy": policy_number}
 
-            # ── Load the policy ────────────────────────────────────────
-            try:
-                policy = build_illustration_data(
-                    policy_number, region=region, company_code=company)
-            except Exception as exc:  # not found / load failure
-                _clear_solve(ws, row)
-                _put(ws, row, "run_status", STATUS_ERROR)
-                record.update({"status": STATUS_ERROR, "error": str(exc)})
+            result = run_min_level_policy(
+                policy_number, company=company, region=region, engine=engine)
+            _write_result(ws, row, result)
+
+            values = result.values
+            abs_max = values.get("abs_max")
+            record = {"row": row, "policy": policy_number,
+                      "status": result.status,
+                      "abs_max": abs_max,
+                      "abs_max_av": values.get("abs_max_av")}
+            if result.status in (STATUS_MATURED, STATUS_EXCEPT):
+                record.update({
+                    "plancode": values.get("plancode"),
+                    "form": values.get("form"),
+                    "riders": values.get("riders"),
+                    "md_diff": values.get("md_diff"),
+                    "mode": values.get("_mode"),
+                    "min_level_prem": values.get("min_prem"),
+                    "total_premium_paid": values.get("total_prem_paid"),
+                    "lumpsum_to_next": values.get("lumpsum"),
+                    "enters_exception": values.get("_enters_exception"),
+                    "exception_date": str(values.get("exc_date")) if values.get("exc_date") else None,
+                    "exception_duration": values.get("exc_dur"),
+                    "iterations": values.get("_iterations"),
+                })
                 results.append(record)
-                persist_row(row, {"error": str(exc)})
-                print(f"row {row:>4}  {policy_number:<12}  ERROR (load): {exc}")
-                clear_cache()
-                continue
-
-            _write_snapshot(ws, row, policy)
-
-            # ── Absolute Max Prem forecast (runs for every loaded policy) ──
-            # Funds to the guideline cap every month (exceptions off); reports whether
-            # it reaches maturity and, if so, the account value there.
-            try:
-                abs_max, abs_max_av = _absolute_max_result(engine, deepcopy(policy))
-            except Exception as exc:
-                abs_max, abs_max_av = None, None
-                print(f"row {row:>4}  {policy_number:<12}  abs-max forecast failed: {exc}")
-            _put(ws, row, "abs_max", abs_max)
-            _put(ws, row, "abs_max_av", abs_max_av, MONEY_FMT)
-            record["abs_max"] = abs_max
-            record["abs_max_av"] = abs_max_av
-
-            # ── Active premium-paying riders/benefits + suspense code ──
-            pi = get_policy_info(policy_number, region, company)
-            riders = active_rider_benefit_codes(pi) if pi is not None else ""
-            _put(ws, row, "riders", riders or None)
-            if pi is not None:
-                _put(ws, row, "suspense_code",
-                     f"{pi.suspense_code} - {pi.suspense_description}")
-
-            # ── MD + MD diff + rate availability ───────────────────────
-            # Engine seed row gives our calculated MD vs CyberLife's; rate validation
-            # flags any active rider/benefit charge we lack a rate for.
-            system_md = round(float(policy.system_monthly_deduction or 0.0), 2)
-            md_diff = None
-            missing_rates: list[str] = []
-            check_error = None
-            try:
-                config = load_plancode(policy.plancode)
-                rates = load_rates(policy, config)
-                missing_rates = missing_required_rate_warnings(policy, rates)
-                seed = engine.project(policy, months=0, rates_override=rates)[0]
-                system_md = round(float(seed.system_monthly_deduction or 0.0), 2)
-                md_diff = round(
-                    float(seed.system_monthly_deduction or 0.0)
-                    - float(seed.md_check_calculated_deduction or 0.0), 2)
-            except Exception as exc:  # rates DB / plancode / engine failure
-                check_error = f"Rate/MD check failed: {exc}"
-
-            _put(ws, row, "md", system_md, MONEY_FMT)
-            _put(ws, row, "md_diff", md_diff, MONEY_FMT)
-
-            # ── Decide Run Status ──────────────────────────────────────
-            if check_error is not None:
-                _clear_solve(ws, row)
-                _put(ws, row, "run_status", STATUS_ERROR)
-                record.update({"status": STATUS_ERROR, "error": check_error,
-                               "riders": riders})
+                persist_row(row, {
+                    "mode": values.get("_mode"),
+                    "lumpsum_to_next": values.get("lumpsum"),
+                    "enters_exception": values.get("_enters_exception"),
+                    "iterations": values.get("_iterations"),
+                })
+                lumpsum_amount = values.get("lumpsum")
+                lump_txt = (f"  lumpsum {lumpsum_amount:>10,.2f}"
+                            if lumpsum_amount else "")
+                exc_txt = (f"exc {values.get('exc_date')} (yr {values.get('exc_dur')})"
+                           if values.get("_enters_exception") else "endows")
+                print(f"row {row:>4}  {policy_number:<12}  {values.get('_mode')} "
+                      f"min level {values.get('min_prem'):>12,.2f}{lump_txt}  {exc_txt}  "
+                      f"total paid {values.get('total_prem_paid'):>12,.2f}  "
+                      f"[abs-max: {abs_max}]")
+            elif result.status == STATUS_ERROR:
+                record.update({"error": result.error,
+                               "riders": values.get("riders")})
                 results.append(record)
-                persist_row(row, {"error": check_error})
-                print(f"row {row:>4}  {policy_number:<12}  ERROR: {check_error}")
-                clear_cache()
-                continue
-
-            # Each entry: (parenthetical reason code, human-readable detail). A policy
-            # loan is no longer a bypass — it is solved with "Apply Premium to Loan
-            # First" (the level premium repays the loan before funding the AV).
-            bypass = []
-            if policy.has_shadow_account:
-                bypass.append(("A", "active shadow account (benefit type A)"))
-            if md_diff is not None and md_diff != 0.0:
-                bypass.append(("MD", f"MD diff {md_diff:,.2f}"))
-            if missing_rates:
-                bypass.append(("rates missing", "missing rider/benefit rates"))
-
-            if bypass:
-                status = f"bypass ({', '.join(code for code, _ in bypass)})"
-                reasons = "; ".join(detail for _, detail in bypass)
-                _clear_solve(ws, row)
-                _put(ws, row, "run_status", status)
-                record.update({"status": status, "reasons": reasons,
-                               "riders": riders, "md_diff": md_diff})
+                persist_row(row, {"error": result.error})
+                print(f"row {row:>4}  {policy_number:<12}  ERROR: {result.error}")
+            else:  # bypass (<codes>)
+                record.update({"reasons": result.error,
+                               "riders": values.get("riders"),
+                               "md_diff": values.get("md_diff")})
                 results.append(record)
-                persist_row(row, {"reasons": reasons})
-                print(f"row {row:>4}  {policy_number:<12}  {status}: {reasons}"
-                      f"  [abs-max: {abs_max}]")
-                clear_cache()
-                continue
-
-            # ── Solve (Min Level to Exception) ─────────────────────────
-            # Loan policies are solved with Apply Premium to Loan First: the level
-            # premium repays the loan before funding the account value.
-            try:
-                lte = solve_level_to_exception(
-                    deepcopy(policy),
-                    mode=None,                # each policy's own billing mode
-                    start_policy_year=1,
-                    allow_exceptions=True,
-                    apply_prem_to_loan=policy.has_loans,
-                )
-            except LevelToExceptionError as exc:
-                # Passed the business gates but the solve genuinely can't run —
-                # bypass with a reason code (CVAT, else no level premium survives).
-                code = "CVAT" if policy.is_cvat else "no solution"
-                status = f"bypass ({code})"
-                _clear_solve(ws, row)
-                _put(ws, row, "run_status", status)
-                record.update({"status": status, "error": str(exc),
-                               "riders": riders, "md_diff": md_diff})
-                results.append(record)
-                persist_row(row, {"error": str(exc)})
-                print(f"row {row:>4}  {policy_number:<12}  {status}: {exc}")
-                clear_cache()
-                continue
-
-            # ── Lumpsum to Next Prem (always on) ───────────────────────
-            # Mirror the illustration UI: layer a bridging lumpsum on top of the
-            # solved level premium so a thin policy survives from the forecast date
-            # to its first modal premium. The reported exception/total-paid figures
-            # come from a final projection that includes both premiums.
-            lumpsum_amount = None
-            if LUMPSUM_TO_NEXT_ALWAYS:
-                from suiteview.illustration.models.input_set import (
-                    DatedTransaction, IllustrationInputSet, ScheduledTransaction,
-                    TransactionKind,
-                )
-                level_options = level_to_exception_options(
-                    None, allow_exceptions=True, apply_prem_to_loan=policy.has_loans)
-                level_future = IllustrationInputSet(scheduled_transactions=[
-                    ScheduledTransaction(
-                        kind=TransactionKind.PREMIUM, policy_year=1,
-                        amount=lte.premium, mode=lte.mode)])
-                try:
-                    lump = solve_lumpsum_to_next_premium(
-                        deepcopy(policy),
-                        base_future_inputs=level_future,
-                        base_options=level_options,
-                        engine=engine,
-                    )
-                except Exception as exc:  # bridge solve failed — report the level solve alone
-                    lump = None
-                    print(f"row {row:>4}  {policy_number:<12}  lumpsum bridge failed: {exc}")
-                if lump is not None and lump.lumpsum > 0:
-                    lumpsum_amount = lump.lumpsum
-                    final_future = IllustrationInputSet(
-                        scheduled_transactions=list(level_future.scheduled_transactions),
-                        dated_transactions=[DatedTransaction(
-                            kind=TransactionKind.PREMIUM,
-                            effective_date=lump.forecast_date,
-                            amount=lump.lumpsum,
-                            subtype="lumpsum_to_next_premium")])
-                    final_states = engine.project(
-                        deepcopy(policy), options=level_options,
-                        future_inputs=final_future)
-                    # Keep the solved level premium; refresh exception/total-paid
-                    # from the run that includes the bridge.
-                    lte = _build_result(lte.premium, lte.mode, final_states, lte.iterations)
-
-            _write_solve(ws, row, lte, lumpsum=lumpsum_amount)
-            status = STATUS_EXCEPT if lte.enters_exception else STATUS_MATURED
-            _put(ws, row, "run_status", status)
-
-            record.update({
-                "status": status,
-                "plancode": policy.plancode,
-                "form": policy.form_number,
-                "riders": riders,
-                "md_diff": md_diff,
-                "mode": lte.mode,
-                "min_level_prem": lte.premium,
-                "total_premium_paid": lte.total_premium_paid,
-                "lumpsum_to_next": lumpsum_amount,
-                "enters_exception": lte.enters_exception,
-                "exception_date": str(lte.exception_start) if lte.exception_start else None,
-                "exception_duration": lte.exception_duration,
-                "iterations": lte.iterations,
-            })
-            results.append(record)
-            persist_row(row, {
-                "mode": lte.mode,
-                "lumpsum_to_next": lumpsum_amount,
-                "enters_exception": lte.enters_exception,
-                "iterations": lte.iterations,
-            })
-            lump_txt = f"  lumpsum {lumpsum_amount:>10,.2f}" if lumpsum_amount else ""
-            exc_txt = (f"exc {lte.exception_start} (yr {lte.exception_duration})"
-                       if lte.enters_exception else "endows")
-            print(f"row {row:>4}  {policy_number:<12}  {lte.mode} "
-                  f"min level {lte.premium:>12,.2f}{lump_txt}  {exc_txt}  "
-                  f"total paid {lte.total_premium_paid:>12,.2f}  [abs-max: {abs_max}]")
-            clear_cache()
+                persist_row(row, {"reasons": result.error})
+                print(f"row {row:>4}  {policy_number:<12}  {result.status}: "
+                      f"{result.error}  [abs-max: {abs_max}]")
     finally:
         if sidecar_handle is not None:
             sidecar_handle.close()

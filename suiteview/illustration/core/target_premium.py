@@ -261,7 +261,9 @@ def compute_target_premiums(
     total_face = policy.total_face
 
     # Target band: current total-SA band unless the plancode locks bands.
-    current_band = rates_db.get_band(policy.plancode, total_face)
+    # issue_date feeds the Rates_Control-CZ issue-date band boundary.
+    current_band = rates_db.get_band(
+        policy.plancode, total_face, issue_date=policy.issue_date)
     current_band = int(current_band) if current_band is not None else base.band
     result.target_band = current_band
 

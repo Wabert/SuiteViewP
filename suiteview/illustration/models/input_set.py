@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, List, Optional, Tuple
 
 from .policy_data import IllustrationPolicyData
 
@@ -71,6 +71,11 @@ class InforceOverrideSet:
     variable_loan_accrued: Optional[float] = None
     current_interest_rate: Optional[float] = None
     sweep_account_min: Optional[float] = None   # IUL sweep retained minimum
+    # IUL crediting inputs from the allocations panel (None on declared-rate
+    # plans): the fixed-strategy illustrated rate (WAIR declared rate, RERUN
+    # UJ) and the blended asset-charge rate (RERUN SU).
+    iul_declared_rate: Optional[float] = None
+    iul_asset_charge_rate: Optional[float] = None
 
     def is_empty(self) -> bool:
         return all(value is None for value in self.__dict__.values())
@@ -159,9 +164,14 @@ class IllustrationOptions:
     # ``_compute_exception_premium`` in ``core/calc_engine.py``.
     pay_monthly_deduction: bool = False
 
-    # First policy year the Monthly Deduction premium is paid (None = from the
-    # forecast date). Runs to maturity.
-    monthly_deduction_start_year: Optional[int] = None
+    # The policy-year windows the Monthly Deduction premium is paid over, each
+    # ``(start_year, end_year)`` inclusive; ``end_year`` None runs that window to
+    # maturity. ``None`` (with ``pay_monthly_deduction`` True) means the whole
+    # projection from the forecast date — the plain "pay the deduction" case with
+    # no bounding row. A Monthly Deduction premium row on the Input tab supplies a
+    # bounded window (its start year through For Years / To Age); once the window
+    # ends, later premium rows apply normally and the premium stops.
+    monthly_deduction_windows: Optional[List[Tuple[int, Optional[int]]]] = None
 
     # Internal escape hatch: a consumer can keep force-out on while still letting
     # injected premiums intentionally exceed the guideline (no acceptance cap).
@@ -170,19 +180,25 @@ class IllustrationOptions:
     cap_premiums_at_acceptance: Optional[bool] = None
 
     # IUL crediting method — False credits the single blended rate (RERUN INPUT
-    # B52/E52, mirrored into current_interest_rate); True requests the Weighted
-    # Average Interest Rate (RERUN CalcEngine TAV/WAIR block, columns US..VL).
-    # TODO: engine-side WAIR is not implemented yet (see
-    # docs/Illustration_UL/IUL_AG49_WAIR.md); the switch is recorded per run.
+    # B52/E52, mirrored into current_interest_rate); True credits the Weighted
+    # Average Interest Rate (RERUN CalcEngine TAV/WAIR block, columns US..VL),
+    # implemented in ``core/iul_crediting.py`` and wired through
+    # ``calc_engine.process_month`` (illustration timing).
     iul_wair_crediting: bool = False
 
     # Use the AG49 regime in effect at policy issue (RERUN Rates_Control CP79 =
     # MAX(2, issue-date tier)) instead of the current regime. Gates IP/IR
-    # multiplier crediting and asset charge (index ≤ 2) and selects the
+    # multiplier crediting and the asset charge (index ≤ 2) and selects the
     # variable-loan credit spread. The UI re-bases the allocation blend on the
-    # resolved index; engine-side asset charge / loan spread are pending (same
-    # doc as WAIR).
+    # resolved index; the engine resolves the same index for the asset charge
+    # (SS..SX) and the variable-loan accrual spread (VV) — see
+    # ``core/iul_crediting.build_iul_context``.
     use_policy_ag49_regime: bool = False
+
+    # sAssumptionCode = 3 — this run is the guaranteed-basis projection. Set by
+    # ``guaranteed_projection.guaranteed_options``; the only engine consumer is
+    # the WAIR cap (RERUN VK caps vWAIR at the declared rate + bonus).
+    guaranteed_assumption: bool = False
 
     @property
     def force_out_enabled(self) -> bool:

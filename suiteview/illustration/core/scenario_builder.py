@@ -59,6 +59,10 @@ def apply_inforce_overrides(
         policy.current_interest_rate = overrides.current_interest_rate
     if overrides.sweep_account_min is not None:
         policy.sweep_account_min = overrides.sweep_account_min
+    if overrides.iul_declared_rate is not None:
+        policy.iul_declared_rate = overrides.iul_declared_rate
+    if overrides.iul_asset_charge_rate is not None:
+        policy.iul_asset_charge_rate = overrides.iul_asset_charge_rate
 
     if overrides.face_amount is not None:
         policy.face_amount = overrides.face_amount

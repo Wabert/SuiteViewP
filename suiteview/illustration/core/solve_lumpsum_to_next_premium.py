@@ -252,7 +252,10 @@ def solve_lumpsum_to_next_premium(
                 guideline_limited=True, iterations=iterations)
     iterations += 1
 
-    while hi - lo > resolution:
+    # Bisect to HALF the resolution, then test the rounded candidate directly
+    # — ceiling the raw ``hi`` can overshoot a full step when the boundary
+    # sits just under a grid point.
+    while hi - lo > resolution / 2.0:
         mid = (lo + hi) / 2.0
         if survives(project(mid)):
             hi = mid
@@ -260,9 +263,13 @@ def solve_lumpsum_to_next_premium(
             lo = mid
         iterations += 1
 
-    lumpsum = math.ceil(hi / resolution) * resolution
+    lumpsum = round(math.ceil(lo / resolution - 1e-9) * resolution, 2)
     final = project(lumpsum)
     iterations += 1
+    if not survives(final):
+        lumpsum = round(lumpsum + resolution, 2)
+        final = project(lumpsum)
+        iterations += 1
     applied = _accepted_lumpsum(final, forecast)
     return LumpsumToNextPremiumResult(
         lumpsum=round(lumpsum, 2), applied=round(applied, 2),

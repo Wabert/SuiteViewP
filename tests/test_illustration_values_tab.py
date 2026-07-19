@@ -717,6 +717,31 @@ def test_overview_prem_column_excludes_gp_exception_premium():
     assert year_item.child(1).text(exc_col) == "5.00"
 
 
+def test_overview_kpis_include_glp_and_gsp_chips():
+    # GLP / GSP chips sit beside GP ROOM, sourced from the final projected
+    # month's guideline state — the same row the room figure reads.
+    _app()
+    overview = ValuesOverview()
+    inforce = MonthlyState(policy_year=0, policy_month=0, attained_age=44)
+    final = replace(
+        _state(), glp=1_234.56, gsp=23_456.78, accumulated_glp=8_641.92,
+        guideline_limit=23_456.78, premiums_to_date_after_exception=20_000.0,
+        withdrawals_to_date=1_000.0)
+
+    overview.display(_policy(), [inforce, final])
+
+    assert overview.kpi_glp.caption.text() == "GLP"
+    assert overview.kpi_gsp.caption.text() == "GSP"
+    assert overview.kpi_glp.value.text() == "1,235"
+    assert overview.kpi_gsp.value.text() == "23,457"
+    # Room still reads limit − (prem-to-date − wd-to-date), untouched.
+    assert overview.kpi_room.value.text() == "4,457"
+
+    overview.clear()
+    assert overview.kpi_glp.value.text() == "—"
+    assert overview.kpi_gsp.value.text() == "—"
+
+
 def test_summary_tab_uses_requested_illustration_values_order():
     _app()
     tab = IllustrationValuesTab()
@@ -926,19 +951,21 @@ def test_overview_ledger_restores_compact_values_order():
 
     headers = [overview.ledger.headerItem().text(index) for index in range(overview.ledger.columnCount())]
     assert headers == [
-        "Year", "Month", "Age", "Date",
+        "Year", "Month", "Age", "Age EOY", "Date",
         "Contributions", "Distributions",
-        "MD", "AV", "SV", "Interest", "EAV", "SC", "LN", "ESV",
+        "MD", "AV", "SV", "Interest", "EAV", "SC", "LN", "ESV", "Shadow EAV",
         "Death Benefit", "Status",
         "",
         "Withdrawals", "ForceOuts", "Loan Repay", "Prem", "Exception Prem", "New Loan",
     ]
+    # Shadow EAV only shows for shadow-account products.
+    assert overview.ledger.isColumnHidden(LEDGER_COLUMNS.index("Shadow EAV"))
     year_item = overview.ledger.topLevelItem(0)
     assert [year_item.text(index) for index in range(overview.ledger.columnCount())] == [
-        "1", "2", "45", "02/15/2026",
+        "1", "2", "45", "46", "02/15/2026",     # Age EOY = attained age + 1
         "185.00", "65.00",     # 45+110+30 in  |  50+5+10 out
         "23.00", "1,150.00", "1,050.00", "10.00", "1,200.00", "80.00",
-        "20.00", "1,100.00",
+        "20.00", "1,100.00", "0.00",
         "151,000", "LAPSED",
         "",
         "50.00", "5.00", "45.00", "110.00", "30.00", "10.00",
@@ -970,7 +997,7 @@ def test_overview_date_column_follows_age_with_row_dates():
     overview.display(_policy(), _overview_two_month_projection())
 
     date_col = LEDGER_COLUMNS.index("Date")
-    assert date_col == LEDGER_COLUMNS.index("Age") + 1 == 3
+    assert date_col == LEDGER_COLUMNS.index("Age EOY") + 1 == 4
     year_item = overview.ledger.topLevelItem(0)
     # Annual row carries the year-end (EOY) date the row aggregates to;
     # monthly children carry their own month's date.
@@ -987,7 +1014,7 @@ def test_overview_contributions_and_distributions_roll_up_cash_flows():
 
     contrib = LEDGER_COLUMNS.index("Contributions")
     distrib = LEDGER_COLUMNS.index("Distributions")
-    assert (contrib, distrib) == (4, 5)  # right after the frozen locators
+    assert (contrib, distrib) == (5, 6)  # right after the frozen locators
 
     year_item = overview.ledger.topLevelItem(0)
     # Contributions = Loan Repay + Prem + Exception Prem, same aggregation as
@@ -1023,8 +1050,8 @@ def test_overview_freeze_pane_sits_right_after_date():
     _app()
     overview = ValuesOverview()
 
-    # Year | Month | Age | Date stay put; everything after scrolls.
-    assert FROZEN_LEDGER_COLUMN_COUNT == LEDGER_COLUMNS.index("Date") + 1 == 4
+    # Year | Month | Age | Age EOY | Date stay put; everything after scrolls.
+    assert FROZEN_LEDGER_COLUMN_COUNT == LEDGER_COLUMNS.index("Date") + 1 == 5
     for column in range(FROZEN_LEDGER_COLUMN_COUNT):
         assert not overview.frozen_ledger.isColumnHidden(column), column
         assert overview.ledger.isColumnHidden(column), column
@@ -1252,3 +1279,170 @@ def test_summary_tab_shows_forceout_after_accum_glp():
     assert "ForceOut" in columns
     assert columns.index("ForceOut") == columns.index("AccumGLP") + 1
     assert tab._tab_grids["Summary"].df.iloc[0]["ForceOut"] == 321.0
+
+
+# ── Not-yet-computed placeholder columns ────────────────────────────────
+
+
+def _cell(grid, column_name: str, role, row: int = 0):
+    model = grid.model
+    column = model._original_df.columns.get_loc(column_name)
+    return model.data(model.index(row, column), role)
+
+
+def test_placeholder_columns_render_greyed_not_computed_markers():
+    from PyQt6.QtCore import Qt as QtCore
+
+    from suiteview.illustration.ui.values_tab import (
+        NOT_COMPUTED_COLUMNS,
+        NOT_COMPUTED_NOTE,
+    )
+
+    _app()
+    tab = IllustrationValuesTab()
+    tab.display_projection(_policy(), [_state()])
+
+    # One representative placeholder per affected group — cells show an em
+    # dash on a grey background (never a formatted zero) with the note as a
+    # cell and header tooltip.
+    representative = {
+        "Testing": "7-Pay Yr 1",
+        "TEFRA and TAMRA": "NPT_Premium",
+        "Requested Premium": "1035_Amount",
+        "Policy Values": "Requested Loan",
+        "Accumulation": "Blended Index Rate",
+        "Shadow Account": "Shadow_TPR",
+        "Ending Values": "IllustrationGCO",
+    }
+    for title, column_name in representative.items():
+        grid = tab._tab_grids[title]
+        assert column_name in NOT_COMPUTED_COLUMNS, column_name
+        assert _cell(grid, column_name, QtCore.ItemDataRole.DisplayRole) == "—", column_name
+        assert _cell(grid, column_name, QtCore.ItemDataRole.BackgroundRole) is not None, column_name
+        assert _cell(grid, column_name, QtCore.ItemDataRole.ToolTipRole) == NOT_COMPUTED_NOTE
+        font = _cell(grid, column_name, QtCore.ItemDataRole.FontRole)
+        assert font is not None and font.italic(), column_name
+        header_index = grid.model._original_df.columns.get_loc(column_name)
+        assert grid.model.headerData(
+            header_index, QtCore.Orientation.Horizontal, QtCore.ItemDataRole.ToolTipRole
+        ) == NOT_COMPUTED_NOTE, column_name
+
+    # Computed columns keep the normal treatment: real values, no grey, no note.
+    summary = tab._tab_grids["Summary"]
+    assert _cell(summary, "EAV", QtCore.ItemDataRole.DisplayRole) == "9,990.00"
+    assert _cell(summary, "EAV", QtCore.ItemDataRole.BackgroundRole) is None
+    assert _cell(summary, "EAV", QtCore.ItemDataRole.ToolTipRole) is None
+
+
+def test_placeholder_dataframe_values_stay_raw_for_copy_and_export():
+    # The grey em-dash treatment is display-only — the DataFrame (feeding
+    # clipboard copy and comparisons) still carries the raw placeholder values.
+    _app()
+    tab = IllustrationValuesTab()
+
+    tab.display_projection(_policy(), [_state()])
+
+    assert tab._tab_grids["Testing"].df.iloc[0]["7-Pay Yr 1"] == 0.0
+    assert tab._tab_grids["Ending Values"].df.iloc[0]["IllustrationGCO"] == 0.0
+
+
+def test_remaining_distribution_not_computed_only_on_policy_values_tab():
+    from PyQt6.QtCore import Qt as QtCore
+
+    # The shared "Remaining Distribution" key carries the withdrawal block's
+    # computed value; only the Policy Values tab's loan-side column (not yet
+    # computed by the engine) gets the placeholder treatment.
+    _app()
+    tab = IllustrationValuesTab()
+    state = replace(_state(), remaining_distribution=123.45)
+
+    tab.display_projection(_policy(), [state])
+
+    withdrawals = tab._tab_grids["Withdrawals"]
+    assert _cell(withdrawals, "Remaining Distribution", QtCore.ItemDataRole.DisplayRole) == "123.45"
+    assert _cell(withdrawals, "Remaining Distribution", QtCore.ItemDataRole.BackgroundRole) is None
+    policy_values = tab._tab_grids["Policy Values"]
+    assert _cell(policy_values, "Remaining Distribution", QtCore.ItemDataRole.DisplayRole) == "—"
+    assert _cell(policy_values, "Remaining Distribution", QtCore.ItemDataRole.BackgroundRole) is not None
+
+
+# ── Guaranteed-run failure banner ───────────────────────────────────────
+
+
+def test_guaranteed_failure_shows_banner_and_keeps_toggle_hidden():
+    _app()
+    tab = IllustrationValuesTab()
+    tab.display_projection(_policy(), [_state()])
+    assert not tab.guaranteed_warning.isVisibleTo(tab)
+
+    tab.set_guaranteed_failure("no guaranteed COI rates for plancode")
+
+    assert tab.guaranteed_warning.isVisibleTo(tab)
+    text = tab.guaranteed_warning.text()
+    assert "Guaranteed projection failed" in text
+    assert "guaranteed values unavailable" in text
+    assert "no guaranteed COI rates for plancode" in text
+    # No guaranteed view exists, so the Current | Guaranteed pair stays hidden.
+    assert not tab.current_toggle.isVisibleTo(tab)
+    assert not tab.guaranteed_toggle.isVisibleTo(tab)
+
+
+def test_guaranteed_failure_banner_clears_on_new_projection_or_success():
+    _app()
+    tab = IllustrationValuesTab()
+    tab.display_projection(_policy(), [_state()])
+    tab.set_guaranteed_failure("boom")
+    assert tab.guaranteed_warning.isVisibleTo(tab)
+
+    # A fresh current run resets the banner…
+    tab.display_projection(_policy(), [_state()])
+    assert not tab.guaranteed_warning.isVisibleTo(tab)
+    assert tab._guaranteed_error is None
+
+    # …and a successful guaranteed run clears any prior failure.
+    tab.set_guaranteed_failure("boom again")
+    tab.set_guaranteed_results(_policy(), [_state()])
+    assert not tab.guaranteed_warning.isVisibleTo(tab)
+    assert tab._guaranteed_error is None
+
+    # clear_results also drops the banner.
+    tab.set_guaranteed_failure("boom once more")
+    tab.clear_results()
+    assert not tab.guaranteed_warning.isVisibleTo(tab)
+
+
+def test_guaranteed_failure_survives_session_capture_and_restore():
+    _app()
+    tab = IllustrationValuesTab()
+    tab.display_projection(_policy(), [_state()])
+    tab.set_guaranteed_failure("rate table missing")
+    snapshot = tab.capture_session_state()
+    assert snapshot["guaranteed_error"] == "rate table missing"
+
+    restored = IllustrationValuesTab()
+    assert restored.restore_session_state(snapshot)
+    assert restored.guaranteed_warning.isVisibleTo(restored)
+    assert "rate table missing" in restored.guaranteed_warning.text()
+
+
+def test_report_tab_shows_guaranteed_failure_banner():
+    from suiteview.illustration.core.report_builder import IllustrationReport
+    from suiteview.illustration.ui.report_tab import IllustrationReportTab
+
+    _app()
+    report_tab = IllustrationReportTab()
+
+    # Guaranteed side failed → loud banner naming the reason; the printed
+    # pages themselves are untouched.
+    report_tab.display_report(
+        IllustrationReport(), guaranteed_error="lock values failed")
+    assert report_tab.guaranteed_warning.isVisibleTo(report_tab)
+    assert "GUARANTEED VALUES" in report_tab.guaranteed_warning.text()
+    assert "lock values failed" in report_tab.guaranteed_warning.text()
+
+    # Guaranteed side present → no banner.
+    report_tab.display_report(IllustrationReport(has_guaranteed_values=True))
+    assert not report_tab.guaranteed_warning.isVisibleTo(report_tab)
+
+    report_tab.clear()
+    assert not report_tab.guaranteed_warning.isVisibleTo(report_tab)

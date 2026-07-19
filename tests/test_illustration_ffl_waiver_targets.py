@@ -37,7 +37,7 @@ class _FakeRates:
     COI_YEAR1 = 1.2        # current COI select rate, duration 1
     MFEE_YEAR1 = 3.0       # monthly fee, duration 1
 
-    def get_band(self, plancode, specified_amount):
+    def get_band(self, plancode, specified_amount, issue_date=None):
         return 1
 
     def get_mtp(self, *args):

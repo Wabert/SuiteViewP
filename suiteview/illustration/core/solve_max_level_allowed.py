@@ -1,25 +1,41 @@
-"""Solve the "Max Level Allowed" premium — the largest modal level premium a
-GPT policy can pay, level from its start year to age 100 (or maturity if
-sooner), without the 7702 guideline/TAMRA acceptance chain ever cutting a
-payment back.
+"""Solve the "Max Level Allowed" premium — the level modal premium that spreads
+the policy's remaining lifetime guideline room evenly over every payment from
+its start year to age 100 (or maturity if sooner).
 
-Historically this was a closed form off the inforce guidelines: remaining
-guideline room at age 100 divided by the modal payments to get there. That form
-cannot see mid-projection guideline changes — an illustrated face decrease or
-DB-option change recalculates GLP/GSP (and the AccumGLP stream) from that point
-on, so the real constraint is the FULL cumulative allowance chain: at every
-payment date the cumulative premiums (net of withdrawals) may not exceed
-max(AccumGLP, GSP) as they stand THEN — through the final GSP / AccumGLP at age
-100 after any changes along the way. The binding point may be mid-projection (a
-guideline drop can make an intermediate year tighter than the endpoint), and a
-"max level" premium that gets silently clipped later isn't level — so the solve
-demands the projection never caps or rejects a requested premium.
+Definition (closed-form room, 2026-07-19): the answer is
 
-The acceptance chain is premium-independent (guideline premiums depend on face,
-DB option and rates — not the account value), so "never capped" is monotone in
-the level premium: bracket and bisect on the real engine, exactly like the
-Min-to-Maturity solve. The premium schedule stops at age 100 — AccumGLP stops
-growing there, so payments past it would always cap.
+    premium = (guideline limit at the end of the paying window
+               − net premiums the base inputs consume)
+              / number of modal payments in the window
+
+computed off a ZERO-premium engine projection, so the guideline limit is the
+engine's own MAX(GSP, AccumGLP) as it stands at the end — any face-amount or
+DB-option change in the base inputs, and the guideline recalc it triggers,
+is fully reflected — and the consumed premiums are the engine's cumulative
+PremTD − WithdrawalTD (KW). The payment count comes from the same projection's
+month stream, so a mid-year forecast start pays exactly the remaining modal
+due dates the engine will actually collect.
+
+The final projection then APPLIES that premium and lets the guideline
+acceptance chain cap individual payments where a year is transiently tight —
+a policy funded right up to its guideline today may be clipped for the first
+year or two until AccumGLP outruns the level premium, and that clipping is
+expected, not an error. This replaces the previous "never capped at any
+month" bisection, which collapsed the whole level premium to the tightest
+early year even when every later year had ever-growing room — and could
+return a "maximum" premium that underfunded the policy into a lapse.
+
+CAVEAT — future policy changes: a guideline recalc can depend on the state of
+the policy at the change (e.g. a DB-option change under a level death benefit
+reads the account value, which depends on premiums paid). The closed form
+reads the guideline chain at ZERO premium, so a change scheduled AFTER the
+premium's start date may recalc differently once the solved premium is
+actually paid. Changes ON the forecast date are safe (the recalc happens
+before any solved premium lands). The UI surfaces this caveat and still
+allows the run.
+
+The premium schedule still stops at age 100 — AccumGLP stops growing there
+(CalcEngine KU), so payments past it could never be inside the room.
 """
 from __future__ import annotations
 
@@ -42,14 +58,13 @@ from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
 # Months-between-payments → RERUN modal code.
 _MODE_FROM_FREQ = {1: "M", 3: "Q", 6: "S", 12: "A"}
-
-# Backstop so a pathological policy can never loop the upper-bracket search.
-_MAX_BRACKET_DOUBLINGS = 30
+# Modal code → months between payments (due months are 1, 1+interval, …).
+_MODE_INTERVALS = {"M": 1, "Q": 3, "S": 6, "A": 12}
 
 
 class MaxLevelAllowedError(ValueError):
     """The solve cannot run for this policy (CVAT, base inputs already over the
-    guideline limit, or the guideline never caps the premium)."""
+    guideline limit, or no premium-paying window remains)."""
 
 
 @dataclass
@@ -78,7 +93,7 @@ def solve_max_level_allowed(
     base_options: Optional[IllustrationOptions] = None,
     engine: Optional[IllustrationEngine] = None,
 ) -> MaxLevelAllowedResult:
-    """Largest modal level premium the guideline chain accepts in full.
+    """Closed-form maximum level premium: lifetime room over lifetime payments.
 
     Args:
         mode: modal cadence of the solved premium (M/Q/S/A); defaults to the
@@ -88,31 +103,34 @@ def solve_max_level_allowed(
             rows); the level premium runs from this year to age 100 (or
             maturity if sooner), then stops.
         base_future_inputs: prior premium schedule AND any policy changes (face
-            amount / DB option) to honor — every projection in the solve
-            carries them, so the solved maximum reflects the changed
-            guidelines.
-        allow_exceptions: whether the projection may ride GP exception premiums
-            (follows the user's Allow GP Exception toggle so the solve basis
-            matches the displayed run).
+            amount / DB option) to honor — the zero-premium probe carries them,
+            so both the guideline limit (post-recalc) and the room they consume
+            are reflected in the answer.
+        allow_exceptions: whether the RESULT projection may ride GP exception
+            premiums (follows the user's Allow GP Exception toggle so the solve
+            basis matches the displayed run).
         resolution: rounding granularity; the result is rounded DOWN to this so
-            it lands on the accepted side of the guideline cap.
+            the lifetime total lands inside the room.
         base_options: only ``exact_days_interest``, ``levelizing_premium`` and
             ``apply_prem_to_loan`` are read from it; the guideline and TAMRA
-            conformance toggles are forced on (there is no premium cap to solve
-            against without them).
+            conformance toggles are forced on (there is no premium room to
+            measure without them).
     """
     if policy.is_cvat:
         raise MaxLevelAllowedError("Max Level Allowed applies to GPT policies only.")
 
     mode = (mode or _default_mode(policy)).upper()
+    interval = _MODE_INTERVALS.get(mode)
+    if interval is None:
+        raise MaxLevelAllowedError(f"Unknown premium mode {mode!r}.")
     options = level_to_exception_options(base_options, allow_exceptions)
     engine = engine or IllustrationEngine()
     base = base_future_inputs
 
     # Premiums stop at age 100 — AccumGLP freezes there (CalcEngine KU), so any
-    # level payment past it would always be capped and no positive premium
-    # could ever pass. Maturity before 100 needs no stop: the engine collects
-    # no premium on or after the maturity date.
+    # level payment past it would always be outside the room. Maturity before
+    # 100 needs no stop: the engine collects no premium on or after the
+    # maturity date.
     stop_year: Optional[int] = None
     if policy.maturity_age > 100:
         stop_year = 100 - int(policy.issue_age or 0) + 1
@@ -121,7 +139,11 @@ def solve_max_level_allowed(
                 "No level-premium window remains — the policy is at or past "
                 "the age-100 premium limit.")
 
-    def project(premium: float) -> List[MonthlyState]:
+    def project(premium: float, *, stop_on_lapse: bool = True) -> List[MonthlyState]:
+        # The level row is appended even at zero: a 0-amount schedule at the
+        # start year TERMINATES any base scheduled premium from that year on,
+        # exactly as the real level premium will — so the probe's consumed
+        # premiums match the final run's base contribution.
         scheds = list(base.scheduled_transactions) if base is not None else []
         scheds.append(ScheduledTransaction(
             kind=TransactionKind.PREMIUM, policy_year=int(start_policy_year),
@@ -135,49 +157,52 @@ def solve_max_level_allowed(
             dated_transactions=list(base.dated_transactions) if base is not None else [],
             policy_changes=list(base.policy_changes) if base is not None else [],
         )
-        return engine.project(policy, options=options, future_inputs=future)
+        return engine.project(policy, options=options, future_inputs=future,
+                              stop_on_lapse=stop_on_lapse)
 
-    def accepted(states: List[MonthlyState]) -> bool:
-        return not any(s.premium_capped for s in states)
-
-    iterations = 0
-
-    # Zero premium must pass — if the base inputs alone are already capped
-    # (e.g. a lumpsum over the guideline room) there is nothing to solve.
-    if not accepted(project(0.0)):
+    # ── 1. Zero-premium probe: the guideline chain is premium-independent, so
+    # one full-horizon run (no lapse stop — an unfunded policy may well lapse)
+    # yields the end-of-window limit, the room the base inputs consume, and
+    # the exact payment calendar.
+    probe = project(0.0, stop_on_lapse=False)
+    if len(probe) < 2:                      # [0] is the inforce seed row
         raise MaxLevelAllowedError(
-            "The base inputs already exceed the guideline premium limit — "
+            "The projection produced no forecast months to pay into.")
+    final = probe[-1]
+    limit = max(float(final.gsp or 0.0), float(final.accumulated_glp or 0.0))
+    consumed = float(final.prem_less_wd or 0.0)
+    room = limit - consumed
+    if room < resolution:
+        raise MaxLevelAllowedError(
+            "The base inputs already consume the lifetime guideline room — "
             "no additional level premium is allowed.")
-    iterations += 1
-    lo = 0.0
 
-    # Exponentially grow an upper bracket the guideline cap rejects. The
-    # cumulative guideline limit is finite for a GPT policy, so doubling from
-    # the modal premium reaches it quickly.
-    hi = max(float(policy.modal_premium or 0.0), 1.0)
-    doublings = 0
-    while accepted(project(hi)):
-        iterations += 1
-        lo = hi
-        hi *= 2.0
-        doublings += 1
-        if doublings > _MAX_BRACKET_DOUBLINGS:
-            raise MaxLevelAllowedError(
-                "The guideline limit never caps the premium — "
-                "no finite maximum level premium exists.")
-    iterations += 1
+    # ── 2. Payment count: modal due months (policy months 1, 1+interval, …)
+    # the level schedule spans, read off the probe's own month stream so a
+    # mid-year start counts exactly the due dates the engine will collect.
+    # probe[0] is the inforce seed row (current month, no premium) — skip it.
+    payments = 0
+    for state in probe[1:]:
+        year = int(state.policy_year or 0)
+        if year < int(start_policy_year):
+            continue
+        if stop_year is not None and year >= stop_year:
+            continue
+        if int(state.attained_age or 0) >= int(policy.maturity_age or 0):
+            continue                        # no premium on/after maturity
+        if (int(state.policy_month or 1) - 1) % interval == 0:
+            payments += 1
+    if payments <= 0:
+        raise MaxLevelAllowedError(
+            "No level-premium payment dates remain before the age-100 "
+            "premium limit.")
 
-    # Bisect the accepted↔capped boundary to the resolution.
-    while hi - lo > resolution:
-        mid = (lo + hi) / 2.0
-        if accepted(project(mid)):
-            lo = mid
-        else:
-            hi = mid
-        iterations += 1
+    premium = max(0.0, math.floor(room / payments / resolution) * resolution)
 
-    premium = math.floor(lo / resolution) * resolution
-    return _build_result(premium, mode, policy, project(premium), iterations)
+    # ── 3. Apply it. The guideline cap clips any transiently tight year —
+    # expected for a policy already funded to its guideline today.
+    states = project(premium)
+    return _build_result(premium, mode, policy, states, iterations=2)
 
 
 def _build_result(

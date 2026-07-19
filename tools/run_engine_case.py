@@ -26,6 +26,20 @@ Option flags mirror the RERUN sINPUT_* booleans (omit to use engine defaults):
   tamra      -> IllustrationOptions.conform_to_tamra
   exception  -> IllustrationOptions.allow_exception_prems
   exact_days -> IllustrationOptions.exact_days_interest
+
+IUL crediting (omit on declared-rate plans / to use engine defaults):
+  iul_wair              -> IllustrationOptions.iul_wair_crediting (WAIR vs blend)
+  use_policy_ag49_regime-> IllustrationOptions.use_policy_ag49_regime (RERUN CP79
+                           always uses the issue-date regime, so comparisons set
+                           this true)
+  current_interest_rate -> policy_data override: the blended crediting rate
+                           (RERUN INPUT E52 / CalcEngine UO) — locally
+                           build_illustration_data seeds plan GINT, so the
+                           comparison must inject the case's blend
+  iul_declared_rate     -> policy_data override: fixed-strategy rate (RERUN UJ)
+  iul_asset_charge_rate -> policy_data override: blended IP/IR asset rate (SU)
+  allocations           -> policy_data.premium_allocations {fund: decimal}
+  swam                  -> policy_data.sweep_account_min (RERUN sINPUT_SWAM)
 """
 from __future__ import annotations
 
@@ -83,6 +97,10 @@ def run_engine_case(cmd: dict) -> dict:
         opt_kwargs["apply_prem_to_loan"] = bool(cmd["apply_prem_to_loan"])
     if "levelizing" in cmd:
         opt_kwargs["levelizing_premium"] = bool(cmd["levelizing"])
+    if "iul_wair" in cmd:
+        opt_kwargs["iul_wair_crediting"] = bool(cmd["iul_wair"])
+    if "use_policy_ag49_regime" in cmd:
+        opt_kwargs["use_policy_ag49_regime"] = bool(cmd["use_policy_ag49_regime"])
     options = IllustrationOptions(**opt_kwargs)
 
     # Optional policy changes: [{"kind":"face_amount"|"db_option","date":"YYYY-MM-DD","value":...,
@@ -137,6 +155,24 @@ def run_engine_case(cmd: dict) -> dict:
     # the same value.  In production this comes from policy_data.shadow_account_value.
     if cmd.get("shadow_av") is not None:
         policy_data.shadow_account_value = float(cmd["shadow_av"])
+    # IUL crediting overrides (mirror the Inputs-tab InforceOverrideSet): the
+    # comparison injects the RERUN case's blend/declared/asset-charge rates so
+    # both sides credit from identical inputs.
+    if cmd.get("current_interest_rate") is not None:
+        policy_data.current_interest_rate = float(cmd["current_interest_rate"])
+    if cmd.get("iul_declared_rate") is not None:
+        policy_data.iul_declared_rate = float(cmd["iul_declared_rate"])
+    if cmd.get("iul_asset_charge_rate") is not None:
+        policy_data.iul_asset_charge_rate = float(cmd["iul_asset_charge_rate"])
+    if cmd.get("allocations") is not None:
+        policy_data.premium_allocations = {
+            str(fund): float(pct) for fund, pct in cmd["allocations"].items()}
+    if cmd.get("swam") is not None:
+        policy_data.sweep_account_min = float(cmd["swam"])
+    if cmd.get("variable_loan_rate") is not None:
+        # sINPUT_Variable_Loan_Rate — the input rate inside the VV MAX (the
+        # AG49 spread branch only bites when blend − spread exceeds this).
+        policy_data.variable_loan_charge_rate = float(cmd["variable_loan_rate"])
     states = IllustrationEngine().project(
         policy_data, months=months, options=options, future_inputs=future_inputs)
 
@@ -151,6 +187,9 @@ def run_engine_case(cmd: dict) -> dict:
         "withdrawals_ytd", "wd_corridor_amount", "wd_reduces_sa",
         "wd_partial_sc", "gross_withdrawal", "av_post_withdrawal",
         "wd_face_decrease", "cost_basis_after_wd",
+        # IUL crediting block (CalcEngine SS..SX asset charge, US..VL WAIR)
+        "asset_charge_rate", "asset_charge",
+        "wair_tav", "wair_swam", "wair_held", "wair_rate",
     ]
     fields = list(_PIPELINE_ORDER) + [f for f in extra if f not in _PIPELINE_ORDER]
 
@@ -190,6 +229,15 @@ def run_engine_case(cmd: dict) -> dict:
             "conform_to_tamra": options.conform_to_tamra,
             "allow_exception_prems": options.allow_exception_prems,
             "exact_days_interest": options.exact_days_interest,
+            "iul_wair_crediting": options.iul_wair_crediting,
+            "use_policy_ag49_regime": options.use_policy_ag49_regime,
+        },
+        "iul_inputs": {
+            "current_interest_rate": policy_data.current_interest_rate,
+            "iul_declared_rate": policy_data.iul_declared_rate,
+            "iul_asset_charge_rate": policy_data.iul_asset_charge_rate,
+            "sweep_account_min": policy_data.sweep_account_min,
+            "premium_allocations": policy_data.premium_allocations,
         },
         "out_csv": out_csv,
     }

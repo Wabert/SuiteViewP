@@ -22,7 +22,20 @@ Usage (optional single JSON arg; all keys optional):
      "months":   750,                # months to project/compare (engine caps at maturity)
      "company":  "01", "region": "CKPR",
      "out_dir":  "<Documents>/SuiteView_DevTest",
-     "open":     true}               # open the saved .xlsx in Excel when done
+     "open":     true,               # open the saved .xlsx in Excel when done
+     "wair":     false,              # IUL: credit the WAIR instead of the blend on
+                                     # BOTH sides (RERUN sIntCalcMethod=3 override +
+                                     # engine iul_wair_crediting)
+     "overrides": [],                # extra RERUN named-range/cell overrides applied
+                                     # after each case load: [{"target","value"}]
+     "tag":      ""}                 # filename suffix for the output workbook
+
+IUL cases are auto-detected (plancode has index strategies): the case's
+allocations + illustrated rates are blended exactly as RERUN INPUT B52/E52
+(TRUNC4, IP/IR multiplier under AG49 index <= 2) and injected into the engine
+as current_interest_rate / iul_declared_rate / iul_asset_charge_rate /
+allocations / swam, with use_policy_ag49_regime=true (RERUN CP79 always uses
+the issue-date regime).
 """
 from __future__ import annotations
 
@@ -107,6 +120,64 @@ def _anniv(issue: datetime.date, year: int) -> datetime.date:
         return issue.replace(year=y, day=28)
 
 
+_IUL_FUND_IDS = ("U1", "IS", "IX", "IC", "IP", "IR", "IF", "NX", "M1")
+
+
+def _iul_from_case(first):
+    """IUL engine inputs from a Saved Case's allocation/rate scalars, or {}.
+
+    Mirrors RERUN exactly: the blend is INPUT B52/E52 (TRUNC4 of alloc x rate,
+    IP/IR contributing rate x (1+multiplier) only under AG49 index <= 2), the
+    declared rate is the fixed-strategy rate (UJ), and the asset-charge rate is
+    the RAW sum of IP/IR alloc x fee — the engine's build_iul_context applies
+    the regime gate (SU zeroes above index 2) itself.  use_policy_ag49_regime
+    is always true because RERUN CP79 resolves the regime from the issue date.
+    """
+    from suiteview.illustration.models.index_strategies import (
+        ag49_index_for_issue_date, compute_blended_rates, load_index_strategies,
+        plan_with_ag49_index,
+    )
+
+    plancode = str(first("sPlancode") or "").strip()
+    plan = load_index_strategies(plancode)
+    if plan is None:
+        return {}
+
+    allocations = {}
+    rates = {}
+    for fund in _IUL_FUND_IDS:
+        alloc = _num(first(f"sINPUT_PremAllocation{fund}"))
+        if alloc:
+            allocations[fund] = alloc
+        rate_name = ("sINPUT_Fixed_Int_Rate" if fund == "U1"
+                     else f"sINPUT_{fund}_IllustratedRate")
+        rate = _num(first(rate_name))
+        if rate:
+            rates[fund] = rate
+
+    issue = _excel_date(first("sINPUT_Issue_Date"))
+    ag49_index = ag49_index_for_issue_date(issue)
+    plan = plan_with_ag49_index(plan, ag49_index)
+    fixed_rate = _num(first("sINPUT_Fixed_Int_Rate")) or 0.0
+    blended = compute_blended_rates(plan, allocations, rates, gint=fixed_rate)
+
+    # Raw SU numerator (regime gate applied engine-side in build_iul_context).
+    raw_asset = 0.0
+    for fund in ("IP", "IR"):
+        alloc = _num(first(f"sINPUT_PremAllocation{fund}")) or 0.0
+        fee = _num(first(f"s{fund}_AssetFee")) or 0.0
+        raw_asset += alloc * fee
+
+    return {
+        "current_interest_rate": blended.effective,
+        "iul_declared_rate": fixed_rate,
+        "iul_asset_charge_rate": raw_asset,
+        "allocations": allocations,
+        "swam": _num(first("sINPUT_SWAM")) or 0.0,
+        "use_policy_ag49_regime": True,
+    }
+
+
 def _app_cmd_from_case(pairs, months, company, region):
     """Translate a Saved Case's inputs into a run_engine_case command.
 
@@ -135,6 +206,7 @@ def _app_cmd_from_case(pairs, months, company, region):
         "exact_days": _as_bool(first("sINPUT_Exact_Days_Boolean")),
         "premiums": [{"year": 1, "amount": prem, "mode": mode}],
     }
+    cmd.update(_iul_from_case(first))
 
     issue = _excel_date(first("sINPUT_Issue_Date"))
     if issue is not None:
@@ -189,8 +261,14 @@ def _read_debug_file(wb, months):
     return labels, rows
 
 
-def run_rerun_side(workbook, cases, months):
-    """Open Excel once; for each case load+recalc+read Debug File."""
+def run_rerun_side(workbook, cases, months, overrides=None):
+    """Open Excel once; for each case load+recalc+read Debug File.
+
+    ``overrides``: [{"target": <defined name or "Sheet!Addr">, "value": v}]
+    written after each case's inputs (e.g. sIntCalcMethod=3 to force WAIR
+    crediting — a Rates_Control formula cell, safely clobbered in the temp
+    copy only).
+    """
     from rerun_com import (
         _enable_iteration, _open_excel, _temp_copy, _write_named_range,
         assert_comparison_inputs, read_case_inputs, XL_CALC_MANUAL,
@@ -219,6 +297,16 @@ def run_rerun_side(workbook, cases, months):
             # exact-days OFF; fail loudly before the (expensive) recalc if a
             # stray case says otherwise.
             assert_comparison_inputs(wb, case)
+            for ov in overrides or []:
+                target = ov["target"]
+                if "!" in target:
+                    sheet, addr = target.split("!", 1)
+                    rng = wb.Worksheets(sheet).Range(addr)
+                else:
+                    rng = wb.Names(target).RefersToRange
+                if ov.get("row"):  # single row of a vector name (1-based)
+                    rng = rng.Cells(int(ov["row"]), 1)
+                rng.Value = ov["value"]
             xl.CalculateFull()
             labels, rrows = _read_debug_file(wb, months)
             # RERUN injects the current shadow account value here at valuation; feed
@@ -487,13 +575,21 @@ def main():
     region = cmd.get("region", "CKPR")
     out_dir = Path(cmd.get("out_dir") or DEFAULT_OUT_DIR)
     do_open = cmd.get("open", True)
+    wair = bool(cmd.get("wair", False))
+    tag = str(cmd.get("tag") or ("wair" if wair else "")).strip()
+    overrides = list(cmd.get("overrides") or [])
+    if wair:
+        # RERUN sIntCalcMethod: 1=Declared, 2=Blend, 3=WAIR (CalcEngine VN/VO
+        # CHOOSE). The cell is a plancode-table formula — override it in the
+        # temp copy so RERUN credits the WAIR like the engine's iul_wair run.
+        overrides.append({"target": "sIntCalcMethod", "value": 3})
 
     if not workbook.exists():
         print(json.dumps({"ok": False, "error": f"workbook not found: {workbook}"}))
         return 1
 
     # 1) RERUN side (Excel COM) — also yields each case's inputs for the app side.
-    rerun = run_rerun_side(workbook, cases, months)
+    rerun = run_rerun_side(workbook, cases, months, overrides=overrides)
 
     # 2) Build app commands from the Saved Case inputs, then run the engine.
     app_cmds, case_meta = {}, {}
@@ -503,6 +599,12 @@ def main():
         seed = rerun[case].get("shadow_seed")
         if seed:
             app_cmds[case]["shadow_av"] = seed
+        if wair:
+            app_cmds[case]["iul_wair"] = True
+        # Engine-side extras for constructed scenarios (pairs with "overrides"
+        # on the RERUN side, e.g. a what-if allocation change): merged last so
+        # they win over the case-derived IUL inputs.
+        app_cmds[case].update(cmd.get("app_extra") or {})
     app = run_app_side(app_cmds)
 
     # 3) Compare + build workbook.
@@ -511,7 +613,8 @@ def main():
 
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = out_dir / f"rerun_vs_app_{ts}.xlsx"
+    suffix = f"_{tag}" if tag else ""
+    out_path = out_dir / f"rerun_vs_app{suffix}_{ts}.xlsx"
     wb.save(str(out_path))
 
     if do_open:

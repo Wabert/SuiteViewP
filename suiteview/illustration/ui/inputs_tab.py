@@ -40,7 +40,6 @@ from suiteview.illustration.models.input_set import (
     ScheduledTransaction,
     TransactionKind,
 )
-from suiteview.audit.tabs._styles import _CHECKMARK_PATH, _ensure_checkmark
 from suiteview.illustration.models.index_strategies import ag49_regimes, is_iul_plan
 from suiteview.polview.ui.formatting import format_date
 
@@ -51,6 +50,8 @@ from .styles import (
     INPUT_TABLE_STYLE,
     PURPLE_BG,
     PURPLE_DARK,
+    PURPLE_LIGHT,
+    apply_input_checkbox_style,
 )
 
 
@@ -280,6 +281,7 @@ class IllustrationInputsTab(QWidget):
 
     WARNING_BG = QColor("#FFF0B3")
     NORMAL_BG = QColor("#FFFFFF")
+    GRID_INPUTS_TAB_LABEL = "Grid Inputs"
 
     _EXCEPTION_TOOLTIP = (
         "Allow the guideline-premium exception premium when the policy is "
@@ -301,6 +303,18 @@ class IllustrationInputsTab(QWidget):
         outer.setContentsMargins(12, 8, 12, 12)
         outer.setSpacing(6)
 
+        # Saved-case as-of strip: visible whenever the tab shows a saved case
+        # rather than live policy data — the user must never mistake a frozen
+        # snapshot for the current policy. Same warning-strip pattern as the
+        # suspended/exception notices.
+        self.snapshot_banner = QLabel("")
+        self.snapshot_banner.setWordWrap(True)
+        self.snapshot_banner.setStyleSheet(
+            "color: #5C3A00; background-color: #FFF4D6; border: 1px solid #D4A017;"
+            " border-radius: 4px; padding: 5px 9px; font-size: 11px; font-weight: bold;")
+        self.snapshot_banner.setVisible(False)
+        outer.addWidget(self.snapshot_banner)
+
         outer.addWidget(self._build_valuation_banner())
 
         self.input_tabs = QTabWidget(self)
@@ -312,9 +326,87 @@ class IllustrationInputsTab(QWidget):
         )
         self.dynamic_panel = DynamicInputsPanel(self)
         self.input_tabs.addTab(self.dynamic_panel, "Input")
-        self.input_tabs.addTab(self._build_transaction_tab(), "Grid Inputs")
+        self._grid_inputs_tab_index = self.input_tabs.addTab(
+            self._build_transaction_tab(), self.GRID_INPUTS_TAB_LABEL)
         self.input_tabs.addTab(self._build_control_tab(), "Illustration Control")
         outer.addWidget(self.input_tabs, 1)
+
+        # Grid Inputs is power-user territory (raw dated-transaction tables) —
+        # hidden by default so the tab bar stays lean; a right-click on the
+        # tab bar lets the user bring it back. Per-case, not global: see
+        # capture_case_inputs/apply_case_inputs.
+        self.input_tabs.setTabVisible(self._grid_inputs_tab_index, False)
+        self.input_tabs.tabBar().setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self.input_tabs.tabBar().customContextMenuRequested.connect(
+            self._show_input_tabs_context_menu)
+
+        # Max Level Allowed × future policy changes caveat: the solved premium
+        # spreads the guideline room measured at ZERO premium, but a policy
+        # change AFTER the forecast date can recalc the guidelines off state
+        # that depends on premiums paid (e.g. a DB option change under a level
+        # death benefit reads the account value) — so the solved figure may be
+        # off. Changes ON the forecast date are safe. The run is still
+        # allowed; this strip is the caveat. It lives at the BOTTOM of the
+        # Input panel (under Riders and Benefits) so popping up never shifts
+        # the controls above it.
+        self.max_level_caveat_banner = QLabel(
+            "Max Level Allowed may not produce the correct premium with "
+            "policy changes scheduled after the forecast date — a future "
+            "change can recalculate the guidelines based on premiums paid. "
+            "Changes on the forecast date are fine. The illustration will "
+            "still run with this caveat.")
+        self.max_level_caveat_banner.setWordWrap(True)
+        self.max_level_caveat_banner.setStyleSheet(
+            "color: #5C3A00; background-color: #FFF4D6; border: 1px solid #D4A017;"
+            " border-radius: 4px; padding: 5px 9px; font-size: 11px; font-weight: bold;")
+        self.max_level_caveat_banner.setVisible(False)
+        self.dynamic_panel.layout().addWidget(self.max_level_caveat_banner)
+
+        # Live caveat refresh: every surface that can create/clear a Max Level
+        # premium row or a policy change (dynamic sections, the riders panel,
+        # and the dated grid tables) re-evaluates the strip.
+        for section in (self.dynamic_panel.premium_section,
+                        self.dynamic_panel.face_section,
+                        self.dynamic_panel.dbo_section):
+            section.changed.connect(self._refresh_max_level_caveat)
+        self.dynamic_panel.riders_panel.changed.connect(
+            self._refresh_max_level_caveat)
+        self.face_amount_table.itemChanged.connect(
+            lambda _item: self._refresh_max_level_caveat())
+        self.db_option_table.itemChanged.connect(
+            lambda _item: self._refresh_max_level_caveat())
+
+    # ── Grid Inputs tab visibility (right-click the input_tabs tab bar) ──
+    #
+    # Hidden by default (power-user surface); toggled per-case, not global —
+    # see capture_case_inputs/apply_case_inputs.
+
+    def _show_input_tabs_context_menu(self, pos):
+        menu = QMenu(self.input_tabs.tabBar())
+        menu.setStyleSheet(
+            f"QMenu {{ background: white; color: {PURPLE_DARK};"
+            f" border: 1px solid {PURPLE_LIGHT}; }}"
+            "QMenu::item { padding: 4px 20px; }"
+            "QMenu::item:selected { background: #E6DAF8; color: #4B2383; }"
+        )
+        action = menu.addAction(self.GRID_INPUTS_TAB_LABEL)
+        action.setCheckable(True)
+        action.setChecked(self.grid_inputs_tab_visible())
+        action.toggled.connect(self._set_grid_inputs_tab_visible)
+        menu.exec(self.input_tabs.tabBar().mapToGlobal(pos))
+
+    def grid_inputs_tab_visible(self) -> bool:
+        return self.input_tabs.isTabVisible(self._grid_inputs_tab_index)
+
+    def _set_grid_inputs_tab_visible(self, visible: bool):
+        if not visible and self.input_tabs.currentIndex() == self._grid_inputs_tab_index:
+            # Hiding the current tab must never leave a blank pane — land on
+            # the always-visible "Input" tab instead.
+            self.input_tabs.setCurrentIndex(0)
+        self.input_tabs.setTabVisible(self._grid_inputs_tab_index, visible)
+        if visible:
+            self.input_tabs.setCurrentIndex(self._grid_inputs_tab_index)
 
     def _build_valuation_banner(self):
         """Compact date strip: valuation date, monthliversary day, first forecast month.
@@ -353,6 +445,9 @@ class IllustrationInputsTab(QWidget):
         self.banner_rateclass_label = _pair("Rateclass")
         self.banner_db_option_label = _pair("DB Option")
         row.addStretch(1)
+        # Anchored at the far right: current total policy debt. Always
+        # visible — "0" means loan-free, never a hidden field.
+        self.banner_policy_debt_label = _pair("Policy Debt")
         return banner
 
     def _build_transaction_tab(self):
@@ -645,24 +740,8 @@ class IllustrationInputsTab(QWidget):
             self.exception_prem_check.setToolTip(reason)
 
     def _make_control_checkbox(self, text: str):
-        _ensure_checkmark()
-        icon_path = _CHECKMARK_PATH.replace("\\", "/")
         checkbox = QCheckBox(text, self)
-        checkbox.setStyleSheet(
-            f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold; spacing: 6px; }}"
-            "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px; background-color: white; }"
-            "QCheckBox::indicator:hover { border: 1px solid #4B2383; background-color: #FBF9FE; }"
-            "QCheckBox::indicator:checked {"
-            "  background-color: #5E35A5; border: 1px solid #4B2383;"
-            f"  image: url({icon_path});"
-            "}"
-            "QCheckBox:disabled { color: #9A8FB0; }"
-            "QCheckBox::indicator:disabled { border: 1px solid #C9B8E4; background-color: #EEE7F9; }"
-            "QCheckBox::indicator:checked:disabled {"
-            "  background-color: #B7A6D6; border: 1px solid #C9B8E4;"
-            f"  image: url({icon_path});"
-            "}"
-        )
+        apply_input_checkbox_style(checkbox)
         return checkbox
 
     def _make_control_radio(self, text: str):
@@ -913,7 +992,41 @@ class IllustrationInputsTab(QWidget):
 
         QTimer.singleShot(0, scan)
 
-    def load_data_from_policy(self, policy, *, has_shadow: bool = False):
+    def set_snapshot_notice(self, text: str | None):
+        """Show (or clear with None) the saved-case as-of strip."""
+        self.snapshot_banner.setText(text or "")
+        self.snapshot_banner.setVisible(bool(text))
+
+    # ── Max Level Allowed × policy-change caveat ─────────────────────
+
+    def max_level_change_caveat_active(self) -> bool:
+        """True when a Max Level Allowed premium row is combined with any
+        policy change effective AFTER the forecast date — face amount, DB
+        option, or a rider change/drop (all flow through the exported input
+        set's policy changes).
+
+        The Max Level solve measures the guideline room at zero premium; a
+        later change can recalc the guidelines off premium-dependent state,
+        so the solved figure may be off. A change ON the forecast date is
+        safe — its recalc lands before any solved premium is paid.
+        """
+        panel = self.dynamic_panel
+        ctx = getattr(panel, "_ctx", None)
+        forecast = getattr(ctx, "forecast_date", None)
+        if forecast is None or panel.max_level_request() is None:
+            return False
+        changes = self.export_input_set().policy_changes
+        return any(
+            change.effective_date is not None
+            and change.effective_date > forecast
+            for change in changes)
+
+    def _refresh_max_level_caveat(self):
+        self.max_level_caveat_banner.setVisible(
+            self.max_level_change_caveat_active())
+
+    def load_data_from_policy(self, policy, *, has_shadow: bool = False,
+                              shadow_ceased: bool = False):
         self._issue_date = getattr(policy, "issue_date", None)
         self._maturity_date = self._maturity_date_from_policy(policy)
         if self._maturity_date is not None:
@@ -930,7 +1043,9 @@ class IllustrationInputsTab(QWidget):
         plancode = str(getattr(policy, "base_plancode", "") or getattr(policy, "plancode", "") or "")
         self._set_iul_crediting_applicable(is_iul_plan(plancode))
         self._update_ag49_regime_panel()
-        self.dynamic_panel.load_from_policy(policy, has_shadow=has_shadow)
+        self.dynamic_panel.load_from_policy(policy, has_shadow=has_shadow,
+                                            shadow_ceased=shadow_ceased)
+        self._refresh_max_level_caveat()
 
     def _update_valuation_banner(self, policy):
         valuation_date = getattr(policy, "valuation_date", None)
@@ -965,6 +1080,16 @@ class IllustrationInputsTab(QWidget):
                       "2": "B - Increasing", "B": "B - Increasing",
                       "3": "C - ROP", "C": "C - ROP"}.get(db_code)
         self.banner_db_option_label.setText(db_display or (db_code or "—"))
+        # Total policy debt = all six loan buckets (regular / preferred /
+        # variable, principal + accrued interest) — the same total_loan_balance
+        # the engine seeds its opening loan state from. Live PolicyInformation
+        # (Decimal) and a frozen IllustrationPolicyData snapshot (float) both
+        # expose it, so live and snapshot modes read the same way.
+        try:
+            debt = float(getattr(policy, "total_loan_balance", 0) or 0)
+        except (TypeError, ValueError):
+            debt = 0.0
+        self.banner_policy_debt_label.setText(f"{debt:,.0f}")
 
     def export_input_set(self) -> IllustrationInputSet:
         input_set = IllustrationInputSet()
@@ -1044,7 +1169,7 @@ class IllustrationInputsTab(QWidget):
         return input_set
 
     def export_options(self) -> IllustrationOptions:
-        md_request = self.dynamic_panel.monthly_deduction_request()
+        md_windows = self.dynamic_panel.monthly_deduction_windows()
         return IllustrationOptions(
             conform_to_tefra=self.tefra_check.isChecked(),
             conform_to_tamra=self.dynamic_panel.tamra_check.isChecked(),
@@ -1056,9 +1181,8 @@ class IllustrationInputsTab(QWidget):
             apply_prem_to_loan=self.dynamic_panel.apply_prem_to_loan_check.isChecked(),
             apply_excess_repayment_as_premium=(
                 self.dynamic_panel.excess_repayment_as_premium()),
-            pay_monthly_deduction=md_request is not None,
-            monthly_deduction_start_year=(
-                md_request["start_year"] if md_request else None),
+            pay_monthly_deduction=bool(md_windows),
+            monthly_deduction_windows=(md_windows or None),
             iul_wair_crediting=self.wair_radio.isChecked(),
             use_policy_ag49_regime=self.policy_ag49_check.isChecked(),
         )
@@ -1066,11 +1190,23 @@ class IllustrationInputsTab(QWidget):
     def min_level_request(self) -> Optional[dict]:
         return self.dynamic_panel.min_level_request()
 
+    def shadow_level_request(self) -> Optional[dict]:
+        return self.dynamic_panel.shadow_level_request()
+
+    def set_shadow_level_amount(self, value: Optional[float]):
+        self.dynamic_panel.set_shadow_level_amount(value)
+
     def max_level_request(self) -> Optional[dict]:
         return self.dynamic_panel.max_level_request()
 
     def set_max_level_amount(self, value: Optional[float]):
         self.dynamic_panel.set_max_level_amount(value)
+
+    def solve_request(self) -> Optional[dict]:
+        return self.dynamic_panel.solve_request()
+
+    def set_solve_amount(self, value: Optional[float]):
+        self.dynamic_panel.set_solve_amount(value)
 
     def lumpsum_to_next_enabled(self) -> bool:
         return self.dynamic_panel.lumpsum_to_next_enabled()
@@ -1126,7 +1262,149 @@ class IllustrationInputsTab(QWidget):
         return InforceOverrideSet(
             current_interest_rate=self.dynamic_panel.illustrated_rate(),
             sweep_account_min=self.dynamic_panel.sweep_account_min(),
+            iul_declared_rate=self.dynamic_panel.iul_declared_rate(),
+            iul_asset_charge_rate=self.dynamic_panel.iul_asset_charge_rate(),
         )
+
+    # ── saved-case capture/apply ──────────────────────────────
+    #
+    # The saved-case payload is the WIDGET state — the same surface a Run
+    # Values consumes through export_input_set/export_options/
+    # export_inforce_overrides — so a saved case can never drift from what a
+    # run actually uses. Serialized as a plain JSON-safe dict for
+    # models/case_store.py.
+
+    _CASE_GRIDS = (
+        ("scheduled_premiums", "scheduled_premium_table"),
+        ("scheduled_loans", "scheduled_loan_table"),
+        ("unscheduled_premiums", "unscheduled_premium_table"),
+        ("unscheduled_loans", "specific_loan_table"),
+        ("loan_repayments", "loan_repayment_table"),
+        ("withdrawals", "withdrawal_table"),
+        ("face_amounts", "face_amount_table"),
+        ("db_options", "db_option_table"),
+    )
+
+    def capture_case_inputs(self) -> dict:
+        """Snapshot the full user input state of this tab (JSON-safe)."""
+        return {
+            "grids": {
+                name: self._capture_grid(getattr(self, attr))
+                for name, attr in self._CASE_GRIDS
+            },
+            "scheduled_loan_type": (
+                "variable" if self.variable_loan_toggle.isChecked() else "fixed"),
+            "controls": {
+                "exact_days": self.exact_days_check.isChecked(),
+                "tefra": self.tefra_check.isChecked(),
+                "exception_prem": self.exception_prem_check.isChecked(),
+                "cap_acceptance": self.cap_acceptance_check.isChecked(),
+                "levelizing": self.levelizing_check.isChecked(),
+                "gp_search": self.gp_search_check.isChecked(),
+                "stop_on_lapse": self.stop_on_lapse_check.isChecked(),
+                "duration_mode": (
+                    "date" if self.illustration_to_date_radio.isChecked()
+                    else "years"),
+                "duration_date": self.illustration_to_date_edit.date().toString(
+                    "yyyy-MM-dd"),
+                "duration_years": self.illustration_years_combo.currentText(),
+                "iul_rate_method": (
+                    "wair" if self.wair_radio.isChecked() else "blended"),
+                "use_policy_ag49": self.policy_ag49_check.isChecked(),
+            },
+            "dynamic": self.dynamic_panel.capture_state(),
+            "ui": {
+                "grid_inputs_tab_visible": self.grid_inputs_tab_visible(),
+            },
+        }
+
+    def apply_case_inputs(self, state: dict) -> list[str]:
+        """Apply a saved case onto this tab (already loaded for a policy).
+
+        Returns warnings for every input that did not apply on this policy —
+        the caller must surface them; nothing is silently dropped."""
+        warnings: list[str] = []
+        grids = state.get("grids") or {}
+        for name, attr in self._CASE_GRIDS:
+            self._apply_grid(getattr(self, attr), grids.get(name) or [])
+        if state.get("scheduled_loan_type") == "variable":
+            self.variable_loan_toggle.setChecked(True)
+        else:
+            self.fixed_loan_toggle.setChecked(True)
+
+        warnings.extend(self.dynamic_panel.apply_state(state.get("dynamic") or {}))
+
+        controls = state.get("controls") or {}
+        self.exact_days_check.setChecked(bool(controls.get("exact_days")))
+        self.tefra_check.setChecked(bool(controls.get("tefra", True)))
+        self.cap_acceptance_check.setChecked(
+            bool(controls.get("cap_acceptance", True)))
+        self.levelizing_check.setChecked(bool(controls.get("levelizing", True)))
+        self.gp_search_check.setChecked(bool(controls.get("gp_search")))
+        self.stop_on_lapse_check.setChecked(
+            bool(controls.get("stop_on_lapse", True)))
+        # The exception checkbox may be force-blocked on this policy (active
+        # shadow account) — a saved "allow" must not sneak past the block.
+        wants_exception = bool(controls.get("exception_prem", True))
+        if self.exception_prem_check.isEnabled():
+            self.exception_prem_check.setChecked(wants_exception)
+        elif wants_exception and not self.exception_prem_check.isChecked():
+            warnings.append(
+                "Allow GP Exception Premium did not apply — it is blocked on "
+                "this policy (active shadow account).")
+        if controls.get("duration_mode") == "date":
+            self.illustration_to_date_radio.setChecked(True)
+            saved_date = QDate.fromString(
+                str(controls.get("duration_date") or ""), "yyyy-MM-dd")
+            if saved_date.isValid():
+                self.illustration_to_date_edit.setDate(saved_date)
+        else:
+            self.illustration_years_radio.setChecked(True)
+            years = str(controls.get("duration_years") or "")
+            if years:
+                self.illustration_years_combo.setCurrentText(years)
+        self.wair_radio.setChecked(controls.get("iul_rate_method") == "wair")
+        self.blended_rate_radio.setChecked(
+            controls.get("iul_rate_method") != "wair")
+        self.policy_ag49_check.setChecked(bool(controls.get("use_policy_ag49")))
+        self._refresh_max_level_caveat()
+        # Backward-tolerant: cases saved before this field existed had the
+        # tab hidden (the only state that could exist then) — default False.
+        ui = state.get("ui") or {}
+        self._set_grid_inputs_tab_visible(bool(ui.get("grid_inputs_tab_visible", False)))
+        return warnings
+
+    @staticmethod
+    def _capture_grid(table: QTableWidget) -> list:
+        """Non-empty grid rows as ``[row_index, [cell texts…]]`` pairs."""
+        out = []
+        for row in range(table.rowCount()):
+            texts = [
+                (table.item(row, col).text() if table.item(row, col) else "")
+                for col in range(table.columnCount())
+            ]
+            if any(text.strip() for text in texts):
+                out.append([row, texts])
+        return out
+
+    @staticmethod
+    def _apply_grid(table: QTableWidget, entries: list):
+        """Clear the grid, then restore saved rows at their saved positions."""
+        for row in range(table.rowCount()):
+            for col in range(table.columnCount()):
+                item = table.item(row, col)
+                if item is not None and item.text():
+                    item.setText("")
+        for entry in entries:
+            row, texts = int(entry[0]), list(entry[1])
+            if row >= table.rowCount():
+                grown_from = table.rowCount()
+                table.setRowCount(row + 1)
+                table.init_rows(grown_from, row + 1)
+            for col, text in enumerate(texts[: table.columnCount()]):
+                item = table.item(row, col)
+                if item is not None:
+                    item.setText(str(text))
 
     @staticmethod
     def _maturity_date_from_policy(policy) -> date | None:

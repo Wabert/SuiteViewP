@@ -2604,10 +2604,17 @@ class SuiteViewTaskbar(QWidget):
                 from suiteview.polview.ui.main_window import GetPolicyWindow
                 self.polview_window = GetPolicyWindow()
                 self._setup_child_window(self.polview_window, "PolView")
+                self._wire_polview_illustrator(self.polview_window)
             except Exception as e:
                 logger.error(f"Failed to open PolView: {e}")
                 return
         self._bring_to_front(self.polview_window)
+
+    def _wire_polview_illustrator(self, window):
+        """Route PolView's 'Open in Illustrator' button through the shared
+        Illustration window (reusing it if already open)."""
+        if window is not None and hasattr(window, 'set_illustration_launcher'):
+            window.set_illustration_launcher(self._launch_illustration_with_policy)
 
     def _get_polview_window(self):
         """Get the shared PolView window (used as provider callback for child tools).
@@ -2620,6 +2627,7 @@ class SuiteViewTaskbar(QWidget):
                 from suiteview.polview.ui.main_window import GetPolicyWindow
                 self.polview_window = GetPolicyWindow()
                 self._setup_child_window(self.polview_window, "PolView")
+                self._wire_polview_illustrator(self.polview_window)
             except ImportError:
                 logger.info("PolView package not available")
             except Exception as e:
@@ -2635,26 +2643,64 @@ class SuiteViewTaskbar(QWidget):
         else:
             self._open_polview()
 
+    def _compact_policy(self):
+        """Return the policy number typed in the compact bar, or '' if none."""
+        if (self._is_compact_mode
+                and hasattr(self, 'compact_policy_input')):
+            return self.compact_policy_input.text().strip()
+        return ""
+
+    def _compact_region(self):
+        """Return the region chosen in the compact bar (default CKPR)."""
+        if hasattr(self, 'compact_region_combo'):
+            return self.compact_region_combo.currentText() or "CKPR"
+        return "CKPR"
+
     def _open_polview_with_policy(self):
         """Open PolView and load the policy specified in the compact bar inputs."""
-        policy = self.compact_policy_input.text().strip()
+        policy = self._compact_policy()
         if not policy:
             return
-
-        region = self.compact_region_combo.currentText()
 
         # Populate and load before the first show so a newly-created PolView
         # window does not briefly appear as a small blank pythonw window.
         window = self._get_polview_window()
-        if not window or not hasattr(window, 'lookup_bar'):
+        if not window or not hasattr(window, 'load_policy'):
             return
 
-        lb = window.lookup_bar
-        lb.region_input.setText(region)
-        lb.company_input.setText("")   # Let it auto-detect
-        lb.policy_input.setText(policy)
-        lb._on_get_policy()
+        # Company left empty so PolView auto-detects it.
+        window.load_policy(policy, region=self._compact_region(), company_code="")
         self._bring_to_front(window)
+
+    def _abrquote_btn_clicked(self):
+        """Open ABR Quote, loading the compact-bar policy when one is typed."""
+        policy = self._compact_policy()
+        self._open_abrquote()
+        if policy and self.abrquote_window is not None \
+                and hasattr(self.abrquote_window, 'load_policy'):
+            self.abrquote_window.load_policy(policy)
+
+    def _illustration_btn_clicked(self):
+        """Open Illustration, loading the compact-bar policy when one is typed."""
+        policy = self._compact_policy()
+        if policy:
+            self._launch_illustration_with_policy(
+                policy, region=self._compact_region(), company_code="")
+        else:
+            self._open_illustration()
+
+    def _launch_illustration_with_policy(self, policy_number, region="CKPR",
+                                         company_code=""):
+        """Open (or reuse) the Illustration window and load *policy_number*.
+
+        Shared by the taskbar Illustration button and PolView's "Open in
+        Illustrator" header button so both funnel through one code path.
+        """
+        self._open_illustration()
+        win = self.illustration_window
+        if win is not None and hasattr(win, 'load_policy'):
+            win.load_policy(policy_number, region=region, company_code=company_code)
+        self._bring_to_front(win)
 
     def _open_audit(self):
         """Open the Audit Tool window"""
@@ -3277,7 +3323,7 @@ class SuiteViewTaskbar(QWidget):
                 border-color: #2E4F85;
             }
         """)
-        self.abrquote_btn.clicked.connect(self._open_abrquote)
+        self.abrquote_btn.clicked.connect(self._abrquote_btn_clicked)
         header_layout.addWidget(self.abrquote_btn)
 
         # ====== ILLUSTRATION BUTTON (gold "I" on purple) ======
@@ -3305,7 +3351,7 @@ class SuiteViewTaskbar(QWidget):
                 background: #2A1458;
             }
         """)
-        self.illustration_btn.clicked.connect(self._open_illustration)
+        self.illustration_btn.clicked.connect(self._illustration_btn_clicked)
         header_layout.addWidget(self.illustration_btn)
         
         # ====== AUDIT BUTTON ("Q" — silver & blue) ======

@@ -12,6 +12,10 @@ WHITE = "#FFFFFF"
 GRAY_DARK = "#2D3748"
 
 ILLUSTRATION_HEADER_COLORS = (PURPLE_DARK, PURPLE_RICH, PURPLE_PRIMARY)
+# Visibly lighter gradient the title bar wears while a saved case (frozen
+# policy snapshot) is loaded — same hue family, instantly reads as
+# "different mode", white title text stays legible on every stop.
+ILLUSTRATION_SNAPSHOT_HEADER_COLORS = ("#9E7BD8", "#8E67CE", "#7E57C2")
 ILLUSTRATION_BORDER_COLOR = GOLD_PRIMARY
 
 TAB_WIDGET_STYLE = f"""
@@ -194,22 +198,24 @@ VALUE_BUTTON_MATURED_STYLE = """
     }
 """
 
-LIST_BUTTON_STYLE = f"""
+# Checkable panel-toggle buttons that live IN the window header (title bar),
+# matching its gradient visual language — compact, gold-bordered, translucent.
+HEADER_PANEL_BUTTON_STYLE = f"""
     QPushButton {{
-        background: transparent;
+        background: rgba(0, 0, 0, 60);
         border: 1px solid {GOLD_PRIMARY};
-        border-radius: 3px;
-        min-width: 56px; max-width: 56px;
-        min-height: 28px; max-height: 28px;
+        border-radius: 4px;
+        min-height: 24px; max-height: 24px;
         font-size: 11px; font-weight: bold;
         color: {GOLD_TEXT};
-        padding: 0 6px;
+        padding: 0 12px;
     }}
     QPushButton:hover {{
         background-color: rgba(255, 255, 255, 0.15);
     }}
     QPushButton:checked {{
-        background-color: rgba(212, 160, 23, 0.30);
+        background-color: rgba(212, 160, 23, 0.35);
+        color: #FFF3B0;
     }}
 """
 
@@ -243,14 +249,48 @@ INPUT_SMALL_BTN_STYLE = (
 INPUT_CAPTION_STYLE = (
     f"color: {PURPLE_DARK}; background: transparent; font-size: 9px; font-weight: bold;"
 )
+# Reuse the shared checkmark PNG asset (white tick, drawn once to disk) that
+# the Audit tabs' checkbox factory already generates — same glyph, different
+# indicator border color per module.
+from suiteview.audit.tabs._styles import _CHECKMARK_PATH, _ensure_checkmark  # noqa: E402
+
+_CHECKMARK_ICON_PATH = _CHECKMARK_PATH.replace("\\", "/")
+
+# The canonical purple checkbox look — originated on the Illustration Control
+# tab's "Run Controls" group (see IllustrationInputsTab._make_control_checkbox)
+# and now the single style every checkbox in the Illustration sub-app should
+# use. Bordered box, hover highlight, filled purple + white checkmark when
+# checked, muted/greyed when disabled.
 INPUT_CHECKBOX_STYLE = (
     f"QCheckBox {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
     " font-weight: bold; spacing: 6px; }"
     "QCheckBox::indicator { border: 1px solid #5E35A5; width: 12px; height: 12px;"
     " background-color: white; }"
-    "QCheckBox::indicator:disabled { background-color: #E8DDF8; }"
-    "QCheckBox::indicator:checked { background-color: #5E35A5; }"
+    "QCheckBox::indicator:hover { border: 1px solid #4B2383; background-color: #FBF9FE; }"
+    "QCheckBox::indicator:checked {"
+    "  background-color: #5E35A5; border: 1px solid #4B2383;"
+    f"  image: url({_CHECKMARK_ICON_PATH});"
+    "}"
+    "QCheckBox:disabled { color: #9A8FB0; }"
+    "QCheckBox::indicator:disabled { border: 1px solid #C9B8E4; background-color: #EEE7F9; }"
+    "QCheckBox::indicator:checked:disabled {"
+    "  background-color: #B7A6D6; border: 1px solid #C9B8E4;"
+    f"  image: url({_CHECKMARK_ICON_PATH});"
+    "}"
 )
+
+
+def apply_input_checkbox_style(checkbox):
+    """Apply the shared purple Run-Controls checkbox look to *checkbox*.
+
+    Ensures the shared checkmark PNG asset exists on disk (lazily generated,
+    requires a live QApplication) before assigning INPUT_CHECKBOX_STYLE, so
+    every Illustration checkbox — not just Run Controls — renders the same
+    bordered box / hover / filled-purple-with-white-tick states.
+    """
+    _ensure_checkmark()
+    checkbox.setStyleSheet(INPUT_CHECKBOX_STYLE)
+    return checkbox
 INPUT_RADIO_STYLE = (
     f"QRadioButton {{ color: {PURPLE_DARK}; background: transparent; font-size: 11px;"
     " font-weight: bold; spacing: 6px; }"

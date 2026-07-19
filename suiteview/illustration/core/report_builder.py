@@ -12,8 +12,11 @@ Sources in the workbook (decoded 2026-06-10):
     Mode, Distribution from Policy; EOY AV / SV / DB / Loan Balance.
   - Row markers (UL pages R17): '*' GP-capped (and no exception prem),
     '@' force-out, '^' exception premiums, '&' forecast year of MEC,
-    '#' premiums repaid loans, '%' maturity with SV endowment,
+    '#' premiums repaid loans,
     '+' a new 7-pay test period starts (TAMRA material change).
+    (RERUN's '%' post-maturity marker/legend was dropped 2026-07-19: the
+    ledger now ends at the maturity-age EOY row, with no post-maturity stub
+    row and no contract-specific after-maturity DB wording.)
   - Notes page (BT block): assumptions paragraphs + conditional legends.
   - Riders/regulatory page (CI block): riders list, GSP/GLP/AccumGLP (+7-pay
     within the TAMRA window), per-policy-change estimated limits.
@@ -86,10 +89,10 @@ def _pct(value: float) -> str:
 class LedgerRow:
     """One policy year of the report ledger (RERUN mLedgerKey + Current)."""
 
-    eoy_age: int = 0
+    eoy_age: int = 0                # age at END of policy year (issue_age + year)
     year: int = 0
     premium_outlay: float = 0.0
-    markers: str = ""               # '* @ ^ & # % +' combination for the year
+    markers: str = ""               # '* @ ^ & # +' combination for the year
     cash_from_policy: float = 0.0   # Distribution from Policy (WDs + force-outs)
     loan_balance: float = 0.0
     # Guaranteed columns; None (blank) when no guaranteed run was supplied.
@@ -100,6 +103,54 @@ class LedgerRow:
     surr_value: float = 0.0
     death_benefit: float = 0.0
     lapsed: bool = False
+
+
+@dataclass
+class ExpenseRow:
+    """One policy year of the supplemental Expense Report (RERUN "Expense
+    Report" sheet, columns J:Y). Charges/credits are annual sums of the
+    month's values; policy values are end-of-year. Years at or past the
+    current-basis termination year render as zeros (the sheet's inforce
+    flag ``I = year < sTerminationYear``).
+
+    The rendered page keeps Premium Charge (N) as its own column and
+    collapses the remaining expense components (P, Q, R, S) plus any partial
+    surrender charges assessed on withdrawals into one combined
+    EXPENSES/FEES column (``expenses``). It also adds a POLICY DEBT column
+    (not on the RERUN sheet; same EOY loan balance the annual ledger shows).
+    The components stay granular here for tests and future use."""
+
+    year: int = 0                       # J — End of Year (policy year)
+    eoy_age: int = 0                    # K — age at END of policy year (issue_age + year)
+    premium_outlay: float = 0.0         # L — Σ vPremiumOutlay
+    distributions: float = 0.0          # M — Σ vDistributionFromPolicy (WDs + loans + force-outs)
+    premium_charge: float = 0.0         # N — Σ vTotalPremLoad
+    coi_charge: float = 0.0             # O — Σ vTotalCOICharge − Σ vRiderBenefitCharge (base COI)
+    per_unit_charge: float = 0.0        # P — Σ vTotalEPU (per-1000 monthly charge)
+    monthly_fee: float = 0.0            # Q — Σ vMFee
+    asset_charge: float = 0.0           # R — Σ vAssetCharge (IUL segment asset charge)
+    av_charge: float = 0.0              # S — Σ vAVCharge (% of accumulation value)
+    rider_charges: float = 0.0          # T — Σ vRiderBenefitCharge (benefit + rider charges)
+    interest_credited: float = 0.0      # U — Σ vTotalInterest
+    accum_value: float = 0.0            # V — EOY vIllustrationAV
+    surrender_charges: float = 0.0      # W — EOY vFullSC
+    net_surrender_value: float = 0.0    # X — EOY vIllustrationSV
+    net_death_benefit: float = 0.0      # Y — EOY vIllustrationDB
+    # Not on the RERUN sheet: EOY policy debt (principal + accrued), the same
+    # value the annual ledger's LOAN BALANCE column shows (MonthlyState.policy_debt).
+    policy_debt: float = 0.0
+    # Not on the RERUN sheet: Σ wd_partial_sc (RERUN withdrawal-block BM) — the
+    # partial surrender charge assessed when a withdrawal reduces the specified
+    # amount. Folded into the EXPENSES/FEES page column.
+    partial_surrender_charges: float = 0.0
+
+    @property
+    def expenses(self) -> float:
+        """Combined EXPENSES/FEES page column: per-1000 charge + monthly fee +
+        segment asset charge + AV charge (sheet cols P+Q+R+S) + any partial
+        surrender charges assessed on withdrawals."""
+        return (self.per_unit_charge + self.monthly_fee + self.asset_charge
+                + self.av_charge + self.partial_surrender_charges)
 
 
 @dataclass
@@ -140,6 +191,9 @@ class IllustrationReport:
 
     # Ledger
     ledger: List[LedgerRow] = field(default_factory=list)
+    # Supplemental Expense Report rows (RERUN "Expense Report" J:Y) — always
+    # built; the Report tab appends the page only when the user opts in.
+    expense_rows: List[ExpenseRow] = field(default_factory=list)
     # End-of-projection values, set only when the policy reaches maturity
     # (rendered as a VALUES AT MATURITY strip under the ledger).
     maturity_row: Optional[LedgerRow] = None
@@ -180,12 +234,18 @@ def _annualize(
     for state in projected:
         by_year.setdefault(state.policy_year, []).append(state)
 
-    maturity_age = 121
+    maturity_age = int(policy.maturity_age or 121)
     year_of_mec: Optional[int] = None
     termination_year: Optional[int] = None
     rows: List[LedgerRow] = []
     for year in sorted(by_year):
         months = by_year[year]
+        # A policy year that BEGINS at/after the maturity age is the engine's
+        # post-maturity stub (the anniversary month that endows the policy).
+        # The printed ledger ends at the year whose EOY age is the maturity
+        # age; the stub feeds the VALUES AT MATURITY strip, not a ledger row.
+        if months[0].attained_age >= maturity_age:
+            continue
         eoy = months[-1]
         outlay = sum(m.premium_outlay for m in months)
         forceout = sum(m.guideline_forceout for m in months)
@@ -219,11 +279,12 @@ def _annualize(
             markers += "& "
         # '#' (premiums repaid loans) — loan repayment inputs are not yet
         # surfaced per-month by the engine; wire when they are.
-        if eoy.attained_age >= maturity_age:
-            markers += "% "
 
         rows.append(LedgerRow(
-            eoy_age=eoy.attained_age,
+            # EOY age: the age the insured reaches at the END of the policy year
+            # (issue_age + year). The engine's attained_age holds the age at the
+            # anniversary that BEGAN the year (issue_age + year - 1).
+            eoy_age=eoy.attained_age + 1,
             year=year,
             premium_outlay=outlay,
             markers=markers.strip(),
@@ -284,6 +345,58 @@ def _fill_guaranteed_columns(
     return termination_year
 
 
+# ── Expense Report rows (RERUN "Expense Report" sheet, columns J:Y) ─────────
+
+def _expense_rows(
+    results: List[MonthlyState],
+    termination_year: Optional[int],
+    maturity_age: int,
+) -> List[ExpenseRow]:
+    """Fold the projection into the Expense Report's per-year J:Y columns.
+
+    Mirrors the sheet exactly: charge/credit columns are SUMs of the year's
+    monthly values, policy-value columns are the end-of-year snapshot, and a
+    year at or past the termination year renders all-zero (the sheet's
+    ``I = year < sTerminationYear`` inforce flag zeroes the whole row). The
+    engine's post-maturity stub year is skipped, matching the annual ledger.
+    """
+    projected = results[1:]
+    by_year: dict[int, List[MonthlyState]] = {}
+    for state in projected:
+        by_year.setdefault(state.policy_year, []).append(state)
+
+    rows: List[ExpenseRow] = []
+    for year in sorted(by_year):
+        months = by_year[year]
+        if months[0].attained_age >= maturity_age:
+            continue
+        eoy = months[-1]
+        # eoy_age is the END-of-year age (issue_age + year); attained_age holds
+        # the beginning-of-year age (issue_age + year - 1).
+        row = ExpenseRow(year=year, eoy_age=eoy.attained_age + 1)
+        if termination_year is None or year < termination_year:
+            row.premium_outlay = sum(m.premium_outlay for m in months)
+            row.distributions = sum(
+                m.applied_net_withdrawal + m.guideline_forceout + m.applied_new_loan
+                for m in months)
+            row.premium_charge = sum(m.total_premium_load for m in months)
+            row.coi_charge = sum(m.total_coi_charge for m in months)
+            row.per_unit_charge = sum(m.epu_charge for m in months)
+            row.monthly_fee = sum(m.mfee_charge for m in months)
+            row.asset_charge = sum(m.asset_charge for m in months)
+            row.av_charge = sum(m.av_charge for m in months)
+            row.rider_charges = sum(m.benefit_charges + m.rider_charges for m in months)
+            row.partial_surrender_charges = sum(m.wd_partial_sc for m in months)
+            row.interest_credited = sum(m.interest_credited for m in months)
+            row.accum_value = max(eoy.av_end_of_month, 0.0)
+            row.surrender_charges = eoy.surrender_charge
+            row.net_surrender_value = max(eoy.ending_sv, 0.0)
+            row.net_death_benefit = max(eoy.ending_db, 0.0)
+            row.policy_debt = eoy.policy_debt
+        rows.append(row)
+    return rows
+
+
 # ── Requested premium / loan / withdrawal lines ─────────────────────────────
 
 _INTERVAL_MODE_LABELS = {1: "MONTHLY", 3: "QUARTERLY", 6: "SEMI-ANNUAL", 12: "ANNUAL"}
@@ -341,7 +454,21 @@ def _request_lines(
                 "amount": amount, "interval": None, "last_duration": state.duration,
             })
 
-    lines: List[str] = []
+    # Monthly Deduction premium years: the premium is solved in-engine each
+    # month (grossed-up monthly deduction, varying monthly), so the cover
+    # describes it without a dollar amount. ``md_premium_mode`` is the engine's
+    # per-month marker for that premium type — never inferred from amounts.
+    # Consecutive years compress into one range per run.
+    md_runs: List[List[int]] = []
+    for state in projected:
+        if not state.md_premium_mode:
+            continue
+        if md_runs and state.policy_year <= md_runs[-1][1] + 1:
+            md_runs[-1][1] = max(md_runs[-1][1], state.policy_year)
+        else:
+            md_runs.append([state.policy_year, state.policy_year])
+
+    premium_entries: List[tuple[int, str]] = []
     for run in runs:
         label = _INTERVAL_MODE_LABELS.get(run["interval"])
         if label is None:
@@ -351,7 +478,18 @@ def _request_lines(
             if run["end_year"] != run["start_year"]
             else f"IN POLICY YEAR {run['start_year']}"
         )
-        lines.append(f"{label} PREMIUM OF {_money(run['amount'])} {span}")
+        premium_entries.append(
+            (run["start_year"], f"{label} PREMIUM OF {_money(run['amount'])} {span}"))
+    for start_year, end_year in md_runs:
+        span = (
+            f"FOR POLICY YEARS {start_year} THROUGH {end_year}"
+            if end_year != start_year
+            else f"IN POLICY YEAR {start_year}"
+        )
+        premium_entries.append(
+            (start_year, f"PREMIUMS TO COVER MONTHLY DEDUCTIONS {span}"))
+    premium_entries.sort(key=lambda entry: entry[0])
+    lines: List[str] = [text for _year, text in premium_entries]
 
     if future_inputs is None:
         return lines
@@ -504,6 +642,8 @@ def build_ul_report(
     # ── Ledger + derived facts ──
     report.ledger, report.year_of_mec, report.termination_year = _annualize(
         policy, results, options)
+    report.expense_rows = _expense_rows(
+        results, report.termination_year, int(policy.maturity_age or 121))
     report.seven_pay_restarts = _seven_pay_restarts(results)
     for restart_year, _start in report.seven_pay_restarts:
         for row in report.ledger:
@@ -640,10 +780,6 @@ def build_ul_report(
             "PREMIUM SECTION FOR MORE DETAILS")
     if "&" in markers:
         legends.append("& THE POLICY IS FORECASTED TO BECOME A MEC DURING THIS YEAR")
-    if "%" in markers:
-        legends.append(
-            "% ACCORDING TO THE CONTRACT, THE DEATH BENEFIT AFTER MATURITY IS EQUAL TO THE "
-            "SURRENDER VALUE")
     for _year, start in report.seven_pay_restarts:
         legends.append(
             f"+ A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON {start.strftime('%m/%d/%Y')} "

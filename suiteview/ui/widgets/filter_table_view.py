@@ -294,6 +294,12 @@ class ClickableHeaderView(QHeaderView):
 class PandasTableModel(QAbstractTableModel):
     """Table model for displaying filtered Pandas DataFrame - optimized to use index-based filtering"""
 
+    # Not-computed columns render greyed with an em dash so a placeholder can
+    # never be mistaken for a real zero (see set_not_computed_columns).
+    NOT_COMPUTED_MARKER = "—"
+    NOT_COMPUTED_BG = QColor("#ECECEC")
+    NOT_COMPUTED_FG = QColor("#8A8A96")
+
     def __init__(self, df: pd.DataFrame):
         super().__init__()
         self._original_df = df  # Keep original (no copy!)
@@ -302,7 +308,10 @@ class PandasTableModel(QAbstractTableModel):
         self._default_numeric_decimals: Optional[int] = None
         self._column_decimals: Dict[str, Optional[int]] = {}
         self._highlighted_cells: Dict[tuple[int, str], QColor] = {}
+        self._column_backgrounds: Dict[str, QColor] = {}
         self._header_labels: Dict[str, str] = {}
+        self._not_computed_columns: Set[str] = set()
+        self._not_computed_note: str = ""
 
     def set_filtered_indices(self, indices: pd.Index):
         """Update the filtered indices (after column filters)"""
@@ -348,6 +357,19 @@ class PandasTableModel(QAbstractTableModel):
             bottom_right = self.index(self.rowCount() - 1, self.columnCount() - 1)
             self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.BackgroundRole])
 
+    def set_column_backgrounds(self, colors: Dict[str, QColor]):
+        """Paint every cell of the named columns with a background color.
+
+        Generic whole-column tinting (e.g. a narrow separator column between
+        column blocks). Per-cell highlights from ``set_highlighted_cells``
+        take precedence where both apply.
+        """
+        self._column_backgrounds = dict(colors or {})
+        if self.rowCount() > 0 and self.columnCount() > 0:
+            top_left = self.index(0, 0)
+            bottom_right = self.index(self.rowCount() - 1, self.columnCount() - 1)
+            self.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.BackgroundRole])
+
     def set_header_labels(self, header_labels: Dict[str, str]):
         """Override the displayed header text for specific column keys.
 
@@ -358,6 +380,29 @@ class PandasTableModel(QAbstractTableModel):
         self.headerDataChanged.emit(
             Qt.Orientation.Horizontal, 0, max(0, self.columnCount() - 1)
         )
+
+    def set_not_computed_columns(self, columns, note: str = ""):
+        """Mark whole columns as "not yet computed" placeholders.
+
+        Their cells render an em dash on a grey background in muted italics
+        (never a formatted zero), and cells and headers carry ``note`` as a
+        tooltip — a placeholder must be unmistakable, never a quiet blank/zero.
+        The underlying DataFrame values are untouched, so copy/export and
+        comparisons still see the raw data.
+        """
+        self._not_computed_columns = set(columns or ())
+        self._not_computed_note = note
+        if self.rowCount() > 0 and self.columnCount() > 0:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(self.rowCount() - 1, self.columnCount() - 1),
+            )
+        self.headerDataChanged.emit(
+            Qt.Orientation.Horizontal, 0, max(0, self.columnCount() - 1)
+        )
+
+    def is_not_computed_column(self, column_name: str) -> bool:
+        return column_name in self._not_computed_columns
 
     def is_numeric_column(self, column_index: int) -> bool:
         if column_index < 0 or column_index >= self.columnCount():
@@ -393,13 +438,38 @@ class PandasTableModel(QAbstractTableModel):
             return None
 
         if role == Qt.ItemDataRole.DisplayRole:
+            if self.is_not_computed_column(self.column_name(index.column())):
+                return self.NOT_COMPUTED_MARKER
             # Use display indices to get actual row
             actual_row = self._display_indices[index.row()]
             value = self._original_df.iloc[self._original_df.index.get_loc(actual_row), index.column()]
             return self.format_value_for_column(self.column_name(index.column()), value)
 
         if role == Qt.ItemDataRole.BackgroundRole:
-            return self._highlighted_cells.get((index.row(), self.column_name(index.column())))
+            column_name = self.column_name(index.column())
+            if self.is_not_computed_column(column_name):
+                return self.NOT_COMPUTED_BG
+            highlight = self._highlighted_cells.get((index.row(), column_name))
+            if highlight is not None:
+                return highlight
+            return self._column_backgrounds.get(column_name)
+
+        if role == Qt.ItemDataRole.ForegroundRole:
+            if self.is_not_computed_column(self.column_name(index.column())):
+                return self.NOT_COMPUTED_FG
+            return None
+
+        if role == Qt.ItemDataRole.FontRole:
+            if self.is_not_computed_column(self.column_name(index.column())):
+                font = QFont()
+                font.setItalic(True)
+                return font
+            return None
+
+        if role == Qt.ItemDataRole.ToolTipRole:
+            if self.is_not_computed_column(self.column_name(index.column())):
+                return self._not_computed_note or None
+            return None
 
         if role == Qt.ItemDataRole.TextAlignmentRole:
             if hasattr(self, '_left_align_columns') and index.column() in self._left_align_columns:
@@ -419,6 +489,11 @@ class PandasTableModel(QAbstractTableModel):
                 return self._header_labels.get(column_key, column_key)
             else:
                 return str(section + 1)
+        if role == Qt.ItemDataRole.ToolTipRole and orientation == Qt.Orientation.Horizontal:
+            if section < len(self._original_df.columns):
+                column_key = str(self._original_df.columns[section])
+                if self.is_not_computed_column(column_key):
+                    return self._not_computed_note or None
         return None
 
 
@@ -809,6 +884,101 @@ class SearchWorker(QThread):
         self._is_cancelled = True
 
 
+class ColumnGroupHeaderBar(QWidget):
+    """A grouped-header band painted above the table.
+
+    Draws one labeled span across each contiguous run of grouped columns
+    (see ``FilterTableView.set_column_groups``) — e.g. a scenario name over
+    that scenario's block of measure columns. Tracks live column geometry
+    (resize, reorder, horizontal scroll, frozen panes) by reading the header
+    views at paint time; ungrouped columns get plain band background so
+    dividers between groups read as quiet gaps.
+    """
+
+    HEIGHT = 18
+
+    def __init__(self, view: "FilterTableView"):
+        super().__init__(view)
+        self._view = view
+        self.setFixedHeight(self.HEIGHT)
+        self.setVisible(False)
+
+    def _band_colors(self):
+        """Follow the header's branding: ledger wrap colors when active,
+        otherwise the stock grey header palette."""
+        header = self._view.header
+        if header.wrap_mode:
+            return header.wrap_bg, header.wrap_fg, header.wrap_border
+        return QColor("#f0f0f0"), QColor("#000000"), QColor("#d0d0d0")
+
+    def _runs_for_pane(self, table_view, header, x_offset: int) -> List[list]:
+        """Contiguous [group_label, start_x, width] runs across a pane's
+        visible columns, in visual order."""
+        model = self._view.model
+        groups = self._view._column_groups
+        column_to_group = {
+            name: label for label, names in groups for name in names}
+        runs: List[list] = []
+        for visual_index in range(header.count()):
+            logical_index = header.logicalIndex(visual_index)
+            if table_view.isColumnHidden(logical_index):
+                continue
+            label = column_to_group.get(model.column_name(logical_index))
+            start = header.sectionViewportPosition(logical_index) + x_offset
+            size = header.sectionSize(logical_index)
+            if runs and runs[-1][0] == label and runs[-1][1] + runs[-1][2] == start:
+                runs[-1][2] += size
+            else:
+                runs.append([label, start, size])
+        return runs
+
+    def paintEvent(self, event):
+        view = self._view
+        bg, fg, border = self._band_colors()
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), bg)
+        painter.setPen(border)
+        painter.drawLine(self.rect().bottomLeft(), self.rect().bottomRight())
+        if view.model is None or not view._column_groups:
+            painter.end()
+            return
+
+        frozen_width = (
+            view.frozen_table_view.width()
+            if view.frozen_container.isVisible() else 0)
+        panes = []
+        if frozen_width > 0:
+            panes.append((view.frozen_table_view, view.frozen_header, 0,
+                          QRect(0, 0, frozen_width, self.height())))
+        panes.append((view.table_view, view.header, frozen_width,
+                      QRect(frozen_width, 0,
+                            max(0, self.width() - frozen_width), self.height())))
+
+        font = view.header.wrap_font()
+        metrics = QFontMetrics(font)
+        painter.setFont(font)
+        for table_view, header, x_offset, clip in panes:
+            painter.save()
+            painter.setClipRect(clip)
+            for label, start, width in self._runs_for_pane(
+                    table_view, header, x_offset):
+                if not label:
+                    continue
+                span = QRect(int(start), 0, int(width), self.height())
+                painter.setPen(border)
+                painter.drawLine(span.topLeft(), span.bottomLeft())
+                painter.drawLine(span.topRight(), span.bottomRight())
+                painter.setPen(fg)
+                text = metrics.elidedText(
+                    str(label), Qt.TextElideMode.ElideRight, max(0, span.width() - 8))
+                painter.drawText(
+                    span.adjusted(4, 0, -4, 0),
+                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                    text)
+            painter.restore()
+        painter.end()
+
+
 class FilterTableView(QWidget):
     """Excel-style filterable table view for DataFrames"""
 
@@ -834,6 +1004,8 @@ class FilterTableView(QWidget):
         self._frozen_column_count = 0
         self._syncing_vertical_scroll = False
         self._filtering_enabled = True
+        # Grouped header band spans: list of (label, [column names]).
+        self._column_groups: List[tuple] = []
 
         # Optional hook so owners can append actions to the cell context menu.
         # Signature: callback(menu: QMenu, index: QModelIndex) -> None
@@ -896,6 +1068,15 @@ class FilterTableView(QWidget):
         search_layout.addWidget(clear_btn)
 
         layout.addWidget(self.search_bar)
+
+        # Grouped-header band (hidden until set_column_groups is called) —
+        # stacked flush on top of the table so it reads as part of the header.
+        self.group_bar = ColumnGroupHeaderBar(self)
+        self.table_stack = QWidget()
+        stack_layout = QVBoxLayout(self.table_stack)
+        stack_layout.setContentsMargins(0, 0, 0, 0)
+        stack_layout.setSpacing(0)
+        stack_layout.addWidget(self.group_bar)
 
         # Table view
         self.table_container = QWidget()
@@ -1009,6 +1190,13 @@ class FilterTableView(QWidget):
         # Track sort state per column
         self.sort_order = {}  # column_index -> Qt.SortOrder
 
+        # Keep the grouped-header band aligned with live column geometry.
+        self.header.sectionResized.connect(lambda *_args: self.group_bar.update())
+        self.header.sectionMoved.connect(lambda *_args: self.group_bar.update())
+        self.frozen_header.sectionResized.connect(lambda *_args: self.group_bar.update())
+        self.table_view.horizontalScrollBar().valueChanged.connect(
+            lambda *_args: self.group_bar.update())
+
         # Set font
         font = QFont("Consolas", 9)
         self.table_view.setFont(font)
@@ -1036,7 +1224,8 @@ class FilterTableView(QWidget):
         self.frozen_container.setVisible(False)
         table_layout.addWidget(self.frozen_container)
         table_layout.addWidget(self.table_view, 1)
-        layout.addWidget(self.table_container)
+        stack_layout.addWidget(self.table_container)
+        layout.addWidget(self.table_stack)
 
         # Info label at bottom
         self.info_label = QLabel("")
@@ -1139,6 +1328,41 @@ class FilterTableView(QWidget):
         """
         self._frozen_column_count = max(0, int(count))
         self._apply_frozen_columns()
+
+    def set_column_groups(self, groups):
+        """Show a grouped-header band above the table.
+
+        ``groups`` is a list of ``(label, [column names])`` spans — each
+        contiguous run of those columns is painted as one labeled span (e.g. a
+        scenario name titling its block of measure columns). Columns not in any
+        group get plain band background, so a gap between groups reads as a
+        divider. Pass ``None`` or ``[]`` to clear and hide the band. Follows
+        the ledger header branding when ``apply_ledger_style`` is active.
+        """
+        self._column_groups = [
+            (str(label), [str(name) for name in names])
+            for label, names in (groups or [])
+        ]
+        self.group_bar.setVisible(bool(self._column_groups))
+        self.group_bar.update()
+
+    def set_column_width(self, column_name: str, width: int):
+        """Set one column's width by name (both panes). Call after autofit for
+        special columns (e.g. narrowing a separator column)."""
+        if self.model is None:
+            return
+        columns = self.model.get_original_data().columns
+        if column_name not in columns:
+            return
+        column_index = columns.get_loc(column_name)
+        # Section sizes clamp to the header minimum — lower it when the caller
+        # wants a narrower column (e.g. a divider strip).
+        for header in (self.header, self.frozen_header):
+            if width < header.minimumSectionSize():
+                header.setMinimumSectionSize(width)
+        self.table_view.setColumnWidth(column_index, width)
+        self.frozen_table_view.setColumnWidth(column_index, width)
+        self._update_frozen_table_width()
 
     def autofit_columns_to_data(
         self,
@@ -1374,11 +1598,23 @@ class FilterTableView(QWidget):
     def set_highlighted_cells(self, highlighted_cells: Dict[tuple[int, str], QColor]):
         if self.model is not None:
             self.model.set_highlighted_cells(highlighted_cells)
-    
+
+    def set_column_backgrounds(self, colors: Dict[str, QColor]):
+        """Tint whole columns (e.g. a separator column). Call after
+        set_dataframe — a new frame resets it."""
+        if self.model is not None:
+            self.model.set_column_backgrounds(colors)
+
     def set_header_labels(self, header_labels: Dict[str, str]):
         if self.model is not None:
             self.model.set_header_labels(header_labels)
-    
+
+    def set_not_computed_columns(self, columns, note: str = ""):
+        """Mark columns as not-yet-computed placeholders (greyed em-dash cells
+        with a tooltip). Call after set_dataframe — a new frame resets it."""
+        if self.model is not None:
+            self.model.set_not_computed_columns(columns, note)
+
     def on_sort_clicked(self, column_index: int):
         """Handle sort icon click - toggle sort order"""
         from PyQt6.QtCore import Qt as QtCore

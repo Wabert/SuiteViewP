@@ -22,6 +22,16 @@ from suiteview.illustration.core.corridor_rates import get_corridor_factor
 from suiteview.illustration.core.input_applier import apply_cash_flow_inputs
 from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.illustration.core.interest_calc import credit_interest
+from suiteview.illustration.core.iul_crediting import (
+    IULCreditingContext,
+    build_iul_context,
+    cap_wair,
+    monthly_asset_charge,
+    project_tav,
+    variable_loan_accrual_rate,
+    wair_interest,
+    weighted_average_rate,
+)
 from suiteview.illustration.core.loan_handler import (
     LoanState,
     accrue_loan_interest,
@@ -117,6 +127,9 @@ class IllustrationEngine:
             options = IllustrationOptions()
         config = load_plancode(policy.plancode)
         rates = rates_override if rates_override is not None else self._load_rates(policy, config)
+        # IUL crediting context (None on declared-rate plans): resolved AG49
+        # index, asset-charge rate, loan credit spread, WAIR inputs.
+        iul_ctx = build_iul_context(policy, options)
 
         # Load bonus config from tRates_IntBonus based on valuation date
         if bonus_override is not None:
@@ -184,6 +197,39 @@ class IllustrationEngine:
             exact_days_interest=options.exact_days_interest,
         )
 
+        # WAIR crediting for the inforce row (RERUN VI — the valuation-date
+        # WAIR from the policy's actual AV/SWAM/loan inputs). VL replaces the
+        # blended-rate interest credit; there is no separate impaired interest.
+        wair_held_0 = wair_rate_0 = 0.0
+        wair_swam_0 = wair_tav_0 = 0.0
+        if iul_ctx is not None and iul_ctx.wair_enabled:
+            uk0 = iul_ctx.declared_rate + intr0.bonus_interest_rate
+            wair_swam_0 = float(policy.sweep_account_min or 0.0)
+            wair_held_0 = weighted_average_rate(
+                av=policy.account_value,
+                swam=wair_swam_0,
+                reg_ln_principal=policy.regular_loan_principal,
+                reg_ln_accrued=policy.regular_loan_accrued,
+                pref_ln_principal=policy.preferred_loan_principal,
+                pref_ln_accrued=policy.preferred_loan_accrued,
+                reg_loan_credit_rate=intr0.reg_loan_credit_rate,
+                pref_loan_credit_rate=intr0.pref_loan_credit_rate,
+                declared_plus_bonus=uk0,
+                blend_plus_bonus=intr0.effective_annual_rate,
+            )
+            wair_rate_0 = cap_wair(iul_ctx, wair_held_0, uk0)
+            vl0 = wair_interest(policy.account_value, wair_rate_0, intr0.days_in_month)
+            intr0 = replace(
+                intr0,
+                effective_annual_rate=wair_rate_0,
+                monthly_interest_rate=(1.0 + wair_rate_0) ** (intr0.days_in_month / 365.0) - 1.0,
+                reg_impaired_int=0.0,
+                pref_impaired_int=0.0,
+                unimpaired_int=vl0,
+                interest_credited=vl0,
+                av_end_of_month=policy.account_value + vl0,
+            )
+
         # Loan interest accrual for inforce month
         loan0 = LoanState(
             rg_loan_princ=policy.regular_loan_principal,
@@ -197,7 +243,8 @@ class IllustrationEngine:
             loan0,
             config,
             intr0.days_in_month,
-            policy.variable_loan_charge_rate,
+            variable_loan_accrual_rate(
+                iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate),
         )
 
         # Loan Capitalize and Repay display detail for the inforce row: the
@@ -364,6 +411,14 @@ class IllustrationEngine:
             vbl_loan_princ=policy.variable_loan_principal,
             vbl_loan_accrued=policy.variable_loan_accrued,
             loan_cap_repay=inforce_loan_cap_repay,
+            # IUL crediting — no asset charge on the valuation row (RERUN SX
+            # takes sInput_CurrentAV verbatim); WAIR seeds from VI.
+            asset_charge_rate=iul_ctx.asset_charge_rate if iul_ctx else 0.0,
+            asset_charge=0.0,
+            wair_tav=wair_tav_0,
+            wair_swam=wair_swam_0,
+            wair_held=wair_held_0,
+            wair_rate=wair_rate_0,
             # Interest
             days_in_month=intr0.days_in_month,
             annual_interest_rate=intr0.annual_interest_rate,
@@ -470,12 +525,14 @@ class IllustrationEngine:
                 state = self.process_cyberlife_monthliversary(
                     state, policy, config, rates, bonus,
                     month_inputs=month_inputs, options=options,
+                    iul_ctx=iul_ctx,
                 )
             else:
                 state = self.process_month(
                     state, policy, config, rates, bonus,
                     month_inputs=month_inputs, options=options,
                     policy_changes=changes_by_duration.get(state.duration + 1),
+                    iul_ctx=iul_ctx,
                 )
             results.append(state)
             if stop_on_lapse and state.lapsed:
@@ -493,12 +550,15 @@ class IllustrationEngine:
         month_inputs=None,
         options: Optional[IllustrationOptions] = None,
         policy_changes=None,
+        iul_ctx: Optional[IULCreditingContext] = None,
     ) -> MonthlyState:
         """Process a single month of the calculation pipeline.
 
         Takes the previous month's state, produces the next. ``policy_changes`` are
         applied to ``policy`` (a private copy made in project()) at their effective
-        month, before coverage/deduction reads the segments.
+        month, before coverage/deduction reads the segments. ``iul_ctx`` (built
+        once per run in project()) turns on the IUL asset charge, variable-loan
+        spread, and WAIR crediting.
         """
         if options is None:
             options = IllustrationOptions()
@@ -540,6 +600,9 @@ class IllustrationEngine:
             av, cost_basis, month_inputs, cap_loan, is_anniversary, options,
         )
         av = wd.av_post_withdrawal
+        # BO (AV post withdrawal) — the begin AV of the WAIR one-year TAV
+        # projection on beginning-of-year rows.
+        bo_av = av
         cost_basis = wd.cost_basis_after_wd
         withdrawals_to_date = wd.withdrawals_to_date
 
@@ -656,6 +719,9 @@ class IllustrationEngine:
         # and apply the full scheduled premium instead of the small post-repay
         # remainder (NY).
         has_loan_balance = _loan_balance_for_levelizing(cap_loan)
+        # Post-capitalization, pre-repay buckets (RERUN LX..MC) — the begin
+        # loan balances of the WAIR TAV projection.
+        boy_loan = cap_loan
         cash_flows = apply_cash_flow_inputs(
             av,
             cap_loan,
@@ -720,7 +786,14 @@ class IllustrationEngine:
             monthly_mtp=pw_monthly_mtp,
             projection_date=month_date,
         )
-        av_after_charge = ded.av_after_deduction
+        # 13b. IUL asset charge (RERUN SV/SX): MAX(0, SU/12 × (OO − MS − MT))
+        # on the unloaned AV (post-repay regular loan buckets), deducted from
+        # AV alongside the monthly deduction under AG49 regimes 1-2 only.
+        asset_charge = monthly_asset_charge(
+            iul_ctx, av_before_deduction,
+            cap_loan.rg_loan_princ, cap_loan.rg_loan_accrued,
+        )
+        av_after_charge = ded.av_after_deduction - asset_charge
 
         # ── 14. GP Exception premium ──────────────────────────
         guideline_limit_reached = _guideline_limit_reached(
@@ -777,6 +850,69 @@ class IllustrationEngine:
             pref_loan_balance=fixed_loan_state.pf_loan_princ,
             exact_days_interest=options.exact_days_interest,
         )
+
+        # 16a. WAIR crediting (RERUN US..VL): when the run uses the Weighted
+        # Average Interest Rate, VL replaces the blended-rate credit entirely
+        # (VO CHOOSE method 3 — the loaned/unloaned split lives inside the
+        # WAIR weighting, so no separate impaired interest). The WAIR is
+        # recomputed on beginning-of-year rows from the one-year TAV
+        # projection and held through the policy year (VJ carry-forward).
+        wair_tav = wair_swam = wair_held = wair_rate = 0.0
+        if iul_ctx is not None and iul_ctx.wair_enabled:
+            uk = iul_ctx.declared_rate + intr.bonus_interest_rate      # UK
+            up = intr.effective_annual_rate                            # UP = UO + bonus
+            if beginning_of_year:
+                tavp = project_tav(
+                    begin_av=bo_av,
+                    planned_premium=requested_scheduled,
+                    payments_per_year=pc_policy,
+                    lumpsum=requested_lumpsum,
+                    policy_month=next_month,
+                    fixed_ln_principal=boy_loan.rg_loan_princ + boy_loan.pf_loan_princ,
+                    fixed_ln_accrued=boy_loan.rg_loan_accrued + boy_loan.pf_loan_accrued,
+                    vbl_ln_principal=boy_loan.vbl_loan_princ,
+                    vbl_ln_accrued=boy_loan.vbl_loan_accrued,
+                    reg_loan_charge_rate=config.loan_charge_rate_guar,
+                    vbl_loan_rate=variable_loan_accrual_rate(
+                        iul_ctx, policy.variable_loan_charge_rate,
+                        policy.current_interest_rate),
+                    apply_prem_to_loan=options.apply_prem_to_loan,
+                    is_cvat=policy.is_cvat,
+                    annual_cap=allowances.annual_cap_1,
+                    premium_load=prem.tpp_rate,
+                )
+                wair_tav = tavp.tav_display                            # VG
+                # VH: input SWAM on the valuation row (handled at month 0);
+                # projected rows proxy it as this month's deduction × 12.
+                wair_swam = ded.total_deduction * 12.0
+                wair_held = weighted_average_rate(                     # VJ
+                    av=tavp.tav,
+                    swam=wair_swam,
+                    reg_ln_principal=fixed_loan_state.rg_loan_princ,   # TY
+                    reg_ln_accrued=fixed_loan_state.rg_loan_accrued,   # MT
+                    pref_ln_principal=fixed_loan_state.pf_loan_princ,
+                    pref_ln_accrued=fixed_loan_state.pf_loan_accrued,
+                    reg_loan_credit_rate=intr.reg_loan_credit_rate,
+                    pref_loan_credit_rate=intr.pref_loan_credit_rate,
+                    declared_plus_bonus=uk,
+                    blend_plus_bonus=up,
+                )
+            else:
+                wair_tav = state.wair_tav
+                wair_swam = state.wair_swam
+                wair_held = state.wair_held
+            wair_rate = cap_wair(iul_ctx, wair_held, uk)               # VK
+            vl = wair_interest(av, wair_rate, intr.days_in_month)      # VL
+            intr = replace(
+                intr,
+                effective_annual_rate=wair_rate,
+                monthly_interest_rate=(1.0 + wair_rate) ** (intr.days_in_month / 365.0) - 1.0,
+                reg_impaired_int=0.0,
+                pref_impaired_int=0.0,
+                unimpaired_int=vl,
+                interest_credited=vl,
+                av_end_of_month=av + vl,
+            )
         av = intr.av_end_of_month
 
         # ── 16b. Accumulation: loan interest charges ──────────
@@ -784,7 +920,8 @@ class IllustrationEngine:
             fixed_loan_state,
             config,
             intr.days_in_month,
-            policy.variable_loan_charge_rate,
+            variable_loan_accrual_rate(
+                iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate),
         )
 
         # ── 17. Shadow account processing ─────────────────────
@@ -916,6 +1053,8 @@ class IllustrationEngine:
             gross_premium=prem.gross_premium,
             prem_under_target=prem.prem_under_target,
             prem_over_target=prem.prem_over_target,
+            tpp_rate=prem.tpp_rate,
+            epp_rate=prem.epp_rate,
             target_load=prem.target_load,
             excess_load=prem.excess_load,
             flat_load=prem.flat_load,
@@ -993,8 +1132,18 @@ class IllustrationEngine:
             rider_rates=ded.rider_rates,
             rider_charge_detail=ded.rider_charge_detail,
             total_deduction=ded.total_deduction,
-            av_after_deduction=ded.av_after_deduction,
+            # vAV_AfterCharge (RERUN SX): AV less the monthly deduction AND the
+            # IUL asset charge (zero on non-IUL plans / regimes 3-4).
+            av_after_deduction=ded.av_after_deduction - asset_charge,
             av_after_exception=exception.av_after_exception,
+            # IUL asset charge (SS..SX)
+            asset_charge_rate=iul_ctx.asset_charge_rate if iul_ctx else 0.0,
+            asset_charge=asset_charge,
+            # IUL WAIR (US..VL)
+            wair_tav=wair_tav,
+            wair_swam=wair_swam,
+            wair_held=wair_held,
+            wair_rate=wair_rate,
             # Interest
             days_in_month=intr.days_in_month,
             annual_interest_rate=intr.annual_interest_rate,
@@ -1088,6 +1237,7 @@ class IllustrationEngine:
         bonus: BonusConfig,
         month_inputs=None,
         options: Optional[IllustrationOptions] = None,
+        iul_ctx: Optional[IULCreditingContext] = None,
     ) -> MonthlyState:
         if options is None:
             options = IllustrationOptions()
@@ -1239,6 +1389,14 @@ class IllustrationEngine:
             projection_date=month_date,
         )
 
+        # IUL asset charge (RERUN SV/SX) — same deduction-time charge as the
+        # illustration path; WAIR crediting is not modeled in this CyberLife-
+        # monthliversary timing mode (blended-rate credit only).
+        asset_charge = monthly_asset_charge(
+            iul_ctx, av_before_deduction,
+            cash_flows.loan_state.rg_loan_princ, cash_flows.loan_state.rg_loan_accrued,
+        )
+
         guideline_limit_reached = _guideline_limit_reached(
             config, allowances,
             attained_age=attained_age,
@@ -1247,7 +1405,7 @@ class IllustrationEngine:
         )
         exception = _compute_exception_premium(
             options, policy, config, rates, rate_year,
-            av_after_charge=ded.av_after_deduction,
+            av_after_charge=ded.av_after_deduction - asset_charge,
             coi_rate=ded.coi_rate,
             guideline_limit_reached=guideline_limit_reached,
             past_snet=past_snet,
@@ -1285,7 +1443,8 @@ class IllustrationEngine:
             fixed_loan_state,
             config,
             intr.days_in_month,
-            policy.variable_loan_charge_rate,
+            variable_loan_accrual_rate(
+                iul_ctx, policy.variable_loan_charge_rate, policy.current_interest_rate),
         )
         monthly_mtp = math.trunc(policy.mtp * 100) / 100
         accumulated_mtp = state.accumulated_mtp + monthly_mtp
@@ -1336,6 +1495,8 @@ class IllustrationEngine:
             gross_premium=prem.gross_premium,
             prem_under_target=prem.prem_under_target,
             prem_over_target=prem.prem_over_target,
+            tpp_rate=prem.tpp_rate,
+            epp_rate=prem.epp_rate,
             target_load=prem.target_load,
             excess_load=prem.excess_load,
             flat_load=prem.flat_load,
@@ -1411,8 +1572,10 @@ class IllustrationEngine:
             rider_rates=ded.rider_rates,
             rider_charge_detail=ded.rider_charge_detail,
             total_deduction=ded.total_deduction,
-            av_after_deduction=ded.av_after_deduction,
+            av_after_deduction=ded.av_after_deduction - asset_charge,
             av_after_exception=exception.av_after_exception,
+            asset_charge_rate=iul_ctx.asset_charge_rate if iul_ctx else 0.0,
+            asset_charge=asset_charge,
             days_in_month=intr.days_in_month,
             annual_interest_rate=intr.annual_interest_rate,
             bonus_interest_rate=intr.bonus_interest_rate,
@@ -1488,17 +1651,20 @@ def _compile_policy_changes(policy: IllustrationPolicyData, changes) -> Dict[int
     return by_duration
 
 
-def _reband_segment(rates, segment, plancode: str) -> None:
+def _reband_segment(rates, segment, plancode: str, issue_date=None) -> None:
     """Re-band a segment to its current face's band and reload its COI/EPU rates.
 
     CyberLife/RERUN band the COI by the CURRENT specified amount, so a face change
     that crosses a band breakpoint moves the per-unit rate. SCR is band-independent
     (varies only by rateclass), so it is not reloaded here.
+
+    ``issue_date`` is the POLICY issue date (RERUN sINPUT_Issue_Date) — it feeds
+    the Rates_Control-CZ issue-date band boundary (see Rates.get_band).
     """
     from suiteview.core.rates import Rates
 
     rates_db = Rates()
-    new_band = rates_db.get_band(plancode, segment.face_amount)
+    new_band = rates_db.get_band(plancode, segment.face_amount, issue_date=issue_date)
     if new_band is None or int(new_band) == segment.band:
         return
     segment.band = int(new_band)
@@ -1574,7 +1740,8 @@ def _reload_policy_band_rates(rates, policy, config) -> None:
     if seg is None:
         return
     rates_db = Rates()
-    band = rates_db.get_band(policy.plancode, policy.total_face)
+    band = rates_db.get_band(
+        policy.plancode, policy.total_face, issue_date=policy.issue_date)
     band = int(band) if band is not None else seg.band
     for attr, kind in (("tpp", "TPP"), ("epp", "EPP"), ("mfee", "MFEE")):
         setattr(rates, attr, rates_db.get_rates(
@@ -1637,7 +1804,7 @@ def _reduce_base_face(policy, amount, rates, change_date, rate_year, charge_scr)
         seg.units -= cut_units
         seg.face_amount -= cut
         remaining -= cut
-        _reband_segment(rates, seg, policy.plancode)
+        _reband_segment(rates, seg, policy.plancode, issue_date=policy.issue_date)
     policy.face_amount = sum(s.face_amount for s in policy.segments)
     _reband_benefits(rates, policy)  # benefit COI rates follow the base band
     return result
@@ -1714,7 +1881,7 @@ def _coverage_after_change_snapshot(policy, config, month_date, av_reduction, pr
     current_sa = float(policy.total_face)
     snap["CurrentSA"] = current_sa
     base = policy.base_segment
-    band = Rates().get_band(policy.plancode, current_sa)
+    band = Rates().get_band(policy.plancode, current_sa, issue_date=policy.issue_date)
     snap["CurrentBand"] = (
         int(band) if band is not None else (int(base.original_band) if base else 0)
     )
@@ -1785,7 +1952,7 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
     increase_age = _age_on_date(
         getattr(policy, "insured_birth_date", None), change_date, age_basis, attained_age)
     new_total = policy.total_face + delta
-    new_band = Rates().get_band(policy.plancode, new_total)
+    new_band = Rates().get_band(policy.plancode, new_total, issue_date=policy.issue_date)
     new_band = int(new_band) if new_band is not None else base.band
     new_phase = max((s.coverage_phase for s in policy.segments), default=1) + 1
     new_seg = CoverageSegment(
@@ -1840,6 +2007,7 @@ def _process_withdrawal(
     target/guideline/7-pay recompute as any coverage change.
     """
     request = month_inputs.withdrawal if month_inputs is not None else 0.0
+    gross_request = month_inputs.withdrawal_gross if month_inputs is not None else 0.0
     scr_rates = {
         seg.coverage_phase: _rate_from_schedule(
             rates.segment_scr.get(seg.coverage_phase, rates.scr),
@@ -1854,6 +2022,7 @@ def _process_withdrawal(
     )
     wd = compute_withdrawal(
         av, policy, config, scr_rates, request,
+        gross_request=gross_request,
         corridor_rate=get_corridor_factor(
             policy.plancode, attained_age, config.corridor_code),
         prior_total_md=state.total_deduction,
@@ -1985,7 +2154,7 @@ def _apply_policy_change(
                 if base is not None and av_whole > 0.0:
                     base.face_amount += av_whole
                     base.units += av_whole / (base.vpu or 1000.0)
-                    _reband_segment(rates, base, policy.plancode)
+                    _reband_segment(rates, base, policy.plancode, issue_date=policy.issue_date)
                     policy.face_amount = sum(s.face_amount for s in policy.segments)
                     _reband_benefits(rates, policy)
                     outcome.coverage_changed = True
@@ -2807,13 +2976,22 @@ class _ExceptionPremium:
 def _monthly_deduction_premium_active(options: IllustrationOptions, policy_year: int) -> bool:
     """Whether the Monthly Deduction premium applies in this policy year.
 
-    Defaults to active from the forecast date (``monthly_deduction_start_year``
-    is None) and runs to maturity; a start year gates it to that year onward.
+    With no bounding windows (``monthly_deduction_windows`` is None) the premium
+    runs the whole projection — active from the forecast date to maturity. When
+    the Input tab supplies windows, the premium is active ONLY within a window
+    (``start_year`` through ``end_year`` inclusive; ``end_year`` None runs to
+    maturity), so a Monthly Deduction row bounds itself and later premium rows
+    take over once its window ends.
     """
     if not options.pay_monthly_deduction:
         return False
-    start = options.monthly_deduction_start_year
-    return start is None or policy_year >= start
+    windows = options.monthly_deduction_windows
+    if not windows:
+        return True
+    return any(
+        policy_year >= start and (end is None or policy_year <= end)
+        for start, end in windows
+    )
 
 
 def _compute_exception_premium(

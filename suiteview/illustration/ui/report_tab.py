@@ -19,6 +19,7 @@ from PyQt6.QtCore import QMarginsF, QSizeF, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont, QPageLayout, QPageSize, QTextDocument
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -33,17 +34,26 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.core.json_store import read_json, write_json
-from suiteview.illustration.core.report_builder import IllustrationReport, LedgerRow
-from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_LIGHT
+from suiteview.illustration.core.report_builder import (
+    ExpenseRow,
+    IllustrationReport,
+    LedgerRow,
+)
+from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_LIGHT, apply_input_checkbox_style
 
-# Persisted illustration UI settings (output folder for printed PDFs).
+# Persisted illustration UI settings (output folder for printed PDFs and the
+# Add Expense Report toggle).
 _SETTINGS_FILE = Path.home() / ".suiteview" / "illustration_settings.json"
 _OUTPUT_FOLDER_KEY = "report_output_folder"
+_EXPENSE_PAGE_KEY = "report_add_expense_page"
 
 PAGE_WIDTH = 112          # characters
 # Rows per ledger page — bounded by the landscape PDF page height (Letter
 # landscape at 10pt Courier holds ~46 text lines inside the margins).
 LEDGER_ROWS_PER_PAGE = 30
+# Rows per Expense Report page — the intro paragraph on the first page eats
+# into the row budget, so a single conservative count keeps every page fitting.
+EXPENSE_ROWS_PER_PAGE = 25
 
 
 def _center(text: str) -> str:
@@ -79,27 +89,45 @@ class _PageBuilder:
         self.lines.append(_center(text))
 
     def add_wrapped(self, text: str):
-        words = text.split()
-        line = ""
-        for word in words:
-            if line and len(line) + 1 + len(word) > PAGE_WIDTH:
-                self.lines.append(line)
-                line = word
-            else:
-                line = f"{line} {word}".strip()
-        if line:
-            self.lines.append(line)
+        self.lines.extend(_wrap_lines(text))
 
 
+def _wrap_lines(text: str) -> List[str]:
+    """Word-wrap ``text`` to PAGE_WIDTH-character lines."""
+    lines: List[str] = []
+    line = ""
+    for word in text.split():
+        if line and len(line) + 1 + len(word) > PAGE_WIDTH:
+            lines.append(line)
+            line = word
+        else:
+            line = f"{line} {word}".strip()
+    if line:
+        lines.append(line)
+    return lines
+
+
+# The AGE column header stacks "AGE / AT / EOY" over the three header rows to
+# make explicit that the age shown is the end-of-year attained age; the YEAR
+# column reads "END / OF / YEAR".
 _LEDGER_HEADER = [
-    f"{'':4}{'END':>5}{'':>11}{'':5}{'CASH':>8}{'':>10}  "
+    f"{'AGE':>4}{'END':>5}{'':>11}{'':5}{'CASH':>8}{'':>10}  "
     f"{'+- GUARANTEED VALUES -+':^32}  {'+ NON-GUARANTEED VALUES +':^32}",
-    f"{'':4}{'OF':>5}{'PREMIUM':>11}{'':5}{'FROM':>8}{'LOAN':>10}  "
+    f"{'AT':>4}{'OF':>5}{'PREMIUM':>11}{'':5}{'FROM':>8}{'LOAN':>10}  "
     f"{'ACCUM':>10}{'SURR':>10}{'DEATH':>12}  {'ACCUM':>10}{'SURR':>10}{'DEATH':>12}",
-    f"{'AGE':>4}{'YEAR':>5}{'OUTLAY':>11}{'':5}{'POLICY':>8}{'BALANCE':>10}  "
+    f"{'EOY':>4}{'YEAR':>5}{'OUTLAY':>11}{'':5}{'POLICY':>8}{'BALANCE':>10}  "
     f"{'VALUE':>10}{'VALUE':>10}{'BENEFIT':>12}  {'VALUE':>10}{'VALUE':>10}{'BENEFIT':>12}",
     "-" * PAGE_WIDTH,
 ]
+
+# Assumption note printed under the ledger: cash flows are beginning-of-period,
+# the tabulated policy values (and the age) are end-of-year.
+_LEDGER_ASSUMPTION_NOTE = (
+    "PREMIUMS, WITHDRAWALS, AND LOANS ARE ASSUMED TO OCCUR AT THE BEGINNING OF "
+    "THE APPLICABLE PERIOD. THE LEDGER VALUES SHOWN FOR AGE, LOAN BALANCE, "
+    "ACCUMULATION VALUE, SURRENDER VALUE, AND DEATH BENEFIT ARE END-OF-YEAR "
+    "(EOY) VALUES."
+)
 
 
 def _ledger_line(row: LedgerRow) -> str:
@@ -120,14 +148,93 @@ def _maturity_line(row: LedgerRow) -> str:
     )
 
 
-def format_report_pages(report: IllustrationReport) -> List[List[str]]:
-    """Format the structured report into pages of fixed-width text lines."""
+# ── Expense Report supplemental page (RERUN "Expense Report" J:Y) ───────────
+# Column layout: (width, top header, bottom header, attribute). Widths sum to
+# PAGE_WIDTH (112). Follows the sheet's J:Y order, with the non-premium expense
+# components (P, Q, R, S) plus partial surrender charges combined into one
+# EXPENSES/FEES column and a POLICY DEBT column added to the Policy Values
+# group (before Net Surr Value).
+# Age-then-Year order matches the illustration ledger; the age column stacks
+# "AGE / EOY" to flag it as the end-of-year attained age.
+_EXPENSE_COLUMNS = [
+    (4, "AGE", "EOY", "eoy_age"),                           # K — age at EOY
+    (5, "", "YEAR", "year"),                                # J — End of Year (width matches the ledger)
+    (8, "PREMIUM", "OUTLAY", "premium_outlay"),             # L — Assumed Premium Outlay
+    (8, "DISTRI-", "BUTIONS", "distributions"),             # M — Distributions
+    (8, "PREMIUM", "CHARGE", "premium_charge"),             # N — Premium Charge
+    (8, "COI", "CHARGE", "coi_charge"),                     # O — Cost of Insurance
+    (6, "RIDER", "CHG", "rider_charges"),                   # T — Other Rider Charges
+    (14, "", "EXPENSES/FEES", "expenses"),                  # P+Q+R+S + partial SC
+    (9, "INTEREST", "CREDITED", "interest_credited"),       # U — Interest Credited
+    (9, "ACCUM", "VALUE", "accum_value"),                   # V — Accumulation Value
+    (6, "SURR", "CHGS", "surrender_charges"),               # W — Surrender Charges
+    (8, "POLICY", "DEBT", "policy_debt"),                   # EOY loan balance (ledger's)
+    (9, "NET SURR", "VALUE", "net_surrender_value"),        # X — Net Surrender Value
+    (10, "NET DEATH", "BENEFIT", "net_death_benefit"),      # Y — Net Death Benefit
+]
+
+_EXPENSE_INTRO = [
+    "THIS SUPPLEMENTAL EXHIBIT BREAKS THE POLICY'S ANNUAL ACTIVITY INTO ITS EXPENSE "
+    "CHARGES AND CREDITS SO YOU CAN SEE WHERE EACH PREMIUM DOLLAR GOES. FOR EACH POLICY "
+    "YEAR IT SHOWS THE PREMIUMS PAID, ANY DISTRIBUTIONS TAKEN (WITHDRAWALS, LOANS, AND "
+    "FORCED-OUT PREMIUM), THE CHARGES DEDUCTED FROM THE ACCUMULATION VALUE, AND THE "
+    "INTEREST CREDITED. THE EXPENSES/FEES COLUMN COMBINES THE ADMINISTRATIVE CHARGES "
+    "(PER-1000, MONTHLY FEE, ASSET, AND ACCUMULATION VALUE CHARGES) WITH ANY PARTIAL "
+    "SURRENDER CHARGES ASSESSED ON WITHDRAWALS.",
+    "CHARGES AND CREDITS ARE ANNUAL TOTALS ON THE ILLUSTRATED (CURRENT, NON-GUARANTEED) "
+    "BASIS, CONSISTENT WITH THE ILLUSTRATION'S LEDGER PAGES. POLICY VALUES, INCLUDING ANY "
+    "OUTSTANDING POLICY DEBT, ARE END-OF-YEAR AMOUNTS. YEARS AFTER THE POLICY TERMINATES "
+    "SHOW ZERO.",
+]
+
+
+def _expense_header_lines() -> List[str]:
+    """Group banner + two stacked column-header rows + rule."""
+    # Group spans over the sheet's row-2 headings: Deductions covers Premium
+    # Charge / COI / Rider / Expenses-Fees, Policy Values the last five columns.
+    deduction_width = sum(w for w, *_ in _EXPENSE_COLUMNS[4:8])
+    values_width = sum(w for w, *_ in _EXPENSE_COLUMNS[9:14])
+    groups = (
+        f"{'':4}{'':5}{'PREMIUMS':>8}{'LOAN/WD':>8}"
+        f"{'+- DEDUCTIONS -+':^{deduction_width}}"
+        f"{'EARNINGS':>9}{'+- POLICY VALUES -+':^{values_width}}"
+    )
+    top = "".join(f"{label:>{width}}" for width, label, _bottom, _attr in _EXPENSE_COLUMNS)
+    bottom = "".join(f"{label:>{width}}" for width, _top, label, _attr in _EXPENSE_COLUMNS)
+    return [groups.rstrip(), top, bottom, "-" * PAGE_WIDTH]
+
+
+def _expense_line(row: ExpenseRow) -> str:
+    parts = [f"{row.eoy_age:>4}", f"{row.year:>5}"]
+    for width, _top, _bottom, attr in _EXPENSE_COLUMNS[2:]:
+        parts.append(f"{getattr(row, attr):>{width},.0f}")
+    return "".join(parts)
+
+
+def format_report_pages(
+    report: IllustrationReport,
+    include_expense_report: bool = False,
+) -> List[List[str]]:
+    """Format the structured report into pages of fixed-width text lines.
+
+    ``include_expense_report`` appends the supplemental Expense Report page(s)
+    (RERUN "Expense Report" columns J:Y) after the last standard page.
+    """
     ledger_chunks: List[List[LedgerRow]] = []
     rows = report.ledger
     for start in range(0, len(rows), LEDGER_ROWS_PER_PAGE):
         ledger_chunks.append(rows[start:start + LEDGER_ROWS_PER_PAGE])
     if not ledger_chunks:
         ledger_chunks = [[]]
+    expense_chunks: List[List[ExpenseRow]] = []
+    if include_expense_report:
+        expense_rows = report.expense_rows
+        for start in range(0, len(expense_rows), EXPENSE_ROWS_PER_PAGE):
+            expense_chunks.append(expense_rows[start:start + EXPENSE_ROWS_PER_PAGE])
+        if not expense_chunks:
+            expense_chunks = [[]]
+    # The supplemental Expense Report is a separate exhibit — the illustration's
+    # own page numbering excludes it.
     total = 2 + len(ledger_chunks) + (1 if _has_rider_page(report) else 0)
 
     pages: List[List[str]] = []
@@ -199,6 +306,8 @@ def format_report_pages(report: IllustrationReport) -> List[List[str]]:
                 page.blank()
                 for legend in report.footnote_legends:
                     page.add_wrapped(legend)
+            page.blank()
+            page.add_wrapped(_LEDGER_ASSUMPTION_NOTE)
         pages.append(page.lines)
 
     # ── Notes page ──
@@ -245,6 +354,34 @@ def format_report_pages(report: IllustrationReport) -> List[List[str]]:
                     riders.add(f"    {line}")
         pages.append(riders.lines)
 
+    # ── Expense Report supplemental exhibit — its own heading and its own
+    #    page numbering, separate from the illustration pages above. ──
+    run = report.run_date.strftime("%m/%d/%Y") if report.run_date else ""
+    exhibit_title = (
+        f"SUPPLEMENTAL EXHIBIT FOR POLICY {report.policy_number}"
+        if report.policy_number else "SUPPLEMENTAL EXHIBIT"
+    )
+    for index, chunk in enumerate(expense_chunks):
+        page_no = f"Page {index + 1} of {len(expense_chunks)}"
+        lines: List[str] = [
+            run + page_no.rjust(PAGE_WIDTH - len(run)),
+            _center(exhibit_title),
+            _center("EXPENSE REPORT"),
+            "",
+        ]
+        if index == 0:
+            for paragraph in _EXPENSE_INTRO:
+                lines.extend(_wrap_lines(paragraph))
+                lines.append("")
+        lines.extend(_expense_header_lines())
+        base = index * EXPENSE_ROWS_PER_PAGE
+        for row_index, row in enumerate(chunk):
+            lines.append(_expense_line(row))
+            # Same five-row grouping as the ledger pages.
+            if (base + row_index + 1) % 5 == 0 and row_index + 1 < len(chunk):
+                lines.append("")
+        pages.append(lines)
+
     return pages
 
 
@@ -258,6 +395,7 @@ class IllustrationReportTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._report: Optional[IllustrationReport] = None
+        self._guaranteed_error: Optional[str] = None
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -270,6 +408,14 @@ class IllustrationReportTab(QWidget):
             f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; font-weight: bold;")
         top_row.addWidget(self.status_label)
         top_row.addStretch(1)
+        self.expense_report_check = QCheckBox("Add Expense Report")
+        self.expense_report_check.setToolTip(
+            "Append a supplemental Expense Report page (annual charges and "
+            "credits) to the end of the illustration.")
+        apply_input_checkbox_style(self.expense_report_check)
+        self.expense_report_check.setChecked(self._load_expense_page_setting())
+        self.expense_report_check.toggled.connect(self._on_expense_report_toggled)
+        top_row.addWidget(self.expense_report_check)
         self.print_pdf_btn = QPushButton("Print to PDF")
         self.print_pdf_btn.setEnabled(False)
         self.print_pdf_btn.setToolTip("Save the illustration report as a PDF file.")
@@ -312,6 +458,18 @@ class IllustrationReportTab(QWidget):
         if self._output_folder:
             self.output_folder_edit.setText(self._output_folder)
 
+        # Guaranteed-run failure banner — shown when the guaranteed-basis
+        # projection raised, so the report's blank GUARANTEED VALUES columns
+        # are never mistaken for computed zeros. UI-only: the printed pages
+        # are untouched.
+        self.guaranteed_warning = QLabel("", self)
+        self.guaranteed_warning.setWordWrap(True)
+        self.guaranteed_warning.setStyleSheet(
+            "background-color: #7A1020; color: #FFD54F; border: 1px solid #D4A017;"
+            " border-radius: 4px; font-size: 12px; font-weight: bold; padding: 5px 9px;")
+        self.guaranteed_warning.setVisible(False)
+        layout.addWidget(self.guaranteed_warning)
+
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -330,7 +488,9 @@ class IllustrationReportTab(QWidget):
 
     def clear(self, message: str = "Run Values to build the illustration report."):
         self._report = None
+        self._guaranteed_error = None
         self.print_pdf_btn.setEnabled(False)
+        self.guaranteed_warning.setVisible(False)
         self.status_label.setText(message)
         while self._sheet_layout.count():
             item = self._sheet_layout.takeAt(0)
@@ -343,11 +503,18 @@ class IllustrationReportTab(QWidget):
         main window's per-policy session cache."""
         return self._report
 
-    def display_report(self, report: IllustrationReport):
+    def display_report(self, report: IllustrationReport, guaranteed_error: Optional[str] = None):
         self.clear("")
         self._report = report
+        self._guaranteed_error = guaranteed_error
         self.print_pdf_btn.setEnabled(True)
-        pages = format_report_pages(report)
+        if guaranteed_error and not report.has_guaranteed_values:
+            self.guaranteed_warning.setText(
+                "⚠ Guaranteed projection failed — the report's GUARANTEED VALUES "
+                f"columns are blank: {guaranteed_error}")
+            self.guaranteed_warning.setVisible(True)
+        pages = format_report_pages(
+            report, include_expense_report=self.expense_report_check.isChecked())
         for lines in pages:
             sheet = QLabel("\n".join(lines))
             sheet.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -370,6 +537,25 @@ class IllustrationReportTab(QWidget):
         )
         self.status_label.setText(
             f"UL illustration report - {len(pages)} pages.{guaranteed_note}")
+
+    # ── Add Expense Report toggle ───────────────────────────────────────
+
+    @staticmethod
+    def _load_expense_page_setting() -> bool:
+        settings = read_json(_SETTINGS_FILE, default={}) or {}
+        return bool(settings.get(_EXPENSE_PAGE_KEY, False))
+
+    def _on_expense_report_toggled(self, checked: bool) -> None:
+        settings = read_json(_SETTINGS_FILE, default={}) or {}
+        settings[_EXPENSE_PAGE_KEY] = bool(checked)
+        try:
+            write_json(_SETTINGS_FILE, settings)
+        except OSError:
+            pass  # cosmetic preference — never block the toggle on disk errors
+        # Re-render the held report with/without the supplemental page; no
+        # engine round trip needed.
+        if self._report is not None:
+            self.display_report(self._report, self._guaranteed_error)
 
     # ── Print to PDF ────────────────────────────────────────────────────
 
@@ -434,7 +620,9 @@ class IllustrationReportTab(QWidget):
         if chosen_dir != self._output_folder:
             self._set_output_folder(chosen_dir)
         try:
-            self.write_pdf(self._report, path)
+            self.write_pdf(
+                self._report, path,
+                include_expense_report=self.expense_report_check.isChecked())
         except Exception as exc:
             QMessageBox.critical(self, "Print to PDF", f"Failed to write PDF: {exc}")
             return
@@ -452,9 +640,13 @@ class IllustrationReportTab(QWidget):
         return printer
 
     @staticmethod
-    def _print_document(report: IllustrationReport, printer: QPrinter) -> QTextDocument:
+    def _print_document(
+        report: IllustrationReport,
+        printer: QPrinter,
+        include_expense_report: bool = False,
+    ) -> QTextDocument:
         """Lay the report out as a paginated QTextDocument for the printer."""
-        pages = format_report_pages(report)
+        pages = format_report_pages(report, include_expense_report=include_expense_report)
         parts: List[str] = []
         for index, lines in enumerate(pages):
             style = (
@@ -483,8 +675,9 @@ class IllustrationReportTab(QWidget):
         return document
 
     @staticmethod
-    def write_pdf(report: IllustrationReport, path: str):
+    def write_pdf(report: IllustrationReport, path: str, include_expense_report: bool = False):
         """Render the fixed-width report pages to a landscape PDF file."""
         printer = IllustrationReportTab._pdf_printer(path)
-        document = IllustrationReportTab._print_document(report, printer)
+        document = IllustrationReportTab._print_document(
+            report, printer, include_expense_report=include_expense_report)
         document.print(printer)

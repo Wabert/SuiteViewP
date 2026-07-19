@@ -359,7 +359,7 @@ def test_glp_result_new_accum_glp_equals_target_premium_basis_when_adjustment_ne
 
 def test_illustration_policy_data_uses_regular_plus_additional_premium(monkeypatch):
     class FakeRates:
-        def get_band(self, *_args):
+        def get_band(self, *_args, **_kwargs):
             return 1
 
     class FakePolicyInfo:

@@ -51,7 +51,7 @@ def build_illustration_data(
     face_amount = float(face_raw) if face_raw else 0.0
     units = face_amount / 1000.0 if face_amount else 0.0
     db_option = _translate_dbo(pi.db_option_code or "")
-    raw_band = rates_db.get_band(plancode, face_amount)
+    raw_band = rates_db.get_band(plancode, face_amount, issue_date=issue_date)
     band = raw_band if raw_band is not None else 1
 
     # ── Account value ─────────────────────────────────────────
@@ -197,7 +197,7 @@ def build_illustration_data(
             float(cov.units) if cov.units else float(cov.face_amount or 0.0) / 1000.0
             for cov in active_base_covs
         )
-        raw_band = rates_db.get_band(plancode, face_amount)
+        raw_band = rates_db.get_band(plancode, face_amount, issue_date=issue_date)
         band = raw_band if raw_band is not None else 1
 
     substandard_by_phase = {}
@@ -214,7 +214,7 @@ def build_illustration_data(
         try:
             raw_seg_band = pi.cov_band(cov.cov_pha_nbr)
         except Exception:
-            raw_seg_band = rates_db.get_band(plancode, face_amount)
+            raw_seg_band = rates_db.get_band(plancode, face_amount, issue_date=issue_date)
         seg_band = raw_seg_band if raw_seg_band is not None else 1
 
         # Get rate sex from coverage record
@@ -302,6 +302,8 @@ def build_illustration_data(
         rider_counts[rider_plancode] = rider_counts.get(rider_plancode, 0) + 1
         rider_face = float(rider.face_amount) if rider.face_amount else 0.0
         rider_units = float(rider.units) if rider.units else rider_face / 1000.0
+        # No issue_date: RERUN's CZ issue-date band rule applies only to the
+        # BASE plancode's band table (sBandTableCode), never to rider bands.
         raw_rider_band = rates_db.get_band(rider_plancode, rider_face)
         rider_band = raw_rider_band if raw_rider_band is not None else 1
         riders.append(RiderInfo(
@@ -339,6 +341,12 @@ def build_illustration_data(
             ccv_units = ben.units
             ccv_coi_rate = ben.coi_rate
             break
+    # A type-A benefit that ceased before the valuation date was filtered out of
+    # ``benefits`` above — remember it so the UI can explain why the shadow
+    # account can't drive a solve.
+    ccv_ceased = not ccv_active and any(
+        (b.benefit_type_cd or "") == "A" and b.cease_date and b.cease_date < as_of_date
+        for b in raw_benefits)
 
     # ── Assemble ──────────────────────────────────────────────
     return IllustrationPolicyData(
@@ -406,6 +414,7 @@ def build_illustration_data(
         withdrawals_to_date=withdrawals,
         shadow_account_value=shadow_av,
         ccv_active=ccv_active,
+        ccv_ceased=ccv_ceased,
         ccv_units=ccv_units,
         ccv_coi_rate=ccv_coi_rate,
         segments=segments,

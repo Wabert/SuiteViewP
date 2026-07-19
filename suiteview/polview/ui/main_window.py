@@ -43,6 +43,29 @@ from .tabs import (
 )
 
 
+# Header-bar button style (PolView green/gold), matching the other compact
+# header controls — used for the "Open in Illustrator" button.
+HEADER_ILLUSTRATOR_BUTTON_STYLE = """
+    QPushButton {
+        background: rgba(0, 0, 0, 60);
+        border: 1px solid #D4A017;
+        border-radius: 4px;
+        min-height: 24px; max-height: 24px;
+        font-size: 11px; font-weight: bold;
+        color: #D4A017;
+        padding: 0 12px;
+    }
+    QPushButton:hover {
+        background-color: rgba(255, 255, 255, 0.15);
+        color: #FFD700;
+    }
+    QPushButton:disabled {
+        color: rgba(212, 160, 23, 0.4);
+        border-color: rgba(212, 160, 23, 0.4);
+    }
+"""
+
+
 def _open_odbc_manager():
     """Launch the Windows ODBC Data Source Administrator."""
     try:
@@ -85,9 +108,15 @@ class GetPolicyWindow(FramelessWindowBase):
     Uses PolicyInformation for centralized data access.
     """
 
-    def __init__(self, parent=None, *, enable_policy_list: bool = True):
+    def __init__(self, parent=None, *, enable_policy_list: bool = True,
+                 initial_policy: str = "", initial_region: str = "CKPR",
+                 initial_company: str = ""):
         self._enable_policy_list = enable_policy_list
         self._window_bg = GREEN_BG if enable_policy_list else "#E8F5E9"
+        # Callback (policy_number, region, company_code) that opens the
+        # Illustration app with the given policy. Set by the taskbar launcher;
+        # when unset the header button lazily opens a standalone window.
+        self._illustration_launcher = None
         self._db: Optional[DB2Connection] = None
         self._policy: Optional[PolicyInformation] = None
         self._current_policy = None
@@ -104,6 +133,13 @@ class GetPolicyWindow(FramelessWindowBase):
         # new policy starts with a clean slate.
         self._aux_tab_state: dict = {}
 
+        # Header-bar "Open in Illustrator" button (built before super().__init__
+        # so FramelessWindowBase can place it via header_widgets; wired after).
+        self.open_illustrator_btn = QPushButton("📈 Illustrator")
+        self.open_illustrator_btn.setToolTip("Open this policy in the Illustrator")
+        self.open_illustrator_btn.setEnabled(False)
+        self.open_illustrator_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
+
         super().__init__(
             title="SuiteView:  PolView",
             default_size=(1200, 780),
@@ -115,7 +151,14 @@ class GetPolicyWindow(FramelessWindowBase):
                 else POLVIEW_DUPLICATE_HEADER_COLORS
             ),
             border_color=POLVIEW_BORDER_COLOR,
+            header_widgets=[self.open_illustrator_btn],
         )
+        self.open_illustrator_btn.clicked.connect(self._open_in_illustrator)
+
+        # Optionally pull in a policy on open (e.g. launched from the taskbar).
+        if initial_policy:
+            self.load_policy(initial_policy, region=initial_region,
+                             company_code=initial_company)
 
     # == FramelessWindowBase override =====================================
 
@@ -642,6 +685,47 @@ class GetPolicyWindow(FramelessWindowBase):
 
     # == Policy loading ====================================================
 
+    def load_policy(self, policy_number: str, region: str = "CKPR",
+                    company_code: str = ""):
+        """Load *policy_number* through the same path the Get button uses.
+
+        Public entry point reused by the taskbar policy launcher — drives the
+        shared PolicyLookupBar so the load is identical to a user typing the
+        policy and clicking Get.
+        """
+        policy_number = (policy_number or "").strip()
+        if not policy_number:
+            return
+        self.lookup_bar.region_input.setText(region or "CKPR")
+        self.lookup_bar.company_input.setText(company_code or "")
+        self.lookup_bar.policy_input.setText(policy_number)
+        self.lookup_bar._on_get_policy()
+
+    def set_illustration_launcher(self, launcher):
+        """Register a callback ``launcher(policy, region, company)`` used by the
+        header "Open in Illustrator" button. The taskbar sets this so the shared
+        Illustration window is reused; when unset the button opens a standalone
+        Illustration window."""
+        self._illustration_launcher = launcher
+
+    def _open_in_illustrator(self):
+        """Open the currently-loaded policy in the Illustration app."""
+        if not self._current_policy:
+            return
+        region = self._current_region or "CKPR"
+        company = str((self._policy_info or {}).get("CompanyCode", "") or "")
+        if self._illustration_launcher is not None:
+            self._illustration_launcher(self._current_policy, region, company)
+            return
+        # Standalone fallback: open our own Illustration window.
+        from suiteview.illustration.ui.main_window import IllustrationWindow
+        self._illustrator_window = IllustrationWindow(
+            initial_policy=self._current_policy,
+            initial_region=region,
+            initial_company=company,
+        )
+        self._illustrator_window.show()
+
     def _on_get_policy(self, policy_number: str, region: str, company_code: str = ""):
         """Handle policy lookup request using PolicyInformation.
 
@@ -857,6 +941,9 @@ class GetPolicyWindow(FramelessWindowBase):
         """Load data into all tabs using PolicyInformation."""
         if not self._policy or not self._policy.exists:
             return
+
+        # A policy is loaded — enable the "Open in Illustrator" header button.
+        self.open_illustrator_btn.setEnabled(True)
 
         # Clear the Raw Table tab so stale data doesn't persist across policies
         self.raw_table_tab.clear()

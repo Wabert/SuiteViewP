@@ -2,7 +2,8 @@
 
 Three altitudes, top to bottom:
 
-1. KPI strip   — the outcome in six chips (ending AV/SV/DB, lapse, GP room).
+1. KPI strip   — the outcome in chips (ending AV/SV/DB, lapse, GLP/GSP,
+                 GP room, premiums in).
 2. Value chart — hand-painted AV / SV / DB / cumulative-premium / guideline
                  lines over policy years, with hover readout and click-to-jump.
 3. Ledger      — one row per policy YEAR (the printed-illustration view), each
@@ -16,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -331,11 +332,12 @@ class _KpiChip(QWidget):
 
 
 # Ledger layout: locators (frozen) | rollups | value waterfall | spacer | the
-# individual cash-flow columns the rollups summarize.
+# individual cash-flow columns the rollups summarize. Shadow EAV is only shown
+# for shadow-account products (the column is hidden otherwise — see display()).
 LEDGER_COLUMNS = [
-    "Year", "Month", "Age", "Date",
+    "Year", "Month", "Age", "Age EOY", "Date",
     "Contributions", "Distributions",
-    "MD", "AV", "SV", "Interest", "EAV", "SC", "LN", "ESV",
+    "MD", "AV", "SV", "Interest", "EAV", "SC", "LN", "ESV", "Shadow EAV",
     "Death Benefit", "Status",
     "",  # spacer — visual break before the relocated cash-flow detail
     "Withdrawals", "ForceOuts", "Loan Repay", "Prem", "Exception Prem", "New Loan",
@@ -343,9 +345,13 @@ LEDGER_COLUMNS = [
 # Year | Month | Age | Date stay put while the value columns scroll.
 FROZEN_LEDGER_COLUMN_COUNT = LEDGER_COLUMNS.index("Date") + 1
 SPACER_COLUMN = LEDGER_COLUMNS.index("")
+SHADOW_EAV_COLUMN = LEDGER_COLUMNS.index("Shadow EAV")
 NUMERIC_LEDGER = {
     index for index, name in enumerate(LEDGER_COLUMNS) if name not in ("Status", "")
 }
+# Solid fill for the spacer column so the division between the value waterfall
+# and the cash-flow detail reads at a glance.
+SPACER_BRUSH = QBrush(QColor("#B79CDE"))
 
 
 def _fmt_date(when) -> str:
@@ -353,12 +359,16 @@ def _fmt_date(when) -> str:
 
 
 def _ledger_cells(
-    year, month, age, when, *,
+    year, month, age, age_eoy, when, *,
     withdrawals, forceouts, loan_repay, premium, monthly_deduction,
     exception_prem, av, sv, interest, eav, sc, new_loan, loan_balance,
-    esv, death_benefit, status,
+    esv, shadow_eav, death_benefit, status,
 ) -> list[str]:
     """One ledger row in LEDGER_COLUMNS order (annual and monthly share it).
+
+    ``age`` is the attained age during the period (age at the anniversary that
+    began the policy year); ``age_eoy`` is the age reached at the end of the
+    policy year (age + 1) — the same EOY age the printed illustration shows.
 
     Contributions rolls up the money-in columns (Loan Repay + Prem + Exception
     Prem); Distributions the money-out columns (Withdrawals + ForceOuts + New
@@ -367,11 +377,12 @@ def _ledger_cells(
     contributions = loan_repay + premium + exception_prem
     distributions = withdrawals + forceouts + new_loan
     return [
-        str(year), str(month), str(age), _fmt_date(when),
+        str(year), str(month), str(age), str(age_eoy), _fmt_date(when),
         _fmt_money(contributions, 2), _fmt_money(distributions, 2),
         _fmt_money(monthly_deduction, 2), _fmt_money(av, 2), _fmt_money(sv, 2),
         _fmt_money(interest, 2), _fmt_money(eav, 2), _fmt_money(sc, 2),
         _fmt_money(loan_balance, 2), _fmt_money(esv, 2),
+        _fmt_money(shadow_eav, 2),
         _fmt_money(death_benefit, 0), status,
         "",
         _fmt_money(withdrawals, 2), _fmt_money(forceouts, 2),
@@ -404,10 +415,15 @@ class ValuesOverview(QWidget):
         self.kpi_sv = _KpiChip("ENDING SV")
         self.kpi_db = _KpiChip("ENDING DB")
         self.kpi_lapse = _KpiChip("LAPSE")
+        # GLP / GSP sit beside GP ROOM — the two guideline premiums that
+        # produce the room figure (limit = MAX(GSP, accumulated GLP)).
+        self.kpi_glp = _KpiChip("GLP")
+        self.kpi_gsp = _KpiChip("GSP")
         self.kpi_room = _KpiChip("GP ROOM")
         self.kpi_premium = _KpiChip("PREMIUMS IN")
         for chip in (self.kpi_horizon, self.kpi_av, self.kpi_sv, self.kpi_db,
-                     self.kpi_lapse, self.kpi_room, self.kpi_premium):
+                     self.kpi_lapse, self.kpi_glp, self.kpi_gsp, self.kpi_room,
+                     self.kpi_premium):
             kpi_row.addWidget(chip)
         kpi_row.addStretch(1)
         layout.addLayout(kpi_row)
@@ -592,7 +608,8 @@ class ValuesOverview(QWidget):
         self.ledger.clear()
         self._year_items = {}
         for chip in (self.kpi_horizon, self.kpi_av, self.kpi_sv, self.kpi_db,
-                     self.kpi_lapse, self.kpi_room, self.kpi_premium):
+                     self.kpi_lapse, self.kpi_glp, self.kpi_gsp, self.kpi_room,
+                     self.kpi_premium):
             chip.set("—")
 
     def display(self, policy, results: list):
@@ -610,15 +627,28 @@ class ValuesOverview(QWidget):
         self.kpi_av.set(_fmt_money(final.av_end_of_month), alert=final.av_end_of_month < 0)
         self.kpi_sv.set(_fmt_money(final.ending_sv))
         self.kpi_db.set(_fmt_money(final.ending_db or final.gross_db))
-        lapse_state = next((s for s in projected if s.lapsed), None)
+        # A matured final month can carry the lapsed flag (e.g. a shadow- or
+        # SNET-carried policy endowing with a negative AV) — that's Maturity,
+        # not a lapse, so it doesn't trip the KPI.
+        lapse_state = next(
+            (s for s in projected if s.lapsed and not getattr(s, "matured", False)),
+            None)
         if lapse_state is not None:
             self.kpi_lapse.set(
                 f"Yr {lapse_state.policy_year} · Age {lapse_state.attained_age}", alert=True)
         else:
             self.kpi_lapse.set("None")
+        # The guideline premiums behind the room figure, as of the final
+        # projected month (a mid-stream recalc shows the current values).
+        self.kpi_glp.set(_fmt_money(final.glp))
+        self.kpi_gsp.set(_fmt_money(final.gsp))
         room = final.guideline_limit - (final.premiums_to_date_after_exception - final.withdrawals_to_date)
         self.kpi_room.set(_fmt_money(room), alert=room < 0)
         self.kpi_premium.set(_fmt_money(sum(s.premium_outlay for s in projected)))
+
+        # Shadow EAV only applies to shadow-account products — hide it otherwise.
+        has_shadow = bool(getattr(policy, "has_shadow_account", False))
+        self.ledger.setColumnHidden(SHADOW_EAV_COLUMN, not has_shadow)
 
         # ── ledger: annual rows with monthly children ──
         # Each entry keeps its index into ``results`` so selection and
@@ -650,16 +680,18 @@ class ValuesOverview(QWidget):
             av_pre_interest = eoy.av_after_exception
             sv_pre_interest = av_pre_interest - eoy.policy_debt - eoy.surrender_charge
             item = QTreeWidgetItem(_ledger_cells(
-                year, eoy.policy_month, eoy.attained_age, eoy.date,
+                year, eoy.policy_month, eoy.attained_age, eoy.attained_age + 1, eoy.date,
                 withdrawals=withdrawals, forceouts=forceouts,
                 loan_repay=loan_repay, premium=premium,
                 monthly_deduction=monthly_deduction, exception_prem=exception_prem,
                 av=av_pre_interest, sv=sv_pre_interest, interest=interest,
                 eav=eoy.av_end_of_month, sc=eoy.surrender_charge,
                 new_loan=new_loan, loan_balance=eoy.policy_debt,
-                esv=eoy.ending_sv, death_benefit=eoy.ending_db or eoy.gross_db,
+                esv=eoy.ending_sv, shadow_eav=eoy.shadow_eav,
+                death_benefit=eoy.ending_db or eoy.gross_db,
                 status=_status_text(eoy),
             ))
+            item.setBackground(SPACER_COLUMN, SPACER_BRUSH)
             for column in range(len(LEDGER_COLUMNS)):
                 if column in NUMERIC_LEDGER:
                     item.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -681,7 +713,8 @@ class ValuesOverview(QWidget):
                 av_pre_interest = state.av_after_exception
                 sv_pre_interest = av_pre_interest - state.policy_debt - state.surrender_charge
                 child = QTreeWidgetItem(_ledger_cells(
-                    state.policy_year, state.policy_month, state.attained_age, state.date,
+                    state.policy_year, state.policy_month, state.attained_age,
+                    state.attained_age + 1, state.date,
                     withdrawals=month_wd, forceouts=state.guideline_forceout,
                     loan_repay=state.applied_loan_repayment,
                     premium=state.premium_outlay - state.gp_exception_prem,
@@ -691,10 +724,11 @@ class ValuesOverview(QWidget):
                     interest=state.interest_credited,
                     eav=state.av_end_of_month, sc=state.surrender_charge,
                     new_loan=state.applied_new_loan, loan_balance=state.policy_debt,
-                    esv=state.ending_sv,
+                    esv=state.ending_sv, shadow_eav=state.shadow_eav,
                     death_benefit=state.ending_db or state.gross_db,
                     status=_status_text(state),
                 ))
+                child.setBackground(SPACER_COLUMN, SPACER_BRUSH)
                 for column in range(len(LEDGER_COLUMNS)):
                     if column in NUMERIC_LEDGER:
                         child.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)

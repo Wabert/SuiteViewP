@@ -8,7 +8,7 @@ from suiteview.illustration.models.plancode_config import PlancodeConfig
 
 
 class _FakeRates:
-    def get_band(self, _plancode, face_amount):
+    def get_band(self, _plancode, face_amount, issue_date=None):
         return 2 if float(face_amount or 0.0) == 200_000.0 else 9
 
 

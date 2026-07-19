@@ -55,6 +55,7 @@ from suiteview.illustration.models.input_set import (
 from suiteview.illustration.core.illustration_policy_service import coverage_or_benefit_matured
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.models.index_strategies import (
+    FIXED_FUND_ID,
     ag49_index_for_issue_date,
     current_ag49_index,
     is_iul_plan,
@@ -70,13 +71,13 @@ from .styles import (
     ILLUSTRATION_BORDER_COLOR,
     ILLUSTRATION_HEADER_COLORS,
     INPUT_CAPTION_STYLE as _CAPTION_STYLE,
-    INPUT_CHECKBOX_STYLE as _CHECKBOX_STYLE,
     INPUT_COMBO_STYLE as _COMBO_STYLE,
     INPUT_EDIT_STYLE as _EDIT_STYLE,
     INPUT_RADIO_STYLE as _RADIO_STYLE,
     INPUT_SMALL_BTN_STYLE as _SMALL_BTN_STYLE,
     PURPLE_BG,
     PURPLE_DARK,
+    apply_input_checkbox_style,
 )
 
 _INDEX_ALLOC_BTN_STYLE = (
@@ -129,6 +130,7 @@ class PolicyContext:
     is_cvat: bool = False
     has_loans: bool = False       # policy carries a loan (informational)
     has_shadow: bool = False      # active shadow account (benefit type A) — gates exceptions
+    shadow_ceased: bool = False   # policy HAD a type-A benefit but it has ceased
     rate_class: str = ""          # Cov 1
     table_rating: int = 0         # Cov 1
     illustrated_rate: float = 0.0
@@ -412,7 +414,21 @@ _TYPE_INPUT = "INPUT"
 # regardless of the Allow GP Exception Premium checkbox.
 _TYPE_MAX_LEVEL = "Max Level Allowed"
 _TYPE_MIN_LEVEL = "Prem to Maturity"
-_LEVEL_TYPES = (_TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL)
+# "Prem to Shadow Maturity" (shadow-account policies only) is the minimum level
+# premium that keeps the SHADOW account in force to maturity — the shadow
+# account governs lapse once past the safety-net period, so the real account
+# value may run negative while the policy stays in force. Solved with GP
+# exceptions off (an active shadow account blocks them).
+_TYPE_SHADOW_LEVEL = "Prem to Shadow Maturity"
+_LEVEL_TYPES = (_TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL, _TYPE_SHADOW_LEVEL)
+# "Solve" is a target-value premium solve: the Premium Solve criteria group
+# (below the Premiums section) picks the value to hit — Account Value,
+# Surrender Value, or Shadow Account Value — the target amount, and the
+# beginning-of-year age it must be reached AT (age 100 → the ending value at
+# attained age 99, month 12). Run Values solves the minimum level premium that
+# meets the criteria and fills this row's amount; an unreachable target pops a
+# message instead.
+_TYPE_SOLVE = "Solve"
 # "Monthly Deduction" pays, each month, exactly the policy's monthly deduction
 # (grossed up by the COI rate and premium load) so the account value after the
 # deduction equals where it stood just before it. The engine reuses the GP
@@ -550,15 +566,24 @@ class InputRow(QWidget):
         self.type_combo.blockSignals(True)
         self.type_combo.clear()
         if self._section.spec.allow_max_level_premium:
-            # GPT policies can solve a level premium; CVAT only takes INPUT. The
-            # Min Level solver is loan-capable now (it applies premium to the loan
-            # first), so a policy loan no longer hides it.
+            # Max Level is guideline-room math, so it is GPT-only; Prem to
+            # Maturity solves for CVAT too (with exceptions off — CVAT has no
+            # guideline cap or exception machinery). The Min Level solver is
+            # loan-capable (it applies premium to the loan first), so a policy
+            # loan doesn't hide it. Prem to Shadow Maturity appears only when
+            # the policy carries a shadow-account benefit (type A) — including
+            # a ceased one, so the run can explain why it can't solve.
             ctx = self._ctx
             if ctx is not None and ctx.is_cvat:
-                options = [_TYPE_INPUT, _TYPE_MONTHLY_DEDUCTION]
+                options = [_TYPE_INPUT, _TYPE_MIN_LEVEL, _TYPE_MONTHLY_DEDUCTION]
             else:
                 options = [_TYPE_INPUT, _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL,
                            _TYPE_MONTHLY_DEDUCTION]
+            if ctx is not None and (ctx.has_shadow or ctx.shadow_ceased):
+                options.insert(options.index(_TYPE_MIN_LEVEL) + 1, _TYPE_SHADOW_LEVEL)
+            # "Solve" (target-value premium solve) works on any product — it
+            # bisects the real projection under the user's own run options.
+            options.append(_TYPE_SOLVE)
             self.type_combo.addItems(options)
             self.type_combo.setFixedWidth(self._section.spec.type_width)
             if current in options:
@@ -599,8 +624,17 @@ class InputRow(QWidget):
         return (self._section.spec.allow_max_level_premium
                 and self.type_combo.currentText() == _TYPE_MAX_LEVEL)
 
+    def is_shadow_level(self) -> bool:
+        return (self._section.spec.allow_max_level_premium
+                and self.type_combo.currentText() == _TYPE_SHADOW_LEVEL)
+
     def is_monthly_deduction(self) -> bool:
         return self.type_combo.currentText() == _TYPE_MONTHLY_DEDUCTION
+
+    def is_solve(self) -> bool:
+        """A Premiums "Solve" row — target-value premium, solved on Run Values."""
+        return (self._section.spec.allow_max_level_premium
+                and self.type_combo.currentText() == _TYPE_SOLVE)
 
     def is_payoff(self) -> bool:
         """A Loan Repayments "Pay-off" row — amount is solved on Run Values."""
@@ -623,12 +657,14 @@ class InputRow(QWidget):
         self._apply_monthly_deduction_mode(ptype == _TYPE_MONTHLY_DEDUCTION)
         if self.amount_edit is None:
             return
+        # Max Level is guideline-room math → GPT only; Prem to (Shadow) Maturity
+        # solves for any product the type dropdown offered it on.
         level_capable = (
             self._section.spec.allow_max_level_premium
             and self._ctx is not None
-            and not self._ctx.is_cvat
         )
-        if level_capable and ptype == _TYPE_MAX_LEVEL:
+        max_capable = level_capable and not self._ctx.is_cvat
+        if max_capable and ptype == _TYPE_MAX_LEVEL:
             # Closed-form ESTIMATE from the current guideline room — read-only,
             # filled now. Run Values solves the exact maximum on the real
             # projection (reflecting any Face Amount / DB Option changes) and
@@ -649,9 +685,20 @@ class InputRow(QWidget):
             self.amount_edit.setEnabled(False)
             self.amount_edit.setToolTip(
                 "Minimum level premium that keeps the policy in force to maturity. "
-                "Solved when you Run Values. GP exception premiums are always "
-                "allowed for this premium type — the run ignores the Allow GP "
-                "Exception Premium checkbox.")
+                "Solved when you Run Values. On GPT policies GP exception premiums "
+                "are always allowed for this premium type — the run ignores the "
+                "Allow GP Exception Premium checkbox. CVAT policies solve without "
+                "exceptions (there is no guideline cap to ride).")
+        elif level_capable and ptype == _TYPE_SHADOW_LEVEL:
+            # Solved on Run Values — disabled and blank until the run fills it.
+            self.amount_edit.setText("")
+            self.amount_edit.setReadOnly(True)
+            self.amount_edit.setEnabled(False)
+            self.amount_edit.setToolTip(
+                "Minimum level premium that keeps the shadow account in force to "
+                "maturity — the shadow account governs lapse, so the regular "
+                "account value may run negative while the policy stays in force. "
+                "Solved when you Run Values.")
         elif ptype == _TYPE_MONTHLY_DEDUCTION:
             # Solved in-engine each month (varies with the deduction) — blank and
             # disabled; only the start year is read off this row.
@@ -671,6 +718,17 @@ class InputRow(QWidget):
                 "Level repayment at this mode that pays the loan off completely by "
                 "the end of the period — the balance is zero just before any new "
                 "loan that follows. Solved when you Run Values.")
+        elif self.is_solve():
+            # Solved on Run Values from the Premium Solve criteria group —
+            # disabled and blank until the run fills it.
+            self.amount_edit.setText("")
+            self.amount_edit.setReadOnly(True)
+            self.amount_edit.setEnabled(False)
+            self.amount_edit.setToolTip(
+                "Minimum level premium that reaches the Premium Solve target "
+                "(value, amount, and age set in the group below). Solved when "
+                "you Run Values; a target the policy cannot reach reports "
+                "instead of filling this field.")
         else:
             self.amount_edit.setEnabled(True)
             self.amount_edit.setReadOnly(False)
@@ -828,6 +886,85 @@ class InputRow(QWidget):
             return
         self._set_span_from_years(year, end_year - year + 1)
 
+    # ── saved-case capture/apply ──────────────────────────────
+
+    def capture_state(self) -> dict:
+        """JSON-safe snapshot of every editable field on this row."""
+        state: dict = {
+            "type": self.type_combo.currentText(),
+            "year": self.year_edit.text(),
+            "age": self.age_edit.text(),
+        }
+        if self.amount_edit is not None:
+            state["amount"] = self.amount_edit.text()
+        if self.value_combo is not None:
+            state["value"] = self.value_combo.currentData()
+        if self.mode_combo is not None:
+            state["mode"] = self.mode_combo.currentText()
+            state["for_years"] = self.for_years_edit.text()
+            state["to_age"] = self.to_age_edit.text()
+        if self.basis_combo is not None:
+            state["basis"] = self.basis_combo.currentText()
+        return state
+
+    def apply_state(self, state: dict) -> list[str]:
+        """Restore a captured snapshot. Returns warnings for anything that
+        could not land on this policy (e.g. a premium type the policy's
+        dropdown does not offer) — never a silent drop."""
+        warnings: list[str] = []
+        section_title = self._section.spec.title
+        saved_type = str(state.get("type") or "")
+        if saved_type:
+            index = self.type_combo.findText(saved_type)
+            if index >= 0:
+                self.type_combo.setCurrentIndex(index)
+            else:
+                warnings.append(
+                    f"{section_title}: type '{saved_type}' is not available on "
+                    f"this policy — row kept as "
+                    f"'{self.type_combo.currentText()}'.")
+        if self.mode_combo is not None and state.get("mode"):
+            self.mode_combo.setCurrentText(str(state["mode"]))
+        self.year_edit.setText(str(state.get("year") or ""))
+        self.age_edit.setText(str(state.get("age") or ""))
+        if self.amount_edit is not None:
+            self.amount_edit.setText(str(state.get("amount") or ""))
+        if self.value_combo is not None:
+            saved_value = state.get("value")
+            if saved_value is None:
+                self.value_combo.setCurrentIndex(0)
+            else:
+                index = self.value_combo.findData(saved_value)
+                if index >= 0:
+                    self.value_combo.setCurrentIndex(index)
+                else:
+                    warnings.append(
+                        f"{section_title}: value '{saved_value}' is not "
+                        f"offered on this policy — row left at "
+                        f"'{self.value_combo.currentText()}'.")
+        if self.for_years_edit is not None:
+            self.for_years_edit.setText(str(state.get("for_years") or ""))
+            self.to_age_edit.setText(str(state.get("to_age") or ""))
+        if self.basis_combo is not None and state.get("basis"):
+            self.basis_combo.setCurrentText(str(state["basis"]))
+        return warnings
+
+    def blank(self):
+        """Clear every field back to the section defaults (pre-apply reset)."""
+        self.type_combo.setCurrentIndex(0)
+        self.year_edit.setText("")
+        self.age_edit.setText("")
+        if self.amount_edit is not None:
+            self.amount_edit.setText("")
+        if self.value_combo is not None:
+            self.value_combo.setCurrentIndex(0)
+        if self.mode_combo is not None:
+            self.mode_combo.setCurrentText(self._section.spec.default_mode)
+            self.for_years_edit.setText("")
+            self.to_age_edit.setText("")
+        if self.basis_combo is not None:
+            self.basis_combo.setCurrentIndex(0)
+
 
 @dataclass
 class SectionSpec:
@@ -916,6 +1053,11 @@ class DynamicSection(QGroupBox):
     def add_footer_widget(self, widget: QWidget):
         """Place an extra control in the section footer, left of the stretch."""
         self._footer.insertWidget(self._footer.count() - 1, widget)
+
+    def add_bottom_widget(self, widget: QWidget):
+        """Place a widget under the rows and ＋ footer, above the trailing
+        stretch (e.g. the Premium Solve criteria group)."""
+        self._outer.insertWidget(self._outer.count() - 1, widget)
 
     def add_header_widget(self, widget: QWidget):
         """Place a control at the top of the section, above the column captions."""
@@ -1063,6 +1205,26 @@ class DynamicSection(QGroupBox):
         out.sort(key=lambda e: e["year"])
         return out
 
+    # ── saved-case capture/apply ──────────────────────────────
+
+    def capture_rows(self) -> list[dict]:
+        """Snapshot of every row, in display order (JSON-safe)."""
+        return [row.capture_state() for row in self._rows]
+
+    def apply_rows(self, rows: list[dict]) -> list[str]:
+        """Rebuild the section from a captured snapshot; returns warnings."""
+        warnings: list[str] = []
+        while len(self._rows) > 1:
+            self._remove_row(self._rows[-1])
+        states = list(rows) or [{}]
+        while len(self._rows) < len(states):
+            self.add_row()
+        for row, state in zip(self._rows, states):
+            row.blank()
+            warnings.extend(row.apply_state(state))
+        self._validate()
+        return warnings
+
 
 class RiderAdjustment:
     KEEP = "keep"
@@ -1155,6 +1317,14 @@ class RiderButtonsPanel(QGroupBox):
                 widget.deleteLater()
         self._buttons = {}
 
+        if not hasattr(policy, "get_coverages"):
+            # IllustrationPolicyData (a saved-case snapshot): riders/benefits
+            # are already-materialized dataclasses. Build the same items —
+            # with the SAME keys — so saved rider decisions land identically.
+            self._build_items_from_snapshot(policy, as_of)
+            self._finish_item_buttons()
+            return
+
         coverages = []
         benefits = []
         try:
@@ -1204,6 +1374,51 @@ class RiderButtonsPanel(QGroupBox):
             self._items.append(
                 (key, label, rows, premium_paying, amount, coverage_or_benefit_matured(ben, as_of)))
 
+        self._finish_item_buttons()
+
+    def _build_items_from_snapshot(self, policy, as_of):
+        """Items from IllustrationPolicyData.riders/.benefits (no DB2 surface).
+
+        Keys mirror the PolicyInformation build exactly —
+        ``cov:<phase>`` / ``ben:<type><subtype>:<phase>`` — so a case's saved
+        rider decisions apply onto a snapshot-loaded tab without warnings.
+        """
+        for rider in (getattr(policy, "riders", None) or []):
+            label = rider.plancode or f"Coverage {rider.coverage_phase}"
+            premium_paying = bool(rider.premium_rate or rider.coi_rate)
+            rows = [
+                ("Phase:", rider.coverage_phase), ("Plancode:", rider.plancode),
+                ("Issue Date:", format_date(rider.issue_date)),
+                ("Amount:", format_amount(rider.face_amount)),
+                ("Issue Age:", rider.issue_age), ("Class:", rider.rate_class),
+                ("Status:", rider.status),
+            ]
+            matured = (coverage_or_benefit_matured(rider, as_of)
+                       or not rider.is_active)
+            self._items.append(
+                (f"cov:{rider.coverage_phase}", label, rows, premium_paying,
+                 float(rider.face_amount or 0.0), matured))
+        for ben in (getattr(policy, "benefits", None) or []):
+            benefit_type = str(ben.benefit_type or "")
+            subtype = str(ben.benefit_subtype or "")
+            label = f"Benefit {benefit_type}{subtype}".strip()
+            premium_paying = bool(ben.coi_rate) and not benefit_type.startswith("#")
+            rows = [
+                ("Type:", benefit_type), ("Subtype:", subtype),
+                ("Issue Date:", format_date(ben.issue_date)),
+                ("Cease Date:", format_date(ben.cease_date)),
+                ("Units:", format_amount(ben.units)),
+                ("Amount:", format_amount(ben.benefit_amount)),
+                ("Issue Age:", ben.issue_age),
+            ]
+            matured = (coverage_or_benefit_matured(ben, as_of)
+                       or not ben.is_active)
+            key = f"ben:{benefit_type}{subtype}:{ben.coverage_phase}"
+            self._items.append(
+                (key, label, rows, premium_paying,
+                 float(ben.benefit_amount or 0.0), matured))
+
+    def _finish_item_buttons(self):
         if not self._items:
             note = QLabel("No riders or benefits on this policy.")
             note.setStyleSheet(
@@ -1458,6 +1673,66 @@ class RiderButtonsPanel(QGroupBox):
             ))
         return events
 
+    # ── saved-case capture/apply ──────────────────────────────
+
+    def capture_adjustments(self) -> dict:
+        """Non-KEEP rider decisions, keyed like collect_changes (JSON-safe).
+
+        The button label rides along so a later load onto a policy without
+        the rider can name it in the warning."""
+        out: dict = {}
+        for key, adj in self._adjustments.items():
+            if adj.action == RiderAdjustment.KEEP:
+                continue
+            button = self._buttons.get(key)
+            out[key] = {
+                "action": adj.action,
+                "new_amount": adj.new_amount,
+                "effective_year": adj.effective_year,
+                "effective_date": (
+                    adj.effective_date.isoformat() if adj.effective_date else None),
+                "label": button.text() if button is not None else key,
+            }
+        return out
+
+    def apply_adjustments(self, saved: dict) -> list[str]:
+        """Restore saved rider decisions onto this policy's riders.
+
+        Every saved decision that has no matching rider here (or whose rider
+        has matured) becomes a warning — nothing is silently dropped."""
+        warnings: list[str] = []
+        for key, adj in self._adjustments.items():
+            adj.action = RiderAdjustment.KEEP
+            adj.new_amount = None
+            adj.effective_year = None
+            adj.effective_date = None
+            self._style_button(self._buttons[key], RiderAdjustment.KEEP,
+                               matured=key in self._matured)
+        for key, data in (saved or {}).items():
+            label = str(data.get("label") or key)
+            action = str(data.get("action") or RiderAdjustment.CHANGE)
+            adj = self._adjustments.get(key)
+            if adj is None:
+                warnings.append(
+                    f"Rider decision '{action}' for {label} did not apply — "
+                    f"this policy has no matching rider/benefit.")
+                continue
+            if key in self._matured:
+                warnings.append(
+                    f"Rider decision '{action}' for {label} did not apply — "
+                    f"the rider/benefit has already matured on this policy.")
+                continue
+            adj.action = action
+            amount = data.get("new_amount")
+            adj.new_amount = float(amount) if amount is not None else None
+            year = data.get("effective_year")
+            adj.effective_year = int(year) if year is not None else None
+            when = data.get("effective_date")
+            adj.effective_date = date.fromisoformat(when) if when else None
+            self._style_button(self._buttons[key], adj.action, matured=False)
+        self.changed.emit()
+        return warnings
+
 
 class DynamicInputsPanel(QWidget):
     """The "Input" tab: suspended banner, request sections, rider buttons."""
@@ -1508,7 +1783,7 @@ class DynamicInputsPanel(QWidget):
         # premium repays the policy loan before any of it loads onto the account
         # value. A no-op on a loan-free policy.
         self.apply_prem_to_loan_check = QCheckBox("Apply Premium to Loan First")
-        self.apply_prem_to_loan_check.setStyleSheet(_CHECKBOX_STYLE)
+        apply_input_checkbox_style(self.apply_prem_to_loan_check)
         self.apply_prem_to_loan_check.setToolTip(
             "Apply the requested premium to repay the policy loan first. The lumpsum "
             "then the scheduled premium repay the loan up to its payoff; only what "
@@ -1517,7 +1792,7 @@ class DynamicInputsPanel(QWidget):
         # Loan First (moved from the Illustration Control tab). On by default.
         self.tamra_check = QCheckBox("Conform to TAMRA")
         self.tamra_check.setChecked(True)
-        self.tamra_check.setStyleSheet(_CHECKBOX_STYLE)
+        apply_input_checkbox_style(self.tamra_check)
         self.tamra_check.setToolTip(
             "Enforce the 7-pay premium room while the policy is inside the TAMRA window.")
         # Lump Sum: a one-off premium the user applies on the forecast date. It
@@ -1536,7 +1811,7 @@ class DynamicInputsPanel(QWidget):
         # forecast date to its next modal premium, apply a solved lumpsum on the
         # forecast date that carries it in force until that premium is collected.
         self.lumpsum_to_next_check = QCheckBox("Lumpsum to Next Premium")
-        self.lumpsum_to_next_check.setStyleSheet(_CHECKBOX_STYLE)
+        apply_input_checkbox_style(self.lumpsum_to_next_check)
         self.lumpsum_to_next_check.setToolTip(
             "If the policy would lapse before its next modal premium, apply a solved "
             "lumpsum on the forecast date that keeps it in force until that premium is "
@@ -1589,6 +1864,50 @@ class DynamicInputsPanel(QWidget):
         lumpsum_row.addWidget(self.lumpsum_to_next_check)
         lumpsum_row.addStretch(1)
         self.premium_section.add_header_widget(lumpsum_header)
+        # Premium Solve criteria — visible only while a "Solve" premium row is
+        # selected. The row's Year/Mode/span say WHEN the premium pays; this
+        # group says WHAT it must achieve: a target value, amount, and the
+        # beginning-of-year age to reach it at (age 100 → the ending value at
+        # attained age 99, month 12).
+        self.solve_criteria = QWidget()
+        solve_row = QHBoxLayout(self.solve_criteria)
+        solve_row.setContentsMargins(0, 6, 0, 0)
+        solve_row.setSpacing(4)
+        solve_caption = QLabel("Solve for")
+        solve_caption.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: transparent;"
+            " font-size: 11px; font-weight: bold;")
+        self.solve_target_combo = QComboBox()
+        self.solve_target_combo.setStyleSheet(_COMBO_STYLE)
+        self.solve_target_combo.setFixedWidth(150)
+        self.solve_target_combo.setToolTip(
+            "The policy value the solved premium must carry to the target "
+            "amount at the target age.")
+        solve_amount_caption = QLabel("Amount")
+        solve_amount_caption.setStyleSheet(_CAPTION_STYLE)
+        self.solve_amount_edit = _Field(90, decimals=2)
+        self.solve_amount_edit.setToolTip(
+            "The ending value to reach — e.g. 1 to just stay positive, or a "
+            "target cash value.")
+        solve_age_caption = QLabel("At Age")
+        solve_age_caption.setStyleSheet(_CAPTION_STYLE)
+        self.solve_age_edit = _Field(_W_AGE)
+        self.solve_age_edit.setToolTip(
+            "Beginning-of-year age the value must be reached at. Solving for "
+            "age 100 checks the ending value at attained age 99, end of "
+            "policy month 12.")
+        solve_row.addWidget(solve_caption)
+        solve_row.addSpacing(6)
+        solve_row.addWidget(self.solve_target_combo)
+        solve_row.addSpacing(10)
+        solve_row.addWidget(solve_amount_caption)
+        solve_row.addWidget(self.solve_amount_edit)
+        solve_row.addSpacing(10)
+        solve_row.addWidget(solve_age_caption)
+        solve_row.addWidget(self.solve_age_edit)
+        solve_row.addStretch(1)
+        self.solve_criteria.setVisible(False)
+        self.premium_section.add_bottom_widget(self.solve_criteria)
         self.loan_section = DynamicSection(SectionSpec("Loans", default_mode="A"))
         self.withdrawal_section = DynamicSection(SectionSpec(
             "Withdrawals", has_basis=True, default_mode="A"))
@@ -1675,15 +1994,23 @@ class DynamicInputsPanel(QWidget):
 
     # ── loading ───────────────────────────────────────────────
 
-    def load_from_policy(self, policy, *, has_shadow: bool = False):
+    def load_from_policy(self, policy, *, has_shadow: bool = False,
+                         shadow_ceased: bool = False):
         self._ctx = context_from_policy(policy)
         self._ctx.has_shadow = has_shadow
+        self._ctx.shadow_ceased = shadow_ceased
         # A freshly retrieved policy starts with an empty lump sum.
         self.lumpsum_edit.clear()
         for section in (self.premium_section, self.loan_section, self.withdrawal_section,
                         self.repayment_section, self.face_section, self.dbo_section,
                         self.rateclass_section, self.table_section):
             section.set_context(self._ctx)
+        # Premium Solve criteria reset for the new policy: fresh target list
+        # (shadow only when applicable), cleared amount, age-100 default.
+        self.solve_amount_edit.setText("")
+        self.solve_age_edit.setText("")
+        self._populate_solve_targets()
+        self._refresh_solve_group()
         if self._ctx.is_iul:
             plan = load_index_strategies(self._ctx.plancode)
             self.illustrated_rate_edit.setReadOnly(True)
@@ -1726,6 +2053,22 @@ class DynamicInputsPanel(QWidget):
     def sweep_account_min(self) -> Optional[float]:
         """Sweep minimum from the allocations panel (None for non-IUL plans)."""
         return self.allocations_panel.sweep_account_min()
+
+    def iul_declared_rate(self) -> Optional[float]:
+        """Fixed-strategy illustrated rate — the engine's WAIR declared rate
+        (RERUN UJ). None on declared-rate plans."""
+        if not self._ctx.is_iul:
+            return None
+        return self.allocations_panel.rates().get(FIXED_FUND_ID)
+
+    def iul_asset_charge_rate(self) -> Optional[float]:
+        """Blended IP/IR asset-charge rate (RERUN SU) from the allocations
+        panel, already re-based on the resolved AG49 regime. None on
+        declared-rate plans."""
+        if not self._ctx.is_iul:
+            return None
+        blended = self.allocations_panel.blended()
+        return blended.asset_charge_rate if blended is not None else None
 
     def _open_allocations_dialog(self):
         self._allocations_dialog.exec()
@@ -1792,11 +2135,12 @@ class DynamicInputsPanel(QWidget):
         """``{'start_year', 'mode'}`` for the Prem to Maturity row, or None.
 
         The row has no amount until the run solves it, so main_window detects it
-        here and solves on the projectable policy. GP exception premiums are
-        always allowed for this premium type — the solve (and its displayed run)
-        ignores the Allow GP Exception Premium checkbox.
+        here and solves on the projectable policy. On GPT policies GP exception
+        premiums are always allowed for this premium type — the solve (and its
+        displayed run) ignores the Allow GP Exception Premium checkbox. CVAT
+        policies solve with exceptions off (no guideline cap to ride).
         """
-        if self._ctx is None or self._ctx.is_cvat:
+        if self._ctx is None:
             return None
         for row in self.premium_section.rows():
             if row.is_min_level():
@@ -1808,6 +2152,28 @@ class DynamicInputsPanel(QWidget):
         """Fill the Prem to Maturity row's (disabled) amount field after a run."""
         for row in self.premium_section.rows():
             if row.is_min_level():
+                row.set_amount_display(value)
+                return
+
+    def shadow_level_request(self) -> Optional[dict]:
+        """``{'start_year', 'mode'}`` for the Prem to Shadow Maturity row, or None.
+
+        Solved on Run Values against the shadow account's own lapse test. The
+        run validates the shadow state (an existing-but-ceased type-A benefit
+        can't be solved) and reports why when it can't run.
+        """
+        if self._ctx is None:
+            return None
+        for row in self.premium_section.rows():
+            if row.is_shadow_level():
+                year = row.year() or self._ctx.forecast_year
+                return {"start_year": int(year), "mode": row.mode()}
+        return None
+
+    def set_shadow_level_amount(self, value: Optional[float]):
+        """Fill the Prem to Shadow Maturity row's (disabled) amount field after a run."""
+        for row in self.premium_section.rows():
+            if row.is_shadow_level():
                 row.set_amount_display(value)
                 return
 
@@ -1836,19 +2202,27 @@ class DynamicInputsPanel(QWidget):
                 row.set_amount_display(value)
                 return
 
-    def monthly_deduction_request(self) -> Optional[dict]:
-        """``{'start_year'}`` for an active Monthly Deduction premium row, or None.
+    def monthly_deduction_windows(self) -> list[tuple[int, Optional[int]]]:
+        """Year windows for the active Monthly Deduction premium rows.
 
-        The premium is solved in-engine each month, so the row carries only a
-        start year (default = forecast date) and runs to maturity.
+        One ``(start_year, end_year)`` per Monthly Deduction row — the same
+        year window (start through For Years / To Age) any other premium row
+        carries — sorted by start year, empty when there is no such row. The
+        premium is solved in-engine each month within its window; once the
+        window ends the following premium rows apply normally.
         """
-        if self._ctx is None:
-            return None
+        ctx = self._ctx
+        if ctx is None:
+            return []
+        windows: list[tuple[int, Optional[int]]] = []
         for row in self.premium_section.rows():
-            if row.is_monthly_deduction():
-                year = row.year() or self._ctx.forecast_year
-                return {"start_year": int(year)}
-        return None
+            if not row.is_monthly_deduction():
+                continue
+            start = row.year() or ctx.forecast_year
+            end = row.end_year()
+            windows.append((int(start), int(end) if end is not None else None))
+        windows.sort(key=lambda window: window[0])
+        return windows
 
     def loan_payoff_requests(self) -> list[dict]:
         """The Pay-off rows in the Loan Repayments section, ready to solve.
@@ -1899,13 +2273,17 @@ class DynamicInputsPanel(QWidget):
     def _on_premium_changed(self):
         # A level type (Max/Min) locks the non-premium inputs; prior premium
         # rows stay editable. Both level types keep the Face Amount and DB
-        # Option changes open — clients want to see how a face reduction or
-        # DBO switch moves the solved minimum premium, and those same changes
-        # move the guideline premiums that bound the solved maximum — while
-        # withdrawals, loans and repayments stay locked. The exception
-        # availability is refreshed too.
+        # Option changes AND the riders/benefits open — clients want to see
+        # how a face reduction, DBO switch, or rider drop moves the solved
+        # premium — while withdrawals, loans and repayments stay locked.
+        # (A rider change after the forecast date under Max Level raises the
+        # same guideline caveat strip as a face/DBO change — the inputs tab
+        # watches the riders panel too.) The exception availability is
+        # refreshed, and the Premium Solve criteria group shows only while a
+        # Solve row is selected.
         self._set_other_sections_locked(bool(self._selected_level_types()))
         self._refresh_exception_availability()
+        self._refresh_solve_group()
 
     def _refresh_exception_availability(self):
         # An active shadow account blocks GP exceptions (the shadow account
@@ -1932,16 +2310,186 @@ class DynamicInputsPanel(QWidget):
         return {row.premium_type() for row in self.premium_section.rows()
                 if row.premium_type() in _LEVEL_TYPES}
 
+    # ── Premium Solve (target-value) ──────────────────────────
+
+    def _refresh_solve_group(self):
+        self.solve_criteria.setVisible(
+            any(row.is_solve() for row in self.premium_section.rows()))
+
+    def _populate_solve_targets(self):
+        """(Re)build the Solve-for combo for the loaded policy — the shadow
+        target appears only on a policy with an active shadow account."""
+        current = self.solve_target_combo.currentData()
+        self.solve_target_combo.blockSignals(True)
+        self.solve_target_combo.clear()
+        self.solve_target_combo.addItem("Account Value", "av")
+        self.solve_target_combo.addItem("Surrender Value", "sv")
+        if self._ctx is not None and self._ctx.has_shadow:
+            self.solve_target_combo.addItem("Shadow Account Value", "shadow")
+        index = self.solve_target_combo.findData(current)
+        self.solve_target_combo.setCurrentIndex(max(0, index))
+        self.solve_target_combo.blockSignals(False)
+        # Default target age: the age-100 checkpoint (or maturity if sooner).
+        if self._ctx is not None and self.solve_age_edit.value() is None:
+            self.solve_age_edit.set_value(min(100, self._ctx.maturity_age))
+
+    def solve_request(self) -> Optional[dict]:
+        """The Solve row's request for Run Values, or None.
+
+        ``{'start_year', 'end_year', 'mode', 'target', 'amount', 'at_age'}`` —
+        year/mode/span from the premium row (span None → pays to maturity),
+        target criteria from the Premium Solve group. ``amount``/``at_age``
+        may be None when the user left them blank; the window validates and
+        reports rather than solving on a guess.
+        """
+        if self._ctx is None:
+            return None
+        for row in self.premium_section.rows():
+            if not row.is_solve():
+                continue
+            year = row.year() or self._ctx.forecast_year
+            end_year = row.end_year()
+            if end_year is not None and end_year >= self._ctx.maturity_year:
+                end_year = None                    # to maturity → no stop row
+            amount = self.solve_amount_edit.value()
+            age = self.solve_age_edit.value()
+            return {
+                "start_year": int(year),
+                "end_year": int(end_year) if end_year is not None else None,
+                "mode": row.mode(),
+                "target": self.solve_target_combo.currentData() or "av",
+                "amount": float(amount) if amount is not None else None,
+                "at_age": int(age) if age is not None else None,
+            }
+        return None
+
+    def set_solve_amount(self, value: Optional[float]):
+        """Fill the Solve row's (read-only) amount field after a run."""
+        for row in self.premium_section.rows():
+            if row.is_solve():
+                row.set_amount_display(value)
+                return
+
     def _set_other_sections_locked(self, locked: bool):
         # Everything except the premium rows and the illustrated rate. The
-        # Face Amount and DB Option change sections stay editable under BOTH
-        # level types so the solves can reflect them (they alter the guideline
-        # premiums that bound Max Level and the funding need behind Min Level).
+        # Face Amount / DB Option change sections and the riders panel stay
+        # editable under the level types so the solves can reflect them (they
+        # alter the guideline premiums that bound Max Level and the funding
+        # need behind Min Level).
         for section in (
             self.loan_section, self.withdrawal_section, self.repayment_section,
-            self.rateclass_section, self.table_section, self.riders_panel,
+            self.rateclass_section, self.table_section,
         ):
             section.setEnabled(not locked)
+
+    # ── saved-case capture/apply ──────────────────────────────
+
+    def _case_sections(self) -> dict[str, DynamicSection]:
+        return {
+            "premiums": self.premium_section,
+            "loans": self.loan_section,
+            "withdrawals": self.withdrawal_section,
+            "repayments": self.repayment_section,
+            "face": self.face_section,
+            "dbo": self.dbo_section,
+            "rateclass": self.rateclass_section,
+            "table": self.table_section,
+        }
+
+    def capture_state(self) -> dict:
+        """JSON-safe snapshot of the whole Input panel (saved-case payload)."""
+        state: dict = {
+            "illustrated_rate": self.illustrated_rate_edit.text(),
+            "lumpsum": self.lumpsum_edit.text(),
+            "lumpsum_to_next": self.lumpsum_to_next_check.isChecked(),
+            "apply_prem_to_loan": self.apply_prem_to_loan_check.isChecked(),
+            "tamra": self.tamra_check.isChecked(),
+            "excess_repayment_as_premium": self.excess_apply_radio.isChecked(),
+            "sections": {
+                name: section.capture_rows()
+                for name, section in self._case_sections().items()
+            },
+            "riders": self.riders_panel.capture_adjustments(),
+            "solve": {
+                "target": self.solve_target_combo.currentData() or "av",
+                "amount": self.solve_amount_edit.text(),
+                "at_age": self.solve_age_edit.text(),
+            },
+        }
+        if self._ctx.is_iul:
+            state["allocations"] = {
+                "allocations": self.allocations_panel.allocations(),
+                "rates": self.allocations_panel.rates(),
+                "sweep_min": self.allocations_panel.sweep_account_min(),
+            }
+        return state
+
+    def apply_state(self, state: dict) -> list[str]:
+        """Apply a saved case's Input-panel snapshot onto the loaded policy.
+
+        Call after ``load_from_policy`` so the rows resolve against the current
+        policy's context. Returns warnings for every piece that did not apply
+        (missing riders, unavailable premium types, non-IUL allocations…)."""
+        warnings: list[str] = []
+        # Lumpsum-to-next first — its toggle clears/disables the manual field.
+        self.lumpsum_to_next_check.setChecked(bool(state.get("lumpsum_to_next")))
+        if not self.lumpsum_to_next_check.isChecked():
+            self.lumpsum_edit.setText(str(state.get("lumpsum") or ""))
+        self.apply_prem_to_loan_check.setChecked(
+            bool(state.get("apply_prem_to_loan")))
+        self.tamra_check.setChecked(bool(state.get("tamra", True)))
+        (self.excess_apply_radio
+         if state.get("excess_repayment_as_premium")
+         else self.excess_stop_radio).setChecked(True)
+
+        sections = state.get("sections") or {}
+        for name, section in self._case_sections().items():
+            warnings.extend(section.apply_rows(sections.get(name) or []))
+        warnings.extend(
+            self.riders_panel.apply_adjustments(state.get("riders") or {}))
+
+        # Premium Solve criteria (after the premium rows so the group's
+        # visibility reflects the applied Solve row). A saved shadow target
+        # that this policy can't offer falls back to Account Value — loudly.
+        solve = state.get("solve") or {}
+        if solve:
+            self.solve_amount_edit.setText(str(solve.get("amount") or ""))
+            self.solve_age_edit.setText(str(solve.get("at_age") or ""))
+            target = str(solve.get("target") or "av")
+            index = self.solve_target_combo.findData(target)
+            if index >= 0:
+                self.solve_target_combo.setCurrentIndex(index)
+            elif target == "shadow":
+                self.solve_target_combo.setCurrentIndex(0)
+                warnings.append(
+                    "Premium Solve target 'Shadow Account Value' did not "
+                    "apply — this policy has no active shadow account; "
+                    "using Account Value instead.")
+        self._refresh_solve_group()
+
+        alloc_state = state.get("allocations")
+        if alloc_state:
+            # On an IUL plan the Illustrated Rate is the read-only mirror of
+            # the blend — apply_state recomputes it. On a declared-rate plan
+            # this warns (nothing to apply the allocations to).
+            warnings.extend(self.allocations_panel.apply_state(
+                alloc_state.get("allocations"),
+                alloc_state.get("rates"),
+                alloc_state.get("sweep_min")))
+        if not self._ctx.is_iul:
+            rate_text = str(state.get("illustrated_rate") or "")
+            if rate_text:
+                self.illustrated_rate_edit.setText(rate_text)
+        elif not alloc_state:
+            warnings.append(
+                "The case carries no index allocations (it was saved on a "
+                "declared-rate policy) — this IUL policy keeps its current "
+                "allocation grid.")
+
+        # Refresh the level-type section locks and exception availability for
+        # the restored premium rows.
+        self._on_premium_changed()
+        return warnings
 
     # ── export ────────────────────────────────────────────────
 
@@ -2034,17 +2582,22 @@ class DynamicInputsPanel(QWidget):
     def collect_into(self, input_set: IllustrationInputSet):
         ctx = self._ctx
         level_active = self.active_level_premium_type() is not None
-        md_active = self.monthly_deduction_request() is not None
-        # Level rows (Max/Min) are solved on Run Values — the Max Level row's
-        # displayed amount is only a closed-form estimate — and Monthly
-        # Deduction rows are solved in-engine, so all three are excluded here.
+        md_active = bool(self.monthly_deduction_windows())
+        # Level rows (Max/Min/Shadow) are solved on Run Values — the Max Level
+        # row's displayed amount is only a closed-form estimate — and Monthly
+        # Deduction rows are solved in-engine, so all four are excluded here.
         # main_window solves the level premiums separately and layers them in;
         # the engine pays Monthly Deduction from a run option.
+        # "Solve" rows are excluded like the level rows: their amount field
+        # holds the PREVIOUS run's solved display value, and main_window
+        # layers the freshly solved premium in — collecting it here would
+        # double-pay it.
         prem_entries = [
             e for e in self.premium_section.entries()
             if e["amount"] is not None
             and e.get("type") not in (
-                _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL, _TYPE_MONTHLY_DEDUCTION)
+                _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL, _TYPE_SHADOW_LEVEL,
+                _TYPE_MONTHLY_DEDUCTION, _TYPE_SOLVE)
         ]
         dated_prem, sched_prem = self._split_current_year(prem_entries)
         if prem_entries or md_active:
@@ -2071,14 +2624,16 @@ class DynamicInputsPanel(QWidget):
                 amount=float(lumpsum), subtype="manual_lumpsum"))
 
         # A level premium type (Max/Min Level) locks the other transaction
-        # inputs — honor only the premium rows above. Both level types still
-        # honor the Face Amount / DB Option change sections (they stay enabled
-        # so the solved premium reflects the entered policy changes — a face or
-        # DBO change moves the guideline premiums that bound Max Level and the
-        # funding need behind Min Level); the solvers carry the input set's
-        # policy_changes into every projection they run.
+        # inputs — honor only the premium rows above. The level types still
+        # honor the Face Amount / DB Option change sections AND the riders
+        # panel (all stay enabled so the solved premium reflects the entered
+        # policy changes — a face reduction, DBO switch, or rider drop moves
+        # the guideline premiums that bound Max Level and the funding need
+        # behind Min Level); the solvers carry the input set's policy_changes
+        # into every projection they run.
         if level_active:
             self._collect_face_dbo_changes(input_set)
+            input_set.policy_changes.extend(self.riders_panel.collect_changes(ctx))
             return
 
         loan_entries = [e for e in self.loan_section.entries() if e["amount"] is not None]

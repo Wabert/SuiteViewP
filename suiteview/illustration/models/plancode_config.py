@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -18,6 +19,11 @@ class PlancodeConfig:
 
     plancode: str = ""
     product_name: str = ""
+
+    # Illustration gating — enforced ONLY in distribution builds (see
+    # suiteview.core.build_env.is_distribution_build). True (default) when the
+    # key is absent so existing plancodes keep illustrating.
+    can_illustrate: bool = True
 
     # Interest
     cint_key: str = ""
@@ -81,6 +87,14 @@ class PlancodeConfig:
     # Dynamic banding
     dynamic_banding: int = 3            # 0 = none, 1 = issue band, 2 = current band, 3 = higher of
     rachet_banding: bool = False
+    # Issue-date-dependent band boundary (RERUN Rates_Control column CZ,
+    # "Use Band Table 2 by Issue Date", cutoff in CZ9 = 2018-10-01). For the
+    # plancodes RERUN lists in CZ12:CZ32, policies ISSUED ON/AFTER this date
+    # band with mBandTable2 (band 3 starts at 250,000 — the thresholds stored
+    # in UL_Rates BANDSPECS), while policies issued BEFORE it band with
+    # mBandTable1 (identical except band 3 starts at 250,001). None = banding
+    # does not depend on issue date (every other plancode).
+    band_table2_issue_date: Optional[date] = None
     skipped_cov_rein: bool = False
 
     # Loans
@@ -139,6 +153,13 @@ def _int_or_default(value, default: int) -> int:
         return default
 
 
+def _date_or_none(value) -> Optional[date]:
+    """Parse an ISO date string from the plancode table; None/blank -> None."""
+    if not value:
+        return None
+    return date.fromisoformat(str(value).strip())
+
+
 def load_plancode(plancode: str) -> PlancodeConfig:
     """Load plancode configuration from the plancode table JSON file.
 
@@ -164,6 +185,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
     config = PlancodeConfig(
         plancode=plancode,
         product_name=data.get("ProductName", ""),
+        can_illustrate=bool(data.get("CanIllustrate", True)),
         cint_key=data.get("CINT_Key", ""),
         int_calc_method=data.get("IntCalcMethod", "Declared"),
         interest_method=data.get("Interest_Method", data.get("InterestMethod", "ExactDays")),
@@ -194,6 +216,7 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         lapse_value=data.get("LapseTarget", data.get("LapseValue", "SV")),
         dynamic_banding=int(data.get("DynamicBanding", 3)),
         rachet_banding=bool(data.get("Rachet_Banding", False)),
+        band_table2_issue_date=_date_or_none(data.get("BandTable2IssueDate")),
         skipped_cov_rein=bool(data.get("SkippedCovRein", False)),
         loan_type=data.get("LoanType", "Arrears"),
         loan_charge_rate_guar=float(data.get("LoanChargeRate", data.get("LoanChargeRateGuar", 0))),

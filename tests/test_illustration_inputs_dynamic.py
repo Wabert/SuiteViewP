@@ -110,6 +110,32 @@ def test_loan_policy_allows_gp_exception_but_shadow_still_blocks():
     assert shadow_tab.export_options().allow_exception_prems is False
 
 
+def test_context_bar_shows_policy_debt_at_right_end():
+    # Policy Debt anchors the right end of the dark context strip — the
+    # policy's total_loan_balance (all six loan buckets, principal + accrued),
+    # money-formatted like the bar's Face Amount. Live PolicyInformation
+    # returns a Decimal; the label must take it as-is.
+    from decimal import Decimal
+
+    _app()
+
+    class _LoanPolicy(_FakePolicy):
+        total_loan_balance = Decimal("12345.67")
+
+    tab = IllustrationInputsTab()
+    tab.load_data_from_policy(_LoanPolicy())
+    assert tab.banner_policy_debt_label.text() == "12,346"
+
+
+def test_context_bar_policy_debt_shows_zero_when_loan_free():
+    # No debt → "0", never a hidden field (_FakePolicy has no
+    # total_loan_balance at all — the missing-attribute case reads as 0 too).
+    _app()
+    tab = IllustrationInputsTab()
+    tab.load_data_from_policy(_FakePolicy())
+    assert tab.banner_policy_debt_label.text() == "0"
+
+
 def test_min_level_available_for_loan_policy():
     # The Prem to Maturity solver is loan-capable (it applies premium to the loan
     # first), so the premium-type dropdown offers it even with a loan outstanding.
@@ -123,7 +149,8 @@ def test_min_level_available_for_loan_policy():
     row = panel.premium_section.rows()[0]
     options = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
     assert options == [
-        "INPUT", "Max Level Allowed", "Prem to Maturity", "Monthly Deduction"]
+        "INPUT", "Max Level Allowed", "Prem to Maturity", "Monthly Deduction",
+        "Solve"]
 
 
 def test_new_premium_row_defaults_span_to_maturity():
@@ -196,7 +223,8 @@ def test_max_level_premium_defaults_and_changes_with_mode():
     row = panel.premium_section.rows()[0]
 
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
-        "INPUT", "Max Level Allowed", "Prem to Maturity", "Monthly Deduction"]
+        "INPUT", "Max Level Allowed", "Prem to Maturity", "Monthly Deduction",
+        "Solve"]
 
     # Forecast is policy year 7, month 8, so the current year still has modes
     # left (5 monthly / 1 quarterly), which the payment count now includes:
@@ -253,10 +281,125 @@ def test_max_level_premium_hidden_for_cvat():
     panel.load_from_policy(CvatPolicy())
     row = panel.premium_section.rows()[0]
 
-    # CVAT has no guideline premium test — only INPUT and Monthly Deduction
-    # (no Max/Min Level).
+    # CVAT has no guideline premium test, so Max Level (guideline-room math) is
+    # hidden — but Prem to Maturity still solves (with exceptions off).
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
-        "INPUT", "Monthly Deduction"]
+        "INPUT", "Prem to Maturity", "Monthly Deduction", "Solve"]
+
+
+def test_shadow_level_premium_offered_for_shadow_policies():
+    _app()
+    panel = DynamicInputsPanel()
+    panel.load_from_policy(_FakePolicy(), has_shadow=True)
+    row = panel.premium_section.rows()[0]
+
+    assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
+        "INPUT", "Max Level Allowed", "Prem to Maturity",
+        "Prem to Shadow Maturity", "Monthly Deduction", "Solve"]
+
+    # Selecting the shadow type surfaces it through shadow_level_request.
+    row.type_combo.setCurrentText("Prem to Shadow Maturity")
+    request = panel.shadow_level_request()
+    assert request is not None
+    assert request["mode"] == row.mode()
+
+    # A ceased-but-present type-A benefit still offers the type (the run
+    # explains why it can't solve); a policy with no shadow history doesn't.
+    panel.load_from_policy(_FakePolicy(), has_shadow=False, shadow_ceased=True)
+    row = panel.premium_section.rows()[0]
+    types = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
+    assert "Prem to Shadow Maturity" in types
+
+    panel.load_from_policy(_FakePolicy())
+    row = panel.premium_section.rows()[0]
+    types = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
+    assert "Prem to Shadow Maturity" not in types
+
+
+def _set_window(row, start_year: int, for_years: int):
+    """Set a premium-style row's year window (start + For Years)."""
+    row.year_edit.set_value(start_year)
+    row._year_edited()
+    row.for_years_edit.set_value(for_years)
+    row._for_years_edited()
+
+
+def test_monthly_deduction_row_bounds_its_window_and_later_premium_applies():
+    # Bug repro: a Monthly-Deduction premium row must be active ONLY for its
+    # year window; a premium row AFTER the window must apply normally (a $0
+    # INPUT row = no premium). INPUT $250 years 7-9, Monthly Deduction years
+    # 10-11, then INPUT $0 years 12-15.
+    _app()
+    tab = IllustrationInputsTab()
+    tab.dynamic_panel.load_from_policy(_FakePolicy())
+    panel = tab.dynamic_panel
+
+    r0 = panel.premium_section.rows()[0]
+    r0.type_combo.setCurrentText("INPUT")
+    _set_window(r0, 7, 3)
+    r0.amount_edit.set_value(250.0, decimals=2)
+
+    r1 = panel.premium_section.add_row()
+    r1.type_combo.setCurrentText("Monthly Deduction")
+    _set_window(r1, 10, 2)
+
+    r2 = panel.premium_section.add_row()
+    r2.type_combo.setCurrentText("INPUT")
+    _set_window(r2, 12, 4)
+    r2.amount_edit.set_value(0.0, decimals=2)
+
+    # The MD window is exactly the row's year range — start through To Age —
+    # not open-ended to maturity.
+    assert panel.monthly_deduction_windows() == [(10, 11)]
+    opts = tab.export_options()
+    assert opts.pay_monthly_deduction is True
+    assert opts.monthly_deduction_windows == [(10, 11)]
+
+    # The later $0 INPUT row still exports as a scheduled premium (no premium),
+    # and the MD row itself is not scheduled as a premium — the gap between the
+    # $250 window and the $0 row is zero-filled, covering the MD window.
+    input_set = IllustrationInputSet()
+    panel.collect_into(input_set)
+    prem = {t.policy_year: t.amount for t in input_set.scheduled_transactions
+            if t.kind == TransactionKind.PREMIUM}
+    assert prem.get(12) == 0.0          # the "no premium after MD" row
+    assert prem.get(10) == 0.0          # MD window carries no scheduled premium
+
+
+def test_monthly_deduction_multiple_windows_export():
+    # Two MD rows -> two bounded windows, each engaging on its own range.
+    _app()
+    tab = IllustrationInputsTab()
+    tab.dynamic_panel.load_from_policy(_FakePolicy())
+    panel = tab.dynamic_panel
+
+    r0 = panel.premium_section.rows()[0]
+    r0.type_combo.setCurrentText("Monthly Deduction")
+    _set_window(r0, 10, 2)
+
+    r1 = panel.premium_section.add_row()
+    r1.type_combo.setCurrentText("Monthly Deduction")
+    _set_window(r1, 20, 3)
+
+    assert panel.monthly_deduction_windows() == [(10, 11), (20, 22)]
+    assert tab.export_options().monthly_deduction_windows == [(10, 11), (20, 22)]
+
+
+def test_monthly_deduction_final_row_runs_to_maturity():
+    # An MD row left spanning to maturity (the default fresh-row span) exports a
+    # window whose end is the maturity year — it runs to the end as before.
+    _app()
+    tab = IllustrationInputsTab()
+    tab.dynamic_panel.load_from_policy(_FakePolicy())
+    panel = tab.dynamic_panel
+
+    row = panel.premium_section.rows()[0]
+    row.type_combo.setCurrentText("Monthly Deduction")
+    row.year_edit.set_value(30)
+    row._year_edited()                  # fresh row spans to maturity
+
+    maturity_year = panel._ctx.maturity_year
+    assert panel.monthly_deduction_windows() == [(30, maturity_year)]
 
 
 def test_inputs_tab_exports_illustrated_rate_override_from_gint():
@@ -570,12 +713,13 @@ def test_current_year_change_lands_on_forecast_date():
     assert change.effective_date == date(2026, 6, 9)
 
 
-def test_level_types_keep_face_and_dbo_sections_enabled():
-    # Both level types lock withdrawals/loans/repayments (and the other change
-    # sections) but keep Face Amount and DB Option changes editable — clients
-    # want to see how a face reduction or DBO switch lowers the solved minimum
-    # premium, and those same changes move the guideline premiums that bound
-    # the solved maximum.
+def test_level_types_keep_face_dbo_and_riders_enabled():
+    # Both level types lock withdrawals/loans/repayments (and the rate-class /
+    # table change sections) but keep Face Amount / DB Option changes AND the
+    # riders panel editable — clients want to see how a face reduction, DBO
+    # switch, or rider drop moves the solved premium. (A rider change after
+    # the forecast date under Max Level raises the same caveat strip as a
+    # face/DBO change.)
     panel = _panel()
     row = panel.premium_section.rows()[0]
 
@@ -583,9 +727,10 @@ def test_level_types_keep_face_and_dbo_sections_enabled():
         row.type_combo.setCurrentText(level_type)
         assert panel.face_section.isEnabled() is True
         assert panel.dbo_section.isEnabled() is True
+        assert panel.riders_panel.isEnabled() is True
         for section in (panel.loan_section, panel.withdrawal_section,
                         panel.repayment_section, panel.rateclass_section,
-                        panel.table_section, panel.riders_panel):
+                        panel.table_section):
             assert section.isEnabled() is False
 
     row.type_combo.setCurrentText("INPUT")
@@ -835,3 +980,127 @@ def test_sections_pack_to_top_with_trailing_stretch():
         layout = section.layout()
         last = layout.itemAt(layout.count() - 1)
         assert last.spacerItem() is not None
+
+
+def test_max_level_caveat_banner_flags_post_forecast_policy_changes():
+    # Max Level Allowed spreads the guideline room measured at ZERO premium;
+    # a policy change AFTER the forecast date can recalc the guidelines off
+    # premium-dependent state, so combining the two shows a caveat strip up
+    # top. Changes ON the forecast date are safe. The run stays allowed.
+    _app()
+    tab = IllustrationInputsTab()
+    tab.load_data_from_policy(_FakePolicy())
+    assert not tab.max_level_caveat_banner.isVisibleTo(tab)
+
+    # Max Level selected, no policy changes -> no caveat.
+    prem_row = tab.dynamic_panel.premium_section.rows()[0]
+    prem_row.type_combo.setCurrentText("Max Level Allowed")
+    assert tab.dynamic_panel.max_level_request() is not None
+    assert not tab.max_level_caveat_banner.isVisibleTo(tab)
+
+    # A face change AFTER the forecast year -> caveat visible.
+    face_row = tab.dynamic_panel.face_section.rows()[0]
+    face_row.year_edit.set_value(9)                # anniversary > forecast
+    face_row.amount_edit.set_value(40_000, decimals=0)
+    tab._refresh_max_level_caveat()                # typing triggers this live
+    assert tab.max_level_change_caveat_active()
+    assert tab.max_level_caveat_banner.isVisibleTo(tab)
+    assert "after the forecast date" in tab.max_level_caveat_banner.text()
+
+    # Moved to the forecast year: the change date clamps to the forecast
+    # date itself -> safe, caveat clears.
+    face_row.year_edit.set_value(7)
+    tab._refresh_max_level_caveat()
+    assert not tab.max_level_change_caveat_active()
+    assert not tab.max_level_caveat_banner.isVisibleTo(tab)
+
+    # Post-forecast change WITHOUT Max Level -> no caveat either.
+    face_row.year_edit.set_value(9)
+    prem_row.type_combo.setCurrentIndex(0)         # back to the INPUT type
+    assert tab.dynamic_panel.max_level_request() is None
+    tab._refresh_max_level_caveat()
+    assert not tab.max_level_caveat_banner.isVisibleTo(tab)
+
+
+def test_solve_type_shows_criteria_group_and_builds_request():
+    # Selecting the "Solve" premium type reveals the Premium Solve criteria
+    # group under the Premiums rows; the row amount goes read-only (filled by
+    # Run Values). The request carries the row's year/mode/span plus the
+    # group's target/amount/age. The shadow target appears only on a policy
+    # with an active shadow account.
+    panel = _panel()
+    assert not panel.solve_criteria.isVisibleTo(panel)
+    targets = [panel.solve_target_combo.itemData(i)
+               for i in range(panel.solve_target_combo.count())]
+    assert targets == ["av", "sv"]                 # no shadow on this policy
+    assert panel.solve_age_edit.value() == 100     # age-100 default
+
+    row = panel.premium_section.rows()[0]
+    row.type_combo.setCurrentText("Solve")
+    assert panel.solve_criteria.isVisibleTo(panel)
+    assert row.amount_edit.isReadOnly()
+
+    panel.solve_amount_edit.set_value(100_000, decimals=2)
+    panel.solve_age_edit.set_value(100)
+    request = panel.solve_request()
+    assert request == {
+        "start_year": 7, "end_year": None,         # row span runs to maturity
+        "mode": "M", "target": "av",
+        "amount": 100_000.0, "at_age": 100,
+    }
+    # The solved value lands in the row's read-only amount field.
+    panel.set_solve_amount(123.45)
+    assert row.amount_edit.text() == "123.45"
+    # The criteria persist into a saved case.
+    solve_state = panel.capture_state()["solve"]
+    assert solve_state["target"] == "av"
+    assert solve_state["at_age"] == "100"
+
+    row.type_combo.setCurrentIndex(0)              # back to INPUT
+    assert not panel.solve_criteria.isVisibleTo(panel)
+    assert panel.solve_request() is None
+
+    # A shadow-account policy offers the shadow target.
+    shadow_panel = DynamicInputsPanel()
+    shadow_panel.load_from_policy(_FakePolicy(), has_shadow=True)
+    targets = [shadow_panel.solve_target_combo.itemData(i)
+               for i in range(shadow_panel.solve_target_combo.count())]
+    assert targets == ["av", "sv", "shadow"]
+
+
+def test_caveat_banner_sits_under_riders_and_fires_on_rider_changes():
+    # The Max Level caveat strip lives at the BOTTOM of the Input panel —
+    # under Riders and Benefits — so popping up never shifts the controls
+    # above it. A rider change scheduled after the forecast date triggers it
+    # exactly like a face/DBO change (riders flow through the exported policy
+    # changes).
+    from suiteview.illustration.ui.inputs_dynamic import RiderAdjustment
+
+    _app()
+    tab = IllustrationInputsTab()
+    tab.load_data_from_policy(_FakePolicy())
+    layout = tab.dynamic_panel.layout()
+    assert layout.itemAt(layout.count() - 1).widget() is tab.max_level_caveat_banner
+    assert layout.itemAt(layout.count() - 2).widget() is tab.dynamic_panel.riders_panel
+
+    tab.dynamic_panel.premium_section.rows()[0].type_combo.setCurrentText(
+        "Max Level Allowed")
+    assert not tab.max_level_caveat_banner.isVisibleTo(tab.dynamic_panel)
+
+    # Rider drop at year 9 — the year-9 anniversary is after the forecast
+    # date → caveat on. (Riders stay editable under Max Level.)
+    assert tab.dynamic_panel.riders_panel.isEnabled()
+    drop = RiderAdjustment()
+    drop.action = RiderAdjustment.DROP
+    drop.effective_year = 9
+    tab.dynamic_panel.riders_panel._adjustments["cov:3"] = drop
+    tab._refresh_max_level_caveat()                # panel emits changed live
+    assert tab.max_level_change_caveat_active()
+    assert tab.max_level_caveat_banner.isVisibleTo(tab.dynamic_panel)
+
+    # Moved to the current year: the change clamps to the forecast date
+    # itself → safe, caveat clears.
+    drop.effective_year = 7
+    tab._refresh_max_level_caveat()
+    assert not tab.max_level_change_caveat_active()
+    assert not tab.max_level_caveat_banner.isVisibleTo(tab.dynamic_panel)

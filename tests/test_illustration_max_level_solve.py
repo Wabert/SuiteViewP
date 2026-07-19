@@ -1,6 +1,9 @@
-"""Max Level Allowed solve — the largest level premium the guideline acceptance
-chain never caps, solved on the real projection so mid-stream guideline changes
-(face decrease, DBO switch) move the answer.
+"""Max Level Allowed solve — the closed-form room premium: remaining lifetime
+guideline room (engine MAX(GSP, AccumGLP) at the end of the paying window,
+after any base-input policy changes recalc the guidelines) spread level over
+the modal payments to get there. The projection applies it and lets the
+guideline cap clip transiently tight years — a transient early cap must NOT
+collapse the answer (that was the old "never capped anywhere" bisection).
 """
 from datetime import date
 from types import SimpleNamespace
@@ -29,24 +32,44 @@ from suiteview.illustration.models.policy_data import (
 
 # ── Solver mechanics on a stub engine ────────────────────────────────────────
 
-def _stub_state(premium_capped: bool) -> SimpleNamespace:
+def _stub_state(policy_year=0, policy_month=0, attained_age=0, gsp=0.0,
+                accumulated_glp=0.0, prem_less_wd=0.0) -> SimpleNamespace:
     return SimpleNamespace(
-        premium_capped=premium_capped, attained_age=121, av_end_of_month=1.0,
-        premiums_to_date=0.0, gp_exception_prem_gross=0.0,
-        applied_loan_repayment=0.0)
+        policy_year=policy_year, policy_month=policy_month,
+        attained_age=attained_age, gsp=gsp, accumulated_glp=accumulated_glp,
+        prem_less_wd=prem_less_wd, premium_capped=False,
+        av_end_of_month=1.0, premiums_to_date=0.0,
+        gp_exception_prem_gross=0.0, applied_loan_repayment=0.0)
 
 
-def _level_premium(future_inputs, start_year: int) -> float:
-    """The solver's level premium out of a projection's scheduled transactions."""
+def _stub_projection(issue_age: int, years: int, *, gsp: float,
+                     accum_final: float, prem_less_wd: float) -> list:
+    """Seed row + full monthly stream for `years` policy years."""
+    states = [_stub_state()]                       # inforce seed row (skipped)
+    for year in range(1, years + 1):
+        for month in range(1, 13):
+            states.append(_stub_state(
+                policy_year=year, policy_month=month,
+                attained_age=issue_age + year - 1,
+                gsp=gsp, accumulated_glp=accum_final,
+                prem_less_wd=prem_less_wd))
+    return states
+
+
+def _level_amount(future_inputs, start_year: int) -> float:
+    """The level premium the solver scheduled at its start year."""
     return max(
         t.amount for t in future_inputs.scheduled_transactions
         if t.kind == TransactionKind.PREMIUM and t.policy_year == start_year)
 
 
-def test_solve_finds_cap_boundary_and_carries_policy_changes():
-    # The stub caps any level premium above 500/mo. The solve must land on the
-    # accepted side of that boundary, and every projection it runs must carry
-    # the base input set's policy changes (they move the guidelines).
+def test_solve_spreads_room_over_payments_and_carries_policy_changes():
+    # Room = MAX(GSP, AccumGLP at end) − consumed = max(1000, 10000) − 200
+    # = 9,800 over monthly payments years 3..50 (issue 50 → age-100 stop at
+    # year 51): 48 × 12 = 576 → 17.013… → floored to 17.01. Exactly two
+    # projections run (zero probe + final), both carrying the base policy
+    # changes and the age-100 stop row; the probe's level row is 0.00 so it
+    # terminates base premiums exactly like the real level premium will.
     policy = IllustrationPolicyData(
         def_of_life_ins="GPT", maturity_age=121, issue_age=50,
         billing_frequency=1, modal_premium=100.0)
@@ -60,16 +83,21 @@ def test_solve_finds_cap_boundary_and_carries_policy_changes():
     class _StubEngine:
         def project(self, _policy, *, options=None, future_inputs=None, **_kw):
             captured.append(future_inputs)
-            premium = _level_premium(future_inputs, 3)
-            return [_stub_state(premium_capped=premium > 500.0)]
+            return _stub_projection(50, 71, gsp=1000.0, accum_final=10000.0,
+                                    prem_less_wd=200.0)
 
     result = solve_max_level_allowed(
         policy, mode="M", start_policy_year=3, base_future_inputs=base,
         engine=_StubEngine())
 
-    assert result.premium == pytest.approx(500.0, abs=0.02)
+    assert result.premium == pytest.approx(9800.0 / 576.0, abs=0.01)
+    assert result.premium == 17.01                 # floored to the resolution
     assert result.mode == "M"
-    assert captured
+    assert result.iterations == 2
+    assert len(captured) == 2
+    probe, final = captured
+    assert _level_amount(probe, 3) == 0.0          # zero-premium probe
+    assert _level_amount(final, 3) == 17.01
     for future in captured:
         assert future.policy_changes == [change]
         # Premiums stop at age 100 (maturity 121 > 100): the solver appends a
@@ -80,36 +108,21 @@ def test_solve_finds_cap_boundary_and_carries_policy_changes():
             for t in future.scheduled_transactions)
 
 
-def test_solve_binds_at_tightest_mid_projection_point():
-    # A mid-projection guideline DROP can make an intermediate year the binding
-    # constraint even when the endpoint has plenty of room — the max level
-    # premium must respect the cumulative limit at acceptance time, not just
-    # the final AccumGLP/GSP. Cumulative limits (annual premium A, 20 payment
-    # years): 10,000 for years 1-4, 3,000 for years 5-9 (the drop), 100,000
-    # from year 10 on. The tightest point is the LAST year of the dip:
-    # A <= 3000/9 = 333.33 — far below the endpoint's 100,000/20 = 5,000.
-    def _limit(year: int) -> float:
-        if year < 5:
-            return 10_000.0
-        if year < 10:
-            return 3_000.0
-        return 100_000.0
-
+def test_solve_counts_only_modal_due_months_in_the_window():
+    # Quarterly from year 2: due months 1/4/7/10 in years 2..50 → 49 × 4 = 196
+    # payments. Room 9,800 → 50.00/quarter.
     policy = IllustrationPolicyData(
         def_of_life_ins="GPT", maturity_age=121, issue_age=50,
-        billing_frequency=12, modal_premium=100.0)
+        billing_frequency=3, modal_premium=100.0)
 
     class _StubEngine:
         def project(self, _policy, *, options=None, future_inputs=None, **_kw):
-            annual = _level_premium(future_inputs, 1)
-            capped = any(
-                annual * year > _limit(year) + 1e-9 for year in range(1, 21))
-            return [_stub_state(premium_capped=capped)]
+            return _stub_projection(50, 71, gsp=0.0, accum_final=10000.0,
+                                    prem_less_wd=200.0)
 
     result = solve_max_level_allowed(
-        policy, mode="A", start_policy_year=1, engine=_StubEngine())
-
-    assert result.premium == pytest.approx(3000.0 / 9.0, abs=0.02)
+        policy, mode="Q", start_policy_year=2, engine=_StubEngine())
+    assert result.premium == pytest.approx(9800.0 / 196.0, abs=0.01)
 
 
 def test_solve_rejects_cvat_and_base_inputs_over_the_limit():
@@ -117,18 +130,20 @@ def test_solve_rejects_cvat_and_base_inputs_over_the_limit():
     with pytest.raises(MaxLevelAllowedError):
         solve_max_level_allowed(cvat, engine=None)
 
-    class _AlwaysCapped:
+    # Base inputs already past the lifetime room → nothing to solve.
+    class _RoomlessEngine:
         def project(self, _policy, **_kw):
-            return [_stub_state(premium_capped=True)]
+            return _stub_projection(50, 71, gsp=1000.0, accum_final=10000.0,
+                                    prem_less_wd=20000.0)
 
     policy = IllustrationPolicyData(
         def_of_life_ins="GPT", maturity_age=121, issue_age=50,
         billing_frequency=1, modal_premium=100.0)
     with pytest.raises(MaxLevelAllowedError):
-        solve_max_level_allowed(policy, engine=_AlwaysCapped())
+        solve_max_level_allowed(policy, engine=_RoomlessEngine())
 
 
-# ── Real engine: a guideline change moves the solved maximum ─────────────────
+# ── Real engine: room math + guideline changes + transient caps ──────────────
 
 class _FlatRatesEngine(IllustrationEngine):
     """Engine with empty rates — no COIs/expenses, so the guideline acceptance
@@ -197,8 +212,8 @@ def test_real_engine_guideline_drop_lowers_max_level(_flat_plancode):
     # A face decrease at the year-6 anniversary halves the guideline premiums
     # (injected: GLP/GSP 1,200 -> 600). AccumGLP through the last payment year
     # is then 1200*5 + 600*55 = 39,000 instead of 72,000, so the max monthly
-    # level premium drops to ~ 39,000 / 719 = 54.24. The old closed form —
-    # initial guideline room only — could not see this.
+    # level premium drops to ~ 39,000 / 719 = 54.24. The initial-room-only
+    # closed form could not see this; the zero-premium probe does.
     engine = _FlatRatesEngine()
     change = PolicyChangeEvent(
         kind=PolicyChangeKind.FACE_AMOUNT,
@@ -216,3 +231,37 @@ def test_real_engine_guideline_drop_lowers_max_level(_flat_plancode):
 
     assert changed.premium < unchanged.premium
     assert changed.premium == pytest.approx(54.24, abs=0.25)
+
+
+def test_real_engine_transient_early_cap_does_not_collapse_the_answer(
+        _flat_plancode):
+    # A policy already funded right up to its current guideline (paid 1,150 of
+    # the 1,200 year-1 room) has almost no room THIS year, but the lifetime
+    # room is 72,000 − 1,150 = 70,850 over 719 payments ≈ 98.53/mo. The old
+    # never-capped bisection collapsed to the tight first years (a fraction of
+    # GLP/12); the closed form spreads the lifetime room and lets the cap clip
+    # the early payments instead.
+    policy = _gpt_policy()
+    policy.premiums_paid_to_date = 1_150.0
+    engine = _FlatRatesEngine()
+
+    result = solve_max_level_allowed(
+        policy, mode="M", start_policy_year=1, engine=engine)
+
+    assert result.premium == pytest.approx(70_850.0 / 719.0, abs=0.25)
+    # Sanity: the early years' cap really does bind at this premium — the
+    # answer rides the cap rather than shrinking to it.
+    from suiteview.illustration.core.solve_level_to_exception import (
+        level_to_exception_options,
+    )
+    from suiteview.illustration.models.input_set import ScheduledTransaction
+    future = IllustrationInputSet(scheduled_transactions=[
+        ScheduledTransaction(kind=TransactionKind.PREMIUM, policy_year=1,
+                             amount=result.premium, mode="M"),
+        ScheduledTransaction(kind=TransactionKind.PREMIUM, policy_year=61,
+                             amount=0.0, mode="A"),
+    ])
+    states = engine.project(
+        policy, options=level_to_exception_options(None, True),
+        future_inputs=future, stop_on_lapse=False)
+    assert any(s.premium_capped for s in states)

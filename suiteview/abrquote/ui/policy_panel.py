@@ -1365,6 +1365,19 @@ class PolicyPanel(QWidget):
 
     # ── Public API ──────────────────────────────────────────────────────
 
+    def load_policy(self, policy_number: str):
+        """Load *policy_number* through the same path the Retrieve button uses.
+
+        Public entry point reused by the taskbar policy launcher. Region is
+        always CKPR and the company is auto-detected, mirroring a user typing
+        the policy and pressing Enter.
+        """
+        policy_number = (policy_number or "").strip()
+        if not policy_number:
+            return
+        self.policy_input.setText(policy_number)
+        self._on_retrieve()
+
     def get_policy(self) -> Optional[ABRPolicyData]:
         """Return the currently loaded policy data."""
         return self._policy

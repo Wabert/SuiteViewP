@@ -103,6 +103,8 @@ def guaranteed_options(base: Optional[IllustrationOptions] = None) -> Illustrati
         levelizing_premium=False,
         restrict_loans_to_sv=False,      # do not re-limit locked distributions
         cap_premiums_at_acceptance=None,
+        guaranteed_assumption=True,      # sAssumptionCode=3 — caps the IUL WAIR
+                                         # at the declared rate (RERUN VK)
     )
 
 
@@ -133,6 +135,9 @@ def run_guaranteed_projection(
     gpolicy.modal_premium = 0.0
     if (policy.guaranteed_interest_rate or 0.0) > 0.0:
         gpolicy.current_interest_rate = policy.guaranteed_interest_rate
+    # IUL WAIR declared rate reverts to the plan guaranteed rate on the
+    # guaranteed side (None → the engine's GINT fallback).
+    gpolicy.iul_declared_rate = None
 
     config = load_plancode(policy.plancode)
     guaranteed_rates = load_rates(gpolicy, config, coi_scale=0)

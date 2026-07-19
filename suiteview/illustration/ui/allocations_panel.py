@@ -359,6 +359,46 @@ class AllocationsPanel(QGroupBox):
         except ValueError:
             return None
 
+    def apply_state(
+        self,
+        allocations: Optional[Dict[str, float]],
+        rates: Optional[Dict[str, float]],
+        sweep_min: Optional[float],
+    ) -> list[str]:
+        """Apply a saved case's allocation grid onto the current plan.
+
+        Returns warnings for anything that could not land — a non-IUL plan, or
+        strategies the current plan does not offer. Never silently drops."""
+        warnings: list[str] = []
+        allocations = allocations or {}
+        rates = rates or {}
+        if self._plan is None:
+            if allocations or rates:
+                warnings.append(
+                    "Index allocations did not apply — this policy is not an "
+                    "IUL plan (no index strategies).")
+            return warnings
+        if sweep_min is not None:
+            self._sweep_min_edit.setText(f"{float(sweep_min):.2f}")
+        missing = sorted(
+            fund_id for fund_id in set(allocations) | set(rates)
+            if fund_id not in self._rows or not self._rows[fund_id].alloc.isEnabled()
+        )
+        for fund_id in missing:
+            warnings.append(
+                f"Index allocation for strategy '{fund_id}' did not apply — "
+                f"not offered on this plan.")
+        for fund_id, value in allocations.items():
+            if fund_id in missing:
+                continue
+            self._rows[fund_id].alloc.set_decimal(float(value or 0.0))
+        for fund_id, value in rates.items():
+            if fund_id in missing:
+                continue
+            self._rows[fund_id].rate.set_decimal(float(value or 0.0), decimals=3)
+        self._recompute()
+        return warnings
+
     def problems(self) -> list[str]:
         if self._plan is None:
             return []

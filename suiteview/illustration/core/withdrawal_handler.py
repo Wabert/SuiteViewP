@@ -20,6 +20,13 @@ Mechanics (per the workbook formulas):
         already inside the gross).
     BD/BE  Withdrawals to-date / YTD accumulate the NET amount.
     BC  Cost basis reduces by the NET amount.
+
+Input basis (SuiteView extension — RERUN's vINPUT_Withdrawal is net-only):
+    The inputs UI lets a withdrawal be entered Net (the client receives the
+    amount; matches RERUN AX directly) or Gross (the amount is what leaves the
+    account value, i.e. RERUN BN). A gross request is inverted to the net
+    request the AX..BU chain consumes: net = gross - fee - PSC, with the PSC
+    term found by a short fixed-point iteration (see _net_from_gross).
 """
 from __future__ import annotations
 
@@ -63,6 +70,7 @@ def compute_withdrawal(
     scr_rates_by_phase: Dict[int, float],
     request: float,
     *,
+    gross_request: float = 0.0,
     corridor_rate: float,
     prior_total_md: float,
     policy_debt: float,
@@ -77,26 +85,35 @@ def compute_withdrawal(
         av: Account value entering the month (after loan capitalize/repay).
         scr_rates_by_phase: This month's SCR per 1000 by coverage phase (AN..AP).
         request: The requested net withdrawal (AX — annual, anniversary months).
+        gross_request: A gross-basis request — the amount that should leave the
+            account value (RERUN BN) — inverted to net and added to ``request``.
         corridor_rate: This month's corridor factor (BF).
         prior_total_md: Prior month's total monthly deduction (SU11).
         policy_debt: Beginning total loan debt (Z..AE sum).
         cost_basis / withdrawals_to_date / withdrawals_ytd: running trackers.
         is_anniversary: True resets the YTD bucket (BE).
     """
+    total_sa = policy.total_face
+    corridor_amount = max(0.0, corridor_rate * av - total_sa)
+    fee = config.withdrawal_fee
+    dbo = str(policy.db_option or "A").upper()
+
+    request = max(request, 0.0)
+    if gross_request > 0.0:
+        request += _net_from_gross(
+            gross_request, request, policy, config, scr_rates_by_phase,
+            corridor_amount=corridor_amount, dbo=dbo)
+
     result = WithdrawalResult(
-        input_withdrawal=max(request, 0.0),
+        input_withdrawal=request,
         cost_basis_before_wd=cost_basis,
         cost_basis_after_wd=cost_basis,
         withdrawals_to_date=withdrawals_to_date,
         withdrawals_ytd=0.0 if is_anniversary else withdrawals_ytd,
         corridor_rate=corridor_rate,
+        corridor_amount=corridor_amount,
         av_post_withdrawal=av,
     )
-    total_sa = policy.total_face
-    result.corridor_amount = max(0.0, corridor_rate * av - total_sa)
-
-    fee = config.withdrawal_fee
-    dbo = str(policy.db_option or "A").upper()
 
     # AY — CSV less the MD holdback and fee; under DBO A the SA floor also
     # caps. Computed every month (RERUN has no request gate on the column).
@@ -131,18 +148,10 @@ def compute_withdrawal(
 
     # BI..BL — allocate the NET amount newest-coverage-first (PSC basis).
     if result.reduces_sa:
-        remaining = applied
-        for seg in sorted(policy.segments, key=lambda s: -s.coverage_phase):
-            if remaining <= 0.0 or seg.face_amount <= 0:
-                continue
-            cut = min(seg.face_amount, remaining)
-            result.sa_change_by_cov[seg.coverage_phase] = cut
-            remaining -= cut
+        result.sa_change_by_cov = _sa_cuts_for_net(applied, policy)
         if config.partial_surrender_charge:
-            result.partial_sc = sum(
-                cut * scr_rates_by_phase.get(phase, 0.0) / 1000.0
-                for phase, cut in result.sa_change_by_cov.items()
-            )
+            result.partial_sc = _partial_sc(
+                result.sa_change_by_cov, scr_rates_by_phase)
 
     # BN / BO / BP
     result.gross_withdrawal = applied + (
@@ -153,3 +162,65 @@ def compute_withdrawal(
         fee_out = fee if config.target_sa_basis == "OriginalSA" else 0.0
         result.face_decrease = result.gross_withdrawal - fee_out
     return result
+
+
+def _sa_cuts_for_net(applied: float, policy: IllustrationPolicyData) -> Dict[int, float]:
+    """BI..BL — allocate a net amount newest-coverage-first."""
+    cuts: Dict[int, float] = {}
+    remaining = applied
+    for seg in sorted(policy.segments, key=lambda s: -s.coverage_phase):
+        if remaining <= 0.0 or seg.face_amount <= 0:
+            continue
+        cut = min(seg.face_amount, remaining)
+        cuts[seg.coverage_phase] = cut
+        remaining -= cut
+    return cuts
+
+
+def _partial_sc(cuts: Dict[int, float], scr_rates_by_phase: Dict[int, float]) -> float:
+    """BM — partial surrender charge on a newest-first net allocation."""
+    return sum(
+        cut * scr_rates_by_phase.get(phase, 0.0) / 1000.0
+        for phase, cut in cuts.items()
+    )
+
+
+def _net_from_gross(
+    gross: float,
+    net_request: float,
+    policy: IllustrationPolicyData,
+    config: PlancodeConfig,
+    scr_rates_by_phase: Dict[int, float],
+    *,
+    corridor_amount: float,
+    dbo: str,
+) -> float:
+    """Invert a gross-basis request into the net request the AX chain consumes.
+
+    "Gross" on the inputs UI means the entered amount is what leaves the
+    account value — RERUN BN = net + PSC (when the SA reduces) + fee — while
+    the engine input (AX) is a NET request. The PSC term is piecewise-linear
+    in the net with slope SCR/1000 (a few percent at most), so a short
+    fixed-point iteration lands within a fraction of a cent.
+
+    ``net_request`` is any same-month net-basis request: the fee is charged
+    once per monthly withdrawal event, so when bases mix in one month the fee
+    and PSC are attributed to the gross portion (net-basis entries keep their
+    exact cash-to-client meaning).
+    """
+    fee = config.withdrawal_fee
+    net = max(0.0, gross - fee)
+    if not config.partial_surrender_charge or dbo != "A":
+        return net
+    for _ in range(8):
+        total = net_request + net
+        psc = (
+            _partial_sc(_sa_cuts_for_net(total, policy), scr_rates_by_phase)
+            if total > corridor_amount
+            else 0.0
+        )
+        adjusted = max(0.0, gross - fee - psc)
+        if abs(adjusted - net) <= 1e-9:
+            break
+        net = adjusted
+    return net

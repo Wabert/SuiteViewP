@@ -21,6 +21,8 @@ class PremiumResult:
     premium_capped: bool = False     # True when the cap reduced the premium
     prem_under_target: float = 0.0
     prem_over_target: float = 0.0
+    tpp_rate: float = 0.0            # target/excess load rates — populated even
+    epp_rate: float = 0.0            # when no premium is applied this month
     target_load: float = 0.0
     excess_load: float = 0.0
     flat_load: float = 0.0
@@ -71,11 +73,24 @@ def apply_premium(
         gross_premium = max(0.0, min(requested_premium, premium_cap))
     premium_capped = gross_premium < requested_premium - 1e-9
 
+    # Load rates (PolicyRates AW/AX) — resolved every month, independent of
+    # whether a premium is applied, so the Values tab can always display them.
+    if config.premium_load == "Table":
+        tpp_rate = get_rate(rates, "tpp", rate_year)
+        epp_rate = get_rate(rates, "epp", rate_year)
+    else:
+        try:
+            tpp_rate = epp_rate = float(config.premium_load)
+        except (ValueError, TypeError):
+            tpp_rate = epp_rate = 0.0
+
     if gross_premium <= 0:
         return PremiumResult(
             requested_premium=requested_premium,
             premium_cap=cap_display,
             premium_capped=premium_capped,
+            tpp_rate=tpp_rate,
+            epp_rate=epp_rate,
             av_after_premium=av_beginning,
             premiums_ytd=premiums_ytd,
             premiums_to_date=premiums_to_date,
@@ -99,17 +114,11 @@ def apply_premium(
     flat_load = 0.0
 
     if config.premium_load == "Table":
-        tpp_rate = get_rate(rates, "tpp", rate_year)
-        epp_rate = get_rate(rates, "epp", rate_year)
         target_load = prem_under_target * tpp_rate
         excess_load = prem_over_target * epp_rate
     else:
-        # Flat percentage load
-        try:
-            flat_pct = float(config.premium_load)
-        except (ValueError, TypeError):
-            flat_pct = 0.0
-        target_load = gross_premium * flat_pct
+        # Flat percentage load (tpp_rate carries the parsed flat percentage)
+        target_load = gross_premium * tpp_rate
 
     if config.prem_flat_load > 0 and gross_premium > 0:
         flat_load = config.prem_flat_load
@@ -132,6 +141,8 @@ def apply_premium(
         premium_capped=premium_capped,
         prem_under_target=prem_under_target,
         prem_over_target=prem_over_target,
+        tpp_rate=tpp_rate,
+        epp_rate=epp_rate,
         target_load=target_load,
         excess_load=excess_load,
         flat_load=flat_load,

@@ -171,7 +171,10 @@ def solve_loan_payoff(
                 "the repayments. Check the Pay-off years against any new loans "
                 "requested in the same period.")
 
-    while hi - lo > resolution:
+    # Bisect to HALF the resolution, then test the rounded candidate directly
+    # — ceiling the raw ``hi`` can overshoot a full step when the boundary
+    # sits just under a grid point.
+    while hi - lo > resolution / 2.0:
         mid = (lo + hi) / 2.0
         done, _ = paid_off(mid)
         iterations += 1
@@ -180,9 +183,13 @@ def solve_loan_payoff(
         else:
             lo = mid
 
-    repayment = math.ceil(hi / resolution) * resolution
-    _, residual = paid_off(repayment)
+    repayment = round(math.ceil(lo / resolution - 1e-9) * resolution, 2)
+    done, residual = paid_off(repayment)
     iterations += 1
-    return LoanPayoffResult(repayment=round(repayment, 2),
+    if not done:
+        repayment = round(repayment + resolution, 2)
+        _, residual = paid_off(repayment)
+        iterations += 1
+    return LoanPayoffResult(repayment=repayment,
                             residual_balance=round(residual, 2),
                             check_date=check_date, iterations=iterations)

@@ -1,5 +1,10 @@
 """Solve the "Min Level to Maturity" premium — the minimum modal level premium
-that keeps a GPT policy in force all the way to maturity.
+that keeps a policy in force all the way to maturity.
+
+For GPT policies the solve rides the GLP exception period when the guideline
+caps further funding (when exceptions are allowed). CVAT policies have no
+guideline premium cap and no exception machinery, so their solve always runs
+with exceptions off and the level premium simply endows.
 
 Paid level from its start year (honoring any prior premium rows), this is the
 lowest premium at which the policy never lapses early. One of two things happens
@@ -45,7 +50,7 @@ _MAX_BRACKET_DOUBLINGS = 24
 
 
 class LevelToExceptionError(ValueError):
-    """The solve cannot run for this policy (CVAT, or no level premium solution)."""
+    """The solve cannot run for this policy (no level premium solution)."""
 
 
 @dataclass
@@ -141,8 +146,14 @@ def solve_level_to_exception(
             ``apply_prem_to_loan`` are read from it; the guideline and exception
             toggles are forced on.
     """
+    # CVAT policies have no guideline premium cap and no GLP exception machinery:
+    # the solve runs with exceptions off and the level premium simply endows.
+    # TAMRA conformance is also forced off — the CVAT TAMRA cap rides on the
+    # necessary-premium test (vNPT_Premium), which the engine doesn't model yet,
+    # so leaving it on would cap every premium to zero past the 7-pay window.
     if policy.is_cvat:
-        raise LevelToExceptionError("Level-to-Exception applies to GPT policies only.")
+        allow_exceptions = False
+        conform_to_tamra = False
 
     mode = (mode or _default_mode(policy)).upper()
     options = level_to_exception_options(
@@ -189,8 +200,10 @@ def solve_level_to_exception(
                 "No level premium keeps this policy in force to maturity.")
     iterations += 1
 
-    # Bisect the lapse↔survive boundary to the resolution.
-    while hi - lo > resolution:
+    # Bisect the lapse↔survive boundary to HALF the resolution, then test the
+    # rounded candidate directly — ceiling the raw ``hi`` can overshoot a full
+    # step when the boundary sits just under a grid point.
+    while hi - lo > resolution / 2.0:
         mid = (lo + hi) / 2.0
         if survives(project(mid)):
             hi = mid
@@ -198,8 +211,14 @@ def solve_level_to_exception(
             lo = mid
         iterations += 1
 
-    premium = math.ceil(hi / resolution) * resolution
-    return _build_result(premium, mode, project(premium), iterations)
+    premium = round(math.ceil(lo / resolution - 1e-9) * resolution, 2)
+    states = project(premium)
+    iterations += 1
+    if not survives(states):
+        premium = round(premium + resolution, 2)
+        states = project(premium)
+        iterations += 1
+    return _build_result(premium, mode, states, iterations)
 
 
 def _build_result(

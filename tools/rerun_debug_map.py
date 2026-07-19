@@ -35,8 +35,11 @@ DEBUG_COLUMNS = [
     {"col": "G",  "label": "Riders",           "engine": ["benefit_charges", "rider_charges"], "kind": "val"},
     {"col": "H",  "label": "COI",              "engine": "coi_charge",            "kind": "val"},
     {"col": "I",  "label": "COI Rate",         "engine": "coi_rate",              "kind": "rate"},
-    {"col": "J",  "label": "Asset Pct",        "engine": None,                    "kind": "rate"},   # tentative: av_charge %?
-    {"col": "K",  "label": "Asset Charge",     "engine": "av_charge",             "kind": "val"},
+    # J/K = RERUN vBlendedAssetRate (SU) / vAssetCharge (SV) — the IUL AG49
+    # asset charge, engine fields asset_charge_rate/asset_charge (2026-07-18).
+    # RERUN's PoAV charge is inside F "Fee" (vTotalFees = AVCharge+MFee+EPU).
+    {"col": "J",  "label": "Asset Pct",        "engine": "asset_charge_rate",     "kind": "rate"},
+    {"col": "K",  "label": "Asset Charge",     "engine": "asset_charge",          "kind": "val"},
     {"col": "L",  "label": "Interest",         "engine": "interest_credited",     "kind": "val"},
     {"col": "M",  "label": "AInt Rate",        "engine": "effective_annual_rate", "kind": "rate"},
     {"col": "N",  "label": "Account Value",    "engine": "av_end_of_month",       "kind": "val"},

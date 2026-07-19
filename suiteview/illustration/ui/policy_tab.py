@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -44,6 +45,22 @@ RATE_WARNING_STYLE = """
     }
 """
 
+# Saved-case (frozen snapshot) mode: a red statement across the top of the
+# Policy tab. Legible, not garish — dark-red text on a pale red wash with a
+# red left accent — so the user can never mistake frozen data for live.
+SNAPSHOT_BANNER_STYLE = """
+    QLabel {
+        background-color: #FDECEC;
+        color: #B00020;
+        border: 1px solid #E0A0A0;
+        border-left: 4px solid #B00020;
+        border-radius: 4px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+"""
+
 
 class IllustrationPolicyTab(QWidget):
     """Initial Illustration Policy tab."""
@@ -60,12 +77,25 @@ class IllustrationPolicyTab(QWidget):
         self._benefits = []
         self.rate_warning_label = None
         self._setup_ui()
+        self._build_snapshot_overlay()
 
     def _setup_ui(self):
         self.setStyleSheet(f"background-color: {PURPLE_BG};")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
+
+        # Saved-case red statement — pinned above the scroll area so it stays
+        # visible while the frozen policy data scrolls beneath it. Hidden in
+        # live mode.
+        self.snapshot_banner = QLabel("")
+        self.snapshot_banner.setStyleSheet(SNAPSHOT_BANNER_STYLE)
+        self.snapshot_banner.setWordWrap(True)
+        self.snapshot_banner.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.snapshot_banner.setContentsMargins(12, 8, 12, 0)
+        self.snapshot_banner.setVisible(False)
+        outer.addWidget(self.snapshot_banner)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -309,7 +339,75 @@ class IllustrationPolicyTab(QWidget):
         for table in tables:
             self._pin_fund_table_height(table, shared_rows)
 
+    # ── saved-case snapshot overlay ───────────────────────────────────
+    #
+    # The Policy tab renders from live PolicyInformation (DB2). When the
+    # window shows a saved case's frozen IllustrationPolicyData instead,
+    # there is no live surface to render — per the house Not-Applicable
+    # convention the tab greys out with a centered italic note rather than
+    # going blank or silently showing stale data.
+
+    def _build_snapshot_overlay(self):
+        self._snapshot_overlay = QWidget(self)
+        self._snapshot_overlay.setStyleSheet(
+            "background-color: rgba(233, 231, 237, 235);")
+        overlay_layout = QVBoxLayout(self._snapshot_overlay)
+        overlay_layout.setContentsMargins(40, 40, 40, 40)
+        self._snapshot_overlay_label = QLabel("")
+        self._snapshot_overlay_label.setWordWrap(True)
+        self._snapshot_overlay_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._snapshot_overlay_label.setStyleSheet(
+            f"color: {GRAY_DARK}; background: transparent;"
+            " font-size: 13px; font-style: italic; font-weight: bold;")
+        overlay_layout.addStretch(1)
+        overlay_layout.addWidget(self._snapshot_overlay_label)
+        overlay_layout.addStretch(1)
+        self._snapshot_overlay.hide()
+
+    def set_snapshot_notice(self, text: str | None):
+        """Grey the tab with an italic note (saved-case view), or restore."""
+        if text:
+            self._snapshot_overlay_label.setText(text)
+            self._snapshot_overlay.setGeometry(self.rect())
+            self._snapshot_overlay.show()
+            self._snapshot_overlay.raise_()
+        else:
+            self._snapshot_overlay.hide()
+
+    def snapshot_notice(self) -> str | None:
+        """The visible overlay note, or None when live data is shown."""
+        if self._snapshot_overlay.isVisibleTo(self):
+            return self._snapshot_overlay_label.text() or None
+        return None
+
+    def set_snapshot_banner(self, text: str | None):
+        """Show/hide the red 'not retrieved live' statement across the top.
+
+        Set while a saved case's frozen policy data populates the tab; cleared
+        the moment live data returns (Get). Independent of the grey overlay —
+        in saved-case mode the tab is fully populated, not greyed out."""
+        if text:
+            self.snapshot_banner.setText(text)
+            self.snapshot_banner.setVisible(True)
+        else:
+            self.snapshot_banner.clear()
+            self.snapshot_banner.setVisible(False)
+
+    def snapshot_banner_text(self) -> str | None:
+        """The visible red banner text, or None when live data is shown."""
+        if self.snapshot_banner.isVisibleTo(self):
+            return self.snapshot_banner.text() or None
+        return None
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._snapshot_overlay.isVisibleTo(self):
+            self._snapshot_overlay.setGeometry(self.rect())
+
     def load_data_from_policy(self, policy, policy_info: dict | None = None, md_check=None):
+        # Live data on screen — never wear the saved-case red statement.
+        self.set_snapshot_banner(None)
+        self.set_snapshot_notice(None)
         self._policy = policy
         self._clear_all()
         if not policy or not policy.exists:
@@ -331,6 +429,254 @@ class IllustrationPolicyTab(QWidget):
         self._populate_value_groups(policy)
         self._populate_fund_values(policy)
         self._populate_coverage_buttons()
+
+    # ── saved-case snapshot population ────────────────────────────────
+    #
+    # A saved case carries a frozen IllustrationPolicyData (no live DB2). It
+    # is a *different shape* from live PolicyInformation, so instead of the old
+    # grey overlay we populate every Policy-tab section directly from the
+    # snapshot's captured fields. Fields the snapshot never captured (see the
+    # session report) are left blank rather than guessed.
+
+    _DB_OPTION_LABELS = {"A": "A-Level", "B": "B-Increasing", "C": "C-ROP"}
+    _BILLING_MODE_LABELS = {1: "Monthly", 3: "Quarterly", 6: "Semi-Annual",
+                            12: "Annual"}
+    _SEX_DESCS = {"M": "Male", "F": "Female", "U": "Unisex"}
+
+    def load_data_from_snapshot(self, snapshot):
+        """Populate the Policy tab from a saved case's frozen policy data.
+
+        The grey 'unavailable' overlay is retired for snapshots — the tab is
+        fully rendered from what was captured. The caller shows the red
+        `set_snapshot_banner(...)` statement so frozen data is never mistaken
+        for live."""
+        self.set_snapshot_notice(None)
+        self._policy = None
+        self._clear_all()
+        if snapshot is None:
+            return
+
+        self._coverages = self._snapshot_coverage_views(snapshot)
+        self._benefits = self._snapshot_benefit_views(snapshot)
+        self._as_of = snapshot.valuation_date or date.today()
+        base_seg = next((s for s in snapshot.segments if s.is_base),
+                        snapshot.segments[0] if snapshot.segments else None)
+
+        self._populate_policy_info_from_snapshot(snapshot, base_seg)
+        self._populate_value_groups_from_snapshot(snapshot)
+        self._populate_fund_values_from_snapshot(snapshot)
+        self._populate_coverage_buttons()
+
+    def _populate_policy_info_from_snapshot(self, s, base_seg):
+        info = self.policy_info
+        info.set_value("policy_label", s.policy_number)
+        info.set_value("company_label", s.company_code)
+        info.set_value("plancode_label", s.plancode)
+        info.set_value("issue_state_label", s.issue_state)
+        info.set_value("billing_mode_label", self._billing_mode_label(s.billing_frequency))
+        info.set_value("premium_label", format_currency(s.modal_premium, "$"))
+        info.set_value("eff_date_label", format_date(s.valuation_date))
+        info.set_value("policy_year_label", s.policy_year)
+        info.set_value("att_age_label", s.attained_age)
+        info.set_value("maturity_age", s.maturity_age or "")
+        info.set_value("insured_dob", format_date(s.insured_birth_date))
+        info.set_value("cyberlife_md", format_currency(s.system_monthly_deduction, "$"))
+        info.set_value("policy_debt_label", format_currency(s.total_loan_balance, "$"))
+        info.set_value("total_face_label", format_amount(s.total_face))
+        info.set_value("db_option_label", self._DB_OPTION_LABELS.get(str(s.db_option or ""), ""))
+        info.set_value("guar_int_rate_label", self._format_rate(s.guaranteed_interest_rate))
+
+        if base_seg is not None:
+            info.set_value("issue_date", format_date(base_seg.issue_date or s.issue_date))
+            info.set_value("maturity_date", format_date(base_seg.maturity_date))
+            info.set_value("issue_age", base_seg.issue_age if base_seg.issue_age else s.issue_age)
+            info.set_value("sex", self._sex_desc(base_seg.rate_sex or s.rate_sex))
+            info.set_value("rateclass", base_seg.rate_class or s.rate_class)
+            info.set_value("table_rating", base_seg.table_rating or "")
+            info.set_value("flat_extra", format_currency(base_seg.flat_extra, "$"))
+            info.set_value(
+                "flat_cease_date",
+                format_date(base_seg.flat_cease_date) if base_seg.flat_extra else "")
+        else:
+            info.set_value("issue_date", format_date(s.issue_date))
+            info.set_value("issue_age", s.issue_age)
+            info.set_value("sex", self._sex_desc(s.rate_sex))
+            info.set_value("rateclass", s.rate_class)
+        # Fields the snapshot never captured stay blank (not guessed):
+        # Market Org, Single/Joint, Status, Suspense, Grace, Total Death
+        # Benefit, and Calculated MD.
+
+    def _populate_value_groups_from_snapshot(self, s):
+        definition = "GP" if s.def_of_life_ins == "GPT" else s.def_of_life_ins
+
+        self.fund_values.set_value("fund_account_value", format_currency(s.account_value, "$"))
+        self.fund_values.set_value("shadow_account_value", format_currency(s.shadow_account_value, "$"))
+        self.fund_values.set_value("sweep_account_min", "—")
+        self.fund_values.set_value(
+            "guaranteed_int_rate", self._format_rate(s.guaranteed_interest_rate))
+
+        # CVAT-only Policy Values — deemed cash value mirrors the account value
+        # (as live does); NSP was not captured, so it stays blank.
+        self.account_values.set_value("deemed_cash_value", format_currency(s.account_value, "$"))
+        self.account_values.set_value("nsp", "")
+        for attr in ["deemed_cash_value", "nsp"]:
+            self._set_group_field_visible(self.account_values, attr, definition == "CVAT")
+
+        self.premium_values.set_value("premium_ytd", format_currency(s.premiums_ytd, "$"))
+        self.premium_values.set_value("premium_td", format_currency(s.premiums_paid_to_date, "$"))
+        self.premium_values.set_value("withdrawal_td", format_currency(s.withdrawals_to_date, "$"))
+        self.premium_values.set_value("accum_minimum", format_currency(s.accumulated_mtp, "$"))
+        self.premium_values.set_value("map_cease_date", format_date(s.map_cease_date))
+        self.premium_values.set_value("monthly_mtp", format_currency(s.mtp, "$"))
+        self.premium_values.set_value("commission_target_premium", format_currency(s.ctp, "$"))
+
+        fixed = Decimal(str(s.regular_loan_principal or 0)) + Decimal(str(s.regular_loan_accrued or 0))
+        pref = Decimal(str(s.preferred_loan_principal or 0)) + Decimal(str(s.preferred_loan_accrued or 0))
+        vbl = Decimal(str(s.variable_loan_principal or 0)) + Decimal(str(s.variable_loan_accrued or 0))
+        self.loan_values.set_value("fixed_loan_balance", format_currency(fixed, "$"))
+        self.loan_values.set_value("pref_loan_balance", format_currency(pref, "$"))
+        self.loan_values.set_value("vbl_loan_balance", format_currency(vbl, "$"))
+        # Regular/preferred loan charge rates were not captured — leave blank.
+        # The variable-loan charge rate is captured, so show it when a variable
+        # loan exists.
+        self.loan_values.set_value("fixed_loan_rate", "")
+        self.loan_values.set_value("pref_loan_rate", "")
+        self.loan_values.set_value(
+            "vbl_loan_rate",
+            self._format_rate(s.variable_loan_charge_rate)
+            if (vbl > 0 and s.variable_loan_charge_rate is not None) else "")
+
+        self.tax_values.set_value("cost_basis", format_currency(s.cost_basis, "$"))
+        self.tax_values.set_value("seven_pay_start_date", format_date(s.tamra_7pay_start_date))
+        contributions = list(s.tamra_7year_contributions or [])
+        for year in range(1, 8):
+            value = contributions[year - 1] if year - 1 < len(contributions) else 0.0
+            self.tax_values.set_value(f"tamra_y{year}", format_currency(value, "$"))
+        self.tax_values.set_value("seven_pay_cash_value", format_currency(s.tamra_7pay_start_av, "$"))
+        self.tax_values.set_value("seven_pay_premium", format_currency(s.tamra_7pay_level, "$"))
+        # 7-Pay Lowest DB is a snapshot field but the DB2 loader does not yet
+        # populate it — it rides through as 0.
+        self.tax_values.set_value("seven_yr_lowest_db", format_currency(s.tamra_7year_lowest_db, "$"))
+        self.tax_values.set_value("is_mec", "Yes" if s.is_mec else "No")
+
+        self.mec_values.set_value("policy_definition", definition)
+        self.mec_values.set_value("guideline_single", format_currency(s.gsp, "$"))
+        self.mec_values.set_value("guideline_level", format_currency(s.glp, "$"))
+        self.mec_values.set_value("accum_glp", format_currency(s.accumulated_glp, "$"))
+        for attr in ["guideline_single", "guideline_level", "accum_glp"]:
+            self._set_group_field_visible(self.mec_values, attr, definition == "GP")
+
+    def _populate_fund_values_from_snapshot(self, s):
+        # Unimpaired = free fund value by fund. The snapshot captures only the
+        # combined fund_values dict (no separate loan-collateralized split), so
+        # the Impaired table is empty.
+        self._fill_fund_table(self.unimpaired_table, dict(s.fund_values or {}))
+        self._fill_fund_table(self.impaired_table, {})
+        self._fill_allocation_from_dict(dict(s.premium_allocations or {}))
+        self._equalize_fund_tables()
+
+    def _billing_mode_label(self, frequency) -> str:
+        try:
+            freq = int(frequency or 0)
+        except (TypeError, ValueError):
+            return ""
+        if freq <= 0:
+            return ""
+        return self._BILLING_MODE_LABELS.get(freq, f"Every {freq} months")
+
+    def _sex_desc(self, code) -> str:
+        code = (str(code or "")).strip().upper()
+        return self._SEX_DESCS.get(code, code)
+
+    def _snapshot_coverage_views(self, snapshot):
+        """Adapt frozen base segments + riders into the attribute surface the
+        coverage buttons and detail dialog read from live CoverageInfo."""
+        views = []
+        for seg in snapshot.segments:
+            views.append(SimpleNamespace(
+                is_base=seg.is_base,
+                cov_pha_nbr=seg.coverage_phase,
+                form_number=snapshot.form_number if seg.is_base else "",
+                plancode=snapshot.plancode,
+                issue_date=seg.issue_date,
+                maturity_date=seg.maturity_date,
+                face_amount=seg.face_amount,
+                orig_amount=seg.original_face_amount,
+                issue_age=seg.issue_age,
+                sex_code=seg.rate_sex,
+                sex_desc=self._sex_desc(seg.rate_sex),
+                rate_class=seg.rate_class,
+                table_rating=seg.table_rating or "",
+                table_cease_date=seg.table_cease_date,
+                flat_extra=seg.flat_extra,
+                flat_cease_date=seg.flat_cease_date,
+                cov_status=seg.status,
+                nxt_chg_typ_cd="",
+                nxt_chg_dt=None,
+                rate=seg.coi_renewal_rate,
+                person_code="",
+                lives_cov_cd="",
+                vpu=seg.vpu,
+                cease_date=None,
+                terminate_date=None,
+            ))
+        for rider in snapshot.riders:
+            views.append(SimpleNamespace(
+                is_base=False,
+                cov_pha_nbr=rider.coverage_phase,
+                form_number="",
+                plancode=rider.plancode,
+                issue_date=rider.issue_date,
+                maturity_date=rider.maturity_date,
+                face_amount=rider.face_amount,
+                orig_amount=rider.face_amount,
+                issue_age=rider.issue_age,
+                sex_code=rider.rate_sex,
+                sex_desc=self._sex_desc(rider.rate_sex),
+                rate_class=rider.rate_class,
+                table_rating=rider.table_rating or "",
+                table_cease_date=None,
+                flat_extra=rider.flat_extra,
+                flat_cease_date=None,
+                cov_status=rider.status,
+                nxt_chg_typ_cd="",
+                nxt_chg_dt=None,
+                rate=rider.coi_rate if rider.coi_rate is not None else rider.premium_rate,
+                person_code="",
+                lives_cov_cd="",
+                vpu=rider.vpu,
+                cease_date=None,
+                terminate_date=None,
+            ))
+        return views
+
+    def _snapshot_benefit_views(self, snapshot):
+        """Adapt frozen benefits into the attribute surface the benefit buttons
+        and detail dialog read from live BenefitInfo. Benefit description /
+        form / renewal / orig-cease were not captured, so they stay blank; the
+        benefit type code stands in for the button label."""
+        views = []
+        for b in snapshot.benefits:
+            views.append(SimpleNamespace(
+                benefit_code=b.benefit_type or "",
+                cov_pha_nbr=b.coverage_phase,
+                benefit_type_cd=b.benefit_type,
+                benefit_desc="",
+                form_number="",
+                issue_date=b.issue_date,
+                cease_date=b.cease_date,
+                orig_cease_date=None,
+                units=b.units,
+                vpu=b.vpu,
+                benefit_amount=b.benefit_amount,
+                issue_age=b.issue_age,
+                rating_factor=b.rating_factor,
+                renewal_indicator="",
+                coi_rate=b.coi_rate,
+                maturity_date=None,
+                terminate_date=None,
+            ))
+        return views
 
     def set_rate_warnings(self, warnings: list[str] | None):
         text = "\n".join(warnings or [])
@@ -497,6 +843,9 @@ class IllustrationPolicyTab(QWidget):
             allocations = policy.get_premium_allocation_dict()
         except Exception:
             allocations = {}
+        self._fill_allocation_from_dict(allocations)
+
+    def _fill_allocation_from_dict(self, allocations: dict):
         rows = [(fund, pct) for fund, pct in sorted(allocations.items())
                 if self._is_nonzero(pct)]
         # DB2 FND_ALC_PCT arrives percent- or decimal-form; normalize by total.

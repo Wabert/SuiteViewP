@@ -155,6 +155,14 @@ class IllustrationPolicyData:
     premium_allocations: dict[str, float] = field(default_factory=dict)
     # Sweep account minimum.  # TODO: verify DB2 source (CyberLife segment 53)
     sweep_account_min: float = 0.0
+    # Declared (fixed/sweep) crediting rate for the WAIR sweep slice (RERUN UJ =
+    # PolicyRates!CH5). None → the engine falls back to the plan guaranteed
+    # rate; the Inputs tab overrides it with the fixed-strategy illustrated rate.
+    iul_declared_rate: Optional[float] = None
+    # Σ IP/IR allocation × asset charge (RERUN SU before the regime gate).
+    # None → computed from premium_allocations; the Inputs tab overrides it with
+    # the allocation panel's blend.
+    iul_asset_charge_rate: Optional[float] = None
 
     # ── Duration / Timing ─────────────────────────────────────
     policy_year: int = 1
@@ -202,6 +210,7 @@ class IllustrationPolicyData:
     shadow_account_value: float = 0.0
     swam: float = 0.0
     ccv_active: bool = False            # True if benefit type "A" is active
+    ccv_ceased: bool = False            # True if a benefit type "A" exists but has ceased
     ccv_units: float = 0.0              # CCV benefit units
     ccv_coi_rate: Optional[float] = None  # CCV rider COI rate (for regular-side charge)
 

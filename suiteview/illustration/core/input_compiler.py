@@ -18,7 +18,8 @@ class CompiledMonthInputs:
     regular_loan: float = 0.0
     variable_loan: float = 0.0
     loan_repayment: float = 0.0
-    withdrawal: float = 0.0
+    withdrawal: float = 0.0          # net-basis request (RERUN AX — cash to client)
+    withdrawal_gross: float = 0.0    # gross-basis request (amount leaving the AV)
 
     @property
     def total_premium(self) -> float | None:
@@ -130,10 +131,15 @@ def _compile_dated_transactions(
             month_inputs.loan_repayment += entry.amount
         elif entry.kind == TransactionKind.WITHDRAWAL:
             # entry.subtype carries the requested basis from the inputs UI —
-            # "net"/"Net" (default, also "") or "gross"/"Gross".
-            # TODO: engine consumes withdrawal basis (net vs gross - RERUN
-            # charges a flat $25 WD fee on top of net)
-            month_inputs.withdrawal += entry.amount
+            # "net" (default, also "") means the client receives the amount
+            # and the engine charges the WD fee / partial SC on top (RERUN's
+            # input column AX is a net request); "gross" means the entered
+            # amount is what leaves the account value (RERUN BN) and the
+            # withdrawal handler inverts it back to a net request.
+            if (entry.subtype or "").strip().lower() == "gross":
+                month_inputs.withdrawal_gross += entry.amount
+            else:
+                month_inputs.withdrawal += entry.amount
 
 
 def _active_schedule_for_year(schedules, policy_year: int):

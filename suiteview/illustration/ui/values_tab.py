@@ -244,6 +244,47 @@ COMPACT_HEADER_LABELS = {
 }
 
 
+# ── Not-yet-computed placeholder columns ────────────────────────────────
+# Columns kept for RERUN layout parity that the engine does not compute yet
+# (the _state_to_row helpers emit constant 0.0/False/"" for them). They are
+# marked via FilterTableView.set_not_computed_columns — greyed cells showing
+# an em dash with this tooltip — so a placeholder can never read as a real
+# zero. One list: extend it when a new placeholder column is added, and
+# remove the entry when the engine grows into the column.
+NOT_COMPUTED_NOTE = "Not yet computed by the engine"
+NOT_COMPUTED_COLUMNS = {
+    # Testing — 7-pay-by-year premiums and the MEC / violation flags.
+    "7-Pay Yr 1", "7-Pay Yr 2", "7-Pay Yr 3", "7-Pay Yr 4",
+    "7-Pay Yr 5", "7-Pay Yr 6", "7-Pay Yr 7",
+    "MEC", "CVAT MEC", "7Pay MEC", "TEFRA Violation",
+    "ScheduledPremLimitedByGP", "Termination ID",
+    # TEFRA and TAMRA — the necessary premium test (NPT).
+    "Value_for_NPT", "NPT_NSP", "NPT_Premium",
+    # Requested Premium — 1035 exchanges.
+    "1035_Amount",
+    # Policy Values — the loan distribution block (CalcEngine TM-TU).
+    "Requested Loan", "Loan Mode Effective", "Scheduled Loan Amount",
+    "Gain", "AV Display",
+    # Accumulation — blended/index crediting detail.
+    "Fixed Ln Prinicple", "Blended Index Rate", "BlendedCreditingRate",
+    "BlendInterest",
+    # Shadow Account — alternate target-premium bases, applied-premium echo,
+    # percent-of-premium splits, substandard COI.
+    "Shadow_TPR", "Shadow_TBL1TPR", "Applied Total Premium", "Premium YTD",
+    "Target Percent Prem", "Excess Precent Prem", "Shadow COIR + Sub",
+    # Ending Values — corridor split, distributions, GCO.
+    "EDBwoCORR", "EDB_CORR", "EDBwLNs", "DistributionFromPolicy",
+    "IllustrationGCO",
+}
+# Columns whose DataFrame key is shared with a COMPUTED column on another
+# tab, so the not-computed treatment applies only on the listed tab.
+# "Remaining Distribution" carries the withdrawal block's computed value; the
+# Policy Values tab's loan-side remaining distribution is not computed yet.
+NOT_COMPUTED_COLUMNS_BY_TAB = {
+    "Policy Values": {"Remaining Distribution"},
+}
+
+
 def _recalc_delta(detail: dict, key: str):
     after = detail.get(f"{key}_after")
     before = detail.get(f"{key}_before")
@@ -1200,6 +1241,9 @@ class IllustrationValuesTab(QWidget):
         # re-renders the grids from whichever view is active.
         self._current_view: tuple | None = None
         self._guaranteed_view: tuple | None = None
+        # Why the guaranteed-basis run failed (None while it succeeds) — kept
+        # so session restore re-raises the banner, never a quiet blank.
+        self._guaranteed_error: str | None = None
         self._setup_ui()
         self.clear_results()
 
@@ -1261,6 +1305,17 @@ class IllustrationValuesTab(QWidget):
         self.guaranteed_toggle.toggled.connect(self._on_guaranteed_toggled)
         top_row.addLayout(toggle_row)
         layout.addLayout(top_row)
+
+        # Guaranteed-run failure banner — a loud warning strip (same visual
+        # language as the MEC verdict) shown when the guaranteed-basis
+        # projection raises, so missing guaranteed values are never silent.
+        self.guaranteed_warning = QLabel("", self)
+        self.guaranteed_warning.setWordWrap(True)
+        self.guaranteed_warning.setStyleSheet(
+            "background-color: #7A1020; color: #FFD54F; border: 1px solid #D4A017;"
+            " border-radius: 4px; font-size: 12px; font-weight: bold; padding: 5px 9px;")
+        self.guaranteed_warning.setVisible(False)
+        layout.addWidget(self.guaranteed_warning)
 
         self.body = QSplitter(Qt.Orientation.Horizontal, self)
         self.body.setHandleWidth(4)
@@ -1490,6 +1545,7 @@ class IllustrationValuesTab(QWidget):
         return {
             "current_view": self._current_view,
             "guaranteed_view": self._guaranteed_view,
+            "guaranteed_error": self._guaranteed_error,
         }
 
     def restore_session_state(self, state: dict | None) -> bool:
@@ -1508,6 +1564,8 @@ class IllustrationValuesTab(QWidget):
         if guaranteed is not None:
             guaranteed_policy, guaranteed_results, _months, _injected = guaranteed
             self.set_guaranteed_results(guaranteed_policy, guaranteed_results)
+        elif state.get("guaranteed_error"):
+            self.set_guaranteed_failure(state["guaranteed_error"])
         return True
 
     def clear_results(self, message: str = "Load a policy, then click Run Values."):
@@ -1520,6 +1578,7 @@ class IllustrationValuesTab(QWidget):
         self._results = []
         self._current_view = None
         self._guaranteed_view = None
+        self._clear_guaranteed_failure()
         self._reset_view_toggle(offer_guaranteed=False)
         for grid in self._tab_grids.values():
             grid.set_dataframe(pd.DataFrame(), limit_rows=False)
@@ -1535,6 +1594,7 @@ class IllustrationValuesTab(QWidget):
         result_list = list(results)
         self._current_view = (policy, result_list, months, injected_first_row_columns)
         self._guaranteed_view = None
+        self._clear_guaranteed_failure()
         self._reset_view_toggle(offer_guaranteed=False)
         self._render_projection(policy, result_list, months, injected_first_row_columns)
 
@@ -1547,9 +1607,27 @@ class IllustrationValuesTab(QWidget):
         result_list = list(results)
         if not result_list:
             return
+        self._clear_guaranteed_failure()
         self._guaranteed_view = (policy, result_list, max(len(result_list) - 1, 0), None)
         self.current_toggle.setVisible(True)
         self.guaranteed_toggle.setVisible(True)
+
+    def set_guaranteed_failure(self, reason: str):
+        """Surface a failed guaranteed-basis run as a visible warning banner.
+
+        The Current | Guaranteed toggle stays hidden — there is no guaranteed
+        view to switch to — and the banner says exactly why, so blank
+        guaranteed values are never mistaken for a clean run.
+        """
+        self._guaranteed_error = str(reason).strip() or "unknown error"
+        self.guaranteed_warning.setText(
+            "⚠ Guaranteed projection failed — guaranteed values unavailable: "
+            f"{self._guaranteed_error}")
+        self.guaranteed_warning.setVisible(True)
+
+    def _clear_guaranteed_failure(self):
+        self._guaranteed_error = None
+        self.guaranteed_warning.setVisible(False)
 
     def _reset_view_toggle(self, *, offer_guaranteed: bool):
         """Select Current Values without re-rendering; show or hide the pair."""
@@ -1604,7 +1682,8 @@ class IllustrationValuesTab(QWidget):
         rows = [self._state_to_row(policy, state, coverage_keys, benefit_keys, rider_keys) for state in result_list]
         frame = pd.DataFrame(rows)
         self._all_columns = list(frame.columns)
-        column_decimals = {"Face Amount": 0, "Year": 0, "Month": 0, "Attained Age": 0, "EPU Rate": 6}
+        column_decimals = {"Face Amount": 0, "Year": 0, "Month": 0, "Attained Age": 0, "EPU Rate": 6,
+                           "TPP Rate": 4, "EPP Rate": 4}
         column_decimals.update({column: 6 for column in self._rate_columns})
         column_decimals.update({column: 6 for column in self._benefit_columns if " Rate " in column})
         column_decimals.update({column: 6 for column in self._rider_columns if " Rate " in column})
@@ -1626,6 +1705,13 @@ class IllustrationValuesTab(QWidget):
             grid.set_dataframe(frame.loc[:, tab_columns], limit_rows=False)
             grid.set_numeric_formatting(default_decimals=2, column_decimals=column_decimals)
             grid.set_header_labels(self._header_labels_for_tab(title))
+            # Placeholder columns the engine does not compute yet render
+            # greyed with an em dash — loud, never mistakable for zero.
+            grid.set_not_computed_columns(
+                (NOT_COMPUTED_COLUMNS | NOT_COMPUTED_COLUMNS_BY_TAB.get(title, set()))
+                & set(tab_columns),
+                NOT_COMPUTED_NOTE,
+            )
             grid.set_highlighted_cells(
                 {(0, column_name): self.LIGHT_PURPLE for column_name in injected if column_name in seen}
             )
@@ -2258,9 +2344,8 @@ class IllustrationValuesTab(QWidget):
             "CostBasis": state.cost_basis,
             "Prem Under Target": state.prem_under_target,
             "Prem Over Target": state.prem_over_target,
-            # TPP/EPP load rates are not surfaced on the state (only the dollar loads are).
-            "TPP Rate": 0.0,
-            "EPP Rate": 0.0,
+            "TPP Rate": state.tpp_rate,
+            "EPP Rate": state.epp_rate,
             "Under Load": state.target_load,
             "Over Load": state.excess_load,
             "Flat Load": state.flat_load,

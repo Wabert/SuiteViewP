@@ -261,6 +261,41 @@ def test_removing_a_policy_from_the_list_drops_its_session(monkeypatch):
     window.close()
 
 
+def test_switching_policies_clears_compare_results(monkeypatch):
+    """A rendered comparison must never survive a policy switch — the old
+    policy's KPIs/ledger would sit mislabeled under the new policy's pickers."""
+    from suiteview.illustration.core.compare_runner import (
+        ComparisonResult, ScenarioOutcome,
+    )
+    import pandas as pd
+
+    window = _make_window(monkeypatch)
+    window._on_get_policy("POLA", "CKPR", "01")
+
+    # Render a (failed-side) comparison — visible banner + status marker.
+    result = ComparisonResult(
+        outcomes=[ScenarioOutcome(label="Opt A", error="x"),
+                  ScenarioOutcome(label="Opt B", error="y")],
+        kpis=[], ledger=pd.DataFrame())
+    window.compare_tab.populate_comparison(result)
+    assert window.compare_tab._result is result
+    assert not window.compare_tab.banner_a.isHidden()
+
+    # Switching to a different policy wipes the comparison...
+    window._on_get_policy("POLB", "CKPR", "01")
+    assert window.compare_tab._result is None
+    assert window.compare_tab.banner_a.isHidden()
+    assert window.compare_tab.banner_b.isHidden()
+    assert window.compare_tab.status_label.text().startswith("Load a policy")
+
+    # ...and re-loading the SAME policy leaves a fresh comparison alone.
+    window.compare_tab.populate_comparison(result)
+    window._on_get_policy("POLB", "CKPR", "01")
+    assert window.compare_tab._result is result
+
+    window.close()
+
+
 def test_clear_all_policies_drops_every_session_entry(monkeypatch):
     window = _make_window(monkeypatch)
 

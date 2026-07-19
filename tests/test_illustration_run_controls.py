@@ -221,3 +221,37 @@ def test_policy_ag49_checkbox_rebases_allocation_blend():
     tab.policy_ag49_check.setChecked(False)
     assert panel.blended().effective == panel.blended().nominal
     assert panel.blended().asset_charge_rate == 0.0
+
+
+def test_run_controls_checkboxes_use_shared_purple_style():
+    from suiteview.illustration.ui.styles import INPUT_CHECKBOX_STYLE
+
+    _app()
+    tab = IllustrationInputsTab()
+
+    # Every Run Controls checkbox (built via _make_control_checkbox) must
+    # carry the single shared INPUT_CHECKBOX_STYLE constant, not a duplicated
+    # inline stylesheet, so the whole Illustration sub-app stays visually
+    # consistent with this canonical purple checkbox look.
+    run_control_checkboxes = [
+        tab.exact_days_check,
+        tab.tefra_check,
+        tab.exception_prem_check,
+        tab.cap_acceptance_check,
+        tab.levelizing_check,
+        tab.gp_search_check,
+        tab.stop_on_lapse_check,
+        tab.policy_ag49_check,
+    ]
+    for checkbox in run_control_checkboxes:
+        assert checkbox.styleSheet() == INPUT_CHECKBOX_STYLE
+
+    # The Input-panel checkboxes (moved off the Control tab) share the same
+    # look via the same constant.
+    dynamic_checkboxes = [
+        tab.dynamic_panel.apply_prem_to_loan_check,
+        tab.dynamic_panel.tamra_check,
+        tab.dynamic_panel.lumpsum_to_next_check,
+    ]
+    for checkbox in dynamic_checkboxes:
+        assert checkbox.styleSheet() == INPUT_CHECKBOX_STYLE
