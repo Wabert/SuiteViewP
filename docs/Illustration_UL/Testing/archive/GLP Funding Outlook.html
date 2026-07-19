@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UL Block — Funding-to-Maturity Outlook</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background:#f9f9f7; color:#0b0b0b; font-family: system-ui, -apple-system,
+         "Segoe UI", sans-serif; font-size:14px; line-height:1.45; }
+  .wrap { max-width:1080px; margin:0 auto; padding:28px 24px 60px; }
+  header h1 { font-size:23px; font-weight:650; letter-spacing:-0.01em; }
+  header .sub { color:#52514e; margin-top:4px; }
+  .card { background:#fcfcfb; border:1px solid rgba(11,11,11,0.10);
+           border-radius:10px; padding:18px 20px 16px; margin-top:18px; }
+  .card h2 { font-size:15px; font-weight:650; }
+  .card .note { color:#52514e; font-size:13px; margin:2px 0 10px; }
+  .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:12px;
+              margin-top:18px; }
+  .kpi { background:#fcfcfb; border:1px solid rgba(11,11,11,0.10);
+          border-radius:10px; padding:14px 16px; }
+  .kpi-label { font-size:12.5px; color:#52514e; }
+  .kpi-value { font-size:34px; font-weight:600; margin-top:2px; }
+  .kpi-sub { font-size:12px; color:#898781; margin-top:2px; }
+  .kpi.accent-bad { border-color:#d03b3b55; }
+  .kpi.accent-bad .kpi-value { color:#b22a2a; }
+  .leg-row { display:grid; grid-template-columns:14px 150px 1fr auto; gap:10px;
+              align-items:baseline; padding:5px 0; border-top:1px solid #e1e0d9; }
+  .leg-row:first-child { border-top:none; }
+  .sw { width:12px; height:12px; border-radius:3px; display:inline-block;
+         position:relative; top:1px; }
+  .leg-name { font-weight:600; font-size:13px; }
+  .leg-detail { color:#52514e; font-size:12.5px; }
+  .leg-num { font-size:12.5px; color:#52514e; white-space:nowrap;
+              font-variant-numeric: tabular-nums; }
+  .tick { font-size:11px; fill:#898781; font-family:inherit;
+           font-variant-numeric: tabular-nums; }
+  .rowlab { font-size:12px; fill:#52514e; font-family:inherit; }
+  .cell { font-size:11.5px; font-weight:600; font-family:inherit;
+           font-variant-numeric: tabular-nums; }
+  .seg { font-size:11.5px; font-weight:600; font-family:inherit; }
+  .dlab { font-size:11.5px; font-weight:600; fill:#52514e; font-family:inherit; }
+  .mk { cursor:default; }
+  .mk:hover { opacity:0.82; }
+  .chart-head { display:flex; align-items:center; gap:14px; margin-bottom:6px; }
+  .chart-legend { display:flex; gap:12px; margin-left:auto; }
+  .cl { display:inline-flex; align-items:center; gap:5px; font-size:12px;
+         color:#52514e; }
+  .toggle { display:inline-flex; border:1px solid rgba(11,11,11,0.14);
+             border-radius:7px; overflow:hidden; }
+  .toggle button { border:none; background:#fcfcfb; padding:4px 12px;
+                    font:inherit; font-size:12.5px; color:#52514e; cursor:pointer; }
+  .toggle button[aria-pressed="true"] { background:#e8eef8; color:#0b0b0b;
+                                         font-weight:600; }
+  table { border-collapse:collapse; width:100%; margin-top:8px;
+           font-variant-numeric: tabular-nums; }
+  th { text-align:left; font-size:11.5px; color:#52514e; font-weight:600;
+        border-bottom:1px solid #c3c2b7; padding:4px 8px 5px;
+        white-space:nowrap; }
+  td { padding:3px 8px; font-size:12.5px; border-bottom:1px solid #e1e0d9;
+        white-space:nowrap; }
+  td.r, th.r { text-align:right; }
+  .pill { display:inline-flex; align-items:center; gap:5px; border-radius:9px;
+           padding:1px 8px 1px 6px; font-size:11.5px; font-weight:600; }
+  .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .tt { position:fixed; pointer-events:none; background:#1c1c1b; color:#fff;
+         padding:7px 10px; border-radius:7px; font-size:12px; line-height:1.4;
+         white-space:pre-line; z-index:10; display:none; max-width:280px;
+         box-shadow:0 4px 14px rgba(0,0,0,0.25); }
+  .foot { color:#898781; font-size:12px; margin-top:20px; }
+  .method li { margin:3px 0 3px 16px; color:#52514e; font-size:12.5px; }
+  @media print { .tt { display:none !important; } body { background:#fff; }
+                  .card { break-inside:avoid; } }
+</style></head><body><div class="wrap">
+
+<header>
+  <h1>UL Block — Funding-to-Maturity Outlook</h1>
+  <div class="sub">Older universal life policies: ability to stay in force to maturity
+  under Guideline Premium Test limits · Inforce block, CyberLife UL · prepared July 18, 2026</div>
+</header>
+
+
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Policies analyzed</div>
+        <div class="kpi-value">1</div>
+        <div class="kpi-sub">17,324 in scope · 4 bypassed · 17,319 not yet run</div></div>
+      <div class="kpi"><div class="kpi-label">Will lapse at current premium</div>
+        <div class="kpi-value">0</div>
+        <div class="kpi-sub">0% of analyzed · $0 face</div></div>
+      <div class="kpi accent-bad"><div class="kpi-label">Cannot reach maturity within guideline limits</div>
+        <div class="kpi-value">0</div>
+        <div class="kpi-sub">0% of analyzed · $0 face · need GLP exception premiums</div></div>
+      <div class="kpi"><div class="kpi-label">Fixable with premium increase</div>
+        <div class="kpi-value">0</div>
+        <div class="kpi-sub">median increase n/a</div></div>
+    </div>
+
+<div class="card">
+  <h2>How big is the problem?</h2>
+  <div class="note">Every analyzed policy, classified by whether it can reach maturity
+  — and what it would take.</div>
+  <svg viewBox="0 0 1010 64" role="img" style="width:100%;height:auto"><rect x="0.0" y="8" width="200.0" height="26" rx="3" fill="#0ca30c" class="mk" data-tt="Sustains
+1 policies · 20%
+$50K face amount"/><text x="101.0" y="25.0" text-anchor="middle" class="seg" fill="#0b0b0b">20%</text><rect x="202.0" y="8" width="808.0" height="26" rx="3" fill="#898781" class="mk" data-tt="Bypassed / not classified
+4 policies · 80%"/><text x="606.0" y="25.0" text-anchor="middle" class="seg" fill="#ffffff">80%</text></svg>
+  <div style="margin-top:6px"><div class="leg-row"><span class="sw" style="background:#0ca30c"></span><span class="leg-name">Sustains</span><span class="leg-detail">Sustains to maturity at current premium</span><span class="leg-num">1 policies · $50K face · 100%</span></div><div class="leg-row"><span class="sw" style="background:#fab219"></span><span class="leg-name">Increase fixes it</span><span class="leg-detail">Reaches maturity with a premium increase (no exceptions)</span><span class="leg-num">0 policies · $0 face · 0%</span></div><div class="leg-row"><span class="sw" style="background:#ec835a"></span><span class="leg-name">Front-loading only</span><span class="leg-detail">Reaches maturity only with accelerated (max-guideline) funding</span><span class="leg-num">0 policies · $0 face · 0%</span></div><div class="leg-row"><span class="sw" style="background:#d03b3b"></span><span class="leg-name">Exceptions required</span><span class="leg-detail">Cannot reach maturity without GLP exception premiums</span><span class="leg-num">0 policies · $0 face · 0%</span></div><div class="leg-row"><span class="sw" style="background:#8f2a2a"></span><span class="leg-name">No solution</span><span class="leg-detail">No level premium keeps the policy in force to maturity</span><span class="leg-num">0 policies · $0 face · 0%</span></div><div class="leg-row"><span class="sw" style="background:#898781"></span><span class="leg-name">Not classified</span><span class="leg-detail">Bypassed by the engine or not yet classifiable</span><span class="leg-num">4 policies</span></div></div>
+</div>
+
+<div class="card">
+  <div class="chart-head">
+    <h2>When does it hit? — projected lapses at current premiums</h2>
+    <div class="chart-legend"></div>
+    <div class="toggle" role="group" aria-label="Measure">
+      <button aria-pressed="true" data-view="count">Policies</button>
+      <button aria-pressed="false" data-view="face">Face amount</button>
+    </div>
+  </div>
+  <div class="note">Year each policy is projected to lapse if premiums stay exactly
+  as billed today. Colors show what it would take to save the policy. </div>
+  <div class="view-count"><div class="note">No policies in this view.</div></div>
+  <div class="view-face" hidden><div class="note">No policies in this view.</div></div>
+  <div class="note" style="margin:10px 0 2px">Cumulative face amount lapsed (all at-risk tiers)</div>
+  <div class="note">No policies in this view.</div>
+</div>
+
+
+
+<div class="card">
+  <h2>Urgency × severity</h2>
+  <div class="note">Rows: how hard the fix is (worst on top). Columns: how soon the
+  policy lapses at its current premium. Darker = more policies; hover for face amounts.
+  </div>
+  <svg viewBox="0 0 1010 108" role="img" style="width:100%;height:auto"><text x="272.0" y="20" text-anchor="middle" class="tick">&lt;2 yrs</text><text x="436.0" y="20" text-anchor="middle" class="tick">2–5 yrs</text><text x="600.0" y="20" text-anchor="middle" class="tick">5–10 yrs</text><text x="764.0" y="20" text-anchor="middle" class="tick">10–20 yrs</text><text x="928.0" y="20" text-anchor="middle" class="tick">20+ yrs</text><text x="180" y="51.0" text-anchor="end" class="rowlab">No solution</text><rect x="191.0" y="31.0" width="162.0" height="32" rx="3" fill="#f9f9f7"/><rect x="355.0" y="31.0" width="162.0" height="32" rx="3" fill="#f9f9f7"/><rect x="519.0" y="31.0" width="162.0" height="32" rx="3" fill="#f9f9f7"/><rect x="683.0" y="31.0" width="162.0" height="32" rx="3" fill="#f9f9f7"/><rect x="847.0" y="31.0" width="162.0" height="32" rx="3" fill="#f9f9f7"/><text x="180" y="85.0" text-anchor="end" class="rowlab">Exceptions required</text><rect x="191.0" y="65.0" width="162.0" height="32" rx="3" fill="#f9f9f7"/><rect x="355.0" y="65.0" width="162.0" height="32" rx="3" fill="#f9f9f7"/><rect x="519.0" y="65.0" width="162.0" height="32" rx="3" fill="#f9f9f7"/><rect x="683.0" y="65.0" width="162.0" height="32" rx="3" fill="#f9f9f7"/><rect x="847.0" y="65.0" width="162.0" height="32" rx="3" fill="#f9f9f7"/></svg>
+</div>
+
+<div class="card">
+  <h2>Highest-priority policies</h2>
+  <div class="note">Worst first — most severe tier, then soonest lapse. Top 0
+  shown; the full population with all five forecasts is in the source workbook.</div>
+  <div style="overflow-x:auto"><table>
+    <thead><tr><th>Policy</th><th>Plancode</th><th class="r">Face</th><th>Outlook</th>
+    <th class="r">Proj. lapse</th><th class="r">Yrs</th><th class="r">Billing prem</th>
+    <th class="r">Level prem to maturity</th><th class="r">Increase</th>
+    <th class="r">Lumpsum due now</th><th class="r">Exceptions begin</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <h2>Coverage &amp; method</h2>
+  <ul class="method">
+    <li><strong>1</strong> policies fully analyzed of
+        <strong>17,324</strong> in scope.
+        4 bypassed (MD: 2 · rates missing: 2 · no solution: 1);
+        17,319 not yet run.</li>
+    <li>All forecasts run on a guideline-only basis (Conform to TEFRA on, Conform to
+        TAMRA off) from each policy's inforce values as of its valuation date.</li>
+    <li><em>Projected lapse</em> holds the current billing premium and mode; a bridging
+        lumpsum is applied when the policy would otherwise lapse before its next due date.</li>
+    <li><em>Level prem to maturity</em> is the minimum level modal premium that keeps the
+        policy in force to maturity, allowing GLP exception premiums where required.</li>
+    <li><em>Exceptions required</em> means even maximum guideline-allowed funding
+        (premiums accepted up to the limit every month) fails to carry the policy
+        to maturity.</li>
+    <li>Source: <strong>GLP Limit Calc v2.xlsx</strong>, produced by the SuiteView
+        illustration engine's GLP forecast batch.</li>
+  </ul>
+</div>
+
+<div class="foot">SuiteView · Illustration engine GLP forecast batch · July 18, 2026</div>
+</div>
+
+<div class="tt" id="tt"></div>
+<script>
+(function () {
+  var tt = document.getElementById('tt');
+  document.querySelectorAll('[data-tt]').forEach(function (el) {
+    el.addEventListener('pointermove', function (e) {
+      tt.textContent = el.getAttribute('data-tt');
+      tt.style.display = 'block';
+      var x = e.clientX + 14, y = e.clientY + 12;
+      var r = tt.getBoundingClientRect();
+      if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - 10;
+      if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - 10;
+      tt.style.left = x + 'px'; tt.style.top = y + 'px';
+    });
+    el.addEventListener('pointerleave', function () { tt.style.display = 'none'; });
+  });
+  document.querySelectorAll('.toggle').forEach(function (tg) {
+    var card = tg.closest('.card');
+    tg.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        tg.querySelectorAll('button').forEach(function (b) {
+          b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+        });
+        card.querySelector('.view-count').hidden = btn.dataset.view !== 'count';
+        card.querySelector('.view-face').hidden = btn.dataset.view !== 'face';
+      });
+    });
+  });
+})();
+</script>
+</body></html>

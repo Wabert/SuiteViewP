@@ -1,0 +1,323 @@
+{
+  "_readme": [
+    "Source of truth for docs/Illustration_UL/Testing/TEST_MATRIX.xlsx.",
+    "Regenerate the workbook with:  venv\\Scripts\\python.exe tools/build_test_matrix.py",
+    "",
+    "HOW TO ADD A TEST CASE:",
+    "  1. Add the case to the RERUN workbook's Saved Cases sheet (or capture a",
+    "     constructed override scenario) and run the comparison",
+    "     (tools/compare_rerun_vs_app.py) -> put the detail workbook in Testing/details/.",
+    "  2. Append a row object to 'rows' below. Fields:",
+    "       company / policy / form / db_option - identity (list_local_policies.py has these)",
+    "       description     - what kind of policy this is (product, age, class, riders, benefits)",
+    "       forecast_inputs - the forecast the case defines (premium pattern, WD/loans, changes, IUL settings)",
+    "       status          - PASS | FAIL | PARTIAL | PENDING (see status_vocabulary)",
+    "       comments        - cite the evidence: detail workbook filename and/or the documented record",
+    "       glp_gsp / contributions / distributions / policy_debt / eav / esv - per-quantity result:",
+    "         'EXACT'  - zero delta vs RERUN within tolerance, evidenced",
+    "         <number> - max absolute delta observed (rendered as 'D <n>' with amber fill)",
+    "         'FAIL'   - material unexplained mismatch",
+    "         '-'      - not applicable or not yet compared",
+    "  3. Rerun the build script. Never edit TEST_MATRIX.xlsx by hand - it is generated.",
+    "",
+    "Statuses must be honest: do NOT claim EXACT without a retained artifact in",
+    "Testing/details/ or a documented record (QUESTION_LOG.md, WORK_LAPTOP_SPEC.md,",
+    "the Saved Case description) cited in the comments."
+  ],
+  "status_vocabulary": {
+    "PASS": "All compared quantities match RERUN within tolerance; evidence cited in Comments.",
+    "PARTIAL": "Core quantities verified; named residuals remain, each classified in Comments.",
+    "FAIL": "Material unexplained mismatch, or the case is unrunnable as stored.",
+    "PENDING": "Not yet compared, or comparison artifact not retained on this machine."
+  },
+  "rows": [
+    {
+      "company": "01 - ANICO", "policy": "UE000576", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Saved Case 1 - EXEC-UL (1U143900), issue age 50, NS, no riders/substandard; ABR benefits #4/#5/#6.",
+      "forecast_inputs": "Level billed premium $150/mo to maturity; no WD/loans/changes. TEFRA+TAMRA ON, ExactDays OFF.",
+      "status": "PENDING",
+      "comments": "No comparison artifact on this machine. Historically blocked on the UE000576 laptop export (WORK_LAPTOP_SPEC); the policy is now in the local dev DB - run + detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0688012", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Saved Case 2 - EXEC-UL (1U143900), issue age 50, NS, substandard table B; PW benefit (39) + ABR #4/#5/#6.",
+      "forecast_inputs": "Level billed premium $153.56/mo to maturity; no WD/loans/changes. TEFRA+TAMRA ON, ExactDays OFF.",
+      "status": "PASS",
+      "comments": "Validated EXACT vs RERUN 2026-06-09/10: all comparison groups at literal 0.0 delta over 40-120 months, re-validated after every engine fix (QUESTION_LOG.md par. E/H). Detail workbook to be regenerated (original CSV artifacts not retained).",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "-", "policy_debt": "-", "eav": "EXACT", "esv": "EXACT"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0492070", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Saved Case 3 - EXEC-UL (1U143900), issue age 25, Smoker, flat extra $4/1000; CCV/shadow policy (benefits A1, #1).",
+      "forecast_inputs": "Level billed premium $32.81/mo to maturity; no WD/loans/changes. TEFRA+TAMRA ON, ExactDays OFF.",
+      "status": "PARTIAL",
+      "comments": "Base AV/SV/deduction/interest chain re-validated at 0.0 delta 2026-06-09 (QUESTION_LOG.md par. C/E). CCV/shadow projection NOT validated - current shadow AV missing from the local fixture (QUESTION_LOG Q1, laptop export). Detail workbook to be regenerated.",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "-", "policy_debt": "-", "eav": "EXACT", "esv": "EXACT"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0656998", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Saved Case 4 - EXEC-UL (1U143900), issue age 31, NS; LTR signature term rider 1U536C00 (rider substandard table D); GIO (76, ceased 2023) + ABR benefits.",
+      "forecast_inputs": "Level billed premium $75/mo to maturity; no WD/loans/changes. TEFRA+TAMRA ON, ExactDays OFF.",
+      "status": "PARTIAL",
+      "comments": "Base AV/SV chain re-validated at 0.0 delta 2026-06-09 (QUESTION_LOG.md par. C/E). Known reported-value gap: LTR rider target premium (MTP -40.00/mo, CTP -525.75/yr) - rider target table not in local export; harmless for base projections (QUESTION_LOG par. E item 4). Detail workbook to be regenerated.",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "-", "policy_debt": "-", "eav": "EXACT", "esv": "EXACT"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UE000576", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Saved Case 5 ('Withdrawal the A2B Change') - UE000576 clone; withdrawal plus DBO change scenario.",
+      "forecast_inputs": "Level $150/mo; WD $1,000 at the year-11 anniversary; DBO A->B at year 16 (age 65). TEFRA+TAMRA ON.",
+      "status": "PENDING",
+      "comments": "Not yet run on this policy (historically blocked on the UE000576 export - WORK_LAPTOP_SPEC; policy now in local DB). The identical scenario SHAPE (W1) was validated EXACT (0.0 over 120 mo) on U0688012 2026-06-10 (QUESTION_LOG.md par. H). Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UE000576", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Saved Case 6 ('loans') - UE000576 clone; fixed-loan scenario.",
+      "forecast_inputs": "Level $150/mo; fixed loans $3,000/yr in policy years 12-15. TEFRA+TAMRA ON.",
+      "status": "PENDING",
+      "comments": "Not yet run on this policy (see Case 5 note). The identical scenario SHAPE (L1) incl. all six loan buckets and the loan SV-cap was validated EXACT (0.0 over 120 mo) on U0688012 2026-06-10 (QUESTION_LOG.md par. H). Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UE013383", "form": "IUL14", "db_option": "B - Increasing",
+      "description": "Saved Case 7 - IUL (1U145500), issue age 40, NS; PW benefit (39) + ABR. UNRUNNABLE AS STORED.",
+      "forecast_inputs": "Level $150/mo; IUL blend 20% each U1(fixed)/IS/IX/IC/IF.",
+      "status": "FAIL",
+      "comments": "FAIL as stored in RERUN itself: pre-fix offline build (2026-07-16) with a blank PW benefit code - every CalcEngine month returns #N/A (confirmed in details/rerun_vs_app_iul_blend_20260718: all deltas are Excel error values). Superseded by Case 9, the same-day fixed rebuild. Not an engine defect.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0375726", "form": "UL96", "db_option": "A - Level",
+      "description": "Saved Case 8 - UL (1U135D00), juvenile issue age 0, NS; no riders/benefits/loans.",
+      "forecast_inputs": "Level billed premium $100/mo to maturity; no WD/loans/changes.",
+      "status": "PENDING",
+      "comments": "Offline build from local DB (2026-07-16); no comparison run recorded. Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UE013383", "form": "IUL14", "db_option": "B - Increasing",
+      "description": "Saved Case 9 - IUL (1U145500), issue age 40, NS, issue 2017 (AG49 index 2); PW benefit (39) + ABR. Fixed rebuild of Case 7.",
+      "forecast_inputs": "Level $150/mo; IUL blended crediting, allocations 20% each U1(fixed 2.5%)/IS/IX/IC/IF; also run under WAIR crediting and constructed IP-allocation / variable-loan variants.",
+      "status": "PARTIAL",
+      "comments": "2026-07-18 comparison (details/rerun_vs_app_iul_blend_* and _wair_*): IUL crediting VERIFIED - blended rate exact 900 mo, AG49 regime, asset charge (SU exact, SV bit-identical mo 1), WAIR (VI exact; VJ within 9e-5), variable-loan spread exact. Band-boundary bug FIXED same day (issue-date-dependent band 3 start per Rates_Control CZ: Rates.get_band now takes issue_date + BandTable2IssueDate from the plancode table; re-run details/rerun_vs_app_iul_blend_bandfix_20260718_200353.xlsx - COI/NAR band deltas gone, COI exact through mo 528, first delta 0.013 knock-on at mo 529). Residual AV drift 998.24 classified: known PoAV-charge gate bug (poav_code=='Table' check, Fee ~-8/mo) plus PW-cease and MTP-mapping divergences where the engine matches the admin system, not RERUN (WORK_LAPTOP_SPEC par. 5.5).",
+      "glp_gsp": "-", "contributions": "EXACT", "distributions": "EXACT", "policy_debt": "EXACT", "eav": 998.24, "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0351626", "form": "UL501", "db_option": "B - Increasing",
+      "description": "Saved Case 10 - UL (1U135K00), issue age 42, Preferred NS; PW benefit (39); face $501,000.",
+      "forecast_inputs": "Level billed premium $250/mo to maturity; no WD/loans/changes.",
+      "status": "PENDING",
+      "comments": "Offline build from local DB (2026-07-16); no comparison run recorded. Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0356726", "form": "UAL93", "db_option": "B - Increasing",
+      "description": "Saved Case 11 - UL (1U135100, FFL family), issue age 24, NS; term riders 1U538F00/1U538I00; benefits 11 + PW (39).",
+      "forecast_inputs": "Level billed premium $60/mo to maturity; no WD/loans/changes.",
+      "status": "PENDING",
+      "comments": "Offline build from local DB (2026-07-16); no full-projection comparison retained. Before-change GLP/GSP for this policy match RERUN to 12 decimals (2026-07-17, WORK_LAPTOP_SPEC changelog). Detail workbook to be generated.",
+      "glp_gsp": "EXACT", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UE209026", "form": "IUL19", "db_option": "A - Level",
+      "description": "Saved Case 12 - IUL (1U147500), issue age 25, Preferred+ NS, issue 2022 (AG49A index 3 - asset charge correctly zero); PWST (4#), GIR (78) + ABR benefits; face $600,000.",
+      "forecast_inputs": "Level $500/mo; IUL allocations U1 8% (fixed 2%) / IX 36% / IP 5% / IR 7% / IF 34% / NX 5% / M1 5%; also run under WAIR crediting.",
+      "status": "PARTIAL",
+      "comments": "2026-07-18 comparison (details/rerun_vs_app_iul_blend_* and _wair_*): blended rate exact 900 mo; AG49A regime gate exact (zero asset charge both sides); WAIR structure verified. Residual AV drift classified: PoAV-charge engine bug (WORK_LAPTOP_SPEC par. 5.5b) + MTP-mapping divergence (engine carries full system MTP, RERUN Debug AI is MTP-without-PW). PWST/GIR charge deltas (-0.25/mo early, -60/mo late) UNCLASSIFIED until 1U147500 benefit rates are exported (laptop). GIR-era guideline values pending same export.",
+      "glp_gsp": "-", "contributions": "EXACT", "distributions": "EXACT", "policy_debt": "EXACT", "eav": 25282.65, "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0128261", "form": "FUL86", "db_option": "A - Level",
+      "description": "Saved Case 13 - UL (1U133300, 1986-era), issue age 34, NS; inforce fixed loan ~$48.9k principal.",
+      "forecast_inputs": "Level billed premium $80.44/mo to maturity; no new WD/loans/changes (existing loan carried).",
+      "status": "PENDING",
+      "comments": "Offline build from local DB (2026-07-16); no comparison run recorded. Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UL026332", "form": "FPL83", "db_option": "A - Level",
+      "description": "Saved Case 14 - UL (1U130M29, FPL83 1983-era), issue age 23, class A; inforce loan ~$15.2k.",
+      "forecast_inputs": "Quarterly billed premium $100 to maturity; no new WD/loans/changes.",
+      "status": "PENDING",
+      "comments": "Offline build from local DB (2026-07-16); no comparison run recorded. Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UL062614", "form": "FPL83", "db_option": "A - Level",
+      "description": "Saved Case 15 - UL (1U130N2X, FPL83 ratchet-banding COI family), juvenile issue age 5, class B.",
+      "forecast_inputs": "Level billed premium $27.67/mo to maturity; no WD/loans/changes.",
+      "status": "PENDING",
+      "comments": "Offline build from local DB (2026-07-16); no comparison run recorded. (NAR-split ratchet-banding COI for this plancode family was separately validated penny-exact vs the admin system on UL054426/UL058426.) Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UE050703", "form": "SGUL18", "db_option": "A - Level",
+      "description": "Saved Case 16 - SGUL (1U146600), issue age 54, NS; benefits V1/V2/V3, A0 + ABR (shadow-guarantee product; flat 4.5% shadow rate - offline-clean).",
+      "forecast_inputs": "Quarterly billed premium $285.90 to maturity; no WD/loans/changes.",
+      "status": "PENDING",
+      "comments": "Offline build from local DB (2026-07-16); no comparison run recorded. Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UL062614", "form": "FPL83", "db_option": "A - Level",
+      "description": "Saved Case 17 (UL062614-FaceInc) - face-increase scenario on Case 15.",
+      "forecast_inputs": "Level $27.67/mo; face 48,560 -> 73,000 (input vector switches at year 43; case description says @yr43).",
+      "status": "PENDING",
+      "comments": "No pass annotation and no retained artifact. Detail workbook to be generated. (Duplicate of Case 26.)",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UL062614", "form": "FPL83", "db_option": "A - Level",
+      "description": "Saved Case 18 (UL062614-WD) - withdrawal scenario on Case 15.",
+      "forecast_inputs": "Level $27.67/mo; WD $2,500/yr for 3 years starting year 43.",
+      "status": "PENDING",
+      "comments": "No pass annotation and no retained artifact. Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UL026332", "form": "FPL83", "db_option": "A - Level",
+      "description": "Saved Case 19 (UL026332-FaceInc) - face-increase scenario on Case 14.",
+      "forecast_inputs": "Quarterly $100; face 50,000 -> 75,000 (case description @yr44; input vector switches at year 43).",
+      "status": "PASS",
+      "comments": "Pass recorded in the Saved Case description itself: 'Face 50,000->75,000 @yr44 (Pass 7/16/2026)'. Per-quantity detail workbook not retained - to be regenerated for per-quantity evidence.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0351626", "form": "UL501", "db_option": "B - Increasing",
+      "description": "Saved Case 20 (U0351626-FaceDec) - face-decrease scenario on Case 10.",
+      "forecast_inputs": "Level $250/mo; face 501,000 -> 351,000 at year 32.",
+      "status": "PASS",
+      "comments": "Pass recorded in the Saved Case description itself: 'Face 501,000->351,000 @yr32 (Pass 7/16/2026)'. Per-quantity detail workbook not retained - to be regenerated for per-quantity evidence.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0351626", "form": "UL501", "db_option": "B - Increasing",
+      "description": "Saved Case 21 (U0351626-DBO) - DBO change scenario on Case 10.",
+      "forecast_inputs": "Level $250/mo; DBO B -> A (case description @yr32; input vector switches at year 30).",
+      "status": "PASS",
+      "comments": "Pass recorded in the Saved Case description itself: 'DBO B->A @yr32 (Pass 7/16/2026)'. Per-quantity detail workbook not retained - to be regenerated for per-quantity evidence.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0128261", "form": "FUL86", "db_option": "A - Level",
+      "description": "Saved Case 22 (U0128261-FaceDec) - face-decrease scenario on Case 13 (policy with inforce loan).",
+      "forecast_inputs": "Level $80.44/mo; face 50,000 -> 35,000 (input vector switches at year 41).",
+      "status": "PENDING",
+      "comments": "No pass annotation and no retained artifact. Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0375726", "form": "UL96", "db_option": "A - Level",
+      "description": "Saved Case 23 (U0375726-DBO) - DBO change scenario on Case 8.",
+      "forecast_inputs": "Level $100/mo; DBO A -> B (case description @yr30; input vector switches at year 30).",
+      "status": "PENDING",
+      "comments": "No pass annotation and no retained artifact. Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0375726", "form": "UL96", "db_option": "A - Level",
+      "description": "Saved Case 24 (U0375726-WD) - withdrawal scenario on Case 8.",
+      "forecast_inputs": "Level $100/mo; WD $5,000 once in year 30.",
+      "status": "PENDING",
+      "comments": "No pass annotation and no retained artifact. Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0356726", "form": "UAL93", "db_option": "B - Increasing",
+      "description": "Saved Case 25 (U0356726-DBO) - DBO change scenario on Case 11 (FFL PW-target family).",
+      "forecast_inputs": "Level $60/mo; DBO B -> A (case description @yr31; input vector switches at year 31).",
+      "status": "PARTIAL",
+      "comments": "2026-07-17 (WORK_LAPTOP_SPEC changelog + par. 5.4): before-change GLP/GSP match RERUN to 12 decimals; after-change within cents (GLP/GSP/7-pay ~0.12-0.68 off). Residual classified: PW target-index rate gap (RERUN keys the PW target by TARGET index 0.044, app's BENMTP-by-benefit-code gives 0.042) - target-index rate export is a laptop task; repro: tools/repro_pw_target_rate_gap.py. Full-projection detail workbook to be generated.",
+      "glp_gsp": 0.68, "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UL062614", "form": "FPL83", "db_option": "A - Level",
+      "description": "Saved Case 26 (UL062614-FaceInc2) - duplicate of Case 17 (face increase on Case 15).",
+      "forecast_inputs": "Level $27.67/mo; face 48,560 -> 73,000 (input vector switches at year 43).",
+      "status": "PENDING",
+      "comments": "No pass annotation and no retained artifact. Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "UL026332", "form": "FPL83", "db_option": "A - Level",
+      "description": "Saved Case 27 (UL026332-FaceInc2) - repeat of Case 19's face increase (input vector switches one year later).",
+      "forecast_inputs": "Quarterly $100; face 50,000 -> 75,000 (input vector switches at year 44).",
+      "status": "PENDING",
+      "comments": "No pass annotation and no retained artifact. Detail workbook to be generated.",
+      "glp_gsp": "-", "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0688012", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Constructed scenario S-FaceInc (not a stored Saved Case) - face increase on the Case 2 baseline.",
+      "forecast_inputs": "Level $153.56/mo; face 100,000 -> 150,000 at the year-9 anniversary (2027-11-09). New segment at attained age, all segments re-banded to total SA.",
+      "status": "PASS",
+      "comments": "Validated EXACT vs RERUN 2026-06-09/10: all 10 comparison groups at 0.0 delta over 40 months, incl. engine-computed GLP/GSP/7-pay recalc and MTP/CTP recompute (QUESTION_LOG.md par. E/F). Detail workbook to be regenerated (CSV artifacts not retained).",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "-", "policy_debt": "-", "eav": "EXACT", "esv": "EXACT"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0688012", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Constructed scenario S-FaceDec (not a stored Saved Case) - face decrease on the Case 2 baseline.",
+      "forecast_inputs": "Level $153.56/mo; face 100,000 -> 75,000 at the year-9 anniversary. Re-banding (band 3 -> 2), surrender-charge deduction on decreased units.",
+      "status": "PASS",
+      "comments": "Validated EXACT vs RERUN 2026-06-09/10: all groups 0.0 delta (QUESTION_LOG.md par. E). Detail workbook to be regenerated.",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "-", "policy_debt": "-", "eav": "EXACT", "esv": "EXACT"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0688012", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Constructed scenario S-DBO-AB (not a stored Saved Case) - DBO A->B on the Case 2 baseline.",
+      "forecast_inputs": "Level $153.56/mo; DBO A -> B at the year-9 anniversary (level-DB mechanic: SA reduced by INT(AV), SCR deduction, re-band, MTP/CTP + guideline recompute).",
+      "status": "PASS",
+      "comments": "Validated EXACT vs RERUN 2026-06-09/10: all groups 0.0 delta (QUESTION_LOG.md par. E). Detail workbook to be regenerated.",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "-", "policy_debt": "-", "eav": "EXACT", "esv": "EXACT"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0688012", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Constructed scenario S-DBO-BA (not a stored Saved Case) - DBO A->B then B->A on the Case 2 baseline.",
+      "forecast_inputs": "Level $153.56/mo; DBO A->B at year 9, B->A at year 11 (face += INT(AV), material change, 7-pay restart). TEFRA off.",
+      "status": "PASS",
+      "comments": "Validated EXACT vs RERUN 2026-06-10: 0.0 delta over 90 months, incl. the strict benefit-cease gate fix exposed by the PW payup landing on the change date (QUESTION_LOG.md par. G). Detail workbook to be regenerated.",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "-", "policy_debt": "-", "eav": "EXACT", "esv": "EXACT"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0688012", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Constructed scenario S-T0 (not a stored Saved Case) - TEFRA acceptance-cap binding on the Case 2 baseline.",
+      "forecast_inputs": "Over-funded: $25,000/yr annual premium, TEFRA Force ON. Guideline cap fires: year-8 partial acceptance, years 9-10 capped to 0, year-11 crossover, then GLP trickle.",
+      "status": "PASS",
+      "comments": "Validated EXACT vs RERUN 2026-06-10: 0.0 delta over 90 months (QUESTION_LOG.md par. G). First scenario where the 7702 premium-cap machinery actually binds. Detail workbook to be regenerated.",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "-", "policy_debt": "-", "eav": "EXACT", "esv": "EXACT"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0688012", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Constructed scenario S-T1 (not a stored Saved Case) - force-out on the Case 2 baseline.",
+      "forecast_inputs": "S-T0 premiums + face decrease 100,000 -> 75,000 at year 9: guideline recalc drops AccumGLP below premiums paid -> force-out $6,266.37 fires at the change month.",
+      "status": "PASS",
+      "comments": "Validated EXACT vs RERUN 2026-06-10: 0.0 delta over 90 months after the premium-load re-band fix (QUESTION_LOG.md par. G, engine bug #1). Detail workbook to be regenerated.",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "EXACT", "policy_debt": "-", "eav": "EXACT", "esv": "EXACT"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0688012", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Constructed scenario S-T2 (not a stored Saved Case) - TAMRA 7-pay cap on the Case 2 baseline.",
+      "forecast_inputs": "S-T0 premiums + face increase 100,000 -> 150,000 at year 9: material change restarts the 7-pay period (new level 8,871.12); TAMRA cap binds years 9-10, guideline cap takes over year 11.",
+      "status": "PASS",
+      "comments": "Validated EXACT vs RERUN 2026-06-10: 0.0 delta over 90 months (QUESTION_LOG.md par. G). Detail workbook to be regenerated.",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "-", "policy_debt": "-", "eav": "EXACT", "esv": "EXACT"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0688012", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Constructed scenario S-W1 (not a stored Saved Case) - the Saved Case 5 shape run on the Case 2 baseline.",
+      "forecast_inputs": "Level $153.56/mo; WD $1,000 at the year-11 anniversary + DBO A->B at year 16. Full withdrawal stage: max-net, PSC on net allocation, gross face decrease, cost-basis and WD-to-date tracking.",
+      "status": "PASS",
+      "comments": "Validated EXACT vs RERUN 2026-06-10: all groups incl. the new Withdrawals group at 0.0 delta over 120 months; exposed + fixed the 7-pay re-solve benefit gating (QUESTION_LOG.md par. H). Detail workbook to be regenerated.",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "EXACT", "policy_debt": "-", "eav": "EXACT", "esv": "EXACT"
+    },
+    {
+      "company": "01 - ANICO", "policy": "U0688012", "form": "EXEC-UL", "db_option": "A - Level",
+      "description": "Constructed scenario S-L1 (not a stored Saved Case) - the Saved Case 6 shape run on the Case 2 baseline.",
+      "forecast_inputs": "Level $153.56/mo; fixed loans $3,000/yr in years 12-15 with the loan SV-cap active (4th loan capped to $2,298.68 by RERUN and engine alike).",
+      "status": "PASS",
+      "comments": "Validated EXACT vs RERUN 2026-06-10: all groups incl. the Loans group (all six end-of-month buckets) at 0.0 delta over 120 months (QUESTION_LOG.md par. H). Detail workbook to be regenerated.",
+      "glp_gsp": "EXACT", "contributions": "EXACT", "distributions": "EXACT", "policy_debt": "EXACT", "eav": "EXACT", "esv": "EXACT"
+    }
+  ]
+}

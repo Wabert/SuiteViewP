@@ -690,6 +690,117 @@ export session (`tools/export_local_rate_data.py` on the UL_Rates DSN):
    them. Repro: `tools/repro_pw_target_rate_gap.py` — patching the PW rate to
    0.044 makes the recalc'd 7-pay exact and GSP/GLP land within one
    monthly-cent floor step of RERUN.
+5. **IUL AG49/WAIR engine crediting — RERUN comparison (2026-07-18)** —
+   the engine-side asset charge (SS–SX), variable-loan credit spread (VV), and
+   WAIR crediting (US–VL) are implemented in
+   `suiteview/illustration/core/iul_crediting.py` and unit-tested
+   (`tests/test_illustration_iul_crediting.py`).
+   **RAN LOCALLY (2026-07-18 evening, minipc)** on Saved Cases 9
+   (UE013383/1U145500) and 12 (UE209026/1U147500) — case 7 is unusable as
+   stored (the pre-fix build with a blank PW benefit code; every CalcEngine
+   month #N/As; case 9 is its same-day fixed rebuild). Workbook:
+   `docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm` — a rate-loaded copy of
+   the local workbook (Span blocks now hold 1U143900 + 1U135100 + 1U146600 +
+   1U145500 + 1U147500 together, so cases 1–6 still run; created as a copy
+   because the user's Excel held `RERUN (v20.0) local.xlsm` open read-only).
+   Comparison workbooks in `docs/Illustration_UL/`:
+   `rerun_vs_app_iul_blend_*.xlsx` (blend, cases 7/9/12, 900 mo),
+   `rerun_vs_app_iul_wair_*.xlsx` (WAIR, 9/12), `rerun_vs_app_iul_blend_ip_*`
+   (constructed IP-allocation asset-charge run), `rerun_vs_app_iul_vbl_loan_*`
+   / `rerun_vs_app_iul_wair_vbl_*` (constructed variable-loan runs).
+
+   **VERIFIED (engine == RERUN):** blended crediting rate — the effective
+   (multiplier-inclusive) TRUNC4 blend — exact (1e-6) for all 900 months both
+   cases, and the IP-variant proves RERUN UO/PolicyRates!CH4 is the effective
+   blend; AG49 regime resolution (case 9 issue 2017 → index 2, case 12 issue
+   2022 → index 3 with the asset charge correctly gated to zero on both
+   sides); asset charge — SU (Debug J) exact every month, SV (Debug K)
+   bit-identical at month 1 (6.865697519812322 both sides), residuals =
+   SU/12 × ΔAV drift; WAIR — VI exact on the valuation row (0.053 / 0.0047),
+   VJ beginning-of-year recompute + hold matches structurally with onset
+   deltas 7e-5–9e-5 fully explained by the deduction-input drift below;
+   variable-loan spread — both sides accrue at exactly UO − 0.01 = 0.043
+   (spread branch beating the 0.02 input rate), identical 17.9167/mo; the
+   documented RERUN TAV VB typo (UG for UO) is **inert** in all these runs
+   because VB only feeds VC under sInput_ApplyPremToLoan, which is FALSE.
+
+   **ENGINE BUGS FOUND (not IUL-crediting; (a) fixed, (b) open):**
+   (a) *Band boundary* — **FIXED 2026-07-18 (same day).** The true rule
+   (RERUN Rates_Control column CZ "Use Band Table 2 by Issue Date", the ONLY
+   issue-date-dependent banding in the product line): thresholds are always
+   INCLUSIVE (`face >= threshold`, RERUN's approximate VLOOKUP), but for the
+   14 plancodes in CZ12:CZ32 (1U145500..1U146700, 1U536A00–C00) band 3
+   starts at 250,001 (mBandTable1) when the policy issue date is BEFORE
+   CZ9 = 2018-10-01 and at 250,000 (mBandTable2 = the UL_Rates BANDSPECS
+   thresholds) on/after. UE013383 (issued 2017, face exactly 250,000) →
+   band 2, proven by the system's own LH_POL_MVRY_VAL CINS 24.12 = band-2
+   dur-9 rate 0.0967 × NAR/1000. Fix: `Rates.get_band(..., issue_date=)` +
+   `BandTable2IssueDate` in the plancode table (merged by
+   `tools/merge_band_table2_date.py`); unit tests `tests/test_rates_band.py`;
+   re-run evidence
+   `Testing/details/rerun_vs_app_iul_blend_bandfix_20260718_200353.xlsx`
+   (COI exact through mo 528; residual AV drift 30,714 → 998.24 = bug (b)
+   + PW-cease/MTP-mapping divergences below).
+   (b) *PoAV charge missing* — plancode_table PoAV_Table is a table code
+   ("1"/"2"/"3") on the IUL plans, but `monthly_deduction.py:559` and
+   `rate_loader.py:181` gate on `poav_code == "Table"` → av_charge silently 0.
+   RERUN charges SI = MAX(0, OO × SH) inside vTotalFees; the system's
+   EXP_CRG_AMT confirms (~7–17/mo, policy years 1–10 only). Both cases.
+
+   **RERUN divergences flagged (engine matches the system, not RERUN):**
+   PW cease — RERUN stops the PW charge at attained age 60 (its benefit
+   definition table); the engine honors the system's recorded BNF_CEA_DT
+   (2038-07-14 = one year later) → 12 × 34.94 one-year window. Debug File
+   AI is `vMTPwoPW` (MTP *without* the PW benefit) while the engine carries
+   the full system MTP → the flat 402.72/yr (case 9) / 251.16/yr (case 12)
+   "MTP" delta is a mapping artifact, not a calc difference.
+
+   **Still needs the laptop:** benefit rates for 1U147500 — local
+   Select_RATE_BENMTP/BENCTP/BENCOI have **no rows** for that plancode, so
+   case-12's PWST/GIR charge deltas (−0.25/mo early, −60/mo late) cannot be
+   classified until the benefit-rate rows are exported; plus the §5.4
+   target-index rates, Select_RATE_SHDINT (§5.1), and 1U144600 (§5.2).
+
+   Tooling: `run_engine_case.py` now takes `iul_wair`,
+   `use_policy_ag49_regime`, `current_interest_rate`, `iul_declared_rate`,
+   `iul_asset_charge_rate`, `allocations`, `swam`, `variable_loan_rate`;
+   `compare_rerun_vs_app.py` auto-wires IUL inputs from the Saved Case (blend
+   computed exactly like INPUT B52/E52) and takes `wair` (sIntCalcMethod=3
+   override + engine flag), `overrides` (RERUN named ranges, incl. vector
+   rows), `app_extra`, `tag`; `rerun_debug_map.py` J/K now map to
+   `asset_charge_rate`/`asset_charge` (K previously pointed at the PoAV
+   `av_charge`). New helpers: `dump_saved_case_summary.py`,
+   `summarize_compare_workbook.py`, `dump_sheet_formulas.py`,
+   `wait_for_file.py`.
+
+---
+
+## §6 — GLP forecast batch → management exhibit (NEEDS LIVE DB2) (2026-07-18)
+
+The four-forecast GLP batch over `docs\Illustration_UL\GLP Limit Calc v2.xlsx`
+(17,324 policies, only ~5 rows run so far) needs live DB2. On the laptop:
+
+1. Run the batch (resumable via `--start-row` / sidecar replay):
+   `venv\Scripts\python.exe tools/run_glp_forecast_batch.py "docs\Illustration_UL\GLP Limit Calc v2.xlsx"`
+2. Build the management exhibit from the completed workbook:
+   `venv\Scripts\python.exe tools/build_glp_forecast_report.py "docs\Illustration_UL\GLP Limit Calc v2.xlsx"`
+   → writes `docs\Illustration_UL\GLP Funding Outlook.html` (self-contained,
+   email/print-ready) and prints a JSON audit summary (tier counts, label
+   vocabulary seen, bypass reasons, unclassified rows — should be 0).
+
+The report classifies every row into five MUTUALLY EXCLUSIVE categories
+(Robert's spec 2026-07-18): Sustained (cur-prem = Maturity) / Increase fixes
+it (exc date = none) / Exceptions required (exc date is a date; the
+"front-loading only" policies — abs-max run = Maturity — are a SUB-METRIC of
+this category, not their own band) / No Solution / Not Classified (bypass).
+Accepts current labels ("(none)") and legacy ones ("not needed"). Centerpiece
+is an interactive by-form breakdown: click a category chip or funnel segment
+→ forms ranked by that category (share-of-form bars); open with `#cat=D` to
+preselect. Exhibit verified on the minipc against a 2,400-row synthetic
+workbook (`tools/make_glp_report_demo_workbook.py`, form-correlated mix).
+Sanity checks after the real run: `unclassified_count` = 0 and no unexpected
+strings in `labels_seen`; exception-date rows with a blank abs-max column are
+counted in `missing_abs_max` (not front-load-capable, conservative).
 
 ---
 
