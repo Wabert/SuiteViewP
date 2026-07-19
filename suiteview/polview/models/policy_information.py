@@ -2927,9 +2927,15 @@ class PolicyInformation:
 
         cov = covs[cov_index - 1]
         band_face = float(self.total_specified_amount if cov.is_base else (cov.face_amount or 0))
-        
+
         plancode = self.cov_plancode(cov_index)
-        band = rates.get_band(plancode, band_face)
+        # Base coverages pass the policy issue date for the Rates_Control-CZ
+        # issue-date band boundary (see Rates.get_band); the rule never
+        # applies to rider band tables, so riders stay dateless.
+        band = rates.get_band(
+            plancode, band_face,
+            issue_date=self.issue_date if cov.is_base else None,
+        )
         self._band_cache[cov_index] = band
         return band
     

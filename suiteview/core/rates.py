@@ -417,22 +417,72 @@ class Rates:
         
         return self._cache[rate_key]
     
-    def get_band(self, plancode: str, specified_amount: float) -> Optional[int]:
+    def get_band(
+        self,
+        plancode: str,
+        specified_amount: float,
+        issue_date=None,
+    ) -> Optional[int]:
         """
         Get band number for specified amount.
-        
+
+        Thresholds are INCLUSIVE — the band is the highest BANDSPECS row whose
+        SpecifiedAmount is <= face. This matches RERUN's band lookup
+        (CalcEngine ``vCurrentBand = VLOOKUP(face, mBandTable<code>, 2)``, an
+        approximate-match VLOOKUP).
+
+        ISSUE-DATE-DEPENDENT BAND BOUNDARY (RERUN Rates_Control column CZ,
+        "Use Band Table 2 by Issue Date"): for the plancodes RERUN lists in
+        Rates_Control!CZ12:CZ32 (1U145500..1U146700, 1U536A00-1U536C00), the
+        band-3 start depends on the POLICY issue date against the cutoff in
+        Rates_Control!CZ9 (2018-10-01):
+
+        * issued ON/AFTER the cutoff  -> mBandTable2: band 3 starts at 250,000
+          (these are the thresholds stored in UL_Rates BANDSPECS);
+        * issued BEFORE the cutoff    -> mBandTable1: identical except band 3
+          starts at 250,001 — so a face of exactly 250,000 is band 2.
+
+        (RERUN: ``CZ6 = AND(MATCH(sPlancode, CZ12:CZ32),
+        sINPUT_Issue_Date >= CZ9)``; ``sBandTableCode = IF(CZ6, 2, <plancode
+        table "Band Table" col U>)``.) This is the only banding in the product
+        line that varies by issue date. The affected plancodes carry
+        ``BandTable2IssueDate`` in the illustration plancode table
+        (suiteview/illustration/plancodes/plancode_table.json, merged by
+        tools/merge_band_table2_date.py).
+
         Args:
             plancode: Product plan code
             specified_amount: Face amount to band
-            
+            issue_date: POLICY issue date (RERUN sINPUT_Issue_Date), a
+                datetime.date/datetime. Pass it whenever known. When omitted,
+                the raw BANDSPECS thresholds apply unchanged — correct for
+                every plancode without the CZ rule, and for CZ plancodes
+                issued on/after the cutoff; a CZ plancode issued BEFORE
+                2018-10-01 with a face exactly on the 250,000 boundary would
+                band one band too high without it.
+
         Returns:
             Band number or None if not found
         """
         band_specs = self.get_rates("BANDSPECS", plancode)
-        
+
         if not band_specs:
             return None
-        
+
+        if issue_date is not None:
+            cutoff = self._band_table2_cutoff(plancode)
+            if cutoff is not None:
+                if hasattr(issue_date, "date") and callable(issue_date.date):
+                    issue_date = issue_date.date()  # datetime -> date
+                if issue_date < cutoff:
+                    # Pre-cutoff issues band with RERUN mBandTable1: the
+                    # band-3 threshold is one dollar higher (250,001 vs the
+                    # 250,000 stored in BANDSPECS); all other rows identical.
+                    band_specs = [
+                        [amount + 1 if int(band) == 3 else amount, band]
+                        for amount, band in band_specs
+                    ]
+
         # band_specs is [[amount1, band1], [amount2, band2], ...]
         # Find the highest band where specified_amount >= threshold
         band_count = len(band_specs)
@@ -442,6 +492,21 @@ class Rates:
             band_count -= 1
 
         return int(band_specs[0][1]) if band_specs else None
+
+    @staticmethod
+    def _band_table2_cutoff(plancode: str):
+        """Cutoff date for the Rates_Control-CZ band rule, or None.
+
+        Reads ``BandTable2IssueDate`` from the illustration plancode table
+        (the single source of truth for the CZ plancode list — see
+        tools/merge_band_table2_date.py). Plancodes without a row in that
+        table (e.g. Traditional products) have no issue-date banding rule.
+        """
+        try:
+            from suiteview.illustration.models.plancode_config import load_plancode
+            return load_plancode(plancode).band_table2_issue_date
+        except (ImportError, KeyError, FileNotFoundError):
+            return None
 
     def get_band_break(self, plancode: str, band: int = 2) -> Optional[float]:
         """Get the face-amount threshold at which ``band`` begins.
