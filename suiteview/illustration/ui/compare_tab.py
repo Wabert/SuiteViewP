@@ -11,21 +11,19 @@ so a comparison runs over the two or three active pickers. Run Comparison
 executes them through the same pipeline as Run Values on a background thread.
 The outcome lands as:
 
-* a KPI delta strip — outcome (lapse vs sustains), MEC status, first
-  GP-exception year, total premium outlay, AV/SV/DB at years 5/10/20/end —
-  with green/red delta coloring where direction is meaningful for two
-  scenarios; with three, each chip shows all three values and both deltas
-  against A on a neutral line (deltas live ONLY here — the ledger below
-  carries values, not arithmetic);
 * the annual ledger as side-by-side scenario blocks in a FilterTableView:
   Year | Age, then each scenario's measures under a grouped header titled
-  with its scenario name, a thin solid divider column between blocks; and
-* an Excel export mirroring that layout (new unsaved workbook: KPI sheet +
-  ledger sheet with a merged scenario-name row over each block).
+  with its scenario name, a solid pink divider column between blocks; and
+* an Excel export (new unsaved workbook: a KPI summary sheet — outcome, MEC
+  status, first GP-exception year, total premium outlay, AV/SV/DB at years
+  5/10/20/end, with the B−A delta — plus a ledger sheet with a merged
+  scenario-name row over each block).
 
-Scenario labels are visible everywhere — the strip's leading label chips, the
-ledger's grouped block headers, and the Excel sheets all carry "Current
-Inputs" or the saved-case name. A failed scenario raises a loud per-side
+The KPI deltas are computed for every run but surface only in the Excel
+summary sheet, not on the tab; the on-screen result is the side-by-side
+ledger. Scenario labels are visible everywhere — the ledger's grouped block
+headers and the Excel sheets all carry "Current Inputs" or the saved-case
+name. A failed scenario raises a loud per-side
 banner (same visual language as the Values tab's guaranteed-failure strip)
 and NEVER hides the surviving sides' results. When the loaded policy changes,
 ``clear_results()`` wipes the strip and ledger so results are never
@@ -46,7 +44,6 @@ from PyQt6.QtGui import QColor, QCursor
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -110,22 +107,16 @@ _NOTE_STYLE = (
     "background-color: #F6F1FB; color: #4B2383; border: 1px solid #B79CDE;"
     " border-radius: 4px; font-size: 11px; padding: 4px 8px;")
 
-_LABEL_CHIP_STYLE = (
-    "background-color: #2A1458; color: #FFD54F; border: 1px solid #5E35A5;"
-    " border-radius: 4px; font-size: 11px; font-weight: bold; padding: 3px 10px;")
-
-_TONE_COLORS = {"good": "#69F0AE", "bad": "#FF8A80", "neutral": "#FFD54F"}
-_CHIPS_PER_ROW = 8
-
 # The divider columns between scenario blocks: thin and SOLID-filled top to
-# bottom (the model paints every data row of the column) so the blocks read
-# clearly divided — a pink vertical rule, not a tint. Pink #A5355E is the
-# accent already carried by the Excel export's header/divider fill (0xA5355E);
-# reused here so screen and workbook agree. Excel's COM Interior.Color is BGR,
-# so the same pink is 0x5E35A5 there.
-_SEPARATOR_COLOR = "#A5355E"
-_SEPARATOR_COLOR_BGR = 0x5E35A5
-_SEPARATOR_WIDTH = 5
+# bottom (a delegate paints every data row of the column) so the blocks read
+# clearly divided. Colored to MATCH THE HEADING so the separator's header cell
+# and its data-row rule form one continuous band: on screen that is the ledger
+# header lavender #E8DDF8 (apply_ledger_style's default header_bg); in the Excel
+# export it is that sheet's own purple header fill (COM Interior.Color is BGR,
+# so #5E35A5 is 0xA5355E).
+_SEPARATOR_COLOR = "#E8DDF8"
+_SEPARATOR_COLOR_BGR = 0xA5355E
+_SEPARATOR_WIDTH = 10   # a clear divider bar (2× the original thin rule)
 
 # Scenario picker: the shared input-combo look plus a pink drop-highlight
 # border while a valid saved-case drag hovers over it.
@@ -228,35 +219,6 @@ class _ScenarioComboBox(QComboBox):
         style = self.style()
         style.unpolish(self)
         style.polish(self)
-
-
-class _DeltaChip(QWidget):
-    """Caption over the per-scenario values and the colored delta — the
-    Overview KPI chip, grown a third line for the comparison."""
-
-    def __init__(self, row, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(
-            "background-color: #2A1458; border: 1px solid #5E35A5; border-radius: 4px;")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 3, 8, 4)
-        layout.setSpacing(0)
-        caption = QLabel(row.caption.upper())
-        caption.setStyleSheet(
-            "color: #B79CDE; background: transparent; border: none; font-size: 9px;")
-        values = QLabel("  →  ".join(row.values))
-        values.setStyleSheet(
-            "color: #E8DDF8; background: transparent; border: none;"
-            " font-size: 10px; font-weight: bold;")
-        delta = QLabel(f"Δ {row.delta_text}")
-        delta.setStyleSheet(
-            f"color: {_TONE_COLORS.get(row.tone, _TONE_COLORS['neutral'])};"
-            " background: transparent; border: none;"
-            " font-size: 12px; font-weight: bold;")
-        layout.addWidget(caption)
-        layout.addWidget(values)
-        layout.addWidget(delta)
 
 
 class _CompareWorker(QThread):
@@ -364,15 +326,6 @@ class IllustrationCompareTab(QWidget):
         self.apply_note.setStyleSheet(_NOTE_STYLE)
         self.apply_note.setVisible(False)
         layout.addWidget(self.apply_note)
-
-        # ── KPI delta strip: label chips lead, then the KPI chips ──
-        self.kpi_container = QWidget(self)
-        self.kpi_container.setStyleSheet("background: transparent;")
-        self.kpi_grid = QGridLayout(self.kpi_container)
-        self.kpi_grid.setContentsMargins(0, 0, 0, 0)
-        self.kpi_grid.setHorizontalSpacing(6)
-        self.kpi_grid.setVerticalSpacing(6)
-        layout.addWidget(self.kpi_container)
 
         # ── the side-by-side scenario-block annual ledger ──
         self.ledger_view = FilterTableView(self)
@@ -624,9 +577,9 @@ class IllustrationCompareTab(QWidget):
         for banner in self.banners:
             banner.setVisible(False)
         self.apply_note.setVisible(False)
-        self._clear_kpi_grid()
         self.ledger_view.set_dataframe(pd.DataFrame(), limit_rows=False)
         self.ledger_view.set_column_groups(None)
+        self.ledger_view.set_divider_columns([])
         self.status_label.setText(message)
 
     def populate_comparison(self, result: ComparisonResult):
@@ -647,8 +600,6 @@ class IllustrationCompareTab(QWidget):
         for banner in self.banners[len(outcomes):]:
             banner.setVisible(False)
 
-        self._rebuild_kpi_strip(result, tags)
-
         ledger = result.ledger
         self.ledger_view.set_dataframe(ledger, limit_rows=False)
         self.ledger_view.set_numeric_formatting(
@@ -663,12 +614,17 @@ class IllustrationCompareTab(QWidget):
                 ledger_column_groups(ledger, *[o.label for o in outcomes]))
             self.ledger_view.set_column_backgrounds(
                 {sep: QColor(_SEPARATOR_COLOR) for sep in seps})
+            # A delegate does the actual on-screen fill: the ledger-style QSS
+            # stylesheet suppresses the model background brush, so the tint
+            # above alone would not show.
+            self.ledger_view.set_divider_columns(seps, _SEPARATOR_COLOR)
             self.ledger_view.set_frozen_column_count(2)   # Year | Age stay put
             self.ledger_view.autofit_columns_to_data()
             for sep in seps:
                 self.ledger_view.set_column_width(sep, _SEPARATOR_WIDTH)
         else:
             self.ledger_view.set_column_groups(None)
+            self.ledger_view.set_divider_columns([])
         self.excel_btn.setEnabled(bool(result.kpis) or not result.ledger.empty)
 
         oks = [o.ok for o in outcomes]
@@ -684,36 +640,6 @@ class IllustrationCompareTab(QWidget):
         else:
             self.status_label.setText(
                 "Comparison failed on every scenario — see the banners above.")
-
-    def _clear_kpi_grid(self):
-        while self.kpi_grid.count():
-            item = self.kpi_grid.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-    def _rebuild_kpi_strip(self, result: ComparisonResult, tags):
-        self._clear_kpi_grid()
-
-        # Leading label chips — the scenario names, never anonymous A/B/C.
-        legend = QHBoxLayout()
-        legend.setSpacing(6)
-        for prefix, tag in zip("ABC", tags):
-            chip = QLabel(f"{prefix} · {tag}")
-            chip.setStyleSheet(_LABEL_CHIP_STYLE)
-            legend.addWidget(chip)
-        legend.addStretch(1)
-        legend_host = QWidget(self.kpi_container)
-        legend_host.setStyleSheet("background: transparent;")
-        legend_host.setLayout(legend)
-        self.kpi_grid.addWidget(legend_host, 0, 0, 1, _CHIPS_PER_ROW)
-
-        for index, row in enumerate(result.kpis):
-            grid_row = 1 + index // _CHIPS_PER_ROW
-            grid_col = index % _CHIPS_PER_ROW
-            self.kpi_grid.addWidget(_DeltaChip(row), grid_row, grid_col)
-        # Pad the last row so chips stay packed left.
-        self.kpi_grid.setColumnStretch(_CHIPS_PER_ROW, 1)
 
     # ── Excel export ─────────────────────────────────────────────────
 

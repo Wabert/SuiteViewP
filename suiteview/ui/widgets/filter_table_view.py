@@ -19,6 +19,29 @@ logger = logging.getLogger(__name__)
 MAX_DISPLAY_ROWS = 50000  # Configurable maximum rows to display
 
 
+class _SolidColumnDelegate(QStyledItemDelegate):
+    """Fills a cell's full rect with a solid color and draws nothing else — a
+    vertical divider bar for separator columns.
+
+    Needed because ``apply_ledger_style`` puts a QSS stylesheet on the table
+    view, and a QSS ``::item`` rule routes item painting through
+    ``QStyleSheetStyle``, which ignores the model's ``BackgroundRole`` brush for
+    unselected cells — so a column-background tint alone never shows on screen.
+    A delegate paints regardless of the stylesheet. Selection is ignored so the
+    divider stays one constant rule top-to-bottom.
+    """
+
+    def __init__(self, color, parent=None):
+        super().__init__(parent)
+        self._color = QColor(color)
+
+    def set_color(self, color):
+        self._color = QColor(color)
+
+    def paint(self, painter, option, index):
+        painter.fillRect(option.rect, self._color)
+
+
 class ClickableHeaderView(QHeaderView):
     """Custom header view with clickable sort icons"""
     
@@ -1604,6 +1627,34 @@ class FilterTableView(QWidget):
         set_dataframe — a new frame resets it."""
         if self.model is not None:
             self.model.set_column_backgrounds(colors)
+
+    def set_divider_columns(self, columns, color="#A5355E"):
+        """Paint the named columns as solid vertical divider bars via an item
+        delegate, so the fill renders even under ``apply_ledger_style``'s QSS
+        stylesheet (which suppresses the model's ``BackgroundRole``). Call after
+        set_dataframe; pass an empty list to clear. Restores any previously
+        decorated columns to the view's default delegate first, so a changing
+        column set never leaves a stale divider behind."""
+        if not hasattr(self, "_divider_delegate"):
+            self._divider_delegate = _SolidColumnDelegate(QColor(color), self)
+            self._divider_applied: List[tuple] = []
+        else:
+            self._divider_delegate.set_color(QColor(color))
+        for view, idx in self._divider_applied:
+            view.setItemDelegateForColumn(idx, view.itemDelegate())
+        self._divider_applied = []
+        if not columns or self.model is None:
+            return
+        name_to_index = {
+            self.model.column_name(i): i
+            for i in range(self.model.columnCount())}
+        for name in columns:
+            idx = name_to_index.get(name)
+            if idx is None:
+                continue
+            for view in (self.table_view, self.frozen_table_view):
+                view.setItemDelegateForColumn(idx, self._divider_delegate)
+                self._divider_applied.append((view, idx))
 
     def set_header_labels(self, header_labels: Dict[str, str]):
         if self.model is not None:

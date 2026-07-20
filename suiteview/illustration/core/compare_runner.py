@@ -25,7 +25,7 @@ its :class:`ScenarioOutcome` so the UI can raise a loud per-scenario banner.
 Scenario labels ("Current Inputs" or the saved-case name) travel with every
 output — KPI rows, and the ledger's grouped block headers via
 :func:`ledger_column_groups` — so results are never an anonymous "A/B/C".
-Within a block the columns carry plain measure names ("Prem Outlay", "AV");
+Within a block the columns carry plain measure names ("Contributions", "AV");
 the DataFrame keys are prefixed ("A: AV" / "B: AV" / "C: AV") only for
 uniqueness and :func:`ledger_header_labels` maps them back to the plain
 display names.
@@ -42,16 +42,15 @@ from suiteview.illustration.core.calc_engine import IllustrationEngine
 # Policy-year marks the KPI summary samples AV/SV/DB at (plus each side's end).
 KPI_YEAR_MARKS = (5, 10, 20)
 
-# Ledger measures: (column stem, annual-row key). The optional group only
-# appears when either scenario actually has activity in the measure.
-LEDGER_MEASURES = (("Prem Outlay", "outlay"), ("AV", "av"), ("SV", "sv"), ("DB", "db"))
-LEDGER_OPTIONAL_MEASURES = (
-    ("Withdrawals", "wd"),
-    ("New Loans", "new_loan"),
-    ("Loan Repay", "loan_repay"),
+# Ledger measures shown in every scenario block: (column stem, annual-row key).
+# Contributions (money in: premium + loan repayments) and Distributions (money
+# out: withdrawals + force-outs + new loans) are the same rollups the Values
+# Overview ledger shows, so per-flow detail is summarized into two columns.
+LEDGER_MEASURES = (
+    ("Contributions", "contributions"),
+    ("Distributions", "distributions"),
+    ("AV", "av"), ("SV", "sv"), ("DB", "db"),
 )
-# Where the optional measures slot in: after Prem Outlay, before AV.
-_LEDGER_OPTIONAL_AFTER = "Prem Outlay"
 
 # Divider columns between scenario blocks (blank cells, no header text — the
 # UI narrows and solid-fills them so they read as vertical rules). The first
@@ -596,12 +595,19 @@ def annual_rows(results: Optional[list]) -> dict:
         eoy = months[-1]
         withdrawals = eoy.withdrawals_to_date - prior_wd
         prior_wd = eoy.withdrawals_to_date
+        outlay = sum(s.premium_outlay for s in months)
+        new_loan = sum(s.applied_new_loan for s in months)
+        loan_repay = sum(s.applied_loan_repayment for s in months)
+        forceout = sum(s.guideline_forceout for s in months)
         out[year] = {
             "age": int(eoy.attained_age),
-            "outlay": sum(s.premium_outlay for s in months),
+            "outlay": outlay,
             "wd": withdrawals,
-            "new_loan": sum(s.applied_new_loan for s in months),
-            "loan_repay": sum(s.applied_loan_repayment for s in months),
+            "new_loan": new_loan,
+            "loan_repay": loan_repay,
+            # Rollups (Overview conventions): money in / money out.
+            "contributions": outlay + loan_repay,
+            "distributions": withdrawals + forceout + new_loan,
             "av": eoy.av_end_of_month,
             "sv": eoy.ending_sv,
             "db": eoy.ending_db or eoy.gross_db,
@@ -622,20 +628,6 @@ def side_tags(*labels) -> tuple:
         for i, tag in enumerate(tags))
 
 
-def _active_measures(rows_list: list) -> list:
-    """Always-on measures plus any optional measure with activity on any side."""
-    measures = list(LEDGER_MEASURES)
-    insert_at = next(
-        i + 1 for i, (stem, _) in enumerate(measures)
-        if stem == _LEDGER_OPTIONAL_AFTER)
-    optional = [
-        (stem, key) for stem, key in LEDGER_OPTIONAL_MEASURES
-        if any(abs(row[key]) > _ZERO
-               for rows in rows_list for row in rows.values())
-    ]
-    return measures[:insert_at] + optional + measures[insert_at:]
-
-
 def build_comparison_ledger(outcomes: list) -> pd.DataFrame:
     """The paired annual ledger as one scenario block per outcome.
 
@@ -648,7 +640,7 @@ def build_comparison_ledger(outcomes: list) -> pd.DataFrame:
     """
     rows_list = [annual_rows(o.results) if o.ok else {} for o in outcomes]
     years = sorted(set().union(*rows_list)) if rows_list else []
-    measures = _active_measures(rows_list)
+    measures = list(LEDGER_MEASURES)
 
     columns = ["Year", "Age"]
     seps = []

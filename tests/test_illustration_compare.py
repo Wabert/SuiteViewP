@@ -242,6 +242,10 @@ def test_run_comparison_isolates_one_scenario_error():
 def test_annual_rows_sums_flows_and_takes_eoy_balances():
     rows = annual_rows(_run(3, premium=1200.0, wd_per_year=500.0,
                             new_loan_per_year=250.0, repay_per_year=100.0))
+    # Rollups: Contributions = premium outlay + loan repay; Distributions =
+    # withdrawals + force-outs + new loans.
+    assert rows[2]["contributions"] == 1300.0        # 1,200 + 100
+    assert rows[2]["distributions"] == 750.0          # 500 + 0 + 250
     assert sorted(rows) == [1, 2, 3]
     assert rows[2]["outlay"] == 1200.0
     assert rows[2]["wd"] == 500.0
@@ -259,23 +263,24 @@ def test_ledger_is_two_scenario_blocks_with_separator():
 
     ledger = build_comparison_ledger([a, b])
 
-    # Withdrawals appear because B has activity; loans stay out (no activity
-    # on either side). Block A is contiguous, then the separator, then block B.
-    stems = ("Prem Outlay", "Withdrawals", "AV", "SV", "DB")
+    # Every block carries the same five measures — cash flows rolled up into
+    # Contributions / Distributions. Block A is contiguous, then the separator,
+    # then block B.
+    stems = ("Contributions", "Distributions", "AV", "SV", "DB")
     expected = (["Year", "Age"]
                 + [f"A: {stem}" for stem in stems]
                 + [LEDGER_SEPARATOR]
                 + [f"B: {stem}" for stem in stems])
     assert list(ledger.columns) == expected
-    # No Δ columns anywhere — deltas live only in the KPI chips.
+    # No Δ columns anywhere — deltas live only in the KPI summary.
     assert not any("Δ" in str(c) for c in ledger.columns)
     assert list(ledger.columns).index(LEDGER_SEPARATOR) == 2 + len(stems)
     assert len(ledger) == 3
     assert list(ledger["Year"]) == [1, 2, 3]
     assert list(ledger[LEDGER_SEPARATOR]) == ["", "", ""]
-    # Only B withdraws; A's withdrawal column is genuine zeros.
-    assert list(ledger["B: Withdrawals"]) == [500.0, 500.0, 500.0]
-    assert list(ledger["A: Withdrawals"]) == [0.0, 0.0, 0.0]
+    # Only B withdraws → its Distributions carry the 500/yr; A's are zero.
+    assert list(ledger["B: Distributions"]) == [500.0, 500.0, 500.0]
+    assert list(ledger["A: Distributions"]) == [0.0, 0.0, 0.0]
 
 
 def test_ledger_display_labels_and_grouped_scenario_headers():
@@ -287,7 +292,7 @@ def test_ledger_display_labels_and_grouped_scenario_headers():
     # Display labels are plain measure names (no scenario suffix); the
     # separator's header is blank.
     labels = ledger_header_labels(ledger)
-    assert labels["A: Prem Outlay"] == "Prem Outlay"
+    assert labels["A: Contributions"] == "Contributions"
     assert labels["B: AV"] == "AV"
     assert labels[LEDGER_SEPARATOR] == ""
     assert "Year" not in labels                # shared columns keep their names
@@ -340,7 +345,7 @@ def test_three_scenario_ledger_has_three_blocks_and_two_solid_dividers():
 
     ledger = build_comparison_ledger([a, b, c])
 
-    stems = ("Prem Outlay", "Withdrawals", "AV", "SV", "DB")
+    stems = ("Contributions", "Distributions", "AV", "SV", "DB")
     expected = (["Year", "Age"]
                 + [f"A: {stem}" for stem in stems]
                 + [LEDGER_SEPARATOR]
@@ -355,9 +360,9 @@ def test_three_scenario_ledger_has_three_blocks_and_two_solid_dividers():
     groups = ledger_column_groups(ledger, a.label, b.label, c.label)
     assert [label for label, _cols in groups] == [
         "Current Inputs", "Opt A", "Opt B"]
-    # Only C withdraws; its block owns the activity.
-    assert list(ledger["C: Withdrawals"]) == [250.0, 250.0, 250.0]
-    assert list(ledger["A: Withdrawals"]) == [0.0, 0.0, 0.0]
+    # Only C withdraws; its Distributions own the activity.
+    assert list(ledger["C: Distributions"]) == [250.0, 250.0, 250.0]
+    assert list(ledger["A: Distributions"]) == [0.0, 0.0, 0.0]
     labels = ledger_header_labels(ledger)
     assert labels["C: AV"] == "AV"
     assert labels[f"{LEDGER_SEPARATOR}2"] == ""
@@ -668,7 +673,7 @@ def test_saved_cases_view_rows_are_draggable(tmp_path):
     assert bytes(mime.data(SAVED_CASE_MIME)).decode("utf-8") == "Draggable Case"
 
 
-def test_compare_tab_populates_kpis_ledger_and_status():
+def test_compare_tab_populates_ledger_and_status_without_kpi_strip():
     _app()
     a = _outcome("Current Inputs", _run(5))
     b = _outcome("Solved Min", _run(5, premium=800.0))
@@ -682,8 +687,8 @@ def test_compare_tab_populates_kpis_ledger_and_status():
     assert tab.run_btn.isEnabled()
     assert tab.banner_a.isHidden()
     assert tab.banner_b.isHidden()
-    # Label-chips host + one chip per KPI row live in the strip.
-    assert tab.kpi_grid.count() == 1 + len(result.kpis)
+    # The on-screen KPI delta strip was removed — no such widget exists.
+    assert not hasattr(tab, "kpi_grid")
 
     view = tab.ledger_view
     df = view.df
@@ -698,14 +703,19 @@ def test_compare_tab_populates_kpis_ledger_and_status():
         result.ledger, "Current Inputs", "Solved Min")
     assert not view.group_bar.isHidden()
     # The divider column is thin and SOLID-filled — a clear vertical rule.
+    # The tint records intent on the model; a delegate does the actual paint
+    # (the ledger-style stylesheet suppresses the model background brush).
     from PyQt6.QtGui import QColor
     sep_index = list(df.columns).index(LEDGER_SEPARATOR)
     assert view.table_view.columnWidth(sep_index) == _SEPARATOR_WIDTH
-    assert _SEPARATOR_WIDTH <= 6
+    assert _SEPARATOR_WIDTH >= 8          # a clear divider bar, not a hairline
     assert view.model._column_backgrounds[LEDGER_SEPARATOR] == QColor(
         _SEPARATOR_COLOR)
+    divider_delegate = view.table_view.itemDelegateForColumn(sep_index)
+    assert divider_delegate is not None
+    assert divider_delegate is view._divider_delegate
 
-    # Status is minimal — the chips already name both sides.
+    # Status is minimal — the ledger's grouped headers already name both sides.
     assert tab.status_label.text() == "Comparison ready."
 
 
@@ -730,6 +740,9 @@ def test_compare_tab_populates_three_scenarios_with_two_dividers():
         sep_index = list(view.df.columns).index(sep)
         assert view.table_view.columnWidth(sep_index) == _SEPARATOR_WIDTH
         assert view.model._column_backgrounds[sep] == QColor(_SEPARATOR_COLOR)
+        # Both dividers are painted by the solid-fill delegate.
+        assert view.table_view.itemDelegateForColumn(sep_index) is (
+            view._divider_delegate)
     assert tab.banner_c.isHidden()
     assert tab.status_label.text() == "Comparison ready."
 
@@ -772,8 +785,9 @@ def test_compare_tab_clear_results_wipes_everything():
     assert tab.banner_a.isHidden() and tab.banner_b.isHidden()
     assert tab.banner_c.isHidden()
     assert tab.apply_note.isHidden()
-    assert tab.kpi_grid.count() == 0
     assert tab.ledger_view.df.empty
+    # Dividers cleared with the ledger — no stale decorated columns remain.
+    assert tab.ledger_view._divider_applied == []
     assert tab.status_label.text().startswith("Load a policy")
 
 
