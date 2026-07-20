@@ -150,8 +150,8 @@ def test_loan_policy_allows_gp_exception_but_shadow_still_blocks():
     tab.dynamic_panel.load_from_policy(_LoanPolicy())
     assert tab.dynamic_panel._ctx.has_loans is True
     assert tab.dynamic_panel.exception_notice.text() == ""
+    # Available (the user can opt in); a shadow account is what blocks it.
     assert tab.exception_prem_check.isEnabled() is True
-    assert tab.exception_prem_check.isChecked() is True
 
     shadow_tab = IllustrationInputsTab()
     shadow_tab.dynamic_panel.load_from_policy(_LoanPolicy(), has_shadow=True)
@@ -201,8 +201,8 @@ def test_min_level_available_for_loan_policy():
     row = panel.premium_section.rows()[0]
     options = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
     assert options == [
-        "INPUT", "Billable Prem", "Max Level Allowed", "Prem to Maturity",
-        "Monthly Deduction", "Solve"]
+        "INPUT", "Billable Prem", "Billable to MD", "Max Level",
+        "Prem to Maturity", "Monthly Deduction", "Solve"]
 
 
 def test_new_premium_row_defaults_span_to_maturity():
@@ -260,14 +260,16 @@ def test_loan_and_withdrawal_modes_default_to_annual():
     assert panel.loan_section.rows()[0].mode() == "A"
 
 
-def test_allow_gp_exception_premium_checked_by_default():
+def test_allow_gp_exception_premium_unchecked_by_default():
     # Allow GP Exception Premium lives in the Illustration Control tab's Run
-    # Controls and is on by default for a normal (non-shadow) policy.
+    # Controls and is OFF by default — available (a normal non-shadow policy
+    # leaves it enabled), but the user opts in.
     _app()
     tab = IllustrationInputsTab()
     tab.dynamic_panel.load_from_policy(_FakePolicy())
-    assert tab.exception_prem_check.isChecked() is True
-    assert tab.export_options().allow_exception_prems is True
+    assert tab.exception_prem_check.isEnabled() is True
+    assert tab.exception_prem_check.isChecked() is False
+    assert tab.export_options().allow_exception_prems is False
 
 
 def test_max_level_premium_defaults_and_changes_with_mode():
@@ -275,13 +277,13 @@ def test_max_level_premium_defaults_and_changes_with_mode():
     row = panel.premium_section.rows()[0]
 
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
-        "INPUT", "Billable Prem", "Max Level Allowed", "Prem to Maturity",
-        "Monthly Deduction", "Solve"]
+        "INPUT", "Billable Prem", "Billable to MD", "Max Level",
+        "Prem to Maturity", "Monthly Deduction", "Solve"]
 
     # Forecast is policy year 7, month 8, so the current year still has modes
     # left (5 monthly / 1 quarterly), which the payment count now includes:
     # monthly = 43*12 + 5 = 521, quarterly = 43*4 + 1 = 173, annual = 43.
-    row.type_combo.setCurrentText("Max Level Allowed")
+    row.type_combo.setCurrentText("Max Level")
     assert row.amount_edit.isReadOnly()
     assert abs(row.amount() - 47600.0 / 521) < 0.005      # 91.36 monthly
 
@@ -316,7 +318,7 @@ def test_max_level_premium_uses_attained_age_and_age_100_cap():
     panel = DynamicInputsPanel()
     panel.load_from_policy(UF002047Policy())
     row = panel.premium_section.rows()[0]
-    row.type_combo.setCurrentText("Max Level Allowed")
+    row.type_combo.setCurrentText("Max Level")
     row.mode_combo.setCurrentText("A")
 
     # GLP is monthly-normalized: floor(2936.85/12, 2)*12 = 2936.76, so the max
@@ -336,7 +338,8 @@ def test_max_level_premium_hidden_for_cvat():
     # CVAT has no guideline premium test, so Max Level (guideline-room math) is
     # hidden — but Prem to Maturity still solves (with exceptions off).
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
-        "INPUT", "Billable Prem", "Prem to Maturity", "Monthly Deduction", "Solve"]
+        "INPUT", "Billable Prem", "Billable to MD", "Prem to Maturity",
+        "Monthly Deduction", "Solve"]
 
 
 def test_shadow_level_premium_offered_for_shadow_policies():
@@ -346,8 +349,9 @@ def test_shadow_level_premium_offered_for_shadow_policies():
     row = panel.premium_section.rows()[0]
 
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
-        "INPUT", "Billable Prem", "Max Level Allowed", "Prem to Maturity",
-        "Prem to Shadow Maturity", "Monthly Deduction", "Solve"]
+        "INPUT", "Billable Prem", "Billable to MD", "Max Level",
+        "Prem to Maturity", "Prem to Shadow Maturity", "Monthly Deduction",
+        "Solve"]
 
     # Selecting the shadow type surfaces it through shadow_level_request.
     row.type_combo.setCurrentText("Prem to Shadow Maturity")
@@ -766,14 +770,14 @@ def test_current_year_change_lands_on_forecast_date():
 
 
 def test_max_and_min_level_unlock_side_sections_but_lock_new_loans():
-    # Max Level Allowed / Prem to Maturity keep Face Amount / DB Option / riders
+    # Max Level / Prem to Maturity keep Face Amount / DB Option / riders
     # editable AND now keep withdrawals, loan repayments, rate-class and table
     # changes editable (they feed the solve). Only NEW loans stay locked. When
     # no level type is active everything is editable again.
     panel = _panel()
     row = panel.premium_section.rows()[0]
 
-    for level_type in ("Prem to Maturity", "Max Level Allowed"):
+    for level_type in ("Prem to Maturity", "Max Level"):
         row.type_combo.setCurrentText(level_type)
         assert panel.loan_section.isEnabled() is False, level_type
         for section in (panel.face_section, panel.dbo_section,
@@ -852,11 +856,11 @@ def _populate_level_side_inputs(panel):
 
 
 def test_level_solves_collect_side_inputs_but_not_new_loans():
-    # Max Level Allowed / Prem to Maturity now export withdrawals, fixed loan
+    # Max Level / Prem to Maturity now export withdrawals, fixed loan
     # repayments, and rate-class / table changes (all feed the solve and its
     # displayed run) alongside the Face / DBO changes — but a NEW loan is still
     # excluded (that section stays locked).
-    for level_type in ("Prem to Maturity", "Max Level Allowed"):
+    for level_type in ("Prem to Maturity", "Max Level"):
         panel = _panel()
         panel.premium_section.rows()[0].type_combo.setCurrentText(level_type)
         _populate_level_side_inputs(panel)
@@ -1058,11 +1062,11 @@ def test_sections_pack_to_top_with_trailing_stretch():
 
 
 def test_level_solve_caveat_banner_flags_post_forecast_policy_changes():
-    # Max Level Allowed / Prem to Maturity solve a level premium from the
+    # Max Level / Prem to Maturity solve a level premium from the
     # forecast date; a policy change AFTER the forecast date can shift the
     # funding the solve measures, so combining the two shows a caveat strip.
     # Changes ON the forecast date are safe. The run stays allowed.
-    for level_type in ("Max Level Allowed", "Prem to Maturity"):
+    for level_type in ("Max Level", "Prem to Maturity"):
         _app()
         tab = IllustrationInputsTab()
         tab.load_data_from_policy(_FakePolicy())
@@ -1099,7 +1103,7 @@ def test_level_solve_caveat_banner_flags_post_forecast_policy_changes():
 
 
 def test_level_solve_caveat_fires_for_withdrawal_rateclass_and_table():
-    # Under BOTH Max Level Allowed and Prem to Maturity the caveat fires for a
+    # Under BOTH Max Level and Prem to Maturity the caveat fires for a
     # withdrawal, rate-class change or table change scheduled after the forecast
     # date (each moves the funding the solve measures). Each trigger is checked
     # on its own fresh tab so nothing bleeds between the sub-cases.
@@ -1112,7 +1116,7 @@ def test_level_solve_caveat_fires_for_withdrawal_rateclass_and_table():
         assert not tab.level_solve_change_caveat_active(), level_type
         return tab
 
-    for level_type in ("Max Level Allowed", "Prem to Maturity"):
+    for level_type in ("Max Level", "Prem to Maturity"):
         # Withdrawal after the forecast date -> caveat on. Emitting the
         # section's changed signal exercises the live wiring that drives the
         # banner (the wiring the inputs tab installs on this section).
@@ -1158,7 +1162,7 @@ def test_level_solve_caveat_fires_for_withdrawal_rateclass_and_table():
 def test_level_solve_caveat_ignores_loan_repayments():
     # Loan repayments are allowed outright under the level solves, so a
     # repayment scheduled after the forecast date must NOT raise the caveat.
-    for level_type in ("Max Level Allowed", "Prem to Maturity"):
+    for level_type in ("Max Level", "Prem to Maturity"):
         _app()
         tab = IllustrationInputsTab()
         tab.load_data_from_policy(_FakePolicy())
@@ -1240,7 +1244,7 @@ def test_caveat_banner_sits_under_riders_and_fires_on_rider_changes():
     assert layout.itemAt(layout.count() - 2).widget() is tab.dynamic_panel.riders_panel
 
     tab.dynamic_panel.premium_section.rows()[0].type_combo.setCurrentText(
-        "Max Level Allowed")
+        "Max Level")
     assert not tab.level_solve_caveat_banner.isVisibleTo(tab.dynamic_panel)
 
     # Rider drop at year 9 — the year-9 anniversary is after the forecast

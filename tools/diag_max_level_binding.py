@@ -1,4 +1,4 @@
-"""Diagnose what constrains the Max Level Allowed solve for a policy.
+"""Diagnose what constrains the Max Level solve for a policy.
 
 Projects the policy at several modal level premiums (mirroring
 ``solve_max_level_allowed``'s own basis: guideline + TAMRA on, GP exceptions

@@ -50,7 +50,7 @@ def main() -> None:
 
     # 2) Max Level + face change after the forecast date → caveat banner at
     #    the bottom, under Riders and Benefits.
-    row.type_combo.setCurrentText("Max Level Allowed")
+    row.type_combo.setCurrentText("Max Level")
     face_row = panel.face_section.rows()[0]
     face_row.year_edit.set_value(int(panel._ctx.forecast_year) + 3)
     face_row._year_edited()

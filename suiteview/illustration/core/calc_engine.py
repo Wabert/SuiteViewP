@@ -713,6 +713,16 @@ class IllustrationEngine:
         requested_scheduled, requested_lumpsum = _split_requested_premium(
             policy, config, month_inputs, attained_age
         )
+        # Billable-to-MD: once the hand-off has latched, the row's billable
+        # premium stops — the scheduled premium (the row owns the schedule
+        # within its window) and its dated billable payments this year. Other
+        # lumpsums in the same month still pay.
+        b2md_active = _billable_to_md_active(options, next_year)
+        if b2md_active and state.billable_md_switched:
+            requested_scheduled = 0.0
+            if month_inputs is not None:
+                requested_lumpsum = max(
+                    0.0, requested_lumpsum - month_inputs.billable_to_md_premium)
         # Levelizing is gated on the loan that exists BEFORE the repayment (RERUN's
         # NX uses LX..MC, post-capitalization/pre-repay). Capturing it after the
         # repay would let the month that finally clears the loan flip levelizing on
@@ -802,6 +812,34 @@ class IllustrationEngine:
             beginning_of_year=beginning_of_year,
             prior_limit_reached=state.guideline_limit_reached,
         )
+        # Billable-to-MD hand-off: within the window, the FIRST month the
+        # post-deduction values would fail the lapse test in stage 18 (absent
+        # any MD/exception help) latches the switch — the Monthly Deduction
+        # premium pays from THIS month on, so the policy survives the month
+        # the billable premium stopped carrying it. The probe mirrors the
+        # stage-18 protections on the pre-help account value: safety net,
+        # shadow account (prior month's EAV-less-debt — this month's shadow
+        # runs at stage 17), and the plancode's SV/AV lapse basis.
+        b2md_switched = state.billable_md_switched
+        if b2md_active and not b2md_switched and not state.lapsed:
+            _, sc_probe, _, _ = _calculate_surrender_charge(
+                policy, rates, rate_year, month_date)
+            probe_debt = cap_loan.policy_debt
+            snet_probe = (
+                (prem.premiums_to_date - withdrawals_to_date - probe_debt)
+                - accumulated_mtp >= 0 and within_snet)
+            shadow_probe = (
+                policy.has_shadow_account and past_snet
+                and state.shadow_eav_less_debt > 0)
+            sv_probe = (config.lapse_value == "SV"
+                        and av_after_charge - sc_probe - probe_debt > 0)
+            av_probe = (config.lapse_value == "AV"
+                        and av_after_charge - probe_debt > 0)
+            if not (snet_probe or shadow_probe or sv_probe or av_probe):
+                b2md_switched = True
+        md_premium_active = (
+            _monthly_deduction_premium_active(options, next_year)
+            or (b2md_active and b2md_switched))
         exception = _compute_exception_premium(
             options, policy, config, rates, rate_year,
             av_after_charge=av_after_charge,
@@ -811,7 +849,7 @@ class IllustrationEngine:
             prior_exception_mode=prior_exception_mode,
             prior_lapsed=state.lapsed,
             attained_age=attained_age,
-            md_premium_active=_monthly_deduction_premium_active(options, next_year),
+            md_premium_active=md_premium_active,
             total_deduction=ded.total_deduction,
             guideline_limit=guideline_limit,
             premiums_to_date=prem.premiums_to_date,
@@ -1075,6 +1113,7 @@ class IllustrationEngine:
             tamra_7pay_level=policy.tamra_7pay_level,
             guideline_limit_reached=guideline_limit_reached,
             md_premium_mode=exception.md_premium_mode,
+            billable_md_switched=b2md_switched,
             md_premium=exception.md_prem,
             md_premium_gross=exception.md_prem_gross,
             md_premium_capped=exception.md_prem_capped,
@@ -1316,6 +1355,14 @@ class IllustrationEngine:
         requested_scheduled, requested_lumpsum = _split_requested_premium(
             policy, config, month_inputs, attained_age
         )
+        # Billable-to-MD: once the hand-off has latched, the row's billable
+        # premium stops (see process_month).
+        b2md_active = _billable_to_md_active(options, next_year)
+        if b2md_active and state.billable_md_switched:
+            requested_scheduled = 0.0
+            if month_inputs is not None:
+                requested_lumpsum = max(
+                    0.0, requested_lumpsum - month_inputs.billable_to_md_premium)
         # Levelizing is gated on the pre-repay loan (RERUN NX uses LX..MC) — see
         # process_month.
         has_loan_balance = _loan_balance_for_levelizing(cap_loan)
@@ -1403,6 +1450,14 @@ class IllustrationEngine:
             beginning_of_year=beginning_of_year,
             prior_limit_reached=state.guideline_limit_reached,
         )
+        # Billable-to-MD hand-off — this timing mode's lapse test is simply
+        # av_end <= 0, so the probe latches the switch the first month the
+        # post-deduction AV would go negative without help (see process_month
+        # for the full-protection probe on the illustration timing).
+        b2md_switched = state.billable_md_switched
+        if (b2md_active and not b2md_switched and not state.lapsed
+                and ded.av_after_deduction - asset_charge <= 0.0):
+            b2md_switched = True
         exception = _compute_exception_premium(
             options, policy, config, rates, rate_year,
             av_after_charge=ded.av_after_deduction - asset_charge,
@@ -1412,7 +1467,9 @@ class IllustrationEngine:
             prior_exception_mode=prior_exception_mode,
             prior_lapsed=state.lapsed,
             attained_age=attained_age,
-            md_premium_active=_monthly_deduction_premium_active(options, next_year),
+            md_premium_active=(
+                _monthly_deduction_premium_active(options, next_year)
+                or (b2md_active and b2md_switched)),
             total_deduction=ded.total_deduction,
             guideline_limit=guideline_limit,
             premiums_to_date=prem.premiums_to_date,
@@ -1516,6 +1573,7 @@ class IllustrationEngine:
             tamra_7pay_level=policy.tamra_7pay_level,
             guideline_limit_reached=guideline_limit_reached,
             md_premium_mode=exception.md_premium_mode,
+            billable_md_switched=b2md_switched,
             md_premium=exception.md_prem,
             md_premium_gross=exception.md_prem_gross,
             md_premium_capped=exception.md_prem_capped,
@@ -2988,6 +3046,24 @@ def _monthly_deduction_premium_active(options: IllustrationOptions, policy_year:
     windows = options.monthly_deduction_windows
     if not windows:
         return True
+    return any(
+        policy_year >= start and (end is None or policy_year <= end)
+        for start, end in windows
+    )
+
+
+def _billable_to_md_active(options: IllustrationOptions, policy_year: int) -> bool:
+    """Whether a "Billable to MD" premium window covers this policy year.
+
+    Within the window the row's scheduled billable premium pays normally until
+    the first month it can no longer keep the policy in force; the engine then
+    latches ``MonthlyState.billable_md_switched``, stops the billable premium,
+    and pays the Monthly Deduction premium instead (GP exception backstop once
+    the guideline room runs out).
+    """
+    windows = options.billable_to_md_windows
+    if not windows:
+        return False
     return any(
         policy_year >= start and (end is None or policy_year <= end)
         for start, end in windows

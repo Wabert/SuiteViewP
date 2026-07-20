@@ -423,7 +423,17 @@ _TYPE_INPUT = "INPUT"
 # user need not re-key them. It otherwise behaves exactly like an INPUT premium.
 # SPL87-form plans (single-premium) have a zero billable premium.
 _TYPE_BILLABLE = "Billable Prem"
-# "Max Level Allowed" is the maximum level guideline premium (may not reach
+# "Billable to MD" models what many owners actually do: pay the billed premium
+# for as long as it keeps the policy alive, then pay only what the policy needs.
+# The row fills with the billable premium and billing mode (editable, like
+# Billable Prem) and pays as a normal scheduled premium; the engine watches
+# each month and — the FIRST month that premium can no longer keep the policy
+# in force — permanently switches to the Monthly Deduction premium, which the
+# GP exception premium backstops once the guideline room runs out (exceptions
+# are always allowed for this premium type, regardless of the checkbox). The
+# row's year window bounds the whole billable → MD → exception sequence.
+_TYPE_BILLABLE_TO_MD = "Billable to MD"
+# "Max Level" is the maximum level guideline premium (may not reach
 # maturity). The row shows a closed-form estimate from the CURRENT guideline
 # room immediately; Run Values solves it exactly on the real projection so any
 # Face Amount / DB Option change's effect on the guidelines is reflected.
@@ -431,7 +441,7 @@ _TYPE_BILLABLE = "Billable Prem"
 # GP exception premiums are ALWAYS allowed for this premium type — the solve
 # rides the GLP exception period when the guideline caps further funding,
 # regardless of the Allow GP Exception Premium checkbox.
-_TYPE_MAX_LEVEL = "Max Level Allowed"
+_TYPE_MAX_LEVEL = "Max Level"
 _TYPE_MIN_LEVEL = "Prem to Maturity"
 # "Prem to Shadow Maturity" (shadow-account policies only) is the minimum level
 # premium that keeps the SHADOW account in force to maturity — the shadow
@@ -594,11 +604,12 @@ class InputRow(QWidget):
             # a ceased one, so the run can explain why it can't solve.
             ctx = self._ctx
             if ctx is not None and ctx.is_cvat:
-                options = [_TYPE_INPUT, _TYPE_BILLABLE, _TYPE_MIN_LEVEL,
-                           _TYPE_MONTHLY_DEDUCTION]
-            else:
-                options = [_TYPE_INPUT, _TYPE_BILLABLE, _TYPE_MAX_LEVEL,
+                options = [_TYPE_INPUT, _TYPE_BILLABLE, _TYPE_BILLABLE_TO_MD,
                            _TYPE_MIN_LEVEL, _TYPE_MONTHLY_DEDUCTION]
+            else:
+                options = [_TYPE_INPUT, _TYPE_BILLABLE, _TYPE_BILLABLE_TO_MD,
+                           _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL,
+                           _TYPE_MONTHLY_DEDUCTION]
             if ctx is not None and (ctx.has_shadow or ctx.shadow_ceased):
                 options.insert(options.index(_TYPE_MIN_LEVEL) + 1, _TYPE_SHADOW_LEVEL)
             # "Solve" (target-value premium solve) works on any product — it
@@ -625,9 +636,11 @@ class InputRow(QWidget):
         self.type_combo.blockSignals(False)
 
     def _type_changed(self, _index: int):
-        # Selecting "Billable Prem" fills the amount + mode from the policy's
-        # billable premium; it then behaves like a plain INPUT premium.
-        if self.premium_type() == _TYPE_BILLABLE and self._ctx is not None:
+        # Selecting "Billable Prem" or "Billable to MD" fills the amount + mode
+        # from the policy's billable premium; Billable Prem then behaves like a
+        # plain INPUT premium, Billable to MD adds the engine-side MD hand-off.
+        if (self.premium_type() in (_TYPE_BILLABLE, _TYPE_BILLABLE_TO_MD)
+                and self._ctx is not None):
             self._apply_billable_premium()
         self._refresh_max_level_amount()
         self.changed.emit()
@@ -665,6 +678,9 @@ class InputRow(QWidget):
 
     def is_monthly_deduction(self) -> bool:
         return self.type_combo.currentText() == _TYPE_MONTHLY_DEDUCTION
+
+    def is_billable_to_md(self) -> bool:
+        return self.type_combo.currentText() == _TYPE_BILLABLE_TO_MD
 
     def is_solve(self) -> bool:
         """A Premiums "Solve" row — target-value premium, solved on Run Values."""
@@ -764,6 +780,18 @@ class InputRow(QWidget):
                 "(value, amount, and age set in the group below). Solved when "
                 "you Run Values; a target the policy cannot reach reports "
                 "instead of filling this field.")
+        elif ptype == _TYPE_BILLABLE_TO_MD:
+            # Editable like Billable Prem — the amount/mode were auto-filled
+            # from the billable premium; the hand-off is engine-side.
+            self.amount_edit.setEnabled(True)
+            self.amount_edit.setReadOnly(False)
+            self.amount_edit.setToolTip(
+                "Pays this premium on its mode until the first month it can no "
+                "longer keep the policy in force, then switches permanently to "
+                "paying the Monthly Deduction each month. Once the guideline "
+                "room runs out, GP exception premiums keep the policy alive — "
+                "they are always allowed for this premium type, regardless of "
+                "the Allow GP Exception Premium checkbox.")
         else:
             self.amount_edit.setEnabled(True)
             self.amount_edit.setReadOnly(False)
@@ -2218,7 +2246,7 @@ class DynamicInputsPanel(QWidget):
                 return
 
     def max_level_request(self) -> Optional[dict]:
-        """``{'start_year', 'mode'}`` for the Max Level Allowed row, or None.
+        """``{'start_year', 'mode'}`` for the Max Level row, or None.
 
         The row shows a closed-form estimate from the current guideline room,
         but the authoritative amount is solved on Run Values against the real
@@ -2257,6 +2285,29 @@ class DynamicInputsPanel(QWidget):
         windows: list[tuple[int, Optional[int]]] = []
         for row in self.premium_section.rows():
             if not row.is_monthly_deduction():
+                continue
+            start = row.year() or ctx.forecast_year
+            end = row.end_year()
+            windows.append((int(start), int(end) if end is not None else None))
+        windows.sort(key=lambda window: window[0])
+        return windows
+
+    def billable_to_md_windows(self) -> list[tuple[int, Optional[int]]]:
+        """Year windows for the active "Billable to MD" premium rows.
+
+        Same shape as :meth:`monthly_deduction_windows`. Within a window the
+        row's billable premium pays as a normal scheduled premium; the engine
+        switches to the Monthly Deduction premium (then GP exceptions) the
+        first month the billable premium can no longer keep the policy in
+        force. The presence of any window also forces GP exceptions on for
+        the run — the whole point of the mode is to reach the exception phase.
+        """
+        ctx = self._ctx
+        if ctx is None:
+            return []
+        windows: list[tuple[int, Optional[int]]] = []
+        for row in self.premium_section.rows():
+            if not row.is_billable_to_md():
                 continue
             start = row.year() or ctx.forecast_year
             end = row.end_year()
@@ -2312,7 +2363,7 @@ class DynamicInputsPanel(QWidget):
 
     def _on_premium_changed(self):
         # Level types lock the non-premium inputs, but not uniformly:
-        #   • Max Level Allowed / Prem to Maturity lock ONLY new loans —
+        #   • Max Level / Prem to Maturity lock ONLY new loans —
         #     withdrawals, loan repayments, and rate-class / table changes
         #     stay editable and feed the solve (a withdrawal, downgrade or
         #     rating change moves the funding the solve measures).
@@ -2421,7 +2472,7 @@ class DynamicInputsPanel(QWidget):
         # solves can reflect them — they alter the guideline premiums that
         # bound Max Level and the funding need behind Prem to Maturity).
         #   • No level type: everything below is editable.
-        #   • Max Level Allowed / Prem to Maturity: lock ONLY new loans;
+        #   • Max Level / Prem to Maturity: lock ONLY new loans;
         #     withdrawals, loan repayments, rate-class and table changes feed
         #     the solve, so they stay editable.
         #   • Prem to Shadow Maturity (or it mixed with another level type):
@@ -2569,6 +2620,9 @@ class DynamicInputsPanel(QWidget):
             # Withdrawal rows carry a Net/Gross basis; it rides along on the
             # transaction subtype ("net" | "gross", "" for kinds without one).
             subtype = entry.get("basis") or ""
+            # Per-entry metadata (e.g. the Billable-to-MD tag) rides along on
+            # every transaction the entry expands to.
+            entry_meta = entry.get("metadata") or {}
             interval = _MODE_INTERVALS.get(entry["mode"], 12)
             for year in range(entry["year"], (entry["end_year"] or entry["year"]) + 1):
                 anniversary = ctx.anniversary(year)
@@ -2584,7 +2638,7 @@ class DynamicInputsPanel(QWidget):
                         continue
                     out.append(DatedTransaction(
                         kind=kind, effective_date=when, amount=float(entry["amount"]),
-                        subtype=subtype))
+                        subtype=subtype, metadata=dict(entry_meta)))
                     when = when + relativedelta(months=interval)
         return out
 
@@ -2651,6 +2705,14 @@ class DynamicInputsPanel(QWidget):
                 _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL, _TYPE_SHADOW_LEVEL,
                 _TYPE_MONTHLY_DEDUCTION, _TYPE_SOLVE)
         ]
+        # A "Billable to MD" row pays real scheduled premiums like any INPUT
+        # row; the tag lets the compiler mark its dated (current-year)
+        # payments so the engine can stop them once the MD hand-off latches.
+        # (Post-switch scheduled premiums are suppressed by the row's year
+        # window — billable_to_md_windows on the run options.)
+        for entry in prem_entries:
+            if entry.get("type") == _TYPE_BILLABLE_TO_MD:
+                entry["metadata"] = {"billable_to_md": True}
         dated_prem, sched_prem = self._split_current_year(prem_entries)
         if prem_entries or md_active:
             # Any premium input REPLACES the billed default from the forecast
@@ -2683,7 +2745,7 @@ class DynamicInputsPanel(QWidget):
         # policy_changes into every projection they run.
         #   • Prem to Shadow Maturity keeps its full lock — only the face/DBO
         #     changes and riders feed it (nothing else is editable).
-        #   • Max Level Allowed / Prem to Maturity additionally honor the now-
+        #   • Max Level / Prem to Maturity additionally honor the now-
         #     editable withdrawals, loan repayments, and rate-class / table
         #     changes — but NEVER a new loan (that section stays locked). Pay-off
         #     repayment rows are still excluded here (unsolved under a level type).
@@ -2700,7 +2762,7 @@ class DynamicInputsPanel(QWidget):
         """Withdrawals, loan repayments, face/DBO/rate-class/table changes and
         riders -> the exported input set.
 
-        Shared by the normal export and the Max Level Allowed / Prem to Maturity
+        Shared by the normal export and the Max Level / Prem to Maturity
         level solves. Those two level types honor every side input EXCEPT new
         loans, so ``include_loans`` gates only the new-loan schedule. Pay-off
         repayment rows are always excluded — main_window solves and layers them

@@ -98,6 +98,7 @@ def guaranteed_options(base: Optional[IllustrationOptions] = None) -> Illustrati
         conform_to_tamra=False,          # no 7-pay re-check
         allow_exception_prems=False,     # exception premium already locked in
         pay_monthly_deduction=False,     # MD premium already locked in
+        billable_to_md_windows=None,     # Billable-to-MD premiums locked in too
         apply_prem_to_loan=False,        # diverted dollars locked as repayments
         apply_excess_repayment_as_premium=False,
         levelizing_premium=False,

@@ -135,6 +135,11 @@ class MonthlyState:
     # Monthly Deduction premium (Phase 1; reuses the exception engine but is
     # capped at the remaining guideline room — NOT exception mode).
     md_premium_mode: bool = False
+    # "Billable to MD" hand-off latch: False while the row's scheduled billable
+    # premium is paying, True from the first month it could no longer keep the
+    # policy in force — the billable premium stops and the Monthly Deduction
+    # premium (then the GP exception) takes over. Latches permanently.
+    billable_md_switched: bool = False
     md_premium: float = 0.0
     md_premium_gross: float = 0.0          # account-value restoration funded
     md_premium_capped: bool = False        # guideline room limited the premium

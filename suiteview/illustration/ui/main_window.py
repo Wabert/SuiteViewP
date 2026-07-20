@@ -866,7 +866,7 @@ class IllustrationWindow(FramelessWindowBase):
                     # as "solved, nothing required" rather than blank.
                     self.inputs_tab.set_lumpsum_amount(0.0)
 
-            # "Max Level Allowed" premium type: solve the largest level premium
+            # "Max Level" premium type: solve the largest level premium
             # the guideline acceptance chain never caps, on the real projection —
             # so a Face Amount or DB Option change's effect on the guideline
             # premiums (GLP/GSP recalc, AccumGLP stream) is reflected, including
@@ -900,7 +900,7 @@ class IllustrationWindow(FramelessWindowBase):
                     QApplication.restoreOverrideCursor()
                     self.run_values_btn.setEnabled(True)
                     self.inputs_tab.set_max_level_amount(None)
-                    QMessageBox.information(self, "Max Level Allowed", str(exc))
+                    QMessageBox.information(self, "Max Level", str(exc))
                     self._show_status(str(exc))
                     return
                 sched = list(future_inputs.scheduled_transactions)

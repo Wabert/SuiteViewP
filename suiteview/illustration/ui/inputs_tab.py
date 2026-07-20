@@ -341,7 +341,7 @@ class IllustrationInputsTab(QWidget):
         self.input_tabs.tabBar().customContextMenuRequested.connect(
             self._show_input_tabs_context_menu)
 
-        # Level-solve × future-change caveat: Max Level Allowed and Prem to
+        # Level-solve × future-change caveat: Max Level and Prem to
         # Maturity both solve a level premium against the funding/guideline
         # room measured from the forecast date, but a change AFTER the forecast
         # date can shift that room (a DB option switch reads the account value;
@@ -504,39 +504,57 @@ class IllustrationInputsTab(QWidget):
 
         group = QGroupBox("Run Controls")
         group.setStyleSheet(GROUP_STYLE)
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 18, 10, 10)
+        # Two columns: the editable controls pack down the left, the two
+        # always-on locked controls sit off to the right where they stay
+        # visible (never hidden) but out of the working area.
+        group_row = QHBoxLayout(group)
+        group_row.setContentsMargins(10, 18, 10, 10)
+        group_row.setSpacing(24)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
+        locked_column = QVBoxLayout()
+        locked_column.setContentsMargins(0, 0, 0, 0)
+        locked_column.setSpacing(6)
+        group_row.addLayout(layout)
+        group_row.addStretch(1)
+        group_row.addLayout(locked_column)
 
         self.exact_days_check = self._make_control_checkbox("Exact Days Interest")
         self.exact_days_check.setToolTip("Checked uses exact-days interest; unchecked uses monthly compounding.")
         layout.addWidget(self.exact_days_check)
 
+        # Conform to TEFRA/DEFRA is always on: an illustration that ignores the
+        # 7702 guideline room can quietly produce premiums the policy could
+        # never accept. Shown checked and disabled rather than hidden.
         self.tefra_check = self._make_control_checkbox("Conform to TEFRA/DEFRA")
         self.tefra_check.setChecked(True)
-        self.tefra_check.setToolTip("Enforce 7702 guideline premium room for force-outs and accepted premiums.")
-        layout.addWidget(self.tefra_check)
+        self.tefra_check.setEnabled(False)
+        self.tefra_check.setToolTip(
+            "Always on — 7702 guideline premium room is enforced for force-outs "
+            "and accepted premiums.")
+        locked_column.addWidget(self.tefra_check)
 
         # Conform to TAMRA lives on the Input sheet (dynamic_panel); read it
         # from there in export_options().
 
-        # Allow GP Exception Premium (sINPUT_AllowExceptionPrems). On by
-        # default. The Input panel signals availability — an active shadow
-        # account forces it off (the shadow account governs lapse, not the
-        # exception premium). A Prem to Maturity run always allows exceptions
-        # regardless of this checkbox (main_window forces them on for that
-        # solve and its displayed run).
+        # Allow GP Exception Premium (sINPUT_AllowExceptionPrems). OFF by
+        # default — exception premiums past the guideline are the unusual case,
+        # so the user opts in. The Input panel signals availability — an active
+        # shadow account forces it off (the shadow account governs lapse, not
+        # the exception premium). Prem to Maturity and Billable to MD runs
+        # always allow exceptions regardless of this checkbox.
         self.exception_prem_check = self._make_control_checkbox("Allow GP Exception Premium")
-        self.exception_prem_check.setChecked(True)
+        self.exception_prem_check.setChecked(False)
         self.exception_prem_check.setToolTip(self._EXCEPTION_TOOLTIP)
         layout.addWidget(self.exception_prem_check)
         self.dynamic_panel.exception_availability_changed.connect(
             self._apply_exception_availability)
 
-        self.cap_acceptance_check = self._make_control_checkbox("Cap Premiums at Acceptance")
-        self.cap_acceptance_check.setChecked(True)
-        self.cap_acceptance_check.setToolTip("Apply TEFRA/TAMRA room to scheduled and unscheduled premiums when they are accepted.")
-        layout.addWidget(self.cap_acceptance_check)
+        # No "Cap Premiums at Acceptance" control: capping premiums at the
+        # guideline room is part of Conform to TEFRA/DEFRA, which is locked on.
+        # IllustrationOptions.cap_premiums_at_acceptance stays an internal-only
+        # escape hatch (PolView's GLP-exception solver sets it).
 
         self.levelizing_check = self._make_control_checkbox("Levelized capped premiums (off for loans)")
         self.levelizing_check.setChecked(True)
@@ -554,14 +572,19 @@ class IllustrationInputsTab(QWidget):
         )
         layout.addWidget(self.gp_search_check)
 
+        # Always on: rows past the lapse test are not a real illustration.
         self.stop_on_lapse_check = self._make_control_checkbox("Stop Projection on Lapse")
         self.stop_on_lapse_check.setChecked(True)
-        self.stop_on_lapse_check.setToolTip("Stop projection rows once the lapse test fails.")
-        layout.addWidget(self.stop_on_lapse_check)
+        self.stop_on_lapse_check.setEnabled(False)
+        self.stop_on_lapse_check.setToolTip(
+            "Always on — projection rows stop once the lapse test fails.")
+        locked_column.addWidget(self.stop_on_lapse_check)
+        locked_column.addStretch(1)
 
         note = QLabel("Unchecked Exact Days uses monthly compounding.")
         note.setStyleSheet(f"color: {PURPLE_DARK}; background: transparent; font-size: 10px; font-style: italic;")
         layout.addWidget(note)
+        layout.addStretch(1)
 
         outer.addWidget(group, 0, Qt.AlignmentFlag.AlignTop)
         outer.addWidget(self._build_iul_crediting_group(), 0, Qt.AlignmentFlag.AlignTop)
@@ -1006,7 +1029,7 @@ class IllustrationInputsTab(QWidget):
     # ── Level-solve × future-change caveat ───────────────────────────
 
     def level_solve_change_caveat_active(self) -> bool:
-        """True when a Max Level Allowed OR Prem to Maturity premium row is
+        """True when a Max Level OR Prem to Maturity premium row is
         combined with a change effective AFTER the forecast date that can move
         the solved premium: a face amount / DB option / rider / rate-class /
         table-rating change (all flow through the exported input set's policy
@@ -1186,12 +1209,18 @@ class IllustrationInputsTab(QWidget):
 
     def export_options(self) -> IllustrationOptions:
         md_windows = self.dynamic_panel.monthly_deduction_windows()
+        b2md_windows = self.dynamic_panel.billable_to_md_windows()
         return IllustrationOptions(
             conform_to_tefra=self.tefra_check.isChecked(),
             conform_to_tamra=self.dynamic_panel.tamra_check.isChecked(),
-            allow_exception_prems=self.exception_prem_check.isChecked(),
+            # A "Billable to MD" row always allows GP exceptions — the whole
+            # point of the mode is the billable → MD → exception sequence.
+            # (An active shadow account still blocks them inside the engine.)
+            allow_exception_prems=(
+                self.exception_prem_check.isChecked() or bool(b2md_windows)),
             exact_days_interest=self.exact_days_check.isChecked(),
-            cap_premiums_at_acceptance=self.cap_acceptance_check.isChecked(),
+            # cap_premiums_at_acceptance left at None — derives from
+            # conform_to_tefra. Only PolView's GLP solver overrides it.
             levelizing_premium=self.levelizing_check.isChecked(),
             guideline_by_search=self.gp_search_check.isChecked(),
             apply_prem_to_loan=self.dynamic_panel.apply_prem_to_loan_check.isChecked(),
@@ -1199,6 +1228,7 @@ class IllustrationInputsTab(QWidget):
                 self.dynamic_panel.excess_repayment_as_premium()),
             pay_monthly_deduction=bool(md_windows),
             monthly_deduction_windows=(md_windows or None),
+            billable_to_md_windows=(b2md_windows or None),
             iul_wair_crediting=self.wair_radio.isChecked(),
             use_policy_ag49_regime=self.policy_ag49_check.isChecked(),
         )
@@ -1310,14 +1340,14 @@ class IllustrationInputsTab(QWidget):
             },
             "scheduled_loan_type": (
                 "variable" if self.variable_loan_toggle.isChecked() else "fixed"),
+            # Conform to TEFRA/DEFRA and Stop Projection on Lapse are always on
+            # and locked, and premium capping at acceptance now rides with
+            # TEFRA — none of the three are user state, so none are captured.
             "controls": {
                 "exact_days": self.exact_days_check.isChecked(),
-                "tefra": self.tefra_check.isChecked(),
                 "exception_prem": self.exception_prem_check.isChecked(),
-                "cap_acceptance": self.cap_acceptance_check.isChecked(),
                 "levelizing": self.levelizing_check.isChecked(),
                 "gp_search": self.gp_search_check.isChecked(),
-                "stop_on_lapse": self.stop_on_lapse_check.isChecked(),
                 "duration_mode": (
                     "date" if self.illustration_to_date_radio.isChecked()
                     else "years"),
@@ -1352,16 +1382,13 @@ class IllustrationInputsTab(QWidget):
 
         controls = state.get("controls") or {}
         self.exact_days_check.setChecked(bool(controls.get("exact_days")))
-        self.tefra_check.setChecked(bool(controls.get("tefra", True)))
-        self.cap_acceptance_check.setChecked(
-            bool(controls.get("cap_acceptance", True)))
         self.levelizing_check.setChecked(bool(controls.get("levelizing", True)))
         self.gp_search_check.setChecked(bool(controls.get("gp_search")))
-        self.stop_on_lapse_check.setChecked(
-            bool(controls.get("stop_on_lapse", True)))
+        # Conform to TEFRA/DEFRA, Stop Projection on Lapse, and premium capping
+        # at acceptance are always on, so none are captured or restored.
         # The exception checkbox may be force-blocked on this policy (active
         # shadow account) — a saved "allow" must not sneak past the block.
-        wants_exception = bool(controls.get("exception_prem", True))
+        wants_exception = bool(controls.get("exception_prem", False))
         if self.exception_prem_check.isEnabled():
             self.exception_prem_check.setChecked(wants_exception)
         elif wants_exception and not self.exception_prem_check.isChecked():

@@ -173,10 +173,23 @@ class IllustrationOptions:
     # ends, later premium rows apply normally and the premium stops.
     monthly_deduction_windows: Optional[List[Tuple[int, Optional[int]]]] = None
 
-    # Internal escape hatch: a consumer can keep force-out on while still letting
-    # injected premiums intentionally exceed the guideline (no acceptance cap).
-    # None -> derive from conform_to_tefra. Used by the PolView GLP solver, which
-    # solves a premium that is allowed to breach the guideline.
+    # "Billable to MD" premium windows, same shape as monthly_deduction_windows.
+    # Within a window the row's scheduled billable premium pays normally until
+    # the FIRST month the policy would otherwise fail its lapse test; from that
+    # month on the billable premium stops (latched on MonthlyState.
+    # billable_md_switched) and the Monthly Deduction premium takes over —
+    # capped at the guideline room, with the GP exception premium as the
+    # backstop once the room runs out. Models the owner who pays the bill until
+    # the policy runs out of value, then pays whatever keeps it alive.
+    billable_to_md_windows: Optional[List[Tuple[int, Optional[int]]]] = None
+
+    # Internal escape hatch — NOT exposed in the UI (capping premiums at the
+    # guideline room is part of Conform to TEFRA/DEFRA, which the Illustration
+    # Control tab locks on). A programmatic consumer can keep force-out on while
+    # still letting injected premiums intentionally exceed the guideline (no
+    # acceptance cap). None -> derive from conform_to_tefra. Sole consumer:
+    # PolView's GLP-exception solver (``polview/services/glp_exception.py``),
+    # which solves a premium that is allowed to breach the guideline.
     cap_premiums_at_acceptance: Optional[bool] = None
 
     # IUL crediting method — False credits the single blended rate (RERUN INPUT

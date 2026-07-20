@@ -199,7 +199,7 @@ def test_prem_to_maturity_forces_exceptions_on_for_solve_and_displayed_run(monke
 
 
 def test_max_level_still_honors_the_exception_checkbox(monkeypatch):
-    # Max Level Allowed keeps reading the checkbox — only Prem to Maturity
+    # Max Level keeps reading the checkbox — only Prem to Maturity
     # forces exceptions on.
     _app()
     _RecordingEngine.calls = []
@@ -251,7 +251,7 @@ def test_max_level_still_honors_the_exception_checkbox(monkeypatch):
     tab.exception_prem_check.setChecked(False)
 
     tab.dynamic_panel.premium_section.rows()[0].type_combo.setCurrentText(
-        "Max Level Allowed")
+        "Max Level")
     assert tab.max_level_request() is not None
 
     window._on_run_values()

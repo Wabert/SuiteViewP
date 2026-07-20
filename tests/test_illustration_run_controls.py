@@ -21,13 +21,28 @@ def test_allow_gp_exception_checkbox_lives_in_run_controls_and_drives_options():
     tab = IllustrationInputsTab()
 
     # "Allow GP Exception Premium" sits in the Illustration Control tab's Run
-    # Controls group (moved back from the Input sheet) and is on by default.
-    assert tab.exception_prem_check.isChecked() is True
+    # Controls group (moved back from the Input sheet) and is OFF by default —
+    # exception premiums past the guideline are opt-in.
+    assert tab.exception_prem_check.isChecked() is False
+    assert tab.export_options().allow_exception_prems is False
+
+    # Checking flows straight through to the run options.
+    tab.exception_prem_check.setChecked(True)
     assert tab.export_options().allow_exception_prems is True
 
-    # Unchecking flows straight through to the run options.
-    tab.exception_prem_check.setChecked(False)
-    assert tab.export_options().allow_exception_prems is False
+
+def test_tefra_and_stop_on_lapse_are_locked_on():
+    # Both are always-on invariants of a real illustration: ignoring the 7702
+    # guideline room, or projecting rows past the lapse test, would quietly
+    # produce a wrong illustration. Shown checked and disabled, never hidden.
+    _app()
+    tab = IllustrationInputsTab()
+
+    for checkbox in (tab.tefra_check, tab.stop_on_lapse_check):
+        assert checkbox.isChecked() is True
+        assert checkbox.isEnabled() is False
+    assert tab.export_options().conform_to_tefra is True
+    assert tab.stop_on_lapse_enabled() is True
 
 
 def test_shadow_account_signal_forces_exception_checkbox_off():
@@ -237,7 +252,6 @@ def test_run_controls_checkboxes_use_shared_purple_style():
         tab.exact_days_check,
         tab.tefra_check,
         tab.exception_prem_check,
-        tab.cap_acceptance_check,
         tab.levelizing_check,
         tab.gp_search_check,
         tab.stop_on_lapse_check,

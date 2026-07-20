@@ -1,4 +1,4 @@
-"""Max Level Allowed solve — the closed-form room premium: remaining lifetime
+"""Max Level solve — the closed-form room premium: remaining lifetime
 guideline room (engine MAX(GSP, AccumGLP) at the end of the paying window,
 after any base-input policy changes recalc the guidelines) spread level over
 the modal payments to get there. The projection applies it and lets the

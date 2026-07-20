@@ -535,12 +535,11 @@ def _fill_everything(tab: IllustrationInputsTab):
     tab.db_option_table.item(0, 1).setText("A")
     tab.variable_loan_toggle.setChecked(True)
     # Illustration Control tab.
+    # Conform to TEFRA/DEFRA, Stop Projection on Lapse, and premium capping at
+    # acceptance are always on, so they are not part of the captured state.
     tab.exact_days_check.setChecked(True)
-    tab.tefra_check.setChecked(False)
-    tab.cap_acceptance_check.setChecked(False)
     tab.levelizing_check.setChecked(False)
     tab.gp_search_check.setChecked(True)
-    tab.stop_on_lapse_check.setChecked(False)
     tab.illustration_years_combo.setCurrentText("20")
 
 

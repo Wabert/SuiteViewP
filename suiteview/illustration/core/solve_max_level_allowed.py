@@ -1,4 +1,4 @@
-"""Solve the "Max Level Allowed" premium — the level modal premium that spreads
+"""Solve the "Max Level" premium — the level modal premium that spreads
 the policy's remaining lifetime guideline room evenly over every payment from
 its start year to age 100 (or maturity if sooner).
 
@@ -117,7 +117,7 @@ def solve_max_level_allowed(
             measure without them).
     """
     if policy.is_cvat:
-        raise MaxLevelAllowedError("Max Level Allowed applies to GPT policies only.")
+        raise MaxLevelAllowedError("Max Level applies to GPT policies only.")
 
     mode = (mode or _default_mode(policy)).upper()
     interval = _MODE_INTERVALS.get(mode)
