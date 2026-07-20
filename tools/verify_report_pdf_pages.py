@@ -64,9 +64,6 @@ def build_report() -> IllustrationReport:
             accum_value=1100.0 * year, surr_value=1000.0 * year,
             death_benefit=100000.0,
         ))
-    report.maturity_row = LedgerRow(
-        guar_accum=0.0, guar_surr=0.0, guar_death=0.0,
-        accum_value=66000.0, surr_value=60000.0, death_benefit=60000.0)
     return report
 
 

@@ -91,6 +91,26 @@ class _PageBuilder:
     def add_wrapped(self, text: str):
         self.lines.extend(_wrap_lines(text))
 
+    def add_block(self, lines: List[str]):
+        """Render a paragraph, filling the page width. Consecutive non-empty
+        fragments are joined and word-wrapped as ONE run (so the author's
+        pre-split lines don't produce irregular short breaks); an "" entry is a
+        hard blank-line break between runs."""
+        run: List[str] = []
+
+        def flush():
+            if run:
+                self.lines.extend(_justify_lines(_wrap_lines(" ".join(run))))
+                run.clear()
+
+        for line in lines:
+            if line == "":
+                flush()
+                self.lines.append("")
+            else:
+                run.append(line)
+        flush()
+
 
 def _wrap_lines(text: str) -> List[str]:
     """Word-wrap ``text`` to PAGE_WIDTH-character lines."""
@@ -105,6 +125,34 @@ def _wrap_lines(text: str) -> List[str]:
     if line:
         lines.append(line)
     return lines
+
+
+def _justify_line(line: str, width: int = PAGE_WIDTH) -> str:
+    """Full-justify one line: pad the inter-word gaps with extra spaces so the
+    line reaches ``width`` exactly, extra spaces going to the leftmost gaps.
+    A single-word line (nothing to stretch against) is returned unchanged."""
+    words = line.split()
+    if len(words) < 2:
+        return line
+    slack = width - (sum(len(w) for w in words) + len(words) - 1)
+    if slack <= 0:
+        return " ".join(words)
+    gaps = len(words) - 1
+    base, extra = divmod(slack, gaps)
+    out = ""
+    for index, word in enumerate(words[:-1]):
+        out += word + " " * (1 + base + (1 if index < extra else 0))
+    return out + words[-1]
+
+
+def _justify_lines(lines: List[str]) -> List[str]:
+    """Full-justify a wrapped paragraph for a clean edge on BOTH margins —
+    every line except the last is stretched to the page width. The last (and a
+    single-line paragraph's only) line stays left-aligned/ragged, so short
+    trailing lines and headings that don't span the width aren't stretched."""
+    if len(lines) <= 1:
+        return lines
+    return [_justify_line(line) for line in lines[:-1]] + [lines[-1]]
 
 
 # The AGE column header stacks "AGE / AT / EOY" over the three header rows to
@@ -134,15 +182,6 @@ def _ledger_line(row: LedgerRow) -> str:
     return (
         f"{row.eoy_age:>4}{row.year:>5}{row.premium_outlay:>11,.0f}"
         f"{row.markers:>5}{row.cash_from_policy:>8,.0f}{row.loan_balance:>10,.0f}  "
-        f"{_money(row.guar_accum):>10}{_money(row.guar_surr):>10}{_money(row.guar_death):>12}  "
-        f"{_money(row.accum_value):>10}{_money(row.surr_value):>10}{_money(row.death_benefit):>12}"
-    )
-
-
-def _maturity_line(row: LedgerRow) -> str:
-    """VALUES AT MATURITY strip — value columns aligned with the ledger."""
-    return (
-        f"{'VALUES AT MATURITY':<45}"
         f"{_money(row.guar_accum):>10}{_money(row.guar_surr):>10}{_money(row.guar_death):>12}  "
         f"{_money(row.accum_value):>10}{_money(row.surr_value):>10}{_money(row.death_benefit):>12}"
     )
@@ -241,8 +280,7 @@ def format_report_pages(
 
     # ── Page 1: cover ──
     cover = _PageBuilder(report, 1, total)
-    for line in report.disclaimer_lines:
-        cover.add_wrapped(line)
+    cover.add_block(report.disclaimer_lines)
     cover.blank()
     # Insured block on the left, agent block on the right (when present).
     insured = report.insured_lines or [""]
@@ -297,11 +335,6 @@ def format_report_pages(
             if (base + row_index + 1) % 5 == 0 and row_index + 1 < len(chunk):
                 page.blank()
         if index == len(ledger_chunks) - 1:
-            if report.maturity_row is not None:
-                page.blank()
-                page.add("-" * PAGE_WIDTH)
-                page.add(_maturity_line(report.maturity_row))
-                page.add("-" * PAGE_WIDTH)
             if report.footnote_legends:
                 page.blank()
                 for legend in report.footnote_legends:
@@ -313,13 +346,11 @@ def format_report_pages(
     # ── Notes page ──
     notes = _PageBuilder(report, 2 + len(ledger_chunks), total)
     for paragraph in report.note_paragraphs:
-        for line in paragraph:
-            notes.add_wrapped(line) if line else notes.blank()
+        notes.add_block(paragraph)
         notes.blank()
     if report.exception_section:
         notes.blank()
-        for line in report.exception_section:
-            notes.add_wrapped(line) if line else notes.blank()
+        notes.add_block(report.exception_section)
     pages.append(notes.lines)
 
     # ── Riders / regulatory page ──

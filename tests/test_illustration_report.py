@@ -319,59 +319,42 @@ def test_monthly_deduction_window_ends_and_later_premium_resumes():
     ]
 
 
-def test_values_at_maturity_strip_when_policy_endows():
-    """A projection that reaches maturity gets a VALUES AT MATURITY strip —
-    and the engine's post-maturity stub year gets NO ledger/expense row and
-    no '%' legend (removed 2026-07-19: with EOY ages shown, a row past the
-    maturity age reads as a phantom extra year, and the after-maturity DB
-    wording is contract-specific)."""
+def test_nothing_extra_renders_at_maturity():
+    """Nothing extra happens at maturity (removed 2026-07-19): the ledger ends
+    at the maturity-age EOY row, with NO VALUES AT MATURITY strip, no
+    post-maturity stub row, and no '%' after-maturity legend."""
     policy = _policy()
     policy.maturity_age = 58                    # year 9 begins at attained 58
     report = build_ul_report(policy, _results(), run_date=date(2026, 7, 3),
                              guaranteed_results=_guaranteed_results())
 
-    # Year 9 (begins at the maturity age) is the stub: ledger and expense
-    # report both end at year 8, and no maturity legend renders.
+    # Year 9 (begins at the maturity age) is the stub — dropped everywhere.
     assert [r.year for r in report.ledger] == [8]
     assert [r.year for r in report.expense_rows] == [8]
     assert not any(legend.startswith("%") for legend in report.footnote_legends)
+
     from suiteview.illustration.ui.report_tab import format_report_pages
     flat = "\n".join(line for page in format_report_pages(report) for line in page)
+    assert "VALUES AT MATURITY" not in flat
     assert "AFTER MATURITY" not in flat
-
-    row = report.maturity_row
-    assert row is not None
-    final = _results()[-1]
-    assert row.accum_value == final.av_end_of_month
-    assert row.surr_value == final.ending_sv
-    assert row.death_benefit == final.ending_db
-    # Guaranteed run lapsed before maturity -> guaranteed columns show zero.
-    assert row.guar_accum == 0.0 and row.guar_surr == 0.0 and row.guar_death == 0.0
-
-    from suiteview.illustration.ui.report_tab import PAGE_WIDTH, format_report_pages
-    ledger_page = format_report_pages(report)[1]
-    strip = ledger_page.index(next(l for l in ledger_page if "VALUES AT MATURITY" in l))
-    assert ledger_page[strip - 1] == "-" * PAGE_WIDTH
-    assert ledger_page[strip + 1] == "-" * PAGE_WIDTH
-    assert f"{final.av_end_of_month:,.0f}" in ledger_page[strip]
 
 
 def test_no_maturity_strip_before_maturity_or_on_lapse():
     from suiteview.illustration.ui.report_tab import format_report_pages
 
-    # Default policy matures at 121 — the age-58 projection shows no strip.
+    # A pre-maturity projection shows no maturity strip.
     report = build_ul_report(_policy(), _results(), run_date=date(2026, 7, 3))
-    assert report.maturity_row is None
     assert not any("VALUES AT MATURITY" in line
                    for page in format_report_pages(report) for line in page)
 
-    # Lapsing in the maturity year does not count as reaching maturity.
+    # Lapsing in the maturity year likewise renders no strip.
     policy = _policy()
     policy.maturity_age = 58
     rows = _results()
     rows[-1].lapsed = True
     report = build_ul_report(policy, rows, run_date=date(2026, 7, 3))
-    assert report.maturity_row is None
+    assert not any("VALUES AT MATURITY" in line
+                   for page in format_report_pages(report) for line in page)
 
 
 def test_report_pages_render_fixed_width():
@@ -429,6 +412,32 @@ def test_report_guaranteed_columns_fill_from_guaranteed_run():
     notes = " ".join(" ".join(p) for p in report.note_paragraphs)
     assert "UNDER GUARANTEED ACCUMULATION VALUE, YOUR POLICY WILL TERMINATE IN POLICY YEAR 9" in notes
     assert "GUARANTEED VALUES ARE NOT PROJECTED" not in notes
+
+
+def test_bonus_stated_inline_not_as_footnote():
+    """The interest bonus is stated inline in the non-guaranteed assumptions
+    sentence, not as a separate '*' footnote (changed 2026-07-19)."""
+    rows = [MonthlyState(policy_year=7, policy_month=6, duration=78)]
+    for year in (8, 9):
+        for month in range(1, 13):
+            rows.append(_month(year, month, bonus_interest_rate=0.009))
+    report = build_ul_report(_policy(), rows, run_date=date(2026, 7, 3))
+
+    notes = " ".join(" ".join(p) for p in report.note_paragraphs)
+    assert ("PLUS A BONUS OF 0.900% WHICH IS ADDED TO THE ILLUSTRATED RATE "
+            "STARTING IN POLICY YEAR 8") in notes
+    # No asterisk marker and no separate footnote paragraph.
+    assert "BONUS*" not in notes
+    assert "CURRENTLY THIS PLAN HAS A BONUS" not in notes
+
+    from suiteview.illustration.ui.report_tab import format_report_pages
+    flat = "\n".join(line for page in format_report_pages(report) for line in page)
+    assert "*CURRENTLY THIS PLAN HAS A BONUS" not in flat
+
+    # No bonus → no bonus wording at all.
+    plain = build_ul_report(_policy(), _results(), run_date=date(2026, 7, 3))
+    plain_notes = " ".join(" ".join(p) for p in plain.note_paragraphs)
+    assert "BONUS" not in plain_notes
 
 
 def test_lock_values_locks_current_cash_flows():

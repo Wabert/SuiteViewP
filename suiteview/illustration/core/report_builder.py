@@ -194,9 +194,6 @@ class IllustrationReport:
     # Supplemental Expense Report rows (RERUN "Expense Report" J:Y) — always
     # built; the Report tab appends the page only when the user opts in.
     expense_rows: List[ExpenseRow] = field(default_factory=list)
-    # End-of-projection values, set only when the policy reaches maturity
-    # (rendered as a VALUES AT MATURITY strip under the ledger).
-    maturity_row: Optional[LedgerRow] = None
     footnote_legends: List[str] = field(default_factory=list)
     # (policy year, start date) for each NEW 7-pay test period the projection
     # starts — a TAMRA material change restarts the 7-pay window.
@@ -243,7 +240,7 @@ def _annualize(
         # A policy year that BEGINS at/after the maturity age is the engine's
         # post-maturity stub (the anniversary month that endows the policy).
         # The printed ledger ends at the year whose EOY age is the maturity
-        # age; the stub feeds the VALUES AT MATURITY strip, not a ledger row.
+        # age; the stub is dropped entirely — nothing extra renders at maturity.
         if months[0].attained_age >= maturity_age:
             continue
         eoy = months[-1]
@@ -654,27 +651,8 @@ def build_ul_report(
         report.guaranteed_termination_year = _fill_guaranteed_columns(
             report.ledger, guaranteed_results)
 
-    # ── Values at maturity (only when the projection endows) ──
-    last = projected[-1] if projected else None
-    if last is not None and not last.lapsed and last.attained_age >= policy.maturity_age:
-        maturity = LedgerRow(
-            eoy_age=last.attained_age,
-            year=last.policy_year,
-            loan_balance=last.policy_debt,
-            accum_value=last.av_end_of_month,
-            surr_value=last.ending_sv,
-            death_benefit=last.ending_db,
-        )
-        if guaranteed_results:
-            guar_last = guaranteed_results[-1] if len(guaranteed_results) > 1 else None
-            if (guar_last is None or guar_last.lapsed
-                    or guar_last.attained_age < policy.maturity_age):
-                maturity.guar_accum = maturity.guar_surr = maturity.guar_death = 0.0
-            else:
-                maturity.guar_accum = max(guar_last.av_end_of_month, 0.0)
-                maturity.guar_surr = max(guar_last.ending_sv, 0.0)
-                maturity.guar_death = max(guar_last.ending_db, 0.0)
-        report.maturity_row = maturity
+    # Nothing extra happens at maturity: the ledger simply ends at the
+    # maturity-age EOY row. (No VALUES AT MATURITY strip — removed 2026-07-19.)
 
     # ── Cover ──
     valuation = policy.valuation_date or policy.issue_date
@@ -790,6 +768,15 @@ def build_ul_report(
     guaranteed_rate = policy.guaranteed_interest_rate or 0.0
     illustrated_rate = projected[0].annual_interest_rate if projected else 0.0
     bonus_months = [s for s in projected if s.bonus_interest_rate > 0]
+    # The bonus is stated inline in the non-guaranteed assumptions sentence
+    # (no separate footnote): "... PLUS A BONUS OF X% WHICH IS ADDED TO THE
+    # ILLUSTRATED RATE STARTING IN POLICY YEAR N".
+    bonus_clause = ""
+    if bonus_months:
+        bonus_clause = (
+            f" PLUS A BONUS OF {bonus_months[0].bonus_interest_rate * 100:.3f}% "
+            f"WHICH IS ADDED TO THE ILLUSTRATED RATE STARTING IN POLICY YEAR "
+            f"{bonus_months[0].policy_year}")
     termination = (
         f"TERMINATE IN POLICY YEAR {report.termination_year}"
         if report.termination_year is not None
@@ -818,9 +805,9 @@ def build_ul_report(
         ["NON-GUARANTEED ASSUMPTIONS",
          "",
          f"FOR NON-GUARANTEED PROJECTED VALUES, THE ILLUSTRATION ASSUMES AN ILLUSTRATED "
-         f"INTEREST RATE OF {_pct(illustrated_rate)}"
-         + (" PLUS A BONUS*" if bonus_months else ""),
+         f"INTEREST RATE OF {_pct(illustrated_rate)}{bonus_clause},",
          "NON-GUARANTEED COST OF INSURANCE CHARGES, AND NON-GUARANTEED MONTHLY EXPENSES.",
+         "",
          f"UNDER NON-GUARANTEED ACCUMULATION VALUE, YOUR POLICY WILL {termination}. THIS "
          "ILLUSTRATION ASSUMES",
          "THAT THE CURRENTLY ILLUSTRATED NON-GUARANTEED ELEMENTS USED WILL NOT CHANGE FOR "
@@ -832,8 +819,8 @@ def build_ul_report(
          "ADDITIONAL PREMIUMS TO KEEP THE COVERAGE INFORCE TO THE ILLUSTRATED DATE, OR THE "
          "ACCUMULATION VALUE IN THE",
          "POLICY MAY BE LESS THAN ILLUSTRATED."],
-        ["CASH FROM POLICY AND LOAN BALANCE VALUES ARE DETERMINED BY VALUES USING "
-         "NON-GUARANTEED ASSUMPTIONS"],
+        ["PREMIUM OUTLAY, CASH FROM POLICY AND LOAN BALANCE VALUES ARE DETERMINED BY "
+         "VALUES USING NON-GUARANTEED ASSUMPTIONS"],
         ["CHARGES CONTINUE TO BE PAID USING NON-GUARANTEED VALUES IF PREMIUM PAYMENTS ARE "
          "OF LESSER",
          "AMOUNTS OR SHORTER DURATION THAN THE PREMIUM NEEDED TO GUARANTEE BENEFITS UNDER "
@@ -843,11 +830,6 @@ def build_ul_report(
         ["NON-GUARANTEED ELEMENTS CAN BE USED TO BUILD GREATER SURRENDER VALUES AND BENEFITS",
          "OR THEY CAN BE USED TO REDUCE PREMIUM OUTLAY OR SHORTEN THE PREMIUM PAYING PERIOD."],
     ]
-    if bonus_months:
-        first_bonus_year = bonus_months[0].policy_year
-        report.note_paragraphs.append([
-            f"*CURRENTLY THIS PLAN HAS A BONUS OF {bonus_months[0].bonus_interest_rate * 100:.3f}% "
-            f"WHICH IS ADDED TO THE ILLUSTRATED RATE STARTING IN POLICY YEAR {first_bonus_year}"])
 
     if any(s.gp_exception_prem > 0 for s in projected):
         report.exception_section = [
