@@ -1,7 +1,7 @@
 r"""Build a management-facing HTML exhibit from the GLP forecast batch workbook.
 
 Reads the workbook produced by tools/run_glp_forecast_batch.py (headers matched
-by label via batch_runner.GLP_COLUMNS), classifies every policy into one of five
+by label via batch_runner.GLP_COLUMNS), classifies every policy into one of four
 MUTUALLY EXCLUSIVE categories, and writes a single self-contained HTML page:
 
     Sustained           current premium carries the policy to maturity
@@ -12,9 +12,9 @@ MUTUALLY EXCLUSIVE categories, and writes a single self-contained HTML page:
                         loading only" subset — policies whose absolute-max
                         (guideline-capped) funding run still reaches maturity,
                         i.e. exceptions could be avoided by funding hard now.
-    No Solution         no level premium keeps the policy in force to maturity
     Not Classified      bypassed by the engine (MD mismatch, missing rates,
-                        shadow account, CVAT) — outcome unknown, not analyzed
+                        shadow account, CVAT) — outcome unknown, not analyzed —
+                        OR no level premium keeps the policy in force to maturity
 
 Label vocabulary accepted in the mixed date/text forecast columns (older runs
 used different labels): "Maturity"; "(none)" / "not needed"; "no solution".
@@ -67,19 +67,20 @@ MATURITY_LABELS = {"maturity"}
 NO_EXCEPTION_LABELS = {"(none)", "not needed"}
 NO_SOLUTION_LABELS = {"no solution"}
 
-# The five mutually exclusive categories. "NC" (Not Classified) is gray and
+# The four mutually exclusive categories. "NC" (Not Classified) is gray and
 # deliberately last; the gray IS the message (no data), not a series color.
+# No-solution policies (no level premium keeps them in force) are folded into
+# "Not Classified" — see classify().
 CAT_META = [
     ("A", "Sustained", "Current premium carries the policy to maturity", "#0ca30c"),
     ("B", "Increase fixes it", "Reaches maturity with a premium increase — no exception premiums", "#fab219"),
     ("D", "Exceptions required", "Minimum level premium crosses the guideline limit (GLP exceptions needed)", "#d03b3b"),
-    ("E", "No Solution", "No level premium keeps the policy in force to maturity", "#8f2a2a"),
-    ("NC", "Not Classified", "Bypassed by the engine — MD mismatch, missing rates, shadow account, or CVAT", "#898781"),
+    ("NC", "Not Classified", "Bypassed by the engine (MD mismatch, missing rates, shadow account, CVAT), or no level premium keeps the policy in force to maturity", "#898781"),
 ]
 CAT_COLOR = {k: c for k, _, _, c in CAT_META}
 CAT_SHORT = {k: s for k, s, _, _ in CAT_META}
 CAT_LONG = {k: lg for k, _, lg, _ in CAT_META}
-PROBLEM_CATS = ("B", "D", "E")          # lapse at current premium
+PROBLEM_CATS = ("B", "D")               # lapse at current premium
 
 INK = "#0b0b0b"
 INK2 = "#52514e"
@@ -120,6 +121,10 @@ def read_rows(workbook_path: str, sheet: Optional[str]) -> Tuple[List[dict], str
     wb = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
     ws = wb[sheet] if sheet else wb[wb.sheetnames[0]]
     label_to_key = {lbl.strip().lower(): key for key, lbl in GLP_COLUMNS}
+    # Loan/debt is not part of GLP_COLUMNS but the workbook carries it; accept
+    # the known header labels for it under the "loan" key.
+    for alias in ("total policy debt", "loan amount", "loan balance"):
+        label_to_key.setdefault(alias, "loan")
     rows_iter = ws.iter_rows(values_only=True)
     header = next(rows_iter, None) or ()
     col_of = {}
@@ -164,6 +169,7 @@ def classify(rows: List[dict]) -> dict:
         status = str(r.get("run_status") or "").strip()
         form = str(r.get("form") or "").strip() or "(unknown form)"
         face = _num(r.get("face")) or 0.0
+        has_loan = (_num(r.get("loan")) or 0.0) > 0.0
 
         if not status:
             not_run += 1
@@ -174,7 +180,8 @@ def classify(rows: List[dict]) -> dict:
                 reason = reason.strip()
                 bypass_reasons[reason] = bypass_reasons.get(reason, 0) + 1
             cats["NC"].append({"row": r["row"], "policy": r["policy"],
-                               "form": form, "face": face, "cat": "NC"})
+                               "form": form, "face": face, "cat": "NC",
+                               "has_loan": has_loan})
             continue
 
         lapse_cur = r.get("lapse_cur_prem")
@@ -197,7 +204,7 @@ def classify(rows: List[dict]) -> dict:
             if abs_max in (None, ""):
                 missing_abs_max += 1
         elif _label(exc) in NO_SOLUTION_LABELS:
-            cat = "E"
+            cat = "NC"          # folded into Not Classified — no viable solution
         elif _label(exc) in NO_EXCEPTION_LABELS:
             cat = "B"
         else:
@@ -211,6 +218,7 @@ def classify(rows: List[dict]) -> dict:
         cats[cat].append({
             "row": r["row"], "company": r["company"], "policy": r["policy"],
             "form": form, "cat": cat, "face": face,
+            "has_loan": has_loan,
             "lapse_date": lapse_cur_d,
             "lapse_year": lapse_cur_d.year if lapse_cur_d else None,
             "exc_date": exc_d,
@@ -313,8 +321,8 @@ def _y_axis(max_v: float, plot_h: float, top: float, left: float, width: float,
 
 
 def stacked_columns_svg(cats: List[str], series: Dict[str, List[float]],
-                        *, money: bool, width: int = 1010,
-                        plot_h: int = 230) -> str:
+                        *, money: bool, seg_label: Optional[str] = None,
+                        width: int = 1010, plot_h: int = 230) -> str:
     """Stacked columns; series keyed by category (drawn bottom-up B,D,E)."""
     if not cats:
         return '<div class="note">No policies in this view.</div>'
@@ -325,7 +333,7 @@ def stacked_columns_svg(cats: List[str], series: Dict[str, List[float]],
     max_v = max(totals) if totals else 1.0
     grid, adj_max = _y_axis(max_v, plot_h, top, left, plot_w, money)
     slot = plot_w / n
-    bar_w = min(24.0, max(slot - 3.0, 2.0))
+    bar_w = min(16.0, max(slot - 3.0, 2.0))
     gap = 2.0
     marks = []
     order = [t for t in ("B", "D", "E") if t in series]
@@ -339,7 +347,10 @@ def stacked_columns_svg(cats: List[str], series: Dict[str, List[float]],
             h_draw = max(h - (0 if is_top else gap), 0.8)
             y = y_cursor - h
             val = money_compact(v) if money else n_fmt(int(v))
-            lines = [f"{cat} · {CAT_SHORT[t]}", f"{val}"]
+            if seg_label:
+                lines = [f"{cat} · {seg_label}", f"{CAT_SHORT[t]}: {val}"]
+            else:
+                lines = [f"{cat} · {CAT_SHORT[t]}", f"{val}"]
             if is_top:
                 d = _col_path(x, y, bar_w, h_draw, 3)
                 marks.append(f'<path d="{d}" fill="{CAT_COLOR[t]}" '
@@ -352,7 +363,15 @@ def stacked_columns_svg(cats: List[str], series: Dict[str, List[float]],
     lab_every = max(1, (n + 15) // 16)
     labels = []
     for i, cat in enumerate(cats):
-        if i % lab_every and i != n - 1:
+        digits = re.sub(r"\D", "", cat)
+        year = int(digits) if digits else None
+        # Label round half-decades (…2030, 2035…) plus the first and last bar;
+        # fall back to even spacing when the labels aren't years.
+        if year is not None:
+            show = i == 0 or i == n - 1 or year % 5 == 0
+        else:
+            show = i % lab_every == 0 or i == n - 1
+        if not show:
             continue
         cx = left + i * slot + slot / 2
         labels.append(f'<text x="{cx:.1f}" y="{top + plot_h + 18}" '
@@ -362,58 +381,12 @@ def stacked_columns_svg(cats: List[str], series: Dict[str, List[float]],
             f'style="width:100%;height:auto">{grid}{"".join(marks)}{"".join(labels)}</svg>')
 
 
-def cumulative_line_svg(cats: List[str], values: List[float], *, color: str,
-                        width: int = 1010, plot_h: int = 130,
-                        label: str = "") -> str:
-    if not cats:
-        return '<div class="note">No policies in this view.</div>'
-    left, right, top, bottom = 62, 14, 12, 34
-    plot_w = width - left - right
-    n = len(cats)
-    max_v = max(values) if values else 1.0
-    grid, adj_max = _y_axis(max_v, plot_h, top, left, plot_w, True)
-    slot = plot_w / n
-    pts = []
-    for i, v in enumerate(values):
-        x = left + i * slot + slot / 2
-        y = top + plot_h - (v / adj_max) * plot_h
-        pts.append((x, y))
-    poly = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-    area = (f"{left + slot / 2:.1f},{top + plot_h} " + poly +
-            f" {left + (n - 1) * slot + slot / 2:.1f},{top + plot_h}")
-    hover = "".join(
-        f'<rect x="{left + i * slot:.1f}" y="{top}" width="{slot:.1f}" '
-        f'height="{plot_h}" fill="transparent" class="mk" '
-        f'data-tt="{_tt([f"Through {cats[i]}", money_compact(values[i])])}"/>'
-        for i in range(n))
-    lab_every = max(1, (n + 15) // 16)
-    labels = []
-    for i, cat in enumerate(cats):
-        if i % lab_every and i != n - 1:
-            continue
-        cx = left + i * slot + slot / 2
-        labels.append(f'<text x="{cx:.1f}" y="{top + plot_h + 18}" '
-                      f'text-anchor="middle" class="tick">{escape(cat)}</text>')
-    end_x, end_y = pts[-1]
-    lab_y = max(end_y - 10, top + 12)
-    end_lab = (f'<text x="{end_x - 8:.1f}" y="{lab_y:.1f}" text-anchor="end" '
-               f'class="dlab">{escape(label)} {money_compact(values[-1])}</text>'
-               if label else "")
-    h_total = top + plot_h + bottom
-    return (f'<svg viewBox="0 0 {width} {h_total}" role="img" '
-            f'style="width:100%;height:auto">{grid}'
-            f'<polygon points="{area}" fill="{color}" opacity="0.10"/>'
-            f'<polyline points="{poly}" fill="none" stroke="{color}" '
-            f'stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
-            f'<circle cx="{end_x:.1f}" cy="{end_y:.1f}" r="4" fill="{color}" '
-            f'stroke="{SURFACE}" stroke-width="2"/>'
-            f'{end_lab}{hover}{"".join(labels)}</svg>')
-
-
 def funnel_svg(counts: Dict[str, int], faces: Dict[str, float],
+               loans: Optional[Dict[str, int]] = None,
                width: int = 1010) -> str:
     """One horizontal stacked bar over all classified policies. Segments are
     clickable — they select the matching form-map view."""
+    loans = loans or {}
     total = sum(counts.values())
     if total == 0:
         return ""
@@ -426,6 +399,7 @@ def funnel_svg(counts: Dict[str, int], faces: Dict[str, float],
         w_draw = max(w - (2 if i < len(segs) - 1 else 0), 1.0)
         lines = [CAT_SHORT[k], f"{n_fmt(c)} policies · {pct(c, total)}",
                  f"{money_compact(faces.get(k, 0.0))} face amount",
+                 f"{pct(loans.get(k, 0), c)} have a loan",
                  "(click to see by form)"]
         parts.append(f'<rect x="{x:.1f}" y="{top}" width="{w_draw:.1f}" '
                      f'height="{bar_h}" rx="3" fill="{CAT_COLOR[k]}" '
@@ -478,7 +452,7 @@ def _form_total(fdata: Dict[str, dict]) -> int:
 
 
 def form_map_all_view(fm: dict) -> str:
-    """One 100%-stacked bar per form, all five categories."""
+    """One 100%-stacked bar per form, all four categories."""
     rows = []
     for form in fm["order"]:
         fdata = fm["forms"][form]
@@ -540,38 +514,43 @@ def form_map_cat_view(fm: dict, cat: str) -> str:
 
 # ── Aggregation for the timelines ───────────────────────────────────────────
 
-def year_range(years: List[int], horizon: int = 30) -> Tuple[List[int], Optional[int]]:
-    if not years:
-        return [], None
-    lo, hi = min(years), max(years)
-    if hi - lo <= horizon + 2:
-        return list(range(lo, hi + 1)), None
-    cutoff = lo + horizon
-    return list(range(lo, cutoff + 1)), cutoff
+# Fixed lapse/exception timeline window: one bar per year from 2026 through
+# 2075. Years before the start fold into the first bar; years after the end
+# fold into the last bar (kept small — the block matures out well before then).
+TIMELINE_START = 2026
+TIMELINE_END = 2100
+
+
+def _timeline_years() -> List[int]:
+    return list(range(TIMELINE_START, TIMELINE_END + 1))
+
+
+def _timeline_labels(years: List[int]) -> List[str]:
+    labels = [str(y) for y in years]
+    labels[0] = f"\u2264{years[0]}"      # ≤2026 — prior years folded in
+    labels[-1] = f"{years[-1]}+"         # 2075+ — later years folded in
+    return labels
+
+
+def _timeline_slot(year: int) -> int:
+    return min(max(year, TIMELINE_START), TIMELINE_END) - TIMELINE_START
 
 
 def build_wave(problem: List[dict]) -> dict:
-    years_all = [p["lapse_year"] for p in problem if p["lapse_year"]]
-    years, cutoff = year_range(years_all)
-    cats = [str(y) for y in years]
-    if cutoff is not None:
-        cats[-1] = f"{cutoff}+"
-    idx_of = {y: i for i, y in enumerate(years)}
-
-    def slot(y):
-        return idx_of[min(y, years[-1])] if cutoff is not None else idx_of[y]
-
-    count_s = {t: [0.0] * len(years) for t in PROBLEM_CATS}
-    face_s = {t: [0.0] * len(years) for t in PROBLEM_CATS}
+    years = _timeline_years()
+    cats = _timeline_labels(years)
+    n = len(years)
+    count_s = {t: [0.0] * n for t in PROBLEM_CATS}
+    face_s = {t: [0.0] * n for t in PROBLEM_CATS}
     for p in problem:
         if not p["lapse_year"]:
             continue
-        i = slot(p["lapse_year"])
+        i = _timeline_slot(p["lapse_year"])
         count_s[p["cat"]][i] += 1
         face_s[p["cat"]][i] += p["face"]
     cum = []
     running = 0.0
-    for i in range(len(years)):
+    for i in range(n):
         running += sum(face_s[t][i] for t in PROBLEM_CATS)
         cum.append(running)
     return {"cats": cats, "count_series": count_s, "face_series": face_s,
@@ -580,15 +559,12 @@ def build_wave(problem: List[dict]) -> dict:
 
 def build_exception_wave(d_rows: List[dict]) -> dict:
     pol = [p for p in d_rows if p["exc_year"]]
-    years_all = [p["exc_year"] for p in pol]
-    years, cutoff = year_range(years_all)
-    cats = [str(y) for y in years]
-    if cutoff is not None:
-        cats[-1] = f"{cutoff}+"
-    idx_of = {y: i for i, y in enumerate(years)}
-    count_s = {"D": [0.0] * len(years)}
+    years = _timeline_years()
+    cats = _timeline_labels(years)
+    n = len(years)
+    count_s = {"D": [0.0] * n}
     for p in pol:
-        i = idx_of[min(p["exc_year"], years[-1])] if cutoff is not None else idx_of[p["exc_year"]]
+        i = _timeline_slot(p["exc_year"])
         count_s["D"][i] += 1
     return {"cats": cats, "count_series": count_s, "n": len(pol)}
 
@@ -599,14 +575,16 @@ def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
     cats = cls["cats"]
     counts = {k: len(v) for k, v in cats.items()}
     faces = {k: sum(p["face"] for p in v) for k, v in cats.items()}
+    loans = {k: sum(1 for p in v if p.get("has_loan")) for k, v in cats.items()}
     classified_total = sum(counts.values())          # includes Not Classified
     analyzed = classified_total - counts["NC"]
+    loan_analyzed = sum(v for k, v in loans.items() if k != "NC")
     problem = [p for t in PROBLEM_CATS for p in cats[t]]
     total_at_risk = sum(p["face"] for p in problem)
     front_load_n = sum(1 for p in cats["D"] if p["front_load_ok"])
     front_load_face = sum(p["face"] for p in cats["D"] if p["front_load_ok"])
-    hard = counts["D"] + counts["E"]
-    hard_face = faces["D"] + faces["E"]
+    hard = counts["D"]
+    hard_face = faces["D"]
     mults = [p["multiple"] for p in cats["B"] if p["multiple"] is not None]
     med_mult = median(mults)
 
@@ -628,30 +606,36 @@ def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
 
     cat_legend = ""
     for k, *_ in CAT_META:
+        fn = ' <sup class="fn-mark">†</sup>' if k == "D" and counts["D"] else ''
         cat_legend += (
             f'<div class="leg-row"><span class="sw" style="background:{CAT_COLOR[k]}"></span>'
-            f'<span class="leg-name">{escape(CAT_SHORT[k])}</span>'
+            f'<span class="leg-name">{escape(CAT_SHORT[k])}{fn}</span>'
             f'<span class="leg-detail">{escape(CAT_LONG[k])}</span>'
             f'<span class="leg-num">{n_fmt(counts[k])} policies · '
-            f'{money_compact(faces[k])} face · {pct(counts[k], classified_total)}</span></div>')
-        if k == "D" and counts["D"]:
-            cat_legend += (
-                f'<div class="leg-row sub"><span class="sw" style="background:transparent"></span>'
-                f'<span class="leg-name">↳ front-loading only</span>'
-                f'<span class="leg-detail">Subset that could still reach maturity — without '
-                f'exceptions — by funding to the guideline maximum starting now</span>'
-                f'<span class="leg-num">{n_fmt(front_load_n)} of {n_fmt(counts["D"])} · '
-                f'{money_compact(front_load_face)} face</span></div>')
+            f'{money_compact(faces[k])} face · {pct(counts[k], classified_total)} · '
+            f'{pct(loans[k], counts[k])} have a loan</span></div>')
+
+    cat_footnote = ""
+    if counts["D"]:
+        cat_footnote = (
+            f'<div class="leg-fn"><span class="fn-mark">†</span> '
+            f'<strong>Front-loading only:</strong> {n_fmt(front_load_n)} of the '
+            f'{n_fmt(counts["D"])} Exceptions-required policies '
+            f'({money_compact(front_load_face)} face) could still reach maturity — '
+            f'without exceptions — by funding to the guideline maximum starting now.</div>')
 
     kpis = f"""
     <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Total ULs inforce issued &le; 1/1/2000 (all companies)</div>
+        <div class="kpi-value">{n_fmt(20122)}</div>
+        <div class="kpi-sub">of these, {n_fmt(classified_total + cls['not_run'])} of which are company 01 (ANICO)</div></div>
       <div class="kpi"><div class="kpi-label">Policies analyzed</div>
         <div class="kpi-value">{n_fmt(analyzed)}</div>
-        <div class="kpi-sub">{n_fmt(classified_total + cls['not_run'])} in scope · {n_fmt(counts['NC'])} not classified · {n_fmt(cls['not_run'])} not yet run</div></div>
+        <div class="kpi-sub">{n_fmt(classified_total + cls['not_run'])} in scope but {n_fmt(counts['NC'])} could not be analyzed · {n_fmt(loan_analyzed)} ({pct(loan_analyzed, analyzed)}) have a loan</div></div>
       <div class="kpi"><div class="kpi-label">Will lapse at current premium</div>
         <div class="kpi-value">{n_fmt(len(problem))}</div>
         <div class="kpi-sub">{pct(len(problem), analyzed)} of analyzed · {money_compact(total_at_risk)} face</div></div>
-      <div class="kpi accent-bad"><div class="kpi-label">Exceptions required or no solution</div>
+      <div class="kpi accent-bad"><div class="kpi-label">Exceptions required</div>
         <div class="kpi-value">{n_fmt(hard)}</div>
         <div class="kpi-sub">{pct(hard, analyzed)} of analyzed · {money_compact(hard_face)} face · {n_fmt(front_load_n)} could front-load instead</div></div>
       <div class="kpi"><div class="kpi-label">Fixable with premium increase</div>
@@ -670,10 +654,10 @@ def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
         fm_views += (f'<div class="fm-view" data-cat="{k}" hidden>'
                      f'{form_map_cat_view(fm, k)}</div>')
 
-    wave_svg_count = stacked_columns_svg(wave["cats"], wave["count_series"], money=False)
-    wave_svg_face = stacked_columns_svg(wave["cats"], wave["face_series"], money=True)
-    cum_svg = cumulative_line_svg(wave["cats"], wave["cum_face"],
-                                  color="#2a78d6", label="cumulative")
+    wave_svg_count = stacked_columns_svg(wave["cats"], wave["count_series"],
+                                         money=False, seg_label="Lapses projected")
+    wave_svg_face = stacked_columns_svg(wave["cats"], wave["face_series"],
+                                        money=True, seg_label="Lapses projected")
     exc_svg = (stacked_columns_svg(exc_wave["cats"], exc_wave["count_series"],
                                    money=False) if exc_wave["n"] else "")
     chart_legend_problem = "".join(
@@ -701,7 +685,7 @@ def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
            border-radius:10px; padding:18px 20px 16px; margin-top:18px; }}
   .card h2 {{ font-size:15px; font-weight:650; }}
   .card .note {{ color:{INK2}; font-size:13px; margin:2px 0 10px; }}
-  .kpi-row {{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px;
+  .kpi-row {{ display:grid; grid-template-columns:repeat(5,1fr); gap:12px;
               margin-top:18px; }}
   .kpi {{ background:{SURFACE}; border:1px solid rgba(11,11,11,0.10);
           border-radius:10px; padding:14px 16px; }}
@@ -713,8 +697,9 @@ def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
   .leg-row {{ display:grid; grid-template-columns:14px 170px 1fr auto; gap:10px;
               align-items:baseline; padding:5px 0; border-top:1px solid {GRID}; }}
   .leg-row:first-child {{ border-top:none; }}
-  .leg-row.sub {{ border-top:none; padding-top:0; }}
-  .leg-row.sub .leg-name {{ font-weight:500; color:{INK2}; padding-left:10px; }}
+  .fn-mark {{ color:#d03b3b; font-weight:700; }}
+  .leg-fn {{ margin-top:8px; padding-top:8px; border-top:1px solid {GRID};
+             color:{INK2}; font-size:12.5px; }}
   .sw {{ width:12px; height:12px; border-radius:3px; display:inline-block;
          position:relative; top:1px; flex:none; }}
   .leg-name {{ font-weight:600; font-size:13px; }}
@@ -781,23 +766,16 @@ def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
 
 <div class="card">
   <h2>How big is the problem?</h2>
-  <div class="note">Every policy, classified into five mutually exclusive categories.
+  <div class="note">Every policy, classified into four mutually exclusive categories.
   Click a segment to see its breakdown by policy form.</div>
-  {funnel_svg(counts, faces)}
+  {funnel_svg(counts, faces, loans)}
   <div style="margin-top:6px">{cat_legend}</div>
-</div>
-
-<div class="card" id="formmap">
-  <h2>Where is it concentrated? — by policy form</h2>
-  <div class="note">All categories: each form&rsquo;s policy mix. Pick a category to
-  rank forms by how many of their policies fall in it.</div>
-  <div class="chips" id="fm-chips">{chips}</div>
-  {fm_views}
+  {cat_footnote}
 </div>
 
 <div class="card">
   <div class="chart-head">
-    <h2>When does it hit? — projected lapses at current premiums</h2>
+    <h2>When do policies lapse (at current premiums)</h2>
     <div class="chart-legend">{chart_legend_problem}</div>
     <div class="toggle" role="group" aria-label="Measure">
       <button aria-pressed="true" data-view="count">Policies</button>
@@ -808,8 +786,6 @@ def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
   as billed today. Colors show what it would take to save the policy. {onset_line}</div>
   <div class="view-count">{wave_svg_count}</div>
   <div class="view-face" hidden>{wave_svg_face}</div>
-  <div class="note" style="margin:10px 0 2px">Cumulative face amount lapsed (all at-risk categories)</div>
-  {cum_svg}
 </div>
 
 {f'''<div class="card">
@@ -819,6 +795,14 @@ def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
   minimum level premium from now on.</div>
   {exc_svg}
 </div>''' if exc_wave['n'] else ''}
+
+<div class="card" id="formmap">
+  <h2>Where is it concentrated? — by policy form</h2>
+  <div class="note">All categories: each form&rsquo;s policy mix. Pick a category to
+  rank forms by how many of their policies fall in it.</div>
+  <div class="chips" id="fm-chips">{chips}</div>
+  {fm_views}
+</div>
 
 <div class="foot">
   {n_fmt(analyzed)} analyzed of {n_fmt(classified_total + cls['not_run'])} in scope ·

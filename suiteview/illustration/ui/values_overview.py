@@ -1119,6 +1119,11 @@ def _status_text(state) -> str:
     if state.lapsed:
         return "LAPSED"
     flags = []
+    # "Bill to MD" hand-off: once the scheduled billable premium can no longer
+    # carry the policy, the Monthly Deduction premium pays instead. Flag the
+    # periods where an MD premium is actually being used.
+    if getattr(state, "md_premium", 0.0) > 0:
+        flags.append("MDCap" if getattr(state, "md_premium_capped", False) else "MDPrem")
     if getattr(state, "exception_prem_mode", False):
         flags.append("ExcPrem")
     if getattr(state, "snet_active", False):
