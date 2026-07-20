@@ -341,41 +341,47 @@ class IllustrationInputsTab(QWidget):
         self.input_tabs.tabBar().customContextMenuRequested.connect(
             self._show_input_tabs_context_menu)
 
-        # Max Level Allowed × future policy changes caveat: the solved premium
-        # spreads the guideline room measured at ZERO premium, but a policy
-        # change AFTER the forecast date can recalc the guidelines off state
-        # that depends on premiums paid (e.g. a DB option change under a level
-        # death benefit reads the account value) — so the solved figure may be
-        # off. Changes ON the forecast date are safe. The run is still
-        # allowed; this strip is the caveat. It lives at the BOTTOM of the
-        # Input panel (under Riders and Benefits) so popping up never shifts
-        # the controls above it.
-        self.max_level_caveat_banner = QLabel(
-            "Max Level Allowed may not produce the correct premium with "
-            "policy changes scheduled after the forecast date — a future "
-            "change can recalculate the guidelines based on premiums paid. "
-            "Changes on the forecast date are fine. The illustration will "
-            "still run with this caveat.")
-        self.max_level_caveat_banner.setWordWrap(True)
-        self.max_level_caveat_banner.setStyleSheet(
+        # Level-solve × future-change caveat: Max Level Allowed and Prem to
+        # Maturity both solve a level premium against the funding/guideline
+        # room measured from the forecast date, but a change AFTER the forecast
+        # date can shift that room (a DB option switch reads the account value;
+        # a face/rate-class/table change recalculates the guideline premiums; a
+        # withdrawal drains the funding) — so the solved figure may be off.
+        # Changes ON the forecast date are safe. Loan repayments never trigger
+        # it (they are allowed outright). The run is still allowed; this strip
+        # is the caveat. It lives at the BOTTOM of the Input panel (under Riders
+        # and Benefits) so popping up never shifts the controls above it.
+        self.level_solve_caveat_banner = QLabel(
+            "The solved premium may be affected by changes scheduled after the "
+            "forecast date — a face amount, death-benefit option, rider, "
+            "rate-class, table-rating or withdrawal change entered later can "
+            "shift the funding the solve measures. Changes on the forecast date "
+            "are fine. The illustration will still run with this caveat.")
+        self.level_solve_caveat_banner.setWordWrap(True)
+        self.level_solve_caveat_banner.setStyleSheet(
             "color: #5C3A00; background-color: #FFF4D6; border: 1px solid #D4A017;"
             " border-radius: 4px; padding: 5px 9px; font-size: 11px; font-weight: bold;")
-        self.max_level_caveat_banner.setVisible(False)
-        self.dynamic_panel.layout().addWidget(self.max_level_caveat_banner)
+        self.level_solve_caveat_banner.setVisible(False)
+        self.dynamic_panel.layout().addWidget(self.level_solve_caveat_banner)
 
-        # Live caveat refresh: every surface that can create/clear a Max Level
-        # premium row or a policy change (dynamic sections, the riders panel,
-        # and the dated grid tables) re-evaluates the strip.
+        # Live caveat refresh: every surface that can create/clear a level-solve
+        # premium row or a triggering change (dynamic sections, the riders
+        # panel, and the dated grid tables) re-evaluates the strip. Withdrawals,
+        # rate-class and table changes are now editable under the two level
+        # solves, so they are watched too.
         for section in (self.dynamic_panel.premium_section,
                         self.dynamic_panel.face_section,
-                        self.dynamic_panel.dbo_section):
-            section.changed.connect(self._refresh_max_level_caveat)
+                        self.dynamic_panel.dbo_section,
+                        self.dynamic_panel.withdrawal_section,
+                        self.dynamic_panel.rateclass_section,
+                        self.dynamic_panel.table_section):
+            section.changed.connect(self._refresh_level_solve_caveat)
         self.dynamic_panel.riders_panel.changed.connect(
-            self._refresh_max_level_caveat)
-        self.face_amount_table.itemChanged.connect(
-            lambda _item: self._refresh_max_level_caveat())
-        self.db_option_table.itemChanged.connect(
-            lambda _item: self._refresh_max_level_caveat())
+            self._refresh_level_solve_caveat)
+        for grid in (self.face_amount_table, self.db_option_table,
+                     self.withdrawal_table):
+            grid.itemChanged.connect(
+                lambda _item: self._refresh_level_solve_caveat())
 
     # ── Grid Inputs tab visibility (right-click the input_tabs tab bar) ──
     #
@@ -997,33 +1003,43 @@ class IllustrationInputsTab(QWidget):
         self.snapshot_banner.setText(text or "")
         self.snapshot_banner.setVisible(bool(text))
 
-    # ── Max Level Allowed × policy-change caveat ─────────────────────
+    # ── Level-solve × future-change caveat ───────────────────────────
 
-    def max_level_change_caveat_active(self) -> bool:
-        """True when a Max Level Allowed premium row is combined with any
-        policy change effective AFTER the forecast date — face amount, DB
-        option, or a rider change/drop (all flow through the exported input
-        set's policy changes).
+    def level_solve_change_caveat_active(self) -> bool:
+        """True when a Max Level Allowed OR Prem to Maturity premium row is
+        combined with a change effective AFTER the forecast date that can move
+        the solved premium: a face amount / DB option / rider / rate-class /
+        table-rating change (all flow through the exported input set's policy
+        changes) or a withdrawal (a dated WITHDRAWAL transaction).
 
-        The Max Level solve measures the guideline room at zero premium; a
-        later change can recalc the guidelines off premium-dependent state,
-        so the solved figure may be off. A change ON the forecast date is
-        safe — its recalc lands before any solved premium is paid.
+        Both level solves measure the funding/guideline room from the forecast
+        date; a later change can shift that room, so the solved figure may be
+        off. A change ON the forecast date is safe — its effect lands before
+        any solved premium is paid. Loan repayments never trigger the caveat
+        (they are allowed outright). The illustration still runs; this is only
+        a caveat.
         """
         panel = self.dynamic_panel
         ctx = getattr(panel, "_ctx", None)
         forecast = getattr(ctx, "forecast_date", None)
-        if forecast is None or panel.max_level_request() is None:
+        if forecast is None:
             return False
-        changes = self.export_input_set().policy_changes
+        if panel.max_level_request() is None and panel.min_level_request() is None:
+            return False
+        input_set = self.export_input_set()
+        if any(change.effective_date is not None
+               and change.effective_date > forecast
+               for change in input_set.policy_changes):
+            return True
         return any(
-            change.effective_date is not None
-            and change.effective_date > forecast
-            for change in changes)
+            transaction.kind == TransactionKind.WITHDRAWAL
+            and transaction.effective_date is not None
+            and transaction.effective_date > forecast
+            for transaction in input_set.dated_transactions)
 
-    def _refresh_max_level_caveat(self):
-        self.max_level_caveat_banner.setVisible(
-            self.max_level_change_caveat_active())
+    def _refresh_level_solve_caveat(self):
+        self.level_solve_caveat_banner.setVisible(
+            self.level_solve_change_caveat_active())
 
     def load_data_from_policy(self, policy, *, has_shadow: bool = False,
                               shadow_ceased: bool = False):
@@ -1045,7 +1061,7 @@ class IllustrationInputsTab(QWidget):
         self._update_ag49_regime_panel()
         self.dynamic_panel.load_from_policy(policy, has_shadow=has_shadow,
                                             shadow_ceased=shadow_ceased)
-        self._refresh_max_level_caveat()
+        self._refresh_level_solve_caveat()
 
     def _update_valuation_banner(self, policy):
         valuation_date = getattr(policy, "valuation_date", None)
@@ -1367,7 +1383,7 @@ class IllustrationInputsTab(QWidget):
         self.blended_rate_radio.setChecked(
             controls.get("iul_rate_method") != "wair")
         self.policy_ag49_check.setChecked(bool(controls.get("use_policy_ag49")))
-        self._refresh_max_level_caveat()
+        self._refresh_level_solve_caveat()
         # Backward-tolerant: cases saved before this field existed had the
         # tab hidden (the only state that could exist then) — default False.
         ui = state.get("ui") or {}

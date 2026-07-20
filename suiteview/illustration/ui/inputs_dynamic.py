@@ -125,6 +125,7 @@ class PolicyContext:
     maturity_age: int = 121
     default_mode: str = "M"
     modal_premium: float = 0.0
+    form_number: str = ""         # base coverage form (e.g. "UL501", "SPL87")
     max_level_premium_room: float = 0.0
     max_level_years: int = 0
     is_cvat: bool = False
@@ -143,6 +144,17 @@ class PolicyContext:
     valuation_date: Optional[date] = None
 
     forecast_date: Optional[date] = None  # valuation + 1 month (a monthliversary)
+
+    @property
+    def is_spl87(self) -> bool:
+        """SPL87-form (single-premium) plan — a zero ongoing billable premium."""
+        return self.form_number.strip().upper().startswith("SPL87")
+
+    @property
+    def billable_premium(self) -> float:
+        """The policy's current billable premium — forced to 0 on SPL87 plans.
+        Used for the 'Billable Prem' premium type and the default INPUT amount."""
+        return 0.0 if self.is_spl87 else self.modal_premium
 
     @property
     def maturity_year(self) -> int:
@@ -305,6 +317,8 @@ def context_from_policy(policy) -> PolicyContext:
         maturity_age=maturity_age,
         default_mode=mode,
         modal_premium=float(getattr(policy, "modal_premium", 0.0) or 0.0),
+        form_number=str(getattr(policy, "form_number", "")
+                        or getattr(policy, "base_form_number", "") or ""),
         max_level_premium_room=premium_room,
         max_level_years=max_level_years,
         is_cvat=is_cvat,
@@ -404,6 +418,11 @@ class _RateField(QLineEdit):
 # level premium the guideline acceptance chain never caps; Prem to Maturity is
 # the minimum level premium that keeps the policy in force to maturity.
 _TYPE_INPUT = "INPUT"
+# "Billable Prem" is a convenience input type: selecting it fills the row's
+# amount with the policy's current billable premium and its billing mode, so the
+# user need not re-key them. It otherwise behaves exactly like an INPUT premium.
+# SPL87-form plans (single-premium) have a zero billable premium.
+_TYPE_BILLABLE = "Billable Prem"
 # "Max Level Allowed" is the maximum level guideline premium (may not reach
 # maturity). The row shows a closed-form estimate from the CURRENT guideline
 # room immediately; Run Values solves it exactly on the real projection so any
@@ -575,10 +594,11 @@ class InputRow(QWidget):
             # a ceased one, so the run can explain why it can't solve.
             ctx = self._ctx
             if ctx is not None and ctx.is_cvat:
-                options = [_TYPE_INPUT, _TYPE_MIN_LEVEL, _TYPE_MONTHLY_DEDUCTION]
-            else:
-                options = [_TYPE_INPUT, _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL,
+                options = [_TYPE_INPUT, _TYPE_BILLABLE, _TYPE_MIN_LEVEL,
                            _TYPE_MONTHLY_DEDUCTION]
+            else:
+                options = [_TYPE_INPUT, _TYPE_BILLABLE, _TYPE_MAX_LEVEL,
+                           _TYPE_MIN_LEVEL, _TYPE_MONTHLY_DEDUCTION]
             if ctx is not None and (ctx.has_shadow or ctx.shadow_ceased):
                 options.insert(options.index(_TYPE_MIN_LEVEL) + 1, _TYPE_SHADOW_LEVEL)
             # "Solve" (target-value premium solve) works on any product — it
@@ -605,8 +625,23 @@ class InputRow(QWidget):
         self.type_combo.blockSignals(False)
 
     def _type_changed(self, _index: int):
+        # Selecting "Billable Prem" fills the amount + mode from the policy's
+        # billable premium; it then behaves like a plain INPUT premium.
+        if self.premium_type() == _TYPE_BILLABLE and self._ctx is not None:
+            self._apply_billable_premium()
         self._refresh_max_level_amount()
         self.changed.emit()
+
+    def _apply_billable_premium(self):
+        """Fill the row with the policy's billable premium and billing mode.
+        SPL87-form plans have a zero billable premium."""
+        ctx = self._ctx
+        if self.amount_edit is not None:
+            self.amount_edit.set_value(ctx.billable_premium, decimals=2)
+        if self.mode_combo is not None and self.mode_combo.currentText() != ctx.default_mode:
+            self.mode_combo.blockSignals(True)
+            self.mode_combo.setCurrentText(ctx.default_mode)
+            self.mode_combo.blockSignals(False)
 
     def _mode_changed(self, _index: int):
         self._refresh_max_level_amount()
@@ -1136,8 +1171,13 @@ class DynamicSection(QGroupBox):
                 for_years = ctx.maturity_year - ctx.forecast_year + 1
                 first.for_years_edit.set_value(for_years)
                 first.to_age_edit.set_value(ctx.maturity_age)
-            if first.amount_edit is not None and ctx.modal_premium:
-                first.amount_edit.set_value(ctx.modal_premium, decimals=2)
+            # Default INPUT amount is the billable premium — 0 on SPL87 plans,
+            # which set it explicitly rather than leaving it blank.
+            if first.amount_edit is not None:
+                if ctx.is_spl87:
+                    first.amount_edit.set_value(0.0, decimals=2)
+                elif ctx.billable_premium:
+                    first.amount_edit.set_value(ctx.billable_premium, decimals=2)
             first._refresh_max_level_amount()
         self._validate()
 
@@ -2271,17 +2311,21 @@ class DynamicInputsPanel(QWidget):
             row.set_amount_display(value)
 
     def _on_premium_changed(self):
-        # A level type (Max/Min) locks the non-premium inputs; prior premium
-        # rows stay editable. Both level types keep the Face Amount and DB
-        # Option changes AND the riders/benefits open — clients want to see
-        # how a face reduction, DBO switch, or rider drop moves the solved
-        # premium — while withdrawals, loans and repayments stay locked.
-        # (A rider change after the forecast date under Max Level raises the
-        # same guideline caveat strip as a face/DBO change — the inputs tab
-        # watches the riders panel too.) The exception availability is
-        # refreshed, and the Premium Solve criteria group shows only while a
-        # Solve row is selected.
-        self._set_other_sections_locked(bool(self._selected_level_types()))
+        # Level types lock the non-premium inputs, but not uniformly:
+        #   • Max Level Allowed / Prem to Maturity lock ONLY new loans —
+        #     withdrawals, loan repayments, and rate-class / table changes
+        #     stay editable and feed the solve (a withdrawal, downgrade or
+        #     rating change moves the funding the solve measures).
+        #   • Prem to Shadow Maturity keeps the full lock (all five below).
+        # Both keep the Face Amount / DB Option changes AND the riders/benefits
+        # open in every case — clients want to see how a face reduction, DBO
+        # switch, or rider drop moves the solved premium. (A face/DBO/rider/
+        # rate-class/table change OR a withdrawal after the forecast date under
+        # Max Level / Prem to Maturity raises the caveat strip — the inputs tab
+        # watches those sections too.) The exception availability is refreshed,
+        # and the Premium Solve criteria group shows only while a Solve row is
+        # selected.
+        self._apply_section_locks()
         self._refresh_exception_availability()
         self._refresh_solve_group()
 
@@ -2370,17 +2414,26 @@ class DynamicInputsPanel(QWidget):
                 row.set_amount_display(value)
                 return
 
-    def _set_other_sections_locked(self, locked: bool):
-        # Everything except the premium rows and the illustrated rate. The
-        # Face Amount / DB Option change sections and the riders panel stay
-        # editable under the level types so the solves can reflect them (they
-        # alter the guideline premiums that bound Max Level and the funding
-        # need behind Min Level).
-        for section in (
-            self.loan_section, self.withdrawal_section, self.repayment_section,
-            self.rateclass_section, self.table_section,
-        ):
-            section.setEnabled(not locked)
+    def _apply_section_locks(self):
+        # Lock the non-premium input sections per the active level type. The
+        # Face Amount / DB Option change sections and the riders panel are
+        # never locked here (they stay editable under every level type so the
+        # solves can reflect them — they alter the guideline premiums that
+        # bound Max Level and the funding need behind Prem to Maturity).
+        #   • No level type: everything below is editable.
+        #   • Max Level Allowed / Prem to Maturity: lock ONLY new loans;
+        #     withdrawals, loan repayments, rate-class and table changes feed
+        #     the solve, so they stay editable.
+        #   • Prem to Shadow Maturity (or it mixed with another level type):
+        #     lock all five — the shadow solve honors only the premium rows
+        #     plus face/DBO/riders.
+        types = self._selected_level_types()
+        lock_all = _TYPE_SHADOW_LEVEL in types
+        lock_loans = bool(types)          # any level type locks new loans
+        self.loan_section.setEnabled(not lock_loans)
+        for section in (self.withdrawal_section, self.repayment_section,
+                        self.rateclass_section, self.table_section):
+            section.setEnabled(not lock_all)
 
     # ── saved-case capture/apply ──────────────────────────────
 
@@ -2581,7 +2634,6 @@ class DynamicInputsPanel(QWidget):
 
     def collect_into(self, input_set: IllustrationInputSet):
         ctx = self._ctx
-        level_active = self.active_level_premium_type() is not None
         md_active = bool(self.monthly_deduction_windows())
         # Level rows (Max/Min/Shadow) are solved on Run Values — the Max Level
         # row's displayed amount is only a closed-form estimate — and Monthly
@@ -2623,29 +2675,49 @@ class DynamicInputsPanel(QWidget):
                 kind=TransactionKind.PREMIUM, effective_date=ctx.forecast_date,
                 amount=float(lumpsum), subtype="manual_lumpsum"))
 
-        # A level premium type (Max/Min Level) locks the other transaction
-        # inputs — honor only the premium rows above. The level types still
-        # honor the Face Amount / DB Option change sections AND the riders
-        # panel (all stay enabled so the solved premium reflects the entered
-        # policy changes — a face reduction, DBO switch, or rider drop moves
-        # the guideline premiums that bound Max Level and the funding need
-        # behind Min Level); the solvers carry the input set's policy_changes
-        # into every projection they run.
-        if level_active:
+        # Level premium types honor the Face Amount / DB Option change sections
+        # AND the riders panel (all stay enabled so the solved premium reflects
+        # the entered policy changes — a face reduction, DBO switch, or rider
+        # drop moves the guideline premiums that bound Max Level and the funding
+        # need behind Prem to Maturity); the solvers carry the input set's
+        # policy_changes into every projection they run.
+        #   • Prem to Shadow Maturity keeps its full lock — only the face/DBO
+        #     changes and riders feed it (nothing else is editable).
+        #   • Max Level Allowed / Prem to Maturity additionally honor the now-
+        #     editable withdrawals, loan repayments, and rate-class / table
+        #     changes — but NEVER a new loan (that section stays locked). Pay-off
+        #     repayment rows are still excluded here (unsolved under a level type).
+        types = self._selected_level_types()
+        if _TYPE_SHADOW_LEVEL in types:
             self._collect_face_dbo_changes(input_set)
             input_set.policy_changes.extend(self.riders_panel.collect_changes(ctx))
             return
+        # No level type -> new loans are honored too; Max/Min level -> excluded.
+        self._collect_side_inputs(input_set, include_loans=not types)
 
-        loan_entries = [e for e in self.loan_section.entries() if e["amount"] is not None]
-        dated_loan, sched_loan = self._split_current_year(loan_entries)
+    def _collect_side_inputs(self, input_set: IllustrationInputSet, *,
+                             include_loans: bool):
+        """Withdrawals, loan repayments, face/DBO/rate-class/table changes and
+        riders -> the exported input set.
+
+        Shared by the normal export and the Max Level Allowed / Prem to Maturity
+        level solves. Those two level types honor every side input EXCEPT new
+        loans, so ``include_loans`` gates only the new-loan schedule. Pay-off
+        repayment rows are always excluded — main_window solves and layers them
+        (and never solves them under a level type)."""
+        ctx = self._ctx
+        if include_loans:
+            loan_entries = [e for e in self.loan_section.entries()
+                            if e["amount"] is not None]
+            dated_loan, sched_loan = self._split_current_year(loan_entries)
+            input_set.dated_transactions.extend(
+                self._expand_dated(dated_loan, TransactionKind.LOAN))
+            input_set.scheduled_transactions.extend(
+                self._scheduled(sched_loan, TransactionKind.LOAN,
+                                metadata={"loan_type": "fixed"}))
         input_set.dated_transactions.extend(
-            self._expand_dated(dated_loan, TransactionKind.LOAN))
-        input_set.scheduled_transactions.extend(
-            self._scheduled(sched_loan, TransactionKind.LOAN, metadata={"loan_type": "fixed"}))
-        input_set.dated_transactions.extend(
-            self._expand_dated(self.withdrawal_section.entries(), TransactionKind.WITHDRAWAL))
-        # Pay-off rows are solved on Run Values and layered in by main_window —
-        # exclude them here even after a run has filled their display amount.
+            self._expand_dated(self.withdrawal_section.entries(),
+                               TransactionKind.WITHDRAWAL))
         repay_entries = [e for e in self.repayment_section.entries()
                          if e.get("type") != _TYPE_PAYOFF]
         input_set.dated_transactions.extend(

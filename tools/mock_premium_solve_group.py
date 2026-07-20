@@ -55,7 +55,7 @@ def main() -> None:
     face_row.year_edit.set_value(int(panel._ctx.forecast_year) + 3)
     face_row._year_edited()
     face_row.amount_edit.set_value(40_000, decimals=0)
-    tab._refresh_max_level_caveat()
+    tab._refresh_level_solve_caveat()
     app.processEvents()
     tab.grab().save(str(out_dir / "mock_max_level_caveat.png"))
     tab.hide()
