@@ -24,6 +24,9 @@ from suiteview.ratemanager.exporter import (
     IAFExporter, generate_output_filename, extract_region_from_filename,
 )
 from suiteview.ratemanager.rate_reformatter import RateReformatter
+from suiteview.ratemanager.ui_helpers import (
+    set_expanding_panel_visible, update_cease_age_field,
+)
 
 
 # Shared RateManager palette + stylesheet (also used by the Workup window).
@@ -400,9 +403,13 @@ class MPFExportWorker(QThread):
                 rows = mx.export_raw(self.input_path, self.output_path, codes, progress_cb=cb)
                 self.progress.emit(1.0, f"Wrote {rows:,} rows.")
             elif self.mode == "table":
-                pairs = [(s[0], s[1]) for s in self.specs]
-                self.progress.emit(0.0, f"Building Excel Table ({len(pairs)} premium codes)…")
-                counts = mx.export_table(self.input_path, self.output_path, pairs, progress_cb=cb)
+                table_specs = [(s[0], s[1], s[2]) for s in self.specs]
+                self.progress.emit(
+                    0.0,
+                    f"Building Excel Table ({len(table_specs)} premium codes)…")
+                counts = mx.export_table(
+                    self.input_path, self.output_path, table_specs,
+                    progress_cb=cb)
                 for pc, n in sorted(counts.items()):
                     self.progress.emit(1.0, f"  {pc}:  {n:,} rows")
             else:  # db
@@ -455,7 +462,7 @@ class _ConverterPanel(QWidget):
         self._benefit_db_worker: BenefitDBWorker | None = None
         self._list_worker: QThread | None = None
         self._export_worker: QThread | None = None
-        self._benefit_rows: list = []   # (code, include_chk, renewable_chk, index_edit)
+        self._benefit_rows: list = []
         self._mode_radios: dict[str, QRadioButton] = {}
         self._mode_previews: dict[str, QLabel] = {}
 
@@ -521,16 +528,19 @@ class _ConverterPanel(QWidget):
         if self.select_mode:
             if self.select_kind == "mpf":
                 sect_label = "Premium Codes:"
-                headers = ["Premium Code", "Renewable", "Benefit Index",
-                           "Benefit", "Combos", "Rows"]
+                headers = [
+                    "Premium Code", "Renewable", "Cease Age", "Benefit Index",
+                    "Benefit", "Combos", "Rows",
+                ]
             elif self.select_kind == "ckultb04":
                 sect_label = "Plan Codes:"
                 headers = ["Plan Code", "Records", "Maturity Age", "Starting Index"]
             else:
                 sect_label = "Benefits:"
-                headers = ["Benefit", "Renewable", "Benefit Index",
-                           "COI rows", "Target rows"]
-            self._info_headers = headers[3:]
+                headers = [
+                    "Benefit", "Renewable", "Cease Age", "Benefit Index",
+                    "COI rows", "Target rows",
+                ]
 
             sel_header = QHBoxLayout()
             lbl_sel = QLabel(sect_label)
@@ -641,7 +651,7 @@ class _ConverterPanel(QWidget):
 
     def _toggle_log(self):
         shown = self.log_toggle.isChecked()
-        self.log.setVisible(shown)
+        set_expanding_panel_visible(self, self.log, shown)
         self.log_toggle.setText(
             ("\u25BE" if shown else "\u25B8") + "  Processing output")
 
@@ -851,21 +861,51 @@ class _ConverterPanel(QWidget):
                        "Unchecked = level rate set at issue.")
             self.benefit_table.setCellWidget(row, 1, ren_cell)
 
+            cease_edit = QLineEdit()
+            cease_edit.setObjectName("BenefitIndex")
+            cease_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cease_edit.setMinimumWidth(100)
+            cease_edit.setToolTip(
+                "Required when Renewable is unchecked. Charges stop at this "
+                "age; cease age 65 produces rates through attained age 64.")
+            self.benefit_table.setCellWidget(row, 2, cease_edit)
+
             idx_edit = QLineEdit(str(base_index + row * 100))
             idx_edit.setObjectName("BenefitIndex")
             idx_edit.setToolTip("Starting index for DB Reformat.")
-            self.benefit_table.setCellWidget(row, 2, idx_edit)
+            self.benefit_table.setCellWidget(row, 3, idx_edit)
 
             for j, val in enumerate(info_values):
                 text = f"{val:,}" if isinstance(val, int) else str(val)
                 item = QTableWidgetItem(text)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.benefit_table.setItem(row, 3 + j, item)
+                self.benefit_table.setItem(row, 4 + j, item)
 
-            self._benefit_rows.append((code, inc_chk, ren_chk, idx_edit))
+            has_rates = self.select_kind == "mpf" or bool(info_values[0])
+            def sync_cease_age(
+                include=inc_chk,
+                renewable=ren_chk,
+                rates_present=has_rates,
+                edit=cease_edit,
+            ):
+                update_cease_age_field(
+                    include.isChecked(),
+                    renewable.isChecked(),
+                    rates_present,
+                    edit,
+                )
+
+            inc_chk.toggled.connect(
+                lambda _checked, sync=sync_cease_age: sync())
+            ren_chk.toggled.connect(
+                lambda _checked, sync=sync_cease_age: sync())
+            sync_cease_age()
+            self._benefit_rows.append(
+                (code, inc_chk, ren_chk, cease_edit, idx_edit, has_rates))
 
         self.log.append(f"Found {len(summary)} {unit}(s). "
-                        "Check the ones to load, set Renewable / Index, then run.")
+                        "Check the ones to load, set Renewable / Cease Age / "
+                        "Index, then run.")
 
     def _benefit_label_cell(self, code: str, check_container: QWidget) -> QWidget:
         """Combine the include checkbox and the benefit code into one cell."""
@@ -886,12 +926,40 @@ class _ConverterPanel(QWidget):
         self._on_error(err)
 
     def _set_all_benefits(self, checked: bool):
-        for _code, inc_chk, _ren, _idx in self._benefit_rows:
-            inc_chk.setChecked(checked)
+        for row in self._benefit_rows:
+            row[1].setChecked(checked)
 
     def _selected_benefit_codes(self) -> list:
-        return [code for code, inc_chk, _ren, _idx in self._benefit_rows
-                if inc_chk.isChecked()]
+        return [row[0] for row in self._benefit_rows if row[1].isChecked()]
+
+    def _validated_cease_age(
+        self,
+        code: str,
+        renewable_check: QCheckBox,
+        cease_edit: QLineEdit,
+        required: bool,
+    ):
+        if renewable_check.isChecked() or not required:
+            return None
+        text = cease_edit.text().strip()
+        if not text:
+            QMessageBox.warning(
+                self, "Missing Cease Age",
+                f"{code}: enter the age when this non-renewing benefit ceases.")
+            return False
+        try:
+            cease_age = int(text)
+        except ValueError:
+            QMessageBox.warning(
+                self, "Invalid Cease Age",
+                f"{code}: Cease Age must be a whole number.")
+            return False
+        if cease_age <= 0:
+            QMessageBox.warning(
+                self, "Invalid Cease Age",
+                f"{code}: Cease Age must be greater than 0.")
+            return False
+        return cease_age
 
     def _start_mpf_export(self, mode: str):
         input_path = self.input_edit.text().strip()
@@ -899,10 +967,16 @@ class _ConverterPanel(QWidget):
             QMessageBox.warning(self, "No Input File",
                                 "Please select a valid MPF text file.")
             return
-        specs = []   # (code, renewable, index)
-        for code, inc_chk, ren_chk, idx_edit in self._benefit_rows:
+        specs = []   # (code, renewable, cease_age, index)
+        for (
+            code, inc_chk, ren_chk, cease_edit, idx_edit, _has_rates
+        ) in self._benefit_rows:
             if not inc_chk.isChecked():
                 continue
+            cease_age = self._validated_cease_age(
+                code, ren_chk, cease_edit, required=(mode != "raw"))
+            if cease_age is False:
+                return
             index = 0
             if mode == "db":
                 try:
@@ -912,7 +986,7 @@ class _ConverterPanel(QWidget):
                         self, "Invalid Index",
                         f"Premium code {code}: the Benefit Index must be a whole number.")
                     return
-            specs.append((code, ren_chk.isChecked(), index))
+            specs.append((code, ren_chk.isChecked(), cease_age, index))
         if not specs:
             QMessageBox.warning(self, "No Premium Codes Selected",
                                 "Check the premium codes to export.")
@@ -984,9 +1058,15 @@ class _ConverterPanel(QWidget):
             return
 
         specs = []
-        for code, inc_chk, ren_chk, idx_edit in self._benefit_rows:
+        for (
+            code, inc_chk, ren_chk, cease_edit, idx_edit, has_rates
+        ) in self._benefit_rows:
             if not inc_chk.isChecked():
                 continue
+            cease_age = self._validated_cease_age(
+                code, ren_chk, cease_edit, required=has_rates)
+            if cease_age is False:
+                return
             try:
                 start_index = int(idx_edit.text().strip())
             except ValueError:
@@ -998,6 +1078,7 @@ class _ConverterPanel(QWidget):
                 code=code,
                 renewable=ren_chk.isChecked(),
                 start_index=start_index,
+                cease_age=cease_age,
             ))
         if not specs:
             QMessageBox.warning(self, "No Benefits Selected",

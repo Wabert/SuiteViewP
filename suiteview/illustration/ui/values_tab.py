@@ -1683,7 +1683,7 @@ class IllustrationValuesTab(QWidget):
         frame = pd.DataFrame(rows)
         self._all_columns = list(frame.columns)
         column_decimals = {"Face Amount": 0, "Year": 0, "Month": 0, "Attained Age": 0, "EPU Rate": 6,
-                           "TPP Rate": 4, "EPP Rate": 4}
+                           "TPP Rate": 4, "EPP Rate": 4, "Interest Rate": 4}
         column_decimals.update({column: 6 for column in self._rate_columns})
         column_decimals.update({column: 6 for column in self._benefit_columns if " Rate " in column})
         column_decimals.update({column: 6 for column in self._rider_columns if " Rate " in column})
@@ -1865,7 +1865,7 @@ class IllustrationValuesTab(QWidget):
             "MFEE": state.mfee_charge,
             "MD": state.total_deduction,
             "Exception Prem": state.gp_exception_prem,
-            "Interest Rate": state.effective_annual_rate * 100.0,
+            "Interest Rate": state.effective_annual_rate,
             "EAV": state.av_end_of_month,
             "SC": state.surrender_charge,
             "ESV": state.ending_sv,

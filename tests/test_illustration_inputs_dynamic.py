@@ -1,11 +1,14 @@
 import os
 from datetime import date
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
+from suiteview.illustration.models.app_settings import get_illustration_settings
 from suiteview.illustration.models.input_set import (
     InforceOverrideSet,
     IllustrationInputSet,
@@ -21,6 +24,17 @@ from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
 
 
 _QT_APP = None
+
+
+@pytest.fixture(autouse=True)
+def _full_premium_type_surface():
+    """These tests exercise the whole Premium Type surface, so enable the
+    app-wide "Additional Premium Types" option (off by default) for each test.
+    Reset afterwards so the singleton never leaks between tests."""
+    settings = get_illustration_settings()
+    settings.set_additional_premium_types(True)
+    yield
+    settings.set_additional_premium_types(False)
 
 
 def _app():
@@ -372,6 +386,84 @@ def test_shadow_level_premium_offered_for_shadow_policies():
     assert "Prem to Shadow Maturity" not in types
 
 
+def test_additional_premium_types_off_shows_only_base_set():
+    # The app-wide "Additional Premium Types" option is OFF by default — the
+    # Premium Type dropdown then offers only the four everyday types.
+    get_illustration_settings().set_additional_premium_types(False)
+    panel = _panel()
+    row = panel.premium_section.rows()[0]
+    options = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
+    assert options == ["INPUT", "Billable Prem", "Prem to Maturity", "Solve"]
+
+
+def test_additional_premium_types_off_hides_shadow_type_for_shadow_policy():
+    # Even a shadow-account policy hides the advanced (incl. shadow) types while
+    # the option is off.
+    get_illustration_settings().set_additional_premium_types(False)
+    panel = DynamicInputsPanel()
+    panel.load_from_policy(_FakePolicy(), has_shadow=True)
+    row = panel.premium_section.rows()[0]
+    options = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
+    assert options == ["INPUT", "Billable Prem", "Prem to Maturity", "Solve"]
+
+
+def test_toggling_additional_premium_types_updates_existing_rows_live():
+    # Flipping the option re-syncs already-built dropdowns app-wide — the change
+    # is not per policy/case, so an open row reflects it immediately.
+    settings = get_illustration_settings()
+    settings.set_additional_premium_types(False)
+    panel = _panel()
+    row = panel.premium_section.rows()[0]
+    assert "Max Level" not in [
+        row.type_combo.itemText(i) for i in range(row.type_combo.count())]
+
+    settings.set_additional_premium_types(True)
+    assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
+        "INPUT", "Billable Prem", "Billable to MD", "Max Level",
+        "Prem to Maturity", "Monthly Deduction", "Solve"]
+
+
+def test_turning_off_additional_types_resets_advanced_selection():
+    # A row parked on an advanced type falls back to INPUT when the option is
+    # switched off, and emits changed so the inputs recompute.
+    settings = get_illustration_settings()
+    settings.set_additional_premium_types(True)
+    panel = _panel()
+    row = panel.premium_section.rows()[0]
+    row.type_combo.setCurrentText("Max Level")
+    assert row.premium_type() == "Max Level"
+
+    fired = []
+    row.changed.connect(lambda: fired.append(True))
+    settings.set_additional_premium_types(False)
+    assert row.premium_type() == "INPUT"
+    assert fired
+
+
+def test_window_options_menu_toggles_additional_premium_types():
+    # The Illustration window header carries an Options menu whose "Additional
+    # Premium Types" entry is unchecked by default and drives the app-wide
+    # setting when toggled.
+    from suiteview.illustration.ui.main_window import IllustrationWindow
+
+    _app()
+    get_illustration_settings().set_additional_premium_types(False)
+    window = IllustrationWindow()
+    try:
+        action = window._additional_premium_types_action
+        assert action.isCheckable()
+        assert action.isChecked() is False
+        assert get_illustration_settings().additional_premium_types is False
+
+        action.setChecked(True)
+        assert get_illustration_settings().additional_premium_types is True
+
+        action.setChecked(False)
+        assert get_illustration_settings().additional_premium_types is False
+    finally:
+        window.deleteLater()
+
+
 def _set_window(row, start_year: int, for_years: int):
     """Set a premium-style row's year window (start + For Years)."""
     row.year_edit.set_value(start_year)
@@ -672,6 +764,29 @@ def test_annual_premium_current_year_not_applied_on_forecast_date():
     by_year = {t.policy_year: t.amount for t in premiums}
     assert by_year[7] == 0.0
     assert by_year[8] > 0
+
+
+def test_current_year_loan_dated_transactions_preserve_mode():
+    panel = _panel()
+    row = panel.loan_section.rows()[0]
+    row.year_edit.setText("7")
+    row._year_edited()
+    row.amount_edit.setText("250")
+    row.mode_combo.setCurrentText("M")
+    row.for_years_edit.setText("1")
+    row._for_years_edited()
+
+    input_set = IllustrationInputSet()
+    panel.collect_into(input_set)
+
+    loans = [
+        transaction
+        for transaction in input_set.dated_transactions
+        if transaction.kind == TransactionKind.LOAN
+    ]
+    assert loans
+    assert {transaction.amount for transaction in loans} == {250.0}
+    assert {transaction.metadata.get("mode") for transaction in loans} == {"M"}
 
 
 def test_withdrawals_expand_to_monthliversary_dates():

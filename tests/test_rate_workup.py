@@ -3,13 +3,16 @@
 import pytest
 
 from suiteview.ratemanager import ckultb01_parser
+from suiteview.ratemanager.benefit_db import BenefitDBSpec, build_benefit_rows
 from suiteview.ratemanager.parser import ParseResult, ProductInfo, RateRecord
 from suiteview.ratemanager.rate_reformatter import RateReformatter
 from suiteview.ratemanager.workup.builder import (
-    WorkupSpec, _band_out_map, _build_epu, _build_scr,
-    _expand_attained_table, _match_raw, _sex_candidates, _sex_out,
+    WorkupAnalysis, WorkupSpec, _band_out_map, _build_epu, _build_scr,
+    _build_linked_benefit, _expand_attained_table, _match_raw,
+    _sex_candidates, _sex_out, build,
     benefit_start_index,
 )
+from suiteview.ratemanager.workup.spec import BenefitSelection
 
 
 # ---------------------------------------------------------------------------
@@ -133,12 +136,22 @@ def test_mpf_exporter_converts_percent_to_decimal():
     assert rows[(30, 2)] == 1.22                    # factor unchanged
 
 
+def test_mpf_nonrenewing_rates_stop_before_cease_age():
+    from suiteview.ratemanager.mpf_exporter import _expand as mpf_expand
+    table = {
+        age: (float(age), str(age), False) for age in range(20, 81)
+    }
+    rows = mpf_expand(table, renewable=False, cease_age=65)
+    issue_20 = [(dur, rate) for ia, dur, rate in rows if ia == 20]
+    assert max(dur for dur, _rate in issue_20) == 45
+
+
 def test_expand_attained_table_renewable_vs_level():
     table = {30: 1.0, 31: 2.0, 32: 3.0}
     renew = _expand_attained_table(table, renewable=True)
     # Issue 30: durations 1..3 walk the attained ages.
     assert (30, 1, 1.0) in renew and (30, 2, 2.0) in renew and (30, 3, 3.0) in renew
-    level = _expand_attained_table(table, renewable=False)
+    level = _expand_attained_table(table, renewable=False, cease_age=33)
     assert (30, 1, 1.0) in level and (30, 2, 1.0) in level and (30, 3, 1.0) in level
 
 
@@ -235,6 +248,115 @@ def _rate(rate_type, att, dur, rate, band="A", sex="1", cls="N",
         scale_stop="12/31/9999", attained_age=att, duration=dur,
         issue_age=att - dur, gender=sex, rate_class=cls, band=band,
         plan_option=opt, rate=rate)
+
+
+def test_bencoi_uses_each_combo_target_issue_age_range():
+    rates = [
+        _rate("C", 20, 99, 0.1, sex=sex)
+        for sex in ("1", "2")
+    ]
+    for sex, target_max in (("1", 40), ("2", 30)):
+        rates.extend(
+            _rate("C", age, 99, 0.2, band="0", sex=sex, opt="21")
+            for age in range(10, 61)
+        )
+        rates.extend([
+            _rate("M", 20, 0, 1.0, band="0", sex=sex, opt="21"),
+            _rate("M", target_max, 0, 1.0, band="0", sex=sex, opt="21"),
+        ])
+
+    result = ParseResult(
+        products=[ProductInfo(ref=1, plancode="TESTPLAN", version="1", pay_age=81)],
+        rates=rates,
+    )
+    pointers, bencoi, _bentrg, _counts = build_benefit_rows(
+        result, [BenefitDBSpec(
+            code="21", renewable=False, start_index=100, cease_age=81)]
+    )
+
+    index_by_sex = {row[4]: row[7] for row in pointers}
+    assert index_by_sex["1"] != index_by_sex["2"]
+    ages_by_index = {
+        index: {row[2] for row in bencoi if row[0] == index}
+        for index in index_by_sex.values()
+    }
+    assert ages_by_index[index_by_sex["1"]] == set(range(20, 41))
+    assert ages_by_index[index_by_sex["2"]] == set(range(20, 31))
+
+
+def test_mpf_linked_bencoi_uses_iaf_target_issue_age_range():
+    result = ParseResult(
+        products=[ProductInfo(ref=1, plancode="TESTPLAN", version="1")],
+        rates=[
+            _rate("M", 20, 0, 1.0, band="0", opt="3F"),
+            _rate("M", 40, 0, 1.0, band="0", opt="3F"),
+        ],
+    )
+    mpf_items = {
+        ("1", "N", "A"): {
+            age: (float(age), str(age), False) for age in range(10, 61)
+        }
+    }
+
+    _pointers, bencoi, _bentrg, _block = _build_linked_benefit(
+        result,
+        BenefitSelection(code="3F", renewable=True, mpf_code="312"),
+        mpf_items,
+        [("1", "N", "A")],
+        200,
+        "TESTPLAN",
+        "1",
+        [],
+    )
+
+    assert {row[2] for row in bencoi} == set(range(20, 41))
+
+
+def test_nonrenewing_bencoi_stops_before_cease_age():
+    rates = [_rate("C", 20, 99, 0.1)]
+    rates.extend(
+        _rate("C", age, 99, 0.2, band="0", opt="21")
+        for age in range(20, 81)
+    )
+    rates.extend([
+        _rate("M", 20, 0, 1.0, band="0", opt="21"),
+        _rate("M", 40, 0, 1.0, band="0", opt="21"),
+    ])
+    result = ParseResult(
+        products=[ProductInfo(ref=1, plancode="TESTPLAN", version="1", pay_age=81)],
+        rates=rates,
+    )
+
+    _pointers, bencoi, _bentrg, _counts = build_benefit_rows(
+        result, [BenefitDBSpec(
+            code="21", renewable=False, start_index=100, cease_age=65)]
+    )
+
+    issue_20 = [row for row in bencoi if row[2] == 20 and row[1] == 1]
+    assert max(row[3] for row in issue_20) == 45
+    assert max(20 + row[3] - 1 for row in issue_20) == 64
+
+
+def test_nonrenewing_benefit_requires_cease_age():
+    result = ParseResult(
+        products=[ProductInfo(ref=1, plancode="TESTPLAN", version="1", pay_age=81)],
+        rates=[
+            _rate("C", 20, 99, 0.1),
+            _rate("C", 20, 99, 0.2, band="0", opt="21"),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="cease age is required"):
+        build_benefit_rows(
+            result,
+            [BenefitDBSpec(code="21", renewable=False, start_index=100)],
+        )
+
+
+def test_workup_build_requires_base_index():
+    result = build(WorkupSpec(), WorkupAnalysis())
+    assert result.error.startswith(
+        "Base Index is required before building rates.")
 
 
 def test_dur0_only_current_rates_act_as_ultimate():

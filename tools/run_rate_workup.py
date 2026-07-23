@@ -6,8 +6,9 @@ Usage:
 
 JSON keys mirror WorkupSpec: plancode, output_dir, fmt, maturity_age,
 iaf_path, mpf_path, scr_path, epu_path, base_index, scr_plan, epu_plan,
-epu_freq, epu_rule, benefits: [{code, renewable, mpf_code}] — mpf_code links
-a benefit's charges to an MPF premium code ('' or omitted = IAF charges).
+epu_freq, epu_rule, benefits: [{code, renewable, cease_age, mpf_code}] —
+cease_age is required for non-renewing benefits; mpf_code links a benefit's
+charges to an MPF premium code ('' or omitted = IAF charges).
 
 Prints the WorkupResult as JSON to stdout.
 """

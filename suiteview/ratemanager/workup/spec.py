@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -17,6 +17,7 @@ class BenefitSelection:
     """
     code: str                 # IAF plan_option (benefit) code
     renewable: bool = False   # rate varies by attained age vs level at issue
+    cease_age: Optional[int] = None  # required for level rates; charges stop here
     mpf_code: str = ""        # MPF premium code ('' = charges come from IAF)
     # First Index(BENCOI)/Index(BENTRG). 0 = derive from the convention:
     # (base_index + 2-digit type code) × 100, letters via SUBTYPE_LETTER_MAP.
@@ -41,7 +42,7 @@ class WorkupSpec:
     # number (each physical table is its own index space, so COI/TRGPREM/SCR/
     # EPU all start at base; benefits pack sequentially from base within the
     # BENCOI/BENTRG space). Dedup: identical rate tables share one index.
-    base_index: int = 13400
+    base_index: Optional[int] = None
 
     # CKULTB internal (2-char) plan selections.
     scr_plan: str = ""

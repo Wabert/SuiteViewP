@@ -2668,17 +2668,18 @@ class SuiteViewTaskbar(QWidget):
         if not window or not hasattr(window, 'load_policy'):
             return
 
-        # Company left empty so PolView auto-detects it.
-        window.load_policy(policy, region=self._compact_region(), company_code="")
+        # Only load the typed policy when it's new (not already pulled up).
+        # If it's already in PolView's list, leave it on whatever policy was
+        # last shown. Company left empty so PolView auto-detects it.
+        already_loaded = (hasattr(window, 'has_policy_loaded')
+                          and window.has_policy_loaded(policy))
+        if not already_loaded:
+            window.load_policy(policy, region=self._compact_region(), company_code="")
         self._bring_to_front(window)
 
     def _abrquote_btn_clicked(self):
-        """Open ABR Quote, loading the compact-bar policy when one is typed."""
-        policy = self._compact_policy()
+        """Open ABR Quote without passing through the compact-bar policy."""
         self._open_abrquote()
-        if policy and self.abrquote_window is not None \
-                and hasattr(self.abrquote_window, 'load_policy'):
-            self.abrquote_window.load_policy(policy)
 
     def _illustration_btn_clicked(self):
         """Open Illustration, loading the compact-bar policy when one is typed."""

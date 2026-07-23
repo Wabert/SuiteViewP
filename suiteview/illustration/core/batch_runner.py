@@ -463,6 +463,216 @@ def run_glp_forecast_policy(
         _clear()
 
 
+# ── Billable-to-MD hand-off dates ───────────────────────────────────────────
+
+BILLABLE_TO_MD_COLUMNS: Tuple[Tuple[str, str], ...] = (
+    ("b2md_md_date", "Billable to MD - MD Date"),
+    ("b2md_exc_date", "Billable to MD - Exception Date"),
+)
+
+BILLABLE_TO_MD_FORMATS: Dict[str, str] = {
+    "b2md_md_date": FMT_MIXED_DATE,
+    "b2md_exc_date": FMT_MIXED_DATE,
+}
+
+
+def _billable_to_md_run(policy):
+    """Build the future inputs + options for a policy's "Billable to MD" run.
+
+    Mirrors what the Inputs tab exports for a single "Billable to MD" premium
+    row spanning the current policy year to maturity: silence the default
+    billing, pay the policy's billable premium on its mode (dated this policy
+    year, scheduled after), and let the engine hand off to the Monthly
+    Deduction premium — then the GP exception premium — from a run option.
+    """
+    from dateutil.relativedelta import relativedelta
+
+    from suiteview.illustration.models.input_set import (
+        DatedTransaction, IllustrationInputSet, IllustrationOptions,
+        ScheduledTransaction, TransactionKind,
+    )
+
+    issue_date = policy.issue_date
+    issue_age = int(policy.issue_age or 0)
+    maturity_age = int(policy.maturity_age or 121)
+    forecast_year = int(policy.policy_year or 1)
+    maturity_year = max(1, maturity_age - issue_age)
+    mode = billing_mode_code(policy)
+    interval = {"M": 1, "Q": 3, "S": 6, "A": 12}.get(mode, 12)
+    form = (policy.form_number or "").strip().upper()
+    # SPL87-form (single-premium) plans have a zero ongoing billable premium.
+    billable = 0.0 if form.startswith("SPL87") else float(policy.modal_premium or 0.0)
+    valuation = policy.valuation_date
+    forecast_date = valuation + relativedelta(months=1) if valuation else None
+
+    # Silence the default modal billing from the forecast year on.
+    scheduled = [ScheduledTransaction(
+        kind=TransactionKind.PREMIUM, policy_year=forecast_year,
+        amount=0.0, mode="A")]
+    # Current policy year's billable payments are dated (its anniversary is past)
+    # and tagged so the engine stops them once the MD hand-off latches.
+    dated = []
+    if billable and issue_date is not None and forecast_date is not None:
+        anniversary = issue_date + relativedelta(years=forecast_year - 1)
+        next_anniversary = issue_date + relativedelta(years=forecast_year)
+        when = anniversary
+        while when < next_anniversary:
+            if when < forecast_date:
+                when = when + relativedelta(months=interval)
+                continue
+            dated.append(DatedTransaction(
+                kind=TransactionKind.PREMIUM, effective_date=when,
+                amount=billable, metadata={"billable_to_md": True}))
+            when = when + relativedelta(months=interval)
+    # Later years ride a plain schedule; the window suppresses it post-switch.
+    if billable and maturity_year > forecast_year:
+        scheduled.append(ScheduledTransaction(
+            kind=TransactionKind.PREMIUM, policy_year=forecast_year + 1,
+            amount=billable, mode=mode))
+
+    future = IllustrationInputSet(
+        scheduled_transactions=scheduled, dated_transactions=dated)
+    options = IllustrationOptions(
+        conform_to_tefra=True,
+        conform_to_tamra=False,
+        # A "Billable to MD" row always allows GP exceptions — the whole point
+        # of the mode is the billable → MD → exception sequence.
+        allow_exception_prems=True,
+        billable_to_md_windows=[(forecast_year, maturity_year)],
+    )
+    return future, options
+
+
+def run_billable_to_md_policy(
+    policy_number: str,
+    *,
+    company: Optional[str] = None,
+    region: str = "CKPR",
+    engine=None,
+    lumpsum_to_next: bool = False,
+    skip_loans: bool = False,
+) -> PolicyResult:
+    """Run a policy on the "Billable to MD" premium type and report the dates.
+
+    Pays the policy's current billable premium (on its billing mode) from the
+    current policy year to maturity; the engine hands off to the Monthly
+    Deduction premium the first month the billable premium can no longer keep
+    the policy in force, then to GP exception premiums once the guideline room
+    runs out. Two outputs:
+
+      * ``Billable to MD - MD Date`` — the date Monthly Deduction premiums
+        begin (the hand-off), or "Maturity" if they never do.
+      * ``Billable to MD - Exception Date`` — the date GP exception premiums
+        begin, or "Maturity" if they never do.
+
+    Shares the GLP forecast's load + bypass gates (shadow account / MD diff /
+    missing rates / CVAT), leaving both dates blank on a bypassed policy.
+    Never raises — failures come back as a status + error string.
+
+    When ``lumpsum_to_next`` is set, a "Lumpsum to Next Premium" bridge is
+    solved and layered in on the forecast date, and the MD hand-off is
+    suppressed until that next billable premium — so the policy is funded up to
+    its regular billable premium and the run measures how long it then sustains
+    it. When ``skip_loans`` is set, any policy carrying a loan is bypassed.
+    """
+    from suiteview.illustration.core.calc_engine import IllustrationEngine
+    from suiteview.illustration.core.illustration_policy_service import (
+        build_illustration_data,
+    )
+
+    engine = engine or IllustrationEngine()
+    values: Dict[str, object] = {}
+
+    def result(status: str, error: Optional[str] = None) -> PolicyResult:
+        values["run_status"] = status
+        return PolicyResult(policy=policy_number, company=company,
+                            status=status, error=error, values=values)
+
+    try:
+        try:
+            policy = build_illustration_data(
+                policy_number, region=region, company_code=company)
+        except Exception as exc:  # not found / load failure
+            return result("bypass (load error)", str(exc))
+
+        # ── MD diff + rate availability, then the shared bypass gates ──
+        md_diff, _system_md, missing_rates, check_error = _md_and_rate_check(
+            engine, policy)
+        if check_error is not None:
+            return result("bypass (check error)", check_error)
+
+        bypass = []
+        if policy.has_shadow_account:
+            bypass.append(("A", "active shadow account (benefit type A)"))
+        if md_diff is not None and md_diff != 0.0:
+            bypass.append(("MD", f"MD diff {md_diff:,.2f}"))
+        if missing_rates:
+            bypass.append(("rates missing", "missing rider/benefit rates"))
+        if policy.is_cvat:
+            bypass.append(("CVAT", "CVAT policy — forecasts are GPT-only"))
+        if skip_loans and policy.has_loans:
+            bypass.append(("loan", f"loan balance {policy.total_loan_balance:,.2f}"))
+        if bypass:
+            return result(
+                f"bypass ({', '.join(code for code, _ in bypass)})",
+                "; ".join(detail for _, detail in bypass))
+
+        future, options = _billable_to_md_run(policy)
+
+        # ── Lumpsum to Next Premium: solve the bridge and layer it in ──
+        # The bridge funds the policy up to its next billable premium; the MD
+        # hand-off is held off until that premium so the run measures how long
+        # the regular billable premium then sustains the policy.
+        if lumpsum_to_next:
+            from dataclasses import replace as _replace
+
+            from suiteview.illustration.core.solve_lumpsum_to_next_premium import (
+                LUMPSUM_SUBTYPE, solve_lumpsum_to_next_premium,
+            )
+            from suiteview.illustration.models.input_set import (
+                DatedTransaction, IllustrationInputSet, TransactionKind,
+            )
+            try:
+                lump = solve_lumpsum_to_next_premium(
+                    deepcopy(policy),
+                    base_future_inputs=future,
+                    base_options=options,
+                    engine=engine)
+            except Exception:  # bridge solve failed — run without it
+                lump = None
+            if lump is not None and lump.lumpsum > 0:
+                dated = list(future.dated_transactions)
+                dated.append(DatedTransaction(
+                    kind=TransactionKind.PREMIUM,
+                    effective_date=lump.forecast_date,
+                    amount=lump.lumpsum, subtype=LUMPSUM_SUBTYPE))
+                future = IllustrationInputSet(
+                    scheduled_transactions=list(future.scheduled_transactions),
+                    dated_transactions=dated,
+                    policy_changes=list(future.policy_changes))
+                options = _replace(
+                    options,
+                    billable_to_md_no_latch_before=lump.next_premium_date)
+                values["lumpsum"] = lump.lumpsum
+
+        states = engine.project(
+            deepcopy(policy), options=options, future_inputs=future,
+            stop_on_lapse=True)
+
+        switch = next((s for s in states if s.billable_md_switched), None)
+        exc = next((s for s in states if s.gp_exception_prem > 0), None)
+        values["b2md_md_date"] = (switch.date if switch is not None
+                                  else MATURITY_LABEL)
+        values["b2md_exc_date"] = (exc.date if exc is not None
+                                   else MATURITY_LABEL)
+        return result(STATUS_COMPLETE)
+    except Exception as exc:  # unexpected engine/solve failure — isolate it
+        return result(STATUS_ERROR, str(exc))
+    finally:
+        from suiteview.core.policy_service import clear_cache as _clear
+        _clear()
+
+
 # ── Min Level to Exception solve ────────────────────────────────────────────
 
 MINLEVEL_COLUMNS: Tuple[Tuple[str, str], ...] = (

@@ -5,10 +5,11 @@ import logging
 from typing import Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QCursor
+from PyQt6.QtGui import QAction, QCursor
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -32,6 +33,7 @@ from suiteview.polview.ui.widgets import PolicyLookupBar
 from suiteview.ui.widgets.frameless_window import FramelessWindowBase
 
 from suiteview.illustration.models.case_store import CaseStoreError
+from suiteview.illustration.models.app_settings import get_illustration_settings
 
 from .case_controls import CasesController
 from .inputs_tab import IllustrationInputsTab
@@ -43,6 +45,8 @@ from .saved_cases_panel import format_saved_stamp
 from .values_tab import IllustrationValuesTab
 from .styles import (
     GOLD_TEXT,
+    HEADER_MENU_BUTTON_STYLE,
+    HEADER_MENU_STYLE,
     HEADER_PANEL_BUTTON_STYLE,
     ILLUSTRATION_BORDER_COLOR,
     ILLUSTRATION_HEADER_COLORS,
@@ -100,6 +104,12 @@ class IllustrationWindow(FramelessWindowBase):
             "Toggle the List panel (Policies / Saved Cases)")
         self.list_toggle_btn.setStyleSheet(HEADER_PANEL_BUTTON_STYLE)
 
+        # "Options" header menu (toolbar-style drop-down). Holds app-wide
+        # toggles that apply across the whole Illustration app — not per
+        # policy/case. Built before super().__init__ so FramelessWindowBase can
+        # place it in the title bar via header_widgets.
+        self._build_options_menu()
+
         super().__init__(
             title=WINDOW_TITLE,
             default_size=(1200, 825),
@@ -107,7 +117,7 @@ class IllustrationWindow(FramelessWindowBase):
             parent=parent,
             header_colors=ILLUSTRATION_HEADER_COLORS,
             border_color=ILLUSTRATION_BORDER_COLOR,
-            header_widgets=[self.list_toggle_btn],
+            header_widgets=[self.options_btn, self.list_toggle_btn],
         )
         self.list_toggle_btn.clicked.connect(self._toggle_list_panel)
 
@@ -116,6 +126,36 @@ class IllustrationWindow(FramelessWindowBase):
         if initial_policy:
             self.load_policy(initial_policy, region=initial_region,
                              company_code=initial_company)
+
+    def _build_options_menu(self):
+        """Build the "Options" header drop-down and its app-wide toggles.
+        Styled like the SuiteView taskbar's "Tools" menu — plain gold text you
+        click, with a purple-themed drop-down."""
+        self.options_btn = QPushButton("Options")
+        self.options_btn.setStyleSheet(HEADER_MENU_BUTTON_STYLE)
+        self.options_btn.setToolTip("Application options")
+
+        menu = QMenu(self.options_btn)
+        menu.setStyleSheet(HEADER_MENU_STYLE)
+
+        settings = get_illustration_settings()
+        self._additional_premium_types_action = QAction(
+            "Additional Premium Types", menu, checkable=True)
+        self._additional_premium_types_action.setChecked(
+            settings.additional_premium_types)
+        self._additional_premium_types_action.setToolTip(
+            "Offer the advanced premium types (Billable to MD, Max Level, "
+            "Monthly Deduction) in the Premium Type dropdown")
+        self._additional_premium_types_action.toggled.connect(
+            self._on_additional_premium_types_toggled)
+        menu.addAction(self._additional_premium_types_action)
+
+        self.options_btn.setMenu(menu)
+
+    def _on_additional_premium_types_toggled(self, checked: bool):
+        """Flip the app-wide Additional Premium Types option. Every open
+        policy/case's Premium Type dropdown re-syncs via the settings signal."""
+        get_illustration_settings().set_additional_premium_types(checked)
 
     def load_policy(self, policy_number: str, region: str = "CKPR",
                     company_code: str = ""):
@@ -861,6 +901,15 @@ class IllustrationWindow(FramelessWindowBase):
                         dated_transactions=dated,
                         policy_changes=list(future_inputs.policy_changes))
                     self.inputs_tab.set_lumpsum_amount(lumpsum_result.lumpsum)
+                    # A Billable-to-MD run must not hand off to Monthly
+                    # Deduction premiums before the bridge reaches the next
+                    # billable premium — the point is to fund the policy up to
+                    # that premium and measure how long it then sustains it.
+                    if run_options.billable_to_md_windows:
+                        from dataclasses import replace as _replace
+                        run_options = _replace(
+                            run_options,
+                            billable_to_md_no_latch_before=lumpsum_result.next_premium_date)
                 else:
                     # No bridge was needed — show 0 so the disabled field reads
                     # as "solved, nothing required" rather than blank.

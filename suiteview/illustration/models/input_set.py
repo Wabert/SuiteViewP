@@ -183,6 +183,16 @@ class IllustrationOptions:
     # the policy runs out of value, then pays whatever keeps it alive.
     billable_to_md_windows: Optional[List[Tuple[int, Optional[int]]]] = None
 
+    # Earliest month the Billable-to-MD hand-off may latch. Set when a
+    # "Lumpsum to Next Premium" bridge is layered in: the lumpsum only funds the
+    # policy to its next modal premium, so the point of the run is to pay enough
+    # to reach the regularly billable premium and then measure how long THAT
+    # sustains the policy. Latching before the next premium is paid (while the
+    # bridged AV sits near breakeven) would defeat that — so the switch probe is
+    # suppressed for every month strictly before this date. None means no such
+    # floor (the switch may latch from the first forecast month).
+    billable_to_md_no_latch_before: Optional[date] = None
+
     # Internal escape hatch — NOT exposed in the UI (capping premiums at the
     # guideline room is part of Conform to TEFRA/DEFRA, which the Illustration
     # Control tab locks on). A programmatic consumer can keep force-out on while

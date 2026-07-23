@@ -21,6 +21,8 @@ Rules (confirmed with the product owner):
   * Benefit COI is ultimate-only. Current == guaranteed unless the benefit has
     its own G rates, so RATE_BENCOI carries Scale 0 (guaranteed) and Scale 1
     (current) with identical rates in the common case.
+  * When target rates exist, their issue-age range limits RATE_BENCOI for the
+    corresponding Sex/Class/Band combination.
 """
 
 from __future__ import annotations
@@ -55,6 +57,7 @@ class BenefitDBSpec:
     code: str
     renewable: bool
     start_index: int
+    cease_age: Optional[int] = None
 
 
 def _norm(opt: str) -> str:
@@ -130,12 +133,24 @@ def _expand_bencoi_rows(
     guaranteed: Dict[int, float],
     renewable: bool,
     max_att_age: int,
+    issue_age_range: Optional[Tuple[int, int]] = None,
+    cease_age: Optional[int] = None,
 ) -> List[list]:
     """Fully-select expansion of one benefit COI rate set (Scale 0 + 1)."""
     ages = sorted(current)
     if not ages:
         return []
     ia_min, ia_max = ages[0], ages[-1]
+    if issue_age_range is not None:
+        ia_min = max(ia_min, issue_age_range[0])
+        ia_max = min(ia_max, issue_age_range[1])
+    if ia_min > ia_max:
+        return []
+    duration_max_age = max_att_age
+    if not renewable:
+        if cease_age is None:
+            raise ValueError("Cease age is required for non-renewing benefits.")
+        duration_max_age = min(duration_max_age, cease_age - 1)
     rows: List[list] = []
     for scale, rates in ((0, guaranteed), (1, current)):
         if not rates:
@@ -143,13 +158,22 @@ def _expand_bencoi_rows(
         for ia in range(ia_min, ia_max + 1):
             if ia not in rates:
                 continue
-            max_dur = max_att_age - ia + 1
+            max_dur = duration_max_age - ia + 1
             for dur in range(1, max_dur + 1):
                 att = ia + dur - 1
                 rate = rates.get(att) if renewable else rates.get(ia)
                 if rate is not None:
                     rows.append([index, scale, ia, dur, round(rate, 6)])
     return rows
+
+
+def _target_issue_age_range(
+    mtp: Dict[int, float],
+    ctp: Dict[int, float],
+) -> Optional[Tuple[int, int]]:
+    """Return the inclusive issue-age bounds represented by benefit targets."""
+    ages = set(mtp) | set(ctp)
+    return (min(ages), max(ages)) if ages else None
 
 
 def _bentrg_rows(index: int, mtp: Dict[int, float], ctp: Dict[int, float]) -> List[list]:
@@ -205,6 +229,11 @@ def build_benefit_rows(
         guar = _benefit_rates_by_combo(result, code, "G")
         ctp = _benefit_rates_by_combo(result, code, "T")
         mtp = _benefit_rates_by_combo(result, code, "M")
+        if cur and not spec.renewable and spec.cease_age is None:
+            raise ValueError(
+                f"Benefit {code}: cease age is required for non-renewing rates.")
+        if spec.cease_age is not None and spec.cease_age <= 0:
+            raise ValueError(f"Benefit {code}: cease age must be greater than 0.")
 
         coi_bands = {b for (_s, _c, b) in cur}
         trg_bands = {b for (_s, _c, b) in set(ctp) | set(mtp)}
@@ -220,17 +249,24 @@ def build_benefit_rows(
             if not cur_rates:
                 continue
             guar_rates = guar.get(key) or cur_rates
+            target_key = _map_key(bc, trg_bands)
+            c_rates = ctp.get(target_key, {}) if target_key else {}
+            m_rates = mtp.get(target_key, {}) if target_key else {}
+            issue_age_range = _target_issue_age_range(m_rates, c_rates)
             sig = (
                 tuple(sorted(cur_rates.items())),
                 tuple(sorted(guar_rates.items())),
                 spec.renewable,
+                issue_age_range,
+                spec.cease_age if not spec.renewable else None,
             )
             idx = coi_groups.get(sig)
             if idx is None:
                 idx = next_coi
                 coi_groups[sig] = idx
                 bencoi_rows.extend(_expand_bencoi_rows(
-                    idx, cur_rates, guar_rates, spec.renewable, max_att_age))
+                    idx, cur_rates, guar_rates, spec.renewable, max_att_age,
+                    issue_age_range, spec.cease_age))
                 next_coi += 1
             bencoi_index[bc] = idx
             coi_pointer_rows += 1

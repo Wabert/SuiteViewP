@@ -721,7 +721,7 @@ class IllustrationPolicyTab(QWidget):
         self.policy_info.set_value("premium_label", format_currency(policy.modal_premium, "$"))
         self.policy_info.set_value("joint_label", "Joint" if base_cov and base_cov.lives_cov_cd in ("2", "3") else "Single")
         self.policy_info.set_value("suspense_label", f"{policy.suspense_code} - {policy.suspense_description}")
-        self.policy_info.set_value("grace_label", "In Grace" if policy.grace_indicator else "Not in Grace")
+        self.policy_info.set_value("grace_label", "In Grace" if policy.in_grace else "Not in Grace")
         self.policy_info.set_value("eff_date_label", format_date(policy.valuation_date))
         self.policy_info.set_value("policy_year_label", policy.policy_year)
         self.policy_info.set_value("att_age_label", policy.attained_age)

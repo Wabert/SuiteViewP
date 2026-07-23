@@ -83,15 +83,26 @@ def _rate_value(entry: tuple) -> float:
     return val / 100.0 if is_pct else val
 
 
-def _expand(table: Dict[int, tuple], renewable: bool) -> List[Tuple[int, int, float]]:
+def _expand(
+    table: Dict[int, tuple],
+    renewable: bool,
+    cease_age: Optional[int] = None,
+) -> List[Tuple[int, int, float]]:
     """Expand an attained-age table into ``(issue_age, duration, rate)`` rows."""
     ages = sorted(table)
     if not ages:
         return []
     max_age = ages[-1]
+    duration_max_age = max_age
+    if not renewable:
+        if cease_age is None:
+            raise ValueError("Cease age is required for non-renewing benefits.")
+        if cease_age <= 0:
+            raise ValueError("Cease age must be greater than 0.")
+        duration_max_age = min(duration_max_age, cease_age - 1)
     rows: List[Tuple[int, int, float]] = []
     for ia in ages:
-        for dur in range(1, max_age - ia + 2):
+        for dur in range(1, duration_max_age - ia + 2):
             att = ia + dur - 1
             if renewable:
                 if att in table:
@@ -154,32 +165,32 @@ def _combos_by_premcode(grouped) -> "OrderedDict":
 def export_table(
     path: str,
     output_path: str,
-    specs: List[Tuple[str, bool]],
+    specs: List[Tuple[str, bool, Optional[int]]],
     progress_cb: Optional[Callable[[float], None]] = None,
 ) -> Dict[str, int]:
     """One sheet per premium code, rates expanded per the renewal flag.
 
-    ``specs`` = list of ``(premcode, renewable)``.
+    ``specs`` = list of ``(premcode, renewable, cease_age)``.
     """
     grouped = group_by_combo(iter_records(path, progress_cb=_split_progress(progress_cb)))
-    ren = {pc: renew for pc, renew in specs}
+    settings = {pc: (renew, cease) for pc, renew, cease in specs}
     by_pc = _combos_by_premcode(grouped)
 
     wb = Workbook()
     wb.remove(wb.active)
     counts: Dict[str, int] = {}
 
-    codes = [pc for pc, _ in specs]
+    codes = [pc for pc, _renew, _cease in specs]
     total = max(len(codes), 1)
     for i, pc in enumerate(codes):
         items = by_pc.get(pc, [])
         ws = wb.create_sheet(_safe_sheet(pc))
         _write_header(ws, TABLE_HEADERS)
-        renewable = ren.get(pc, False)
+        renewable, cease_age = settings[pc]
         n = 0
         for ck, table in items:
             _company, benefit, sex, cls, band, premcode = ck
-            for ia, dur, rate in _expand(table, renewable):
+            for ia, dur, rate in _expand(table, renewable, cease_age):
                 ws.append([benefit, premcode, sex, cls, band, ia, dur, rate])
                 n += 1
         _autofit(ws, TABLE_HEADERS)
@@ -196,10 +207,10 @@ def export_table(
 def build_db(
     path: str,
     output_path: str,
-    specs: List[Tuple[str, bool, int]],
+    specs: List[Tuple[str, bool, Optional[int], int]],
     progress_cb: Optional[Callable[[float], None]] = None,
 ) -> Dict[str, dict]:
-    """Combined POINTER + COI workbook. ``specs`` = ``(premcode, renewable, start_index)``."""
+    """Combined workbook from ``(premcode, renewable, cease_age, start_index)`` specs."""
     grouped = group_by_combo(iter_records(path, progress_cb=_split_progress(progress_cb)))
     by_pc = _combos_by_premcode(grouped)
 
@@ -208,19 +219,23 @@ def build_db(
     counts: Dict[str, dict] = {}
 
     total = max(len(specs), 1)
-    for si, (pc, renewable, start_index) in enumerate(specs):
+    for si, (pc, renewable, cease_age, start_index) in enumerate(specs):
         items = sorted(by_pc.get(pc, []), key=lambda it: it[0])
         groups: "OrderedDict[tuple, int]" = OrderedDict()
         next_idx = start_index
         for ck, table in items:
             company, benefit, sex, cls, band, premcode = ck
-            sig = (tuple(sorted((a, table[a][0]) for a in table)), renewable)
+            sig = (
+                tuple(sorted((a, table[a][0]) for a in table)),
+                renewable,
+                cease_age if not renewable else None,
+            )
             idx = groups.get(sig)
             if idx is None:
                 idx = next_idx
                 groups[sig] = idx
                 for scale in (0, 1):
-                    for ia, dur, rate in _expand(table, renewable):
+                    for ia, dur, rate in _expand(table, renewable, cease_age):
                         coi_rows.append([idx, scale, ia, dur, rate])
                 next_idx += 1
             pointer_rows.append([company, benefit, premcode, sex, cls, band, idx])

@@ -717,9 +717,10 @@ def test_overview_prem_column_excludes_gp_exception_premium():
     assert year_item.child(1).text(exc_col) == "5.00"
 
 
-def test_overview_kpis_include_glp_and_gsp_chips():
-    # GLP / GSP chips sit beside GP ROOM, sourced from the final projected
-    # month's guideline state — the same row the room figure reads.
+def test_overview_ledger_shows_glp_gsp_totalgp_and_subject_payments():
+    # GLP / GSP / TotalGP / SubjectPayments sit just before the Withdrawals
+    # column. SubjectPayments is the amount tested against the total-GP limit:
+    # accumulated premiums paid less accumulated withdrawals.
     _app()
     overview = ValuesOverview()
     inforce = MonthlyState(policy_year=0, policy_month=0, attained_age=44)
@@ -730,16 +731,18 @@ def test_overview_kpis_include_glp_and_gsp_chips():
 
     overview.display(_policy(), [inforce, final])
 
-    assert overview.kpi_glp.caption.text() == "GLP"
-    assert overview.kpi_gsp.caption.text() == "GSP"
-    assert overview.kpi_glp.value.text() == "1,235"
-    assert overview.kpi_gsp.value.text() == "23,457"
-    # Room still reads limit − (prem-to-date − wd-to-date), untouched.
-    assert overview.kpi_room.value.text() == "4,457"
-
-    overview.clear()
-    assert overview.kpi_glp.value.text() == "—"
-    assert overview.kpi_gsp.value.text() == "—"
+    glp_col = LEDGER_COLUMNS.index("GLP")
+    gsp_col = LEDGER_COLUMNS.index("GSP")
+    total_gp_col = LEDGER_COLUMNS.index("TotalGP")
+    subject_col = LEDGER_COLUMNS.index("SubjectPayments")
+    # The new columns land immediately before Withdrawals.
+    assert subject_col == LEDGER_COLUMNS.index("Withdrawals") - 1
+    year_item = overview.ledger.topLevelItem(0)
+    assert year_item.text(glp_col) == "1,234.56"
+    assert year_item.text(gsp_col) == "23,456.78"
+    assert year_item.text(total_gp_col) == "23,456.78"
+    # SubjectPayments = prem-to-date − wd-to-date (20,000 − 1,000).
+    assert year_item.text(subject_col) == "19,000.00"
 
 
 def test_summary_tab_uses_requested_illustration_values_order():
@@ -885,12 +888,12 @@ def test_summary_tab_uses_requested_illustration_values_order():
         "Prem Load": 7.5, "mAV": 900.0, "NAAR": 50000.0, "Base COI": 20.0,
         "Rider COI": 2.0, "Benefit COI": 4.0, "EPU": 6.0, "MFEE": 8.0,
         "MD": 11.0, "Exception Prem": 25.0, "AV": 950.0, "New Loan": 6.0,
-        "Interest Rate": 4.9, "Interest": 4.0, "EAV": 1000.0, "SC": 90.0,
+        "Interest Rate": 0.049, "Interest": 4.0, "EAV": 1000.0, "SC": 90.0,
         "ESV": 838.0, "Var Loan": 36.0, "Pref Loan": 24.0, "Reg Loan": 12.0,
         "Ending LB": 72.0, "IllustratedDB": 150000.0,
     }
     assert summary.df.iloc[1]["AV"] == 1050.0
-    assert summary.df.iloc[1]["Interest Rate"] == 5.0
+    assert summary.df.iloc[1]["Interest Rate"] == 0.05
     assert summary.df.iloc[1]["EAV"] == 1200.0
     # ESV is the ENDING surrender value (EAV − SC − Ending LB), not the
     # lapse-check surrender_value.
@@ -956,6 +959,7 @@ def test_overview_ledger_restores_compact_values_order():
         "MD", "AV", "SV", "Interest", "EAV", "SC", "LN", "ESV", "Shadow EAV",
         "Death Benefit", "Status",
         "",
+        "GLP", "GSP", "TotalGP", "SubjectPayments",
         "Withdrawals", "ForceOuts", "Loan Repay", "Prem", "Exception Prem", "New Loan",
     ]
     # Shadow EAV only shows for shadow-account products.
@@ -963,12 +967,13 @@ def test_overview_ledger_restores_compact_values_order():
     year_item = overview.ledger.topLevelItem(0)
     assert [year_item.text(index) for index in range(overview.ledger.columnCount())] == [
         "1", "2", "45", "46", "02/15/2026",     # Age EOY = attained age + 1
-        "185.00", "65.00",     # 45+110+30 in  |  50+5+10 out
+        "185.00", "60.00",     # 45+110+30 in  |  45+5+10 out (wd net of force-out)
         "23.00", "1,150.00", "1,050.00", "10.00", "1,200.00", "80.00",
         "20.00", "1,100.00", "0.00",
         "151,000", "LAPSED",
         "",
-        "50.00", "5.00", "45.00", "110.00", "30.00", "10.00",
+        "0.00", "0.00", "0.00", "-50.00",      # GLP | GSP | TotalGP | SubjectPayments (0 − 50 wd)
+        "45.00", "5.00", "45.00", "110.00", "30.00", "10.00",
     ]
 
 
@@ -1023,10 +1028,11 @@ def test_overview_contributions_and_distributions_roll_up_cash_flows():
     assert year_item.text(contrib) == "185.00"           # 45 + 110 + 30
     assert year_item.child(0).text(contrib) == "155.00"  # 30 + 100 + 25
     assert year_item.child(1).text(contrib) == "30.00"   # 15 + 10 + 5
-    # Distributions = Withdrawals + ForceOuts + New Loan, displayed positive.
-    assert year_item.text(distrib) == "65.00"            # 50 + 5 + 10
-    assert year_item.child(0).text(distrib) == "29.00"   # 20 + 3 + 6
-    assert year_item.child(1).text(distrib) == "36.00"   # 30 + 2 + 4
+    # Distributions = Withdrawals + ForceOuts + New Loan, displayed positive
+    # (Withdrawals are net of the force-out, so it is not double-counted).
+    assert year_item.text(distrib) == "60.00"            # 45 + 5 + 10
+    assert year_item.child(0).text(distrib) == "26.00"   # 17 + 3 + 6
+    assert year_item.child(1).text(distrib) == "34.00"   # 28 + 2 + 4
 
 
 def test_overview_relocated_cashflow_columns_sit_after_spacer():
@@ -1038,11 +1044,12 @@ def test_overview_relocated_cashflow_columns_sit_after_spacer():
     assert LEDGER_COLUMNS[SPACER_COLUMN] == ""
     assert SPACER_COLUMN == LEDGER_COLUMNS.index("Status") + 1
     assert LEDGER_COLUMNS[SPACER_COLUMN + 1:] == [
+        "GLP", "GSP", "TotalGP", "SubjectPayments",
         "Withdrawals", "ForceOuts", "Loan Repay", "Prem", "Exception Prem", "New Loan",
     ]
     year_item = overview.ledger.topLevelItem(0)
     assert year_item.text(SPACER_COLUMN) == ""
-    assert year_item.text(LEDGER_COLUMNS.index("Withdrawals")) == "50.00"
+    assert year_item.text(LEDGER_COLUMNS.index("Withdrawals")) == "45.00"
     assert year_item.text(LEDGER_COLUMNS.index("New Loan")) == "10.00"
 
 

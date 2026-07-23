@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from suiteview.illustration.models.app_settings import get_illustration_settings
 from suiteview.illustration.models.input_set import (
     DatedTransaction,
     IllustrationInputSet,
@@ -496,6 +497,13 @@ class InputRow(QWidget):
         self.type_combo.currentIndexChanged.connect(self._type_changed)
         layout.addWidget(self.type_combo)
 
+        # The Premium Type dropdown's contents depend on the app-wide
+        # "Additional Premium Types" option. Re-sync whenever it flips so the
+        # advanced types appear/disappear live across every open policy/case.
+        if spec.allow_max_level_premium:
+            get_illustration_settings().additional_premium_types_changed.connect(
+                self._on_additional_premium_types_changed)
+
         self.year_edit = _Field(_W_YEAR)
         self.year_edit.editingFinished.connect(self._year_edited)
         layout.addWidget(self.year_edit)
@@ -602,16 +610,23 @@ class InputRow(QWidget):
             # loan doesn't hide it. Prem to Shadow Maturity appears only when
             # the policy carries a shadow-account benefit (type A) — including
             # a ceased one, so the run can explain why it can't solve.
+            #
+            # The advanced types (Billable to MD, Max Level, Monthly Deduction,
+            # Prem to Shadow Maturity) are gated behind the app-wide
+            # "Additional Premium Types" option (off by default) — when off the
+            # dropdown shows only INPUT, Billable Prem, Prem to Maturity, Solve.
             ctx = self._ctx
-            if ctx is not None and ctx.is_cvat:
-                options = [_TYPE_INPUT, _TYPE_BILLABLE, _TYPE_BILLABLE_TO_MD,
-                           _TYPE_MIN_LEVEL, _TYPE_MONTHLY_DEDUCTION]
-            else:
-                options = [_TYPE_INPUT, _TYPE_BILLABLE, _TYPE_BILLABLE_TO_MD,
-                           _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL,
-                           _TYPE_MONTHLY_DEDUCTION]
-            if ctx is not None and (ctx.has_shadow or ctx.shadow_ceased):
-                options.insert(options.index(_TYPE_MIN_LEVEL) + 1, _TYPE_SHADOW_LEVEL)
+            show_additional = get_illustration_settings().additional_premium_types
+            options = [_TYPE_INPUT, _TYPE_BILLABLE]
+            if show_additional:
+                options.append(_TYPE_BILLABLE_TO_MD)
+            if show_additional and not (ctx is not None and ctx.is_cvat):
+                options.append(_TYPE_MAX_LEVEL)
+            options.append(_TYPE_MIN_LEVEL)
+            if show_additional and ctx is not None and (ctx.has_shadow or ctx.shadow_ceased):
+                options.append(_TYPE_SHADOW_LEVEL)
+            if show_additional:
+                options.append(_TYPE_MONTHLY_DEDUCTION)
             # "Solve" (target-value premium solve) works on any product — it
             # bisects the real projection under the user's own run options.
             options.append(_TYPE_SOLVE)
@@ -634,6 +649,15 @@ class InputRow(QWidget):
             if current in {"Input", "Solve"}:
                 self.type_combo.setCurrentText(current)
         self.type_combo.blockSignals(False)
+
+    def _on_additional_premium_types_changed(self, _enabled: bool):
+        """Re-sync the Premium Type dropdown when the app-wide option flips.
+        If the row's current type was an advanced one that's now hidden, the
+        combo falls back to INPUT — emit changed so the inputs recompute."""
+        previous = self.type_combo.currentText()
+        self._sync_type_options()
+        if self.type_combo.currentText() != previous:
+            self.changed.emit()
 
     def _type_changed(self, _index: int):
         # Selecting "Billable Prem" or "Billable to MD" fills the amount + mode
@@ -2622,7 +2646,8 @@ class DynamicInputsPanel(QWidget):
             subtype = entry.get("basis") or ""
             # Per-entry metadata (e.g. the Billable-to-MD tag) rides along on
             # every transaction the entry expands to.
-            entry_meta = entry.get("metadata") or {}
+            entry_meta = dict(entry.get("metadata") or {})
+            entry_meta.setdefault("mode", entry["mode"])
             interval = _MODE_INTERVALS.get(entry["mode"], 12)
             for year in range(entry["year"], (entry["end_year"] or entry["year"]) + 1):
                 anniversary = ctx.anniversary(year)

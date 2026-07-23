@@ -2,8 +2,7 @@
 
 Three altitudes, top to bottom:
 
-1. KPI strip   — the outcome in chips (ending AV/SV/DB, lapse, GLP/GSP,
-                 GP room, premiums in).
+1. KPI strip   — the outcome in chips (ending AV/SV/DB, lapse, premiums in).
 2. Value chart — hand-painted AV / SV / DB / cumulative-premium / guideline
                  lines over policy years, with hover readout and click-to-jump.
 3. Ledger      — one row per policy YEAR (the printed-illustration view), each
@@ -340,6 +339,7 @@ LEDGER_COLUMNS = [
     "MD", "AV", "SV", "Interest", "EAV", "SC", "LN", "ESV", "Shadow EAV",
     "Death Benefit", "Status",
     "",  # spacer — visual break before the relocated cash-flow detail
+    "GLP", "GSP", "TotalGP", "SubjectPayments",
     "Withdrawals", "ForceOuts", "Loan Repay", "Prem", "Exception Prem", "New Loan",
 ]
 # Year | Month | Age | Date stay put while the value columns scroll.
@@ -363,6 +363,7 @@ def _ledger_cells(
     withdrawals, forceouts, loan_repay, premium, monthly_deduction,
     exception_prem, av, sv, interest, eav, sc, new_loan, loan_balance,
     esv, shadow_eav, death_benefit, status,
+    glp, gsp, total_gp, subject_payments,
 ) -> list[str]:
     """One ledger row in LEDGER_COLUMNS order (annual and monthly share it).
 
@@ -373,6 +374,9 @@ def _ledger_cells(
     Contributions rolls up the money-in columns (Loan Repay + Prem + Exception
     Prem); Distributions the money-out columns (Withdrawals + ForceOuts + New
     Loan). Both keep the source columns' display signs.
+
+    SubjectPayments is the amount tested against the total-GP limit: accumulated
+    premiums paid less accumulated withdrawals.
     """
     contributions = loan_repay + premium + exception_prem
     distributions = withdrawals + forceouts + new_loan
@@ -385,6 +389,8 @@ def _ledger_cells(
         _fmt_money(shadow_eav, 2),
         _fmt_money(death_benefit, 0), status,
         "",
+        _fmt_money(glp, 2), _fmt_money(gsp, 2),
+        _fmt_money(total_gp, 2), _fmt_money(subject_payments, 2),
         _fmt_money(withdrawals, 2), _fmt_money(forceouts, 2),
         _fmt_money(loan_repay, 2), _fmt_money(premium, 2),
         _fmt_money(exception_prem, 2), _fmt_money(new_loan, 2),
@@ -410,20 +416,13 @@ class ValuesOverview(QWidget):
 
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(6)
-        self.kpi_horizon = _KpiChip("PROJECTED TO")
         self.kpi_av = _KpiChip("ENDING AV")
         self.kpi_sv = _KpiChip("ENDING SV")
         self.kpi_db = _KpiChip("ENDING DB")
         self.kpi_lapse = _KpiChip("LAPSE")
-        # GLP / GSP sit beside GP ROOM — the two guideline premiums that
-        # produce the room figure (limit = MAX(GSP, accumulated GLP)).
-        self.kpi_glp = _KpiChip("GLP")
-        self.kpi_gsp = _KpiChip("GSP")
-        self.kpi_room = _KpiChip("GP ROOM")
         self.kpi_premium = _KpiChip("PREMIUMS IN")
-        for chip in (self.kpi_horizon, self.kpi_av, self.kpi_sv, self.kpi_db,
-                     self.kpi_lapse, self.kpi_glp, self.kpi_gsp, self.kpi_room,
-                     self.kpi_premium):
+        for chip in (self.kpi_av, self.kpi_sv, self.kpi_db,
+                     self.kpi_lapse, self.kpi_premium):
             kpi_row.addWidget(chip)
         kpi_row.addStretch(1)
         layout.addLayout(kpi_row)
@@ -607,9 +606,8 @@ class ValuesOverview(QWidget):
     def clear(self):
         self.ledger.clear()
         self._year_items = {}
-        for chip in (self.kpi_horizon, self.kpi_av, self.kpi_sv, self.kpi_db,
-                     self.kpi_lapse, self.kpi_glp, self.kpi_gsp, self.kpi_room,
-                     self.kpi_premium):
+        for chip in (self.kpi_av, self.kpi_sv, self.kpi_db,
+                     self.kpi_lapse, self.kpi_premium):
             chip.set("—")
 
     def display(self, policy, results: list):
@@ -622,8 +620,6 @@ class ValuesOverview(QWidget):
         final = results[-1]
 
         # ── KPIs ──
-        self.kpi_horizon.set(
-            f"Yr {final.policy_year}  ·  Age {final.attained_age}")
         self.kpi_av.set(_fmt_money(final.av_end_of_month), alert=final.av_end_of_month < 0)
         self.kpi_sv.set(_fmt_money(final.ending_sv))
         self.kpi_db.set(_fmt_money(final.ending_db or final.gross_db))
@@ -635,15 +631,9 @@ class ValuesOverview(QWidget):
             None)
         if lapse_state is not None:
             self.kpi_lapse.set(
-                f"Yr {lapse_state.policy_year} · Age {lapse_state.attained_age}", alert=True)
+                f"{_fmt_date(lapse_state.date)} · Age {lapse_state.attained_age}", alert=True)
         else:
             self.kpi_lapse.set("None")
-        # The guideline premiums behind the room figure, as of the final
-        # projected month (a mid-stream recalc shows the current values).
-        self.kpi_glp.set(_fmt_money(final.glp))
-        self.kpi_gsp.set(_fmt_money(final.gsp))
-        room = final.guideline_limit - (final.premiums_to_date_after_exception - final.withdrawals_to_date)
-        self.kpi_room.set(_fmt_money(room), alert=room < 0)
         self.kpi_premium.set(_fmt_money(sum(s.premium_outlay for s in projected)))
 
         # Shadow EAV only applies to shadow-account products — hide it otherwise.
@@ -673,7 +663,11 @@ class ValuesOverview(QWidget):
             new_loan = sum(s.applied_new_loan for s in months)
             interest = sum(s.interest_credited for s in months)
             monthly_deduction = sum(s.total_deduction for s in months)
-            withdrawals = eoy.withdrawals_to_date - prior_wd
+            # withdrawals_to_date includes the guideline force-out (CalcEngine
+            # folds it back in as new room); net it out so the Withdrawals
+            # column shows only true gross withdrawals and Distributions
+            # (Withdrawals + ForceOuts + New Loan) does not double-count it.
+            withdrawals = eoy.withdrawals_to_date - prior_wd - forceouts
             prior_wd = eoy.withdrawals_to_date
             # AV after exception premium, before interest; the matching SV nets
             # loans and the surrender charge out of that AV.
@@ -690,6 +684,8 @@ class ValuesOverview(QWidget):
                 esv=eoy.ending_sv, shadow_eav=eoy.shadow_eav,
                 death_benefit=eoy.ending_db or eoy.gross_db,
                 status=_status_text(eoy),
+                glp=eoy.glp, gsp=eoy.gsp, total_gp=eoy.guideline_limit,
+                subject_payments=eoy.premiums_to_date_after_exception - eoy.withdrawals_to_date,
             ))
             item.setBackground(SPACER_COLUMN, SPACER_BRUSH)
             for column in range(len(LEDGER_COLUMNS)):
@@ -708,7 +704,10 @@ class ValuesOverview(QWidget):
                 if year - 1 in by_year else results[0].withdrawals_to_date
             )
             for result_index, state in month_entries:
-                month_wd = state.withdrawals_to_date - previous_wd
+                # Net the force-out out of the withdrawal delta (see annual row).
+                month_wd = (
+                    state.withdrawals_to_date - previous_wd
+                    - state.guideline_forceout)
                 previous_wd = state.withdrawals_to_date
                 av_pre_interest = state.av_after_exception
                 sv_pre_interest = av_pre_interest - state.policy_debt - state.surrender_charge
@@ -727,6 +726,8 @@ class ValuesOverview(QWidget):
                     esv=state.ending_sv, shadow_eav=state.shadow_eav,
                     death_benefit=state.ending_db or state.gross_db,
                     status=_status_text(state),
+                    glp=state.glp, gsp=state.gsp, total_gp=state.guideline_limit,
+                    subject_payments=state.premiums_to_date_after_exception - state.withdrawals_to_date,
                 ))
                 child.setBackground(SPACER_COLUMN, SPACER_BRUSH)
                 for column in range(len(LEDGER_COLUMNS)):

@@ -159,11 +159,11 @@ def _justify_lines(lines: List[str]) -> List[str]:
 # make explicit that the age shown is the end-of-year attained age; the YEAR
 # column reads "END / OF / YEAR".
 _LEDGER_HEADER = [
-    f"{'AGE':>4}{'END':>5}{'':>11}{'':5}{'CASH':>8}{'':>10}  "
+    f"{'AGE':>4}{'END':>5}{'':>11}{'':5}{'':>8}{'':>10}  "
     f"{'+- GUARANTEED VALUES -+':^32}  {'+ NON-GUARANTEED VALUES +':^32}",
-    f"{'AT':>4}{'OF':>5}{'PREMIUM':>11}{'':5}{'FROM':>8}{'LOAN':>10}  "
+    f"{'AT':>4}{'OF':>5}{'PREMIUM':>11}{'':5}{'':>8}{'LOAN':>10}  "
     f"{'ACCUM':>10}{'SURR':>10}{'DEATH':>12}  {'ACCUM':>10}{'SURR':>10}{'DEATH':>12}",
-    f"{'EOY':>4}{'YEAR':>5}{'OUTLAY':>11}{'':5}{'POLICY':>8}{'BALANCE':>10}  "
+    f"{'EOY':>4}{'YEAR':>5}{'OUTLAY':>11}{'':5}{'PROCEEDS':>8}{'BALANCE':>10}  "
     f"{'VALUE':>10}{'VALUE':>10}{'BENEFIT':>12}  {'VALUE':>10}{'VALUE':>10}{'BENEFIT':>12}",
     "-" * PAGE_WIDTH,
 ]
@@ -190,8 +190,8 @@ def _ledger_line(row: LedgerRow) -> str:
 # ── Expense Report supplemental page (RERUN "Expense Report" J:Y) ───────────
 # Column layout: (width, top header, bottom header, attribute). Widths sum to
 # PAGE_WIDTH (112). Follows the sheet's J:Y order, with the non-premium expense
-# components (P, Q, R, S) plus partial surrender charges combined into one
-# EXPENSES/FEES column and a POLICY DEBT column added to the Policy Values
+# components (P, Q, R, S) combined into one EXPENSES/FEES column and a
+# POLICY DEBT column added to the Policy Values
 # group (before Net Surr Value).
 # Age-then-Year order matches the illustration ledger; the age column stacks
 # "AGE / EOY" to flag it as the end-of-year attained age.
@@ -199,11 +199,11 @@ _EXPENSE_COLUMNS = [
     (4, "AGE", "EOY", "eoy_age"),                           # K — age at EOY
     (5, "", "YEAR", "year"),                                # J — End of Year (width matches the ledger)
     (8, "PREMIUM", "OUTLAY", "premium_outlay"),             # L — Assumed Premium Outlay
-    (8, "DISTRI-", "BUTIONS", "distributions"),             # M — Distributions
+    (8, "CASH", "OUT", "distributions"),                    # M — Gross withdrawals + force-outs
     (8, "PREMIUM", "CHARGE", "premium_charge"),             # N — Premium Charge
     (8, "COI", "CHARGE", "coi_charge"),                     # O — Cost of Insurance
     (6, "RIDER", "CHG", "rider_charges"),                   # T — Other Rider Charges
-    (14, "", "EXPENSES/FEES", "expenses"),                  # P+Q+R+S + partial SC
+    (14, "", "EXPENSES/FEES", "expenses"),                  # P+Q+R+S
     (9, "INTEREST", "CREDITED", "interest_credited"),       # U — Interest Credited
     (9, "ACCUM", "VALUE", "accum_value"),                   # V — Accumulation Value
     (6, "SURR", "CHGS", "surrender_charges"),               # W — Surrender Charges
@@ -214,12 +214,11 @@ _EXPENSE_COLUMNS = [
 
 _EXPENSE_INTRO = [
     "THIS SUPPLEMENTAL EXHIBIT BREAKS THE POLICY'S ANNUAL ACTIVITY INTO ITS EXPENSE "
-    "CHARGES AND CREDITS SO YOU CAN SEE WHERE EACH PREMIUM DOLLAR GOES. FOR EACH POLICY "
-    "YEAR IT SHOWS THE PREMIUMS PAID, ANY DISTRIBUTIONS TAKEN (WITHDRAWALS, LOANS, AND "
+    "CHARGES AND CREDITS. FOR EACH POLICY "
+    "YEAR IT SHOWS THE PREMIUMS PAID, CASH OUT (GROSS WITHDRAWALS AND "
     "FORCED-OUT PREMIUM), THE CHARGES DEDUCTED FROM THE ACCUMULATION VALUE, AND THE "
     "INTEREST CREDITED. THE EXPENSES/FEES COLUMN COMBINES THE ADMINISTRATIVE CHARGES "
-    "(PER-1000, MONTHLY FEE, ASSET, AND ACCUMULATION VALUE CHARGES) WITH ANY PARTIAL "
-    "SURRENDER CHARGES ASSESSED ON WITHDRAWALS.",
+    "(PER-1000, MONTHLY FEE, ASSET, AND ACCUMULATION VALUE CHARGES).",
     "CHARGES AND CREDITS ARE ANNUAL TOTALS ON THE ILLUSTRATED (CURRENT, NON-GUARANTEED) "
     "BASIS, CONSISTENT WITH THE ILLUSTRATION'S LEDGER PAGES. POLICY VALUES, INCLUDING ANY "
     "OUTSTANDING POLICY DEBT, ARE END-OF-YEAR AMOUNTS. YEARS AFTER THE POLICY TERMINATES "
@@ -227,16 +226,21 @@ _EXPENSE_INTRO = [
 ]
 
 
+def _span_banner(label: str, width: int) -> str:
+    """A ``+--- LABEL ---+`` bracket that fills the full group ``width``."""
+    return "+" + f" {label} ".center(width - 2, "-") + "+"
+
+
 def _expense_header_lines() -> List[str]:
     """Group banner + two stacked column-header rows + rule."""
-    # Group spans over the sheet's row-2 headings: Deductions covers Premium
-    # Charge / COI / Rider / Expenses-Fees, Policy Values the last five columns.
-    deduction_width = sum(w for w, *_ in _EXPENSE_COLUMNS[4:8])
+    # Group banners fill their span: Deductions covers COI / Rider /
+    # Expenses-Fees; Policy Values covers Accum Value through Net Death Benefit.
+    deduction_width = sum(w for w, *_ in _EXPENSE_COLUMNS[5:8])
     values_width = sum(w for w, *_ in _EXPENSE_COLUMNS[9:14])
     groups = (
-        f"{'':4}{'':5}{'PREMIUMS':>8}{'LOAN/WD':>8}"
-        f"{'+- DEDUCTIONS -+':^{deduction_width}}"
-        f"{'EARNINGS':>9}{'+- POLICY VALUES -+':^{values_width}}"
+        f"{'':4}{'':5}{'PREMIUMS':>8}{'':8}{'':8}"
+        f"{_span_banner('DEDUCTIONS', deduction_width)}"
+        f"{'EARNINGS':>9}{_span_banner('POLICY VALUES', values_width)}"
     )
     top = "".join(f"{label:>{width}}" for width, label, _bottom, _attr in _EXPENSE_COLUMNS)
     bottom = "".join(f"{label:>{width}}" for width, _top, label, _attr in _EXPENSE_COLUMNS)

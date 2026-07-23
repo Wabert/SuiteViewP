@@ -494,6 +494,20 @@ class GetPolicyWindow(FramelessWindowBase):
         if self._enable_policy_list and hasattr(self, "policy_list_window"):
             self.policy_list_window.add_policy(region, company, policy)
 
+    def has_policy_loaded(self, policy_number: str) -> bool:
+        """Return True if *policy_number* is already in the policy list history.
+
+        Used by the taskbar so pressing the [P] button only re-loads a typed
+        policy when it's new; otherwise PolView stays on whatever policy was
+        last shown.
+        """
+        pn = (policy_number or "").strip()
+        if not pn:
+            return False
+        if self._enable_policy_list and hasattr(self, "policy_list_window"):
+            return self.policy_list_window.has_policy(pn)
+        return (self._current_policy or "").strip().upper() == pn.upper()
+
     def _on_policy_removed_from_list(self, policy_number: str, region: str):
         """Evict all cache entries for this policy+region (any company)."""
         keys_to_remove = [

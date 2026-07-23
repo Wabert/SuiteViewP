@@ -32,6 +32,9 @@ from suiteview.polview.models.cl_polrec.policy_translations import (
 from suiteview.ratemanager.rm_styles import (
     GOLD_TEXT, TEXT, TEXT_MID, body_stylesheet,
 )
+from suiteview.ratemanager.ui_helpers import (
+    set_expanding_panel_visible, update_cease_age_field,
+)
 from suiteview.ratemanager.workup.builder import (
     WorkupAnalysis, WorkupResult, analyze, benefit_start_index, build,
 )
@@ -229,10 +232,11 @@ class RateWorkupPanel(QWidget):
         plan_row.addWidget(self.maturity_edit)
         plan_row.addSpacing(8)
         plan_row.addWidget(self._dim_label("Base Index"))
-        self.base_index_edit = QLineEdit("13400")
+        self.base_index_edit = QLineEdit()
         self.base_index_edit.setObjectName("BenefitIndex")
         self.base_index_edit.setFixedWidth(64)
         self.base_index_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.base_index_edit.setPlaceholderText("required")
         self.base_index_edit.setToolTip(
             "The plancode's base index — every rate table (COI, TRGPREM, SCR, "
             "EPU, benefits) allocates its indexes starting here.")
@@ -307,7 +311,10 @@ class RateWorkupPanel(QWidget):
             ben_header.addWidget(b)
         root.addLayout(ben_header)
 
-        headers = ["Benefit", "Renewable", "MPF Code", "Start Index", "Detail"]
+        headers = [
+            "Benefit", "Renewable", "Cease Age", "MPF Code", "Start Index",
+            "Detail",
+        ]
         self.ben_table = QTableWidget(0, len(headers))
         self.ben_table.setObjectName("BenefitTable")
         self.ben_table.setHorizontalHeaderLabels(headers)
@@ -317,12 +324,14 @@ class RateWorkupPanel(QWidget):
         # Fixed, readable column widths — no stretching to fill; empty space
         # can show at the right.
         hh = self.ben_table.horizontalHeader()
-        for col, width in ((0, 110), (1, 80), (2, 175), (3, 95), (4, 230)):
+        for col, width in (
+            (0, 105), (1, 75), (2, 110), (3, 165), (4, 90), (5, 220)
+        ):
             hh.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
             self.ben_table.setColumnWidth(col, width)
         self.ben_table.setMinimumHeight(120)
         root.addWidget(self.ben_table, stretch=1)
-        self._ben_rows: list = []  # (code, inc_chk, ren_chk, mpf_combo, idx_edit)
+        self._ben_rows: list = []
         self.base_index_edit.textChanged.connect(self._refresh_auto_indexes)
 
         # ── Build row + progress + log ──────────────────────────────────
@@ -428,7 +437,7 @@ class RateWorkupPanel(QWidget):
 
     def _toggle_log(self):
         shown = self.log_toggle.isChecked()
-        self.log.setVisible(shown)
+        set_expanding_panel_visible(self, self.log, shown)
         self.log_toggle.setText(
             ("▾" if shown else "▸") + "  Processing output")
 
@@ -535,7 +544,7 @@ class RateWorkupPanel(QWidget):
                 detail += "  →  COI in MPF?"
             self._add_benefit_row(
                 row, code, detail, ana.mpf_codes,
-                suggest_mpf=in_mpf)
+                suggest_mpf=in_mpf, has_iaf_coi=coi_n > 0)
 
         # Warnings
         self._show_warnings(ana.warnings)
@@ -554,7 +563,7 @@ class RateWorkupPanel(QWidget):
 
     def _add_benefit_row(self, row: int, code: str, detail: str,
                          mpf_codes: list, suggest_mpf: bool = False,
-                         checked: bool = True):
+                         checked: bool = True, has_iaf_coi: bool = False):
         self.ben_table.insertRow(row)
 
         cell = QWidget()
@@ -583,6 +592,14 @@ class RateWorkupPanel(QWidget):
         ren_lay.addWidget(ren_chk)
         self.ben_table.setCellWidget(row, 1, ren_cell)
 
+        cease_edit = QLineEdit()
+        cease_edit.setObjectName("BenefitIndex")
+        cease_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cease_edit.setToolTip(
+            "Required for a non-renewing benefit. Charges stop at this age; "
+            "cease age 65 produces rates through attained age 64.")
+        self.ben_table.setCellWidget(row, 2, cease_edit)
+
         # MPF Code picker: blank = charges come from the IAF. Codes whose
         # MPF benefit type matches this benefit are listed first.
         mpf_combo = QComboBox()
@@ -605,7 +622,20 @@ class RateWorkupPanel(QWidget):
         mpf_combo.setEnabled(bool(mpf_codes))
         if suggest_mpf and len(matching) == 1:
             mpf_combo.setCurrentIndex(1)      # the single matching code
-        self.ben_table.setCellWidget(row, 2, mpf_combo)
+        self.ben_table.setCellWidget(row, 3, mpf_combo)
+
+        def _sync_cease_age() -> None:
+            update_cease_age_field(
+                chk.isChecked(),
+                ren_chk.isChecked(),
+                has_iaf_coi or bool(mpf_combo.currentData()),
+                cease_edit,
+            )
+
+        chk.toggled.connect(_sync_cease_age)
+        ren_chk.toggled.connect(_sync_cease_age)
+        mpf_combo.currentIndexChanged.connect(_sync_cease_age)
+        _sync_cease_age()
 
         # Start Index — prefilled by the convention (base + type code,
         # two zeros appended); editable, and re-derived when the base index
@@ -621,32 +651,34 @@ class RateWorkupPanel(QWidget):
         idx_edit.textEdited.connect(
             lambda _t, e=idx_edit: e.setProperty("auto", False))
         self._set_auto_index(code, idx_edit)
-        self.ben_table.setCellWidget(row, 3, idx_edit)
+        self.ben_table.setCellWidget(row, 4, idx_edit)
 
         info_item = QTableWidgetItem(detail)
         info_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         if suggest_mpf:
             info_item.setForeground(QColor(GOLD_TEXT))
-        self.ben_table.setItem(row, 4, info_item)
+        self.ben_table.setItem(row, 5, info_item)
 
-        self._ben_rows.append((code, chk, ren_chk, mpf_combo, idx_edit))
+        self._ben_rows.append(
+            (code, chk, ren_chk, cease_edit, mpf_combo, idx_edit, has_iaf_coi))
 
     def _set_auto_index(self, code: str, idx_edit: QLineEdit) -> None:
         try:
             base = int(self.base_index_edit.text().strip())
         except ValueError:
+            idx_edit.setText("")
             return
         auto = benefit_start_index(base, code)
         idx_edit.setText(str(auto) if auto else "")
 
     def _refresh_auto_indexes(self) -> None:
         """Base index changed — re-derive indexes the user hasn't overridden."""
-        for code, _chk, _ren, _mpf, idx_edit in self._ben_rows:
+        for code, _chk, _ren, _cease, _mpf, idx_edit, _has_coi in self._ben_rows:
             if idx_edit.property("auto"):
                 self._set_auto_index(code, idx_edit)
 
     def _set_all(self, checked: bool):
-        for _code, chk, _ren, _mpf, _idx in self._ben_rows:
+        for _code, chk, _ren, _cease, _mpf, _idx, _has_coi in self._ben_rows:
             chk.setChecked(checked)
 
     # ------------------------------------------------------------------
@@ -671,11 +703,23 @@ class RateWorkupPanel(QWidget):
             QMessageBox.warning(self, "Invalid Maturity",
                                 "Maturity age must be a whole number.")
             return
+        base_index_text = self.base_index_edit.text().strip()
+        if not base_index_text:
+            QMessageBox.warning(
+                self, "Missing Base Index",
+                "Enter the Base Index before building rates.")
+            return
         try:
-            spec.base_index = int(self.base_index_edit.text().strip())
+            spec.base_index = int(base_index_text)
         except ValueError:
-            QMessageBox.warning(self, "Invalid Index",
-                                "The base index must be a whole number.")
+            QMessageBox.warning(
+                self, "Invalid Base Index",
+                "The Base Index must be a whole number.")
+            return
+        if spec.base_index <= 0:
+            QMessageBox.warning(
+                self, "Invalid Base Index",
+                "The Base Index must be greater than 0.")
             return
 
         spec.output_dir = self.output_edit.text().strip() or os.path.dirname(
@@ -715,9 +759,33 @@ class RateWorkupPanel(QWidget):
             spec.epu_plan, spec.epu_freq, spec.epu_rule = data
 
         benefits = []
-        for code, chk, ren_chk, mpf_combo, idx_edit in self._ben_rows:
+        for (
+            code, chk, ren_chk, cease_edit, mpf_combo, idx_edit, has_iaf_coi
+        ) in self._ben_rows:
             if not chk.isChecked():
                 continue
+            cease_age = None
+            has_bencoi = has_iaf_coi or bool(mpf_combo.currentData())
+            if not ren_chk.isChecked() and has_bencoi:
+                cease_text = cease_edit.text().strip()
+                if not cease_text:
+                    QMessageBox.warning(
+                        self, "Missing Cease Age",
+                        f"Benefit {code}: enter the age when this "
+                        "non-renewing benefit ceases.")
+                    return
+                try:
+                    cease_age = int(cease_text)
+                except ValueError:
+                    QMessageBox.warning(
+                        self, "Invalid Cease Age",
+                        f"Benefit {code}: Cease Age must be a whole number.")
+                    return
+                if cease_age <= 0:
+                    QMessageBox.warning(
+                        self, "Invalid Cease Age",
+                        f"Benefit {code}: Cease Age must be greater than 0.")
+                    return
             try:
                 start_index = int(idx_edit.text().strip())
             except ValueError:
@@ -728,6 +796,7 @@ class RateWorkupPanel(QWidget):
                 return
             benefits.append(BenefitSelection(
                 code=code, renewable=ren_chk.isChecked(),
+                cease_age=cease_age,
                 mpf_code=mpf_combo.currentData() or "",
                 start_index=start_index))
         spec.benefits = benefits

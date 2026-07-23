@@ -90,6 +90,8 @@ BASELINE = "#c3c2b7"
 SURFACE = "#fcfcfb"
 PAGE = "#f9f9f7"
 FADE = "#e7e6e1"                        # de-emphasised segment in category views
+B2MD_EXC_COLOR = "#d03b3b"              # Billable-to-MD exception onset (red)
+PTM_EXC_COLOR = "#2a78d6"               # Prem-to-Maturity (min level) exception onset (blue)
 
 
 # ── Workbook reading ────────────────────────────────────────────────────────
@@ -125,6 +127,11 @@ def read_rows(workbook_path: str, sheet: Optional[str]) -> Tuple[List[dict], str
     # the known header labels for it under the "loan" key.
     for alias in ("total policy debt", "loan amount", "loan balance"):
         label_to_key.setdefault(alias, "loan")
+    # Billable-to-MD hand-off dates (written by run_billable_to_md_batch) are
+    # carried in the same workbook but are not part of GLP_COLUMNS.
+    label_to_key.setdefault("billable to md - md date", "b2md_md_date")
+    label_to_key.setdefault("billable to md - exception date", "b2md_exc_date")
+    label_to_key.setdefault("billable to md - exceptoin date", "b2md_exc_date")
     rows_iter = ws.iter_rows(values_only=True)
     header = next(rows_iter, None) or ()
     col_of = {}
@@ -322,10 +329,19 @@ def _y_axis(max_v: float, plot_h: float, top: float, left: float, width: float,
 
 def stacked_columns_svg(cats: List[str], series: Dict[str, List[float]],
                         *, money: bool, seg_label: Optional[str] = None,
-                        width: int = 1010, plot_h: int = 230) -> str:
-    """Stacked columns; series keyed by category (drawn bottom-up B,D,E)."""
+                        width: int = 1010, plot_h: int = 230,
+                        order: Optional[List[str]] = None,
+                        color_of: Optional[Dict[str, str]] = None,
+                        short_of: Optional[Dict[str, str]] = None) -> str:
+    """Stacked columns; series keyed by category (drawn bottom-up B,D,E).
+
+    ``order``/``color_of``/``short_of`` override the default category set/colors/
+    labels so a non-category series (e.g. the monthly-deduction onset) can reuse
+    the same renderer."""
     if not cats:
         return '<div class="note">No policies in this view.</div>'
+    color_of = color_of or CAT_COLOR
+    short_of = short_of or CAT_SHORT
     left, right, top, bottom = 62, 14, 12, 34
     plot_w = width - left - right
     n = len(cats)
@@ -336,7 +352,8 @@ def stacked_columns_svg(cats: List[str], series: Dict[str, List[float]],
     bar_w = min(16.0, max(slot - 3.0, 2.0))
     gap = 2.0
     marks = []
-    order = [t for t in ("B", "D", "E") if t in series]
+    if order is None:
+        order = [t for t in ("B", "D", "E") if t in series]
     for i, cat in enumerate(cats):
         x = left + i * slot + (slot - bar_w) / 2
         y_cursor = top + plot_h
@@ -348,16 +365,16 @@ def stacked_columns_svg(cats: List[str], series: Dict[str, List[float]],
             y = y_cursor - h
             val = money_compact(v) if money else n_fmt(int(v))
             if seg_label:
-                lines = [f"{cat} · {seg_label}", f"{CAT_SHORT[t]}: {val}"]
+                lines = [f"{cat} · {seg_label}", f"{short_of[t]}: {val}"]
             else:
-                lines = [f"{cat} · {CAT_SHORT[t]}", f"{val}"]
+                lines = [f"{cat} · {short_of[t]}", f"{val}"]
             if is_top:
                 d = _col_path(x, y, bar_w, h_draw, 3)
-                marks.append(f'<path d="{d}" fill="{CAT_COLOR[t]}" '
+                marks.append(f'<path d="{d}" fill="{color_of[t]}" '
                              f'class="mk" data-tt="{_tt(lines)}"/>')
             else:
                 marks.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" '
-                             f'height="{h_draw:.1f}" fill="{CAT_COLOR[t]}" '
+                             f'height="{h_draw:.1f}" fill="{color_of[t]}" '
                              f'class="mk" data-tt="{_tt(lines)}"/>')
             y_cursor = y
     lab_every = max(1, (n + 15) // 16)
@@ -569,9 +586,45 @@ def build_exception_wave(d_rows: List[dict]) -> dict:
     return {"cats": cats, "count_series": count_s, "n": len(pol)}
 
 
+def build_b2md_exception_wave(rows: List[dict]) -> dict:
+    """Year GP exception premiums begin, on the Billable-to-MD basis.
+
+    Reads the ``Billable to MD - Exception Date`` column: a real date is the
+    month guideline-premium exception premiums must start (after the billable
+    premium hands off to the monthly deduction and the guideline room runs out);
+    the "Maturity" label means exceptions never begin. Rows that are blank
+    (bypassed — e.g. loans skipped) or not run are ignored. Includes a
+    cumulative count for the onset markers.
+    """
+    years = _timeline_years()
+    cats = _timeline_labels(years)
+    n = len(years)
+    count_s = {"EXC": [0.0] * n}
+    onset_total = 0
+    never = 0
+    for r in rows:
+        v = r.get("b2md_exc_date")
+        if v in (None, ""):
+            continue
+        d = _as_date(v)
+        if d is not None:
+            count_s["EXC"][_timeline_slot(d.year)] += 1
+            onset_total += 1
+        elif _label(v) in MATURITY_LABELS:
+            never += 1
+    cum = []
+    running = 0.0
+    for i in range(n):
+        running += count_s["EXC"][i]
+        cum.append(running)
+    return {"cats": cats, "count_series": count_s, "n": onset_total,
+            "never": never, "cum": cum}
+
+
 # ── HTML assembly ───────────────────────────────────────────────────────────
 
-def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
+def build_html(cls: dict, rows: List[dict], *, workbook_name: str,
+               region_note: str) -> str:
     cats = cls["cats"]
     counts = {k: len(v) for k, v in cats.items()}
     faces = {k: sum(p["face"] for p in v) for k, v in cats.items()}
@@ -590,6 +643,7 @@ def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
 
     wave = build_wave(problem)
     exc_wave = build_exception_wave(cats["D"])
+    b2md_exc_wave = build_b2md_exception_wave(rows)
     fm = build_form_map(cats)
 
     onset = {}
@@ -658,8 +712,28 @@ def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
                                          money=False, seg_label="Lapses projected")
     wave_svg_face = stacked_columns_svg(wave["cats"], wave["face_series"],
                                         money=True, seg_label="Lapses projected")
-    exc_svg = (stacked_columns_svg(exc_wave["cats"], exc_wave["count_series"],
-                                   money=False) if exc_wave["n"] else "")
+    exc_svg = (stacked_columns_svg(
+        exc_wave["cats"], exc_wave["count_series"], money=False,
+        order=["D"], color_of={"D": PTM_EXC_COLOR},
+        short_of={"D": "Exception premiums begin"}) if exc_wave["n"] else "")
+    b2md_exc_svg = (stacked_columns_svg(
+        b2md_exc_wave["cats"], b2md_exc_wave["count_series"], money=False,
+        order=["EXC"], color_of={"EXC": B2MD_EXC_COLOR},
+        short_of={"EXC": "Exception premiums begin"}) if b2md_exc_wave["n"] else "")
+    b2md_exc_onset = {}
+    for frac in (0.25, 0.5):
+        for i, v in enumerate(b2md_exc_wave["cum"]):
+            if b2md_exc_wave["n"] and v >= frac * b2md_exc_wave["n"]:
+                b2md_exc_onset[frac] = b2md_exc_wave["cats"][i]
+                break
+    b2md_exc_onset_line = ""
+    if b2md_exc_onset.get(0.25) and b2md_exc_onset.get(0.5):
+        b2md_exc_onset_line = (f"A quarter reach that point by "
+                               f"<strong>{b2md_exc_onset[0.25]}</strong>; half by "
+                               f"<strong>{b2md_exc_onset[0.5]}</strong>.")
+    b2md_never_note = (f" \u2014 a further {n_fmt(b2md_exc_wave['never'])} never need them "
+                       f"(the policy reaches maturity without exception premiums)"
+                       if b2md_exc_wave["never"] else "")
     chart_legend_problem = "".join(
         f'<span class="cl"><span class="sw" style="background:{CAT_COLOR[t]}"></span>{escape(CAT_SHORT[t])}</span>'
         for t in PROBLEM_CATS if counts[t])
@@ -789,10 +863,25 @@ def build_html(cls: dict, *, workbook_name: str, region_note: str) -> str:
 </div>
 
 {f'''<div class="card">
-  <h2>When do exception premiums begin?</h2>
-  <div class="note">For the {n_fmt(exc_wave['n'])} Exceptions-required policies: the
-  year GLP exception premiums would need to start if each policy is funded at its
-  minimum level premium from now on.</div>
+  <div class="chart-head">
+    <h2>When do policies start exception premiums?</h2>
+    <div class="chart-legend"><span class="cl"><span class="sw" style="background:{B2MD_EXC_COLOR}"></span>Exception premiums begin</span></div>
+  </div>
+  <div class="note">Run on the <strong>Billable to MD</strong> basis: after the billable premium
+  hands off to the monthly deduction, GP exception premiums must begin once the guideline room
+  runs out. This shows the year exception premiums start for the {n_fmt(b2md_exc_wave['n'])} policies
+  where they do{b2md_never_note}. {b2md_exc_onset_line}</div>
+  {b2md_exc_svg}
+</div>''' if b2md_exc_wave['n'] else ''}
+
+{f'''<div class="card">
+  <div class="chart-head">
+    <h2>When do policies start exception premiums?</h2>
+    <div class="chart-legend"><span class="cl"><span class="sw" style="background:{PTM_EXC_COLOR}"></span>Exception premiums begin</span></div>
+  </div>
+  <div class="note">Run on the <strong>Prem to Maturity</strong> basis (minimum level premium to
+  maturity): for the {n_fmt(exc_wave['n'])} Exceptions-required policies, the year GLP exception
+  premiums would need to start if each policy is funded at its minimum level premium from now on.</div>
   {exc_svg}
 </div>''' if exc_wave['n'] else ''}
 
@@ -892,7 +981,7 @@ def main() -> None:
 
     rows, sheet_name = read_rows(workbook_path, sheet)
     cls = classify(rows)
-    html = build_html(cls, workbook_name=Path(workbook_path).name,
+    html = build_html(cls, rows, workbook_name=Path(workbook_path).name,
                       region_note="Inforce block, CyberLife UL")
     out = Path(out_path) if out_path else (
         Path(workbook_path).parent / "GLP Funding Outlook.html")

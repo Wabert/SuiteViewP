@@ -563,7 +563,19 @@ def _build_linked_benefit(
     """
     from suiteview.ratemanager.benefit_db import (
         _benefit_rates_by_combo, _bentrg_rows, _map_key,
+        _target_issue_age_range,
     )
+
+    # Targets define the valid issue-age range for both rate tables.
+    if mpf_items and not sel.renewable and sel.cease_age is None:
+        raise ValueError(
+            f"Benefit {sel.code}: cease age is required for non-renewing rates.")
+    if sel.cease_age is not None and sel.cease_age <= 0:
+        raise ValueError(
+            f"Benefit {sel.code}: cease age must be greater than 0.")
+    ctp = _benefit_rates_by_combo(result, sel.code, "T")
+    mtp = _benefit_rates_by_combo(result, sel.code, "M")
+    trg_bands = {b for (_s, _c, b) in set(ctp) | set(mtp)}
 
     # ── BENCOI from the MPF premium code ────────────────────────────
     bencoi_rows: List[list] = []
@@ -581,20 +593,28 @@ def _build_linked_benefit(
         for age, (val, _s, is_pct) in mpf_items[rk].items():
             conv[age] = val / 100.0 if is_pct else val
             pct_converted += 1 if is_pct else 0
-        sig = (tuple(sorted(conv.items())), sel.renewable)
+        target_key = _map_key(combo, trg_bands)
+        c_rates = ctp.get(target_key, {}) if target_key else {}
+        m_rates = mtp.get(target_key, {}) if target_key else {}
+        issue_age_range = _target_issue_age_range(m_rates, c_rates)
+        sig = (
+            tuple(sorted(conv.items())),
+            sel.renewable,
+            issue_age_range,
+            sel.cease_age if not sel.renewable else None,
+        )
         idx = coi_groups.get(sig)
         if idx is None:
             idx = start_index + len(coi_groups)
             coi_groups[sig] = idx
             for scale in (0, 1):
-                for ia, dur, rate in _expand_attained_table(conv, sel.renewable):
+                for ia, dur, rate in _expand_attained_table(
+                    conv, sel.renewable, issue_age_range, sel.cease_age
+                ):
                     bencoi_rows.append([idx, scale, ia, dur, rate])
         coi_index[combo] = idx
 
     # ── BENTRG from the IAF benefit code ────────────────────────────
-    ctp = _benefit_rates_by_combo(result, sel.code, "T")
-    mtp = _benefit_rates_by_combo(result, sel.code, "M")
-    trg_bands = {b for (_s, _c, b) in set(ctp) | set(mtp)}
     bentrg_rows: List[list] = []
     trg_groups: "OrderedDict[tuple, int]" = OrderedDict()
     trg_index: Dict[ComboKey, int] = {}
@@ -644,7 +664,12 @@ def _build_linked_benefit(
     return pointer_rows, bencoi_rows, bentrg_rows, block
 
 
-def _expand_attained_table(table: Dict[int, float], renewable: bool):
+def _expand_attained_table(
+    table: Dict[int, float],
+    renewable: bool,
+    issue_age_range: Optional[Tuple[int, int]] = None,
+    cease_age: Optional[int] = None,
+):
     """Expand an attained-age table into ``(issue_age, duration, rate)`` rows.
 
     Mirrors the MPF Supplemental renewal logic: renewable → the rate at
@@ -654,9 +679,22 @@ def _expand_attained_table(table: Dict[int, float], renewable: bool):
     if not ages:
         return []
     max_age = ages[-1]
+    duration_max_age = max_age
+    if not renewable:
+        if cease_age is None:
+            raise ValueError("Cease age is required for non-renewing benefits.")
+        if cease_age <= 0:
+            raise ValueError("Cease age must be greater than 0.")
+        duration_max_age = min(duration_max_age, cease_age - 1)
+    ia_min, ia_max = ages[0], max_age
+    if issue_age_range is not None:
+        ia_min = max(ia_min, issue_age_range[0])
+        ia_max = min(ia_max, issue_age_range[1])
     rows = []
-    for ia in ages:
-        for dur in range(1, max_age - ia + 2):
+    for ia in range(ia_min, ia_max + 1):
+        if ia not in table:
+            continue
+        for dur in range(1, duration_max_age - ia + 2):
             att = ia + dur - 1
             if renewable:
                 if att in table:
@@ -684,6 +722,10 @@ def build(
     warnings: List[str] = list(analysis.warnings)
 
     try:
+        if spec.base_index is None:
+            raise ValueError("Base Index is required before building rates.")
+        if spec.base_index <= 0:
+            raise ValueError("Base Index must be greater than 0.")
         result = analysis.iaf_result
         plancode = analysis.plancode
         issue_version = analysis.issue_version or "1"
@@ -772,7 +814,8 @@ def build(
                     combos, start, plancode, issue_version, warnings)
             else:
                 db_spec = BenefitDBSpec(
-                    code=b.code, renewable=b.renewable, start_index=start)
+                    code=b.code, renewable=b.renewable, start_index=start,
+                    cease_age=b.cease_age)
                 p_rows, c_rows, t_rows, _counts = build_benefit_rows(
                     result, [db_spec])
             point_benefit_rows.extend(p_rows)
@@ -940,7 +983,9 @@ def _summary_lines(
             lines.append(
                 f"  {b.code:<4} ({src})  "
                 f"{'renewable' if b.renewable else 'level':<10}  "
-                f"start index {start if start else '—'}")
+                f"start index {start if start else '—'}"
+                + (f"  cease age {b.cease_age}"
+                   if b.cease_age is not None else ""))
     else:
         lines.append("  (none)")
     lines += ["", "Tables written:"]

@@ -219,6 +219,46 @@ HEADER_PANEL_BUTTON_STYLE = f"""
     }}
 """
 
+# "Options"-style header menu button — plain clickable text (no box/border),
+# matching the SuiteView taskbar's "Tools" menu button. Gold text that brightens
+# on hover; the drop-down arrow indicator is hidden so it reads as bare text.
+HEADER_MENU_BUTTON_STYLE = """
+    QPushButton {
+        background: transparent;
+        border: none;
+        padding: 4px 12px;
+        color: #D4A017;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    QPushButton:hover {
+        color: #FFD700;
+    }
+    QPushButton::menu-indicator {
+        image: none;
+    }
+"""
+
+# Drop-down menu for the header "Options" button — same shape as the taskbar's
+# "Tools" menu, recolored to the Illustration purple theme.
+HEADER_MENU_STYLE = f"""
+    QMenu {{
+        background-color: {PURPLE_PRIMARY};
+        border: 1px solid {GOLD_PRIMARY};
+        border-radius: 4px;
+        padding: 4px;
+    }}
+    QMenu::item {{
+        background-color: transparent;
+        color: white;
+        padding: 6px 20px;
+        font-size: 11px;
+    }}
+    QMenu::item:selected {{
+        background-color: {PURPLE_LIGHT};
+    }}
+"""
+
 STATUS_BAR_STYLE = f"""
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
         stop:0 {PURPLE_DARK}, stop:1 {PURPLE_PRIMARY});

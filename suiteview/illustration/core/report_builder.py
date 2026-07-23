@@ -45,9 +45,9 @@ from suiteview.illustration.models.policy_data import IllustrationPolicyData
 # ── Display maps ────────────────────────────────────────────────────────────
 
 _DBO_DESCRIPTIONS = {
-    "A": "CV INCLUDED IN SPECIFIED AMOUNT",
-    "B": "CV ADDED TO SPECIFIED AMOUNT",
-    "C": "PREMIUMS ADDED TO SPECIFIED AMOUNT",
+    "A": "A - Level Death Benefit",
+    "B": "B - Increasing Death Benefit",
+    "C": "C - Return of Premium DB",
 }
 
 _MODE_LABELS = {1: "MONTHLY", 3: "QUARTERLY", 6: "SEMI-ANNUAL", 12: "ANNUAL"}
@@ -93,7 +93,7 @@ class LedgerRow:
     year: int = 0
     premium_outlay: float = 0.0
     markers: str = ""               # '* @ ^ & # +' combination for the year
-    cash_from_policy: float = 0.0   # Distribution from Policy (WDs + force-outs)
+    cash_from_policy: float = 0.0   # Gross withdrawals + new loans + force-outs
     loan_balance: float = 0.0
     # Guaranteed columns; None (blank) when no guaranteed run was supplied.
     guar_accum: Optional[float] = None
@@ -123,7 +123,7 @@ class ExpenseRow:
     year: int = 0                       # J — End of Year (policy year)
     eoy_age: int = 0                    # K — age at END of policy year (issue_age + year)
     premium_outlay: float = 0.0         # L — Σ vPremiumOutlay
-    distributions: float = 0.0          # M — Σ vDistributionFromPolicy (WDs + loans + force-outs)
+    distributions: float = 0.0          # M — Σ gross withdrawals + force-outs
     premium_charge: float = 0.0         # N — Σ vTotalPremLoad
     coi_charge: float = 0.0             # O — Σ vTotalCOICharge − Σ vRiderBenefitCharge (base COI)
     per_unit_charge: float = 0.0        # P — Σ vTotalEPU (per-1000 monthly charge)
@@ -139,18 +139,12 @@ class ExpenseRow:
     # Not on the RERUN sheet: EOY policy debt (principal + accrued), the same
     # value the annual ledger's LOAN BALANCE column shows (MonthlyState.policy_debt).
     policy_debt: float = 0.0
-    # Not on the RERUN sheet: Σ wd_partial_sc (RERUN withdrawal-block BM) — the
-    # partial surrender charge assessed when a withdrawal reduces the specified
-    # amount. Folded into the EXPENSES/FEES page column.
-    partial_surrender_charges: float = 0.0
-
     @property
     def expenses(self) -> float:
         """Combined EXPENSES/FEES page column: per-1000 charge + monthly fee +
-        segment asset charge + AV charge (sheet cols P+Q+R+S) + any partial
-        surrender charges assessed on withdrawals."""
+        segment asset charge + AV charge (sheet cols P+Q+R+S)."""
         return (self.per_unit_charge + self.monthly_fee + self.asset_charge
-                + self.av_charge + self.partial_surrender_charges)
+                + self.av_charge)
 
 
 @dataclass
@@ -247,7 +241,8 @@ def _annualize(
         outlay = sum(m.premium_outlay for m in months)
         forceout = sum(m.guideline_forceout for m in months)
         exception = sum(m.gp_exception_prem for m in months)
-        withdrawals = sum(m.applied_net_withdrawal for m in months)
+        withdrawals = sum(m.gross_withdrawal for m in months)
+        loans = sum(m.applied_new_loan for m in months)
         capped = any(m.premium_capped for m in months)
 
         # MEC: 7-pay contributions exceed level x year inside the window
@@ -285,7 +280,7 @@ def _annualize(
             year=year,
             premium_outlay=outlay,
             markers=markers.strip(),
-            cash_from_policy=withdrawals + forceout,
+            cash_from_policy=withdrawals + loans + forceout,
             loan_balance=eoy.policy_debt,
             accum_value=eoy.av_end_of_month,
             surr_value=eoy.ending_sv,
@@ -374,7 +369,7 @@ def _expense_rows(
         if termination_year is None or year < termination_year:
             row.premium_outlay = sum(m.premium_outlay for m in months)
             row.distributions = sum(
-                m.applied_net_withdrawal + m.guideline_forceout + m.applied_new_loan
+                m.gross_withdrawal + m.guideline_forceout
                 for m in months)
             row.premium_charge = sum(m.total_premium_load for m in months)
             row.coi_charge = sum(m.total_coi_charge for m in months)
@@ -383,7 +378,6 @@ def _expense_rows(
             row.asset_charge = sum(m.asset_charge for m in months)
             row.av_charge = sum(m.av_charge for m in months)
             row.rider_charges = sum(m.benefit_charges + m.rider_charges for m in months)
-            row.partial_surrender_charges = sum(m.wd_partial_sc for m in months)
             row.interest_credited = sum(m.interest_credited for m in months)
             row.accum_value = max(eoy.av_end_of_month, 0.0)
             row.surrender_charges = eoy.surrender_charge

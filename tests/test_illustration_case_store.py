@@ -29,9 +29,21 @@ from suiteview.illustration.models.policy_data import (
     IllustrationPolicyData,
     RiderInfo,
 )
+from suiteview.illustration.models.app_settings import get_illustration_settings
 from suiteview.illustration.ui.inputs_tab import IllustrationInputsTab
 
 _QT_APP = None
+
+
+@pytest.fixture(autouse=True)
+def _full_premium_type_surface():
+    """Enable the app-wide "Additional Premium Types" option so advanced types
+    (e.g. Prem to Shadow Maturity) are available to capture/apply tests. Reset
+    afterwards so the singleton never leaks between tests."""
+    settings = get_illustration_settings()
+    settings.set_additional_premium_types(True)
+    yield
+    settings.set_additional_premium_types(False)
 
 
 def _app():

@@ -50,6 +50,8 @@ logs/
 .suiteview/
 bundled_data/
 .gemini/
+docs/Illustration_UL/*.results.jsonl
+docs/Illustration_UL/GLP Funding Outlook.html
 
 # pytest
 .pytest_cache/

@@ -821,7 +821,8 @@ class IllustrationEngine:
         # shadow account (prior month's EAV-less-debt — this month's shadow
         # runs at stage 17), and the plancode's SV/AV lapse basis.
         b2md_switched = state.billable_md_switched
-        if b2md_active and not b2md_switched and not state.lapsed:
+        if (b2md_active and not b2md_switched and not state.lapsed
+                and _b2md_latch_allowed(options, month_date)):
             _, sc_probe, _, _ = _calculate_surrender_charge(
                 policy, rates, rate_year, month_date)
             probe_debt = cap_loan.policy_debt
@@ -1456,6 +1457,7 @@ class IllustrationEngine:
         # for the full-protection probe on the illustration timing).
         b2md_switched = state.billable_md_switched
         if (b2md_active and not b2md_switched and not state.lapsed
+                and _b2md_latch_allowed(options, month_date)
                 and ded.av_after_deduction - asset_charge <= 0.0):
             b2md_switched = True
         exception = _compute_exception_premium(
@@ -3068,6 +3070,21 @@ def _billable_to_md_active(options: IllustrationOptions, policy_year: int) -> bo
         policy_year >= start and (end is None or policy_year <= end)
         for start, end in windows
     )
+
+
+def _b2md_latch_allowed(options: IllustrationOptions, month_date: date) -> bool:
+    """Whether the Billable-to-MD hand-off may latch this month.
+
+    A "Lumpsum to Next Premium" bridge only funds the policy to its next modal
+    premium, leaving the account value near breakeven in the meantime. Latching
+    the switch during that window would hand off to Monthly Deduction premiums
+    before the regularly billable premium is ever paid — defeating the purpose
+    of the run, which is to reach that premium and measure how long it sustains
+    the policy. ``billable_to_md_no_latch_before`` suppresses the latch for
+    every month strictly before the next premium date; None means no floor.
+    """
+    floor = options.billable_to_md_no_latch_before
+    return floor is None or month_date >= floor
 
 
 def _compute_exception_premium(

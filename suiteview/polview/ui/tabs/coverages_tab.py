@@ -183,7 +183,7 @@ class CoveragesTab(QWidget):
 
         self.suspense_label.setText(f"{policy.suspense_code} - {policy.suspense_description}")
 
-        if policy.grace_indicator:
+        if policy.in_grace:
             self.grace_label.setText("In Grace")
             self.grace_label.setStyleSheet("font-size: 10px; color: #C00000; font-weight: bold;")
         else:

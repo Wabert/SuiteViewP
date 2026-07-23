@@ -1,11 +1,11 @@
 """Taskbar policy launcher + PolView "Open in Illustrator" wiring (headless Qt).
 
-Typing a policy number in the taskbar's compact bar and clicking PolView / ABR
-Quote / Illustration must open that app with the policy already loaded, routed
-through each app's existing Get/Retrieve path. An empty policy field must leave
-today's plain-open behavior untouched. PolView's header "Open in Illustrator"
-button funnels the current policy through the same illustration launcher and is
-inert until a policy is loaded.
+Typing a policy number in the taskbar's compact bar and clicking PolView or
+Illustration must open that app with the policy already loaded, routed through
+each app's existing Get/Retrieve path. ABR Quote always opens without receiving
+the compact-bar policy. PolView's header "Open in Illustrator" button funnels
+the current policy through the same illustration launcher and is inert until a
+policy is loaded.
 """
 import os
 
@@ -228,17 +228,20 @@ def test_taskbar_illustration_button_empty_policy_is_plain_open():
     assert win.loaded == []        # ...but no policy pushed in
 
 
-def test_taskbar_abr_button_passes_typed_policy():
+def test_taskbar_abr_button_ignores_typed_policy():
     _app()
     bar = _bare_taskbar(policy="E0008145")
     win = _FakeWindow()
+    opened = []
 
     def _open():
+        opened.append(True)
         bar.abrquote_window = win
 
     bar._open_abrquote = _open
     bar._abrquote_btn_clicked()
-    assert win.loaded == [("E0008145", "CKPR", "")]
+    assert opened == [True]
+    assert win.loaded == []
 
 
 def test_taskbar_abr_button_empty_policy_is_plain_open():

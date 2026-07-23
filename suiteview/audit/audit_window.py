@@ -39,7 +39,7 @@ from .tabs.build_sql_tab import BuildSqlTab
 from .tabs.build_sql_results_tab import BuildSqlResultsTab
 from .tabs.manual_sql_object_editor import ManualSqlObjectEditor
 from .tabs.csv_excel_object_editor import CsvExcelObjectEditor
-from .tabs._styles import style_combo as _style_combo
+from .tabs._styles import style_combo as _style_combo, _ensure_checkmark, _CHECKMARK_PATH
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.db2_constants import DEFAULT_SCHEMA, REGION_SCHEMA_MAP
 from .cyberlife_query import build_cyberlife_sql
@@ -403,6 +403,15 @@ class AuditWindow(FramelessWindowBase):
         self.chk_coverage_level.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
         self.chk_coverage_level.setToolTip(
             "Return one row per matching coverage and show coverage-level values")
+        _ensure_checkmark()
+        _cov_check_icon = _CHECKMARK_PATH.replace("\\", "/")
+        self.chk_coverage_level.setStyleSheet(
+            "QCheckBox::indicator { border: 1px solid #1E5BA8; width: 12px;"
+            " height: 12px; background-color: white; }"
+            "QCheckBox::indicator:checked {"
+            "  background-color: #1E5BA8; border: 1px solid #14407A;"
+            f"  image: url({_cov_check_icon});"
+            "}")
         self.cyberlife_bottom_bar.action_layout.addWidget(self.chk_coverage_level)
         self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_new_cyberlife)
         self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_save_object)

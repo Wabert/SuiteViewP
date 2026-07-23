@@ -117,11 +117,46 @@ def test_report_ledger_annualizes_and_marks():
     # Guaranteed columns stay blank.
     assert year8.guar_accum is None and year8.guar_surr is None and year8.guar_death is None
 
-    # Cover request lines: compressed premium + loan + withdrawal.
-    joined = " | ".join(report.request_lines)
-    assert "MONTHLY PREMIUM OF $100.00" in joined
-    assert "ANNUAL FIXED LOAN OF $3,000.00 FOR POLICY YEARS 12 THROUGH 15" in joined
-    assert "WITHDRAWAL OF $1,000.00 IN POLICY YEAR 11" in joined
+    # Cover activity is ordered as premiums, loans, then withdrawals.
+    assert report.request_intro[0] == (
+        "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION."
+    )
+    assert report.request_lines == [
+        "MONTHLY PREMIUM OF $100.00 FOR POLICY YEARS 8 THROUGH 9",
+        "ANNUAL FIXED LOAN OF $3,000.00 FOR POLICY YEARS 12 THROUGH 15",
+        "ANNUAL WITHDRAWAL OF $1,000.00 IN POLICY YEAR 11",
+    ]
+
+    # The proceeds/loan-balance qualifier leads the notes, while the broader
+    # non-guaranteed warning belongs directly under that heading.
+    assert report.note_paragraphs[0] == [
+        "PREMIUM OUTLAY, PROCEEDS AND LOAN BALANCE VALUES ARE DETERMINED BY "
+        "VALUES USING NON-GUARANTEED ASSUMPTIONS"
+    ]
+    non_guaranteed = report.note_paragraphs[2]
+    assert non_guaranteed[2:4] == [
+        "NON-GUARANTEED VALUES AND BENEFITS ARE BASED ON ASSUMPTIONS WHICH ARE SUBJECT TO "
+        "CHANGE BY THE INSURER.",
+        "ACTUAL RESULTS MAY BE MORE OR LESS FAVORABLE.",
+    ]
+
+    from suiteview.illustration.ui.report_tab import format_report_pages
+
+    pages = format_report_pages(report)
+    cover = "\n".join(pages[0])
+    assert cover.index("THE FOLLOWING ACTIVITY WAS REQUESTED") < cover.index(
+        "MONTHLY PREMIUM OF $100.00"
+    ) < cover.index("ANNUAL FIXED LOAN OF $3,000.00") < cover.index(
+        "ANNUAL WITHDRAWAL OF $1,000.00"
+    )
+    notes = "\n".join(next(
+        page for page in pages
+        if any("PREMIUM OUTLAY, PROCEEDS" in line for line in page)
+    ))
+    normalized_notes = " ".join(notes.split())
+    assert normalized_notes.index("PREMIUM OUTLAY, PROCEEDS") < normalized_notes.index(
+        "NON-GUARANTEED ASSUMPTIONS"
+    ) < normalized_notes.index("NON-GUARANTEED VALUES AND BENEFITS")
 
     # Policy change section with estimated limits.
     assert len(report.change_sections) == 1
@@ -132,6 +167,100 @@ def test_report_ledger_annualizes_and_marks():
     # Regulatory limits from the inforce snapshot.
     assert any("GUIDELINE SINGLE = $31,311.48" in line for line in report.regulatory_lines)
     assert any("PREMIUM WAIVER" in line for line in report.rider_lines)
+
+
+def test_report_plan_option_descriptions():
+    expected = {
+        "A": "A - Level Death Benefit",
+        "B": "B - Increasing Death Benefit",
+        "C": "C - Return of Premium DB",
+    }
+
+    for option, description in expected.items():
+        policy = _policy()
+        policy.db_option = option
+        report = build_ul_report(policy, _results(), run_date=date(2026, 7, 22))
+        plan_option = next(
+            right for _left, right in report.policy_block
+            if "CURRENT PLAN OPTION:" in right
+        )
+        assert plan_option.endswith(description)
+
+
+def test_activity_section_shows_zero_premium_without_loans_or_withdrawals():
+    rows = [MonthlyState(policy_year=7, policy_month=12, duration=84)]
+    rows.extend(
+        _month(8, month, requested_premium=0.0, gross_premium=0.0)
+        for month in range(1, 13)
+    )
+
+    report = build_ul_report(_policy(), rows, run_date=date(2026, 7, 22))
+
+    assert report.request_intro == [
+        "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION."
+    ]
+    assert report.request_lines == [
+        "MONTHLY PREMIUM OF $0.00 IN POLICY YEAR 8"
+    ]
+
+
+def test_activity_section_includes_current_year_dated_loan():
+    inputs = IllustrationInputSet(
+        scheduled_transactions=[
+            ScheduledTransaction(
+                kind=TransactionKind.LOAN,
+                policy_year=8,
+                amount=250.0,
+                mode="M",
+                metadata={"loan_type": "fixed"},
+            ),
+            ScheduledTransaction(
+                kind=TransactionKind.LOAN,
+                policy_year=9,
+                amount=0.0,
+                mode="A",
+                metadata={"loan_type": "fixed"},
+            ),
+        ],
+        dated_transactions=[
+            DatedTransaction(
+                kind=TransactionKind.LOAN,
+                effective_date=date(2026, 5, 9),
+                amount=250.0,
+                metadata={"mode": "M", "loan_type": "fixed"},
+            ),
+            DatedTransaction(
+                kind=TransactionKind.LOAN,
+                effective_date=date(2026, 6, 9),
+                amount=250.0,
+                metadata={"mode": "M", "loan_type": "fixed"},
+            ),
+        ]
+    )
+
+    report = build_ul_report(
+        _policy(), _results(), future_inputs=inputs, run_date=date(2026, 7, 22)
+    )
+
+    assert report.request_lines == [
+        "MONTHLY PREMIUM OF $100.00 FOR POLICY YEARS 8 THROUGH 9",
+        "MONTHLY FIXED LOAN OF $250.00 FOR POLICY YEARS 7 THROUGH 8",
+    ]
+
+
+def test_cash_from_policy_includes_gross_withdrawals_loans_and_forceouts():
+    rows = [MonthlyState(policy_year=7, policy_month=12, duration=84)]
+    rows.extend(_month(8, month) for month in range(1, 13))
+    rows[3].applied_net_withdrawal = 500.0
+    rows[3].gross_withdrawal = 600.0
+    rows[3].applied_regular_loan = 200.0
+    rows[3].applied_preferred_loan = 25.0
+    rows[3].applied_variable_loan = 75.0
+    rows[3].guideline_forceout = 100.0
+
+    report = build_ul_report(_policy(), rows, run_date=date(2026, 7, 22))
+
+    assert report.ledger[0].cash_from_policy == 1000.0
 
 
 def test_seven_pay_restart_marks_ledger_and_footnotes():
@@ -376,6 +505,8 @@ def test_report_pages_render_fixed_width():
     assert "CURRENT BILLING MODE:" in issue_date_line
     ledger_page = "\n".join(pages[1])
     assert "NON-GUARANTEED" in ledger_page
+    assert "PROCEEDS" in ledger_page
+    assert "CASH FROM" not in ledger_page
 
 
 def _guaranteed_results():
@@ -492,8 +623,8 @@ def _expense_results():
                 policy_debt=250.0,
             )
             if year == 8 and month == 3:
-                kw.update(applied_net_withdrawal=500.0, applied_regular_loan=200.0,
-                          wd_partial_sc=75.0)
+                kw.update(applied_net_withdrawal=500.0, gross_withdrawal=575.0,
+                          applied_regular_loan=200.0, wd_partial_sc=75.0)
             if year == 9 and month == 1:
                 kw.update(guideline_forceout=1000.0)
             rows.append(_month(year, month, **kw))
@@ -502,15 +633,15 @@ def _expense_results():
 
 def test_expense_rows_annualize_j_to_y_columns():
     """One hand-computed value per column family: charges/credits are annual
-    sums, policy values are end-of-year, distributions include withdrawals,
-    loans, and force-outs (RERUN vDistributionFromPolicy)."""
+    sums, policy values are end-of-year, cash out includes gross withdrawals
+    and force-outs but not loans."""
     report = build_ul_report(_policy(), _expense_results(), run_date=date(2026, 7, 3))
 
     assert [r.year for r in report.expense_rows] == [8, 9]
     year8, year9 = report.expense_rows
     assert year8.eoy_age == 58                          # K — age at END of year (50 + 8)
     assert year8.premium_outlay == 1200.0               # L — 12 x 100
-    assert year8.distributions == 700.0                 # M — 500 WD + 200 loan
+    assert year8.distributions == 575.0                 # M — gross WD includes 75 PSC
     assert year9.distributions == 1000.0                # M — force-out counts
     assert year8.premium_charge == 60.0                 # N — 12 x 5
     assert year8.coi_charge == 120.0                    # O — 12 x 10 (base COI only)
@@ -519,11 +650,9 @@ def test_expense_rows_annualize_j_to_y_columns():
     assert year8.asset_charge == 12.0                   # R — 12 x 1
     assert year8.av_charge == 6.0                       # S — 12 x 0.5
     assert year8.rider_charges == 12.0                  # T — 12 x (0.75 + 0.25)
-    # Partial SC assessed on the March withdrawal lands in Expenses/Fees.
-    assert year8.partial_surrender_charges == 75.0
-    # Combined page column: P + Q + R + S + partial SC = 36 + 24 + 12 + 6 + 75
-    # (premium charge is its own column and is NOT folded in).
-    assert year8.expenses == 153.0
+    # PSC is already included in gross withdrawal and is not counted again.
+    # Combined page column: P + Q + R + S = 36 + 24 + 12 + 6.
+    assert year8.expenses == 78.0
     assert year8.interest_credited == 240.0             # U — 12 x 20
     assert year8.accum_value == 5000.0 + 96             # V — EOY AV (duration 96)
     assert year8.surrender_charges == 400.0             # W — EOY full SC
@@ -572,7 +701,9 @@ def test_expense_page_appended_only_when_enabled():
     expense_page = pages[-1]                            # appended at the end
     flat = "\n".join(expense_page)
     assert "EXPENSE REPORT" in flat
-    assert "WHERE EACH PREMIUM DOLLAR GOES" in flat     # intro verbiage
+    assert "ANNUAL ACTIVITY INTO ITS EXPENSE" in flat   # intro verbiage
+    assert "CASH" in flat and "OUT" in flat
+    assert "DISTRI-" not in flat and "BUTIONS" not in flat
     assert all(len(line) <= PAGE_WIDTH for line in expense_page), max(expense_page, key=len)
 
     # Column widths span the full page; the locators lead with EOY age then
@@ -583,22 +714,21 @@ def test_expense_page_appended_only_when_enabled():
     bottom_header = next(line for line in expense_page
                          if line.strip().startswith("EOY") and "BENEFIT" in line)
     labels = bottom_header.split()
-    assert labels == ["EOY", "YEAR", "OUTLAY", "BUTIONS", "CHARGE", "CHARGE",
+    assert labels == ["EOY", "YEAR", "OUTLAY", "OUT", "CHARGE", "CHARGE",
                       "CHG", "EXPENSES/FEES", "CREDITED", "VALUE", "CHGS",
                       "DEBT", "VALUE", "BENEFIT"]
 
     # Data row: year 8 — EOY age 58, then premium charge (60), COI (120),
-    # rider (12), combined expenses/fees (36+24+12+6+75=153), and EOY policy
+    # rider (12), combined expenses/fees (36+24+12+6=78), and EOY policy
     # values with debt before net surrender value.
     year8_line = next(line for line in expense_page
                       if line.split()[:2] == ["58", "8"])
     assert year8_line.split() == [
-        "58", "8", "1,200", "700", "60", "120", "12", "153",
+        "58", "8", "1,200", "575", "60", "120", "12", "78",
         "240", "5,096", "400", "250", "4,096", "100,000"]
 
-    # Intro names the partial-surrender-charge component (normalize the
-    # word-wrap so the phrase can span lines).
-    assert "PARTIAL SURRENDER CHARGES ASSESSED ON WITHDRAWALS" in " ".join(flat.split())
+    assert "CASH OUT (GROSS WITHDRAWALS AND FORCED-OUT PREMIUM)" in " ".join(flat.split())
+    assert "PARTIAL SURRENDER CHARGES" not in flat
 
     # A separate exhibit: its own heading and page numbering, no company
     # header, and the illustration's own numbering still excludes it.

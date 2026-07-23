@@ -184,6 +184,16 @@ def solve_lumpsum_to_next_premium(
     if gap <= 0:
         return None  # a modal premium already lands on the forecast date — no gap
 
+    # A "Billable to MD" run hands off to Monthly Deduction premiums the first
+    # month the policy can't carry itself — which would trivially rescue any
+    # lumpsum and defeat the bridge. The bridge must be sized on premium ALONE,
+    # so suppress the hand-off across the whole solve window (up to the next
+    # premium). The main run applies the same floor, so the bridge the solver
+    # sizes is the bridge the run experiences.
+    if options.billable_to_md_windows:
+        from dataclasses import replace
+        options = replace(options, billable_to_md_no_latch_before=next_due)
+
     # Project a touch past the next due date so its lapse test is fully formed.
     project_months = gap + 2
     base = base_future_inputs

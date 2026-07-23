@@ -329,6 +329,16 @@ class PolicyListWindow(DockableToolPanel):
             self._policy_history.insert(0, entry)
             self._refresh_list()
 
+    def has_policy(self, policy: str) -> bool:
+        """Return True if *policy* (by number, any region/company) is in history."""
+        pn = (policy or "").strip().upper()
+        if not pn:
+            return False
+        return any(
+            (p or "").strip().upper() == pn
+            for _region, _company, p in self._policy_history
+        )
+
     def _refresh_list(self):
         self.history_list.clear()
         for region, company, policy in self._policy_history:

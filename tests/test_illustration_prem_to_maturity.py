@@ -10,16 +10,30 @@ import os
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
+from suiteview.illustration.models.app_settings import get_illustration_settings
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import IllustrationInputSet, TransactionKind
 from suiteview.illustration.models.policy_data import CoverageSegment, IllustrationPolicyData
 from suiteview.illustration.ui.main_window import IllustrationWindow
 
 _QT_APP = None
+
+
+@pytest.fixture(autouse=True)
+def _full_premium_type_surface():
+    """Enable the app-wide "Additional Premium Types" option so the advanced
+    types (e.g. Max Level) are selectable in these tests. Reset afterwards so
+    the singleton never leaks between tests."""
+    settings = get_illustration_settings()
+    settings.set_additional_premium_types(True)
+    yield
+    settings.set_additional_premium_types(False)
 
 
 def _app():

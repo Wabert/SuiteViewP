@@ -472,6 +472,10 @@ def build_cyberlife_sql(
         info["issue_date_hi"] = normalize_date(widgets["issue_date_hi"].text()) or ""
         info["change_date_lo"] = normalize_date(widgets["change_date_lo"].text()) or ""
         info["change_date_hi"] = normalize_date(widgets["change_date_hi"].text()) or ""
+        info["vpu_lo"] = widgets["vpu_lo"].text().strip()
+        info["vpu_hi"] = widgets["vpu_hi"].text().strip()
+        info["spec_amt_lo"] = widgets["spec_amt_lo"].text().strip()
+        info["spec_amt_hi"] = widgets["spec_amt_hi"].text().strip()
         info["active"] = any([
             info["plancode"], info["prod_line"], info["prod_ind"],
             info["rateclass"], info["sex_code_67"], info["sex_code_02"],
@@ -480,6 +484,8 @@ def build_cyberlife_sql(
             info["table_03"], info["flat_03"], info["post_issue"],
             info["issue_date_lo"], info["issue_date_hi"],
             info["change_date_lo"], info["change_date_hi"],
+            info["vpu_lo"], info["vpu_hi"],
+            info["spec_amt_lo"], info["spec_amt_hi"],
         ])
         info["needs_covmod"] = bool(info["prod_ind"] or info["cola_ind"] or info["gio_fio"])
         info["needs_renewals"] = bool(info["rateclass"] or info["sex_code_67"])
@@ -1145,6 +1151,138 @@ def build_cyberlife_sql(
         sql_parts.append("  , COVERAGE1.ANN_PRM_UNT_AMT PremRate")
         sql_parts.append("  , POLICY1.POL_PRM_AMT PolPremium")
 
+    # ── Coverages tab: auto-display criteria fields ──────────────
+    # Any field the user specifies on the Coverages tab is surfaced as a
+    # results column, even if the matching Display-tab checkbox is unchecked.
+    # Pure conditions (Multiple Base Covs, GCV < CV, etc.) have no single-field
+    # value and are intentionally excluded.
+    cov_base_change_set = bool(cov_base_change_lo or cov_base_change_hi)
+    cov_base_vpu_set = bool(_bw["vpu_lo"].text().strip() or _bw["vpu_hi"].text().strip())
+    cov_base_specamt_set = bool(_bw["spec_amt_lo"].text().strip() or _bw["spec_amt_hi"].text().strip())
+
+    # Col 1 — Valuation fields (COVERAGE1)
+    if cov_val_classes or cov_val_class:
+        sql_parts.append("  , COVERAGE1.INS_CLS_CD ValClass")
+    if cov_val_base:
+        sql_parts.append("  , COVERAGE1.PLN_BSE_SRE_CD ValBase")
+    if cov_val_sub:
+        sql_parts.append("  , COVERAGE1.LIF_PLN_SUB_SRE_CD ValSub")
+    if cov_val_mort:
+        sql_parts.append("  , COVERAGE1.MTL_FCT_TBL_CD ValMortTable")
+    if cov_rpu_mort:
+        sql_parts.append("  , COVERAGE1.NSP_RPU_TBL_CD RPUMortTable")
+    if cov_eti_mort:
+        sql_parts.append("  , COVERAGE1.NSP_EI_TBL_CD ETIMortTable")
+    if cov_nfo_rate:
+        sql_parts.append("  , COVERAGE1.NSP_ITS_RT NFOIntRate")
+    if cov_non_trad:
+        sql_parts.append("  , POLICY1.NON_TRD_POL_IND NonTradInd")
+    if cov_has_spec_amt and not (disp_spec_amt or multi_base_covs):
+        sql_parts.append("  , COVSUMMARY.TOTAL_SA CurrSpecAmt")
+    if cov_init_term and not disp_init_term:
+        sql_parts.append("  , COVERAGE1.INT_RNL_PER InitTermPeriod")
+
+    # Condition checkboxes — surface the values that satisfied the condition so
+    # the user can see why each row matched.
+    if cov_val_class_ne:
+        if not (cov_val_classes or cov_val_class):
+            sql_parts.append("  , COVERAGE1.INS_CLS_CD ValClass")
+        sql_parts.append("  , SUBSTR(COVERAGE1.PLN_DES_SER_CD, 3, 1) PlanDescClass")
+    if cov_gio:
+        sql_parts.append("  , MODCOVSALL.OPT_EXER_IND GioInd")
+    if cov_cola and not cov_base_cola_ind:
+        sql_parts.append("  , MODCOVSALL.COLA_INCR_IND ColaInd")
+    if cov_cv_rate:
+        sql_parts.append("  , COVERAGE1.LOW_DUR_1_CSV_AMT CVRate1")
+        sql_parts.append("  , COVERAGE1.LOW_DUR_2_CSV_AMT CVRate2")
+    if cov_gcv_gt_cv or cov_gcv_lt_cv:
+        sql_parts.append("  , ISWL_INTERPOLATED_GCV.ISWL_GCV GCV")
+        sql_parts.append("  , MVVAL.CSV_AMT CurrentCV")
+
+    # Base coverage column — headers kept simple (no "Base" prefix)
+    if cov_base_prod_line and not disp_prod_line:
+        sql_parts.append("  , COVERAGE1.PRD_LIN_TYP_CD ProdLine")
+    if cov_base_sex02 and not disp_sex_02:
+        sql_parts.append("  , COVERAGE1.INS_SEX_CD Sex02")
+    if cov_base_person:
+        sql_parts.append("  , COVERAGE1.PRS_CD Person")
+    if cov_base_lives_cov:
+        sql_parts.append("  , COVERAGE1.LIVES_COV_CD LivesCov")
+    if cov_base_change_type and not disp_next_change:
+        sql_parts.append("  , COVERAGE1.NXT_CHG_TYP_CD ChangeType")
+    if cov_base_change_set and not disp_next_change:
+        sql_parts.append("  , VARCHAR_FORMAT(COVERAGE1.NXT_CHG_DT, 'MM/DD/YYYY') ChangeDate")
+    if cov_base_prod_ind:
+        sql_parts.append("  , MODCOV1.AN_PRD_ID ProdInd")
+    if cov_base_cola_ind:
+        sql_parts.append("  , MODCOV1.COLA_INCR_IND ColaInd")
+    if cov_base_gio_fio:
+        sql_parts.append("  , MODCOV1.OPT_EXER_IND GioFio")
+    if cov_base_rateclass and not disp_sex_rateclass:
+        sql_parts.append("  , COV1_RENEWALS.RT_CLS_CD RateClass")
+    if cov_base_sex67 and not disp_sex_rateclass:
+        sql_parts.append("  , COV1_RENEWALS.RT_SEX_CD Sex67")
+    if cov_base_vpu_set:
+        sql_parts.append("  , COVERAGE1.COV_VPU_AMT VPU")
+    if cov_base_specamt_set:
+        sql_parts.append("  , ROUND(REAL(COVERAGE1.COV_UNT_QTY) * REAL(COVERAGE1.COV_VPU_AMT), 2) SpecifiedAmount")
+    if cov_base_table03 and not disp_substandard:
+        sql_parts.append("  , TABLE_RATING1.SST_XTR_RT_TBL_CD TableRating")
+    if cov_base_flat03 and not disp_substandard:
+        sql_parts.append("  , FLAT_EXTRA1.SST_XTR_UNT_AMT FlatExtra")
+
+    # Rider coverage columns — surfaced only when Coverage level is checked,
+    # so each result row is a specific coverage and rider values are meaningful.
+    # Prefixed (Rider1/Rider2) to distinguish from the base columns above.
+    # Alias names mirror those built in _emit_rider_joins below.
+    def _rider_select_lines(info: dict, alias: str, label: str) -> list:
+        lines = []
+        if not (coverage_level and info["active"]):
+            return lines
+        covmod_alias = f"{alias}COVMOD"
+        rnl_alias = f"{alias}_RENEWALS"
+        tr_alias = f"{alias}_TABLE_RATING"
+        fe_alias = f"{alias}_FLAT_EXTRA"
+        if info["plancode"]:
+            lines.append(f"  , {alias}.PLN_DES_SER_CD {label}Plancode")
+        if info["prod_line"]:
+            lines.append(f"  , {alias}.PRD_LIN_TYP_CD {label}ProdLine")
+        if info["sex_code_02"]:
+            lines.append(f"  , {alias}.INS_SEX_CD {label}Sex02")
+        if info["person"]:
+            lines.append(f"  , {alias}.PRS_CD {label}Person")
+        if info["lives_cov"]:
+            lines.append(f"  , {alias}.LIVES_COV_CD {label}LivesCov")
+        if info["change_type"]:
+            lines.append(f"  , {alias}.NXT_CHG_TYP_CD {label}ChangeType")
+        if info["change_date_lo"] or info["change_date_hi"]:
+            lines.append(
+                f"  , VARCHAR_FORMAT({alias}.NXT_CHG_DT, 'MM/DD/YYYY') {label}ChangeDate")
+        if info["prod_ind"]:
+            lines.append(f"  , {covmod_alias}.AN_PRD_ID {label}ProdInd")
+        if info["cola_ind"]:
+            lines.append(f"  , {covmod_alias}.COLA_INCR_IND {label}ColaInd")
+        if info["gio_fio"]:
+            lines.append(f"  , {covmod_alias}.OPT_EXER_IND {label}GioFio")
+        if info["rateclass"]:
+            lines.append(f"  , {rnl_alias}.RT_CLS_CD {label}RateClass")
+        if info["sex_code_67"]:
+            lines.append(f"  , {rnl_alias}.RT_SEX_CD {label}Sex67")
+        if info["vpu_lo"] or info["vpu_hi"]:
+            lines.append(f"  , {alias}.COV_VPU_AMT {label}VPU")
+        if info["spec_amt_lo"] or info["spec_amt_hi"]:
+            lines.append(
+                f"  , ROUND(REAL({alias}.COV_UNT_QTY) * REAL({alias}.COV_VPU_AMT), 2)"
+                f" {label}SpecifiedAmount")
+        if info["table_03"]:
+            lines.append(f"  , {tr_alias}.SST_XTR_RT_TBL_CD {label}TableRating")
+        if info["flat_03"]:
+            lines.append(f"  , {fe_alias}.SST_XTR_UNT_AMT {label}FlatExtra")
+        return lines
+
+    sql_parts.extend(_rider_select_lines(rider1_info, "RIDER1", "Rider1"))
+    sql_parts.extend(_rider_select_lines(rider2_info, "RIDER2", "Rider2"))
+
     # ── Custom Display tab: user-selected SELECT columns ────────
     sql_parts.extend(custom_select_lines)
 
@@ -1611,6 +1749,34 @@ def build_cyberlife_sql(
         change_hi = info["change_date_hi"]
         if change_hi:
             sql_parts.append(f"    AND {alias}.NXT_CHG_DT <= '{esc(change_hi)}'")
+        vpu_lo = info["vpu_lo"]
+        if vpu_lo:
+            try:
+                sql_parts.append(f"    AND {alias}.COV_VPU_AMT >= {float(vpu_lo)}")
+            except ValueError:
+                pass
+        vpu_hi = info["vpu_hi"]
+        if vpu_hi:
+            try:
+                sql_parts.append(f"    AND {alias}.COV_VPU_AMT <= {float(vpu_hi)}")
+            except ValueError:
+                pass
+        sa_lo = info["spec_amt_lo"]
+        if sa_lo:
+            try:
+                sql_parts.append(
+                    f"    AND (REAL({alias}.COV_UNT_QTY) * REAL({alias}.COV_VPU_AMT))"
+                    f" >= {float(sa_lo)}")
+            except ValueError:
+                pass
+        sa_hi = info["spec_amt_hi"]
+        if sa_hi:
+            try:
+                sql_parts.append(
+                    f"    AND (REAL({alias}.COV_UNT_QTY) * REAL({alias}.COV_VPU_AMT))"
+                    f" <= {float(sa_hi)}")
+            except ValueError:
+                pass
         lives = info["lives_cov"]
         if lives:
             code = lives[0]
@@ -2237,6 +2403,13 @@ def build_cyberlife_sql(
     if cov_base_sex67:
         code = cov_base_sex67[0]
         wheres.append(f"COV1_RENEWALS.RT_SEX_CD = '{esc(code)}'")
+    # Base coverage VPU (Value-Per-Unit) range
+    add_decimal_range(wheres, "COVERAGE1.COV_VPU_AMT",
+                      _bw["vpu_lo"], _bw["vpu_hi"])
+    # Base coverage Specified Amount range (units x VPU)
+    add_decimal_range(wheres,
+                      "(REAL(COVERAGE1.COV_UNT_QTY) * REAL(COVERAGE1.COV_VPU_AMT))",
+                      _bw["spec_amt_lo"], _bw["spec_amt_hi"])
 
     if coverage_level:
         rider_match_aliases = []
