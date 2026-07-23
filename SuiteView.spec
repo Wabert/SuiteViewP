@@ -17,6 +17,9 @@ Usage:
 import os
 import sys
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_all
+
+_COPILOT_DATAS, _COPILOT_BINARIES, _COPILOT_HIDDENIMPORTS = collect_all('copilot')
 
 # Bundle every JSON in the illustration plancodes directory so a newly added
 # data file (e.g. index_strategies.json, rider_table.json) is never silently
@@ -31,8 +34,9 @@ _PLANCODES_DATAS = [
 a = Analysis(
     ['suiteview\\main.py'],
     pathex=[],
-    binaries=[],
+    binaries=_COPILOT_BINARIES,
     datas=[
+        *_COPILOT_DATAS,
         # UI stylesheet
         ('suiteview/ui/styles.qss', 'suiteview/ui'),
         # PolView reference data (JSON lookup files)
@@ -65,6 +69,9 @@ a = Analysis(
         'suiteview.audit',
         'suiteview.audit.audit_window',
         'suiteview.audit.main',
+        'suiteview.agent_chat',
+        'suiteview.agent_chat.window',
+        *_COPILOT_HIDDENIMPORTS,
     ],
     hookspath=[],
     hooksconfig={},

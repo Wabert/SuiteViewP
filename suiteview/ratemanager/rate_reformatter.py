@@ -6,7 +6,8 @@ Takes a ParseResult (from IAFParser) and produces three CSV files:
      Scale 1 = most recent, Scale 2 = next most recent, etc.
      Select+ultimate expanded to fully select.
   2. Guaranteed COI rates (RATE table, Scale=0)  — ultimate expanded to fully select
-  3. Target premiums     (RATE_TRGPRM table)     — CTP, TBL1CTP, MTP, TBL1MTP
+  3. Target premiums     (RATE_TRGPRM table)     — MTP, CTP, TBL4PREM,
+     TBL1MTP, TBL1CTP
 
 Also produces a POINTER table CSV mapping (Sex, RateClass, Band) →
   Index(COI) and Index(TRGPREM).  IssueVersion is always 1 and State is "AA".
@@ -406,11 +407,15 @@ class RateReformatter:
 
     def _trg_signature(self, combo: ComboKey) -> tuple:
         """Signature of a combo's target-premium content."""
+        class_combo = self._ctp_class_combo(combo)
+        ctp_rates = self._ctp_base.get(combo)
+        if not ctp_rates:
+            ctp_rates = self._ctp_base.get(class_combo, {})
         return (
-            tuple(sorted(self._ctp_base.get(self._ctp_class_combo(combo), {}).items())),
-            tuple(sorted(self._ctp_tbl4.get(combo, {}).items())),
+            tuple(sorted(ctp_rates.items())),
+            tuple(sorted(self._ctp_tbl4.get(class_combo, {}).items())),
             tuple(sorted(self._mtp_base.get(combo, {}).items())),
-            tuple(sorted(self._mtp_tbl4.get(combo, {}).items())),
+            tuple(sorted(self._mtp_tbl4.get(class_combo, {}).items())),
         )
 
     def _assign_coi_indices(
@@ -639,7 +644,7 @@ class RateReformatter:
         removed: set = set()
         with open(filepath, 'w', newline='') as f:
             w = csv.writer(f)
-            w.writerow(["Index", "Scale", "IssueAge", "Duration", "Rate"])
+            w.writerow(["Index(COI)", "Scale", "IssueAge", "Duration", "Rate"])
             for idx, scale, ia, dur, rate in self.filter_artifact_issue_ages(
                     self.current_coi_rows(coi_reps, select_period, ia_min, ia_max),
                     removed):
@@ -713,7 +718,7 @@ class RateReformatter:
         removed: set = set()
         with open(filepath, 'w', newline='') as f:
             w = csv.writer(f)
-            w.writerow(["Index", "Scale", "IssueAge", "Duration", "Rate"])
+            w.writerow(["Index(COI)", "Scale", "IssueAge", "Duration", "Rate"])
             for idx, scale, ia, dur, rate in self.filter_artifact_issue_ages(
                     self.guaranteed_coi_rows(coi_reps, ia_min, ia_max), removed):
                 w.writerow([idx, scale, ia, dur, f"{rate:.6f}"])
@@ -778,16 +783,20 @@ class RateReformatter:
         row_count = 0
         with open(filepath, 'w', newline='') as f:
             w = csv.writer(f)
-            w.writerow(["Index", "IssueAge", "CTP", "TBL1CTP", "MTP", "TBL1MTP"])
-            for idx, ia, ctp, tbl1ctp, mtp, tbl1mtp in self.target_rows(
+            w.writerow([
+                "Index(TRGPREM)", "IssueAge", "Rate(MTP)", "Rate(CTP)",
+                "Rate(TBL4PREM)", "Rate(TBL1MTP)", "Rate(TBL1CTP)",
+            ])
+            for idx, ia, ctp, tbl1ctp, mtp, tbl1mtp, tbl4prem in self.target_rows(
                     trg_reps, ia_min, ia_max):
                 w.writerow([
                     idx,
                     ia,
-                    f"{ctp:.6f}" if ctp is not None else "",
-                    f"{tbl1ctp:.6f}" if tbl1ctp is not None else "",
                     f"{mtp:.6f}" if mtp is not None else "",
+                    f"{ctp:.6f}" if ctp is not None else "",
+                    f"{tbl4prem:.6f}" if tbl4prem is not None else "",
                     f"{tbl1mtp:.6f}" if tbl1mtp is not None else "",
+                    f"{tbl1ctp:.6f}" if tbl1ctp is not None else "",
                 ])
                 row_count += 1
         return row_count
@@ -798,35 +807,51 @@ class RateReformatter:
         ia_min: int,
         ia_max: int,
     ):
-        """Yield ``(index, issue_age, ctp, tbl1ctp, mtp, tbl1mtp)`` values.
+        """Yield target-premium values, including the raw Table-4 premium.
 
         Values are floats or None:
           CTP      = T rate (opt='**') at class-level band='0'
+          TBL4PREM = M/T rate (opt='E*'); both types must agree when present
           TBL1CTP  = T rate (opt='E*') / 4  (Table 4 → Table 1)
           MTP      = M rate (opt='**') at band level
           TBL1MTP  = M rate (opt='E*') / 4
         """
         for idx, combo in trg_reps:
-            # CTP comes from the class-level (band='0') T rates
-            ctp_rates = self._ctp_base.get(self._ctp_class_combo(combo), {})
-            # TBL1CTP from table-4 T rates at the banded combo level
-            tbl1ctp_rates = self._ctp_tbl4.get(combo, {})
+            class_combo = self._ctp_class_combo(combo)
+            # Main T/** rates are normally banded; some plans use band 0.
+            ctp_rates = self._ctp_base.get(combo)
+            if not ctp_rates:
+                ctp_rates = self._ctp_base.get(class_combo, {})
+            # E* Table-4 rates are unbanded and apply to every base band.
+            tbl4ctp_rates = self._ctp_tbl4.get(class_combo, {})
             # MTP at the banded combo level
             mtp_rates = self._mtp_base.get(combo, {})
-            # TBL1MTP from table-4 M rates
-            tbl1mtp_rates = self._mtp_tbl4.get(combo, {})
+            # Table-4 M rates
+            tbl4mtp_rates = self._mtp_tbl4.get(class_combo, {})
 
             for ia in range(ia_min, ia_max + 1):
                 ctp = ctp_rates.get(ia)
-                tbl1ctp = tbl1ctp_rates.get(ia)
+                tbl4ctp = tbl4ctp_rates.get(ia)
                 mtp = mtp_rates.get(ia)
-                tbl1mtp = tbl1mtp_rates.get(ia)
+                tbl4mtp = tbl4mtp_rates.get(ia)
 
-                # Divide table-4 values by 4 to get table-1
-                tbl1ctp_val = tbl1ctp / 4.0 if tbl1ctp is not None else None
-                tbl1mtp_val = tbl1mtp / 4.0 if tbl1mtp is not None else None
+                if (tbl4ctp is not None and tbl4mtp is not None
+                        and tbl4ctp != tbl4mtp):
+                    raise ValueError(
+                        "M and T Table-4 premium rates disagree for "
+                        f"sex={combo[0]}, class={combo[1]}, band={combo[2]}, "
+                        f"issue age={ia}: M={tbl4mtp}, T={tbl4ctp}."
+                    )
+
+                tbl4prem = tbl4mtp if tbl4mtp is not None else tbl4ctp
+                tbl1ctp_val = (
+                    round(tbl4ctp / 4.0, 2) if tbl4ctp is not None else None
+                )
+                tbl1mtp_val = (
+                    round(tbl4mtp / 4.0, 2) if tbl4mtp is not None else None
+                )
 
                 if ctp is None and tbl1ctp_val is None and mtp is None and tbl1mtp_val is None:
                     continue
 
-                yield idx, ia, ctp, tbl1ctp_val, mtp, tbl1mtp_val
+                yield idx, ia, ctp, tbl1ctp_val, mtp, tbl1mtp_val, tbl4prem

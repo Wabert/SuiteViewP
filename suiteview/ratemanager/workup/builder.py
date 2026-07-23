@@ -58,19 +58,19 @@ PVSRB_HEADERS = [
     "Index(COI)", "Index(EPU)", "Index(GLP)", "MORTID", "Index(SHDINT)",
     "Index(TRAD_CV)",
 ]
-COI_HEADERS = ["Index", "Scale", "IssueAge", "Duration", "Rate"]
+COI_HEADERS = ["Index(COI)", "Scale", "IssueAge", "Duration", "Rate"]
 TRGPREM_HEADERS = [
     "Index(TRGPREM)", "IssueAge", "Rate(MTP)", "Rate(CTP)",
     "Rate(TBL4PREM)", "Rate(TBL1MTP)", "Rate(TBL1CTP)",
 ]
-SCR_HEADERS = ["Index", "IssueAge", "Duration", "Rate"]
-EPU_HEADERS = ["Index", "Scale", "IssueAge", "Duration", "Rate"]
+SCR_HEADERS = ["Index(SCR)", "IssueAge", "Duration", "Rate"]
+EPU_HEADERS = ["Index(EPU)", "Scale", "IssueAge", "Duration", "Rate"]
 POINT_BENEFIT_HEADERS = [
     "Plancode", "BenefitType", "Benefit", "IssueVersion",
     "Sex", "Rateclass", "Band", "Index(BENCOI)", "Index(BENTRG)",
 ]
-BENCOI_HEADERS = ["Index", "Scale", "IssueAge", "Duration", "Rate"]
-BENTRG_HEADERS = ["Index", "IssueAge", "MTP", "CTP"]
+BENCOI_HEADERS = ["Index(BENCOI)", "Scale", "IssueAge", "Duration", "Rate"]
+BENTRG_HEADERS = ["Index(BENTRG)", "IssueAge", "Rate(MTP)", "Rate(CTP)"]
 
 TABLE_FILES = [
     "POINT_PVSRB", "RATE_COI", "RATE_TRGPREM", "RATE_SCR", "RATE_EPU",
@@ -766,11 +766,11 @@ def build(
                 "lie outside the product's true issue range.")
 
         trg_rows: List[list] = []
-        for idx, ia, ctp, tbl1ctp, mtp, tbl1mtp in reformatter.target_rows(
+        for idx, ia, ctp, tbl1ctp, mtp, tbl1mtp, tbl4prem in reformatter.target_rows(
                 trg_reps, ia_min, ia_max):
             trg_rows.append([
                 idx, ia, fmt_rate(mtp), fmt_rate(ctp),
-                "",                       # Rate(TBL4PREM) — not used
+                fmt_rate(tbl4prem),
                 fmt_rate(tbl1mtp), fmt_rate(tbl1ctp),
             ])
         _p(0.2, f"Base: {len(coi_rows):,} COI rows, {len(trg_rows):,} target rows")

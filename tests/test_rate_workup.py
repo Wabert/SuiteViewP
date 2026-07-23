@@ -7,6 +7,7 @@ from suiteview.ratemanager.benefit_db import BenefitDBSpec, build_benefit_rows
 from suiteview.ratemanager.parser import ParseResult, ProductInfo, RateRecord
 from suiteview.ratemanager.rate_reformatter import RateReformatter
 from suiteview.ratemanager.workup.builder import (
+    BENCOI_HEADERS, BENTRG_HEADERS, COI_HEADERS, EPU_HEADERS, SCR_HEADERS,
     WorkupAnalysis, WorkupSpec, _band_out_map, _build_epu, _build_scr,
     _build_linked_benefit, _expand_attained_table, _match_raw,
     _sex_candidates, _sex_out, build,
@@ -357,6 +358,67 @@ def test_workup_build_requires_base_index():
     result = build(WorkupSpec(), WorkupAnalysis())
     assert result.error.startswith(
         "Base Index is required before building rates.")
+
+
+def test_workup_rate_headers_match_ul_rates_columns():
+    assert COI_HEADERS == [
+        "Index(COI)", "Scale", "IssueAge", "Duration", "Rate",
+    ]
+    assert SCR_HEADERS == ["Index(SCR)", "IssueAge", "Duration", "Rate"]
+    assert EPU_HEADERS == [
+        "Index(EPU)", "Scale", "IssueAge", "Duration", "Rate",
+    ]
+    assert BENCOI_HEADERS == [
+        "Index(BENCOI)", "Scale", "IssueAge", "Duration", "Rate",
+    ]
+    assert BENTRG_HEADERS == [
+        "Index(BENTRG)", "IssueAge", "Rate(MTP)", "Rate(CTP)",
+    ]
+
+
+def test_table_rating_targets_include_tbl4_and_rounded_tbl1_rates():
+    result = _mk_result([
+        _rate("C", 20, 99, 0.1, band="A", sex="1", cls="G"),
+        _rate("M", 20, 0, 4.37, band="A", sex="1", cls="G"),
+        _rate("T", 20, 0, 4.37, band="A", sex="1", cls="G"),
+        _rate("M", 20, 0, 0.920, band="0", sex="1", cls="G", opt="E*"),
+        _rate("T", 20, 0, 0.920, band="0", sex="1", cls="G", opt="E*"),
+    ])
+    reformatter = RateReformatter(result, starting_index=13400)
+    computed = reformatter.compute()
+
+    rows = list(reformatter.target_rows(
+        computed["trg_reps"], computed["ia_min"], computed["ia_max"]))
+
+    assert rows == [(13400, 20, 4.37, 0.23, 4.37, 0.23, 0.920)]
+
+
+def test_ctp_uses_unbanded_main_t_rate_as_fallback():
+    result = _mk_result([
+        _rate("C", 20, 99, 0.1, band="A", sex="1", cls="G"),
+        _rate("T", 20, 0, 4.37, band="0", sex="1", cls="G"),
+    ])
+    reformatter = RateReformatter(result, starting_index=13400)
+    computed = reformatter.compute()
+
+    rows = list(reformatter.target_rows(
+        computed["trg_reps"], computed["ia_min"], computed["ia_max"]))
+
+    assert rows == [(13400, 20, 4.37, None, None, None, None)]
+
+
+def test_table_rating_targets_reject_different_m_and_t_tbl4_rates():
+    result = _mk_result([
+        _rate("C", 20, 99, 0.1, band="A", sex="1", cls="G"),
+        _rate("M", 20, 0, 0.920, band="0", sex="1", cls="G", opt="E*"),
+        _rate("T", 20, 0, 0.960, band="0", sex="1", cls="G", opt="E*"),
+    ])
+    reformatter = RateReformatter(result, starting_index=13400)
+    computed = reformatter.compute()
+
+    with pytest.raises(ValueError, match="Table-4 premium rates disagree"):
+        list(reformatter.target_rows(
+            computed["trg_reps"], computed["ia_min"], computed["ia_max"]))
 
 
 def test_dur0_only_current_rates_act_as_ultimate():

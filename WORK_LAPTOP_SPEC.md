@@ -34,13 +34,9 @@ live-data pieces are for you.
 **Get started on the laptop:**
 1. `git fetch origin && git checkout minipc-handoff-2026-06-07`
 2. `venv\Scripts\python.exe -m pip install -r requirements.txt` (picks up duckdb/pyarrow if missing)
-3. `venv\Scripts\python.exe -m pytest tests/ -q` — the suite is now runnable headless. A new
-   root `conftest.py` excludes 3 standalone Qt/connection scripts (`test_checkbox_list`,
-   `test_ui_display`, `test_connection`) that ran `app.exec()`/live lookups at import and stalled
-   collection, and *conditionally* skips the 4 Office/COM tests when `win32com` is missing (on the
-   laptop win32com is present, so those run). **Known failures to expect / re-check here:** 4×
-   `test_db2_query_performance` (need live DB2) and 5× `test_illustration_*` (the (b) WIP — verify
-   per §1.6–1.7). Everything else was green on the minipc.
+3. `venv\Scripts\python.exe -m pytest tests/ -q` — runs the headless default
+   regression lane. Live DB2, Outlook, integration, and performance checks are
+   opt-in pytest markers documented in `TESTING_PLAN.html`.
 
 **What landed this session (verify the UI/live items):**
 - **DataForge engine aggregation (#9)** — `forge_engine` compiles `GROUP BY` (`OutputColumn.agg`);

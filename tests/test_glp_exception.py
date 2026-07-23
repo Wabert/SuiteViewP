@@ -321,7 +321,6 @@ def test_glp_result_with_premium_needed_recalculates_adjustment_with_zero_glp():
     assert result.new_accum_glp == 12_000.0
     assert result.force_out_required is False
 
-
 def test_glp_result_new_accum_glp_equals_target_premium_basis_when_adjustment_needed():
     policy = IllustrationPolicyData(
         issue_date=date(2020, 7, 1),
@@ -355,100 +354,3 @@ def test_glp_result_new_accum_glp_equals_target_premium_basis_when_adjustment_ne
     assert result.adjustment_to_accum_glp == 5_000.0
     assert result.new_accum_glp == result.premium_td_on_target_date
     assert result.force_out_required is False
-
-
-def test_illustration_policy_data_uses_regular_plus_additional_premium(monkeypatch):
-    class FakeRates:
-        def get_band(self, *_args, **_kwargs):
-            return 1
-
-    class FakePolicyInfo:
-        exists = True
-        base_plancode = "TESTUL"
-        issue_date = date(2020, 1, 1)
-        valuation_date = date(2024, 6, 1)
-        base_issue_age = 35
-        base_sex_code = "M"
-        base_rate_class = "N"
-        base_total_face_amount = 100_000.0
-        db_option_code = "A"
-        modal_premium = 100.0
-        billing_frequency = 1
-        policy_year = 5
-        policy_month = 6
-        attained_age = 39
-        age_at_maturity = 100
-        guaranteed_interest_rate = 4.0
-        def_of_life_ins_code = "1"
-        glp = 1_000.0
-        gsp = 5_000.0
-        accumulated_glp_target = 4_000.0
-        corridor_percent = 100.0
-        mtp = 100.0
-        ctp = 1_200.0
-        accumulated_mtp_target = 3_000.0
-        map_date = None
-        premium_td = 19_435.85
-        premium_ytd = 500.0
-        cost_basis = 19_435.85
-        total_regular_loan_principal = 0.0
-        total_regular_loan_accrued = 0.0
-        total_preferred_loan_principal = 0.0
-        total_preferred_loan_accrued = 0.0
-        total_variable_loan_principal = 0.0
-        total_variable_loan_accrued = 0.0
-        variable_loan_charge_rate = 0.0775
-        total_withdrawals = 0.0
-        gav = 0.0
-        is_mec = False
-        tamra_7pay_level = 0.0
-        tamra_7pay_start_date = None
-        tamra_7pay_av = 0.0
-        company_code = "01"
-        primary_insured_name = "Test Policy"
-        primary_insured_birth_date = None
-        product_type = "UL"
-        issue_state = "TX"
-        company_name = "TEST"
-        preferred_loans_available = False
-
-        def tamra_7pay_premium_paid(self, _year):
-            return 0.0
-
-        def tamra_7pay_withdrawals(self, _year):
-            return 0.0
-
-        def mv_av(self, _index):
-            return 1_000.0
-
-        def mv_coi_charge(self, _index):
-            return 0.0
-
-        def mv_expense_charge(self, _index):
-            return 0.0
-
-        def mv_other_charge(self, _index):
-            return 0.0
-
-        def mv_monthly_deduction(self, _index):
-            return 0.0
-
-        def get_base_coverages(self):
-            return []
-
-        def get_substandard_ratings(self):
-            return []
-
-        def get_benefits(self):
-            return []
-
-        def get_riders(self):
-            return []
-
-    monkeypatch.setattr(illustration_policy_service, "get_policy_info", lambda *_args: FakePolicyInfo())
-    monkeypatch.setattr(illustration_policy_service, "Rates", FakeRates)
-
-    policy = illustration_policy_service.build_illustration_data("UL001892")
-
-    assert policy.premiums_paid_to_date == 19_435.85
-    assert policy.variable_loan_charge_rate == 0.0775

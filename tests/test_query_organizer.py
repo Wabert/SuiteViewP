@@ -510,24 +510,24 @@ def test_browser_tree_builds_from_organizer(tmp_home):
         assert _payload(commons_item)["name"] == COMMONS_GROUP_NAME
         assert commons_item.childCount() == 1
         loose = commons_item.child(0)
-        def expected_query_payload(query_id, name):
+        def expected_query_payload(query_id, name, badge):
             return {"type": "query", "id": query_id,
-                "name": name, "badge": "SQL",
+                "name": name, "badge": badge,
                 "badge_color": "#5A3218",
                 "badge_fill": "#5A3218",
                 "badge_text_color": "#FFFFFF"}
 
         loose_payload = _payload(loose)
-        assert loose_payload == expected_query_payload(b.id, "Loose One")
-        assert "[UL_Rates]" in loose.text(0)
+        assert loose_payload == expected_query_payload(b.id, "Loose One", "UL_Rates")
+        assert loose.text(0) == "Loose One"
 
         group_item = next(item for item in kinds["group"]
                           if _payload(item).get("name") == "Claims Work")
         assert _payload(group_item)["name"] == "Claims Work"
         assert group_item.childCount() == 1
         child = group_item.child(0)
-        assert _payload(child) == expected_query_payload(a.id, "Claims Pull")
-        assert "[NEON_DSN]" in child.text(0)
+        assert _payload(child) == expected_query_payload(a.id, "Claims Pull", "NEON_DSN")
+        assert child.text(0) == "Claims Pull"
 
         forge_item = kinds["forge"][0]
         assert _payload(forge_item) == {"type": "forge", "name": "Claims Forge"}
@@ -553,7 +553,8 @@ def test_browser_tree_builds_from_organizer(tmp_home):
         assert _payload(filtered_parent)["group_id"] == COMMONS_GROUP_ID
         assert filtered_parent.childCount() == 1
         filtered = filtered_parent.child(0)
-        assert _payload(filtered) == expected_query_payload(b.id, "Loose One")
+        assert _payload(filtered) == expected_query_payload(
+            b.id, "Loose One", "UL_Rates")
 
         window.edit_search.setText("claims")
         app.processEvents()

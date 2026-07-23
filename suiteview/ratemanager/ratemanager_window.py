@@ -1326,8 +1326,10 @@ class RateManagerWindow(FramelessWindowBase):
     """
 
     def __init__(self, parent=None):
-        self._view_btn = QPushButton("⇄ Converters")
-        self._view_btn.setStyleSheet(f"""
+        self._workup_btn = QPushButton("Workup")
+        self._database_btn = QPushButton("Database")
+        self._view_btn = QPushButton("Converters")
+        header_button_style = f"""
             QPushButton {{
                 background: rgba(0, 0, 0, 60);
                 color: {GOLD_TEXT};
@@ -1341,29 +1343,69 @@ class RateManagerWindow(FramelessWindowBase):
                 background: {BLUE_LIGHT};
                 color: white;
             }}
-        """)
+            QPushButton:checked {{
+                background: {BLUE_LIGHT};
+                color: white;
+            }}
+        """
+        self._workup_btn.setStyleSheet(header_button_style)
+        self._database_btn.setStyleSheet(header_button_style)
+        self._view_btn.setStyleSheet(header_button_style)
+        for button in (
+            self._workup_btn, self._database_btn, self._view_btn
+        ):
+            button.setCheckable(True)
+            button.setAutoExclusive(True)
+        self._workup_btn.setChecked(True)
+        self._workup_btn.setToolTip("Build a complete rate workup.")
+        self._workup_btn.clicked.connect(self._show_workup)
+        self._database_btn.setToolTip(
+            "Load a completed workup into UL_Rates or manage existing rate data."
+        )
+        self._database_btn.clicked.connect(self._show_database)
         self._view_btn.setToolTip(
-            "Switch between the Rate Workup and the individual file "
-            "converters.")
-        self._view_btn.clicked.connect(self._toggle_view)
+            "Open the individual file converters.")
+        self._view_btn.clicked.connect(self._show_converters)
 
         super().__init__(
             title="SuiteView:  Rate Manager",
-            default_size=(900, 850),
-            min_size=(720, 620),
+            default_size=(1120, 850),
+            min_size=(840, 620),
             parent=parent,
             header_colors=HEADER_COLORS,
             border_color=BORDER_COLOR,
-            header_widgets=[self._view_btn],
+            header_widgets=[
+                self._workup_btn, self._database_btn, self._view_btn,
+            ],
         )
 
     def _toggle_view(self):
-        to_converters = self._stack.currentIndex() == 0
-        self._stack.setCurrentIndex(1 if to_converters else 0)
-        self._view_btn.setText(
-            "⇄ Rate Workup" if to_converters else "⇄ Converters")
+        to_converters = self._stack.currentIndex() != 2
+        if to_converters:
+            self._show_converters()
+        else:
+            self._show_workup()
+
+    def _show_workup(self):
+        self._stack.setCurrentIndex(0)
+        self._workup_btn.setChecked(True)
+
+    def _show_database(self):
+        self._stack.setCurrentIndex(1)
+        self._database_btn.setChecked(True)
+
+    def _show_converters(self):
+        self._stack.setCurrentIndex(2)
+        self._view_btn.setChecked(True)
+
+    def _on_workup_built(self, output_path: str):
+        if not os.path.isdir(output_path):
+            return
+        self.database_panel.set_workup_folder(output_path)
+        self._show_database()
 
     def build_content(self) -> QWidget:
+        from suiteview.ratemanager.database_panel import RateDatabasePanel
         from suiteview.ratemanager.workup.workup_window import RateWorkupPanel
 
         body = QWidget()
@@ -1376,7 +1418,11 @@ class RateManagerWindow(FramelessWindowBase):
 
         self._stack = QStackedWidget()
         self.workup_panel = RateWorkupPanel()
+        self.workup_panel.workup_built.connect(self._on_workup_built)
         self._stack.addWidget(self.workup_panel)
+
+        self.database_panel = RateDatabasePanel()
+        self._stack.addWidget(self.database_panel)
 
         tabs = QTabWidget()
         tabs.setObjectName("ConverterTabs")

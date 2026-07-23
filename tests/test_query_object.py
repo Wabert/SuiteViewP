@@ -912,7 +912,7 @@ class QueryObjectTests(unittest.TestCase):
                 # Browser items show the datasource tag (design §8).
                 self.assertEqual(
                     [window.left_tabs.tabText(index) for index in range(window.left_tabs.count())],
-                    ["Queries", "Data Sources", "Tables", "Registry"],
+                    ["Queries", "Data Sources", "Common Tables", "Registry"],
                 )
                 self.assertTrue(hasattr(window, "edit_search"))
                 self.assertTrue(hasattr(window, "edit_source_search"))
@@ -923,7 +923,7 @@ class QueryObjectTests(unittest.TestCase):
                 self.assertFalse(hasattr(window, "btn_group_color"))
                 self.assertFalse(hasattr(window, "btn_group_delete"))
                 self.assertEqual(window.tree.currentItem().text(0),
-                                 "Initial Viewer Object  [WORK_DSN]")
+                                 "Initial Viewer Object")
                 self.assertEqual(window.lbl_canvas_title.text(),
                                  "Manual SQL Objects: Initial Viewer Object")
                 self.assertEqual(window.lbl_name.text(), "Initial Viewer Object")

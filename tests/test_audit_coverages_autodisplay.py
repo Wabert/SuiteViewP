@@ -213,7 +213,7 @@ def test_rateclass_criteria_column_has_backing_join():
 
     sql = _build(cov)
 
-    assert "COV1_RENEWALS.RT_CLS_CD BaseRateClass" in _select_head(sql)
+    assert "COV1_RENEWALS.RT_CLS_CD RateClass" in _select_head(sql)
     assert "JOIN DB2TAB.LH_COV_INS_RNL_RT COV1_RENEWALS" in sql
 
 

@@ -2108,6 +2108,7 @@ class SuiteViewTaskbar(QWidget):
         self.illustration_window = None
         self.file_nav_window = None
         self.scratchpad_window = None
+        self.agent_chat_window = None
 
         # PolView is created lazily the first time it is requested. Keeping it
         # lazy avoids a hidden native tool window flashing during taskbar startup.
@@ -2234,7 +2235,7 @@ class SuiteViewTaskbar(QWidget):
         self._file_nav_action = QAction("📁 File Nav", self)
         self._file_nav_action.triggered.connect(self._open_file_nav)
         tray_menu.addAction(self._file_nav_action)
-        
+
         if not LIGHT_MODE:
             self._mainframe_action = QAction("💻 Mainframe Navigator", self)
             self._mainframe_action.triggered.connect(self._open_mainframe)
@@ -2545,6 +2546,30 @@ class SuiteViewTaskbar(QWidget):
             for window in windows_to_restore:
                 window.show()
     
+    def _open_agent_chat(self):
+        """Open or reuse the folder-scoped Copilot Agent window."""
+        if self.agent_chat_window is not None:
+            try:
+                _ = self.agent_chat_window.isVisible()
+            except RuntimeError:
+                self.agent_chat_window = None
+
+        if self.agent_chat_window is None:
+            try:
+                from suiteview.agent_chat import AgentChatWindow
+                self.agent_chat_window = AgentChatWindow()
+                self._setup_child_window(self.agent_chat_window, "LLM Agent")
+            except Exception as exc:
+                logger.error("Failed to open LLM Agent: %s", exc, exc_info=True)
+                QMessageBox.critical(
+                    self,
+                    "LLM Agent Error",
+                    f"Failed to open the LLM Agent:\n\n{exc}",
+                )
+                self.agent_chat_window = None
+                return
+        self._bring_to_front(self.agent_chat_window)
+
     def _open_data_manager(self):
         """Open the Data Manager window"""
         if self.db_window is None:
@@ -3511,6 +3536,8 @@ class SuiteViewTaskbar(QWidget):
             }
         """)
         # Apps submenu
+        if not LIGHT_MODE:
+            self.tools_menu.addAction("LLM Agent", self._open_agent_chat)
         self.tools_menu.addAction("View Screenshots", self._open_screenshot)
         if not LIGHT_MODE:
             # PolView, ABR Quote, and Mainframe Nav are always available in full build

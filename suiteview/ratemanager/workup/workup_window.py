@@ -185,6 +185,8 @@ class _StateMapDialog(QDialog):
 class RateWorkupPanel(QWidget):
     """Comprehensive per-plancode rate workup — all four files, one pass."""
 
+    workup_built = pyqtSignal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._analysis: WorkupAnalysis | None = None
@@ -854,6 +856,7 @@ class RateWorkupPanel(QWidget):
         self.log.append(f"\n✓  Saved to → {res.output_path}")
         self.log_toggle.setChecked(True)
         self._toggle_log()
+        self.workup_built.emit(res.output_path)
 
     # ------------------------------------------------------------------
     # Progress / error / open

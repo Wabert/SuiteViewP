@@ -9,6 +9,8 @@ from PyQt6.QtWidgets import QApplication, QLineEdit, QVBoxLayout, QWidget
 from suiteview.ratemanager.ui_helpers import (
     set_expanding_panel_visible, update_cease_age_field,
 )
+from suiteview.ratemanager.database_panel import RateDatabasePanel
+from suiteview.ratemanager.ratemanager_window import RateManagerWindow
 from suiteview.ratemanager.workup.workup_window import RateWorkupPanel
 
 
@@ -76,3 +78,32 @@ def test_processing_output_grows_and_restores_window():
     _QT_APP.processEvents()
     assert not panel.isVisible()
     assert window.height() == collapsed_height
+
+
+def test_database_panel_exposes_all_workup_tables():
+    panel = RateDatabasePanel()
+
+    assert list(panel.load_tab._controls) == [
+        "POINT_PVSRB",
+        "RATE_COI",
+        "RATE_TRGPREM",
+        "RATE_SCR",
+        "RATE_EPU",
+        "POINT_BENEFIT",
+        "RATE_BENCOI",
+        "RATE_BENTRG",
+    ]
+    assert not panel.load_tab.apply_btn.isEnabled()
+
+
+def test_rate_manager_has_workup_database_and_converter_views():
+    window = RateManagerWindow()
+
+    assert window._stack.count() == 3
+    assert window._stack.currentIndex() == 0
+    window._show_database()
+    assert window._stack.currentIndex() == 1
+    window._toggle_view()
+    assert window._stack.currentIndex() == 2
+    window._toggle_view()
+    assert window._stack.currentIndex() == 0

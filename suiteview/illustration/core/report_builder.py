@@ -479,6 +479,16 @@ def _request_lines(
         )
         premium_entries.append(
             (start_year, f"PREMIUMS TO COVER MONTHLY DEDUCTIONS {span}"))
+    if not premium_entries:
+        first_year = projected[0].policy_year
+        last_year = projected[-1].policy_year
+        span = (
+            f"FOR POLICY YEARS {first_year} THROUGH {last_year}"
+            if last_year != first_year
+            else f"IN POLICY YEAR {first_year}"
+        )
+        premium_entries.append(
+            (first_year, f"{billed_label} PREMIUM OF {_money(0.0)} {span}"))
     premium_entries.sort(key=lambda entry: entry[0])
     lines: List[str] = [text for _year, text in premium_entries]
 
@@ -493,6 +503,7 @@ def _request_lines(
         (t for t in future_inputs.scheduled_transactions if t.kind == TransactionKind.LOAN),
         key=lambda t: t.policy_year,
     )
+    loan_runs: List[dict] = []
     for index, sched in enumerate(loan_schedules):
         if sched.amount <= 0:
             continue
@@ -502,24 +513,78 @@ def _request_lines(
             else maturity_year
         )
         mode = _SCHEDULE_MODE_LABELS.get((sched.mode or "A").strip().upper(), "ANNUAL")
-        span = (
-            f"FOR POLICY YEARS {sched.policy_year} THROUGH {end}"
-            if end != sched.policy_year
-            else f"IN POLICY YEAR {sched.policy_year}"
+        loan_runs.append({
+            "start_year": sched.policy_year,
+            "end_year": end,
+            "amount": round(sched.amount, 2),
+            "mode": mode,
+            "loan_type": str(sched.metadata.get("loan_type", "fixed")).upper(),
+        })
+
+    issue = policy.issue_date
+    dated_loan_runs: dict[tuple[str, str, float], List[int]] = {}
+    for tx in future_inputs.dated_transactions:
+        if tx.kind != TransactionKind.LOAN or tx.amount <= 0 or issue is None:
+            continue
+        months = (tx.effective_date.year - issue.year) * 12 + (
+            tx.effective_date.month - issue.month)
+        year = months // 12 + 1
+        mode = _SCHEDULE_MODE_LABELS.get(
+            str(tx.metadata.get("mode", "A")).strip().upper(), "ANNUAL")
+        loan_type = str(tx.metadata.get("loan_type", "fixed")).upper()
+        key = (mode, loan_type, round(tx.amount, 2))
+        dated_loan_runs.setdefault(key, []).append(year)
+
+    for (mode, loan_type, amount), years in dated_loan_runs.items():
+        start_year = min(years)
+        end_year = max(years)
+        matching = next(
+            (
+                run for run in loan_runs
+                if run["mode"] == mode
+                and run["loan_type"] == loan_type
+                and run["amount"] == amount
+                and end_year + 1 >= run["start_year"]
+            ),
+            None,
         )
-        lines.append(f"{mode} FIXED LOAN OF {_money(sched.amount)} {span}")
+        if matching is not None:
+            matching["start_year"] = min(matching["start_year"], start_year)
+            matching["end_year"] = max(matching["end_year"], end_year)
+        else:
+            loan_runs.append({
+                "start_year": start_year,
+                "end_year": end_year,
+                "amount": amount,
+                "mode": mode,
+                "loan_type": loan_type,
+            })
+
+    for run in sorted(loan_runs, key=lambda item: item["start_year"]):
+        span = (
+            f"FOR POLICY YEARS {run['start_year']} THROUGH {run['end_year']}"
+            if run["end_year"] != run["start_year"]
+            else f"IN POLICY YEAR {run['start_year']}"
+        )
+        lines.append(
+            f"{run['mode']} {run['loan_type']} LOAN OF "
+            f"{_money(run['amount'])} {span}")
 
     # Withdrawals: dated, one line per year (AY22..AY27).
-    wd_by_year: dict[int, float] = {}
-    issue = policy.issue_date
+    wd_by_year: dict[tuple[int, str], float] = {}
     for tx in future_inputs.dated_transactions:
         if tx.kind != TransactionKind.WITHDRAWAL or issue is None:
             continue
         months = (tx.effective_date.year - issue.year) * 12 + (tx.effective_date.month - issue.month)
         year = months // 12 + 1
-        wd_by_year[year] = wd_by_year.get(year, 0.0) + tx.amount
-    for year in sorted(wd_by_year):
-        lines.append(f"WITHDRAWAL OF {_money(wd_by_year[year])} IN POLICY YEAR {year}")
+        mode = _SCHEDULE_MODE_LABELS.get(
+            str(tx.metadata.get("mode", "A")).strip().upper(), "ANNUAL")
+        key = (year, mode)
+        wd_by_year[key] = wd_by_year.get(key, 0.0) + tx.amount
+    for year, mode in sorted(wd_by_year):
+        lines.append(
+            f"{mode} WITHDRAWAL OF {_money(wd_by_year[(year, mode)])} "
+            f"IN POLICY YEAR {year}")
     return lines
 
 
@@ -706,20 +771,9 @@ def build_ul_report(
     if inforce_debt > 0.005:
         report.loan_basis_line = f"WITH A LOAN BALANCE OF {inforce_debt:,.2f}"
 
-    has_loans = future_inputs is not None and any(
-        t.kind == TransactionKind.LOAN and t.amount > 0
-        for t in future_inputs.scheduled_transactions
-    )
-    has_wds = future_inputs is not None and any(
-        t.kind == TransactionKind.WITHDRAWAL for t in future_inputs.dated_transactions
-    )
-    intro = "THE FOLLOWING PREMIUMS "
-    if has_loans:
-        intro += "AND LOANS "
-    if has_wds:
-        intro += "AND WITHDRAWALS "
-    intro += "WERE REQUESTED IN PREPARING THIS ILLUSTRATION."
-    report.request_intro = [intro]
+    report.request_intro = [
+        "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION."
+    ]
     prem_restricted = any(r.markers and "*" in r.markers for r in report.ledger)
     if prem_restricted:
         report.request_intro.append(
@@ -787,9 +841,8 @@ def build_ul_report(
     else:
         guaranteed_termination = "GUARANTEED VALUES ARE NOT PROJECTED IN THIS ILLUSTRATION."
     report.note_paragraphs = [
-        ["NON-GUARANTEED VALUES AND BENEFITS ARE BASED ON ASSUMPTIONS WHICH ARE SUBJECT TO "
-         "CHANGE BY THE INSURER.",
-         "ACTUAL RESULTS MAY BE MORE OR LESS FAVORABLE."],
+        ["PREMIUM OUTLAY, PROCEEDS AND LOAN BALANCE VALUES ARE DETERMINED BY "
+         "VALUES USING NON-GUARANTEED ASSUMPTIONS"],
         ["GUARANTEED ASSUMPTIONS",
          "",
          f"FOR GUARANTEED PROJECTED VALUES, THE ILLUSTRATION ASSUMES A GUARANTEED INTEREST "
@@ -798,6 +851,9 @@ def build_ul_report(
          guaranteed_termination],
         ["NON-GUARANTEED ASSUMPTIONS",
          "",
+         "NON-GUARANTEED VALUES AND BENEFITS ARE BASED ON ASSUMPTIONS WHICH ARE SUBJECT TO "
+         "CHANGE BY THE INSURER.",
+         "ACTUAL RESULTS MAY BE MORE OR LESS FAVORABLE.",
          f"FOR NON-GUARANTEED PROJECTED VALUES, THE ILLUSTRATION ASSUMES AN ILLUSTRATED "
          f"INTEREST RATE OF {_pct(illustrated_rate)}{bonus_clause},",
          "NON-GUARANTEED COST OF INSURANCE CHARGES, AND NON-GUARANTEED MONTHLY EXPENSES.",
@@ -813,8 +869,6 @@ def build_ul_report(
          "ADDITIONAL PREMIUMS TO KEEP THE COVERAGE INFORCE TO THE ILLUSTRATED DATE, OR THE "
          "ACCUMULATION VALUE IN THE",
          "POLICY MAY BE LESS THAN ILLUSTRATED."],
-        ["PREMIUM OUTLAY, CASH FROM POLICY AND LOAN BALANCE VALUES ARE DETERMINED BY "
-         "VALUES USING NON-GUARANTEED ASSUMPTIONS"],
         ["CHARGES CONTINUE TO BE PAID USING NON-GUARANTEED VALUES IF PREMIUM PAYMENTS ARE "
          "OF LESSER",
          "AMOUNTS OR SHORTER DURATION THAN THE PREMIUM NEEDED TO GUARANTEE BENEFITS UNDER "

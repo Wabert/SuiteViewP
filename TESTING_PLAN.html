@@ -1,0 +1,1028 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SuiteView Testing Plan</title>
+  <style>
+    :root {
+      --navy: #082b5c;
+      --blue: #1e5ba8;
+      --blue-light: #dce9f8;
+      --gold: #d4a017;
+      --ink: #182230;
+      --muted: #667085;
+      --paper: #f4f7fb;
+      --white: #ffffff;
+      --green: #177245;
+      --orange: #b85c00;
+      --red: #a52535;
+      --shadow: 0 10px 30px rgba(8, 43, 92, .10);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 85% 0%, rgba(212,160,23,.18), transparent 28rem),
+        var(--paper);
+      font-family: "Segoe UI", Arial, sans-serif;
+      line-height: 1.45;
+    }
+    header {
+      color: white;
+      background: linear-gradient(125deg, #1e5ba8 0%, #0d3a7a 55%, #082b5c 100%);
+      border-bottom: 4px solid var(--gold);
+      padding: 42px max(24px, calc((100vw - 1180px) / 2));
+    }
+    header .eyebrow {
+      color: #f4cf64;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 7px 0 8px; font-size: clamp(32px, 5vw, 54px); line-height: 1; }
+    header p { max-width: 780px; margin: 0; color: #dce9f8; font-size: 18px; }
+    main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 60px; }
+    .grid { display: grid; gap: 18px; }
+    .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: -50px; }
+    .metric, .panel {
+      background: var(--white);
+      border: 1px solid #d9e2ef;
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+    .metric { padding: 20px; border-top: 4px solid var(--gold); }
+    .metric strong { display: block; color: var(--navy); font-size: 34px; line-height: 1; }
+    .metric span { display: block; margin-top: 8px; color: var(--muted); font-size: 13px; font-weight: 700; }
+    .panel { margin-top: 20px; padding: 24px; }
+    h2 { margin: 0 0 6px; color: var(--navy); font-size: 25px; }
+    h3 { color: var(--navy); margin: 0 0 8px; }
+    .lede { color: var(--muted); margin: 0 0 20px; }
+    .lanes { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .lane { border: 1px solid #d9e2ef; border-radius: 12px; padding: 16px; background: #fbfdff; }
+    .lane.default { border-top: 4px solid var(--green); }
+    .lane.integration { border-top: 4px solid var(--blue); }
+    .lane.live { border-top: 4px solid var(--orange); }
+    .lane.outlook { border-top: 4px solid #6f42c1; }
+    .lane.performance { border-top: 4px solid var(--red); }
+    .lane .count { color: var(--navy); font-size: 28px; font-weight: 800; }
+    .lane .time { color: var(--muted); font-size: 13px; font-weight: 700; }
+    .lane p { font-size: 13px; min-height: 76px; }
+    code {
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      background: #edf3fa;
+      border-radius: 5px;
+      padding: 2px 5px;
+    }
+    pre {
+      margin: 8px 0 0;
+      padding: 12px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: #d9e8fa;
+      background: #091f3d;
+      border-radius: 8px;
+      font: 12px/1.45 Consolas, monospace;
+    }
+    .two-col { grid-template-columns: 1.05fr .95fr; }
+    .bar-row { margin: 10px 0; }
+    .bar-label { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+    .bar-track { height: 8px; margin-top: 4px; overflow: hidden; border-radius: 8px; background: #e6edf6; }
+    .bar-fill { height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--blue), #4d89ce); }
+    .workflow { counter-reset: step; display: grid; gap: 12px; }
+    .step { position: relative; padding: 14px 14px 14px 55px; border-left: 3px solid var(--blue); background: #f8fbff; }
+    .step::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute; left: 14px; top: 13px;
+      width: 26px; height: 26px; border-radius: 50%;
+      color: white; background: var(--blue);
+      display: grid; place-items: center; font-weight: 800;
+    }
+    .step strong { display: block; color: var(--navy); }
+    .callout {
+      margin-top: 18px; padding: 16px;
+      border-left: 5px solid var(--gold);
+      background: #fff9e7;
+    }
+    .age-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .age-card { padding: 16px; text-align: center; background: #f8fbff; border: 1px solid #d9e2ef; border-radius: 10px; }
+    .age-card strong { display: block; color: var(--blue); font-size: 28px; }
+    .age-card span { color: var(--muted); font-size: 13px; }
+    .table-tools { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 14px 0; }
+    input {
+      width: min(420px, 100%); padding: 10px 12px;
+      border: 1px solid #bcc9d8; border-radius: 8px; font: inherit;
+    }
+    .table-wrap { overflow-x: auto; border: 1px solid #d9e2ef; border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; background: white; font-size: 13px; }
+    th { position: sticky; top: 0; color: white; background: var(--navy); text-align: left; }
+    th, td { padding: 9px 11px; border-bottom: 1px solid #e5ebf2; }
+    tr:hover td { background: #f5f9fe; }
+    .number { text-align: right; font-variant-numeric: tabular-nums; }
+    footer { color: var(--muted); text-align: center; padding: 25px; font-size: 12px; }
+    @media (max-width: 950px) {
+      .metrics, .lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .two-col { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .metrics, .lanes, .age-grid { grid-template-columns: 1fr; }
+      .metrics { margin-top: -28px; }
+      .lane p { min-height: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">SuiteView Engineering</div>
+    <h1>Testing Plan</h1>
+    <p>A practical map of what the suite verifies, how its 955 cases are organized,
+       how long each lane takes, and when each test file entered the repository.</p>
+  </header>
+
+  <main>
+    <section class="grid metrics" aria-label="Suite metrics">
+      <div class="metric"><strong>955</strong><span>TOTAL TEST CASES</span></div>
+      <div class="metric"><strong>79</strong><span>TEST-NAMED FILES (79 COLLECTED)</span></div>
+      <div class="metric"><strong>1:57</strong><span>DEFAULT REGRESSION TIME</span></div>
+      <div class="metric"><strong>133</strong><span>DAYS OF TEST HISTORY</span></div>
+    </section>
+
+    <section class="panel">
+      <h2>The five test lanes</h2>
+      <p class="lede">The default command now runs only the dependable regression lane.
+        External applications, live databases, and long benchmarks are explicit choices.</p>
+      <div class="grid lanes">
+        <article class="lane default">
+          <h3>Default</h3><div class="count">768</div><div class="time">Measured: 1:57</div>
+          <p>Fast business rules, calculation checks, SQL generation, and offscreen PyQt behavior.</p>
+          <pre>venv\Scripts\python.exe -m pytest tests\ -q</pre>
+        </article>
+        <article class="lane integration">
+          <h3>Integration</h3><div class="count">170</div><div class="time">Measured: 0:07</div>
+          <p>Persistence, files, Excel parsing, query/DataForge flows, and multi-component behavior.</p>
+          <pre>venv\Scripts\python.exe -m pytest tests\ -q -m "integration and not live_db2 and not outlook and not performance"</pre>
+        </article>
+        <article class="lane live">
+          <h3>Live DB2</h3><div class="count">2</div><div class="time">Variable</div>
+          <p>Schema and column discovery against configured CyberLife DB2 resources.</p>
+          <pre>venv\Scripts\python.exe -m pytest tests\ -q -m "live_db2 and not performance"</pre>
+        </article>
+        <article class="lane outlook">
+          <h3>Outlook</h3><div class="count">6</div><div class="time">Variable</div>
+          <p>Local Outlook COM connection, inbox access, attachment retrieval, and mini-sync checks.</p>
+          <pre>venv\Scripts\python.exe -m pytest tests\ -q -m "outlook"</pre>
+        </article>
+        <article class="lane performance">
+          <h3>Performance</h3><div class="count">9</div><div class="time">6:15+ local / DB2 variable</div>
+          <p>Large actuarial matrices, real-engine solves, and four 100,000-row DB2 benchmarks.</p>
+          <pre>venv\Scripts\python.exe -m pytest tests\ -q -m "performance"</pre>
+        </article>
+      </div>
+      <div class="callout"><strong>Why the change matters.</strong> The former all-in-one run took
+        5:58 to 10:25. One actuarial matrix case consumed 5:45 by itself. The normal feedback loop
+        is now under two minutes without deleting or weakening that deeper validation.</div>
+    </section>
+
+    <section class="grid two-col">
+      <article class="panel">
+        <h2>What is covered</h2>
+        <p class="lede">Case counts come from a fresh pytest collection on 2026-07-22.</p>
+        <div class="bar-row">
+          <div class="bar-label"><span>Illustration</span><strong>522</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:100.0%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Query tooling</span><strong>89</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:17.0%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>DataForge</span><strong>80</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:15.3%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>File handling</span><strong>41</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:7.9%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Audit</span><strong>37</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:7.1%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>RateManager / rates</span><strong>33</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:6.3%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Field metadata</span><strong>22</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:4.2%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Excel</span><strong>19</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:3.6%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Policy</span><strong>19</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:3.6%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Index strategies</span><strong>16</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:3.1%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Data sources</span><strong>12</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:2.3%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Dynamic query</span><strong>12</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:2.3%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Local-data safety</span><strong>12</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:2.3%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Shared UI</span><strong>11</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:2.1%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Outlook / email</span><strong>8</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:1.5%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Allocations</span><strong>7</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:1.3%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>GLP exception</span><strong>7</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:1.3%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Live DB2 diagnostics</span><strong>6</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:1.1%"></div></div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label"><span>Other / shared</span><strong>2</strong></div>
+          <div class="bar-track"><div class="bar-fill" style="width:0.4%"></div></div>
+        </div>
+      </article>
+      <article class="panel">
+        <h2>When to run what</h2>
+        <div class="workflow">
+          <div class="step"><strong>While editing: focused tests</strong>
+            Run the exact test or test file beside the changed behavior. Usually 1-10 seconds.</div>
+          <div class="step"><strong>After a logical change: affected modules</strong>
+            Run every touched subsystem's test files. The recent five-module check ran 134 cases in 12 seconds.</div>
+          <div class="step"><strong>Before declaring code ready: default regression</strong>
+            Run all 768 default cases. Current measured time is 1:58.</div>
+          <div class="step"><strong>For cross-component changes: integration</strong>
+            Add the 170 offline integration cases. Current measured time is 0:07.</div>
+          <div class="step"><strong>Before releases or when relevant: external/deep lanes</strong>
+            Run live DB2, Outlook, and performance lanes only in the environment they require.</div>
+        </div>
+        <div class="callout"><strong>Everything, explicitly:</strong>
+          <pre>venv\Scripts\python.exe -m pytest -o addopts="" tests\ -q</pre>
+          This restores all 955 cases, including live and long-running checks.</div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Test age and growth</h2>
+      <p class="lede">Git shows the suite growing from 2026-03-11 through 2026-07-22.
+        Creation date is the first commit containing each file. A moved or substantially rewritten
+        test may therefore appear newer than its original idea.</p>
+      <div class="grid age-grid">
+        <div class="age-card">
+          <strong>35</strong>
+          <span>0-30 days</span>
+        </div>
+
+        <div class="age-card">
+          <strong>37</strong>
+          <span>31-90 days</span>
+        </div>
+
+        <div class="age-card">
+          <strong>7</strong>
+          <span>91-180 days</span>
+        </div></div>
+      <div class="callout"><strong>Oldest cohort:</strong> 7 files date to
+        2026-03-11. <strong>Newest cohort:</strong> 3 files date to
+        2026-07-22.</div>
+    </section>
+
+    <section class="panel">
+      <h2>Test file inventory</h2>
+      <p class="lede">Every <code>test_*.py</code> file, its collected case count,
+        feature family, and Git creation date.</p>
+      <div class="table-tools">
+        <input id="filter" type="search" placeholder="Filter by file, feature, or date">
+        <span id="visible-count">79 files</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Test file</th><th>Area</th><th class="number">Cases</th><th>Created</th><th>Age</th></tr></thead>
+          <tbody id="inventory">
+        <tr data-search="test_access_unique.py other / shared 2026-03-11">
+          <td><code>test_access_unique.py</code></td>
+          <td>Other / shared</td>
+          <td class="number">1</td>
+          <td>2026-03-11</td>
+          <td>133 days</td>
+        </tr>
+
+        <tr data-search="test_attachment_manager.py outlook / email 2026-03-11">
+          <td><code>test_attachment_manager.py</code></td>
+          <td>Outlook / email</td>
+          <td class="number">2</td>
+          <td>2026-03-11</td>
+          <td>133 days</td>
+        </tr>
+
+        <tr data-search="test_caching.py other / shared 2026-03-11">
+          <td><code>test_caching.py</code></td>
+          <td>Other / shared</td>
+          <td class="number">1</td>
+          <td>2026-03-11</td>
+          <td>133 days</td>
+        </tr>
+
+        <tr data-search="test_db2_columns.py live db2 diagnostics 2026-03-11">
+          <td><code>test_db2_columns.py</code></td>
+          <td>Live DB2 diagnostics</td>
+          <td class="number">1</td>
+          <td>2026-03-11</td>
+          <td>133 days</td>
+        </tr>
+
+        <tr data-search="test_db2_query_performance.py live db2 diagnostics 2026-03-11">
+          <td><code>test_db2_query_performance.py</code></td>
+          <td>Live DB2 diagnostics</td>
+          <td class="number">4</td>
+          <td>2026-03-11</td>
+          <td>133 days</td>
+        </tr>
+
+        <tr data-search="test_db2_tables.py live db2 diagnostics 2026-03-11">
+          <td><code>test_db2_tables.py</code></td>
+          <td>Live DB2 diagnostics</td>
+          <td class="number">1</td>
+          <td>2026-03-11</td>
+          <td>133 days</td>
+        </tr>
+
+        <tr data-search="test_email_manager.py outlook / email 2026-03-11">
+          <td><code>test_email_manager.py</code></td>
+          <td>Outlook / email</td>
+          <td class="number">6</td>
+          <td>2026-03-11</td>
+          <td>133 days</td>
+        </tr>
+
+        <tr data-search="test_query_object.py query tooling 2026-05-22">
+          <td><code>test_query_object.py</code></td>
+          <td>Query tooling</td>
+          <td class="number">70</td>
+          <td>2026-05-22</td>
+          <td>61 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_md_check.py illustration 2026-05-29">
+          <td><code>test_illustration_md_check.py</code></td>
+          <td>Illustration</td>
+          <td class="number">2</td>
+          <td>2026-05-29</td>
+          <td>54 days</td>
+        </tr>
+
+        <tr data-search="test_dynamic_query.py dynamic query 2026-06-03">
+          <td><code>test_dynamic_query.py</code></td>
+          <td>Dynamic query</td>
+          <td class="number">12</td>
+          <td>2026-06-03</td>
+          <td>49 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_fixed_loan_allocation.py illustration 2026-06-03">
+          <td><code>test_illustration_fixed_loan_allocation.py</code></td>
+          <td>Illustration</td>
+          <td class="number">8</td>
+          <td>2026-06-03</td>
+          <td>49 days</td>
+        </tr>
+
+        <tr data-search="test_glp_exception.py glp exception 2026-06-04">
+          <td><code>test_glp_exception.py</code></td>
+          <td>GLP exception</td>
+          <td class="number">7</td>
+          <td>2026-06-04</td>
+          <td>48 days</td>
+        </tr>
+
+        <tr data-search="test_forge_canvas.py dataforge 2026-06-06">
+          <td><code>test_forge_canvas.py</code></td>
+          <td>DataForge</td>
+          <td class="number">20</td>
+          <td>2026-06-06</td>
+          <td>46 days</td>
+        </tr>
+
+        <tr data-search="test_forge_engine.py dataforge 2026-06-06">
+          <td><code>test_forge_engine.py</code></td>
+          <td>DataForge</td>
+          <td class="number">34</td>
+          <td>2026-06-06</td>
+          <td>46 days</td>
+        </tr>
+
+        <tr data-search="test_forge_runtime.py dataforge 2026-06-06">
+          <td><code>test_forge_runtime.py</code></td>
+          <td>DataForge</td>
+          <td class="number">26</td>
+          <td>2026-06-06</td>
+          <td>46 days</td>
+        </tr>
+
+        <tr data-search="test_field_dictionary.py field metadata 2026-06-07">
+          <td><code>test_field_dictionary.py</code></td>
+          <td>Field metadata</td>
+          <td class="number">22</td>
+          <td>2026-06-07</td>
+          <td>45 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_shadow.py illustration 2026-06-07">
+          <td><code>test_illustration_shadow.py</code></td>
+          <td>Illustration</td>
+          <td class="number">2</td>
+          <td>2026-06-07</td>
+          <td>45 days</td>
+        </tr>
+
+        <tr data-search="test_query_preview_window.py query tooling 2026-06-07">
+          <td><code>test_query_preview_window.py</code></td>
+          <td>Query tooling</td>
+          <td class="number">3</td>
+          <td>2026-06-07</td>
+          <td>45 days</td>
+        </tr>
+
+        <tr data-search="test_audit_transaction_tab.py audit 2026-06-09">
+          <td><code>test_audit_transaction_tab.py</code></td>
+          <td>Audit</td>
+          <td class="number">6</td>
+          <td>2026-06-09</td>
+          <td>43 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_values_tab.py illustration 2026-06-09">
+          <td><code>test_illustration_values_tab.py</code></td>
+          <td>Illustration</td>
+          <td class="number">48</td>
+          <td>2026-06-09</td>
+          <td>43 days</td>
+        </tr>
+
+        <tr data-search="test_local_dev_gate.py local-data safety 2026-06-09">
+          <td><code>test_local_dev_gate.py</code></td>
+          <td>Local-data safety</td>
+          <td class="number">12</td>
+          <td>2026-06-09</td>
+          <td>43 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_inputs_dynamic.py illustration 2026-06-10">
+          <td><code>test_illustration_inputs_dynamic.py</code></td>
+          <td>Illustration</td>
+          <td class="number">57</td>
+          <td>2026-06-10</td>
+          <td>42 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_report.py illustration 2026-06-10">
+          <td><code>test_illustration_report.py</code></td>
+          <td>Illustration</td>
+          <td class="number">23</td>
+          <td>2026-06-10</td>
+          <td>42 days</td>
+        </tr>
+
+        <tr data-search="test_query_organizer.py query tooling 2026-06-11">
+          <td><code>test_query_organizer.py</code></td>
+          <td>Query tooling</td>
+          <td class="number">16</td>
+          <td>2026-06-11</td>
+          <td>41 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_policy_change_guidelines.py illustration 2026-06-12">
+          <td><code>test_illustration_policy_change_guidelines.py</code></td>
+          <td>Illustration</td>
+          <td class="number">3</td>
+          <td>2026-06-12</td>
+          <td>40 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_bonus_rates.py illustration 2026-06-15">
+          <td><code>test_illustration_bonus_rates.py</code></td>
+          <td>Illustration</td>
+          <td class="number">7</td>
+          <td>2026-06-15</td>
+          <td>37 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_monthly_deduction.py illustration 2026-06-15">
+          <td><code>test_illustration_monthly_deduction.py</code></td>
+          <td>Illustration</td>
+          <td class="number">11</td>
+          <td>2026-06-15</td>
+          <td>37 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_guideline_pv.py illustration 2026-06-16">
+          <td><code>test_illustration_guideline_pv.py</code></td>
+          <td>Illustration</td>
+          <td class="number">13</td>
+          <td>2026-06-16</td>
+          <td>36 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_policy_tab.py illustration 2026-06-17">
+          <td><code>test_illustration_policy_tab.py</code></td>
+          <td>Illustration</td>
+          <td class="number">11</td>
+          <td>2026-06-17</td>
+          <td>35 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_rate_validation.py illustration 2026-06-17">
+          <td><code>test_illustration_rate_validation.py</code></td>
+          <td>Illustration</td>
+          <td class="number">2</td>
+          <td>2026-06-17</td>
+          <td>35 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_regulatory_limits.py illustration 2026-06-18">
+          <td><code>test_illustration_regulatory_limits.py</code></td>
+          <td>Illustration</td>
+          <td class="number">4</td>
+          <td>2026-06-18</td>
+          <td>34 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_surrender_values.py illustration 2026-06-18">
+          <td><code>test_illustration_surrender_values.py</code></td>
+          <td>Illustration</td>
+          <td class="number">3</td>
+          <td>2026-06-18</td>
+          <td>34 days</td>
+        </tr>
+
+        <tr data-search="test_policy_information_ages.py policy 2026-06-18">
+          <td><code>test_policy_information_ages.py</code></td>
+          <td>Policy</td>
+          <td class="number">3</td>
+          <td>2026-06-18</td>
+          <td>34 days</td>
+        </tr>
+
+        <tr data-search="test_audit_custom_display_tab.py audit 2026-06-19">
+          <td><code>test_audit_custom_display_tab.py</code></td>
+          <td>Audit</td>
+          <td class="number">10</td>
+          <td>2026-06-19</td>
+          <td>33 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_rider_maturity.py illustration 2026-06-19">
+          <td><code>test_illustration_rider_maturity.py</code></td>
+          <td>Illustration</td>
+          <td class="number">2</td>
+          <td>2026-06-19</td>
+          <td>33 days</td>
+        </tr>
+
+        <tr data-search="test_filter_table_view_freeze.py shared ui 2026-06-20">
+          <td><code>test_filter_table_view_freeze.py</code></td>
+          <td>Shared UI</td>
+          <td class="number">4</td>
+          <td>2026-06-20</td>
+          <td>32 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_advance_loans.py illustration 2026-06-20">
+          <td><code>test_illustration_advance_loans.py</code></td>
+          <td>Illustration</td>
+          <td class="number">13</td>
+          <td>2026-06-20</td>
+          <td>32 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_premium_allowance.py illustration 2026-06-20">
+          <td><code>test_illustration_premium_allowance.py</code></td>
+          <td>Illustration</td>
+          <td class="number">14</td>
+          <td>2026-06-20</td>
+          <td>32 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_premium_rules.py illustration 2026-06-20">
+          <td><code>test_illustration_premium_rules.py</code></td>
+          <td>Illustration</td>
+          <td class="number">3</td>
+          <td>2026-06-20</td>
+          <td>32 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_rider_buttons.py illustration 2026-06-20">
+          <td><code>test_illustration_rider_buttons.py</code></td>
+          <td>Illustration</td>
+          <td class="number">5</td>
+          <td>2026-06-20</td>
+          <td>32 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_run_controls.py illustration 2026-06-20">
+          <td><code>test_illustration_run_controls.py</code></td>
+          <td>Illustration</td>
+          <td class="number">11</td>
+          <td>2026-06-20</td>
+          <td>32 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_apply_prem_to_loan.py illustration 2026-06-21">
+          <td><code>test_illustration_apply_prem_to_loan.py</code></td>
+          <td>Illustration</td>
+          <td class="number">10</td>
+          <td>2026-06-21</td>
+          <td>31 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_lumpsum_to_next_premium.py illustration 2026-06-21">
+          <td><code>test_illustration_lumpsum_to_next_premium.py</code></td>
+          <td>Illustration</td>
+          <td class="number">13</td>
+          <td>2026-06-21</td>
+          <td>31 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_policy_service.py illustration 2026-06-21">
+          <td><code>test_illustration_policy_service.py</code></td>
+          <td>Illustration</td>
+          <td class="number">2</td>
+          <td>2026-06-21</td>
+          <td>31 days</td>
+        </tr>
+
+        <tr data-search="test_data_source.py data sources 2026-06-22">
+          <td><code>test_data_source.py</code></td>
+          <td>Data sources</td>
+          <td class="number">12</td>
+          <td>2026-06-22</td>
+          <td>30 days</td>
+        </tr>
+
+        <tr data-search="test_file_source.py file handling 2026-06-22">
+          <td><code>test_file_source.py</code></td>
+          <td>File handling</td>
+          <td class="number">18</td>
+          <td>2026-06-22</td>
+          <td>30 days</td>
+        </tr>
+
+        <tr data-search="test_file_source_intake.py file handling 2026-06-22">
+          <td><code>test_file_source_intake.py</code></td>
+          <td>File handling</td>
+          <td class="number">23</td>
+          <td>2026-06-22</td>
+          <td>30 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_monthly_deduction_premium.py illustration 2026-06-25">
+          <td><code>test_illustration_monthly_deduction_premium.py</code></td>
+          <td>Illustration</td>
+          <td class="number">6</td>
+          <td>2026-06-25</td>
+          <td>27 days</td>
+        </tr>
+
+        <tr data-search="test_excel_template.py excel 2026-07-01">
+          <td><code>test_excel_template.py</code></td>
+          <td>Excel</td>
+          <td class="number">19</td>
+          <td>2026-07-01</td>
+          <td>21 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_excess_repayment_as_premium.py illustration 2026-07-01">
+          <td><code>test_illustration_excess_repayment_as_premium.py</code></td>
+          <td>Illustration</td>
+          <td class="number">4</td>
+          <td>2026-07-01</td>
+          <td>21 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_grid_paste.py illustration 2026-07-01">
+          <td><code>test_illustration_grid_paste.py</code></td>
+          <td>Illustration</td>
+          <td class="number">6</td>
+          <td>2026-07-01</td>
+          <td>21 days</td>
+        </tr>
+
+        <tr data-search="test_allocations_panel.py allocations 2026-07-07">
+          <td><code>test_allocations_panel.py</code></td>
+          <td>Allocations</td>
+          <td class="number">7</td>
+          <td>2026-07-07</td>
+          <td>15 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_tamra_recalc_sheets.py illustration 2026-07-07">
+          <td><code>test_illustration_tamra_recalc_sheets.py</code></td>
+          <td>Illustration</td>
+          <td class="number">13</td>
+          <td>2026-07-07</td>
+          <td>15 days</td>
+        </tr>
+
+        <tr data-search="test_index_strategies.py index strategies 2026-07-07">
+          <td><code>test_index_strategies.py</code></td>
+          <td>Index strategies</td>
+          <td class="number">16</td>
+          <td>2026-07-07</td>
+          <td>15 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_ffl_waiver_targets.py illustration 2026-07-08">
+          <td><code>test_illustration_ffl_waiver_targets.py</code></td>
+          <td>Illustration</td>
+          <td class="number">4</td>
+          <td>2026-07-08</td>
+          <td>14 days</td>
+        </tr>
+
+        <tr data-search="test_rate_workup.py ratemanager / rates 2026-07-08">
+          <td><code>test_rate_workup.py</code></td>
+          <td>RateManager / rates</td>
+          <td class="number">24</td>
+          <td>2026-07-08</td>
+          <td>14 days</td>
+        </tr>
+
+        <tr data-search="test_display_sort_controls.py shared ui 2026-07-16">
+          <td><code>test_display_sort_controls.py</code></td>
+          <td>Shared UI</td>
+          <td class="number">7</td>
+          <td>2026-07-16</td>
+          <td>6 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_glp_prorate.py illustration 2026-07-17">
+          <td><code>test_illustration_glp_prorate.py</code></td>
+          <td>Illustration</td>
+          <td class="number">5</td>
+          <td>2026-07-17</td>
+          <td>5 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_guideline_basis.py illustration 2026-07-17">
+          <td><code>test_illustration_guideline_basis.py</code></td>
+          <td>Illustration</td>
+          <td class="number">6</td>
+          <td>2026-07-17</td>
+          <td>5 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_loan_payoff_solve.py illustration 2026-07-17">
+          <td><code>test_illustration_loan_payoff_solve.py</code></td>
+          <td>Illustration</td>
+          <td class="number">15</td>
+          <td>2026-07-17</td>
+          <td>5 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_max_level_solve.py illustration 2026-07-17">
+          <td><code>test_illustration_max_level_solve.py</code></td>
+          <td>Illustration</td>
+          <td class="number">6</td>
+          <td>2026-07-17</td>
+          <td>5 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_prem_to_maturity.py illustration 2026-07-17">
+          <td><code>test_illustration_prem_to_maturity.py</code></td>
+          <td>Illustration</td>
+          <td class="number">2</td>
+          <td>2026-07-17</td>
+          <td>5 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_session_state.py illustration 2026-07-17">
+          <td><code>test_illustration_session_state.py</code></td>
+          <td>Illustration</td>
+          <td class="number">7</td>
+          <td>2026-07-17</td>
+          <td>5 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_batch.py illustration 2026-07-19">
+          <td><code>test_illustration_batch.py</code></td>
+          <td>Illustration</td>
+          <td class="number">14</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_can_illustrate.py illustration 2026-07-19">
+          <td><code>test_illustration_can_illustrate.py</code></td>
+          <td>Illustration</td>
+          <td class="number">6</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_case_store.py illustration 2026-07-19">
+          <td><code>test_illustration_case_store.py</code></td>
+          <td>Illustration</td>
+          <td class="number">28</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_compare.py illustration 2026-07-19">
+          <td><code>test_illustration_compare.py</code></td>
+          <td>Illustration</td>
+          <td class="number">37</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_grid_inputs_tab.py illustration 2026-07-19">
+          <td><code>test_illustration_grid_inputs_tab.py</code></td>
+          <td>Illustration</td>
+          <td class="number">4</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_iul_crediting.py illustration 2026-07-19">
+          <td><code>test_illustration_iul_crediting.py</code></td>
+          <td>Illustration</td>
+          <td class="number">26</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_policy_list.py illustration 2026-07-19">
+          <td><code>test_illustration_policy_list.py</code></td>
+          <td>Illustration</td>
+          <td class="number">7</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_premium_handler.py illustration 2026-07-19">
+          <td><code>test_illustration_premium_handler.py</code></td>
+          <td>Illustration</td>
+          <td class="number">3</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_saved_cases_panel.py illustration 2026-07-19">
+          <td><code>test_illustration_saved_cases_panel.py</code></td>
+          <td>Illustration</td>
+          <td class="number">30</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_solve_premium_to_target.py illustration 2026-07-19">
+          <td><code>test_illustration_solve_premium_to_target.py</code></td>
+          <td>Illustration</td>
+          <td class="number">9</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_illustration_withdrawal_basis.py illustration 2026-07-19">
+          <td><code>test_illustration_withdrawal_basis.py</code></td>
+          <td>Illustration</td>
+          <td class="number">17</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_policy_launcher.py policy 2026-07-19">
+          <td><code>test_policy_launcher.py</code></td>
+          <td>Policy</td>
+          <td class="number">16</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_rates_band.py ratemanager / rates 2026-07-19">
+          <td><code>test_rates_band.py</code></td>
+          <td>RateManager / rates</td>
+          <td class="number">6</td>
+          <td>2026-07-19</td>
+          <td>3 days</td>
+        </tr>
+
+        <tr data-search="test_audit_coverages_autodisplay.py audit 2026-07-22">
+          <td><code>test_audit_coverages_autodisplay.py</code></td>
+          <td>Audit</td>
+          <td class="number">18</td>
+          <td>2026-07-22</td>
+          <td>0 days</td>
+        </tr>
+
+        <tr data-search="test_audit_coverages_vpu_specamt.py audit 2026-07-22">
+          <td><code>test_audit_coverages_vpu_specamt.py</code></td>
+          <td>Audit</td>
+          <td class="number">3</td>
+          <td>2026-07-22</td>
+          <td>0 days</td>
+        </tr>
+
+        <tr data-search="test_rate_manager_ui.py ratemanager / rates 2026-07-22">
+          <td><code>test_rate_manager_ui.py</code></td>
+          <td>RateManager / rates</td>
+          <td class="number">3</td>
+          <td>2026-07-22</td>
+          <td>0 days</td>
+        </tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>What these tests do - and do not do</h2>
+      <div class="grid two-col">
+        <div>
+          <h3>Strong coverage</h3>
+          <ul>
+            <li>Actuarial and insurance-domain calculations</li>
+            <li>GLP, GSP, TAMRA, premium, loan, withdrawal, and force-out rules</li>
+            <li>Illustration reports, ledgers, saved cases, and input compilation</li>
+            <li>Audit SQL generation and query-object/DataForge persistence</li>
+            <li>PyQt control state, signals, selection, and data presentation</li>
+            <li>Rate workup conversion and validation</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Important limits</h3>
+          <ul>
+            <li>Offscreen Qt checks behavior, not every visual spacing or color detail</li>
+            <li>Live DB2 tests require the work environment and should not silently fall back</li>
+            <li>Outlook tests depend on the installed desktop application and active mailbox</li>
+            <li>Legacy diagnostics may verify connectivity more than precise assertions</li>
+            <li>Visual changes still need the desktop screenshot workflow when appearance matters</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>Generated from pytest collection and Git history on 2026-07-22.
+    Source: <code>tools/generate_testing_plan.py</code></footer>
+
+  <script>
+    const filter = document.getElementById("filter");
+    const rows = [...document.querySelectorAll("#inventory tr")];
+    const count = document.getElementById("visible-count");
+    filter.addEventListener("input", () => {
+      const term = filter.value.trim().toLowerCase();
+      let visible = 0;
+      rows.forEach(row => {
+        const show = !term || row.dataset.search.includes(term);
+        row.hidden = !show;
+        if (show) visible += 1;
+      });
+      count.textContent = `${visible} file${visible === 1 ? "" : "s"}`;
+    });
+  </script>
+</body>
+</html>
