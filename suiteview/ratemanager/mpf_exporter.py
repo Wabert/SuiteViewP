@@ -14,6 +14,8 @@ Renewal logic mirrors the IAF benefits tab:
   * Renewable   → premium varies by attained age (duration d uses the value at
     attained age issue+d-1).
   * Non-renewable → the issue-age premium is held level across durations.
+  * Every expanded benefit requires a cease age and stops before that age.
+  * Omitted MPF ages use the most recent prior rate.
 
 Percentage premiums load as decimals (``5.64%`` -> 0.0564); factor premiums
 (``1.22``) load unchanged. The Excel Raw dump keeps the original printed token.
@@ -29,6 +31,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 
 from suiteview.ratemanager.mpf_parser import (
+    fill_forward_age_table,
     group_by_combo,
     iter_records,
 )
@@ -89,17 +92,16 @@ def _expand(
     cease_age: Optional[int] = None,
 ) -> List[Tuple[int, int, float]]:
     """Expand an attained-age table into ``(issue_age, duration, rate)`` rows."""
+    if cease_age is None:
+        raise ValueError("Cease age is required for benefits.")
+    if cease_age <= 0:
+        raise ValueError("Cease age must be greater than 0.")
+    table = fill_forward_age_table(table)
     ages = sorted(table)
     if not ages:
         return []
     max_age = ages[-1]
-    duration_max_age = max_age
-    if not renewable:
-        if cease_age is None:
-            raise ValueError("Cease age is required for non-renewing benefits.")
-        if cease_age <= 0:
-            raise ValueError("Cease age must be greater than 0.")
-        duration_max_age = min(duration_max_age, cease_age - 1)
+    duration_max_age = min(max_age, cease_age - 1)
     rows: List[Tuple[int, int, float]] = []
     for ia in ages:
         for dur in range(1, duration_max_age - ia + 2):
@@ -228,7 +230,7 @@ def build_db(
             sig = (
                 tuple(sorted((a, table[a][0]) for a in table)),
                 renewable,
-                cease_age if not renewable else None,
+                cease_age,
             )
             idx = groups.get(sig)
             if idx is None:

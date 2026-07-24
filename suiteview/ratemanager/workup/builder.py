@@ -567,9 +567,8 @@ def _build_linked_benefit(
     )
 
     # Targets define the valid issue-age range for both rate tables.
-    if mpf_items and not sel.renewable and sel.cease_age is None:
-        raise ValueError(
-            f"Benefit {sel.code}: cease age is required for non-renewing rates.")
+    if sel.cease_age is None:
+        raise ValueError(f"Benefit {sel.code}: cease age is required.")
     if sel.cease_age is not None and sel.cease_age <= 0:
         raise ValueError(
             f"Benefit {sel.code}: cease age must be greater than 0.")
@@ -593,6 +592,7 @@ def _build_linked_benefit(
         for age, (val, _s, is_pct) in mpf_items[rk].items():
             conv[age] = val / 100.0 if is_pct else val
             pct_converted += 1 if is_pct else 0
+        conv = mpf_parser.fill_forward_age_table(conv)
         target_key = _map_key(combo, trg_bands)
         c_rates = ctp.get(target_key, {}) if target_key else {}
         m_rates = mtp.get(target_key, {}) if target_key else {}
@@ -601,7 +601,7 @@ def _build_linked_benefit(
             tuple(sorted(conv.items())),
             sel.renewable,
             issue_age_range,
-            sel.cease_age if not sel.renewable else None,
+            sel.cease_age,
         )
         idx = coi_groups.get(sig)
         if idx is None:
@@ -679,13 +679,11 @@ def _expand_attained_table(
     if not ages:
         return []
     max_age = ages[-1]
-    duration_max_age = max_age
-    if not renewable:
-        if cease_age is None:
-            raise ValueError("Cease age is required for non-renewing benefits.")
-        if cease_age <= 0:
-            raise ValueError("Cease age must be greater than 0.")
-        duration_max_age = min(duration_max_age, cease_age - 1)
+    if cease_age is None:
+        raise ValueError("Cease age is required for benefits.")
+    if cease_age <= 0:
+        raise ValueError("Cease age must be greater than 0.")
+    duration_max_age = min(max_age, cease_age - 1)
     ia_min, ia_max = ages[0], max_age
     if issue_age_range is not None:
         ia_min = max(ia_min, issue_age_range[0])

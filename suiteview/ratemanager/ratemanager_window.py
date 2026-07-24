@@ -866,7 +866,7 @@ class _ConverterPanel(QWidget):
             cease_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
             cease_edit.setMinimumWidth(100)
             cease_edit.setToolTip(
-                "Required when Renewable is unchecked. Charges stop at this "
+                "Required for every included benefit. Charges stop at this "
                 "age; cease age 65 produces rates through attained age 64.")
             self.benefit_table.setCellWidget(row, 2, cease_edit)
 
@@ -884,20 +884,14 @@ class _ConverterPanel(QWidget):
             has_rates = self.select_kind == "mpf" or bool(info_values[0])
             def sync_cease_age(
                 include=inc_chk,
-                renewable=ren_chk,
-                rates_present=has_rates,
                 edit=cease_edit,
             ):
                 update_cease_age_field(
                     include.isChecked(),
-                    renewable.isChecked(),
-                    rates_present,
                     edit,
                 )
 
             inc_chk.toggled.connect(
-                lambda _checked, sync=sync_cease_age: sync())
-            ren_chk.toggled.connect(
                 lambda _checked, sync=sync_cease_age: sync())
             sync_cease_age()
             self._benefit_rows.append(
@@ -935,17 +929,16 @@ class _ConverterPanel(QWidget):
     def _validated_cease_age(
         self,
         code: str,
-        renewable_check: QCheckBox,
         cease_edit: QLineEdit,
         required: bool,
     ):
-        if renewable_check.isChecked() or not required:
+        if not required:
             return None
         text = cease_edit.text().strip()
         if not text:
             QMessageBox.warning(
                 self, "Missing Cease Age",
-                f"{code}: enter the age when this non-renewing benefit ceases.")
+                f"{code}: enter the age when this benefit ceases.")
             return False
         try:
             cease_age = int(text)
@@ -974,7 +967,7 @@ class _ConverterPanel(QWidget):
             if not inc_chk.isChecked():
                 continue
             cease_age = self._validated_cease_age(
-                code, ren_chk, cease_edit, required=(mode != "raw"))
+                code, cease_edit, required=(mode != "raw"))
             if cease_age is False:
                 return
             index = 0
@@ -1059,12 +1052,12 @@ class _ConverterPanel(QWidget):
 
         specs = []
         for (
-            code, inc_chk, ren_chk, cease_edit, idx_edit, has_rates
+            code, inc_chk, ren_chk, cease_edit, idx_edit, _has_rates
         ) in self._benefit_rows:
             if not inc_chk.isChecked():
                 continue
             cease_age = self._validated_cease_age(
-                code, ren_chk, cease_edit, required=has_rates)
+                code, cease_edit, required=True)
             if cease_age is False:
                 return
             try:

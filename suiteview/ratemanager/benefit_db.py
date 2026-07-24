@@ -18,6 +18,7 @@ Rules (confirmed with the product owner):
   * Renewable benefit → COI varies by attained age (duration d uses the
     ultimate rate at attained age issue+d-1). Non-renewable → the issue-age
     rate is held level across durations.
+  * Every benefit requires a cease age; charges stop before that attained age.
   * Benefit COI is ultimate-only. Current == guaranteed unless the benefit has
     its own G rates, so RATE_BENCOI carries Scale 0 (guaranteed) and Scale 1
     (current) with identical rates in the common case.
@@ -137,6 +138,10 @@ def _expand_bencoi_rows(
     cease_age: Optional[int] = None,
 ) -> List[list]:
     """Fully-select expansion of one benefit COI rate set (Scale 0 + 1)."""
+    if cease_age is None:
+        raise ValueError("Cease age is required for benefits.")
+    if cease_age <= 0:
+        raise ValueError("Cease age must be greater than 0.")
     ages = sorted(current)
     if not ages:
         return []
@@ -146,11 +151,7 @@ def _expand_bencoi_rows(
         ia_max = min(ia_max, issue_age_range[1])
     if ia_min > ia_max:
         return []
-    duration_max_age = max_att_age
-    if not renewable:
-        if cease_age is None:
-            raise ValueError("Cease age is required for non-renewing benefits.")
-        duration_max_age = min(duration_max_age, cease_age - 1)
+    duration_max_age = min(max_att_age, cease_age - 1)
     rows: List[list] = []
     for scale, rates in ((0, guaranteed), (1, current)):
         if not rates:
@@ -229,9 +230,8 @@ def build_benefit_rows(
         guar = _benefit_rates_by_combo(result, code, "G")
         ctp = _benefit_rates_by_combo(result, code, "T")
         mtp = _benefit_rates_by_combo(result, code, "M")
-        if cur and not spec.renewable and spec.cease_age is None:
-            raise ValueError(
-                f"Benefit {code}: cease age is required for non-renewing rates.")
+        if spec.cease_age is None:
+            raise ValueError(f"Benefit {code}: cease age is required.")
         if spec.cease_age is not None and spec.cease_age <= 0:
             raise ValueError(f"Benefit {code}: cease age must be greater than 0.")
 
@@ -258,7 +258,7 @@ def build_benefit_rows(
                 tuple(sorted(guar_rates.items())),
                 spec.renewable,
                 issue_age_range,
-                spec.cease_age if not spec.renewable else None,
+                spec.cease_age,
             )
             idx = coi_groups.get(sig)
             if idx is None:

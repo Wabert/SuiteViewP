@@ -7,12 +7,10 @@ from PyQt6.QtWidgets import QLineEdit, QWidget
 
 def update_cease_age_field(
     include_checked: bool,
-    renewable: bool,
-    has_rates: bool,
     edit: QLineEdit,
 ) -> None:
     """Show whether a cease age is required while preserving entered values."""
-    required = include_checked and not renewable and has_rates
+    required = include_checked
     was_required = bool(edit.property("cease_required"))
 
     if required:

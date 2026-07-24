@@ -1,5 +1,7 @@
 """Focused UI behavior tests for Rate Manager controls."""
 
+from pathlib import Path
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -14,26 +16,42 @@ from suiteview.ratemanager.ratemanager_window import RateManagerWindow
 from suiteview.ratemanager.workup.workup_window import RateWorkupPanel
 
 
+def test_full_distribution_tools_menu_includes_rate_manager():
+    source = (
+        Path(__file__).parents[1]
+        / "suiteview"
+        / "taskbar_launcher"
+        / "suiteview_taskbar.py"
+    ).read_text(encoding="utf-8")
+
+    full_build_block = source.split(
+        "if not LIGHT_MODE:", 1
+    )[1].split("if DEV_MODE and not LIGHT_MODE:", 1)[0]
+    assert (
+        'self.tools_menu.addAction("Rate Manager", self._open_rate_manager)'
+        in full_build_block
+    )
+
+
 _QT_APP = QApplication.instance() or QApplication([])
 
 
-def test_cease_age_field_tracks_include_and_renewable_state():
+def test_cease_age_field_tracks_include_state():
     edit = QLineEdit()
 
-    update_cease_age_field(False, False, True, edit)
+    update_cease_age_field(False, edit)
     assert not edit.isEnabled()
     assert edit.text() == "Not required"
 
-    update_cease_age_field(True, False, True, edit)
+    update_cease_age_field(True, edit)
     assert edit.isEnabled()
     assert edit.text() == ""
     assert edit.placeholderText() == "Required"
 
     edit.setText("65")
-    update_cease_age_field(True, True, True, edit)
+    update_cease_age_field(False, edit)
     assert edit.text() == "Not required"
-
-    update_cease_age_field(True, False, True, edit)
+    update_cease_age_field(True, edit)
     assert edit.text() == "65"
 
 
@@ -52,8 +70,8 @@ def test_workup_cease_age_column_is_wide_and_rows_sync_state():
     assert cease.placeholderText() == "Required"
 
     renewable.setChecked(True)
-    assert not cease.isEnabled()
-    assert cease.text() == "Not required"
+    assert cease.isEnabled()
+    assert cease.placeholderText() == "Required"
 
 
 def test_processing_output_grows_and_restores_window():

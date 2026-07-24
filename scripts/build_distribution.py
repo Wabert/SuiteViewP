@@ -20,6 +20,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
+
 # Project root
 PROJECT_ROOT = Path(__file__).parent.parent
 os.chdir(PROJECT_ROOT)

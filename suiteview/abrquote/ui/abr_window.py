@@ -786,6 +786,9 @@ class ABRQuoteWindow(FramelessWindowBase):
             self.output_panel.set_accel_inputs_fn(
                 self._get_current_accel_inputs
             )
+            self.output_panel.set_after_partial_deduction_fn(
+                self.assessment_panel.get_after_partial_deduction
+            )
 
             self.status_label.setText("ABR Quote calculated successfully.")
             self._email_print_btn.setEnabled(True)

@@ -27,12 +27,13 @@ from __future__ import annotations
 import os
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Tuple, TypeVar
 
 KEY_COL = 9            # 0-based start of the 15-char KEY
 KEY_LEN = 15
 CONT_COL = 24          # CONT field region
 DATA_COL = 31          # first AGE token column (type-2 layout)
+_RateValue = TypeVar("_RateValue")
 
 
 @dataclass
@@ -167,3 +168,18 @@ def group_by_combo(records: Iterator[MPFRecord]) -> "OrderedDict":
         for age, prem_str, val, is_pct in rec.pairs:
             table.setdefault(age, (val, prem_str, is_pct))
     return grouped
+
+
+def fill_forward_age_table(table: Dict[int, _RateValue]) -> Dict[int, _RateValue]:
+    """Fill omitted MPF ages through the age before the next stated rate."""
+    ages = sorted(table)
+    if not ages:
+        return {}
+
+    filled: Dict[int, _RateValue] = {}
+    current = table[ages[0]]
+    for age in range(ages[0], ages[-1] + 1):
+        if age in table:
+            current = table[age]
+        filled[age] = current
+    return filled

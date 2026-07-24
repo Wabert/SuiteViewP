@@ -71,6 +71,8 @@ a = Analysis(
         'suiteview.audit.main',
         'suiteview.agent_chat',
         'suiteview.agent_chat.window',
+        'suiteview.ratemanager',
+        'suiteview.ratemanager.ratemanager_window',
         *_COPILOT_HIDDENIMPORTS,
     ],
     hookspath=[],

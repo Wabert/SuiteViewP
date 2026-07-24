@@ -271,6 +271,7 @@ class OutputPanel(QWidget):
         self._apv_detail: list[dict] = []
         self._apv_summary: dict = {}
         self._accel_inputs_fn = None  # callback returning (accel_amount, min_face)
+        self._after_partial_deduction_fn = None
         self._policy_folder_path = ""
         self._tools_root_path = self._get_tools_root_path()
         self._sync_warned = False
@@ -590,6 +591,16 @@ class OutputPanel(QWidget):
     def set_accel_inputs_fn(self, fn):
         """Set a callback that returns (accel_amount, min_face_amount) at print time."""
         self._accel_inputs_fn = fn
+
+    def set_after_partial_deduction_fn(self, fn):
+        """Set a callback returning the current UL deduction at print time."""
+        self._after_partial_deduction_fn = fn
+
+    def _get_after_partial_deduction(self) -> str:
+        """Return the current user-entered UL deduction, if any."""
+        if not self._after_partial_deduction_fn:
+            return ""
+        return str(self._after_partial_deduction_fn() or "").strip()
 
     def _get_accel_inputs(self) -> tuple[float, float]:
         """Return current (accel_amount, min_face_amount) from callback or defaults."""
@@ -1151,7 +1162,12 @@ class OutputPanel(QWidget):
             row = _write_field(ws2, row, "Premium Before:", r.premium_before)
         row = _write_field(ws2, row, "After (Full Accel):", f"${r.premium_after_full:,.2f}")
         if r.partial_eligible_db > 0:
-            row = _write_field(ws2, row, "After (Partial):", r.premium_after_partial)
+            after_partial = (
+                self._get_after_partial_deduction() or r.premium_after_partial
+                if is_ul
+                else r.premium_after_partial
+            )
+            row = _write_field(ws2, row, "After (Partial):", after_partial)
         else:
             row = _write_field(ws2, row, "After (Partial):", "NOT ALLOWED")
 

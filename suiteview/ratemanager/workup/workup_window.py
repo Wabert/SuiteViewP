@@ -598,7 +598,7 @@ class RateWorkupPanel(QWidget):
         cease_edit.setObjectName("BenefitIndex")
         cease_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         cease_edit.setToolTip(
-            "Required for a non-renewing benefit. Charges stop at this age; "
+            "Required for every included benefit. Charges stop at this age; "
             "cease age 65 produces rates through attained age 64.")
         self.ben_table.setCellWidget(row, 2, cease_edit)
 
@@ -629,14 +629,10 @@ class RateWorkupPanel(QWidget):
         def _sync_cease_age() -> None:
             update_cease_age_field(
                 chk.isChecked(),
-                ren_chk.isChecked(),
-                has_iaf_coi or bool(mpf_combo.currentData()),
                 cease_edit,
             )
 
         chk.toggled.connect(_sync_cease_age)
-        ren_chk.toggled.connect(_sync_cease_age)
-        mpf_combo.currentIndexChanged.connect(_sync_cease_age)
         _sync_cease_age()
 
         # Start Index — prefilled by the convention (base + type code,
@@ -766,28 +762,24 @@ class RateWorkupPanel(QWidget):
         ) in self._ben_rows:
             if not chk.isChecked():
                 continue
-            cease_age = None
-            has_bencoi = has_iaf_coi or bool(mpf_combo.currentData())
-            if not ren_chk.isChecked() and has_bencoi:
-                cease_text = cease_edit.text().strip()
-                if not cease_text:
-                    QMessageBox.warning(
-                        self, "Missing Cease Age",
-                        f"Benefit {code}: enter the age when this "
-                        "non-renewing benefit ceases.")
-                    return
-                try:
-                    cease_age = int(cease_text)
-                except ValueError:
-                    QMessageBox.warning(
-                        self, "Invalid Cease Age",
-                        f"Benefit {code}: Cease Age must be a whole number.")
-                    return
-                if cease_age <= 0:
-                    QMessageBox.warning(
-                        self, "Invalid Cease Age",
-                        f"Benefit {code}: Cease Age must be greater than 0.")
-                    return
+            cease_text = cease_edit.text().strip()
+            if not cease_text:
+                QMessageBox.warning(
+                    self, "Missing Cease Age",
+                    f"Benefit {code}: enter the age when this benefit ceases.")
+                return
+            try:
+                cease_age = int(cease_text)
+            except ValueError:
+                QMessageBox.warning(
+                    self, "Invalid Cease Age",
+                    f"Benefit {code}: Cease Age must be a whole number.")
+                return
+            if cease_age <= 0:
+                QMessageBox.warning(
+                    self, "Invalid Cease Age",
+                    f"Benefit {code}: Cease Age must be greater than 0.")
+                return
             try:
                 start_index = int(idx_edit.text().strip())
             except ValueError:

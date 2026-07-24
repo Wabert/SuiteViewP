@@ -17,7 +17,7 @@ class BenefitSelection:
     """
     code: str                 # IAF plan_option (benefit) code
     renewable: bool = False   # rate varies by attained age vs level at issue
-    cease_age: Optional[int] = None  # required for level rates; charges stop here
+    cease_age: Optional[int] = None  # required; charges stop before this age
     mpf_code: str = ""        # MPF premium code ('' = charges come from IAF)
     # First Index(BENCOI)/Index(BENTRG). 0 = derive from the convention:
     # (base_index + 2-digit type code) × 100, letters via SUBTYPE_LETTER_MAP.

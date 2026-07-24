@@ -132,9 +132,32 @@ def test_band_out_map_alphabetical_and_xy_exception():
 def test_mpf_exporter_converts_percent_to_decimal():
     from suiteview.ratemanager.mpf_exporter import _expand as mpf_expand
     table = {30: (5.64, "5.64%", True), 31: (1.22, "1.22", False)}
-    rows = {(ia, dur): r for ia, dur, r in mpf_expand(table, renewable=True)}
+    rows = {
+        (ia, dur): r
+        for ia, dur, r in mpf_expand(table, renewable=True, cease_age=32)
+    }
     assert rows[(30, 1)] == pytest.approx(0.0564)   # percent → decimal
     assert rows[(30, 2)] == 1.22                    # factor unchanged
+
+
+def test_mpf_sparse_ages_fill_forward():
+    from suiteview.ratemanager.mpf_exporter import _expand as mpf_expand
+    table = {
+        19: (3.8, "3.80%", True),
+        22: (3.9, "3.90%", True),
+    }
+
+    rows = {
+        (ia, dur): rate
+        for ia, dur, rate in mpf_expand(
+            table, renewable=True, cease_age=23)
+    }
+
+    assert rows[(19, 1)] == pytest.approx(0.038)
+    assert rows[(20, 1)] == pytest.approx(0.038)
+    assert rows[(21, 1)] == pytest.approx(0.038)
+    assert rows[(19, 3)] == pytest.approx(0.038)
+    assert rows[(22, 1)] == pytest.approx(0.039)
 
 
 def test_mpf_nonrenewing_rates_stop_before_cease_age():
@@ -149,7 +172,7 @@ def test_mpf_nonrenewing_rates_stop_before_cease_age():
 
 def test_expand_attained_table_renewable_vs_level():
     table = {30: 1.0, 31: 2.0, 32: 3.0}
-    renew = _expand_attained_table(table, renewable=True)
+    renew = _expand_attained_table(table, renewable=True, cease_age=33)
     # Issue 30: durations 1..3 walk the attained ages.
     assert (30, 1, 1.0) in renew and (30, 2, 2.0) in renew and (30, 3, 3.0) in renew
     level = _expand_attained_table(table, renewable=False, cease_age=33)
@@ -301,7 +324,8 @@ def test_mpf_linked_bencoi_uses_iaf_target_issue_age_range():
 
     _pointers, bencoi, _bentrg, _block = _build_linked_benefit(
         result,
-        BenefitSelection(code="3F", renewable=True, mpf_code="312"),
+        BenefitSelection(
+            code="3F", renewable=True, cease_age=41, mpf_code="312"),
         mpf_items,
         [("1", "N", "A")],
         200,
@@ -352,6 +376,34 @@ def test_nonrenewing_benefit_requires_cease_age():
             result,
             [BenefitDBSpec(code="21", renewable=False, start_index=100)],
         )
+
+
+def test_renewable_benefit_requires_and_honors_cease_age():
+    result = ParseResult(
+        products=[ProductInfo(
+            ref=1, plancode="TESTPLAN", version="1", pay_age=81)],
+        rates=[
+            _rate("C", 20, 99, 0.1),
+            *[
+                _rate("C", age, 99, 0.2, band="0", opt="21")
+                for age in range(20, 81)
+            ],
+        ],
+    )
+
+    with pytest.raises(ValueError, match="cease age is required"):
+        build_benefit_rows(
+            result,
+            [BenefitDBSpec(code="21", renewable=True, start_index=100)],
+        )
+
+    _pointers, bencoi, _bentrg, _counts = build_benefit_rows(
+        result,
+        [BenefitDBSpec(
+            code="21", renewable=True, start_index=100, cease_age=65)],
+    )
+    issue_20 = [row for row in bencoi if row[2] == 20 and row[1] == 1]
+    assert max(20 + row[3] - 1 for row in issue_20) == 64
 
 
 def test_workup_build_requires_base_index():

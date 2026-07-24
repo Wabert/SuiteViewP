@@ -2480,6 +2480,10 @@ class AssessmentPanel(QWidget):
         """Return the computed assessment."""
         return self._assessment
 
+    def get_after_partial_deduction(self) -> str:
+        """Return the user-entered UL monthly deduction after max partial."""
+        return self.res_premium_after_partial_input.text().strip()
+
     def get_derived_display_values(self) -> dict:
         """Return the derived substandard display text for all labels."""
         return {key: lbl.text() for key, lbl in self._derived_labels.items()}

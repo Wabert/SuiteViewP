@@ -2797,14 +2797,14 @@ class SuiteViewTaskbar(QWidget):
 
 
     def _open_rate_manager(self):
-        """Open the Rate File Converter window"""
+        """Open the Rate Manager window."""
         if self.ratemanager_window is None:
             try:
                 from suiteview.ratemanager.ratemanager_window import RateManagerWindow
                 self.ratemanager_window = RateManagerWindow()
-                self._setup_child_window(self.ratemanager_window, "Rate File Converter")
+                self._setup_child_window(self.ratemanager_window, "Rate Manager")
             except Exception as e:
-                logger.error(f"Failed to open Rate File Converter: {e}")
+                logger.error(f"Failed to open Rate Manager: {e}")
                 return
         self._bring_to_front(self.ratemanager_window)
 
@@ -3546,9 +3546,9 @@ class SuiteViewTaskbar(QWidget):
             self.tools_menu.addAction("Illustration", self._open_illustration)
             self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)
             self.tools_menu.addAction("Audit Tool", self._open_audit)
+            self.tools_menu.addAction("Rate Manager", self._open_rate_manager)
         if DEV_MODE and not LIGHT_MODE:
             self.tools_menu.addAction("Email Attachments", self._open_email_attachments)
-            self.tools_menu.addAction("Rate File Converter", self._open_rate_manager)
         self.tools_menu.addSeparator()
         self.tools_menu.addAction("📁 App Data Location", self._open_app_data_location)
         self.tools_menu_btn.setMenu(self.tools_menu)
