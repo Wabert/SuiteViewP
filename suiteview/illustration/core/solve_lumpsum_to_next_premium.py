@@ -1,12 +1,14 @@
 """Solve a bridging lumpsum that keeps a thin policy in force until its next
 scheduled modal premium.
 
-A policy can be too thin to coast from the forecast date to the next premium —
-on annual mode the next premium may be most of a year away; on quarterly /
-semiannual modes the gap is shorter but the same thing happens. This solver
-finds the unscheduled premium to apply ON the forecast date so the policy stays
-in force every month up to (and including) the next modal premium, where the
-illustrated premium picks the policy back up.
+A policy can be too thin to reach its next scheduled premium — on annual mode
+the next premium may be most of a year away; on quarterly / semiannual the gap
+is shorter; on monthly mode the next premium is only a month out, yet the modal
+premium alone may still not lift the policy off the lapse boundary. This solver
+finds the unscheduled premium to apply ON the forecast date, layered ON TOP OF
+whatever scheduled premium the run already bills, so the policy stays in force
+every month up to (and including) the next modal premium, where ongoing billing
+picks it back up.
 
 *How much* is read from the same lapse test the engine runs each month
 (``calc_engine`` § 18): the surrender-value shortfall (SV-lapse plancodes), the
@@ -42,7 +44,6 @@ from suiteview.illustration.models.input_set import (
     DatedTransaction,
     IllustrationInputSet,
     IllustrationOptions,
-    ScheduledTransaction,
     TransactionKind,
 )
 from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -92,18 +93,21 @@ def _forecast_date(policy: IllustrationPolicyData) -> Optional[date]:
 
 
 def _next_modal_due(policy: IllustrationPolicyData, forecast: date) -> tuple[date, int]:
-    """The next modal premium due date after the forecast date, and the number of
-    whole months from the forecast date to it.
+    """The next modal premium due date strictly after the forecast date, and the
+    number of whole months from the forecast date to it.
 
     Modal due dates fall on the anniversary cadence (anniversary + k·interval),
     i.e. at whole-month counts since issue that are multiples of the interval.
-    When the forecast date already lands on a modal date the gap is 0 — a premium
-    is collected on the forecast date itself, so there is nothing to bridge.
+    When the forecast date itself lands on a modal date (e.g. every month under
+    monthly billing), the bridge target is the *following* modal date — a full
+    interval later — not the forecast date. The premium collected on the forecast
+    date is left in place and the lumpsum tops it up; the bridge carries the
+    policy until the next premium after that resumes billing.
     """
     interval = _billing_interval(policy)
     months_at_forecast = policy.duration          # whole months issue → forecast
     remainder = months_at_forecast % interval
-    gap = (interval - remainder) if remainder else 0
+    gap = (interval - remainder) if remainder else interval
     next_due = policy.issue_date + relativedelta(months=months_at_forecast + gap)
     return next_due, gap
 
@@ -181,8 +185,6 @@ def solve_lumpsum_to_next_premium(
     if forecast is None:
         return None
     next_due, gap = _next_modal_due(policy, forecast)
-    if gap <= 0:
-        return None  # a modal premium already lands on the forecast date — no gap
 
     # A "Billable to MD" run hands off to Monthly Deduction premiums the first
     # month the policy can't carry itself — which would trivially rescue any
@@ -197,7 +199,6 @@ def solve_lumpsum_to_next_premium(
     # Project a touch past the next due date so its lapse test is fully formed.
     project_months = gap + 2
     base = base_future_inputs
-    forecast_year = max(1, policy.duration // 12 + 1)
 
     def project(lumpsum: float) -> List[MonthlyState]:
         dated = list(base.dated_transactions) if base is not None else []
@@ -205,17 +206,16 @@ def solve_lumpsum_to_next_premium(
             dated.append(DatedTransaction(
                 kind=TransactionKind.PREMIUM, effective_date=forecast,
                 amount=float(lumpsum), subtype=LUMPSUM_SUBTYPE))
-        # Silence premium billing across the bridge: the lumpsum must carry the
-        # policy to the next scheduled premium on the inforce account value
-        # ALONE, independent of whatever ongoing premium is planned. The two
-        # never overlap — the ongoing premium resumes only at that next modal
-        # date, which is the target we bridge to, not a month we lean on here.
-        scheds = [s for s in (base.scheduled_transactions if base is not None else [])
-                  if s.kind != TransactionKind.PREMIUM]
-        scheds.append(ScheduledTransaction(
-            kind=TransactionKind.PREMIUM, policy_year=forecast_year, amount=0.0, mode="A"))
+        # Keep the run's real premium schedule intact: the lumpsum is a top-up
+        # layered ON the scheduled premium the policy is already billed, not a
+        # standalone deposit. On annual / quarterly / semiannual modes no
+        # scheduled premium falls inside the bridge window anyway (the next one
+        # lands on the next_due boundary, which the window excludes), so this is
+        # a no-op there. On monthly mode the modal premium is collected every
+        # month, including the forecast month — the bridge must be sized on top
+        # of it, exactly as the main run applies both together.
         future = IllustrationInputSet(
-            scheduled_transactions=scheds,
+            scheduled_transactions=list(base.scheduled_transactions) if base is not None else [],
             dated_transactions=dated,
             policy_changes=list(base.policy_changes) if base is not None else [])
         # stop_on_lapse off so the whole window is populated even past a lapse.

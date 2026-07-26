@@ -130,7 +130,39 @@ def test_context_billable_premium_and_spl87_flag():
     assert abs(normal.billable_premium - 153.56) < 0.005
 
 
-def test_premium_row_defaults_from_forecast_date():
+def test_input_to_md_type_editable_and_drives_b2md_window():
+    # INPUT to MD is mechanically Billable to MD but with a hand-entered base
+    # premium (never auto-filled from the billable premium, may be 0). It carries
+    # the same billable_to_md window + tag and forces GP exceptions on.
+    _app()
+    tab = IllustrationInputsTab()
+    tab.dynamic_panel.load_from_policy(_FakePolicy())
+    row = tab.dynamic_panel.premium_section.rows()[0]
+
+    types = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
+    assert "INPUT to MD" in types
+
+    # Selecting INPUT to MD does NOT auto-fill the billable premium (unlike
+    # Billable to MD) — the user enters the amount, here 0.
+    row.mode_combo.setCurrentText("A")
+    row.amount_edit.set_value(999.0, decimals=2)
+    row.type_combo.setCurrentText("INPUT to MD")
+    assert row.premium_type() == "INPUT to MD"
+    assert row.is_input_to_md() is True
+    # Amount is left as the user's entry (not overwritten to the 153.56 billable).
+    assert abs(row.amount() - 999.0) < 0.005
+    assert row.amount_edit.isEnabled() and not row.amount_edit.isReadOnly()
+
+    row.amount_edit.set_value(0.0, decimals=2)
+    # The row contributes a billable_to_md window (forecast year 7 -> maturity).
+    windows = tab.dynamic_panel.billable_to_md_windows()
+    assert windows and windows[0][0] == 7
+    # And the run forces GP exceptions on for the whole billable -> MD sequence.
+    assert tab.export_options().allow_exception_prems is True
+    assert tab.export_options().billable_to_md_windows == windows
+
+
+
     panel = _panel()
     row = panel.premium_section.rows()[0]
     # Valuation 2026-05-09 -> forecast 2026-06-09 = policy year 7 (issue 2019-11-09).
@@ -215,7 +247,7 @@ def test_min_level_available_for_loan_policy():
     row = panel.premium_section.rows()[0]
     options = [row.type_combo.itemText(i) for i in range(row.type_combo.count())]
     assert options == [
-        "INPUT", "Billable Prem", "Billable to MD", "Max Level",
+        "INPUT", "Billable Prem", "Billable to MD", "INPUT to MD", "Max Level",
         "Prem to Maturity", "Monthly Deduction", "Solve"]
 
 
@@ -291,7 +323,7 @@ def test_max_level_premium_defaults_and_changes_with_mode():
     row = panel.premium_section.rows()[0]
 
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
-        "INPUT", "Billable Prem", "Billable to MD", "Max Level",
+        "INPUT", "Billable Prem", "Billable to MD", "INPUT to MD", "Max Level",
         "Prem to Maturity", "Monthly Deduction", "Solve"]
 
     # Forecast is policy year 7, month 8, so the current year still has modes
@@ -352,7 +384,7 @@ def test_max_level_premium_hidden_for_cvat():
     # CVAT has no guideline premium test, so Max Level (guideline-room math) is
     # hidden — but Prem to Maturity still solves (with exceptions off).
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
-        "INPUT", "Billable Prem", "Billable to MD", "Prem to Maturity",
+        "INPUT", "Billable Prem", "Billable to MD", "INPUT to MD", "Prem to Maturity",
         "Monthly Deduction", "Solve"]
 
 
@@ -363,7 +395,7 @@ def test_shadow_level_premium_offered_for_shadow_policies():
     row = panel.premium_section.rows()[0]
 
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
-        "INPUT", "Billable Prem", "Billable to MD", "Max Level",
+        "INPUT", "Billable Prem", "Billable to MD", "INPUT to MD", "Max Level",
         "Prem to Maturity", "Prem to Shadow Maturity", "Monthly Deduction",
         "Solve"]
 
@@ -419,7 +451,7 @@ def test_toggling_additional_premium_types_updates_existing_rows_live():
 
     settings.set_additional_premium_types(True)
     assert [row.type_combo.itemText(i) for i in range(row.type_combo.count())] == [
-        "INPUT", "Billable Prem", "Billable to MD", "Max Level",
+        "INPUT", "Billable Prem", "Billable to MD", "INPUT to MD", "Max Level",
         "Prem to Maturity", "Monthly Deduction", "Solve"]
 
 

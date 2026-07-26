@@ -641,9 +641,57 @@ nar_corr = max(0, discounted_db_corr - remaining_av)
 
 COI charges:
 
-- coverage segments, riders, and benefits can use anniversary logic tied to their own issue dates
+- coverage segments, riders, and benefits use their own issue dates to establish
+  COI duration, but that duration advances only on the policy anniversary
 - raw COI is adjusted for table ratings and flat extras when active
 - the annual flat extra is converted to a monthly amount with `TRUNC(flat_extra / 12, 2)`, matching RERUN's cent truncation rather than ordinary rounding
+
+The duration used to index a COI schedule is:
+
+```text
+item_coi_duration =
+    policy_anniversaries_completed(as_of_date)
+    - policy_anniversaries_completed(item_issue_date)
+    + 1
+```
+
+This is the same rule for a base coverage segment, a later-issued coverage
+segment, a rider, and a supplemental benefit. It counts years from that item's
+issue date while preserving policy-anniversary rate changes. This differs from
+the literal item-anniversary duration used by some non-COI schedules, such as
+EPU and surrender charges.
+
+Benefit COI lookup also uses the benefit's own issue age from
+`LH_SPM_BNF.BNF_ISS_AGE`. The base coverage still supplies the insured sex and
+rate class, and the current base segment supplies the band:
+
+```text
+BENCOI key =
+    policy plancode
+    + benefit type/subtype
+    + benefit issue age
+    + base insured sex/rate class
+    + current policy band
+    + scale
+```
+
+Example - policy `U0106224`:
+
+```text
+policy issue date        = 12/18/1986
+benefit 11 issue date    = 01/18/1999
+benefit issue age        = 28
+calculation date         = 07/24/2026
+
+policy anniversaries completed at benefit issue = 12
+policy anniversaries completed at calculation   = 39
+benefit COI duration = 39 - 12 + 1 = 28
+```
+
+Therefore benefit 11 selects the BENCOI schedule for **issue age 28** and reads
+**duration 28**. It remains at duration 28 until the next policy anniversary on
+12/18/2026, when it advances to duration 29; it does not advance on the
+benefit's 01/18 anniversary.
 
 ```text
 adjusted_coi_rate = raw_rate * (1 + table_rating_factor * table_rating) + TRUNC(flat_extra / 12, 2)

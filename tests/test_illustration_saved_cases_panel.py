@@ -576,7 +576,7 @@ def test_case_row_restores_frozen_snapshot_without_db2(monkeypatch, tmp_path):
     # plain (no case suffix).
     assert window.lookup_bar.policy_label.text() == "CKPR - 01 - POLA"
     assert window._title_label.text() == (
-        "SuiteView:  Illustration — Case “Frozen A”")
+        "SuiteView:  RERUN — Case “Frozen A”")
     assert window._header_colors == ILLUSTRATION_SNAPSHOT_HEADER_COLORS
     # As-of detail stays on the inputs strip; the Policy tab is populated from
     # the frozen snapshot (not greyed out) and wears a red 'not retrieved live'
@@ -600,7 +600,7 @@ def test_case_row_restores_frozen_snapshot_without_db2(monkeypatch, tmp_path):
     assert window.policy_tab.snapshot_notice() is None
     assert window.policy_tab.snapshot_banner_text() is None
     assert not window.inputs_tab.snapshot_banner.isVisibleTo(window.inputs_tab)
-    assert window._title_label.text() == "SuiteView:  Illustration"
+    assert window._title_label.text() == "SuiteView:  RERUN"
     assert window._header_colors == ILLUSTRATION_HEADER_COLORS
     window.close()
 

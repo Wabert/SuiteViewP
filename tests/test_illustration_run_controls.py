@@ -45,6 +45,57 @@ def test_tefra_and_stop_on_lapse_are_locked_on():
     assert tab.stop_on_lapse_enabled() is True
 
 
+def test_enable_illustration_options_unlocks_tefra_and_stop_on_lapse():
+    # "Enable Illustration Options" is off by default (leaving the two controls
+    # locked on). Checking it unlocks them so they can be toggled off, and their
+    # values flow through to the run options. Turning it back off relocks them
+    # on their default (checked + disabled).
+    _app()
+    tab = IllustrationInputsTab()
+
+    assert tab.enable_illustration_options_check.isChecked() is False
+    assert tab.tefra_check.isEnabled() is False
+    assert tab.stop_on_lapse_check.isEnabled() is False
+
+    tab.enable_illustration_options_check.setChecked(True)
+    assert tab.tefra_check.isEnabled() is True
+    assert tab.stop_on_lapse_check.isEnabled() is True
+
+    tab.tefra_check.setChecked(False)
+    tab.stop_on_lapse_check.setChecked(False)
+    assert tab.export_options().conform_to_tefra is False
+    assert tab.stop_on_lapse_enabled() is False
+
+    # Relock — controls snap back to locked-on and drive the options again.
+    tab.enable_illustration_options_check.setChecked(False)
+    assert tab.tefra_check.isEnabled() is False
+    assert tab.stop_on_lapse_check.isEnabled() is False
+    assert tab.tefra_check.isChecked() is True
+    assert tab.stop_on_lapse_check.isChecked() is True
+    assert tab.export_options().conform_to_tefra is True
+    assert tab.stop_on_lapse_enabled() is True
+
+
+def test_illustration_options_override_round_trips_through_saved_case():
+    # When the override is on and the two controls are toggled off, a saved case
+    # captures and restores that state.
+    _app()
+    tab = IllustrationInputsTab()
+    tab.enable_illustration_options_check.setChecked(True)
+    tab.tefra_check.setChecked(False)
+    tab.stop_on_lapse_check.setChecked(False)
+
+    state = tab.capture_case_inputs()
+
+    restored = IllustrationInputsTab()
+    restored.apply_case_inputs(state)
+    assert restored.enable_illustration_options_check.isChecked() is True
+    assert restored.tefra_check.isEnabled() is True
+    assert restored.stop_on_lapse_check.isEnabled() is True
+    assert restored.tefra_check.isChecked() is False
+    assert restored.stop_on_lapse_check.isChecked() is False
+
+
 def test_shadow_account_signal_forces_exception_checkbox_off():
     from datetime import date
 

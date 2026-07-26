@@ -220,7 +220,10 @@ class IllustrationPolicyTab(QWidget):
             ("Guideline Single", "guideline_single"),
             ("Guideline Level", "guideline_level"),
             ("Accum GLP", "accum_glp"),
+            ("Prem Allowed by GPT", "prem_allowed_gpt"),
         ])
+        # Calculated field — italicized to indicate it is derived, not read from DB2.
+        self._make_group_field_italic(self.mec_values, "prem_allowed_gpt")
         # Policy Values swapped into Fund Values' old slot — what remains here
         # are the CVAT-only figures.
         self.account_values = self._make_value_group("Policy Values", [
@@ -285,6 +288,30 @@ class IllustrationPolicyTab(QWidget):
         for label, attr in fields:
             group.add_field(label, attr, 150, 105)
         return group
+
+    @staticmethod
+    def _make_group_field_italic(group, attr_name: str):
+        """Italicize a field's label and value to flag it as a calculated value."""
+        labels = getattr(group, "_labels", {})
+        if attr_name in labels:
+            lbl = labels[attr_name]
+            lbl.setStyleSheet(lbl.styleSheet() + " font-style: italic;")
+        fields = getattr(group, "_fields", {})
+        if attr_name in fields:
+            val = fields[attr_name]
+            val.setStyleSheet(val.styleSheet() + " font-style: italic;")
+
+    @staticmethod
+    def _prem_allowed_by_gpt(definition, accum_glp, premium_td, withdrawals) -> str:
+        """Calculated: max(0, AccumGLP - PremiumTD + AccumWD). N/A for CVAT."""
+        if definition != "GP":
+            return "N/A"
+        try:
+            val = max(0.0, float(accum_glp or 0)
+                      - float(premium_td or 0) + float(withdrawals or 0))
+        except (TypeError, ValueError):
+            return "N/A"
+        return format_currency(val, "$")
 
     def _make_fund_subtable(self, title: str, value_header: str = "Fund Value"):
         """A captioned, compact Fund ID / value table for nesting inside the
@@ -565,6 +592,8 @@ class IllustrationPolicyTab(QWidget):
         self.mec_values.set_value("accum_glp", format_currency(s.accumulated_glp, "$"))
         for attr in ["guideline_single", "guideline_level", "accum_glp"]:
             self._set_group_field_visible(self.mec_values, attr, definition == "GP")
+        self.mec_values.set_value("prem_allowed_gpt", self._prem_allowed_by_gpt(
+            definition, s.accumulated_glp, s.premiums_paid_to_date, s.withdrawals_to_date))
 
     def _populate_fund_values_from_snapshot(self, s):
         # Unimpaired = free fund value by fund. The snapshot captures only the
@@ -828,6 +857,8 @@ class IllustrationPolicyTab(QWidget):
         self.mec_values.set_value("accum_glp", format_currency(policy.accumulated_glp_target, "$"))
         for attr in ["guideline_single", "guideline_level", "accum_glp"]:
             self._set_group_field_visible(self.mec_values, attr, definition == "GP")
+        self.mec_values.set_value("prem_allowed_gpt", self._prem_allowed_by_gpt(
+            definition, policy.accumulated_glp_target, policy.premium_td, policy.total_withdrawals))
 
     def _populate_fund_values(self, policy):
         # Unimpaired = free fund value (CSV); Impaired = loan-collateralized

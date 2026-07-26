@@ -258,7 +258,8 @@ def build_guideline_basis(
                 continue
             ben_key = ben_type + (ben.benefit_subtype or "")
             schedule = rates.benefit_coi.get(ben_key, [])
-            rate = _safe_rate(schedule, policy_year)
+            benefit_year = max(1, policy_year - _coverage_start_year_offset(policy, ben))
+            rate = _safe_rate(schedule, benefit_year)
             if rate <= 0.0:
                 continue
             factor = ben.rating_factor if ben.rating_factor and ben.rating_factor > 0 else 1.0
@@ -346,7 +347,13 @@ def _coverage_start_year_offset(policy: IllustrationPolicyData, seg) -> int:
     """Policy years elapsed before the segment's coverage started (0 for cov 1)."""
     if seg.issue_date is None or policy.issue_date is None:
         return 0
-    return max(0, seg.issue_date.year - policy.issue_date.year)
+    years = seg.issue_date.year - policy.issue_date.year
+    if (seg.issue_date.month, seg.issue_date.day) < (
+        policy.issue_date.month,
+        policy.issue_date.day,
+    ):
+        years -= 1
+    return max(0, years)
 
 
 _BENEFIT_TYPE_LABELS = {

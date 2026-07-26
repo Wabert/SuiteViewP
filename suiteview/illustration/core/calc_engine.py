@@ -53,6 +53,7 @@ from suiteview.illustration.core.premium_allowance import (
 from suiteview.illustration.core.premium_handler import apply_premium
 from suiteview.illustration.core.rate_loader import (
     IllustrationRates,
+    _load_benefit_coi_rates,
     get_rate,
     load_rates,
 )
@@ -1779,10 +1780,9 @@ def _reband_benefits(rates, policy) -> None:
         ben_key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
         if not ben_key:
             continue
-        rates.benefit_coi[ben_key] = rates_db.get_rates(
-            "BENCOI", policy.plancode, issue_age=seg.issue_age, sex=seg.rate_sex,
-            rateclass=seg.rate_class, scale=1, band=seg.band, benefit_type=ben_key,
-        ) or []
+        rates.benefit_coi[ben_key] = _load_benefit_coi_rates(
+            rates_db, policy, ben, seg
+        )
 
 
 def _reload_policy_band_rates(rates, policy, config) -> None:

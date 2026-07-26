@@ -232,6 +232,10 @@ class AdvTab(QWidget):
             range_grid, 3, "Accum MTP (58)")
         self.rng_accum_glp = _add_range_row(
             range_grid, 4, "Accum GLP (58)")
+        self.rng_glp = _add_range_row(
+            range_grid, 5, "GLP (58)")
+        self.rng_gsp = _add_range_row(
+            range_grid, 6, "GSP (58)")
 
         bot_left.addLayout(range_grid)
         bot_left.addStretch()
@@ -319,6 +323,10 @@ class AdvTab(QWidget):
             "rng_accum_mtp_hi": _t(self.rng_accum_mtp[1]),
             "rng_accum_glp_lo": _t(self.rng_accum_glp[0]),
             "rng_accum_glp_hi": _t(self.rng_accum_glp[1]),
+            "rng_glp_lo": _t(self.rng_glp[0]),
+            "rng_glp_hi": _t(self.rng_glp[1]),
+            "rng_gsp_lo": _t(self.rng_gsp[0]),
+            "rng_gsp_hi": _t(self.rng_gsp[1]),
             "chk_prem_alloc": _c(self.chk_prem_alloc),
             "list_prem_alloc": _sel(self.list_prem_alloc),
             "rng_type_p_lo": _t(self.rng_type_p[0]),
@@ -359,6 +367,10 @@ class AdvTab(QWidget):
         _t(self.rng_accum_mtp[1], state.get("rng_accum_mtp_hi", ""))
         _t(self.rng_accum_glp[0], state.get("rng_accum_glp_lo", ""))
         _t(self.rng_accum_glp[1], state.get("rng_accum_glp_hi", ""))
+        _t(self.rng_glp[0], state.get("rng_glp_lo", ""))
+        _t(self.rng_glp[1], state.get("rng_glp_hi", ""))
+        _t(self.rng_gsp[0], state.get("rng_gsp_lo", ""))
+        _t(self.rng_gsp[1], state.get("rng_gsp_hi", ""))
         _c(self.chk_prem_alloc, state.get("chk_prem_alloc", False))
         _sel(self.list_prem_alloc, state.get("list_prem_alloc", []))
         _t(self.rng_type_p[0], state.get("rng_type_p_lo", ""))

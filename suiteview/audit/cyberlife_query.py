@@ -387,6 +387,8 @@ def build_cyberlife_sql(
     has_curr_spec_amt = bool(at.rng_curr_spec_amt[0].text().strip() or at.rng_curr_spec_amt[1].text().strip())
     has_accum_mtp = bool(at.rng_accum_mtp[0].text().strip() or at.rng_accum_mtp[1].text().strip())
     has_accum_glp_range = bool(at.rng_accum_glp[0].text().strip() or at.rng_accum_glp[1].text().strip())
+    has_glp_range = bool(at.rng_glp[0].text().strip() or at.rng_glp[1].text().strip())
+    has_gsp_range = bool(at.rng_gsp[0].text().strip() or at.rng_gsp[1].text().strip())
     has_type_p = bool(at.rng_type_p[0].text().strip() or at.rng_type_p[1].text().strip())
     has_type_v = bool(at.rng_type_v[0].text().strip() or at.rng_type_v[1].text().strip())
     # ── Policy tab: bottom checkboxes ──────────────────────
@@ -758,7 +760,7 @@ def build_cyberlife_sql(
         sql_parts.append(f"      AND COVERAGE1.TCH_POL_ID = INTERPOLATION_MONTHS.TCH_POL_ID)")
 
     # ADV / Display: GLP CTE (guideline level premium)
-    if adv_glp_neg or disp_glp:
+    if adv_glp_neg or disp_glp or has_glp_range:
         sql_parts.append(f", GLP AS (")
         sql_parts.append(f"  SELECT DISTINCT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID,")
         sql_parts.append(f"    TEMPGLP.GDL_PRM_AMT GLP_VALUE")
@@ -767,7 +769,7 @@ def build_cyberlife_sql(
         sql_parts.append(f"    AND TEMPGLP.PRM_RT_TYP_CD = 'A')")
 
     # Display: GSP CTE (guideline single premium)
-    if disp_gsp:
+    if disp_gsp or has_gsp_range:
         sql_parts.append(f", GSP AS (")
         sql_parts.append(f"  SELECT DISTINCT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID,")
         sql_parts.append(f"    TEMPGSP.GDL_PRM_AMT GSP_VALUE")
@@ -1053,7 +1055,11 @@ def build_cyberlife_sql(
         sql_parts.append("  , TAMRA.SVPY_LVL_PRM_AMT TAMRA7PAY")
     if disp_gsp:
         sql_parts.append("  , GSP.GSP_VALUE")
+    elif has_gsp_range:
+        sql_parts.append("  , GSP.GSP_VALUE")
     if disp_glp:
+        sql_parts.append("  , GLP.GLP_VALUE")
+    elif has_glp_range:
         sql_parts.append("  , GLP.GLP_VALUE")
     if disp_bill_ctrl_num:
         sql_parts.append("  , BILL_CONTROL.BIL_CTL_NBR BillControl")
@@ -1458,8 +1464,8 @@ def build_cyberlife_sql(
         sql_parts.append("    ON POLICY1.CK_SYS_CD = ISWL_INTERPOLATED_GCV.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = ISWL_INTERPOLATED_GCV.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = ISWL_INTERPOLATED_GCV.TCH_POL_ID")
-    if adv_glp_neg or disp_glp:
-        _glp_join = "INNER JOIN" if adv_glp_neg else "LEFT OUTER JOIN"
+    if adv_glp_neg or disp_glp or has_glp_range:
+        _glp_join = "INNER JOIN" if (adv_glp_neg or has_glp_range) else "LEFT OUTER JOIN"
         sql_parts.append(f"  {_glp_join} GLP")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = GLP.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = GLP.CK_CMP_CD")
@@ -1553,8 +1559,9 @@ def build_cyberlife_sql(
         sql_parts.append("    AND POLICY1.TCH_POL_ID = USERDEF_52G.TCH_POL_ID")
 
     # Display tab: GSP JOIN (CTE)
-    if disp_gsp:
-        sql_parts.append("  LEFT OUTER JOIN GSP")
+    if disp_gsp or has_gsp_range:
+        _gsp_join = "INNER JOIN" if has_gsp_range else "LEFT OUTER JOIN"
+        sql_parts.append(f"  {_gsp_join} GSP")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = GSP.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = GSP.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = GSP.TCH_POL_ID")
@@ -2281,6 +2288,12 @@ def build_cyberlife_sql(
     # -- Accum GLP (58) --
     add_decimal_range(wheres, "ACCUMGLP.TAR_PRM_AMT",
                       at.rng_accum_glp[0], at.rng_accum_glp[1])
+    # -- GLP (58) --
+    add_decimal_range(wheres, "GLP.GLP_VALUE",
+                      at.rng_glp[0], at.rng_glp[1])
+    # -- GSP (58) --
+    add_decimal_range(wheres, "GSP.GSP_VALUE",
+                      at.rng_gsp[0], at.rng_gsp[1])
     # -- Type P Sequence (57) --
     add_int_range(wheres, "ALLOCATION_P_COUNT.FND_ALC_SEQ_NBR",
                   at.rng_type_p[0], at.rng_type_p[1])

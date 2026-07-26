@@ -44,7 +44,7 @@ from .tabs import (
 
 
 # Header-bar button style (PolView green/gold), matching the other compact
-# header controls — used for the "Open in Illustrator" button.
+# header controls — used for the "Open in RERUN" button.
 HEADER_ILLUSTRATOR_BUTTON_STYLE = """
     QPushButton {
         background: rgba(0, 0, 0, 60);
@@ -133,10 +133,10 @@ class GetPolicyWindow(FramelessWindowBase):
         # new policy starts with a clean slate.
         self._aux_tab_state: dict = {}
 
-        # Header-bar "Open in Illustrator" button (built before super().__init__
+        # Header-bar "Open in RERUN" button (built before super().__init__
         # so FramelessWindowBase can place it via header_widgets; wired after).
-        self.open_illustrator_btn = QPushButton("📈 Illustrator")
-        self.open_illustrator_btn.setToolTip("Open this policy in the Illustrator")
+        self.open_illustrator_btn = QPushButton("📈 RERUN")
+        self.open_illustrator_btn.setToolTip("Open this policy in RERUN")
         self.open_illustrator_btn.setEnabled(False)
         self.open_illustrator_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
 
@@ -717,13 +717,12 @@ class GetPolicyWindow(FramelessWindowBase):
 
     def set_illustration_launcher(self, launcher):
         """Register a callback ``launcher(policy, region, company)`` used by the
-        header "Open in Illustrator" button. The taskbar sets this so the shared
-        Illustration window is reused; when unset the button opens a standalone
-        Illustration window."""
+        header "Open in RERUN" button. The taskbar sets this so the shared RERUN
+        window is reused; when unset the button opens a standalone RERUN window."""
         self._illustration_launcher = launcher
 
     def _open_in_illustrator(self):
-        """Open the currently-loaded policy in the Illustration app."""
+        """Open the currently-loaded policy in RERUN."""
         if not self._current_policy:
             return
         region = self._current_region or "CKPR"
@@ -731,7 +730,7 @@ class GetPolicyWindow(FramelessWindowBase):
         if self._illustration_launcher is not None:
             self._illustration_launcher(self._current_policy, region, company)
             return
-        # Standalone fallback: open our own Illustration window.
+        # Standalone fallback: open our own RERUN window.
         from suiteview.illustration.ui.main_window import IllustrationWindow
         self._illustrator_window = IllustrationWindow(
             initial_policy=self._current_policy,
@@ -956,7 +955,7 @@ class GetPolicyWindow(FramelessWindowBase):
         if not self._policy or not self._policy.exists:
             return
 
-        # A policy is loaded — enable the "Open in Illustrator" header button.
+        # A policy is loaded — enable the "Open in RERUN" header button.
         self.open_illustrator_btn.setEnabled(True)
 
         # Clear the Raw Table tab so stale data doesn't persist across policies

@@ -134,6 +134,8 @@ This document categorizes all the input types across the first 8 tabs (Policy th
 *   **Current Specified Amount (02):** Range (`TextBox_CurrentSALessThan` to `TextBox_CurrentSAGreaterThan`)
 *   **Accum MTP (58):** Range (`TextBox_AccumMTPLessThan` to `TextBox_AccumMTPGreaterThan`)
 *   **Accum GLP (58):** Range (`TextBox_AccumGLPLessThan` to `TextBox_AccumGLPGreaterThan`)
+*   **GLP (58):** Range (`TextBox_GLPLessThan` to `TextBox_GLPGreaterThan`)
+*   **GSP (58):** Range (`TextBox_GSPLessThan` to `TextBox_GSPGreaterThan`)
 *   **Grace Period Rule Code (66):** Checkbox + Listbox (`CheckBox_GracePeriodRuleCode` and `ListBox_GracePeriodRuleCode`)
 *   **Death Benefit Option (66):** Checkbox + Listbox (`CheckBox_SpecifyDBOption` and `ListBox_DBOption`)
 *   **IUL Only - Premium Allocation funds (57):** Checkbox + Listbox (`CheckBox_PremiumAllocationFunds` and `ListBox_PremiumAllocationFunds`)
@@ -390,5 +392,4 @@ The original VBA tool did not have a dedicated Dividends criteria tab — divide
 
 **Display Outputs:**
 *   Dividend type, year, OYT/PUA face amounts, deposit amounts, and interest amounts are displayable columns in the results grid.
-
 

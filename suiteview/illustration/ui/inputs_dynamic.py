@@ -434,6 +434,16 @@ _TYPE_BILLABLE = "Billable Prem"
 # are always allowed for this premium type, regardless of the checkbox). The
 # row's year window bounds the whole billable → MD → exception sequence.
 _TYPE_BILLABLE_TO_MD = "Billable to MD"
+# "INPUT to MD" is mechanically identical to "Billable to MD" — pay the base
+# premium each period until the FIRST month it can no longer keep the policy in
+# force, then switch permanently to the Monthly Deduction premium (GP exception
+# backstop once the guideline room runs out; exceptions are always allowed for
+# this type). The ONLY difference is the base premium is the user-entered INPUT
+# amount/mode (editable, may be 0), NOT the policy's billable premium — so it is
+# never auto-filled. It reuses the same engine machinery as Billable to MD (the
+# billable_to_md window + latch, which is amount-agnostic), so its rows carry the
+# same {"billable_to_md": True} tag and contribute to billable_to_md_windows().
+_TYPE_INPUT_TO_MD = "INPUT to MD"
 # "Max Level" is the maximum level guideline premium (may not reach
 # maturity). The row shows a closed-form estimate from the CURRENT guideline
 # room immediately; Run Values solves it exactly on the real projection so any
@@ -620,6 +630,7 @@ class InputRow(QWidget):
             options = [_TYPE_INPUT, _TYPE_BILLABLE]
             if show_additional:
                 options.append(_TYPE_BILLABLE_TO_MD)
+                options.append(_TYPE_INPUT_TO_MD)
             if show_additional and not (ctx is not None and ctx.is_cvat):
                 options.append(_TYPE_MAX_LEVEL)
             options.append(_TYPE_MIN_LEVEL)
@@ -705,6 +716,9 @@ class InputRow(QWidget):
 
     def is_billable_to_md(self) -> bool:
         return self.type_combo.currentText() == _TYPE_BILLABLE_TO_MD
+
+    def is_input_to_md(self) -> bool:
+        return self.type_combo.currentText() == _TYPE_INPUT_TO_MD
 
     def is_solve(self) -> bool:
         """A Premiums "Solve" row — target-value premium, solved on Run Values."""
@@ -816,6 +830,21 @@ class InputRow(QWidget):
                 "room runs out, GP exception premiums keep the policy alive — "
                 "they are always allowed for this premium type, regardless of "
                 "the Allow GP Exception Premium checkbox.")
+        elif ptype == _TYPE_INPUT_TO_MD:
+            # Editable like INPUT — the amount/mode are entered by hand (NOT
+            # auto-filled from the billable premium, and may be 0); the
+            # billable → MD → exception hand-off is engine-side, identical to
+            # Billable to MD.
+            self.amount_edit.setEnabled(True)
+            self.amount_edit.setReadOnly(False)
+            self.amount_edit.setToolTip(
+                "Pays the amount you enter on its mode (may be 0) until the "
+                "first month it can no longer keep the policy in force, then "
+                "switches permanently to paying the Monthly Deduction each "
+                "month. Once the guideline room runs out, GP exception "
+                "premiums keep the policy alive — they are always allowed for "
+                "this premium type, regardless of the Allow GP Exception "
+                "Premium checkbox.")
         else:
             self.amount_edit.setEnabled(True)
             self.amount_edit.setReadOnly(False)
@@ -2331,7 +2360,7 @@ class DynamicInputsPanel(QWidget):
             return []
         windows: list[tuple[int, Optional[int]]] = []
         for row in self.premium_section.rows():
-            if not row.is_billable_to_md():
+            if not (row.is_billable_to_md() or row.is_input_to_md()):
                 continue
             start = row.year() or ctx.forecast_year
             end = row.end_year()
@@ -2730,13 +2759,13 @@ class DynamicInputsPanel(QWidget):
                 _TYPE_MAX_LEVEL, _TYPE_MIN_LEVEL, _TYPE_SHADOW_LEVEL,
                 _TYPE_MONTHLY_DEDUCTION, _TYPE_SOLVE)
         ]
-        # A "Billable to MD" row pays real scheduled premiums like any INPUT
-        # row; the tag lets the compiler mark its dated (current-year)
-        # payments so the engine can stop them once the MD hand-off latches.
-        # (Post-switch scheduled premiums are suppressed by the row's year
-        # window — billable_to_md_windows on the run options.)
+        # A "Billable to MD" / "INPUT to MD" row pays real scheduled premiums
+        # like any INPUT row; the tag lets the compiler mark its dated
+        # (current-year) payments so the engine can stop them once the MD
+        # hand-off latches. (Post-switch scheduled premiums are suppressed by
+        # the row's year window — billable_to_md_windows on the run options.)
         for entry in prem_entries:
-            if entry.get("type") == _TYPE_BILLABLE_TO_MD:
+            if entry.get("type") in (_TYPE_BILLABLE_TO_MD, _TYPE_INPUT_TO_MD):
                 entry["metadata"] = {"billable_to_md": True}
         dated_prem, sched_prem = self._split_current_year(prem_entries)
         if prem_entries or md_active:

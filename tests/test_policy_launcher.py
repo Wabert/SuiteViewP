@@ -1,11 +1,10 @@
-"""Taskbar policy launcher + PolView "Open in Illustrator" wiring (headless Qt).
+"""Taskbar policy launcher and cross-app policy wiring (headless Qt).
 
 Typing a policy number in the taskbar's compact bar and clicking PolView or
-Illustration must open that app with the policy already loaded, routed through
+RERUN must open that app with the policy already loaded, routed through
 each app's existing Get/Retrieve path. ABR Quote always opens without receiving
-the compact-bar policy. PolView's header "Open in Illustrator" button funnels
-the current policy through the same illustration launcher and is inert until a
-policy is loaded.
+the compact-bar policy. PolView and RERUN header buttons pass the current policy
+between the two apps and remain inert until a policy is loaded.
 """
 import os
 
@@ -127,7 +126,8 @@ def test_polview_illustrator_button_disabled_without_policy():
     _app()
     win = GetPolicyWindow(enable_policy_list=False)
     assert win.open_illustrator_btn.isEnabled() is False
-    assert win.open_illustrator_btn.toolTip() == "Open this policy in the Illustrator"
+    assert win.open_illustrator_btn.text() == "📈 RERUN"
+    assert win.open_illustrator_btn.toolTip() == "Open this policy in RERUN"
     win.close()
 
 
@@ -153,6 +153,29 @@ def test_polview_open_in_illustrator_launches_current_policy():
     win._current_region = "CKMO"
     win._policy_info = {"CompanyCode": "04"}
     win._open_in_illustrator()
+    assert launched == [("E0213651", "CKMO", "04")]
+    win.close()
+
+
+def test_rerun_polview_button_disabled_without_policy():
+    _app()
+    win = IllustrationWindow()
+    assert win.open_polview_btn.isEnabled() is False
+    assert win.open_polview_btn.text() == "PolView"
+    assert win.open_polview_btn.toolTip() == "Open this policy in PolView"
+    win.close()
+
+
+def test_rerun_open_in_polview_launches_current_policy():
+    _app()
+    win = IllustrationWindow()
+    launched = []
+    win.set_polview_launcher(
+        lambda policy, region, company: launched.append((policy, region, company)))
+    win._current_policy = "E0213651"
+    win._current_region = "CKMO"
+    win._policy_info = {"CompanyCode": "04"}
+    win._open_in_polview()
     assert launched == [("E0213651", "CKMO", "04")]
     win.close()
 

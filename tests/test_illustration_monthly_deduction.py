@@ -219,6 +219,34 @@ def test_benefit_charge_stops_on_benefit_cease_date():
     assert at_cease.benefit_charges == pytest.approx(0.0)
 
 
+def test_benefit_charge_uses_benefit_duration_at_policy_anniversary():
+    benefit = BenefitInfo(
+        benefit_type="1",
+        benefit_subtype="1",
+        units=25.0,
+        issue_date=date(1999, 1, 18),
+        is_active=True,
+    )
+    policy = _minimal_policy_with_riders_and_benefits(benefits=[benefit])
+    policy.issue_date = date(1986, 12, 18)
+    config, rates = _minimal_config_and_rates()
+    rates.benefit_coi["11"] = [None] + [float(year) for year in range(1, 81)]
+
+    result = calculate_deduction(
+        10_000.0,
+        policy,
+        config,
+        rates,
+        rate_year=40,
+        attained_age=79,
+        premiums_to_date=0.0,
+        projection_date=date(2026, 7, 24),
+    )
+
+    assert result.benefit_rates["11"] == pytest.approx(28.0)
+    assert result.benefit_charge_detail["11"] == pytest.approx(700.0)
+
+
 def test_rider_and_benefit_charges_round_to_cents_by_default():
     rider = RiderInfo(
         plancode="LTR",

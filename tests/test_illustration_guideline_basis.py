@@ -146,6 +146,46 @@ def test_load_rates_uses_current_scale_for_expenses_with_guaranteed_coi():
     assert rates.epu[1] == 101.0        # scale 1
 
 
+def test_load_rates_uses_benefit_issue_age_for_bencoi():
+    class _FakeRates:
+        def __init__(self):
+            self.calls = []
+
+        def get_rates(self, rate_type, plancode, issue_age=None, sex=None,
+                      rateclass=None, scale=1, band=None, **kwargs):
+            self.calls.append((rate_type, issue_age, kwargs.get("benefit_type")))
+            return [None, 0.1]
+
+        def get_band_break(self, *args, **kwargs):
+            return 0.0
+
+        def get_mtp(self, *args, **kwargs):
+            return 0.0
+
+        def get_ctp(self, *args, **kwargs):
+            return 0.0
+
+    policy = _policy(benefits=[
+        BenefitInfo(
+            benefit_type="1",
+            benefit_subtype="1",
+            issue_age=28,
+            is_active=True,
+        ),
+    ])
+    policy.segments[0].issue_age = 40
+    fake = _FakeRates()
+    original = rate_loader.Rates
+    rate_loader.Rates = lambda: fake
+    try:
+        load_rates(policy, _config())
+    finally:
+        rate_loader.Rates = original
+
+    assert ("BENCOI", 28, "11") in fake.calls
+    assert ("BENCOI", 40, "11") not in fake.calls
+
+
 # ── Benefit scope: ADB out, waiver in ──────────────────────────────────────
 
 
@@ -165,6 +205,33 @@ def test_guideline_excludes_adb_benefit_charges():
     assert "PW (Waiver)" in gm.benefit_charge_detail
     # PW = trunc2(rate x monthly MTP) only — no ADB contribution.
     assert abs(gm.benefit_charges - 3.0) < 1e-9   # 0.10 x 30.00
+
+
+def test_guideline_benefit_charge_uses_benefit_duration_at_policy_anniversary():
+    benefit = BenefitInfo(
+        benefit_type="3",
+        benefit_subtype="9",
+        issue_date=date(1999, 1, 18),
+        is_active=True,
+    )
+    policy = _policy(benefits=[benefit])
+    policy.issue_date = date(1986, 12, 18)
+    policy.issue_age = 40
+    policy.segments[0].issue_date = policy.issue_date
+    rates = _rates(benefit_coi={
+        "39": [None] + [float(year) / 100.0 for year in range(1, 81)],
+    })
+
+    basis = build_guideline_basis(
+        policy,
+        _config(),
+        rates,
+        attained_age=79,
+        as_of=date(2026, 7, 24),
+        months_into_year=7,
+    )
+
+    assert basis.months[0].benefit_charges == 8.4
 
 
 # ── Rider charges: current COI stream, active-window gated ─────────────────

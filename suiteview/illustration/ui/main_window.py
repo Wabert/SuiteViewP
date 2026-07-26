@@ -59,7 +59,7 @@ from .styles import (
 
 logger = logging.getLogger(__name__)
 
-WINDOW_TITLE = "SuiteView:  Illustration"
+WINDOW_TITLE = "SuiteView:  RERUN"
 
 
 class IllustrationWindow(FramelessWindowBase):
@@ -73,6 +73,7 @@ class IllustrationWindow(FramelessWindowBase):
         self._current_region = None
         self._where_clause = None
         self._policy_info = {}
+        self._polview_launcher = None
         self._policy_cache: dict = {}
         self._list_panel_visible = False
         self._last_scenario = None
@@ -104,6 +105,11 @@ class IllustrationWindow(FramelessWindowBase):
             "Toggle the List panel (Policies / Saved Cases)")
         self.list_toggle_btn.setStyleSheet(HEADER_PANEL_BUTTON_STYLE)
 
+        self.open_polview_btn = QPushButton("PolView")
+        self.open_polview_btn.setToolTip("Open this policy in PolView")
+        self.open_polview_btn.setEnabled(False)
+        self.open_polview_btn.setStyleSheet(HEADER_PANEL_BUTTON_STYLE)
+
         # "Options" header menu (toolbar-style drop-down). Holds app-wide
         # toggles that apply across the whole Illustration app — not per
         # policy/case. Built before super().__init__ so FramelessWindowBase can
@@ -117,8 +123,13 @@ class IllustrationWindow(FramelessWindowBase):
             parent=parent,
             header_colors=ILLUSTRATION_HEADER_COLORS,
             border_color=ILLUSTRATION_BORDER_COLOR,
-            header_widgets=[self.options_btn, self.list_toggle_btn],
+            header_widgets=[
+                self.open_polview_btn,
+                self.options_btn,
+                self.list_toggle_btn,
+            ],
         )
+        self.open_polview_btn.clicked.connect(self._open_in_polview)
         self.list_toggle_btn.clicked.connect(self._toggle_list_panel)
 
         # Optionally pull in a policy on open (e.g. launched from the taskbar
@@ -173,6 +184,29 @@ class IllustrationWindow(FramelessWindowBase):
         self.lookup_bar.company_input.setText(company_code or "")
         self.lookup_bar.policy_input.setText(policy_number)
         self.lookup_bar._on_get_policy()
+
+    def set_polview_launcher(self, launcher):
+        """Register the shared PolView policy launcher supplied by the taskbar."""
+        self._polview_launcher = launcher
+
+    def _open_in_polview(self):
+        """Open the currently loaded policy in PolView."""
+        if not self._current_policy:
+            return
+        region = self._current_region or "CKPR"
+        company = str((self._policy_info or {}).get("CompanyCode", "") or "")
+        if self._polview_launcher is not None:
+            self._polview_launcher(self._current_policy, region, company)
+            return
+
+        from suiteview.polview.ui.main_window import GetPolicyWindow
+
+        self._polview_window = GetPolicyWindow(
+            initial_policy=self._current_policy,
+            initial_region=region,
+            initial_company=company,
+        )
+        self._polview_window.show()
 
     def build_content(self) -> QWidget:
         body = QWidget()
@@ -462,6 +496,7 @@ class IllustrationWindow(FramelessWindowBase):
     def _load_policy_into_ui(self, region: str, cached: bool = False):
         if not self._policy or not self._policy.exists:
             return
+        self.open_polview_btn.setEnabled(True)
         company_code = self._policy_info.get("CompanyCode", self._policy.company_code)
         if not self._db or self._db.region != region:
             if self._db:
@@ -590,6 +625,7 @@ class IllustrationWindow(FramelessWindowBase):
             "CompanyCode": company_code,
             "Region": region,
         }
+        self.open_polview_btn.setEnabled(True)
 
         # Header: the user must never mistake the snapshot for live data.
         self._set_case_asof_header(case)

@@ -89,6 +89,20 @@ def _load_rider_coi_rates(rates_db: Rates, rider) -> List:
     ) or []
 
 
+def _load_benefit_coi_rates(rates_db: Rates, policy, benefit, segment) -> List:
+    benefit_key = (benefit.benefit_type or "") + (benefit.benefit_subtype or "")
+    return rates_db.get_rates(
+        "BENCOI",
+        policy.plancode,
+        issue_age=benefit.issue_age,
+        sex=segment.rate_sex,
+        rateclass=segment.rate_class,
+        scale=1,
+        band=segment.band,
+        benefit_type=benefit_key,
+    ) or []
+
+
 def load_rates(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
@@ -209,16 +223,9 @@ def load_rates(
         ben_key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
         if not ben_key or ben_key in result.benefit_coi:
             continue
-        ben_rates = rates_db.get_rates(
-            "BENCOI", policy.plancode,
-            issue_age=seg.issue_age,
-            sex=seg.rate_sex,
-            rateclass=seg.rate_class,
-            scale=1,
-            band=seg.band,
-            benefit_type=ben_key,
+        result.benefit_coi[ben_key] = _load_benefit_coi_rates(
+            rates_db, policy, ben, seg
         )
-        result.benefit_coi[ben_key] = ben_rates or []
 
     # UL riders use the same UL_Rates COI tables as base coverages.
     # Same-plancode coverages are base segments and are intentionally not in

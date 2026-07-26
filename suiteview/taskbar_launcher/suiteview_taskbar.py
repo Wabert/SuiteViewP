@@ -2636,10 +2636,14 @@ class SuiteViewTaskbar(QWidget):
         self._bring_to_front(self.polview_window)
 
     def _wire_polview_illustrator(self, window):
-        """Route PolView's 'Open in Illustrator' button through the shared
-        Illustration window (reusing it if already open)."""
+        """Route PolView's RERUN button through the shared RERUN window."""
         if window is not None and hasattr(window, 'set_illustration_launcher'):
             window.set_illustration_launcher(self._launch_illustration_with_policy)
+
+    def _wire_illustration_polview(self, window):
+        """Route RERUN's PolView button through the shared PolView window."""
+        if window is not None and hasattr(window, 'set_polview_launcher'):
+            window.set_polview_launcher(self._launch_polview_with_policy)
 
     def _get_polview_window(self):
         """Get the shared PolView window (used as provider callback for child tools).
@@ -2717,13 +2721,21 @@ class SuiteViewTaskbar(QWidget):
 
     def _launch_illustration_with_policy(self, policy_number, region="CKPR",
                                          company_code=""):
-        """Open (or reuse) the Illustration window and load *policy_number*.
+        """Open (or reuse) RERUN and load *policy_number*.
 
-        Shared by the taskbar Illustration button and PolView's "Open in
-        Illustrator" header button so both funnel through one code path.
+        Shared by the taskbar RERUN button and PolView's RERUN header button.
         """
         self._open_illustration()
         win = self.illustration_window
+        if win is not None and hasattr(win, 'load_policy'):
+            win.load_policy(policy_number, region=region, company_code=company_code)
+        self._bring_to_front(win)
+
+    def _launch_polview_with_policy(self, policy_number, region="CKPR",
+                                    company_code=""):
+        """Open (or reuse) PolView and load *policy_number*."""
+        self._open_polview()
+        win = self.polview_window
         if win is not None and hasattr(win, 'load_policy'):
             win.load_policy(policy_number, region=region, company_code=company_code)
         self._bring_to_front(win)
@@ -2773,7 +2785,7 @@ class SuiteViewTaskbar(QWidget):
         self._bring_to_front(self.abrquote_window)
 
     def _open_illustration(self):
-        """Open the Illustration app window"""
+        """Open the RERUN app window."""
         if self.illustration_window is not None:
             try:
                 _ = self.illustration_window.isVisible()
@@ -2784,13 +2796,14 @@ class SuiteViewTaskbar(QWidget):
             try:
                 from suiteview.illustration import launch_illustration
                 self.illustration_window = launch_illustration()
-                self._setup_child_window(self.illustration_window, "Illustration")
+                self._setup_child_window(self.illustration_window, "RERUN")
+                self._wire_illustration_polview(self.illustration_window)
             except Exception as e:
                 import traceback
                 tb = traceback.format_exc()
-                logger.error(f"Failed to open Illustration: {e}\n{tb}")
-                QMessageBox.critical(self, "Illustration Error",
-                                     f"Failed to open Illustration:\n\n{e}\n\n{tb}")
+                logger.error(f"Failed to open RERUN: {e}\n{tb}")
+                QMessageBox.critical(self, "RERUN Error",
+                                     f"Failed to open RERUN:\n\n{e}\n\n{tb}")
                 self.illustration_window = None
                 return
         self._bring_to_front(self.illustration_window)
@@ -3352,10 +3365,10 @@ class SuiteViewTaskbar(QWidget):
         self.abrquote_btn.clicked.connect(self._abrquote_btn_clicked)
         header_layout.addWidget(self.abrquote_btn)
 
-        # ====== ILLUSTRATION BUTTON (gold "I" on purple) ======
-        self.illustration_btn = QPushButton("I")
+        # ====== RERUN BUTTON (gold "R" on purple) ======
+        self.illustration_btn = QPushButton("R")
         self.illustration_btn.setFixedSize(28, 28)
-        self.illustration_btn.setToolTip("Open Illustration")
+        self.illustration_btn.setToolTip("Open RERUN")
         self.illustration_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.illustration_btn.setStyleSheet("""
             QPushButton {
@@ -3543,7 +3556,7 @@ class SuiteViewTaskbar(QWidget):
             # PolView, ABR Quote, and Mainframe Nav are always available in full build
             self.tools_menu.addAction("PolView", self._open_polview)
             self.tools_menu.addAction("ABR Quote", self._open_abrquote)
-            self.tools_menu.addAction("Illustration", self._open_illustration)
+            self.tools_menu.addAction("RERUN", self._open_illustration)
             self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)
             self.tools_menu.addAction("Audit Tool", self._open_audit)
             self.tools_menu.addAction("Rate Manager", self._open_rate_manager)

@@ -524,15 +524,29 @@ class IllustrationInputsTab(QWidget):
         self.exact_days_check.setToolTip("Checked uses exact-days interest; unchecked uses monthly compounding.")
         layout.addWidget(self.exact_days_check)
 
-        # Conform to TEFRA/DEFRA is always on: an illustration that ignores the
+        # "Enable Illustration Options" unlocks the two normally-locked controls
+        # below (Conform to TEFRA/DEFRA and Stop Projection on Lapse). Off by
+        # default so those controls stay locked-on for a normal illustration;
+        # the user opts in to override them.
+        self.enable_illustration_options_check = self._make_control_checkbox(
+            "Enable Illustration Options")
+        self.enable_illustration_options_check.setChecked(False)
+        self.enable_illustration_options_check.setToolTip(
+            "Unlock the illustration options below (Conform to TEFRA/DEFRA and "
+            "Stop Projection on Lapse) so they can be toggled off.")
+        self.enable_illustration_options_check.toggled.connect(
+            self._apply_illustration_options_enabled)
+        locked_column.addWidget(self.enable_illustration_options_check)
+
+        # Conform to TEFRA/DEFRA is normally on: an illustration that ignores the
         # 7702 guideline room can quietly produce premiums the policy could
-        # never accept. Shown checked and disabled rather than hidden.
+        # never accept. Locked on until "Enable Illustration Options" is checked.
         self.tefra_check = self._make_control_checkbox("Conform to TEFRA/DEFRA")
         self.tefra_check.setChecked(True)
         self.tefra_check.setEnabled(False)
         self.tefra_check.setToolTip(
-            "Always on — 7702 guideline premium room is enforced for force-outs "
-            "and accepted premiums.")
+            "Normally on — 7702 guideline premium room is enforced for force-outs "
+            "and accepted premiums. Enable Illustration Options to toggle it off.")
         locked_column.addWidget(self.tefra_check)
 
         # Conform to TAMRA lives on the Input sheet (dynamic_panel); read it
@@ -572,12 +586,14 @@ class IllustrationInputsTab(QWidget):
         )
         layout.addWidget(self.gp_search_check)
 
-        # Always on: rows past the lapse test are not a real illustration.
+        # Normally on: rows past the lapse test are not a real illustration.
+        # Locked on until "Enable Illustration Options" is checked.
         self.stop_on_lapse_check = self._make_control_checkbox("Stop Projection on Lapse")
         self.stop_on_lapse_check.setChecked(True)
         self.stop_on_lapse_check.setEnabled(False)
         self.stop_on_lapse_check.setToolTip(
-            "Always on — projection rows stop once the lapse test fails.")
+            "Normally on — projection rows stop once the lapse test fails. "
+            "Enable Illustration Options to toggle it off.")
         locked_column.addWidget(self.stop_on_lapse_check)
         locked_column.addStretch(1)
 
@@ -1275,6 +1291,19 @@ class IllustrationInputsTab(QWidget):
     def stop_on_lapse_enabled(self) -> bool:
         return self.stop_on_lapse_check.isChecked()
 
+    def _apply_illustration_options_enabled(self, enabled: bool):
+        """Lock/unlock the two illustration-option controls.
+
+        When "Enable Illustration Options" is on, Conform to TEFRA/DEFRA and Stop
+        Projection on Lapse become user-editable. When it is turned back off they
+        revert to their locked-on default (checked + disabled) so a normal
+        illustration can't silently run without them.
+        """
+        for check in (self.tefra_check, self.stop_on_lapse_check):
+            check.setEnabled(enabled)
+            if not enabled:
+                check.setChecked(True)
+
     def projection_months(self, policy) -> int | None:
         if self.illustration_to_date_radio.isChecked():
             return self._months_to_date(policy, self.illustration_to_date_edit.date().toPyDate())
@@ -1340,14 +1369,19 @@ class IllustrationInputsTab(QWidget):
             },
             "scheduled_loan_type": (
                 "variable" if self.variable_loan_toggle.isChecked() else "fixed"),
-            # Conform to TEFRA/DEFRA and Stop Projection on Lapse are always on
-            # and locked, and premium capping at acceptance now rides with
-            # TEFRA — none of the three are user state, so none are captured.
+            # Conform to TEFRA/DEFRA and Stop Projection on Lapse are normally
+            # locked on, and premium capping at acceptance rides with TEFRA. They
+            # only become user state when "Enable Illustration Options" is on, so
+            # capture that toggle and their values for round-tripping.
             "controls": {
                 "exact_days": self.exact_days_check.isChecked(),
                 "exception_prem": self.exception_prem_check.isChecked(),
                 "levelizing": self.levelizing_check.isChecked(),
                 "gp_search": self.gp_search_check.isChecked(),
+                "enable_illustration_options": (
+                    self.enable_illustration_options_check.isChecked()),
+                "conform_to_tefra": self.tefra_check.isChecked(),
+                "stop_on_lapse": self.stop_on_lapse_check.isChecked(),
                 "duration_mode": (
                     "date" if self.illustration_to_date_radio.isChecked()
                     else "years"),
@@ -1384,8 +1418,18 @@ class IllustrationInputsTab(QWidget):
         self.exact_days_check.setChecked(bool(controls.get("exact_days")))
         self.levelizing_check.setChecked(bool(controls.get("levelizing", True)))
         self.gp_search_check.setChecked(bool(controls.get("gp_search")))
-        # Conform to TEFRA/DEFRA, Stop Projection on Lapse, and premium capping
-        # at acceptance are always on, so none are captured or restored.
+        # Restore the illustration-options override. Enable first (which unlocks
+        # the two controls), then apply their saved values; if the override is
+        # off they stay locked on. Older cases without these keys default to the
+        # normal locked-on behavior.
+        enable_options = bool(controls.get("enable_illustration_options", False))
+        self.enable_illustration_options_check.setChecked(enable_options)
+        if enable_options:
+            self.tefra_check.setChecked(bool(controls.get("conform_to_tefra", True)))
+            self.stop_on_lapse_check.setChecked(
+                bool(controls.get("stop_on_lapse", True)))
+        # Premium capping at acceptance rides with TEFRA, so it is not captured
+        # or restored separately.
         # The exception checkbox may be force-blocked on this policy (active
         # shadow account) — a saved "allow" must not sneak past the block.
         wants_exception = bool(controls.get("exception_prem", False))

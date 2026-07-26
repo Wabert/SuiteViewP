@@ -55,13 +55,23 @@ def test_next_modal_due_quarterly_is_the_next_quarter():
     assert next_due == date(2020, 10, 15)
 
 
-def test_next_modal_due_when_forecast_is_on_a_due_date_has_no_gap():
-    # duration 12 → forecast lands on an anniversary; a premium is collected on
-    # the forecast date itself, so there is nothing to bridge (gap 0).
+def test_next_modal_due_when_forecast_is_on_a_due_date_bridges_to_the_next_one():
+    # duration 12 → forecast lands on an anniversary; the premium collected on
+    # the forecast date may not lift the policy off the lapse boundary, so the
+    # bridge targets the *following* modal date a full interval later.
     policy = _policy(billing_frequency=12, duration=12)
     next_due, gap = _next_modal_due(policy, _forecast_date(policy))
-    assert gap == 0
-    assert next_due == _forecast_date(policy)
+    assert gap == 12
+    assert next_due == date(2022, 1, 15)
+
+
+def test_next_modal_due_monthly_bridges_to_next_month():
+    # Monthly billing: every month is a modal date, so the bridge target is the
+    # month after the forecast date (one interval out) — never a zero gap.
+    policy = _policy(billing_frequency=1, duration=8)
+    next_due, gap = _next_modal_due(policy, _forecast_date(policy))
+    assert gap == 1
+    assert next_due == date(2020, 10, 15)
 
 
 def test_within_snet_uses_snet_period_then_map_cease_date():
