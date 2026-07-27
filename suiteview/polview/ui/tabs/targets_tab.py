@@ -4,11 +4,9 @@ TAMRA Values, Commission Target Premium, and Minimum Premium widgets.
 """
 
 from typing import TYPE_CHECKING, Dict, List, Any
-from datetime import datetime
 
 from PyQt6.QtWidgets import (
-    QWidget, QGridLayout, QLabel, QLineEdit, QPushButton,
-    QHBoxLayout, QVBoxLayout, QMessageBox
+    QWidget, QGridLayout, QLabel,
 )
 from PyQt6.QtCore import Qt
 
@@ -17,10 +15,6 @@ from ..widgets import StyledInfoTableGroup
 from ..styles import (
     BLUE_BG, GRAY_TEXT, GRAY_MID, WHITE,
     BLUE_PRIMARY, BLUE_DARK, GOLD_TEXT
-)
-from ...services.glp_exception import is_glp_exception_eligible
-from ...services.guideline_exception_adjustment import (
-    solve_guideline_exception_adjustment,
 )
 
 if TYPE_CHECKING:
@@ -530,120 +524,6 @@ class CommissionTargetWidget(_NaCapableGroup):
 # ─── main tab ────────────────────────────────────────────────────────────────
 
 
-class GuidelineExceptionAdjustmentWidget(StyledInfoTableGroup):
-    """Solve whether/when a policy needs guideline exception premiums to reach a
-    target date, and the AccumGLP increase required to admit them.
-
-    Runs the policy on the INPUT-to-MD premium type (input premium 0, monthly,
-    Lumpsum-to-Next-Premium on, TEFRA enforcement off) out to the target date,
-    totals the premium the policy needs strictly before that date, and compares
-    it against the room the AccumGLP allows.
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(
-            "Guideline Exception Adjustment", columns=1,
-            show_info=True, show_table=False, parent=parent)
-        self._policy = None
-        self._build_controls()
-        self._setup_fields()
-        self.setMaximumWidth(360)
-
-    def _build_controls(self):
-        controls = QWidget()
-        controls.setStyleSheet("background: transparent;")
-        row = QHBoxLayout(controls)
-        row.setContentsMargins(0, 0, 0, 2)
-        row.setSpacing(4)
-
-        lbl = QLabel("Target Date:")
-        lbl.setStyleSheet(
-            f"font-size: 11px; font-weight: bold; color: {BLUE_DARK}; "
-            f"background: transparent; border: none;")
-        self.target_date_edit = QLineEdit()
-        self.target_date_edit.setPlaceholderText("mm/dd/yyyy")
-        self.target_date_edit.setFixedWidth(90)
-        self.target_date_edit.returnPressed.connect(self._on_solve)
-
-        self.solve_btn = QPushButton("Find Exception Premium")
-        self.solve_btn.clicked.connect(self._on_solve)
-
-        row.addWidget(lbl)
-        row.addWidget(self.target_date_edit)
-        row.addWidget(self.solve_btn)
-        row.addStretch(1)
-
-        # Insert the controls above the result fields (index 0 of the group's
-        # main QVBoxLayout, before the info-field grid).
-        self.layout().insertWidget(0, controls)
-
-    def _setup_fields(self):
-        self.add_field("Target Date", "gea_target_date", 170, 100)
-        self.add_field("Total Premium Needed", "gea_total_premium", 170, 100)
-        self.add_field("Room Available", "gea_room", 170, 100)
-        self.add_field("AccumGLP Increase Needed", "gea_adjustment", 170, 100)
-        self.add_field("Result", "gea_message", 170, 100)
-
-    def _clear_results(self):
-        for attr in ("gea_target_date", "gea_total_premium", "gea_room",
-                     "gea_adjustment", "gea_message"):
-            self.set_value(attr, "")
-
-    def set_policy(self, policy: 'PolicyInformation'):
-        """Bind the policy, pre-fill the target date, and gate availability."""
-        self._policy = policy
-        self._clear_results()
-
-        eligible = False
-        try:
-            eligible = is_glp_exception_eligible(policy)
-        except Exception:
-            eligible = False
-
-        self.solve_btn.setEnabled(eligible)
-        self.target_date_edit.setEnabled(eligible)
-        if not eligible:
-            self.target_date_edit.setText("")
-            self.set_value(
-                "gea_message",
-                "Guideline (UL / GPT) policies only")
-            return
-
-        # Pre-fill with the next policy anniversary (user can change it).
-        next_anniv = None
-        try:
-            next_anniv = policy.next_anniversary_date
-        except Exception:
-            next_anniv = None
-        self.target_date_edit.setText(
-            next_anniv.strftime("%m/%d/%Y") if next_anniv is not None else "")
-
-    def _on_solve(self):
-        if self._policy is None:
-            return
-        text = self.target_date_edit.text().strip()
-        try:
-            target_date = datetime.strptime(text, "%m/%d/%Y").date()
-        except ValueError:
-            QMessageBox.warning(
-                self, "Invalid Date",
-                "Enter the target date as mm/dd/yyyy.")
-            return
-
-        self._clear_results()
-        try:
-            result = solve_guideline_exception_adjustment(self._policy, target_date)
-        except Exception as exc:
-            QMessageBox.warning(self, "Solve Error", str(exc))
-            return
-
-        self.set_value("gea_target_date", format_date(result.target_date))
-        self.set_value("gea_total_premium", format_currency(result.total_premium_needed))
-        self.set_value("gea_room", format_currency(result.room_available))
-        self.set_value("gea_adjustment", format_currency(result.adjustment_to_accum_glp))
-        self.set_value("gea_message", result.message)
-
-
 class TargetsAccumulatorsTab(QWidget):
     """Tab for Targets & Accumulators view."""
 
@@ -673,17 +553,8 @@ class TargetsAccumulatorsTab(QWidget):
         note_label.setWordWrap(True)
         note_label.setStyleSheet("color: gray; font-size: 10px;")
 
-        # Column 2, row 0: the note plus the Guideline Exception Adjustment solver
-        # stacked vertically.
-        col2_container = QWidget()
-        col2_layout = QVBoxLayout(col2_container)
-        col2_layout.setContentsMargins(0, 0, 0, 0)
-        col2_layout.setSpacing(4)
-        col2_layout.addWidget(note_label)
-        self.gea_widget = GuidelineExceptionAdjustmentWidget()
-        col2_layout.addWidget(self.gea_widget)
-        col2_layout.addStretch(1)
-        layout.addWidget(col2_container, 0, 2,
+        # Column 2, row 0: the accumulators source note.
+        layout.addWidget(note_label, 0, 2,
                          Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         # Row 1 — three expandable bottom widgets
@@ -839,9 +710,6 @@ class TargetsAccumulatorsTab(QWidget):
 
             self.commission_widget.load_data(com_targets, cov_data, rnl_data)
             self.min_prem_widget.load_data(pol_targets, cov_data, rnl_data)
-
-            # ── Guideline Exception Adjustment ────────────────────────────
-            self.gea_widget.set_policy(policy)
 
         except Exception:
             import traceback

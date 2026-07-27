@@ -15,6 +15,7 @@ Folder structure:
 import json
 import os
 import shutil
+import calendar
 from datetime import date, datetime
 from typing import Optional, List
 
@@ -23,10 +24,10 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QGroupBox, QGridLayout,
     QMessageBox, QAbstractItemView, QInputDialog, QMenu,
     QStyledItemDelegate, QSizePolicy, QLineEdit, QTableWidgetItem,
-    QStackedWidget, QDialog, QTextEdit, QComboBox,
+    QStackedWidget, QDialog, QTextEdit, QComboBox, QTabWidget,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QSize, QMimeData
-from PyQt6.QtGui import QColor, QDrag, QPixmap, QPainter, QFont
+from PyQt6.QtGui import QColor, QDrag, QPixmap, QPainter, QFont, QFontMetrics
 
 from ..styles import (
     WHITE, GRAY_DARK, GRAY_MID, GRAY_LIGHT,
@@ -38,11 +39,14 @@ from ..widgets import CopyableLabel, FixedHeaderTableWidget
 from .annuity_rider_tab import AnnuityRiderTab, RIDER_PLANCODE
 from ....utils.excel_template import copy_as_workbook, workbook_filename
 from ...services.glp_exception import (
-    GlpExceptionResult,
-    calculate_glp_exception,
     calculate_policy_support_forecast,
     check_forecast_availability,
     is_glp_exception_eligible,
+)
+from ...services.guideline_exception_adjustment import (
+    GuidelineExceptionForecastRow,
+    GuidelineExceptionMaturityForecastResult,
+    project_guideline_exception_maturity_forecast,
 )
 
 from typing import TYPE_CHECKING
@@ -175,25 +179,41 @@ def _safe_anniversary(issue_date: date, year: int) -> date:
         return issue_date.replace(year=year, day=28)
 
 
-GLP_HELP_TEXT = """GLP Exception quote - basic explanation
+def _add_months(base: date, months: int) -> date:
+    month_index = base.month - 1 + months
+    year = base.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(base.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
 
-This screen estimates whether a Universal Life policy can stay in force until the target inforce date without changing its Guideline Level Premium, also called GLP.
 
-The calculation starts with the current policy values from the valuation date. That includes the account value, premiums paid to date, accumulated withdrawals, the current GLP, the current GSP, and the current Accum GLP. Premiums paid to date includes both regular premiums and additional premiums.
+GLP_HELP_TEXT = """GLP Exception Quote - what this screen does
 
-If premiums were paid after the valuation date, the tool adds those premiums to create the adjusted account value and adjusted premiums paid to date. This keeps the quote from using stale values.
+This screen answers a practical question for a Universal Life / Guideline Premium policy: to keep the policy in force through a target date, will the policy have to pay guideline exception premiums, and if so, how much room must be created in the Accum GLP so CyberLife will accept them?
 
-Next, the tool projects the policy month by month from the valuation date to the target inforce date. It applies monthly deductions, interest, loads, and any required forecast assumptions so it can estimate whether the account value survives through that period.
+How the solve works
 
-If the policy can stay in force with no added premium, the tool still checks the guideline limits through the target date before deciding whether an adjustment is needed. This matters when GLP is negative: crossing an anniversary can lower Accum GLP, which may still require an Accum GLP adjustment even when the required premium is $0. The monthly forecast still displays so you can see how the account value moves over time with no added premium.
+1. Level premium to maturity. When you click Calculate, the tool solves for the level premium (paid on the policy's current mode) that would carry the policy all the way to maturity, with exception premiums allowed in the forecast. If the policy can reach maturity on a level premium, no exception premiums are ever required and no Accum GLP change is needed.
 
-If the policy needs premium to stay in force, the tool solves for the level premium needed through the target period. If the account value is negative, the first payment is the amount needed to bring the account value to $1.00, and the level premium starts after that. The Premium to get to Target Date line shows the total premium needed through the target period.
+2. Longest level-premium period. If the policy cannot be carried to maturity, the solve instead finds the longest level-premium period possible - the point at which the policy can no longer sustain itself on level premiums and must switch to paying exception premiums. The date of that switch is the beginning of the exception premium period.
 
-The Accum GLP on Target Date line uses the current GLP through anniversaries crossed before the target date. PremTD less AccumWD on Target Date is the adjusted premiums paid to date plus the Premium to get to Target Date, less accumulated withdrawals.
+3. Compare to the target date. If the exception premium period begins before the target date, the policy will have to pay exception premiums before the target date is reached. If it begins on or after the target date, no exception premiums are needed for this target and the Accum GLP should be left alone.
 
-If Accum GLP on Target Date is greater than or equal to PremTD less AccumWD on Target Date, no adjustment is needed. If Accum GLP on Target Date is less than PremTD less AccumWD on Target Date and premium is needed to get to the target date, the tool shows the New GLP, Adjustment to Accum GLP, and New Accum GLP. If no premium is needed but PremTD less AccumWD is still above Accum GLP on the target date, the tool shows the force-out amount.
+Why the Accum GLP has to be adjusted
 
-The goal of the quote is to answer a practical question: does this policy need an Accum GLP adjustment, and if so, how much, so the policy can remain in force up to the target date?"""
+Once a policy enters the exception premium period it stays there. It can no longer build cash value, and it may only take in enough premium to cover its monthly deductions. For CyberLife to accept those exception premiums, the guideline has to be opened up: the GLP is set to 0 and the Accum GLP is raised just enough to admit the exception premiums needed through the target date.
+
+The adjustment is sized with:
+
+    Accum GLP Adjustment = max(0, Premiums-to-Date - AccumWDs - AccumGLP)
+
+Premiums-to-Date is the premium paid to date (brought current with any premiums paid since the valuation date) plus the exception premium the forecast needs to reach the target date. AccumWDs are accumulated withdrawals, which create room. AccumGLP is the current Accum GLP. When the result is positive the policy needs exception premiums: set the GLP to 0 and raise the Accum GLP to the New Accum GLP shown.
+
+Note that the New Accum GLP only covers the policy up to (but not including) the target date. Because the policy remains in the exception premium period, the Accum GLP will need to be recalculated and adjusted again each year going forward.
+
+The forecast tables
+
+The Prem to Maturity tab shows the solved level-premium projection month by month through the target date, including the guideline columns (GLP, AccumGLP, PremTD, AccumWD) and the Exception Prem / Exception Status columns so you can see exactly when the policy switches into the exception premium period. When exception premiums are required before the target date, a second 0 - MD Prem tab appears: it runs the policy at $0 premium down to its monthly deductions (guideline enforcement off) and is the projection the adjustment above is measured from."""
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +383,34 @@ _PATH_LABEL_STYLE = f"""
     background: {GREEN_SUBTLE};
     border: 1px solid {GREEN_PRIMARY};
     border-radius: 3px; padding: 3px 6px;
+"""
+
+_GLP_FORECAST_TABS_STYLE = f"""
+    QTabWidget::pane {{
+        border: 1px solid {GREEN_PRIMARY};
+        border-radius: 3px;
+        top: -1px;
+        background: {WHITE};
+    }}
+    QTabBar::tab {{
+        background: {GREEN_SUBTLE};
+        color: {GREEN_DARK};
+        font-size: 11px;
+        font-weight: bold;
+        padding: 4px 14px;
+        border: 1px solid {GREEN_PRIMARY};
+        border-bottom: none;
+        border-top-left-radius: 3px;
+        border-top-right-radius: 3px;
+        margin-right: 2px;
+    }}
+    QTabBar::tab:selected {{
+        background: {GREEN_PRIMARY};
+        color: {WHITE};
+    }}
+    QTabBar::tab:!selected {{
+        margin-top: 2px;
+    }}
 """
 
 # ── ABR (Crimson) theme overrides ──────────────────────────────────────────
@@ -1403,100 +1451,83 @@ class PolicySupportTab(QWidget):
         sg.setColumnStretch(3, 1)
         layout.addWidget(status_frame)
 
-        results_frame = QGroupBox("Calculation")
+        results_frame = QGroupBox("Calculation Summary")
         results_frame.setStyleSheet(POLICY_INFO_FRAME_STYLE)
-        results_frame.setMinimumWidth(430)
-        rg = QGridLayout(results_frame)
-        rg.setContentsMargins(10, 18, 10, 8)
-        rg.setHorizontalSpacing(18)
-        rg.setVerticalSpacing(4)
-        self._glp_result_labels = {}
-        self._glp_result_name_labels = {}
-        rows = [
-            ("Current Valuation Date", "current_valuation_date", "date"),
-            ("Account Value", "account_value", "money"),
-            ("Premiums Paid To Date", "premiums_paid_to_date", "money"),
-            ("Premiums since Val Date", "premiums_since_valuation_date", "money"),
-            ("Adjusted Account Value", "adjusted_account_value", "money"),
-            ("Adjusted Premiums Paid To Date", "adjusted_premiums_paid_to_date", "money"),
-            ("Accum Withdrawals", "accumulated_withdrawals", "money"),
-            ("GLP", "glp", "money"),
-            ("GSP", "gsp", "money"),
-            ("Accum GLP (Current)", "accumulated_glp", "money"),
-            ("", "glp_timing_separator", "thin_separator"),
-            ("Total Required Premium to stay inforce to Target Date (before load)", "total_required_premium_before_load", "money"),
-            ("Premium to get to Target Date", "total_required_premium_after_load", "money"),
-            ("Accum GLP on Target Date", "accumulated_glp_prior_to_target", "money"),
-            ("PremTD less AccumWD on Target Date", "premium_td_on_target_date", "money"),
-            ("Adjustment to Accum GLP pre calc", "adjustment_to_accum_glp_pre_calc", "money"),
-            ("", "glp_decision_separator", "separator"),
-            ("New GLP", "new_glp", "money"),
-            ("Adjustment to Accum GLP", "adjustment_to_accum_glp", "money"),
-            ("New Accum GLP", "new_accum_glp", "money"),
-            ("NO ADJUSTMENT NEEDED", "glp_adjustment_message", "message"),
-            ("FORCE-OUT REQUIRED", "force_out_required", "message"),
-            ("Force-out Amount", "force_out_amount", "money"),
-        ]
-        self._glp_result_rows = rows
-        for row, (label, key, kind) in enumerate(rows):
-            name = QLabel(label) if kind in {"separator", "thin_separator"} else CopyableLabel(label)
-            if kind in {"separator", "thin_separator"}:
-                name.setFixedHeight(10 if kind == "separator" else 6)
-                name.setStyleSheet(
-                    f"background: transparent; border: none; "
-                    f"border-top: {'2px dashed' if kind == 'separator' else '1px solid'} {GREEN_PRIMARY}; "
-                    f"margin-top: {'6px' if kind == 'separator' else '2px'};"
-                )
-                value = QLabel("", results_frame)
-                rg.addWidget(name, row, 0, 1, 2)
-                self._glp_result_name_labels[key] = name
-                self._glp_result_labels[key] = (value, kind)
-                continue
-            if kind == "message":
-                name.setStyleSheet(_RESULT_LABEL_STYLE + f"font-weight: bold; color: {GREEN_DARK};")
-            elif key in {"new_glp", "new_accum_glp", "adjustment_to_accum_glp"}:
-                name.setStyleSheet(_RESULT_LABEL_STYLE + f"font-weight: bold; color: {GREEN_DARK};")
-            else:
-                name.setStyleSheet(_RESULT_LABEL_STYLE)
-            value = CopyableLabel("-")
-            value.setStyleSheet(_RESULT_VALUE_STYLE)
-            value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            rg.addWidget(name, row, 0)
-            rg.addWidget(value, row, 1)
-            self._glp_result_name_labels[key] = name
-            self._glp_result_labels[key] = (value, kind)
-        rg.setColumnStretch(1, 1)
+        rg = QVBoxLayout(results_frame)
+        rg.setContentsMargins(10, 16, 10, 8)
+        rg.setSpacing(4)
+
+        self._glp_formula_label = CopyableLabel(
+            "Accum GLP Adjustment = max(0, Premiums-to-Date \u2212 AccumWDs \u2212 AccumGLP)"
+        )
+        self._glp_formula_label.setStyleSheet(
+            f"font-size: 12px; font-weight: bold; color: {GREEN_DARK}; "
+            f"background: transparent; border: none;"
+        )
+        rg.addWidget(self._glp_formula_label)
+
+        self._glp_plugged_label = CopyableLabel("-")
+        self._glp_plugged_label.setTextFormat(Qt.TextFormat.RichText)
+        self._glp_plugged_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._glp_plugged_label.setStyleSheet(
+            f"font-size: 12px; color: {GRAY_DARK}; background: transparent; border: none;"
+        )
+        rg.addWidget(self._glp_plugged_label)
+
+        # 72-segment note: plain text (so the styled right-click Copy yields the
+        # exact note), shown only when exception premiums are required.
+        self._glp_segment_note_label = CopyableLabel("")
+        self._glp_segment_note_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._glp_segment_note_label.setWordWrap(True)
+        self._glp_segment_note_label.setStyleSheet(
+            f"font-size: 11px; font-weight: bold; color: {GREEN_DARK}; "
+            f"background: transparent; border: none;"
+        )
+        self._glp_segment_note_label.setVisible(False)
+        rg.addWidget(self._glp_segment_note_label)
 
         self._glp_forecast_frame = QGroupBox("Monthly Forecast")
         self._glp_forecast_frame.setStyleSheet(POLICY_INFO_FRAME_STYLE)
-        self._glp_forecast_frame.setMinimumHeight(180)
+        self._glp_forecast_frame.setMinimumHeight(220)
         forecast_layout = QVBoxLayout(self._glp_forecast_frame)
         forecast_layout.setContentsMargins(6, 18, 6, 6)
         forecast_layout.setSpacing(0)
-        self._glp_forecast_table = FixedHeaderTableWidget()
-        self._glp_forecast_table.setAutoFillBackground(True)
-        self._glp_forecast_table._data_table.viewport().setAutoFillBackground(True)
-        self._glp_forecast_table.setColumnCount(7)
-        self._glp_forecast_table.setHorizontalHeaderLabels([
-            "Date", "Year", "Month", "Interest Credited", "Premium", "Monthly Deduction", "Account Value"
-        ])
-        self._glp_forecast_table._data_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._glp_forecast_table._data_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._glp_forecast_table._data_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        forecast_layout.addWidget(self._glp_forecast_table, 1)
+
+        self._glp_forecast_tabs = QTabWidget()
+        self._glp_forecast_tabs.setStyleSheet(_GLP_FORECAST_TABS_STYLE)
+        self._glp_maturity_table = self._make_glp_forecast_table()
+        self._glp_zero_md_table = self._make_glp_forecast_table()
+        self._glp_forecast_tabs.addTab(self._glp_maturity_table, "Prem to Maturity")
+        forecast_layout.addWidget(self._glp_forecast_tabs, 1)
         self._glp_forecast_frame.setVisible(False)
 
         body = QWidget()
         body.setAutoFillBackground(True)
         body.setStyleSheet(f"background-color: {WHITE};")
-        body_layout = QHBoxLayout(body)
+        body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(6)
-        body_layout.addWidget(results_frame, 3)
-        body_layout.addWidget(self._glp_forecast_frame, 4)
+        body_layout.addWidget(self._glp_forecast_frame, 1)
+        body_layout.addWidget(results_frame, 0)
         layout.addWidget(body, 1)
         return page
+
+    def _make_glp_forecast_table(self) -> FixedHeaderTableWidget:
+        """Build the Prem-to-Maturity / 0-MD forecast table."""
+        table = FixedHeaderTableWidget()
+        table.setAutoFillBackground(True)
+        table._data_table.viewport().setAutoFillBackground(True)
+        table.setColumnCount(15)
+        table.setHorizontalHeaderLabels([
+            "Date", "Year", "Month", "Interest Credited", "Premium",
+            "Monthly Deduction", "Account Value", "GLP", "AccumGLP",
+            "PremTD", "AccumWD", "Force Out", "Exception Prem",
+            "Exception Status", "Policy Debt",
+        ])
+        table._data_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table._data_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table._data_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        return table
 
     def _build_forecast_page(self) -> QWidget:
         page = QWidget()
@@ -1859,7 +1890,7 @@ class PolicySupportTab(QWidget):
             self._clear_glp_exception_results()
             return
         try:
-            result = calculate_glp_exception(self._policy, target_date)
+            result = project_guideline_exception_maturity_forecast(self._policy, target_date)
         except Exception as exc:
             self._set_glp_status(str(exc), is_error=True)
             self._clear_glp_exception_results()
@@ -1943,7 +1974,14 @@ class PolicySupportTab(QWidget):
     @staticmethod
     def _default_glp_target_date_text(policy: Optional['PolicyInformation']) -> str:
         allowed_dates = PolicySupportTab._glp_allowed_target_dates(policy)
-        return allowed_dates[0].strftime("%m/%d/%Y") if allowed_dates else ""
+        if not allowed_dates:
+            return ""
+        # Default to the next anniversary, but if it is 5 months or fewer away
+        # use the following anniversary instead (gives a meaningful horizon).
+        target = allowed_dates[0]
+        if target <= _add_months(date.today(), 5) and len(allowed_dates) > 1:
+            target = allowed_dates[1]
+        return target.strftime("%m/%d/%Y")
 
     @staticmethod
     def _glp_allowed_target_dates(policy: Optional['PolicyInformation']) -> List[date]:
@@ -1973,13 +2011,22 @@ class PolicySupportTab(QWidget):
         )
 
     def _clear_glp_exception_results(self):
-        if not hasattr(self, "_glp_result_labels"):
+        if not hasattr(self, "_glp_plugged_label"):
             return
-        for key, (value_label, _kind) in self._glp_result_labels.items():
-            value_label.setText("-")
-            value_label.setVisible(True)
-            self._glp_result_name_labels[key].setVisible(True)
-        self._glp_forecast_table.setRowCount(0)
+        self._glp_result = None
+        self._glp_formula_label.setVisible(True)
+        self._glp_formula_label.setText(
+            "Accum GLP Adjustment = max(0, Premiums-to-Date \u2212 AccumWDs \u2212 AccumGLP)"
+        )
+        self._glp_plugged_label.setText("-")
+        self._glp_segment_note_label.setVisible(False)
+        self._glp_segment_note_label.setText("")
+        self._glp_maturity_table.setRowCount(0)
+        self._glp_zero_md_table.setRowCount(0)
+        zero_md_index = self._glp_forecast_tabs.indexOf(self._glp_zero_md_table)
+        if zero_md_index >= 0:
+            self._glp_forecast_tabs.removeTab(zero_md_index)
+        self._glp_forecast_tabs.setCurrentIndex(0)
         self._glp_forecast_frame.setVisible(False)
         self._glp_export_btn.setEnabled(False)
         self._glp_print_details_btn.setEnabled(False)
@@ -1988,46 +2035,90 @@ class PolicySupportTab(QWidget):
         if hasattr(self, "_forecast_table"):
             self._forecast_table.setRowCount(0)
 
-    def _display_glp_exception_result(self, result: GlpExceptionResult):
-        for key, (value_label, kind) in self._glp_result_labels.items():
-            name_label = self._glp_result_name_labels[key]
-            visible = self._glp_result_row_visible(result, key)
-            name_label.setVisible(visible)
-            value_label.setVisible(visible)
-            if kind in {"separator", "thin_separator"}:
-                continue
-            if kind == "message":
-                value_label.setText("")
-                continue
-            value = getattr(result, key)
-            if value is None:
-                value_label.setText("-")
-            elif kind == "money":
-                value_label.setText(f"${float(value):,.2f}")
-            elif kind == "percent":
-                value_label.setText(f"{float(value) * 100:.2f}%")
-            elif kind == "date":
-                value_label.setText(value.strftime("%m/%d/%Y") if value else "-")
-            else:
-                value_label.setText(f"{value:,}")
-        self._display_glp_forecast_rows(result)
+    def _apply_glp_summary(
+        self,
+        result: GuidelineExceptionMaturityForecastResult,
+    ):
+        """Render the single Calculation Summary for the whole quote.
+
+        The summary is fixed for the quote and does not change when the user
+        switches forecast tabs. When the policy enters the exception-premium
+        period before the target date (``zero_md`` is present) it shows the
+        New Accum GLP formula, its value, and the instruction to set GLP to 0;
+        otherwise it states no exception premium is required.
+        """
+        target_text = self._glp_target_date.text().strip()
+        if result.zero_md is None:
+            self._glp_formula_label.setVisible(False)
+            self._glp_plugged_label.setText(
+                f"<b style='color:{GREEN_DARK};'>NO EXCEPTION PREMIUM NEEDED "
+                f"for target date {target_text}. "
+                f"DO NOT ADJUST THE ACCUM GLP.</b>"
+            )
+            self._glp_segment_note_label.setVisible(False)
+            return
+
+        s = result.zero_md.summary
+        new_accum = s.premiums_to_date_on_target - s.accumulated_withdrawals
+        glp_not_zero = round(result.current_glp, 2) != 0.0
+        red = "#C00000"
+        self._glp_formula_label.setVisible(False)
+        summary_html = (
+            f"<b style='color:{red};'>EXCEPTION PREMIUM REQUIRED</b> "
+            f"(Updates needed to Accum GLP and the GLP)"
+            f"<br>New Accum GLP = PremiumsPaidToDate \u2212 AccumWithdrawals"
+            f"<br>New Accum = <b style='color:{red};'>${new_accum:,.2f}</b>"
+        )
+        if glp_not_zero:
+            summary_html += f"<br>Set GLP = <b style='color:{red};'>0</b>"
+        self._glp_plugged_label.setText(summary_html)
+        self._glp_segment_note_label.setText(
+            self._glp_segment_note_text(new_accum, result.current_glp)
+        )
+        self._glp_segment_note_label.setVisible(True)
+
+    @staticmethod
+    def _glp_segment_note_text(new_accum: float, current_glp: float = 0.0) -> str:
+        """The copy-ready 72-segment note documenting the exception zap.
+
+        The "AND GLP LEVEL TO $0.00" clause is only included when the policy's
+        current GLP is not already zero (there is nothing to zap otherwise).
+        """
+        note = (
+            f"72 segment note:  SXXXXXXX EXCEPTION PREMIUM:  ZAPPED GLP ACCUM TO "
+            f"${new_accum:,.2f}"
+        )
+        if round(current_glp, 2) != 0.0:
+            note += " AND GLP LEVEL TO  $0.00"
+        return note + "."
+
+    def _display_glp_exception_result(self, result: GuidelineExceptionMaturityForecastResult):
+        self._glp_result = result
+
+        # Prem to Maturity always shows. 0-MD is only relevant after the solved
+        # projection reaches exception-premium status before the target date.
+        self._display_glp_forecast_rows(self._glp_maturity_table, result.rows)
+        zero_md_index = self._glp_forecast_tabs.indexOf(self._glp_zero_md_table)
+        if result.zero_md is not None:
+            self._display_glp_forecast_rows(self._glp_zero_md_table, result.zero_md.rows)
+            if zero_md_index < 0:
+                self._glp_forecast_tabs.insertTab(
+                    1, self._glp_zero_md_table, "0 - MD Prem")
+        elif zero_md_index >= 0:
+            self._glp_forecast_tabs.removeTab(zero_md_index)
+
+        self._glp_forecast_tabs.blockSignals(True)
+        self._glp_forecast_tabs.setCurrentIndex(
+            self._glp_forecast_tabs.indexOf(self._glp_maturity_table))
+        self._glp_forecast_tabs.blockSignals(False)
+        self._apply_glp_summary(result)
+
+        self._glp_forecast_frame.setVisible(True)
         self._glp_export_btn.setEnabled(True)
         self._glp_print_details_btn.setEnabled(True)
 
-    def _glp_result_row_visible(self, result: GlpExceptionResult, key: str) -> bool:
-        no_adjustment_needed = result.accumulated_glp_prior_to_target >= result.premium_td_on_target_date - 0.005
-        if key == "glp_adjustment_message":
-            return no_adjustment_needed
-        if key in {"force_out_required", "force_out_amount"}:
-            return result.force_out_required
-        if key in {"new_glp", "adjustment_to_accum_glp", "new_accum_glp"}:
-            if no_adjustment_needed or result.force_out_required:
-                return False
-            return key != "new_glp" or result.new_glp is not None
-        return True
-
     def _has_glp_quote_to_export(self) -> bool:
-        return any(value_label.text() != "-" for value_label, _kind in self._glp_result_labels.values())
+        return getattr(self, "_glp_result", None) is not None
 
     def _build_glp_quote_workbook(self):
         import openpyxl
@@ -2066,36 +2157,69 @@ class PolicySupportTab(QWidget):
         ws.cell(row=4, column=2, value=self._glp_forecast_status_label.text())
 
         row_num = 6
-        ws.cell(row=row_num, column=1, value="Calculation").fill = header_fill
+        ws.cell(row=row_num, column=1, value="Calculation Summary").fill = header_fill
         ws.cell(row=row_num, column=1).font = header_font
         ws.cell(row=row_num, column=2).fill = header_fill
         row_num += 1
-        for label, key, _kind in self._glp_result_rows:
-            if not self._glp_result_name_labels[key].isVisible():
-                continue
-            value_label, _ = self._glp_result_labels[key]
-            ws.cell(row=row_num, column=1, value=label)
-            ws.cell(row=row_num, column=2, value=value_label.text())
-            if key == "new_accum_glp":
-                ws.cell(row=row_num, column=1).font = bold_font
-                ws.cell(row=row_num, column=2).font = bold_font
+        result = getattr(self, "_glp_result", None)
+        s = result.zero_md.summary if result is not None and result.zero_md else None
+        target_text = self._glp_target_date.text().strip()
+        ws.cell(
+            row=row_num, column=1,
+            value=(
+                "EXCEPTION PREMIUM REQUIRED (Updates needed to Accum GLP and the GLP)"
+                if s is not None
+                else f"NO EXCEPTION PREMIUM NEEDED for target date {target_text}. "
+                     "DO NOT ADJUST THE ACCUM GLP."
+            )).font = bold_font
+        row_num += 1
+        if result is not None:
+            ws.cell(row=row_num, column=1,
+                    value="Prem to Maturity").font = bold_font
+            ws.cell(row=row_num, column=2,
+                    value=f"${result.premium:,.2f} ({result.premium_mode})")
+            row_num += 1
+            ws.cell(row=row_num, column=1, value="Exception Premium Status").font = bold_font
+            ws.cell(
+                row=row_num,
+                column=2,
+                value=(
+                    result.exception_start.strftime("%m/%d/%Y")
+                    if result.exception_start is not None
+                    else "Not on or before target date"
+                ),
+            )
+            row_num += 1
+        if s is not None:
+            new_accum = s.premiums_to_date_on_target - s.accumulated_withdrawals
+            summary_rows = [
+                ("New Accum GLP = PremiumsPaidToDate \u2212 AccumWithdrawals", ""),
+                ("New Accum", f"${new_accum:,.2f}"),
+            ]
+            if round(result.current_glp, 2) != 0.0:
+                summary_rows.append(("Set GLP", "0"))
+            for label, value in summary_rows:
+                ws.cell(row=row_num, column=1, value=label)
+                ws.cell(row=row_num, column=2, value=value)
+                if label in {"New Accum", "Set GLP"}:
+                    ws.cell(row=row_num, column=1).font = bold_font
+                    ws.cell(row=row_num, column=2).font = bold_font
+                row_num += 1
+            note_cell = ws.cell(
+                row=row_num, column=1,
+                value=self._glp_segment_note_text(new_accum, result.current_glp))
+            note_cell.font = bold_font
             row_num += 1
 
         row_num += 2
-        ws.cell(row=row_num, column=1, value="Monthly Forecast").fill = header_fill
-        ws.cell(row=row_num, column=1).font = header_font
-        row_num += 1
-        for col_index in range(self._glp_forecast_table.columnCount()):
-            header_item = self._glp_forecast_table._data_table.horizontalHeaderItem(col_index)
-            cell = ws.cell(row=row_num, column=col_index + 1, value=header_item.text() if header_item else "")
-            cell.fill = header_fill
-            cell.font = header_font
-        row_num += 1
-        for table_row in range(self._glp_forecast_table.rowCount()):
-            for col_index in range(self._glp_forecast_table.columnCount()):
-                item = self._glp_forecast_table.item(table_row, col_index)
-                ws.cell(row=row_num, column=col_index + 1, value=item.text() if item else "")
+        row_num = self._write_glp_forecast_sheet(
+            ws, self._glp_maturity_table, "Monthly Forecast \u2014 Prem to Maturity",
+            row_num, header_fill, header_font)
+        if self._glp_zero_md_table.rowCount() > 0:
             row_num += 1
+            row_num = self._write_glp_forecast_sheet(
+                ws, self._glp_zero_md_table, "Monthly Forecast \u2014 0 - MD Prem",
+                row_num, header_fill, header_font)
 
         for col_index in range(1, ws.max_column + 1):
             max_length = max(
@@ -2106,8 +2230,27 @@ class PolicySupportTab(QWidget):
 
         return wb
 
+    def _write_glp_forecast_sheet(self, ws, table, title, row_num, header_fill, header_font):
+        """Write one labelled forecast table into the GLP quote worksheet."""
+        ws.cell(row=row_num, column=1, value=title).fill = header_fill
+        ws.cell(row=row_num, column=1).font = header_font
+        row_num += 1
+        for col_index in range(table.columnCount()):
+            header_item = table._data_table.horizontalHeaderItem(col_index)
+            cell = ws.cell(row=row_num, column=col_index + 1,
+                           value=header_item.text() if header_item else "")
+            cell.fill = header_fill
+            cell.font = header_font
+        row_num += 1
+        for table_row in range(table.rowCount()):
+            for col_index in range(table.columnCount()):
+                item = table.item(table_row, col_index)
+                ws.cell(row=row_num, column=col_index + 1, value=item.text() if item else "")
+            row_num += 1
+        return row_num
+
     def _export_glp_quote(self):
-        if not any(value_label.text() != "-" for value_label, _kind in self._glp_result_labels.values()):
+        if not self._has_glp_quote_to_export():
             QMessageBox.information(self, "Export GLP Quote", "Calculate a GLP quote before exporting.")
             return
         try:
@@ -2205,31 +2348,67 @@ class PolicySupportTab(QWidget):
         layout.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignRight)
         dialog.exec()
 
-    def _display_glp_forecast_rows(self, result: GlpExceptionResult):
-        rows = result.forecast_rows
-        self._glp_forecast_frame.setVisible(bool(rows))
-        self._glp_forecast_table.setRowCount(len(rows))
+    def _display_glp_forecast_rows(
+        self,
+        table: FixedHeaderTableWidget,
+        rows: list[GuidelineExceptionForecastRow],
+    ):
+        table.setRowCount(len(rows))
+        last_index = len(rows) - 1
+        # The AccumGLP, PremTD and AccumWD used by the summary are read off the
+        # month BEFORE the target date; bold those three cells on that row, and
+        # grey the whole target-date row to show its values are not used.
+        used_row = last_index - 1
+        used_cols = {8, 9, 10}  # AccumGLP, PremTD, AccumWD
         for row_index, row in enumerate(rows):
             values = [
-                row.forecast_date.strftime("%m/%d/%Y") if row.forecast_date else "-",
+                row.date.strftime("%m/%d/%Y") if row.date else "-",
                 f"{row.policy_year:,}",
                 f"{row.policy_month:,}",
                 f"${row.interest_credited:,.2f}",
                 f"${row.premium:,.2f}",
                 f"${row.monthly_deduction:,.2f}",
                 f"${row.account_value:,.2f}",
+                f"${row.glp:,.2f}",
+                f"${row.accumulated_glp:,.2f}",
+                f"${row.premiums_to_date:,.2f}",
+                f"${row.accumulated_withdrawals:,.2f}",
+                f"${row.force_out:,.2f}",
+                f"${row.exception_premium:,.2f}",
+                "Exception" if row.in_exception_mode else "",
+                f"${row.policy_debt:,.2f}",
             ]
             for col_index, text in enumerate(values):
                 alignment = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                 if col_index == 0:
                     alignment = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-                self._glp_forecast_table.setItem(
+                item = QTableWidgetItem(text)
+                if row_index == last_index:
+                    item.setForeground(QColor("#AAAAAA"))
+                elif row_index == used_row and col_index in used_cols:
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+                table.setItem(
                     row_index,
                     col_index,
-                    QTableWidgetItem(text),
+                    item,
                     alignment,
                 )
-        self._glp_forecast_table.autoFitAllColumns()
+        table.autoFitAllColumns()
+        # The bold cells on the used row are wider than the base font the autofit
+        # measured with; widen those columns so the bold values are not clipped.
+        if 0 <= used_row < len(rows):
+            bold_font = QFont(table._data_table.font())
+            bold_font.setBold(True)
+            fm = QFontMetrics(bold_font)
+            for col_index in used_cols:
+                item = table.item(used_row, col_index)
+                if item is None:
+                    continue
+                needed = fm.horizontalAdvance(item.text()) + 16
+                if needed > table.columnWidth(col_index):
+                    table.setColumnWidth(col_index, needed)
 
     def _display_forecast_rows(self, result):
         rows = result.rows

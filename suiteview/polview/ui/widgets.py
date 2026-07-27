@@ -1170,7 +1170,16 @@ class CopyableLabel(QLabel):
         action = menu.exec(self.mapToGlobal(pos))
         if action == copy_action:
             selected = self.selectedText()
-            QApplication.clipboard().setText(selected if selected else self.text())
+            QApplication.clipboard().setText(selected if selected else self._plain_text())
+
+    def _plain_text(self):
+        """Return the label's text as plain text, stripping HTML for rich text."""
+        if self.textFormat() == Qt.TextFormat.RichText:
+            from PyQt6.QtGui import QTextDocument
+            doc = QTextDocument()
+            doc.setHtml(self.text())
+            return doc.toPlainText()
+        return self.text()
 
 
 class ClickableTooltipLabel(QLabel):
