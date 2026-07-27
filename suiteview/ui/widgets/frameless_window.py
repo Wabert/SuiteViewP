@@ -12,6 +12,7 @@ Subclasses override `build_content() -> QWidget` to provide their content.
 """
 
 import logging
+import sys
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QPoint, QRect
@@ -22,6 +23,127 @@ from PyQt6.QtWidgets import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ── Native Windows resize support ────────────────────────────────────────────
+# Frameless windows resized purely in Python (per-mouse-move setGeometry) look
+# glitchy on Windows because they bypass DWM's GPU-composited resize.  Handing
+# resizing to the OS via WM_NCHITTEST + a native sizing frame (WS_THICKFRAME)
+# gives smooth, artifact-free resizing while we keep our own title bar, drag,
+# maximize/snap logic and painted border.
+_IS_WINDOWS = sys.platform == "win32"
+
+if _IS_WINDOWS:
+    import ctypes
+    from ctypes import wintypes
+
+    _WM_NCCALCSIZE = 0x0083
+    _WM_NCHITTEST = 0x0084
+    _WM_GETMINMAXINFO = 0x0024
+
+    _GWL_STYLE = -16
+    _WS_THICKFRAME = 0x00040000
+    _WS_CAPTION = 0x00C00000
+    _WS_MAXIMIZEBOX = 0x00010000
+    _WS_MINIMIZEBOX = 0x00020000
+    _WS_SYSMENU = 0x00080000
+
+    _SWP_NOMOVE = 0x0002
+    _SWP_NOSIZE = 0x0001
+    _SWP_NOZORDER = 0x0004
+    _SWP_NOOWNERZORDER = 0x0200
+    _SWP_FRAMECHANGED = 0x0020
+
+    _MONITOR_DEFAULTTONEAREST = 2
+
+    # Hit-test result codes returned to Windows so it performs a native resize.
+    _HTCLIENT = 1
+    _HTLEFT = 10
+    _HTRIGHT = 11
+    _HTTOP = 12
+    _HTTOPLEFT = 13
+    _HTTOPRIGHT = 14
+    _HTBOTTOM = 15
+    _HTBOTTOMLEFT = 16
+    _HTBOTTOMRIGHT = 17
+
+    class _MONITORINFO(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD),
+            ("rcMonitor", wintypes.RECT),
+            ("rcWork", wintypes.RECT),
+            ("dwFlags", wintypes.DWORD),
+        ]
+
+    class _MINMAXINFO(ctypes.Structure):
+        _fields_ = [
+            ("ptReserved", wintypes.POINT),
+            ("ptMaxSize", wintypes.POINT),
+            ("ptMaxPosition", wintypes.POINT),
+            ("ptMinTrackSize", wintypes.POINT),
+            ("ptMaxTrackSize", wintypes.POINT),
+        ]
+
+    class _NCCALCSIZE_PARAMS(ctypes.Structure):
+        _fields_ = [
+            ("rgrc", wintypes.RECT * 3),
+            ("lppos", ctypes.c_void_p),
+        ]
+
+    def _get_window_long(hwnd):
+        user32 = ctypes.windll.user32
+        if hasattr(user32, "GetWindowLongPtrW"):
+            return user32.GetWindowLongPtrW(hwnd, _GWL_STYLE)
+        return user32.GetWindowLongW(hwnd, _GWL_STYLE)
+
+    def _set_window_long(hwnd, value):
+        user32 = ctypes.windll.user32
+        if hasattr(user32, "SetWindowLongPtrW"):
+            return user32.SetWindowLongPtrW(hwnd, _GWL_STYLE, value)
+        return user32.SetWindowLongW(hwnd, _GWL_STYLE, value)
+
+    def _configure_win32_signatures():
+        """Declare argtypes/restype for the Win32 calls we use.
+
+        Without this, ctypes assumes 32-bit ints for every argument and return
+        value, which truncates 64-bit window handles and pointers and corrupts
+        the stack (hard crash / STATUS_STACK_BUFFER_OVERRUN)."""
+        user32 = ctypes.windll.user32
+        LONG_PTR = ctypes.c_longlong if ctypes.sizeof(ctypes.c_void_p) == 8 \
+            else ctypes.c_long
+
+        for name in ("GetWindowLongPtrW", "GetWindowLongW"):
+            fn = getattr(user32, name, None)
+            if fn is not None:
+                fn.restype = LONG_PTR
+                fn.argtypes = [wintypes.HWND, ctypes.c_int]
+        for name in ("SetWindowLongPtrW", "SetWindowLongW"):
+            fn = getattr(user32, name, None)
+            if fn is not None:
+                fn.restype = LONG_PTR
+                fn.argtypes = [wintypes.HWND, ctypes.c_int, LONG_PTR]
+
+        user32.SetWindowPos.restype = wintypes.BOOL
+        user32.SetWindowPos.argtypes = [
+            wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+            ctypes.c_int, ctypes.c_int, wintypes.UINT,
+        ]
+        user32.GetWindowRect.restype = wintypes.BOOL
+        user32.GetWindowRect.argtypes = [
+            wintypes.HWND, ctypes.POINTER(wintypes.RECT),
+        ]
+        user32.MonitorFromWindow.restype = ctypes.c_void_p
+        user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+        user32.GetMonitorInfoW.restype = wintypes.BOOL
+        user32.GetMonitorInfoW.argtypes = [
+            ctypes.c_void_p, ctypes.POINTER(_MONITORINFO),
+        ]
+
+    try:
+        _configure_win32_signatures()
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("Failed to configure Win32 signatures; "
+                         "native frameless resize disabled")
+        _IS_WINDOWS = False
 
 
 class FramelessWindowBase(QWidget):
@@ -64,6 +186,12 @@ class FramelessWindowBase(QWidget):
         self._resize_edge = None
         self._resize_start_pos = None
         self._start_geometry = None
+
+        # Native (DWM) resize — smooth, artifact-free.  When active, the OS
+        # handles edge/corner resizing via WM_NCHITTEST and the manual Python
+        # resize path (edge widgets + mouse handlers) is disabled.
+        self._native_resize = _IS_WINDOWS
+        self._native_installed = False
 
         # Snap-to-edge state
         self._is_snapped = False
@@ -233,16 +361,29 @@ class FramelessWindowBase(QWidget):
     # â”€â”€ Resize grips â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _add_resize_grips(self):
-        """Add resize grips to all edges and corners."""
+        """Add resize grips to all edges and corners.
+
+        When native (DWM) resizing is active we skip the manual overlay widgets
+        entirely — Windows handles resizing via WM_NCHITTEST, so the Python
+        grips would be redundant (and would fight the OS at the corners).
+        """
         self.size_grip = QSizeGrip(self)
         self.size_grip.setStyleSheet("QSizeGrip { background-color: transparent; width: 16px; height: 16px; }")
 
         self._resize_widgets = []
 
+        if self._native_resize:
+            # Native resize handles all edges/corners; keep the grip object for
+            # API/menu compatibility but hidden so it doesn't double-resize.
+            self.size_grip.hide()
+            return
+
         for edge in ('top', 'bottom', 'left', 'right',
                      'top-left', 'top-right', 'bottom-left'):
             w = _ResizeEdge(self, edge)
             self._resize_widgets.append((edge, w))
+            w.raise_()
+        self.size_grip.raise_()
 
     def set_size_grip_visible(self, visible: bool):
         """Show or hide the bottom-right corner resize grip."""
@@ -321,7 +462,6 @@ class FramelessWindowBase(QWidget):
 
         if hasattr(self, 'size_grip'):
             self.size_grip.move(w - 16, h - 16)
-            self.size_grip.raise_()
 
         if hasattr(self, '_resize_widgets'):
             for edge_name, widget in self._resize_widgets:
@@ -339,19 +479,19 @@ class FramelessWindowBase(QWidget):
                     widget.setGeometry(w - margin, 0, margin, margin)
                 elif edge_name == 'bottom-left':
                     widget.setGeometry(0, h - margin, margin, margin)
-                widget.raise_()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             pos = event.pos()
-            edge = self._get_resize_edge(pos)
-            if edge and not self._is_maximized:
-                self._resizing = True
-                self._resize_edge = edge
-                self._resize_start_pos = event.globalPosition().toPoint()
-                self._start_geometry = self.geometry()
-                event.accept()
-                return
+            if not self._native_resize:
+                edge = self._get_resize_edge(pos)
+                if edge and not self._is_maximized:
+                    self._resizing = True
+                    self._resize_edge = edge
+                    self._resize_start_pos = event.globalPosition().toPoint()
+                    self._start_geometry = self.geometry()
+                    event.accept()
+                    return
             # Drag if click is in header bar
             if hasattr(self, 'header_bar') and self.header_bar.geometry().contains(pos):
                 widget_at = self.childAt(pos)
@@ -443,8 +583,9 @@ class FramelessWindowBase(QWidget):
     def mouseMoveEvent(self, event):
         pos = event.pos()
         if not event.buttons():
-            edge = self._get_resize_edge(pos)
-            self._update_cursor_for_edge(edge)
+            if not self._native_resize:
+                edge = self._get_resize_edge(pos)
+                self._update_cursor_for_edge(edge)
             super().mouseMoveEvent(event)
             return
 
@@ -539,6 +680,138 @@ class FramelessWindowBase(QWidget):
         painter.setPen(QPen(QColor(self._border_color), 2))
         painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
         painter.end()
+
+    # -- Native (DWM) resize -------------------------------------------------
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._native_resize and not self._native_installed:
+            self._install_native_frame()
+
+    def _install_native_frame(self):
+        """Give the frameless window a native sizing frame so Windows/DWM
+        performs smooth, composited resizing.  The visible native title bar and
+        borders are removed via WM_NCCALCSIZE, leaving our custom chrome."""
+        try:
+            hwnd = int(self.winId())
+            style = _get_window_long(hwnd)
+            style |= (_WS_THICKFRAME | _WS_CAPTION | _WS_MAXIMIZEBOX
+                      | _WS_MINIMIZEBOX | _WS_SYSMENU)
+            _set_window_long(hwnd, style)
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, 0, 0, 0, 0, 0,
+                _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOZORDER
+                | _SWP_NOOWNERZORDER | _SWP_FRAMECHANGED,
+            )
+            self._native_installed = True
+        except Exception:  # pragma: no cover - defensive; fall back to manual
+            logger.exception("Failed to install native window frame; "
+                             "falling back to manual resize")
+            self._native_resize = False
+
+    def nativeEvent(self, eventType, message):
+        if self._native_resize and eventType in (b"windows_generic_MSG",
+                                                  b"windows_dispatcher_MSG"):
+            try:
+                msg = wintypes.MSG.from_address(int(message))
+            except Exception:
+                return False, 0
+
+            if msg.message == _WM_NCCALCSIZE:
+                # Not shrinking the proposed rectangle makes the client area
+                # fill the whole window (no native title bar / borders).  When
+                # maximized, clamp to the monitor work area so the window
+                # doesn't cover the taskbar.
+                if msg.wParam:
+                    if self.isMaximized():
+                        self._clamp_maximized_client(msg.lParam)
+                    return True, 0
+                return True, 0
+
+            if msg.message == _WM_GETMINMAXINFO:
+                # Constrain the maximized size to the monitor work area, then
+                # let Qt/DefWindowProc apply it (return "not handled").
+                self._apply_maxinfo(msg.hWnd, msg.lParam)
+                return False, 0
+
+            if msg.message == _WM_NCHITTEST:
+                hit = self._native_hit_test(msg.hWnd, msg.lParam)
+                if hit is not None:
+                    return True, hit
+
+        return False, 0
+
+    def _native_hit_test(self, hwnd, lparam):
+        """Return an HT* resize code when the cursor is over a window border,
+        otherwise None (let Qt handle drag / clicks as HTCLIENT)."""
+        if self.isMaximized() or self._is_maximized:
+            return None
+
+        x = ctypes.c_short(lparam & 0xFFFF).value
+        y = ctypes.c_short((lparam >> 16) & 0xFFFF).value
+
+        rect = wintypes.RECT()
+        ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect))
+
+        border = max(1, round(self._resize_margin * self.devicePixelRatioF()))
+        left = x < rect.left + border
+        right = x >= rect.right - border
+        top = y < rect.top + border
+        bottom = y >= rect.bottom - border
+
+        if top and left:
+            return _HTTOPLEFT
+        if top and right:
+            return _HTTOPRIGHT
+        if bottom and left:
+            return _HTBOTTOMLEFT
+        if bottom and right:
+            return _HTBOTTOMRIGHT
+        if left:
+            return _HTLEFT
+        if right:
+            return _HTRIGHT
+        if top:
+            return _HTTOP
+        if bottom:
+            return _HTBOTTOM
+        return None
+
+    def _monitor_work_rect(self, hwnd):
+        monitor = ctypes.windll.user32.MonitorFromWindow(
+            hwnd, _MONITOR_DEFAULTTONEAREST)
+        if not monitor:
+            return None
+        info = _MONITORINFO()
+        info.cbSize = ctypes.sizeof(_MONITORINFO)
+        if not ctypes.windll.user32.GetMonitorInfoW(
+                monitor, ctypes.byref(info)):
+            return None
+        return info.rcWork
+
+    def _clamp_maximized_client(self, lparam):
+        try:
+            params = _NCCALCSIZE_PARAMS.from_address(lparam)
+            work = self._monitor_work_rect(int(self.winId()))
+            if work is not None:
+                params.rgrc[0] = work
+        except Exception:
+            logger.debug("clamp maximized client failed", exc_info=True)
+
+    def _apply_maxinfo(self, hwnd, lparam):
+        try:
+            work = self._monitor_work_rect(hwnd)
+            if work is None:
+                return
+            info = _MINMAXINFO.from_address(lparam)
+            info.ptMaxPosition.x = 0
+            info.ptMaxPosition.y = 0
+            info.ptMaxSize.x = work.right - work.left
+            info.ptMaxSize.y = work.bottom - work.top
+            info.ptMaxTrackSize.x = work.right - work.left
+            info.ptMaxTrackSize.y = work.bottom - work.top
+        except Exception:
+            logger.debug("apply maxinfo failed", exc_info=True)
 
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•

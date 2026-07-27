@@ -361,6 +361,34 @@ title bar. Every top-level window subclasses `FramelessWindowBase`
   preview.
 - De-maximize on drag — dragging from maximized restores to normal size.
 
+### Resizing — Native (DWM), NOT manual `setGeometry` (MANDATORY)
+**On Windows, resizing is handed to the OS via native hit-testing — never a
+per-mouse-move `setGeometry` loop.** Resizing a frameless window by calling
+`setGeometry()` on every `mouseMoveEvent` bypasses DWM's GPU-composited resize,
+so the content lags the frame → **glitchy "repeating artifacts at the bottom"
+and non-smooth resizing.** This has regressed before; keep the native path.
+
+How it works (`FramelessWindowBase._install_native_frame` + `nativeEvent`):
+- On first `showEvent` we add a native sizing frame (`WS_THICKFRAME | WS_CAPTION`
+  …) via `SetWindowLongPtr`, then reclaim the whole client area by handling
+  `WM_NCCALCSIZE` (so the native title bar/borders are invisible — our gradient
+  header + gold border remain).
+- `WM_NCHITTEST` returns `HT*` edge codes near the borders so **Windows/DWM does
+  the resize** — smooth and artifact-free. `WM_GETMINMAXINFO` clamps maximize to
+  the monitor work area (respects the taskbar / mini-bar).
+- When native resize is active (`self._native_resize`), the manual `_ResizeEdge`
+  overlay widgets + `QSizeGrip` resizer are **not** created and the mouse-resize
+  branches are skipped, so there's no double-handling. The manual path only runs
+  as a non-Windows fallback.
+
+Pitfalls (do not reintroduce):
+- **Declare `argtypes`/`restype`** for every `ctypes.windll.user32` call —
+  otherwise 64-bit handles truncate → `STATUS_STACK_BUFFER_OVERRUN` crash.
+- In `nativeEvent`, **never call `super().nativeEvent(...)`** — it crashes under
+  PyQt6. Return `(False, 0)` for unhandled messages; `(True, result)` when handled.
+- Don't call `raise_()` on child widgets inside `resizeEvent` (z-order/repaint
+  storm) — raise grips once at creation.
+
 ### Theme
 Each module can override `header_colors` (3-stop gradient) and `border_color` to
 brand its windows:
