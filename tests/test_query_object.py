@@ -1410,6 +1410,9 @@ class QueryObjectTests(unittest.TestCase):
                 def _cyberlife_query_object_state(self):
                     return {"new": True}
 
+                def _update_cyberlife_query_name_label(self):
+                    return None
+
             with patch("suiteview.audit.audit_window.QMessageBox.information"):
                 AuditWindow._save_cyberlife_query_object(
                     DummyAudit(), "Cyberlife Trad CV [Forge]")

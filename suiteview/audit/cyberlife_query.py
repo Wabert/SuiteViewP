@@ -929,10 +929,10 @@ def build_cyberlife_sql(
         # Current duration = completed years + 1 (a policy in its 12th year
         # has completed 11 years). Attained age below intentionally keeps the
         # completed-years value, which is already correct.
-        sql_parts.append(f"  , INTEGER({disp_val_duration_expr} + 1) ValDuration")
+        sql_parts.append(f"  , INTEGER({disp_val_duration_expr} + 1) Duration")
     if disp_attained_age:
         sql_parts.append(
-            f"  , INTEGER({result_cov_alias}.INS_ISS_AGE + {disp_val_duration_expr}) ValAttainedAge_Disp"
+            f"  , INTEGER({result_cov_alias}.INS_ISS_AGE + {disp_val_duration_expr}) AttainedAge"
         )
 
     # Circle 3: Last Accounting Date / Last Financial Date
