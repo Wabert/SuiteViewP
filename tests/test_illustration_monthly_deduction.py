@@ -4,7 +4,14 @@ from datetime import date
 from suiteview.illustration.core.monthly_deduction import calculate_deduction
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
-from suiteview.illustration.models.policy_data import BenefitInfo, CoverageSegment, IllustrationPolicyData, RiderInfo
+from suiteview.illustration.models.policy_data import (
+    BenefitInfo,
+    CoverageSegment,
+    IllustrationPolicyData,
+    RiderInfo,
+    benefit_rate_issue_age,
+    benefit_rate_keys,
+)
 
 
 def test_death_benefit_discount_uses_plancode_dbd_not_policy_interest_rate():
@@ -281,6 +288,131 @@ def test_rider_and_benefit_charges_round_to_cents_by_default():
     assert result.rider_charges == pytest.approx(33.33)
     assert result.benefit_charge_detail["21"] == pytest.approx(23.33)
     assert result.benefit_charges == pytest.approx(23.33)
+
+
+def test_two_benefits_of_same_type_both_charge_and_report_separately():
+    # Rare but valid: two benefits sharing the same type+subtype (e.g. two
+    # type-11 benefits). Both must carry a charge AND each must get its own
+    # breakdown entry — the second must not overwrite the first.
+    first = BenefitInfo(
+        benefit_type="1",
+        benefit_subtype="1",
+        benefit_amount=100_000.0,
+        units=100.0,
+        coi_rate=0.08,
+        is_active=True,
+    )
+    second = BenefitInfo(
+        benefit_type="1",
+        benefit_subtype="1",
+        benefit_amount=100_000.0,
+        units=100.0,
+        coi_rate=0.07,
+        is_active=True,
+    )
+    policy = _minimal_policy_with_riders_and_benefits(benefits=[first, second])
+    config, rates = _minimal_config_and_rates()
+
+    result = calculate_deduction(
+        10_000.0,
+        policy,
+        config,
+        rates,
+        rate_year=1,
+        attained_age=45,
+        premiums_to_date=0.0,
+    )
+
+    # First keeps the bare type+subtype key; the duplicate is suffixed.
+    assert result.benefit_charge_detail["11"] == pytest.approx(8.0)
+    assert result.benefit_charge_detail["11#2"] == pytest.approx(7.0)
+    assert result.benefit_rates["11"] == pytest.approx(0.08)
+    assert result.benefit_rates["11#2"] == pytest.approx(0.07)
+    # Both are folded into the total.
+    assert result.benefit_charges == pytest.approx(15.0)
+
+
+def test_benefit_rate_issue_age_added_at_issue_equals_coverage_issue_age():
+    # A benefit added at the coverage's issue takes the coverage's issue age.
+    policy = IllustrationPolicyData(
+        plancode="1U135D00",
+        issue_date=date(1991, 1, 5),
+        segments=[
+            CoverageSegment(
+                coverage_phase=1, issue_date=date(1991, 1, 5), issue_age=26
+            )
+        ],
+    )
+    benefit = BenefitInfo(
+        coverage_phase=1,
+        benefit_type="1",
+        benefit_subtype="1",
+        issue_date=date(1991, 1, 5),
+        issue_age=26,
+    )
+    assert benefit_rate_issue_age(policy, benefit) == 26
+
+
+def test_benefit_rate_issue_age_added_mid_term_uses_coverage_attained_age():
+    # U0169154: base issued 1991-01-05 at age 26; a type-11 benefit added
+    # 1993-05-05 stores BNF_ISS_AGE=29 (the insured's true age), but CyberLife
+    # rates it at the coverage's attained age by policy anniversary: 26 + 2
+    # complete years = 28 (NOT the stored 29).
+    policy = IllustrationPolicyData(
+        plancode="1U135D00",
+        issue_date=date(1991, 1, 5),
+        segments=[
+            CoverageSegment(
+                coverage_phase=1, issue_date=date(1991, 1, 5), issue_age=26
+            )
+        ],
+    )
+    benefit = BenefitInfo(
+        coverage_phase=1,
+        benefit_type="1",
+        benefit_subtype="1",
+        issue_date=date(1993, 5, 5),
+        issue_age=29,
+    )
+    assert benefit_rate_issue_age(policy, benefit) == 28
+
+
+def test_benefit_rate_issue_age_uses_its_own_coverage_phase():
+    # UL055515: a second coverage phase was issued later (1994-07-17 at age 35)
+    # and its type-11 benefit is assigned to that phase. The rate issue age comes
+    # from the assigned coverage phase, not the base coverage.
+    policy = IllustrationPolicyData(
+        plancode="1U135D00",
+        issue_date=date(1985, 5, 17),
+        segments=[
+            CoverageSegment(
+                coverage_phase=1, issue_date=date(1985, 5, 17), issue_age=26
+            ),
+            CoverageSegment(
+                coverage_phase=2, issue_date=date(1994, 7, 17), issue_age=35
+            ),
+        ],
+    )
+    benefit = BenefitInfo(
+        coverage_phase=2,
+        benefit_type="1",
+        benefit_subtype="1",
+        issue_date=date(1994, 7, 17),
+        issue_age=35,
+    )
+    assert benefit_rate_issue_age(policy, benefit) == 35
+
+
+def test_benefit_rate_keys_number_duplicates_but_keep_first_bare():
+    benefits = [
+        BenefitInfo(benefit_type="1", benefit_subtype="1"),
+        BenefitInfo(benefit_type="2", benefit_subtype="1"),
+        BenefitInfo(benefit_type="1", benefit_subtype="1"),
+    ]
+    keys = benefit_rate_keys(benefits)
+    assert keys[id(benefits[0])] == "11"
+    assert keys[id(benefits[1])] == "21"
+    assert keys[id(benefits[2])] == "11#2"
 
 
 # ── Ratchet banding (RERUN CalcEngine PP-QX) ─────────────────────────────────

@@ -5,7 +5,11 @@ from typing import Dict, List
 
 from suiteview.core.rates import Rates
 from suiteview.illustration.core.poav_rates import load_poav_schedule
-from suiteview.illustration.models.policy_data import IllustrationPolicyData
+from suiteview.illustration.models.policy_data import (
+    IllustrationPolicyData,
+    benefit_rate_issue_age,
+    benefit_rate_keys,
+)
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 
 
@@ -93,14 +97,19 @@ def _load_rider_coi_rates(rates_db: Rates, rider) -> List:
 
 def _load_benefit_coi_rates(rates_db: Rates, policy, benefit, segment) -> List:
     benefit_key = (benefit.benefit_type or "") + (benefit.benefit_subtype or "")
+    # CyberLife looks up the benefit renewal rate by the assigned coverage's
+    # attained age. Derive the rate-table issue age from that coverage phase
+    # (falling back to the base segment) rather than the benefit's stored age.
+    coverage = policy.segment_for_phase(benefit.coverage_phase) or segment
+    issue_age = benefit_rate_issue_age(policy, benefit)
     return rates_db.get_rates(
         "BENCOI",
         policy.plancode,
-        issue_age=benefit.issue_age,
-        sex=segment.rate_sex,
-        rateclass=segment.rate_class,
+        issue_age=issue_age,
+        sex=coverage.rate_sex,
+        rateclass=coverage.rate_class,
         scale=1,
-        band=segment.band,
+        band=coverage.band,
         benefit_type=benefit_key,
     ) or []
 
@@ -220,18 +229,23 @@ def load_rates(
             seg.rate_class, scale=1, band=seg.original_band,
         ) or []
 
-    # Load benefit COI rates — keyed by combined type+subtype string
-    # Uses base insured sex/rateclass and policy band (per spec)
-    # Benefits with type '#' are administrative/informational — skip entirely
+    # Load benefit COI rates — keyed by a unique per-benefit schedule key so two
+    # benefits of the same type+subtype (each with its own coverage/issue age)
+    # get their own schedule instead of the later one reusing the earlier's.
+    # Benefits with type '#' are administrative/informational — skip entirely.
+    rate_keys = benefit_rate_keys(policy.benefits)
     for ben in policy.benefits:
         if not ben.is_active:
             continue
         if (ben.benefit_type or "").startswith("#"):
             continue
-        ben_key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
-        if not ben_key or ben_key in result.benefit_coi:
+        base_key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+        if not base_key:
             continue
-        result.benefit_coi[ben_key] = _load_benefit_coi_rates(
+        schedule_key = rate_keys[id(ben)]
+        if schedule_key in result.benefit_coi:
+            continue
+        result.benefit_coi[schedule_key] = _load_benefit_coi_rates(
             rates_db, policy, ben, seg
         )
 

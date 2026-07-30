@@ -13,7 +13,11 @@ from typing import Dict
 from suiteview.illustration.core.corridor_rates import get_corridor_factor
 from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import IllustrationPolicyData, rider_active_on
+from suiteview.illustration.models.policy_data import (
+    IllustrationPolicyData,
+    benefit_rate_keys,
+    rider_active_on,
+)
 
 
 def _round_near(value: float, decimals: int = 2) -> float:
@@ -609,7 +613,19 @@ def calculate_deduction(
         rider_charges += rider_charge
 
     non_pw_benefit_charges = 0.0
-    for ben in sorted(policy.benefits, key=lambda benefit: (benefit.benefit_type or "") == "3"):
+    # Charge PW (type 3) benefits last; keep the ordered list so each benefit can
+    # be given a stable per-benefit detail key below.
+    sorted_benefits = sorted(
+        policy.benefits, key=lambda benefit: (benefit.benefit_type or "") == "3"
+    )
+    # Multiple benefits can legitimately share a type+subtype (rare, but valid —
+    # e.g. two type-11 benefits). Both the COI-rate schedule (loaded per benefit
+    # in rate_loader) and the per-benefit breakdown dicts are keyed by a unique
+    # per-benefit key so a later benefit never reuses/overwrites an earlier one.
+    detail_key_by_id = benefit_rate_keys(policy.benefits)
+
+    for ben in sorted_benefits:
+        detail_key = detail_key_by_id[id(ben)]
         if not ben.is_active:
             continue
         if (ben.benefit_type or "").startswith("#"):
@@ -619,9 +635,7 @@ def calculate_deduction(
         if ben.cease_date is not None and projection_date is not None and projection_date >= ben.cease_date:
             continue
         ben_type = ben.benefit_type or ""
-        ben_subtype = ben.benefit_subtype or ""
-        ben_key = (ben.benefit_type or "") + (ben.benefit_subtype or "")
-        ben_rates = rates.benefit_coi.get(ben_key, [])
+        ben_rates = rates.benefit_coi.get(detail_key, [])
 
         # COI duration is item-specific, but rates update on policy anniversaries.
         ben_coi_rate = 0.0
@@ -646,9 +660,9 @@ def calculate_deduction(
         if ben_type == "3":
             pw_charge = charge
 
-        benefit_amounts[ben_key] = benefit_amount
-        benefit_rates[ben_key] = adjusted_rate
-        benefit_charge_detail[ben_key] = charge
+        benefit_amounts[detail_key] = benefit_amount
+        benefit_rates[detail_key] = adjusted_rate
+        benefit_charge_detail[detail_key] = charge
         benefit_charges += charge
         if ben_type != "3":
             non_pw_benefit_charges += charge

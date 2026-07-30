@@ -75,6 +75,7 @@ from suiteview.illustration.core.rate_loader import IllustrationRates, _safe_rat
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
     IllustrationPolicyData,
+    benefit_rate_keys,
     rider_active_on,
 )
 
@@ -237,6 +238,7 @@ def build_guideline_basis(
         #     benefit stops at its payup/cease anniversary (the workbook gates
         #     on the payup AGE — e.g. PW ceases at the age-60 anniversary). ──
         ben_total = 0.0
+        benefit_schedule_keys = benefit_rate_keys(policy.benefits)
         for ben in policy.benefits:
             ben_type = ben.benefit_type or ""
             if not ben.is_active or ben_type.startswith("#"):
@@ -256,7 +258,7 @@ def build_guideline_basis(
             cease_year = _benefit_cease_year(policy, ben)
             if cease_year is not None and policy_year > cease_year:
                 continue
-            ben_key = ben_type + (ben.benefit_subtype or "")
+            ben_key = benefit_schedule_keys[id(ben)]
             schedule = rates.benefit_coi.get(ben_key, [])
             benefit_year = max(1, policy_year - _coverage_start_year_offset(policy, ben))
             rate = _safe_rate(schedule, benefit_year)

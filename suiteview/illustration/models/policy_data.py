@@ -285,6 +285,64 @@ class IllustrationPolicyData:
     def base_segment(self) -> Optional[CoverageSegment]:
         return self.segments[0] if self.segments else None
 
+    def segment_for_phase(self, coverage_phase: int) -> Optional[CoverageSegment]:
+        """Return the coverage segment for a phase, falling back to the base."""
+        for seg in self.segments:
+            if seg.coverage_phase == coverage_phase:
+                return seg
+        return self.base_segment
+
+
+def benefit_rate_keys(benefits: List[BenefitInfo]) -> Dict[int, str]:
+    """Map each benefit object (by ``id()``) to a stable, unique schedule key.
+
+    Multiple benefits can legitimately share a ``type+subtype`` (rare, but valid
+    — e.g. two type-11 benefits). The COI-rate schedule and the per-benefit
+    breakdown must be keyed uniquely per benefit instance or the later one
+    silently reuses/overwrites the earlier. The first occurrence of a
+    ``type+subtype`` keeps the bare key; duplicates get ``#2``, ``#3`` suffixes,
+    numbered by their position in ``benefits`` so keys stay stable regardless of
+    later sorting or which benefits are active in a given month.
+    """
+    counts: Dict[str, int] = {}
+    keys: Dict[int, str] = {}
+    for ben in benefits:
+        type_subtype = (ben.benefit_type or "") + (ben.benefit_subtype or "")
+        occurrence = counts.get(type_subtype, 0) + 1
+        counts[type_subtype] = occurrence
+        keys[id(ben)] = type_subtype if occurrence == 1 else f"{type_subtype}#{occurrence}"
+    return keys
+
+
+def benefit_rate_issue_age(policy: IllustrationPolicyData, benefit: BenefitInfo) -> int:
+    """Rate-table issue age for a benefit's COI lookup.
+
+    CyberLife looks up a benefit's renewal COI rate by the *attained age of the
+    coverage phase the benefit is assigned to*, regardless of the benefit's own
+    stored ``BNF_ISS_AGE``. Our rates are loaded by issue age + duration, so we
+    reconstruct that behaviour: the rate issue age is the assigned coverage
+    segment's issue age plus the number of complete coverage anniversaries
+    elapsed between that segment's issue date and the date the benefit was added.
+    Combined with the existing duration logic (which steps from the benefit's own
+    issue date), the looked-up attained age tracks the coverage's attained age.
+
+    For a benefit added at (its coverage's) issue this equals the stored issue
+    age; for a benefit added mid-term it can be a year lower than the stored true
+    age (e.g. base issued at 26, benefit added after 2 complete years → 28, not
+    the stored 29).
+    """
+    segment = policy.segment_for_phase(benefit.coverage_phase)
+    if segment is None or segment.issue_date is None or benefit.issue_date is None:
+        return benefit.issue_age
+    elapsed = benefit.issue_date.year - segment.issue_date.year
+    if (benefit.issue_date.month, benefit.issue_date.day) < (
+        segment.issue_date.month,
+        segment.issue_date.day,
+    ):
+        elapsed -= 1
+    elapsed = max(0, elapsed)
+    return segment.issue_age + elapsed
+
 
 def rider_effective_maturity_date(rider: RiderInfo, policy: IllustrationPolicyData) -> Optional[date]:
     """Return the maturity date that should control rider activity."""
