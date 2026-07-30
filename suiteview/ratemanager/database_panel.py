@@ -459,9 +459,11 @@ class WorkupDatabaseLoadTab(QWidget):
     ) -> str:
         if analysis.is_pointer:
             if action == LoadAction.REPLACE and analysis.existing_rows:
+                spec = TABLE_SPECS[analysis.table_name]
+                detail = spec.scope_detail(analysis.existing_rows)
                 return (
                     f"Ready: replace {len(analysis.existing_rows):,} existing "
-                    "plancode row(s)."
+                    f"pointer row(s){detail}."
                 )
             return "Ready: insert new pointer rows."
 

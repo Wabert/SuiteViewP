@@ -50,16 +50,53 @@ class TableSpec:
     empty_string_columns: frozenset[str] = frozenset()
     index_column: str = ""
     pointer_refs: Mapping[str, str] = field(default_factory=dict)
+    scope_columns: tuple[str, ...] = ()
 
     @property
     def is_pointer(self) -> bool:
         return not self.index_column
+
+    @property
+    def collision_scope_columns(self) -> tuple[str, ...]:
+        """Columns that define the ownership unit for a pointer table.
+
+        Existing rows only conflict with an incoming workup when they share
+        every one of these column values. Pointer tables default to
+        ``Plancode`` so an entire plancode is managed together, but tables
+        such as ``POINT_BENEFIT`` narrow the scope further (e.g. by
+        ``BenefitType``) so unrelated benefit types never block each other.
+        """
+        if self.scope_columns:
+            return self.scope_columns
+        return ("Plancode",) if self.is_pointer else ()
 
     def column_index(self, column: str) -> int:
         return self.columns.index(column)
 
     def key(self, row: tuple[Any, ...]) -> tuple[Any, ...]:
         return tuple(row[self.column_index(column)] for column in self.key_columns)
+
+    def scope(self, row: tuple[Any, ...]) -> tuple[Any, ...]:
+        return tuple(
+            row[self.column_index(column)]
+            for column in self.collision_scope_columns
+        )
+
+    def scope_detail(self, rows: Iterable[tuple[Any, ...]]) -> str:
+        """Human-readable description of the non-plancode scope values."""
+        extra = [
+            column for column in self.collision_scope_columns
+            if column != "Plancode"
+        ]
+        rows = list(rows)
+        if not extra or not rows:
+            return ""
+        parts = []
+        for column in extra:
+            pos = self.column_index(column)
+            values = sorted({str(row[pos]) for row in rows})
+            parts.append(f"{column} {', '.join(values)}")
+        return " (" + "; ".join(parts) + ")"
 
     def index_value(self, row: tuple[Any, ...]) -> Optional[int]:
         if not self.index_column:
@@ -151,6 +188,7 @@ TABLE_SPECS: "OrderedDict[str, TableSpec]" = OrderedDict([
         }),
         nullable_key_columns=frozenset({"Benefit"}),
         empty_string_columns=frozenset({"Benefit"}),
+        scope_columns=("Plancode", "BenefitType"),
         pointer_refs={
             "Index(BENCOI)": "RATE_BENCOI",
             "Index(BENTRG)": "RATE_BENTRG",
@@ -458,7 +496,7 @@ class ExecutionPlan:
     plancode: str
     actions: Mapping[str, LoadAction]
     insert_rows: Mapping[str, tuple[tuple[Any, ...], ...]]
-    delete_pointer_plancodes: frozenset[str]
+    delete_pointer_scopes: Mapping[str, tuple[tuple[Any, ...], ...]]
     delete_indexes: Mapping[str, frozenset[int]]
     backup_rows: Mapping[str, tuple[tuple[Any, ...], ...]]
     issues: tuple[PlanIssue, ...]
@@ -507,8 +545,12 @@ def analyze_package(
         spec = data.spec
         if spec.is_pointer:
             existing = tuple(repository.fetch_pointer_rows(name, package.plancode))
+            incoming_scopes = {spec.scope(row) for row in data.rows}
+            scoped_existing = tuple(
+                row for row in existing if spec.scope(row) in incoming_scopes
+            )
             incoming_by_key = data.rows_by_key()
-            existing_by_key = {spec.key(row): row for row in existing}
+            existing_by_key = {spec.key(row): row for row in scoped_existing}
             shared_keys = incoming_by_key.keys() & existing_by_key.keys()
             identical = frozenset(
                 key for key in shared_keys
@@ -518,7 +560,7 @@ def analyze_package(
             analyses[name] = TableAnalysis(
                 table_name=name,
                 file_rows=len(data.rows),
-                existing_rows=existing,
+                existing_rows=scoped_existing,
                 identical_pointer_keys=identical,
                 different_pointer_keys=different,
             )
@@ -604,7 +646,7 @@ def create_execution_plan(
     insert_rows: dict[str, tuple[tuple[Any, ...], ...]] = {}
     delete_indexes: dict[str, frozenset[int]] = {}
     backup_rows: dict[str, tuple[tuple[Any, ...], ...]] = {}
-    delete_pointer_plancodes: set[str] = set()
+    delete_pointer_scopes: dict[str, tuple[tuple[Any, ...], ...]] = {}
 
     for name, action in normalized.items():
         if action == LoadAction.SKIP:
@@ -615,14 +657,18 @@ def create_execution_plan(
 
         if spec.is_pointer:
             if action == LoadAction.INSERT and table_analysis.existing_rows:
+                detail = spec.scope_detail(table_analysis.existing_rows)
                 issues.append(PlanIssue(
                     name,
                     f"{name} already has {len(table_analysis.existing_rows):,} "
-                    f"row(s) for {package.plancode}; explicitly choose Replace.",
+                    f"row(s) for {package.plancode}{detail}; "
+                    "explicitly choose Replace.",
                 ))
                 continue
             if action == LoadAction.REPLACE:
-                delete_pointer_plancodes.add(name)
+                delete_pointer_scopes[name] = tuple(
+                    sorted({spec.scope(row) for row in data.rows})
+                )
                 if table_analysis.existing_rows:
                     backup_rows[name] = table_analysis.existing_rows
             insert_rows[name] = data.rows
@@ -727,7 +773,7 @@ def create_execution_plan(
         package.plancode,
         normalized,
         insert_rows,
-        frozenset(delete_pointer_plancodes),
+        delete_pointer_scopes,
         delete_indexes,
         backup_rows,
         tuple(issues),
@@ -914,15 +960,21 @@ class ULRatesRepository:
         deleted: dict[str, int] = defaultdict(int)
         try:
             for table_name in ("POINT_PVSRB", "POINT_BENEFIT"):
-                if table_name not in plan.delete_pointer_plancodes:
+                scopes = plan.delete_pointer_scopes.get(table_name)
+                if not scopes:
                     continue
-                progress(f"Removing existing {table_name} rows...")
-                cursor.execute(
-                    f"DELETE FROM {_quote(table_name)} "
-                    f"WHERE {_quote('Plancode')} = ?",
-                    (plan.plancode,),
+                spec = TABLE_SPECS[table_name]
+                scope_columns = spec.collision_scope_columns
+                where = " AND ".join(
+                    f"{_quote(column)} = ?" for column in scope_columns
                 )
-                deleted[table_name] += max(cursor.rowcount, 0)
+                progress(f"Removing existing {table_name} rows...")
+                for scope_values in scopes:
+                    cursor.execute(
+                        f"DELETE FROM {_quote(table_name)} WHERE {where}",
+                        tuple(scope_values),
+                    )
+                    deleted[table_name] += max(cursor.rowcount, 0)
 
             for table_name, indexes in plan.delete_indexes.items():
                 spec = TABLE_SPECS[table_name]
@@ -1068,8 +1120,13 @@ def verify_package_state(
         data = package.tables[table_name]
         spec = data.spec
         if spec.is_pointer:
+            incoming_scopes = {spec.scope(row) for row in data.rows}
             actual = tuple(
-                repository.fetch_pointer_rows(table_name, package.plancode)
+                row
+                for row in repository.fetch_pointer_rows(
+                    table_name, package.plancode
+                )
+                if spec.scope(row) in incoming_scopes
             )
             if _rows_digest({table_name: actual}) != _rows_digest(
                 {table_name: data.rows}
@@ -1224,7 +1281,7 @@ def update_pointer_row(
             str(original_row[plan_pos]),
             {table_name: LoadAction.REPLACE},
             {},
-            frozenset(),
+            {},
             {},
             {table_name: (original_row,)},
             (),
@@ -1280,7 +1337,7 @@ def delete_pointer_rows(
             str(selected[0][plan_pos]),
             {table_name: LoadAction.REPLACE},
             {},
-            frozenset(),
+            {},
             {},
             {table_name: selected},
             (),
@@ -1341,7 +1398,7 @@ def delete_rate_index(
             f"INDEX_{index}",
             {table_name: LoadAction.REPLACE},
             {},
-            frozenset(),
+            {},
             {table_name: frozenset({int(index)})},
             {table_name: current},
             (),

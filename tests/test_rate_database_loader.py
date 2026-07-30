@@ -200,6 +200,63 @@ def test_existing_plancode_requires_explicit_pointer_replace(tmp_path):
     assert plan.insert_rows["RATE_COI"] == ()
 
 
+def test_new_benefit_type_ignores_existing_rows_for_other_benefit_types(tmp_path):
+    package = _write_package(tmp_path)
+    existing = {
+        "POINT_BENEFIT": [[
+            "PLAN1", "39", None, 1, "M", "N", 1, 9100, 9100,
+        ]],
+    }
+    repository = FakeRepository(existing)
+
+    analysis = analyze_package(package, repository)
+    assert analysis.tables["POINT_BENEFIT"].existing_rows == ()
+
+    plan = create_execution_plan(package, analysis, _all_insert_actions())
+    messages = defaultdict(list)
+    for issue in plan.issues:
+        messages[issue.table_name].append(issue.message)
+    assert messages["POINT_BENEFIT"] == []
+    assert (
+        plan.insert_rows["POINT_BENEFIT"]
+        == package.tables["POINT_BENEFIT"].rows
+    )
+
+
+def test_matching_benefit_type_blocks_insert_and_notes_benefit_type(tmp_path):
+    package = _write_package(tmp_path)
+    existing = _base_rows()  # POINT_BENEFIT already has BenefitType "21"
+    repository = FakeRepository(existing)
+
+    analysis = analyze_package(package, repository)
+    plan = create_execution_plan(package, analysis, _all_insert_actions())
+
+    messages = defaultdict(list)
+    for issue in plan.issues:
+        messages[issue.table_name].append(issue.message)
+    assert any(
+        "BenefitType 21" in msg and "explicitly choose Replace" in msg
+        for msg in messages["POINT_BENEFIT"]
+    )
+
+
+def test_replace_point_benefit_deletes_only_incoming_benefit_type(tmp_path):
+    package = _write_package(tmp_path)
+    existing = _base_rows()
+    repository = FakeRepository(existing)
+    analysis = analyze_package(package, repository)
+
+    actions = {name: LoadAction.SKIP for name in TABLE_SPECS}
+    actions["POINT_BENEFIT"] = LoadAction.REPLACE
+    plan = create_execution_plan(package, analysis, actions)
+
+    assert plan.delete_pointer_scopes["POINT_BENEFIT"] == (("PLAN1", "21"),)
+    assert (
+        plan.insert_rows["POINT_BENEFIT"]
+        == package.tables["POINT_BENEFIT"].rows
+    )
+
+
 def test_owned_different_index_requires_pointer_and_rate_replace(tmp_path):
     package = _write_package(tmp_path)
     existing = _base_rows()
@@ -224,7 +281,7 @@ def test_owned_different_index_requires_pointer_and_rate_replace(tmp_path):
     assert safe_plan.is_safe
     assert safe_plan.delete_indexes["RATE_COI"] == frozenset({10})
     assert safe_plan.insert_rows["RATE_COI"] == package.tables["RATE_COI"].rows
-    assert "POINT_PVSRB" in safe_plan.delete_pointer_plancodes
+    assert "POINT_PVSRB" in safe_plan.delete_pointer_scopes
 
 
 def test_cross_plancode_index_collision_is_never_replaceable(tmp_path):
