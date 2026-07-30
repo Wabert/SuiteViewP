@@ -11,17 +11,22 @@ the SQL.  Multiple rows let the user pull fields from several tables at once.
 """
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit
 from PyQt6.QtGui import QFont
 
-from ._styles import make_checkbox, make_multiselect_popup
+from ._styles import make_checkbox, make_multiselect_popup, make_combo
 from ..db2_table_fields import CUSTOM_DISPLAY_TABLES, TABLE_FIELDS
 
 _FONT = QFont("Segoe UI", 9)
 _TABLE_COMBO_W = 150
 _FIELD_COMBO_W = 220
 _FIELD_DROPDOWN_ROWS = 28   # how many fields are visible in the dropdown
+_CRITERIA_COMBO_W = 90
+_CRITERIA_INPUT_W = 130
 _NUM_ROWS = 3
+
+# Criteria-type options shown in the per-row combo.  Empty string == no filter.
+CRITERIA_TYPES = ["", "Contains", "Exact"]
 
 
 def _label(text: str) -> QLabel:
@@ -80,14 +85,40 @@ class _CustomDisplayRow(QWidget):
             self._on_fields_changed)
         row.addWidget(self.combo_fields)
 
+        row.addSpacing(8)
+        row.addWidget(_label("Criteria Type"))
+        self.combo_criteria = make_combo(CRITERIA_TYPES, width=_CRITERIA_COMBO_W)
+        row.addWidget(self.combo_criteria)
+
+        self.txt_criteria = QLineEdit()
+        self.txt_criteria.setFont(_FONT)
+        self.txt_criteria.setFixedWidth(_CRITERIA_INPUT_W)
+        self._criteria_input_style()
+        row.addWidget(self.txt_criteria)
+
+        note = QLabel("(text fields only)")
+        note.setFont(QFont("Segoe UI", 8, italic=True))
+        note.setStyleSheet("color: #888;")
+        row.addWidget(note)
+
         row.addStretch()
         self._refresh_muted()
+
+    # ── Styling helpers ──────────────────────────────────────────────
+    def _criteria_input_style(self):
+        muted = not self.chk_enable.isChecked()
+        bg = "#E4E4E4" if muted else "white"
+        self.txt_criteria.setStyleSheet(
+            f"QLineEdit {{ background: {bg}; border: 1px solid #1E5BA8;"
+            " padding: 0px 4px; }"
+        )
 
     # ── Event handlers ───────────────────────────────────────────────
     def _refresh_muted(self):
         muted = not self.chk_enable.isChecked()
         self.combo_tables.set_muted(muted)
         self.combo_fields.set_muted(muted)
+        self._criteria_input_style()
 
     def _on_enable_toggled(self, _on: bool):
         self._refresh_muted()
@@ -131,6 +162,27 @@ class _CustomDisplayRow(QWidget):
                     result.append((db2, field))
         return result
 
+    def criteria_filter(self) -> tuple[str, list[str], str, str] | None:
+        """Text criteria for this row, or None when it should not be applied.
+
+        Returns ``(db2_table, [fields], match_type, value)`` only when the row
+        is enabled, a non-blank criteria type is chosen, the value is non-empty,
+        and at least one field is selected.  The criteria is applied to every
+        selected field of the row's table (OR-combined by the SQL builder).
+        """
+        if not self.chk_enable.isChecked():
+            return None
+        match_type = self.combo_criteria.currentText().strip()
+        value = self.txt_criteria.text().strip()
+        if not match_type or not value:
+            return None
+        pairs = self.selections()
+        if not pairs:
+            return None
+        table = pairs[0][0]
+        fields = [field for tbl, field in pairs if tbl == table]
+        return (table, fields, match_type, value)
+
     def get_state(self) -> dict:
         return {
             "enabled": self.chk_enable.isChecked(),
@@ -138,6 +190,8 @@ class _CustomDisplayRow(QWidget):
                 table: sorted(fields)
                 for table, fields in self._selected.items() if fields
             },
+            "criteria_type": self.combo_criteria.currentText(),
+            "criteria_value": self.txt_criteria.text(),
         }
 
     def set_state(self, state: dict):
@@ -146,6 +200,10 @@ class _CustomDisplayRow(QWidget):
             table: set(fields)
             for table, fields in (state.get("selections") or {}).items()
         }
+        crit_type = state.get("criteria_type", "")
+        idx = self.combo_criteria.findText(crit_type)
+        self.combo_criteria.setCurrentIndex(idx if idx >= 0 else 0)
+        self.txt_criteria.setText(state.get("criteria_value", ""))
         self.chk_enable.setChecked(bool(state.get("enabled", False)))
         self._refresh_muted()
         if self._current_table:
@@ -191,6 +249,17 @@ class CustomDisplayTab(QWidget):
                     seen.add(pair)
                     result.append(pair)
         return result
+
+    def get_criteria_filters(self) -> list[tuple[str, list[str], str, str]]:
+        """Return ``(db2_table, [fields], match_type, value)`` for each enabled
+        row that has a non-blank text criteria and at least one selected field.
+        """
+        filters: list[tuple[str, list[str], str, str]] = []
+        for row in self.rows:
+            crit = row.criteria_filter()
+            if crit:
+                filters.append(crit)
+        return filters
 
     # ── Profile save/load ────────────────────────────────────────────
     def get_state(self) -> dict:

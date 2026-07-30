@@ -280,21 +280,21 @@ class AuditWindow(FramelessWindowBase):
         )
         self.btn_save_cyberlife = QPushButton("Save")
         self.btn_save_cyberlife.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self.btn_save_cyberlife.setFixedSize(60, 36)
+        self.btn_save_cyberlife.setFixedSize(56, 17)
         self.btn_save_cyberlife.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
         self.btn_save_cyberlife.setToolTip("Update the current Cyberlife Query Object")
         self.btn_save_cyberlife.clicked.connect(self._save_cyberlife_query_object_update)
         self.btn_save_cyberlife.setVisible(False)
         self.btn_save_object = QPushButton("Save As")
         self.btn_save_object.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self.btn_save_object.setFixedSize(60, 36)
+        self.btn_save_object.setFixedSize(56, 17)
         self.btn_save_object.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
         self.btn_save_object.setToolTip(
             "Save the current Cyberlife builder output as a new Query Object")
         self.btn_save_object.clicked.connect(self._save_cyberlife_query_object_as)
-        self.btn_new_cyberlife = QPushButton("New Query")
+        self.btn_new_cyberlife = QPushButton("New")
         self.btn_new_cyberlife.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self.btn_new_cyberlife.setFixedSize(78, 36)
+        self.btn_new_cyberlife.setFixedSize(44, 36)
         self.btn_new_cyberlife.setStyleSheet(_SAVE_OBJECT_BTN_STYLE)
         self.btn_new_cyberlife.setToolTip("Start a new Cyberlife Query Object")
         self.btn_new_cyberlife.clicked.connect(self._new_cyberlife_query_object)
@@ -412,10 +412,37 @@ class AuditWindow(FramelessWindowBase):
             "  background-color: #1E5BA8; border: 1px solid #14407A;"
             f"  image: url({_cov_check_icon});"
             "}")
-        self.cyberlife_bottom_bar.action_layout.addWidget(self.chk_coverage_level)
+        # Coverage scope combo — only active when Coverage Level is checked.
+        self.cmb_coverage_scope = QComboBox()
+        self.cmb_coverage_scope.setFont(QFont("Segoe UI", 8))
+        self.cmb_coverage_scope.addItems(["All Covs", "Cov 1 only", "Covs 2+ only"])
+        self.cmb_coverage_scope.setFixedHeight(18)
+        self.cmb_coverage_scope.setToolTip(
+            "Which coverages to return (only used when Coverage Level is checked)")
+        self.cmb_coverage_scope.setStyleSheet(
+            "QComboBox { background-color: white; border: 1px solid #1E5BA8;"
+            " padding: 0px 3px; }"
+            "QComboBox:disabled { background-color: #E4E4E4; color: #999;"
+            " border: 1px solid #AAB; }"
+            "QComboBox::drop-down { border-left: 1px solid #1E5BA8; width: 14px; }")
+        self.chk_coverage_level.toggled.connect(
+            self.cmb_coverage_scope.setEnabled)
+        self.cmb_coverage_scope.setEnabled(self.chk_coverage_level.isChecked())
+        # Stack the checkbox above the scope combo.
+        _cov_stack = QVBoxLayout()
+        _cov_stack.setSpacing(2)
+        _cov_stack.setContentsMargins(0, 0, 0, 0)
+        _cov_stack.addWidget(self.chk_coverage_level)
+        _cov_stack.addWidget(self.cmb_coverage_scope)
+        self.cyberlife_bottom_bar.action_layout.addLayout(_cov_stack)
+        # New sits full-height; Save As / Save stack vertically beside it.
         self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_new_cyberlife)
-        self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_save_object)
-        self.cyberlife_bottom_bar.center_action_layout.addWidget(self.btn_save_cyberlife)
+        _save_stack = QVBoxLayout()
+        _save_stack.setSpacing(2)
+        _save_stack.setContentsMargins(0, 0, 0, 0)
+        _save_stack.addWidget(self.btn_save_object)
+        _save_stack.addWidget(self.btn_save_cyberlife)
+        self.cyberlife_bottom_bar.center_action_layout.addLayout(_save_stack)
         # Left side: Region/SysCode
         # Region + System Code stacked
         region_sys_stack = QVBoxLayout()
@@ -452,6 +479,14 @@ class AuditWindow(FramelessWindowBase):
         sys_row.addStretch()
         region_sys_stack.addLayout(sys_row)
         self.cyberlife_bottom_bar.left_layout.addLayout(region_sys_stack)
+        # Query name label — shown at bottom-left when a saved query is open.
+        self.lbl_cyberlife_query_name = QLabel("")
+        self.lbl_cyberlife_query_name.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.lbl_cyberlife_query_name.setStyleSheet(
+            "QLabel { color: #0A2A5C; background: transparent; padding-left: 10px; }")
+        self.lbl_cyberlife_query_name.setToolTip("Currently open Cyberlife query object")
+        self.lbl_cyberlife_query_name.setVisible(False)
+        self.cyberlife_bottom_bar.left_layout.addWidget(self.lbl_cyberlife_query_name)
         _left_lay.addWidget(self.cyberlife_bottom_bar)
         # ── Dynamic query container (placeholder — queries added dynamically) ──
         self._dynamic_query_container = QVBoxLayout()
@@ -643,11 +678,18 @@ class AuditWindow(FramelessWindowBase):
             self._enter_csv_excel_object_mode()
         else:
             self._enter_cyberlife_mode()
+    def _update_cyberlife_query_name_label(self):
+        """Show the open Cyberlife query object name in the bottom bar."""
+        name = self._cyberlife_saved_object_name.strip()
+        self.lbl_cyberlife_query_name.setText(name)
+        self.lbl_cyberlife_query_name.setVisible(bool(name))
+
     def _enter_cyberlife_mode(self):
         """Configure UI for Cyberlife mode."""
         self._hide_mode_footer()
         self._style_build_mode_button("cyberlife")
         self.btn_save_cyberlife.setVisible(bool(self._cyberlife_saved_object_name.strip()))
+        self._update_cyberlife_query_name_label()
         self.btn_cyberlife.blockSignals(True)
         self.btn_cyberlife.setChecked(True)
         self.btn_cyberlife.blockSignals(False)
@@ -1437,6 +1479,9 @@ class AuditWindow(FramelessWindowBase):
 
         self.txt_max_count.setText(str(criteria.get("max_count", "25")))
         self.chk_coverage_level.setChecked(bool(criteria.get("coverage_level", False)))
+        _scope_idx = self.cmb_coverage_scope.findText(
+            criteria.get("coverage_scope", "All Covs"))
+        self.cmb_coverage_scope.setCurrentIndex(_scope_idx if _scope_idx >= 0 else 0)
 
         common_tables = criteria.get("common_tables")
         if common_tables:
@@ -1448,6 +1493,7 @@ class AuditWindow(FramelessWindowBase):
 
         self._cyberlife_saved_object_name = obj.name
         self.btn_save_cyberlife.setVisible(True)
+        self._update_cyberlife_query_name_label()
         self._switch_mode("cyberlife")
 
     def _import_file_query_object(self):
@@ -1499,6 +1545,7 @@ class AuditWindow(FramelessWindowBase):
             sys_code=self.cmb_system.currentText().strip(),
             max_count_text=self.txt_max_count.text().strip(),
             coverage_level=self.chk_coverage_level.isChecked(),
+            coverage_scope=self.cmb_coverage_scope.currentText(),
             policy_tab=self.policy_tab,
             display_tab=self.display_tab,
             custom_display_tab=self.custom_display_tab,
@@ -1554,6 +1601,7 @@ class AuditWindow(FramelessWindowBase):
         return {
             "max_count": self.txt_max_count.text().strip(),
             "coverage_level": self.chk_coverage_level.isChecked(),
+            "coverage_scope": self.cmb_coverage_scope.currentText(),
             "common_tables": self.cyb_common_tables_tab.get_state(),
             "tabs": {
                 key: tab.get_state()
@@ -1574,6 +1622,7 @@ class AuditWindow(FramelessWindowBase):
             return
         self._cyberlife_saved_object_name = ""
         self.btn_save_cyberlife.setVisible(False)
+        self._update_cyberlife_query_name_label()
         self._on_clear_cyberlife()
         self._switch_mode("cyberlife")
 
@@ -1661,6 +1710,7 @@ class AuditWindow(FramelessWindowBase):
         query_object_store.save_object(qo)
         self._cyberlife_saved_object_name = name
         self.btn_save_cyberlife.setVisible(True)
+        self._update_cyberlife_query_name_label()
         self.query_object_saved.emit(name)
         QMessageBox.information(
             self, "Query Object Saved",
@@ -1671,6 +1721,7 @@ class AuditWindow(FramelessWindowBase):
             tab.set_state({})
         self.txt_max_count.setText("25")
         self.chk_coverage_level.setChecked(False)
+        self.cmb_coverage_scope.setCurrentIndex(0)
         self.results_tab.clear_results()
         self.sql_tab.clear_sql()
         self.build_sql_tab.clear_sql()

@@ -168,3 +168,67 @@ def test_switching_tables_remembers_field_selections():
     _table_item(tab, "Policy (LH_BAS_POL)").setSelected(True)
     # the previously chosen field should still be registered
     assert ("LH_BAS_POL", "APP_WRT_DT") in tab.get_selected_fields()
+
+
+def test_blank_criteria_adds_no_where():
+    _app()
+    tab = CustomDisplayTab()
+    _select(tab, "Policy (LH_BAS_POL)", ["APP_WRT_DT"])
+    assert tab.get_criteria_filters() == []
+    sql = _build(tab)
+    assert "LIKE" not in sql
+    assert "UPPER(TRIM(POLICY1.APP_WRT_DT))" not in sql
+
+
+def test_contains_criteria_adds_like_where():
+    _app()
+    tab = CustomDisplayTab()
+    _select(tab, "Policy (LH_BAS_POL)", ["APP_WRT_DT"])
+    r = tab.rows[0]
+    r.combo_criteria.setCurrentText("Contains")
+    r.txt_criteria.setText("smith")
+    filters = tab.get_criteria_filters()
+    assert filters == [("LH_BAS_POL", ["APP_WRT_DT"], "Contains", "smith")]
+    sql = _build(tab)
+    assert "UPPER(TRIM(POLICY1.APP_WRT_DT)) LIKE '%SMITH%'" in sql
+
+
+def test_exact_criteria_adds_equals_where():
+    _app()
+    tab = CustomDisplayTab()
+    _select(tab, "Policy (LH_BAS_POL)", ["APP_WRT_DT"])
+    r = tab.rows[0]
+    r.combo_criteria.setCurrentText("Exact")
+    r.txt_criteria.setText("ABC")
+    sql = _build(tab)
+    assert "UPPER(TRIM(POLICY1.APP_WRT_DT)) = 'ABC'" in sql
+
+
+def test_criteria_ignored_when_row_disabled():
+    _app()
+    tab = CustomDisplayTab()
+    _select(tab, "Policy (LH_BAS_POL)", ["APP_WRT_DT"])
+    r = tab.rows[0]
+    r.combo_criteria.setCurrentText("Contains")
+    r.txt_criteria.setText("smith")
+    r.chk_enable.setChecked(False)
+    assert tab.get_criteria_filters() == []
+    sql = _build(tab)
+    assert "LIKE" not in sql
+
+
+def test_criteria_state_round_trips():
+    _app()
+    tab = CustomDisplayTab()
+    _select(tab, "Policy (LH_BAS_POL)", ["APP_WRT_DT"])
+    tab.rows[0].combo_criteria.setCurrentText("Contains")
+    tab.rows[0].txt_criteria.setText("smith")
+    state = tab.get_state()
+
+    restored = CustomDisplayTab()
+    restored.set_state(state)
+    assert restored.rows[0].combo_criteria.currentText() == "Contains"
+    assert restored.rows[0].txt_criteria.text() == "smith"
+    assert restored.get_criteria_filters() == [
+        ("LH_BAS_POL", ["APP_WRT_DT"], "Contains", "smith")
+    ]

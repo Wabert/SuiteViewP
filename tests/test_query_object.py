@@ -1111,6 +1111,13 @@ class QueryObjectTests(unittest.TestCase):
             def setChecked(self, checked):
                 self.checked = checked
 
+        class FakeCombo:
+            def __init__(self):
+                self.index = 2
+
+            def setCurrentIndex(self, index):
+                self.index = index
+
         class FakeClear:
             def __init__(self, name):
                 self.name = name
@@ -1136,6 +1143,7 @@ class QueryObjectTests(unittest.TestCase):
         fake.tabs = FakeTabs()
         fake.txt_max_count = FakeText()
         fake.chk_coverage_level = FakeCheck()
+        fake.cmb_coverage_scope = FakeCombo()
         fake.results_tab = FakeClear("results")
         fake.sql_tab = FakeClear("sql")
         fake.build_sql_tab = FakeClear("build_sql")
@@ -1147,6 +1155,7 @@ class QueryObjectTests(unittest.TestCase):
 
         self.assertEqual(fake.txt_max_count.value, "25")
         self.assertFalse(fake.chk_coverage_level.checked)
+        self.assertEqual(fake.cmb_coverage_scope.index, 0)
         self.assertEqual(fake.lbl_result_count.value, "Result count:")
         self.assertIs(fake.tabs.current, fake.policy_tab)
         self.assertIn("sql", calls)

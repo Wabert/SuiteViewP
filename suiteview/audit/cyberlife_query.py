@@ -90,23 +90,24 @@ def _name_match_predicate(column: str, match_type: str, value: str) -> str:
 
 
 def _build_custom_display(custom_display_tab, result_cov_alias: str,
-                          schema: str) -> tuple[list[str], list[str]]:
-    """Build SELECT column lines and JOIN lines for the Custom Display tab.
+                          schema: str) -> tuple[list[str], list[str], list[str]]:
+    """Build SELECT column lines, JOIN lines, and WHERE conditions for the
+    Custom Display tab.
 
-    Returns ``(select_lines, join_lines)``.  Policy-level fields (LH_BAS_POL)
-    use the always-present POLICY1 alias and coverage-level fields (LH_COV_PHA)
-    use the result coverage alias.  The advanced tables (TH_BAS_POL /
-    TH_COV_PHA) get dedicated LEFT OUTER JOINs so the columns are available
-    regardless of which other filters are active.
+    Returns ``(select_lines, join_lines, where_conditions)``.  Policy-level
+    fields (LH_BAS_POL) use the always-present POLICY1 alias and coverage-level
+    fields (LH_COV_PHA) use the result coverage alias.  The advanced tables
+    (TH_BAS_POL / TH_COV_PHA) get dedicated LEFT OUTER JOINs so the columns are
+    available regardless of which other filters are active.  When a row supplies
+    a text criteria (Contains / Exact) it is turned into a WHERE condition on the
+    row's selected fields (OR-combined across those fields).
     """
     if custom_display_tab is None:
-        return [], []
+        return [], [], []
     try:
         selections = custom_display_tab.get_selected_fields()
     except Exception:
-        return [], []
-    if not selections:
-        return [], []
+        return [], [], []
 
     alias_map = {
         "LH_BAS_POL": "POLICY1",
@@ -128,6 +129,26 @@ def _build_custom_display(custom_display_tab, result_cov_alias: str,
         used_tables.add(table)
         select_lines.append(f"  , {alias}.{field} {field}")
 
+    # ── Text criteria → WHERE conditions ─────────────────────────
+    where_conditions: list[str] = []
+    try:
+        criteria_filters = custom_display_tab.get_criteria_filters()
+    except Exception:
+        criteria_filters = []
+    for table, fields, match_type, value in criteria_filters:
+        alias = alias_map.get(table)
+        if not alias or not fields:
+            continue
+        used_tables.add(table)
+        preds = [
+            _name_match_predicate(f"{alias}.{field}", match_type, value)
+            for field in fields
+        ]
+        if len(preds) == 1:
+            where_conditions.append(preds[0])
+        else:
+            where_conditions.append("(" + " OR ".join(preds) + ")")
+
     join_lines: list[str] = []
     if "TH_BAS_POL" in used_tables:
         join_lines.append(f"  LEFT OUTER JOIN {schema}.TH_BAS_POL CUSTOM_THBAS")
@@ -140,7 +161,7 @@ def _build_custom_display(custom_display_tab, result_cov_alias: str,
         join_lines.append(f"    AND {result_cov_alias}.CK_CMP_CD = CUSTOM_THCOV.CK_CMP_CD")
         join_lines.append(f"    AND {result_cov_alias}.TCH_POL_ID = CUSTOM_THCOV.TCH_POL_ID")
         join_lines.append(f"    AND {result_cov_alias}.COV_PHA_NBR = CUSTOM_THCOV.COV_PHA_NBR")
-    return select_lines, join_lines
+    return select_lines, join_lines, where_conditions
 
 
 def _valuation_date_sql(schema: str) -> str:
@@ -185,6 +206,7 @@ def build_cyberlife_sql(
     benefits_tab,
     transaction_tab=None,
     coverage_level: bool = False,
+    coverage_scope: str = "All Covs",
     custom_display_tab=None,
 ) -> str:
     """Build the CyberLife audit SQL from all wired-up tab controls.
@@ -199,6 +221,10 @@ def build_cyberlife_sql(
         Max row count text (empty string for all rows).
     coverage_level : bool
         When true, return one row per matching coverage instead of one policy/base row.
+    coverage_scope : str
+        Which coverages to return when ``coverage_level`` is true: ``"All Covs"``
+        (no restriction), ``"Cov 1 only"`` (base coverage only), or
+        ``"Covs 2+ only"`` (riders only).  Ignored when ``coverage_level`` is false.
     policy_tab, display_tab, policy2_tab, adv_tab, coverages_tab,
     plancode_tab, benefits_tab, transaction_tab
         The tab widgets with filter controls.
@@ -213,8 +239,8 @@ def build_cyberlife_sql(
     result_table_alias = "RESULTCOV_TABLE_RATING" if coverage_level else "TABLE_RATING1"
     result_flat_alias = "RESULTCOV_FLAT_EXTRA" if coverage_level else "FLAT_EXTRA1"
 
-    # ── Custom Display tab: extra SELECT columns + JOINs ─────────
-    custom_select_lines, custom_join_lines = _build_custom_display(
+    # ── Custom Display tab: extra SELECT columns + JOINs + criteria ──
+    custom_select_lines, custom_join_lines, custom_where_lines = _build_custom_display(
         custom_display_tab, result_cov_alias, schema)
 
 
@@ -247,8 +273,8 @@ def build_cyberlife_sql(
     # ── Display tab checkbox states ──────────────────────────────
     disp_paid_to = dt.chk_paid_to_date.isChecked()
     disp_bill_to = dt.chk_bill_to_date.isChecked()
-    disp_duration = dt.chk_current_duration.isChecked()
-    disp_attained_age = dt.chk_current_attained_age.isChecked()
+    disp_duration = dt.chk_val_duration.isChecked()
+    disp_attained_age = dt.chk_val_attained_age.isChecked()
     disp_last_acct = dt.chk_last_acct_date.isChecked()
     disp_last_fin = dt.chk_last_fin_date.isChecked()
     disp_bill_prem = dt.chk_billable_prem.isChecked()
@@ -892,11 +918,22 @@ def build_cyberlife_sql(
     if disp_bill_to:
         sql_parts.append("  , VARCHAR_FORMAT(POLICY1.PRM_BILL_TO_DT, 'MM/DD/YYYY') BillToDate")
 
-    # Circle 2: Current Duration / Current Attained Age
+    # Circle 2: Val Duration / Val Attained Age (based on the policy
+    # valuation date, not today)
+    if disp_duration or disp_attained_age:
+        disp_val_duration_expr = (
+            f"TRUNCATE(MONTHS_BETWEEN({_valuation_date_sql(schema)}, "
+            f"{result_cov_alias}.ISSUE_DT) / 12, 0)"
+        )
     if disp_duration:
-        sql_parts.append(f"  , INTEGER({duration_expr}) Duration")
+        # Current duration = completed years + 1 (a policy in its 12th year
+        # has completed 11 years). Attained age below intentionally keeps the
+        # completed-years value, which is already correct.
+        sql_parts.append(f"  , INTEGER({disp_val_duration_expr} + 1) ValDuration")
     if disp_attained_age:
-        sql_parts.append(f"  , INTEGER({result_cov_alias}.INS_ISS_AGE + {duration_expr}) AttainedAge")
+        sql_parts.append(
+            f"  , INTEGER({result_cov_alias}.INS_ISS_AGE + {disp_val_duration_expr}) ValAttainedAge_Disp"
+        )
 
     # Circle 3: Last Accounting Date / Last Financial Date
     if disp_last_acct:
@@ -1939,6 +1976,9 @@ def build_cyberlife_sql(
     # ── WHERE ────────────────────────────────────────────────────
     wheres = []
 
+    # -- Custom Display tab: text criteria on user-selected fields --
+    wheres.extend(custom_where_lines)
+
     # -- Bottom bar: System code --
     if sys_code:
         wheres.append(f"POLICY1.CK_SYS_CD = '{esc(sys_code)}'")
@@ -2425,6 +2465,11 @@ def build_cyberlife_sql(
                       _bw["spec_amt_lo"], _bw["spec_amt_hi"])
 
     if coverage_level:
+        if coverage_scope == "Cov 1 only":
+            wheres.append("RESULTCOV.COV_PHA_NBR = 1")
+        elif coverage_scope == "Covs 2+ only":
+            wheres.append("RESULTCOV.COV_PHA_NBR > 1")
+
         rider_match_aliases = []
         if rider1_info["active"]:
             rider_match_aliases.append("RIDER1")

@@ -62,11 +62,11 @@ class DisplayTab(QWidget):
         self.chk_paid_to_date = _cb("Paid To Date (01)")
         self.chk_bill_to_date = _cb("Bill To Date (01)")
         self.chk_gpe_date = _cb("GPE Date (51 or 66)")
-        self.chk_current_duration = _cb("Current Duration (Calc)")
-        self.chk_current_attained_age = _cb("Current Attained Age(Calc)")
+        self.chk_val_duration = _cb("Val Duration (Calc)")
+        self.chk_val_attained_age = _cb("Val Attained Age (Calc)")
         for w in (self.chk_paid_to_date, self.chk_bill_to_date,
-                  self.chk_gpe_date, self.chk_current_duration,
-                  self.chk_current_attained_age):
+                  self.chk_gpe_date, self.chk_val_duration,
+                  self.chk_val_attained_age):
             c1.addWidget(w)
         c1.addWidget(_spacer())
 
