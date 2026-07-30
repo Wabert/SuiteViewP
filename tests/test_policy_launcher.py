@@ -190,6 +190,9 @@ class _FakeInput:
     def text(self):
         return self._text
 
+    def clear(self):
+        self._text = ""
+
 
 class _FakeCombo:
     def __init__(self, value="CKPR"):
