@@ -261,6 +261,9 @@ def _full_snapshot() -> IllustrationPolicyData:
         guaranteed_interest_rate=0.02, current_interest_rate=0.045,
         fund_values={"SW": 1200.0, "IP1": 40034.56},
         premium_allocations={"SW": 0.25, "IP1": 0.75},
+        index_market_returns={
+            "SP500": [{"date": date(2025, 12, 31), "return": 0.1639}]
+        },
         sweep_account_min=250.0, iul_declared_rate=0.031,
         iul_asset_charge_rate=None,
         policy_year=7, policy_month=8, duration=80,

@@ -115,3 +115,37 @@ def test_iul_panel_defaults_sweep_min_from_policy(qtbot):
     policy.sweep_account_min = 300.0
     panel.load_from_policy(policy)
     assert panel.sweep_account_min() == pytest.approx(300.0)
+
+
+def test_iul_panel_populates_current_parameters_and_asset_fee(qtbot):
+    panel = DynamicInputsPanel()
+    qtbot.addWidget(panel)
+    policy = _fake_policy("1U146800")
+    policy.premium_allocations = {"IP": 1.0}
+    policy.index_illustration_rates = {
+        "IF": 0.0623, "IP": 0.0623, "IR": 0.0623, "IX": 0.0623,
+    }
+    policy.index_strategy_parameters = {
+        fund: {
+            "floor": 0.0,
+            "cap": 0.12 if fund in {"IP", "IR"} else 0.0975,
+            "participation": 1.0,
+            "int_rate_spread": 0.08 if fund == "IF" else 0.0,
+            "specified_rate": 0.0,
+            "multiplier": 0.24 if fund == "IP" else (0.60 if fund == "IR" else 0.0),
+            "asset_fee": 0.0215 if fund == "IP" else (0.0415 if fund == "IR" else 0.0),
+        }
+        for fund in ("IF", "IP", "IR", "IX")
+    }
+
+    panel.load_from_policy(policy)
+
+    ip = panel.allocations_panel._rows["IP"]
+    assert ip.max_rate.text() == "6.23"
+    assert ip.rate.decimal() == pytest.approx(0.0623)
+    assert ip.parameter.text() == "Cap 12.00%"
+    assert ip.asset_fee.text() == "2.15%"
+    assert (
+        panel.allocations_panel._grid.itemAtPosition(0, 6).widget().text()
+        == "Asset Fee"
+    )

@@ -3,9 +3,12 @@ import pytest
 
 from suiteview.illustration.models.index_strategies import (
     allocation_problems,
+    compound_yield,
     compute_blended_rates,
+    historical_credited_rate,
     is_iul_plan,
     load_index_strategies,
+    with_current_index_data,
 )
 
 
@@ -105,23 +108,108 @@ def test_validation_passes_clean_inputs():
     assert problems == []
 
 
-def test_default_rates_placeholder_capped_at_ag49_and_gint_for_fixed():
-    # Index strategies default to the 6.25% placeholder capped at the AG49
-    # max; the fixed strategy defaults to the plan guaranteed rate.
+def test_default_rates_use_current_rate_and_gint_for_fixed():
+    # Index strategies default to the current illustrated rate; the fixed
+    # strategy defaults to the plan guaranteed rate.
     plan = load_index_strategies("1U146800")   # IUL19 — offers IP/IR too
     defaults = plan.default_rates(gint=0.02)
     assert defaults["U1"] == pytest.approx(0.02)
     for strat in plan.strategies:
         if strat.is_offered and strat.fund_id != "U1":
-            assert defaults[strat.fund_id] == pytest.approx(
-                min(0.0625, float(strat.max_rate)))
+            assert defaults[strat.fund_id] == pytest.approx(float(strat.max_rate))
 
 
 def test_default_rates_without_gint_falls_back_to_table_rate():
     plan = load_index_strategies("1U144600")
     defaults = plan.default_rates()
     assert defaults["U1"] == pytest.approx(0.035)   # JSON table rate
-    assert defaults["IX"] == pytest.approx(0.0623)  # min(6.25%, 6.23%)
+    assert defaults["IX"] == pytest.approx(0.0623)
+
+
+def test_current_database_data_overlays_rate_parameter_multiplier_and_fee():
+    plan = load_index_strategies("1U146800")
+    current = with_current_index_data(
+        plan,
+        {"IF": 0.0623, "IP": 0.0623, "IR": 0.0623, "IX": 0.0623},
+        {
+            "IF": {
+                "floor": 0.0, "cap": 9.9999, "participation": 1.0,
+                "int_rate_spread": 0.08, "specified_rate": 0.0,
+                "multiplier": 0.0, "asset_fee": 0.0,
+            },
+            "IP": {
+                "floor": 0.0, "cap": 0.12, "participation": 1.0,
+                "int_rate_spread": 0.0, "specified_rate": 0.0,
+                "multiplier": 0.24, "asset_fee": 0.0215,
+            },
+            "IR": {
+                "floor": 0.0, "cap": 0.12, "participation": 1.0,
+                "int_rate_spread": 0.0, "specified_rate": 0.0,
+                "multiplier": 0.60, "asset_fee": 0.0415,
+            },
+            "IX": {
+                "floor": 0.0, "cap": 0.0975, "participation": 1.0,
+                "int_rate_spread": 0.0, "specified_rate": 0.0,
+                "multiplier": 0.0, "asset_fee": 0.0,
+            },
+        },
+    )
+
+    assert current.strategy("IF").parameter_label == "Spread"
+    assert current.strategy("IF").parameter == pytest.approx(0.08)
+    assert current.strategy("IP").max_rate == pytest.approx(0.0623)
+    assert current.strategy("IP").parameter_label == "Cap"
+    assert current.strategy("IP").parameter == pytest.approx(0.12)
+    assert current.strategy("IP").multiplier == pytest.approx(0.24)
+    assert current.strategy("IP").asset_charge == pytest.approx(0.0215)
+    assert current.default_rates(gint=0.02)["IP"] == pytest.approx(0.0623)
+
+
+def test_missing_current_database_values_are_reported_not_defaulted():
+    plan = with_current_index_data(load_index_strategies("1U144600"), {}, {})
+    assert plan.strategy("IX").max_rate is None
+    assert "IX" not in plan.default_rates(gint=0.02)
+
+    problems = allocation_problems(
+        plan, {"U1": 1.0, "IX": 0.0}, {"U1": 0.02, "IX": 0.0})
+    assert any("No current illustrated rate" in problem for problem in problems)
+    assert any("No current strategy parameters" in problem for problem in problems)
+
+
+@pytest.mark.parametrize(
+    ("fund_id", "market_return", "parameters", "expected"),
+    [
+        ("IX", 0.1362, {"cap": 0.0975}, 0.0975),
+        ("IX", -0.3849, {"cap": 0.0975}, 0.0),
+        ("IF", 0.1362, {"int_rate_spread": 0.065}, 0.0712),
+        ("IS", 0.1362, {"specified_rate": 0.075}, 0.075),
+        ("IS", -0.01, {"specified_rate": 0.075}, 0.0),
+        ("IC", -0.3849, {"cap": 0.085, "floor": 0.015}, 0.0),
+        ("NX", 0.1867, {"cap": 0.10}, 0.10),
+        ("M1", 0.05, {"participation": 2.2}, 0.11),
+    ],
+)
+def test_historical_credited_rate_matches_workbook_formulas(
+    fund_id, market_return, parameters, expected
+):
+    assert historical_credited_rate(
+        fund_id, market_return, parameters
+    ) == pytest.approx(expected)
+
+
+def test_multiplier_historical_rate_applies_multiplier_and_asset_fee():
+    result = historical_credited_rate(
+        "IP",
+        0.10,
+        {"cap": 0.12, "multiplier": 0.24, "asset_fee": 0.0215},
+    )
+    assert result == pytest.approx((1.0 + 0.10 * 1.24) * (1.0 - 0.0215) - 1.0)
+
+
+def test_compound_yield_is_geometric_mean():
+    assert compound_yield([0.10, -0.05, 0.20]) == pytest.approx(
+        ((1.10 * 0.95 * 1.20) ** (1 / 3)) - 1
+    )
 
 
 # ── AG49 regimes (Rates_Control CR78:CS83 / CP79 / CP80) ─────────

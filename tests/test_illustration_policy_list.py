@@ -285,6 +285,32 @@ def test_live_load_backfills_form_number(monkeypatch, tmp_path):
     window.close()
 
 
+def test_live_iul_load_populates_current_index_rates(monkeypatch, tmp_path):
+    live_data = _snapshot("UE140572", form="IUL21")
+    live_data.plancode = "1U147500"
+    live_data.premium_allocations = {"IX": 1.0}
+    expected_rates = {
+        "IX": 0.0647,
+        "IF": 0.0511,
+        "IP": 0.0639,
+        "IR": 0.0647,
+        "NX": 0.0622,
+        "M1": 0.0647,
+    }
+    live_data.index_illustration_rates = expected_rates
+    live_data.index_strategy_parameters = {}
+    window, _ = _make_window(
+        monkeypatch, tmp_path, illustration_data=live_data)
+
+    window._on_get_policy("UE140572", "CKPR", "01")
+
+    rows = window.inputs_tab.dynamic_panel.allocations_panel._rows
+    for fund_id, rate in expected_rates.items():
+        assert rows[fund_id].max_rate.text() == f"{rate * 100:.2f}"
+        assert rows[fund_id].rate.text() == f"{rate * 100:.3f}"
+    window.close()
+
+
 # ── activation / removal ─────────────────────────────────────────────
 
 

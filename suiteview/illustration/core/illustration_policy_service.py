@@ -7,6 +7,7 @@ from suiteview.core.policy_service import get_policy_info
 from suiteview.core.rates import Rates
 from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.models.plancode_config import load_plancode
+from suiteview.illustration.models.index_strategies import is_iul_plan
 from suiteview.illustration.models.policy_data import (
     BenefitInfo as IllBenefitInfo,
     CoverageSegment,
@@ -20,6 +21,8 @@ def build_illustration_data(
     policy_number: str,
     region: str = "CKPR",
     company_code: Optional[str] = None,
+    *,
+    illustration_date: Optional[date] = None,
 ) -> IllustrationPolicyData:
     """Load policy data from DB2 and return a ready-to-project IllustrationPolicyData.
 
@@ -34,6 +37,7 @@ def build_illustration_data(
         raise ValueError(f"Policy {policy_number} not found in region {region}")
 
     rates_db = Rates()
+    illustration_date = illustration_date or date.today()
 
     # ── Basic identity / plan ─────────────────────────────────
     plancode = pi.base_plancode or ""
@@ -81,6 +85,35 @@ def build_illustration_data(
     att_age_raw = pi.attained_age
     attained_age = att_age_raw if att_age_raw is not None else (issue_age + policy_year - 1)
     maturity_age = pi.age_at_maturity or 121
+
+    # ── IUL illustration rates / strategy parameters ──────────
+    reins_partner = str(getattr(pi, "reins_partner", "") or "").strip().upper()
+    index_illustration_rates = None
+    index_strategy_parameters = None
+    index_benchmark_minimum = None
+    index_benchmark_maximum = None
+    index_market_returns = None
+    if is_iul_plan(plancode):
+        index_illustration_rates = rates_db.get_index_illustration_rates(
+            pi.company_code or "",
+            plancode,
+            illustration_date,
+            reins_partner,
+        )
+        index_market_returns = rates_db.get_index_market_returns()
+        index_strategy_parameters = rates_db.get_index_strategy_parameters(
+            plancode,
+            illustration_date,
+            reins_partner,
+        )
+        benchmark = rates_db.get_index_benchmark_minmax(
+            plancode,
+            illustration_date,
+            reins_partner,
+        )
+        if benchmark is not None:
+            index_benchmark_minimum = benchmark["minimum"]
+            index_benchmark_maximum = benchmark["maximum"]
 
     # ── Interest ──────────────────────────────────────────────
     guaranteed_rate = plancode_config.gint
@@ -353,6 +386,7 @@ def build_illustration_data(
         policy_number=policy_number.strip(),
         region=region,
         company_code=pi.company_code or "",
+        reins_partner=reins_partner,
         insured_name=pi.primary_insured_name or "",
         plancode=plancode,
         product_type=pi.product_type or "",
@@ -384,6 +418,12 @@ def build_illustration_data(
         current_interest_rate=current_rate,
         fund_values=fund_values,
         premium_allocations=premium_allocations,
+        index_illustration_rates=index_illustration_rates,
+        index_strategy_parameters=index_strategy_parameters,
+        index_benchmark_minimum=index_benchmark_minimum,
+        index_benchmark_maximum=index_benchmark_maximum,
+        index_market_returns=index_market_returns,
+        illustration_date=illustration_date,
         policy_year=policy_year,
         policy_month=policy_month,
         duration=duration,

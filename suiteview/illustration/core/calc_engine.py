@@ -1808,11 +1808,14 @@ def _reload_policy_band_rates(rates, policy, config) -> None:
             kind, policy.plancode, issue_age=seg.issue_age, sex=seg.rate_sex,
             rateclass=seg.rate_class, scale=1, band=band,
         ) or [])
-    if config.poav_code == "Table":
-        rates.poav = rates_db.get_rates(
-            "POAV", policy.plancode, seg.issue_age, seg.rate_sex,
-            seg.rate_class, scale=1, band=band,
-        ) or []
+    if config.poav_table != "0":
+        from suiteview.illustration.core.poav_rates import load_poav_schedule
+
+        rates.poav = load_poav_schedule(
+            config.poav_table,
+            band,
+            scale=rates.poav_scale,
+        )
 
 
 @dataclass

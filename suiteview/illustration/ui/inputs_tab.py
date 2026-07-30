@@ -1339,6 +1339,8 @@ class IllustrationInputsTab(QWidget):
             sweep_account_min=self.dynamic_panel.sweep_account_min(),
             iul_declared_rate=self.dynamic_panel.iul_declared_rate(),
             iul_asset_charge_rate=self.dynamic_panel.iul_asset_charge_rate(),
+            premium_allocations=self.dynamic_panel.iul_allocations(),
+            index_illustration_rates=self.dynamic_panel.iul_illustration_rates(),
         )
 
     # ── saved-case capture/apply ──────────────────────────────

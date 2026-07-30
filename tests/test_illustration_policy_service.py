@@ -11,6 +11,30 @@ class _FakeRates:
     def get_band(self, _plancode, face_amount, issue_date=None):
         return 2 if float(face_amount or 0.0) == 200_000.0 else 9
 
+    def get_index_illustration_rates(
+        self, company, plancode, illustration_date, rga_indicator
+    ):
+        assert (company, plancode, illustration_date, rga_indicator) == (
+            "01", "TESTUL", date(2026, 7, 29), "R")
+        return {"IX": 0.061}
+
+    def get_index_strategy_parameters(
+        self, plancode, illustration_date, rga_indicator
+    ):
+        assert (plancode, illustration_date, rga_indicator) == (
+            "TESTUL", date(2026, 7, 29), "R")
+        return {"IX": {"cap": 0.095}}
+
+    def get_index_benchmark_minmax(
+        self, plancode, illustration_date, rga_indicator
+    ):
+        assert (plancode, illustration_date, rga_indicator) == (
+            "TESTUL", date(2026, 7, 29), "R")
+        return {"minimum": 0.044, "maximum": 0.0786}
+
+    def get_index_market_returns(self):
+        return {"SP500": [{"date": date(2023, 12, 31), "return": 0.2423}]}
+
 
 class _FakePolicyInfo:
     exists = True
@@ -54,6 +78,7 @@ class _FakePolicyInfo:
     tamra_7pay_start_date = None
     tamra_7pay_av = 0.0
     company_code = "01"
+    reins_partner = "R"
     primary_insured_name = "Test Policy"
     primary_insured_birth_date = None
     product_type = "UL"
@@ -165,3 +190,34 @@ def test_build_illustration_data_excludes_terminated_base_coverages(monkeypatch)
     assert policy.units == pytest.approx(200.0)
     assert policy.total_face == pytest.approx(200_000.0)
     assert policy.band == 2
+
+
+def test_build_illustration_data_loads_illustration_date_index_data(monkeypatch):
+    class _FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 7, 29)
+
+    monkeypatch.setattr(
+        illustration_policy_service, "get_policy_info", lambda *_args: _FakePolicyInfo())
+    monkeypatch.setattr(illustration_policy_service, "Rates", _FakeRates)
+    monkeypatch.setattr(illustration_policy_service, "date", _FixedDate)
+    monkeypatch.setattr(illustration_policy_service, "is_iul_plan", lambda _plan: True)
+    monkeypatch.setattr(
+        illustration_policy_service,
+        "load_plancode",
+        lambda _plancode: PlancodeConfig(plancode="TESTUL", gint=0.0, dbd=0.0),
+    )
+
+    policy = illustration_policy_service.build_illustration_data("U0126221")
+
+    assert policy.reins_partner == "R"
+    assert policy.valuation_date == date(2024, 1, 1)
+    assert policy.illustration_date == date(2026, 7, 29)
+    assert policy.index_illustration_rates == {"IX": 0.061}
+    assert policy.index_strategy_parameters == {"IX": {"cap": 0.095}}
+    assert policy.index_benchmark_minimum == pytest.approx(0.044)
+    assert policy.index_benchmark_maximum == pytest.approx(0.0786)
+    assert policy.index_market_returns == {
+        "SP500": [{"date": date(2023, 12, 31), "return": 0.2423}]
+    }

@@ -76,6 +76,8 @@ class InforceOverrideSet:
     # UJ) and the blended asset-charge rate (RERUN SU).
     iul_declared_rate: Optional[float] = None
     iul_asset_charge_rate: Optional[float] = None
+    premium_allocations: Optional[dict[str, float]] = None
+    index_illustration_rates: Optional[dict[str, float]] = None
 
     def is_empty(self) -> bool:
         return all(value is None for value in self.__dict__.values())

@@ -1,6 +1,8 @@
 import os
 from datetime import date
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from suiteview.illustration.core.report_builder import build_ul_report
@@ -45,6 +47,69 @@ def _policy() -> IllustrationPolicyData:
         segments=[CoverageSegment(face_amount=100000.0, issue_age=50, rate_sex="M", rate_class="N")],
         benefits=[BenefitInfo(benefit_type="3", benefit_subtype="9", is_active=True)],
     )
+
+
+def _iul_policy() -> IllustrationPolicyData:
+    policy = _policy()
+    policy.plancode = "1U145500"
+    policy.form_number = "IUL14"
+    policy.illustration_date = date(2026, 7, 1)
+    policy.account_value = 5395.01
+    policy.fund_values = {
+        "SW": 149.60,
+        "IX": 2816.33,
+        "IF": 2429.08,
+    }
+    policy.premium_allocations = {
+        "U1": 0.0,
+        "IX": 0.5,
+        "IF": 0.5,
+        "IS": 0.0,
+        "IC": 0.0,
+    }
+    policy.index_illustration_rates = {
+        "IX": 0.0623,
+        "IF": 0.0623,
+        "IS": 0.0556,
+        "IC": 0.0599,
+    }
+    policy.index_strategy_parameters = {
+        "IX": {
+            "floor": 0.0, "cap": 0.0975, "participation": 1.0,
+            "int_rate_spread": 0.0, "specified_rate": 0.0,
+            "multiplier": 0.0, "asset_fee": 0.0,
+        },
+        "IF": {
+            "floor": 0.0, "cap": 9.9999, "participation": 1.0,
+            "int_rate_spread": 0.08, "specified_rate": 0.0,
+            "multiplier": 0.0, "asset_fee": 0.0,
+        },
+        "IS": {
+            "floor": 0.0, "cap": 9.9999, "participation": 1.0,
+            "int_rate_spread": 0.0, "specified_rate": 0.075,
+            "multiplier": 0.0, "asset_fee": 0.0,
+        },
+        "IC": {
+            "floor": 0.015, "cap": 0.085, "participation": 1.0,
+            "int_rate_spread": 0.0, "specified_rate": 0.0,
+            "multiplier": 0.0, "asset_fee": 0.0,
+        },
+    }
+    policy.index_benchmark_minimum = 0.0388
+    policy.index_benchmark_maximum = 0.0756
+    returns = [
+        0.1362, 0.0353, -0.3849, 0.2345, 0.1278,
+        0.0, 0.1341, 0.2960, 0.1139, -0.0073,
+        0.0954, 0.1942, -0.0624, 0.2888, 0.1626,
+        0.2689, -0.1944, 0.2423, 0.2331, 0.1639,
+    ]
+    policy.index_market_returns = {
+        "SP500": [
+            {"date": date(year, 12, 31), "return": annual_return}
+            for year, annual_return in zip(range(2006, 2026), returns)
+        ]
+    }
+    return policy
 
 
 def _month(year: int, month_in_year: int, **kw) -> MonthlyState:
@@ -507,6 +572,208 @@ def test_report_pages_render_fixed_width():
     assert "NON-GUARANTEED" in ledger_page
     assert "PROCEEDS" in ledger_page
     assert "CASH FROM" not in ledger_page
+
+
+def test_ledger_separates_large_policy_values():
+    from suiteview.illustration.core.report_builder import LedgerRow
+    from suiteview.illustration.ui.report_tab import (
+        PAGE_WIDTH,
+        _LEDGER_HEADER,
+        _ledger_line,
+    )
+
+    line = _ledger_line(LedgerRow(
+        eoy_age=64,
+        year=95,
+        premium_outlay=18_000.0,
+        guar_accum=12_166_463.0,
+        guar_surr=12_166_463.0,
+        guar_death=13_395_971.0,
+        accum_value=42_152_076.0,
+        surr_value=42_152_076.0,
+        death_benefit=43_381_584.0,
+    ))
+
+    assert "12,166,463 12,166,463 13,395,971" in line
+    assert "42,152,076 42,152,076 43,381,584" in line
+    assert len(line) <= PAGE_WIDTH
+    assert all(len(header) <= PAGE_WIDTH for header in _LEDGER_HEADER)
+
+
+def test_iul_report_builds_fund_allocation_rate_and_historical_sections():
+    report = build_ul_report(
+        _iul_policy(), _results(), run_date=date(2026, 7, 1)
+    )
+
+    assert report.is_iul
+    assert report.subtitle == "WITH INDEXED INTEREST CREDITING OPTION"
+    assert [(row.fund_id, row.value) for row in report.iul_fund_values] == [
+        ("SW", 149.60),
+        ("IX", 2816.33),
+        ("IF", 2429.08),
+    ]
+    assert [row.fund_id for row in report.iul_allocations] == [
+        "U1", "IX", "IF", "IS", "IC",
+    ]
+    assert {
+        row.fund_id: row.allocation for row in report.iul_allocations
+    }["IF"] == pytest.approx(0.5)
+    assert [row.fund_id for row in report.iul_strategy_rates] == ["IX", "IF"]
+    assert report.iul_fixed_rate is None
+    assert report.iul_benchmark_minimum == pytest.approx(0.0388)
+    assert report.iul_benchmark_maximum == pytest.approx(0.0756)
+    assert len(report.iul_historical_rows) == 20
+    assert report.iul_historical_rows[0].credited_rates == pytest.approx({
+        "IX": 0.0975,
+        "IF": 0.0562,
+    })
+    assert report.iul_historical_rows[2].credited_rates == pytest.approx({
+        "IX": 0.0, "IF": 0.0,
+    })
+    twenty_year = report.iul_compound_yields[-1]
+    assert twenty_year.years == 20
+    assert twenty_year.market_returns["SP500"] == pytest.approx(
+        0.08881489183456481
+    )
+
+
+def test_iul_history_period_uses_illustration_date_not_valuation_date():
+    policy = _iul_policy()
+    policy.valuation_date = date(2024, 5, 9)
+
+    report = build_ul_report(
+        policy, _results(), run_date=policy.illustration_date)
+
+    assert report.iul_historical_rows[0].date_eoy == date(2006, 12, 31)
+    assert report.iul_historical_rows[-1].date_eoy == date(2025, 12, 31)
+
+
+def test_iul_report_renders_new_sections_and_benchmark_rates():
+    from suiteview.illustration.ui.report_tab import PAGE_WIDTH, format_report_pages
+
+    report = build_ul_report(
+        _iul_policy(), _results(), run_date=date(2026, 7, 1)
+    )
+    pages = format_report_pages(report)
+    flat_pages = ["\n".join(page) for page in pages]
+
+    assert "WITH INDEXED INTEREST CREDITING OPTION" in flat_pages[0]
+    assert "THE ACCUMULATION VALUE OF $5,395.01 CONSISTS" in flat_pages[0]
+    assert "THE ALLOCATION PERCENTAGES USED IN THIS ILLUSTRATION ARE" in flat_pages[0]
+    assumptions = next(
+        page for page in flat_pages
+        if "ILLUSTRATED RATES BY INDEX STRATEGY" in page
+    )
+    assert "BENCHMARK INDEX STRATEGY" in assumptions
+    benchmark_line = next(
+        line for line in assumptions.splitlines()
+        if "ONE YEAR POINT TO POINT WITH CURRENT CAP AND FLOOR" in line
+    )
+    assert "3.88%" in benchmark_line
+    assert "7.56%" in benchmark_line
+    history = flat_pages[-1]
+    assert "HISTORICAL INDEX RATE LEDGER - CURRENT SCENARIO" in history
+    assert "S&P 500" in history and "IX" in history and "IF" in history
+    assert "12/31/2006" in history and "20-YR YIELD" in history
+    assert all(len(line) <= PAGE_WIDTH for page in pages for line in page)
+
+
+def test_iul_historical_table_right_aligns_headers_rows_and_yields():
+    from suiteview.illustration.ui.report_tab import format_report_pages
+
+    report = build_ul_report(
+        _iul_policy(), _results(), run_date=date(2026, 7, 1)
+    )
+    history = format_report_pages(report)[-1]
+    separator_index = next(
+        index
+        for index, line in enumerate(history)
+        if set(line) == {"-"} and "YEAR ENDING" in history[index - 1]
+    )
+    header = history[separator_index - 3:separator_index]
+    annual = history[separator_index + 1]
+    yields = [
+        line for line in history if line.strip().endswith("%") and "YR YIELD" in line
+    ]
+
+    assert "MARKET INDEX" in header[0]
+    assert "S&P 500" in header[1]
+    assert "YEAR ENDING" in header[2]
+    assert "RETURNS" in header[2]
+
+    annual_rate_ends = [
+        annual.index(value) + len(value)
+        for value in ("13.62%", "9.75%", "5.62%")
+    ]
+    assert header[0].index("MARKET INDEX") + len("MARKET INDEX") == annual_rate_ends[0]
+    assert header[1].index("S&P 500") + len("S&P 500") == annual_rate_ends[0]
+    assert header[2].index("RETURNS") + len("RETURNS") == annual_rate_ends[0]
+    assert header[2].index("YEAR ENDING") + len("YEAR ENDING") == annual.index(
+        "12/31/2006"
+    ) + len("12/31/2006")
+
+    for line in yields:
+        values = line.split()[-3:]
+        assert [
+            line.index(value) + len(value)
+            for value in values
+        ] == annual_rate_ends
+
+
+def test_terminal_policy_year_death_benefit_is_zero():
+    rows = _results()
+    rows[-4].lapsed = True
+    rows[-4].ending_db = 25_000.0
+    rows[-3].ending_db = 25_000.0
+    rows[-2].ending_db = 25_000.0
+    rows[-1].ending_db = 25_000.0
+
+    report = build_ul_report(
+        _policy(), rows, run_date=date(2026, 7, 1)
+    )
+
+    terminal = report.ledger[-1]
+    assert terminal.lapsed
+    assert terminal.death_benefit == 0.0
+
+
+def test_iul_historical_header_shows_multiplier_asset_fees():
+    from suiteview.illustration.ui.report_tab import format_report_pages
+
+    policy = _iul_policy()
+    policy.plancode = "1U146800"
+    policy.premium_allocations = {"IX": 0.0, "IF": 0.0, "IP": 0.5, "IR": 0.5}
+    policy.index_illustration_rates = {
+        "IX": 0.0623, "IF": 0.0623, "IP": 0.0623, "IR": 0.0623,
+    }
+    policy.index_strategy_parameters = {
+        "IX": {
+            "floor": 0.0, "cap": 0.0975, "participation": 1.0,
+            "int_rate_spread": 0.0, "specified_rate": 0.0,
+            "multiplier": 0.0, "asset_fee": 0.0,
+        },
+        "IF": {
+            "floor": 0.0, "cap": 9.9999, "participation": 1.0,
+            "int_rate_spread": 0.08, "specified_rate": 0.0,
+            "multiplier": 0.0, "asset_fee": 0.0,
+        },
+        "IP": {
+            "floor": 0.0, "cap": 0.12, "participation": 1.0,
+            "int_rate_spread": 0.0, "specified_rate": 0.0,
+            "multiplier": 0.24, "asset_fee": 0.0215,
+        },
+        "IR": {
+            "floor": 0.0, "cap": 0.12, "participation": 1.0,
+            "int_rate_spread": 0.0, "specified_rate": 0.0,
+            "multiplier": 0.60, "asset_fee": 0.0415,
+        },
+    }
+
+    report = build_ul_report(policy, _results(), run_date=date(2026, 7, 1))
+    history = "\n".join(format_report_pages(report)[-1])
+
+    assert "FEE 2.15%" in history
+    assert "FEE 4.15%" in history
 
 
 def _guaranteed_results():

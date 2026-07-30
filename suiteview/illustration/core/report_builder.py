@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
@@ -40,6 +40,16 @@ from suiteview.illustration.models.input_set import (
     TransactionKind,
 )
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
+from suiteview.illustration.models.index_strategies import (
+    FIXED_FUND_ID,
+    MARKET_INDEX_BY_FUND,
+    SWEEP_FUND_ID,
+    compound_yield,
+    historical_credited_rate,
+    is_iul_plan,
+    load_index_strategies,
+    with_current_index_data,
+)
 
 
 # ── Display maps ────────────────────────────────────────────────────────────
@@ -159,9 +169,47 @@ class ChangeSection:
 
 
 @dataclass
+class IULFundValueRow:
+    fund_id: str = ""
+    label: str = ""
+    value: float = 0.0
+
+
+@dataclass
+class IULAllocationRow:
+    fund_id: str = ""
+    label: str = ""
+    allocation: float = 0.0
+
+
+@dataclass
+class IULStrategyRateRow:
+    fund_id: str = ""
+    label: str = ""
+    illustrated_rate: Optional[float] = None
+    market_index: str = ""
+    parameters: Dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class IULHistoricalRow:
+    date_eoy: Optional[date] = None
+    market_returns: Dict[str, float] = field(default_factory=dict)
+    credited_rates: Dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class IULCompoundYieldRow:
+    years: int = 0
+    market_returns: Dict[str, float] = field(default_factory=dict)
+    credited_rates: Dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
 class IllustrationReport:
     company_name: str = ""
     title: str = "FLEXIBLE PREMIUM UNIVERSAL LIFE INSURANCE HYPOTHETICAL INFORCE ILLUSTRATION"
+    subtitle: str = ""
     prepared_for: str = ""
     run_date: Optional[date] = None
 
@@ -207,6 +255,17 @@ class IllustrationReport:
     guaranteed_termination_year: Optional[int] = None
     year_of_mec: Optional[int] = None
     has_guaranteed_values: bool = False
+
+    # IUL-only report sections.
+    is_iul: bool = False
+    iul_fund_values: List[IULFundValueRow] = field(default_factory=list)
+    iul_allocations: List[IULAllocationRow] = field(default_factory=list)
+    iul_strategy_rates: List[IULStrategyRateRow] = field(default_factory=list)
+    iul_fixed_rate: Optional[float] = None
+    iul_benchmark_minimum: Optional[float] = None
+    iul_benchmark_maximum: Optional[float] = None
+    iul_historical_rows: List[IULHistoricalRow] = field(default_factory=list)
+    iul_compound_yields: List[IULCompoundYieldRow] = field(default_factory=list)
 
 
 # ── Annual ledger assembly ──────────────────────────────────────────────────
@@ -257,7 +316,8 @@ def _annualize(
                     year_of_mec = year
                     break
 
-        if termination_year is None and eoy.lapsed:
+        lapsed = any(month.lapsed for month in months)
+        if termination_year is None and lapsed:
             termination_year = year
 
         markers = ""
@@ -284,8 +344,8 @@ def _annualize(
             loan_balance=eoy.policy_debt,
             accum_value=eoy.av_end_of_month,
             surr_value=eoy.ending_sv,
-            death_benefit=eoy.ending_db,
-            lapsed=eoy.lapsed,
+            death_benefit=0.0 if lapsed else eoy.ending_db,
+            lapsed=lapsed,
         ))
     return rows, year_of_mec, termination_year
 
@@ -319,14 +379,17 @@ def _fill_guaranteed_columns(
     for all years shown).
     """
     by_year: dict[int, MonthlyState] = {}
+    lapsed_years: set[int] = set()
     termination_year: Optional[int] = None
     for state in guaranteed_results[1:]:
         by_year[state.policy_year] = state
+        if state.lapsed:
+            lapsed_years.add(state.policy_year)
         if termination_year is None and state.lapsed:
             termination_year = state.policy_year
     for row in rows:
         eoy = by_year.get(row.year)
-        if eoy is None or eoy.lapsed:
+        if eoy is None or row.year in lapsed_years:
             row.guar_accum = 0.0
             row.guar_surr = 0.0
             row.guar_death = 0.0
@@ -663,6 +726,208 @@ def _rider_lines(policy: IllustrationPolicyData) -> List[str]:
     return names or ["NONE"]
 
 
+# ── IUL-only report data ─────────────────────────────────────────────────────
+
+_IUL_FUND_ORDER = ("IX", "IF", "IS", "IC", "IP", "IR", "NX", "M1")
+_IUL_REPORT_LABELS = {
+    "SW": "SWEEP ACCOUNT",
+    "U1": "FIXED ACCOUNT",
+    "IX": "S&P 500 INDEX ONE YEAR POINT TO POINT WITH A CAP AND 0% FLOOR",
+    "IF": "S&P 500 INDEX ONE YEAR POINT TO POINT UNCAPPED WITH INTEREST SPREAD",
+    "IS": "S&P 500 INDEX ONE YEAR POINT TO POINT WITH A SPECIFIED RATE",
+    "IC": "S&P 500 INDEX ONE YEAR POINT TO POINT WITH A CAP AND 1.5% FLOOR",
+    "IP": "S&P 500 INDEX STRATEGY WITH LOW MULTIPLIER",
+    "IR": "S&P 500 INDEX STRATEGY WITH HIGH MULTIPLIER",
+    "NX": "NASDAQ-100 INDEX ONE YEAR POINT TO POINT WITH A CAP",
+    "M1": "S&P MARC 5 INDEX ONE YEAR POINT TO POINT WITH PARTICIPATION",
+}
+
+
+def _normalized_report_allocations(raw: Dict[str, float]) -> Dict[str, float]:
+    allocations = {
+        str(fund_id).strip().upper(): float(value or 0.0)
+        for fund_id, value in (raw or {}).items()
+    }
+    if sum(allocations.values()) > 1.5:
+        allocations = {
+            fund_id: value / 100.0 for fund_id, value in allocations.items()
+        }
+    return allocations
+
+
+def _build_iul_sections(
+    report: IllustrationReport,
+    policy: IllustrationPolicyData,
+) -> None:
+    catalog = load_index_strategies(policy.plancode)
+    if catalog is None:
+        return
+    plan = with_current_index_data(
+        catalog,
+        policy.index_illustration_rates,
+        policy.index_strategy_parameters,
+    )
+    offered = {
+        strategy.fund_id: strategy
+        for strategy in plan.strategies
+        if strategy.is_offered
+    }
+    ordered_funds = [
+        fund_id
+        for fund_id in (FIXED_FUND_ID, *_IUL_FUND_ORDER)
+        if fund_id in offered
+    ]
+
+    report.is_iul = True
+    report.subtitle = "WITH INDEXED INTEREST CREDITING OPTION"
+
+    fund_values = {
+        str(fund_id).strip().upper(): float(value or 0.0)
+        for fund_id, value in (policy.fund_values or {}).items()
+    }
+    value_order = [SWEEP_FUND_ID, *ordered_funds]
+    value_order.extend(
+        fund_id
+        for fund_id, value in fund_values.items()
+        if fund_id not in value_order and abs(value) > 0.005
+    )
+    value_funds = [
+        fund_id
+        for fund_id in value_order
+        if abs(fund_values.get(fund_id, 0.0)) > 0.005
+    ]
+    report.iul_fund_values = [
+        IULFundValueRow(
+            fund_id=fund_id,
+            label=_IUL_REPORT_LABELS.get(fund_id, f"FUND {fund_id}"),
+            value=fund_values.get(fund_id, 0.0),
+        )
+        for fund_id in value_funds
+    ]
+
+    allocations = _normalized_report_allocations(policy.premium_allocations)
+    report.iul_allocations = [
+        IULAllocationRow(
+            fund_id=fund_id,
+            label=_IUL_REPORT_LABELS.get(fund_id, offered[fund_id].label.upper()),
+            allocation=allocations.get(fund_id, 0.0),
+        )
+        for fund_id in ordered_funds
+    ]
+
+    parameters = policy.index_strategy_parameters or {}
+    report.iul_strategy_rates = [
+        IULStrategyRateRow(
+            fund_id=fund_id,
+            label=_IUL_REPORT_LABELS.get(fund_id, offered[fund_id].label.upper()),
+            illustrated_rate=offered[fund_id].max_rate,
+            market_index=MARKET_INDEX_BY_FUND[fund_id],
+            parameters=dict(parameters.get(fund_id, {})),
+        )
+        for fund_id in _IUL_FUND_ORDER
+        if fund_id in offered and allocations.get(fund_id, 0.0) > 0.00005
+    ]
+    fixed_strategy = offered.get(FIXED_FUND_ID)
+    report.iul_fixed_rate = (
+        policy.iul_declared_rate
+        if policy.iul_declared_rate is not None
+        else fixed_strategy.max_rate if fixed_strategy is not None else None
+    ) if allocations.get(FIXED_FUND_ID, 0.0) > 0.00005 else None
+    report.iul_benchmark_minimum = policy.index_benchmark_minimum
+    report.iul_benchmark_maximum = policy.index_benchmark_maximum
+
+    if not report.iul_strategy_rates:
+        return
+
+    raw_market_returns = policy.index_market_returns
+    if raw_market_returns is None:
+        return
+    if not raw_market_returns or not parameters:
+        raise ValueError(
+            "IUL historical lookback data is missing market returns or strategy parameters."
+        )
+
+    required_markets = list(dict.fromkeys(
+        row.market_index for row in report.iul_strategy_rates
+    ))
+    market_values: Dict[str, Dict[date, float]] = {}
+    last_full_year = (
+        (policy.illustration_date or date.today()).year - 1
+    )
+    for market_index in required_markets:
+        entries = raw_market_returns.get(market_index)
+        if not entries:
+            raise ValueError(
+                f"IUL historical lookback has no returns for {market_index}."
+            )
+        values: Dict[date, float] = {}
+        for entry in entries:
+            raw_date = entry["date"]
+            date_eoy = (
+                raw_date
+                if isinstance(raw_date, date)
+                else date.fromisoformat(str(raw_date)[:10])
+            )
+            if date_eoy.year <= last_full_year:
+                values[date_eoy] = float(entry["return"])
+        market_values[market_index] = values
+
+    selected_dates = [
+        date(year, 12, 31)
+        for year in range(last_full_year - 19, last_full_year + 1)
+    ]
+    if any(
+        not set(selected_dates).issubset(values)
+        for values in market_values.values()
+    ):
+        raise ValueError(
+            "IUL historical lookback requires 20 complete calendar years "
+            "for every relevant market index."
+        )
+
+    for strategy in report.iul_strategy_rates:
+        if strategy.fund_id not in parameters:
+            raise ValueError(
+                f"IUL historical lookback has no parameters for fund {strategy.fund_id}."
+            )
+
+    for date_eoy in selected_dates:
+        row = IULHistoricalRow(
+            date_eoy=date_eoy,
+            market_returns={
+                market_index: market_values[market_index][date_eoy]
+                for market_index in required_markets
+            },
+        )
+        row.credited_rates = {
+            strategy.fund_id: historical_credited_rate(
+                strategy.fund_id,
+                row.market_returns[strategy.market_index],
+                parameters[strategy.fund_id],
+            )
+            for strategy in report.iul_strategy_rates
+        }
+        report.iul_historical_rows.append(row)
+
+    for years in (5, 10, 15, 20):
+        period = report.iul_historical_rows[-years:]
+        report.iul_compound_yields.append(IULCompoundYieldRow(
+            years=years,
+            market_returns={
+                market_index: compound_yield([
+                    row.market_returns[market_index] for row in period
+                ])
+                for market_index in required_markets
+            },
+            credited_rates={
+                strategy.fund_id: compound_yield([
+                    row.credited_rates[strategy.fund_id] for row in period
+                ])
+                for strategy in report.iul_strategy_rates
+            },
+        ))
+
+
 # ── Main entry ──────────────────────────────────────────────────────────────
 
 def build_ul_report(
@@ -694,6 +959,7 @@ def build_ul_report(
     report.prepared_for = f"PREPARED FOR {prepared_name}"
     report.policy_number = (policy.policy_number or "").strip()
     report.plancode = (getattr(policy, "plancode", "") or "").strip()
+    report.is_iul = is_iul_plan(report.plancode)
 
     # ── Ledger + derived facts ──
     report.ledger, report.year_of_mec, report.termination_year = _annualize(
@@ -722,6 +988,11 @@ def build_ul_report(
         "MORE OR LESS FAVORABLE. VALUES SET FORTH IN THE ILLUSTRATION ARE NOT GUARANTEED, EXCEPT FOR",
         "THOSE ITEMS CLEARLY LABELED AS GUARANTEED.",
     ]
+    if report.is_iul:
+        report.disclaimer_lines.extend([
+            "INDEXED INTEREST RATES AND VALUES ARE NOT GUARANTEED. THE POLICY IS NOT A STOCK "
+            "MARKET INVESTMENT AND DOES NOT DIRECTLY PARTICIPATE IN ANY STOCK OR INDEX.",
+        ])
     report.insured_lines = [line for line in [policy.insured_name] if line]
     rated = "RATED " if (policy.base_segment and policy.base_segment.table_rating > 0) else ""
     nicotine = (
@@ -749,7 +1020,7 @@ def build_ul_report(
          f"{'CURRENT BILLING MODE:':<27}{mode_label}"),
         (f"{'ISSUE AGE:':<17}{policy.issue_age}",
          f"{'CURRENT BILLABLE PREMIUM:':<27}{_money(policy.modal_premium)}"),
-        ("FLEXIBLE PREMIUM UNIVERSAL LIFE",
+        ("INDEXED UNIVERSAL LIFE" if report.is_iul else "FLEXIBLE PREMIUM UNIVERSAL LIFE",
          f"{'ACTUAL PREMIUMS PAID:':<27}{_money(policy.premiums_paid_to_date)}"),
         (f"FORM {(policy.form_number or '').upper()}",
          f"{'':<27}(AS OF {as_of_short})" if as_of_short else ""),
@@ -758,7 +1029,12 @@ def build_ul_report(
         (f"SEX: {sex}", ""),
         (f"{'PREMIUM CLASS:':<17}{rated}{nicotine}", ""),
     ]
-    if valuation:
+    if valuation and report.is_iul:
+        report.av_basis_line = (
+            f"THE ACCUMULATION VALUE OF {_money(policy.account_value)} CONSISTS OF "
+            "THE FOLLOWING ACCOUNTS:"
+        )
+    elif valuation:
         report.av_basis_line = (
             f"THIS ILLUSTRATION IS BASED ON AN ACCUMULATION VALUE OF "
             f"{_money(policy.account_value)} AS OF {valuation.strftime('%m/%d/%Y')}"
@@ -906,4 +1182,6 @@ def build_ul_report(
             if policy.tamra_7pay_start_date:
                 report.regulatory_lines.append(
                     f"7-PAY START DATE = {policy.tamra_7pay_start_date.strftime('%m/%d/%Y')}")
+    if report.is_iul:
+        _build_iul_sections(report, policy)
     return report

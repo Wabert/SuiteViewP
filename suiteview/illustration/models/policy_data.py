@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -106,6 +106,7 @@ class IllustrationPolicyData:
     policy_number: str = ""
     region: str = "CKPR"
     company_code: str = ""
+    reins_partner: str = ""         # "R" selects the RGA index-rate basis
     insured_name: str = ""
 
     # ── Plan / Product ────────────────────────────────────────
@@ -153,6 +154,15 @@ class IllustrationPolicyData:
     fund_values: dict[str, float] = field(default_factory=dict)
     # Inforce premium allocation % by fund ID (LH_FND_ALC, type "P").
     premium_allocations: dict[str, float] = field(default_factory=dict)
+    # Current UL_Rates values selected by illustration date. None means no lookup
+    # was performed; an empty dict means a lookup ran but found no applicable row.
+    index_illustration_rates: Optional[Dict[str, Optional[float]]] = None
+    index_strategy_parameters: Optional[Dict[str, Dict[str, float]]] = None
+    index_benchmark_minimum: Optional[float] = None
+    index_benchmark_maximum: Optional[float] = None
+    # Historical year-end market returns used by the IUL lookback report.
+    # Each entry is {"date": date, "return": decimal return}.
+    index_market_returns: Optional[Dict[str, List[Dict[str, object]]]] = None
     # Sweep account minimum.  # TODO: verify DB2 source (CyberLife segment 53)
     sweep_account_min: float = 0.0
     # Declared (fixed/sweep) crediting rate for the WAIR sweep slice (RERUN UJ =
@@ -165,6 +175,7 @@ class IllustrationPolicyData:
     iul_asset_charge_rate: Optional[float] = None
 
     # ── Duration / Timing ─────────────────────────────────────
+    illustration_date: Optional[date] = None
     policy_year: int = 1
     policy_month: int = 1          # 1-12 within year
     duration: int = 1              # Total months since issue

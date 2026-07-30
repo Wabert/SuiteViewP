@@ -61,6 +61,7 @@ from suiteview.illustration.models.index_strategies import (
     current_ag49_index,
     is_iul_plan,
     load_index_strategies,
+    with_current_index_data,
 )
 from suiteview.illustration.models.plancode_config import load_plancode
 from suiteview.polview.ui.formatting import format_amount, format_date
@@ -143,6 +144,8 @@ class PolicyContext:
     sweep_account_min: float = 0.0  # sweep fund retained minimum (DB2 source TBD)
     suspended: bool = False
     valuation_date: Optional[date] = None
+    index_illustration_rates: Optional[dict] = None
+    index_strategy_parameters: Optional[dict] = None
 
     forecast_date: Optional[date] = None  # valuation + 1 month (a monthliversary)
 
@@ -334,6 +337,8 @@ def context_from_policy(policy) -> PolicyContext:
         sweep_account_min=float(getattr(policy, "sweep_account_min", 0.0) or 0.0),
         suspended=status_code == "2",
         valuation_date=valuation,
+        index_illustration_rates=getattr(policy, "index_illustration_rates", None),
+        index_strategy_parameters=getattr(policy, "index_strategy_parameters", None),
     )
 
 
@@ -2134,6 +2139,12 @@ class DynamicInputsPanel(QWidget):
         self._refresh_solve_group()
         if self._ctx.is_iul:
             plan = load_index_strategies(self._ctx.plancode)
+            if plan is not None:
+                plan = with_current_index_data(
+                    plan,
+                    self._ctx.index_illustration_rates,
+                    self._ctx.index_strategy_parameters,
+                )
             self.illustrated_rate_edit.setReadOnly(True)
             self.index_alloc_btn.setEnabled(True)
             self.index_alloc_btn.setToolTip(
@@ -2190,6 +2201,18 @@ class DynamicInputsPanel(QWidget):
             return None
         blended = self.allocations_panel.blended()
         return blended.asset_charge_rate if blended is not None else None
+
+    def iul_allocations(self) -> Optional[dict[str, float]]:
+        """The allocation percentages used by the current IUL run."""
+        if not self._ctx.is_iul:
+            return None
+        return self.allocations_panel.allocations()
+
+    def iul_illustration_rates(self) -> Optional[dict[str, float]]:
+        """The per-strategy illustrated rates used by the current IUL run."""
+        if not self._ctx.is_iul:
+            return None
+        return self.allocations_panel.rates()
 
     def _open_allocations_dialog(self):
         self._allocations_dialog.exec()

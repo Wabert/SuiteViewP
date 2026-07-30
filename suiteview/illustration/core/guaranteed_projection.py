@@ -119,10 +119,10 @@ def run_guaranteed_projection(
 ) -> List[MonthlyState]:
     """Project the guaranteed side from a finished current-assumption run.
 
-    Guaranteed assumptions: guaranteed maximum COI (rate scale 0), the
-    guaranteed interest rate, no interest bonus. Cash flows come verbatim from
-    ``lock_values``. Projects the same number of months as the current run,
-    stopping on lapse (later report years render as zero).
+    Guaranteed assumptions: guaranteed maximum COI (rate scale 0), guaranteed
+    PoAV, the guaranteed interest rate, and no interest bonus. Cash flows come
+    verbatim from ``lock_values``. Projects the same number of months as the
+    current run, stopping on lapse (later report years render as zero).
     """
     if engine is None:
         from suiteview.illustration.core.calc_engine import IllustrationEngine
@@ -141,7 +141,12 @@ def run_guaranteed_projection(
     gpolicy.iul_declared_rate = None
 
     config = load_plancode(policy.plancode)
-    guaranteed_rates = load_rates(gpolicy, config, coi_scale=0)
+    guaranteed_rates = load_rates(
+        gpolicy,
+        config,
+        coi_scale=0,
+        poav_scale=0,
+    )
 
     return engine.project(
         gpolicy,

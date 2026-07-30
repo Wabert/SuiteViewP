@@ -556,7 +556,7 @@ def calculate_deduction(
 
     # ── 3.2.9 AV charge (col 503) — monthly rate, NOT /12 ───
     av_charge = 0.0
-    if config.poav_code == "Table":
+    if config.poav_table != "0":
         poav_rate = get_rate(rates, "poav", rate_year)
         av_charge = max(0.0, mAV * poav_rate)
 

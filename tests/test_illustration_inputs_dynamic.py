@@ -627,6 +627,25 @@ def test_scenario_builder_applies_sweep_account_min_override():
     assert scenario.projectable_policy.sweep_account_min == 500.0
 
 
+def test_scenario_builder_applies_iul_allocation_and_rate_overrides():
+    base_policy = IllustrationPolicyData(
+        premium_allocations={"U1": 1.0},
+        index_illustration_rates={"IX": 0.05},
+    )
+
+    scenario = build_illustration_scenario(
+        base_policy,
+        inforce_overrides=InforceOverrideSet(
+            premium_allocations={"IX": 1.0},
+            index_illustration_rates={"IX": 0.061},
+        ),
+    )
+
+    assert scenario.base_policy.premium_allocations == {"U1": 1.0}
+    assert scenario.projectable_policy.premium_allocations == {"IX": 1.0}
+    assert scenario.projectable_policy.index_illustration_rates == {"IX": 0.061}
+
+
 def test_year_age_sync_and_bounds():
     panel = _panel()
     row = panel.premium_section.rows()[0]

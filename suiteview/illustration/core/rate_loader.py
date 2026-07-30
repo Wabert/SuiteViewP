@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 from suiteview.core.rates import Rates
+from suiteview.illustration.core.poav_rates import load_poav_schedule
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 
@@ -34,6 +35,7 @@ class IllustrationRates:
     tpp: List = field(default_factory=list)
     epp: List = field(default_factory=list)
     poav: List = field(default_factory=list)
+    poav_scale: int = 1  # 1 = current, 0 = guaranteed
 
     # Loan credit rates (duration-based)
     rlncrg: List = field(default_factory=list)   # Regular loan credit rate — guaranteed
@@ -107,6 +109,7 @@ def load_rates(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
     coi_scale: int = 1,
+    poav_scale: int = 1,
 ) -> IllustrationRates:
     """Load all rate arrays for the policy's base segment.
 
@@ -116,7 +119,8 @@ def load_rates(
     ``coi_scale`` selects the COI scale: 1 = current (illustrated, the default and
     what matches RERUN's projection), 0 = guaranteed maximum COI. Build guaranteed
     rates with ``coi_scale=0`` to feed the 7702 guideline / TAMRA calculators
-    (loads/fees stay current). The active scale per plancode is in
+    (loads/fees, including PoAV, stay current). ``poav_scale=0`` is reserved for
+    the guaranteed illustration side. The active COI scale per plancode is in
     ``Select_SCALE_COI`` (= 1 for these plancodes).
     """
     rates_db = Rates()
@@ -124,6 +128,8 @@ def load_rates(
 
     if seg is None:
         return IllustrationRates()
+    if poav_scale not in (0, 1):
+        raise ValueError(f"PoAV scale must be 0 or 1, got {poav_scale}")
 
     segment_coi = {}
     segment_epu = {}
@@ -173,6 +179,7 @@ def load_rates(
             policy.plancode, seg.issue_age, seg.rate_sex,
             seg.rate_class, seg.band,
         ) or 0.0,
+        poav_scale=poav_scale,
     )
 
     # Ratchet banding (RERUN PP-QX): load band-1 AND band-2 COI schedules for
@@ -191,12 +198,13 @@ def load_rates(
             ) or []
         result.band_break = rates_db.get_band_break(policy.plancode, band=2) or 0.0
 
-    # Load PoAV (percent of AV charge) if configured
-    if config.poav_code == "Table":
-        result.poav = rates_db.get_rates(
-            "POAV", policy.plancode, seg.issue_age, seg.rate_sex,
-            seg.rate_class, scale=1, band=seg.band,
-        ) or []
+    # PoAV is a small local table keyed by the plancode's table code and band.
+    if config.poav_table != "0":
+        result.poav = load_poav_schedule(
+            config.poav_table,
+            seg.band,
+            scale=poav_scale,
+        )
 
     # Load loan credit rates (plancode-only, no age/sex/band)
     if policy.has_loans:

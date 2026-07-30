@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import logging
 import pyodbc
+from datetime import date
 from typing import Optional, List, Dict, Any, Union, Tuple
 
 from .local_dev import connect_local_rates_database, local_data_enabled
@@ -49,6 +50,17 @@ except ImportError:
     DB2Connection = None
 
 logger = logging.getLogger(__name__)
+
+# The IUL14 Bonus illustration-rate source splits three fund rates onto
+# fund-specific rate plancodes while the policy/parameter plancode stays
+# 1U145800. Keep that source-system mapping at the query boundary.
+_INDEX_ILLUSTRATION_PLAN_ALIASES = {
+    "1U145800": {
+        "IC": "1U145801",
+        "IF": "1U145802",
+        "IS": "1U145803",
+    },
+}
 
 
 class RatesError(Exception):
@@ -272,6 +284,156 @@ class Rates:
             return None
 
         return rows
+
+    def get_index_illustration_rates(
+        self,
+        company: str,
+        plancode: str,
+        illustration_date: date,
+        rga_indicator: str = "",
+    ) -> Dict[str, Optional[float]]:
+        """Current IUL illustration rate by fund as of ``illustration_date``.
+
+        The most recent effective row on or before the illustration date is used
+        for each fund. ``Rate_RGA`` is selected only when the policy's
+        reinsurance-partner indicator is ``R``; all other policies use
+        ``Rate_ANICO``. A present SQL NULL remains ``None`` so callers can
+        surface missing rates instead of silently substituting another value.
+        """
+        company = (company or "").strip()
+        plancode = (plancode or "").strip().upper()
+        if not company or not plancode or illustration_date is None:
+            return {}
+        company = company.zfill(2)
+
+        aliases = _INDEX_ILLUSTRATION_PLAN_ALIASES.get(plancode, {})
+        lookup_plancodes = sorted({plancode, *aliases.values()})
+        placeholders = ", ".join("?" for _ in lookup_plancodes)
+        sql = (
+            "SELECT r.[Plancode], r.[FundID], r.[Rate_ANICO], r.[Rate_RGA] "
+            "FROM [SV_INDEX_ILL_RATES] r "
+            "WHERE r.[Company] = ? "
+            f"AND r.[Plancode] IN ({placeholders}) "
+            "AND r.[EffDate] = ("
+            "SELECT MAX(r2.[EffDate]) FROM [SV_INDEX_ILL_RATES] r2 "
+            "WHERE r2.[Company] = r.[Company] "
+            "AND r2.[Plancode] = r.[Plancode] "
+            "AND r2.[FundID] = r.[FundID] "
+            "AND r2.[EffDate] <= ?)"
+        )
+        rows = self._fetch_rates(
+            sql, [company, *lookup_plancodes, illustration_date.isoformat()]
+        ) or []
+        use_rga = (rga_indicator or "").strip().upper() == "R"
+        rates: Dict[str, Optional[float]] = {}
+        for row in rows:
+            row_plancode = str(row[0] or "").strip().upper()
+            fund_id = str(row[1] or "").strip().upper()
+            expected_plancode = aliases.get(fund_id, plancode)
+            if row_plancode != expected_plancode:
+                continue
+            value = row[3] if use_rga else row[2]
+            rates[fund_id] = None if value is None else float(value)
+        return rates
+
+    def get_index_strategy_parameters(
+        self,
+        plancode: str,
+        illustration_date: date,
+        rga_indicator: str = "",
+    ) -> Dict[str, Dict[str, float]]:
+        """Effective IUL strategy parameters by fund as of the illustration date."""
+        plancode = (plancode or "").strip().upper()
+        rga_indicator = (
+            "R" if (rga_indicator or "").strip().upper() == "R" else ""
+        )
+        if not plancode or illustration_date is None:
+            return {}
+
+        sql = (
+            "SELECT p.[Fund_ID], p.[FLOOR], p.[CAP], p.[PARTICIPATION], "
+            "p.[INT_RATE_SPREAD], p.[SPECIFIED_RATE], p.[MULTIPLIER], "
+            "p.[ASSET_FEE] "
+            "FROM [SV_INDEX_PARAMS] p "
+            "WHERE p.[Plancode] = ? AND p.[RGA_Ind] = ? "
+            "AND p.[DATE] = ("
+            "SELECT MAX(p2.[DATE]) FROM [SV_INDEX_PARAMS] p2 "
+            "WHERE p2.[Plancode] = p.[Plancode] "
+            "AND p2.[RGA_Ind] = p.[RGA_Ind] "
+            "AND p2.[Fund_ID] = p.[Fund_ID] "
+            "AND p2.[DATE] <= ?)"
+        )
+        rows = self._fetch_rates(
+            sql, [plancode, rga_indicator, illustration_date.isoformat()]
+        ) or []
+        columns = (
+            "floor",
+            "cap",
+            "participation",
+            "int_rate_spread",
+            "specified_rate",
+            "multiplier",
+            "asset_fee",
+        )
+        return {
+            str(row[0] or "").strip().upper(): {
+                column: float(value)
+                for column, value in zip(columns, row[1:])
+            }
+            for row in rows
+        }
+
+    def get_index_benchmark_minmax(
+        self,
+        plancode: str,
+        illustration_date: date,
+        rga_indicator: str = "",
+        fund_id: str = "IX",
+    ) -> Optional[Dict[str, float]]:
+        """Current benchmark geometric-average minimum and maximum."""
+        plancode = (plancode or "").strip().upper()
+        fund_id = (fund_id or "").strip().upper()
+        rga_indicator = (
+            "R" if (rga_indicator or "").strip().upper() == "R" else ""
+        )
+        if not plancode or not fund_id or illustration_date is None:
+            return None
+
+        sql = (
+            "SELECT TOP 1 b.[MIN_GEOMETRIC_AVG], b.[MAX_GEOMETRIC_AVG] "
+            "FROM [SV_INDEX_BENCHMARK_MINMAX] b "
+            "WHERE b.[PLAN_ID] = ? AND b.[REIN_BLOCK_IND] = ? "
+            "AND b.[FUND_ID] = ? AND b.[EFFECTIVE_DATE] <= ? "
+            "ORDER BY b.[EFFECTIVE_DATE] DESC"
+        )
+        rows = self._fetch_rates(
+            sql,
+            [plancode, rga_indicator, fund_id, illustration_date.isoformat()],
+        )
+        if not rows:
+            return None
+        return {
+            "minimum": float(rows[0][0]),
+            "maximum": float(rows[0][1]),
+        }
+
+    def get_index_market_returns(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Year-end returns used by the IUL historical lookback report."""
+        rows = self._fetch_rates(
+            "SELECT [DateEOY], [MarketIndex], [OneYrReturn] "
+            "FROM [SV_INDEX_MARKET_RETURNS] "
+            "ORDER BY [DateEOY], [MarketIndex]",
+            [],
+        ) or []
+        returns: Dict[str, List[Dict[str, Any]]] = {}
+        for row in rows:
+            market_index = str(row[1] or "").strip().upper()
+            date_eoy = date.fromisoformat(str(row[0])[:10])
+            returns.setdefault(market_index, []).append({
+                "date": date_eoy,
+                "return": float(row[2]),
+            })
+        return returns
 
     def _scr_plancode_varies(self, plancode: str) -> bool:
         """True if this plancode has any state-specific (non-"AA") surrender

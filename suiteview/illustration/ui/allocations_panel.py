@@ -3,15 +3,15 @@
 The IUL counterpart of the single Illustrated Rate field: one row per index
 strategy (RERUN INPUT rows 36–54) with an editable allocation %, the plan's
 current illustrated rate, and an editable new illustrated rate (capped at the
-current rate), plus the computed blend — Nominal, Effective (multiplier
+current rate), the effective Cap/Participation/Specified Rate/Spread parameter,
+and any Asset Fee, plus the computed blend — Nominal, Effective (multiplier
 strategies credit rate × (1 + multiplier) under AG49 ≤ 2), and the Guaranteed
 blend (fixed strategy × GINT; index strategies floor at 0%).
 
-Illustrated rates default to the 6.25% placeholder for index strategies
-(capped at the AG49 max) and the plan guaranteed rate for the fixed strategy;
-a display-only Sweep Fund row shows that sweep balances credit the guaranteed
-rate too (premium is never allocated to the sweep fund — it only passes
-through it).
+Illustrated rates and parameters load from UL_Rates as of the illustration
+date; the fixed strategy defaults to the plan guaranteed rate. A display-only
+Sweep Fund row shows that sweep balances credit the guaranteed rate too
+(premium is never allocated to the sweep fund — it only passes through it).
 
 Non-IUL plans keep the panel visible but greyed with an italic note, per the
 Not-Applicable convention.
@@ -128,13 +128,13 @@ class _StrategyRow:
         self.parameter = QLabel()
         self.parameter.setStyleSheet(_MUTED_CELL_STYLE)
         self.parameter.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.crediting = QLabel()
-        self.crediting.setStyleSheet(_MUTED_CELL_STYLE)
-        self.crediting.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.asset_fee = QLabel()
+        self.asset_fee.setStyleSheet(_MUTED_CELL_STYLE)
+        self.asset_fee.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
     def widgets(self):
         return (self.label, self.fund, self.alloc, self.max_rate,
-                self.rate, self.parameter, self.crediting)
+                self.rate, self.parameter, self.asset_fee)
 
 
 class AllocationsPanel(QGroupBox):
@@ -172,7 +172,7 @@ class AllocationsPanel(QGroupBox):
         grid.setVerticalSpacing(2)
 
         captions = ["Strategy", "Fund", "Alloc %", "Current %",
-                    "New Illustrated %", "Cap / Part", "Crediting %"]
+                    "New Illustrated %", "Cap / Part / Spec", "Asset Fee"]
         for col, text in enumerate(captions):
             caption = QLabel(text)
             caption.setStyleSheet(INPUT_CAPTION_STYLE)
@@ -310,17 +310,29 @@ class AllocationsPanel(QGroupBox):
             row.alloc.setEnabled(offered)
             row.rate.setEnabled(offered)
             row.alloc.set_decimal(allocations.get(strat.fund_id, 0.0) if offered else 0.0)
-            row.rate.set_decimal(defaults.get(strat.fund_id, 0.0), decimals=3)
-            row.max_rate.setText(
-                f"{float(strat.max_rate) * 100:.2f}" if offered else "—")
+            default_rate = defaults.get(strat.fund_id)
+            if default_rate is None:
+                row.rate.clear()
+            else:
+                row.rate.set_decimal(default_rate, decimals=3)
+            if not offered:
+                row.max_rate.setText("—")
+            elif strat.max_rate is None:
+                row.max_rate.setText("Missing")
+            else:
+                row.max_rate.setText(f"{float(strat.max_rate) * 100:.2f}")
             row.label.setStyleSheet(_CELL_STYLE if offered else _MUTED_CELL_STYLE)
             row.fund.setStyleSheet(_CELL_STYLE if offered else _MUTED_CELL_STYLE)
-            if strat.parameter:
-                text = (f"{strat.parameter:.2f}×" if strat.parameter > 1
-                        else f"{strat.parameter * 100:.2f}%")
-                row.parameter.setText(text)
+            if offered and strat.parameter is not None:
+                row.parameter.setText(
+                    f"{strat.parameter_label} {strat.parameter * 100:.2f}%"
+                )
             else:
                 row.parameter.setText("")
+            row.asset_fee.setText(
+                f"{strat.asset_charge * 100:.2f}%"
+                if offered and strat.asset_charge > 0.0 else ""
+            )
         self._recompute()
 
     def set_ag49_index(self, ag49_index: int):
@@ -429,15 +441,13 @@ class AllocationsPanel(QGroupBox):
         for strat in plan.strategies:
             row = self._rows[strat.fund_id]
             if not strat.is_offered:
-                row.crediting.setText("")
                 continue
             rate = rates.get(strat.fund_id, 0.0)
-            over_max = strat.max_rate is not None and rate > float(strat.max_rate) + 1e-9
+            over_max = (
+                strat.max_rate is not None
+                and rate > float(strat.max_rate) + 1e-9
+            )
             row.rate.set_invalid(over_max)
-            if strat.is_multiplier and plan.multiplier_active:
-                row.crediting.setText(f"{rate * (1.0 + strat.multiplier) * 100:.2f}")
-            else:
-                row.crediting.setText("")
 
         problems = allocation_problems(plan, allocations, rates)
         self._problem_label.setText("  •  ".join(problems))

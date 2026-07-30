@@ -541,8 +541,9 @@ class IllustrationWindow(FramelessWindowBase):
                 "scenario": None,
             }
             self._set_active_inputs_tab(inputs_tab)
+            inputs_policy = self._illustration_data or self._policy
             inputs_tab.load_data_from_policy(
-                self._policy,
+                inputs_policy,
                 has_shadow=bool(getattr(self._illustration_data, "has_shadow_account", False)),
                 shadow_ceased=bool(getattr(self._illustration_data, "ccv_ceased", False)))
             self.values_tab.clear_results("Click Run Values to project the selected illustration duration.")

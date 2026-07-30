@@ -1,12 +1,13 @@
 """IUL index-strategy definitions and blended-rate math.
 
-Data ships in ``plancodes/index_strategies.json`` (ported from the RERUN
-workbook by ``tools/extract_index_strategies.py``). A plancode with a row in
-that table is an IUL plan illustrated with a **blended crediting rate**: the
-user allocates premium across strategies, each carries an illustrated rate
-(index strategies default to the 6.25% placeholder capped at the AG49 maximum;
-the fixed strategy defaults to the plan guaranteed rate), and the engine
-credits one blended rate — RERUN INPUT rows 36–54 / CalcEngine UO–UQ.
+The strategy catalog ships in ``plancodes/index_strategies.json`` (ported from
+the RERUN workbook by ``tools/extract_index_strategies.py``). Current
+illustration rates and effective strategy parameters are overlaid from
+``SV_INDEX_ILL_RATES`` and ``SV_INDEX_PARAMS`` when a policy loads. A plancode
+with a catalog row is an IUL plan illustrated with a **blended crediting rate**:
+the user allocates premium across strategies, each carries its current
+illustrated rate, and the engine credits one blended rate — RERUN INPUT rows
+36–54 / CalcEngine UO–UQ.
 
 Blend formulas (RERUN INPUT!B52 / E52 / B53):
   nominal     = TRUNC(Σ alloc% × illustrated rate, 4)
@@ -30,12 +31,16 @@ _PLAN_CACHE: Dict[str, Optional["PlanIndexStrategies"]] = {}
 
 FIXED_FUND_ID = "U1"
 SWEEP_FUND_ID = "SW"
-
-# Placeholder illustrated rate for index strategies until the illustrated-rate
-# table is wired (per Robert, 2026-07-08). Fixed/sweep funds credit the plan
-# guaranteed rate instead.
-DEFAULT_INDEX_ILLUSTRATED_RATE = 0.0625
-
+MARKET_INDEX_BY_FUND = {
+    "IX": "SP500",
+    "IF": "SP500",
+    "IS": "SP500",
+    "IC": "SP500",
+    "IP": "SP500",
+    "IR": "SP500",
+    "NX": "NASDAQ100",
+    "M1": "SPMARC5",
+}
 
 @dataclass(frozen=True)
 class StrategyInfo:
@@ -47,10 +52,12 @@ class StrategyInfo:
     parameter: Optional[float]     # current cap / participation (informational)
     multiplier: float = 0.0        # IP/IR account-value multiplier
     asset_charge: float = 0.0      # IP/IR annual asset charge on AV
+    offered: bool = False          # plan catalog availability, independent of rate load
+    parameter_label: str = ""
 
     @property
     def is_offered(self) -> bool:
-        return bool(self.max_rate)
+        return self.offered
 
     @property
     def is_multiplier(self) -> bool:
@@ -86,9 +93,9 @@ class PlanIndexStrategies:
     def default_rates(self, gint: Optional[float] = None) -> Dict[str, float]:
         """Illustrated-rate defaults per strategy.
 
-        Index strategies default to the 6.25% placeholder, capped at the AG49
-        maximum. The fixed strategy defaults to the plan guaranteed rate when
-        ``gint`` is given (falling back to its table rate otherwise).
+        Index strategies default to the current illustrated rate. The fixed
+        strategy defaults to the plan guaranteed rate when ``gint`` is given
+        (falling back to its catalog rate otherwise).
         """
         defaults: Dict[str, float] = {}
         for s in self.strategies:
@@ -96,9 +103,8 @@ class PlanIndexStrategies:
                 continue
             if s.fund_id == FIXED_FUND_ID:
                 defaults[s.fund_id] = float(gint) if gint else float(s.max_rate)
-            else:
-                defaults[s.fund_id] = min(
-                    DEFAULT_INDEX_ILLUSTRATED_RATE, float(s.max_rate))
+            elif s.max_rate is not None:
+                defaults[s.fund_id] = float(s.max_rate)
         return defaults
 
     def default_allocations(self) -> Dict[str, float]:
@@ -155,6 +161,8 @@ def load_index_strategies(plancode: str) -> Optional[PlanIndexStrategies]:
             parameter=params.get(fund_id),
             multiplier=float(mult.get("multiplier") or 0.0),
             asset_charge=float(mult.get("asset_charge") or 0.0),
+            offered=rates.get(fund_id) is not None,
+            parameter_label=_parameter_label(fund_id),
         ))
 
     ag49 = data.get("ag49", {})
@@ -171,6 +179,110 @@ def load_index_strategies(plancode: str) -> Optional[PlanIndexStrategies]:
     )
     _PLAN_CACHE[plancode] = plan
     return plan
+
+
+def with_current_index_data(
+    plan: PlanIndexStrategies,
+    illustration_rates: Optional[Dict[str, Optional[float]]],
+    strategy_parameters: Optional[Dict[str, Dict[str, float]]],
+) -> PlanIndexStrategies:
+    """Overlay illustration-date UL_Rates data onto a strategy catalog plan.
+
+    ``None`` means no database lookup was performed (tests/manual policies), so
+    the extracted catalog values remain available. An empty mapping means the
+    lookup ran but found nothing; affected values become missing and validation
+    reports the gap rather than silently using stale catalog data.
+    """
+    if illustration_rates is None and strategy_parameters is None:
+        return plan
+
+    strategies: List[StrategyInfo] = []
+    for strategy in plan.strategies:
+        if strategy.fund_id == FIXED_FUND_ID:
+            strategies.append(strategy)
+            continue
+
+        current_rate = strategy.max_rate
+        if illustration_rates is not None:
+            current_rate = illustration_rates.get(strategy.fund_id)
+
+        parameter = strategy.parameter
+        multiplier = strategy.multiplier
+        asset_charge = strategy.asset_charge
+        if strategy_parameters is not None:
+            values = strategy_parameters.get(strategy.fund_id)
+            if values is None:
+                parameter = None
+                multiplier = 0.0
+                asset_charge = 0.0
+            else:
+                parameter = values[_parameter_field(strategy.fund_id)]
+                multiplier = values["multiplier"]
+                asset_charge = values["asset_fee"]
+
+        strategies.append(replace(
+            strategy,
+            max_rate=current_rate,
+            parameter=parameter,
+            multiplier=multiplier,
+            asset_charge=asset_charge,
+            parameter_label=_parameter_label(strategy.fund_id),
+        ))
+    return replace(plan, strategies=strategies)
+
+
+def _parameter_field(fund_id: str) -> str:
+    return {
+        "IS": "specified_rate",
+        "IF": "int_rate_spread",
+        "M1": "participation",
+    }.get(fund_id, "cap")
+
+
+def _parameter_label(fund_id: str) -> str:
+    return {
+        "IS": "Spec",
+        "IF": "Spread",
+        "M1": "Part",
+    }.get(fund_id, "Cap")
+
+
+def historical_credited_rate(
+    fund_id: str,
+    market_return: float,
+    parameters: Dict[str, float],
+) -> float:
+    """Apply RERUN's historical-lookback formula for one strategy/year."""
+    fund_id = (fund_id or "").strip().upper()
+    market_return = float(market_return)
+    if fund_id in {"IX", "IC", "NX"}:
+        return max(0.0, min(market_return, parameters["cap"]))
+    if fund_id == "IF":
+        return max(0.0, market_return - parameters["int_rate_spread"])
+    if fund_id == "IS":
+        return parameters["specified_rate"] if market_return > 0.0 else 0.0
+    if fund_id in {"IP", "IR"}:
+        capped = max(0.0, min(market_return, parameters["cap"]))
+        return (
+            (capped * (1.0 + parameters["multiplier"]) + 1.0)
+            * (1.0 - parameters["asset_fee"])
+            - 1.0
+        )
+    if fund_id == "M1":
+        return max(0.0, market_return) * parameters["participation"]
+    raise ValueError(f"No historical crediting formula is defined for fund {fund_id!r}.")
+
+
+def compound_yield(annual_returns: List[float]) -> float:
+    """Geometric annual yield for a consecutive return series."""
+    if not annual_returns:
+        raise ValueError("At least one annual return is required.")
+    product = 1.0
+    for annual_return in annual_returns:
+        if annual_return <= -1.0:
+            raise ValueError("An annual return cannot be less than or equal to -100%.")
+        product *= 1.0 + annual_return
+    return product ** (1.0 / len(annual_returns)) - 1.0
 
 
 def is_iul_plan(plancode: str) -> bool:
@@ -283,7 +395,23 @@ def allocation_problems(
         if alloc > 0.0 and not strat.is_offered:
             problems.append(
                 f"{strat.fund_id} ({strat.label}) is not available on this plan.")
-        if strat.is_offered and rate > float(strat.max_rate) + 1e-9:
+        if strat.is_offered and strat.max_rate is None:
+            problems.append(
+                f"No current illustrated rate was found for {strat.fund_id} "
+                f"({strat.label}) as of the illustration date.")
+        if (
+            strat.is_offered
+            and strat.fund_id != FIXED_FUND_ID
+            and strat.parameter is None
+        ):
+            problems.append(
+                f"No current strategy parameters were found for {strat.fund_id} "
+                f"({strat.label}) as of the illustration date.")
+        if (
+            strat.is_offered
+            and strat.max_rate is not None
+            and rate > float(strat.max_rate) + 1e-9
+        ):
             problems.append(
                 f"{strat.fund_id} illustrated rate {rate * 100:.2f}% exceeds the "
                 f"current illustrated rate {float(strat.max_rate) * 100:.2f}%.")

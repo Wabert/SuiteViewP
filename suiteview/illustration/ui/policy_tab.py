@@ -302,12 +302,17 @@ class IllustrationPolicyTab(QWidget):
             val.setStyleSheet(val.styleSheet() + " font-style: italic;")
 
     @staticmethod
-    def _prem_allowed_by_gpt(definition, accum_glp, premium_td, withdrawals) -> str:
-        """Calculated: max(0, AccumGLP - PremiumTD + AccumWD). N/A for CVAT."""
+    def _prem_allowed_by_gpt(definition, gsp, accum_glp, premium_td, withdrawals) -> str:
+        """Calculated: max(0, max(GSP, AccumGLP) - PremiumTD + AccumWD).
+
+        The guideline premium limit is the greater of the GSP or the accumulated
+        GLP. N/A for CVAT.
+        """
         if definition != "GP":
             return "N/A"
         try:
-            val = max(0.0, float(accum_glp or 0)
+            guideline_limit = max(float(gsp or 0), float(accum_glp or 0))
+            val = max(0.0, guideline_limit
                       - float(premium_td or 0) + float(withdrawals or 0))
         except (TypeError, ValueError):
             return "N/A"
@@ -593,7 +598,7 @@ class IllustrationPolicyTab(QWidget):
         for attr in ["guideline_single", "guideline_level", "accum_glp"]:
             self._set_group_field_visible(self.mec_values, attr, definition == "GP")
         self.mec_values.set_value("prem_allowed_gpt", self._prem_allowed_by_gpt(
-            definition, s.accumulated_glp, s.premiums_paid_to_date, s.withdrawals_to_date))
+            definition, s.gsp, s.accumulated_glp, s.premiums_paid_to_date, s.withdrawals_to_date))
 
     def _populate_fund_values_from_snapshot(self, s):
         # Unimpaired = free fund value by fund. The snapshot captures only the
@@ -858,7 +863,7 @@ class IllustrationPolicyTab(QWidget):
         for attr in ["guideline_single", "guideline_level", "accum_glp"]:
             self._set_group_field_visible(self.mec_values, attr, definition == "GP")
         self.mec_values.set_value("prem_allowed_gpt", self._prem_allowed_by_gpt(
-            definition, policy.accumulated_glp_target, policy.premium_td, policy.total_withdrawals))
+            definition, policy.gsp, policy.accumulated_glp_target, policy.premium_td, policy.total_withdrawals))
 
     def _populate_fund_values(self, policy):
         # Unimpaired = free fund value (CSV); Impaired = loan-collateralized

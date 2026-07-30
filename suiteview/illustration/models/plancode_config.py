@@ -43,8 +43,8 @@ class PlancodeConfig:
     mfee: str = "5"                     # "Table" or flat $ (e.g., "5")
 
     # AV charge
-    poav_code: str = "0"                # "Table" or "0" (none)
-    poav_table: str = "0"
+    poav_code: str = "0"
+    poav_table: str = "0"               # Local PoAV table code "1"-"3"; "0" = none
 
     # Bonus interest
     bonus: str = "Table"                # "Table" or "0" (none)

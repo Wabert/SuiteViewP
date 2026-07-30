@@ -63,6 +63,10 @@ def apply_inforce_overrides(
         policy.iul_declared_rate = overrides.iul_declared_rate
     if overrides.iul_asset_charge_rate is not None:
         policy.iul_asset_charge_rate = overrides.iul_asset_charge_rate
+    if overrides.premium_allocations is not None:
+        policy.premium_allocations = dict(overrides.premium_allocations)
+    if overrides.index_illustration_rates is not None:
+        policy.index_illustration_rates = dict(overrides.index_illustration_rates)
 
     if overrides.face_amount is not None:
         policy.face_amount = overrides.face_amount

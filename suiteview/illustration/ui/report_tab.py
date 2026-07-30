@@ -37,6 +37,7 @@ from suiteview.core.json_store import read_json, write_json
 from suiteview.illustration.core.report_builder import (
     ExpenseRow,
     IllustrationReport,
+    IULStrategyRateRow,
     LedgerRow,
 )
 from .styles import PURPLE_BG, PURPLE_DARK, PURPLE_LIGHT, apply_input_checkbox_style
@@ -76,6 +77,8 @@ class _PageBuilder:
         pad = PAGE_WIDTH - len(left) - len(right)
         self.lines.append(left + middle.center(max(pad, len(middle))) + right)
         self.lines.append(_center(report.title))
+        if report.subtitle:
+            self.lines.append(_center(report.subtitle))
         self.lines.append(_center(report.prepared_for))
         self.lines.append("")
 
@@ -159,12 +162,14 @@ def _justify_lines(lines: List[str]) -> List[str]:
 # make explicit that the age shown is the end-of-year attained age; the YEAR
 # column reads "END / OF / YEAR".
 _LEDGER_HEADER = [
-    f"{'AGE':>4}{'END':>5}{'':>11}{'':5}{'':>8}{'':>10}  "
+    f"{'AGE':>4}{'END':>5}{'':>9}{'':5}{'':>8}{'':>10}  "
     f"{'+- GUARANTEED VALUES -+':^32}  {'+ NON-GUARANTEED VALUES +':^32}",
-    f"{'AT':>4}{'OF':>5}{'PREMIUM':>11}{'':5}{'':>8}{'LOAN':>10}  "
-    f"{'ACCUM':>10}{'SURR':>10}{'DEATH':>12}  {'ACCUM':>10}{'SURR':>10}{'DEATH':>12}",
-    f"{'EOY':>4}{'YEAR':>5}{'OUTLAY':>11}{'':5}{'PROCEEDS':>8}{'BALANCE':>10}  "
-    f"{'VALUE':>10}{'VALUE':>10}{'BENEFIT':>12}  {'VALUE':>10}{'VALUE':>10}{'BENEFIT':>12}",
+    f"{'AT':>4}{'OF':>5}{'PREMIUM':>9}{'':5}{'':>8}{'LOAN':>10}  "
+    f"{'ACCUM':>10} {'SURR':>10} {'DEATH':>10}  "
+    f"{'ACCUM':>10} {'SURR':>10} {'DEATH':>10}",
+    f"{'EOY':>4}{'YEAR':>5}{'OUTLAY':>9}{'':5}{'PROCEEDS':>8}{'BALANCE':>10}  "
+    f"{'VALUE':>10} {'VALUE':>10} {'BENEFIT':>10}  "
+    f"{'VALUE':>10} {'VALUE':>10} {'BENEFIT':>10}",
     "-" * PAGE_WIDTH,
 ]
 
@@ -180,10 +185,12 @@ _LEDGER_ASSUMPTION_NOTE = (
 
 def _ledger_line(row: LedgerRow) -> str:
     return (
-        f"{row.eoy_age:>4}{row.year:>5}{row.premium_outlay:>11,.0f}"
+        f"{row.eoy_age:>4}{row.year:>5}{row.premium_outlay:>9,.0f}"
         f"{row.markers:>5}{row.cash_from_policy:>8,.0f}{row.loan_balance:>10,.0f}  "
-        f"{_money(row.guar_accum):>10}{_money(row.guar_surr):>10}{_money(row.guar_death):>12}  "
-        f"{_money(row.accum_value):>10}{_money(row.surr_value):>10}{_money(row.death_benefit):>12}"
+        f"{_money(row.guar_accum):>10} {_money(row.guar_surr):>10} "
+        f"{_money(row.guar_death):>10}  "
+        f"{_money(row.accum_value):>10} {_money(row.surr_value):>10} "
+        f"{_money(row.death_benefit):>10}"
     )
 
 
@@ -254,6 +261,190 @@ def _expense_line(row: ExpenseRow) -> str:
     return "".join(parts)
 
 
+def _rate(value: Optional[float]) -> str:
+    return "" if value is None else f"{value * 100:.2f}%"
+
+
+def _iul_assumptions_page(page: _PageBuilder, report: IllustrationReport) -> None:
+    if report.note_paragraphs:
+        page.add_block(report.note_paragraphs[0])
+        page.blank()
+    if len(report.note_paragraphs) > 1:
+        page.add_block(report.note_paragraphs[1])
+        page.blank()
+
+    page.add("NON-GUARANTEED CURRENT ASSUMPTIONS")
+    page.blank()
+    page.add("ILLUSTRATED RATES BY INDEX STRATEGY")
+    page.add("-" * PAGE_WIDTH)
+    for strategy in report.iul_strategy_rates:
+        page.add(
+            f"  {strategy.label[:88]:<88}{_rate(strategy.illustrated_rate):>22}"
+        )
+    if report.iul_fixed_rate is not None:
+        page.add(
+            f"  {'FIXED ACCOUNT CURRENT INTEREST RATE':<88}"
+            f"{_rate(report.iul_fixed_rate):>22}"
+        )
+    page.blank()
+    page.add_wrapped(
+        "THE NON-GUARANTEED PROJECTION USES THE ILLUSTRATED RATES SHOWN ABOVE, "
+        "CURRENT NON-GUARANTEED CHARGES, AND THE ALLOCATION PERCENTAGES SHOWN "
+        "ON THE FIRST PAGE. THE RESULTING WEIGHTED RATE IS NOT GUARANTEED AND "
+        "ACTUAL POLICY RESULTS MAY BE HIGHER OR LOWER."
+    )
+    page.blank()
+    page.add_wrapped(
+        "INDEXED UNIVERSAL LIFE ILLUSTRATIONS USE A BENCHMARK INDEX STRATEGY "
+        "TO LIMIT THE RATE THAT MAY BE ILLUSTRATED. THE LIMIT IS BASED ON "
+        "HISTORICAL GEOMETRIC AVERAGES AND APPLICABLE STRATEGY PARAMETERS; IT "
+        "IS NOT A PREDICTION OF FUTURE RETURNS."
+    )
+    page.blank()
+    page.add(
+        f"{'BENCHMARK INDEX STRATEGY':<72}"
+        f"{'AVERAGE MINIMUM':>20}{'AVERAGE MAXIMUM':>20}"
+    )
+    page.add("-" * PAGE_WIDTH)
+    page.add(
+        f"{'  ONE YEAR POINT TO POINT WITH CURRENT CAP AND FLOOR':<72}"
+        f"{_rate(report.iul_benchmark_minimum):>20}"
+        f"{_rate(report.iul_benchmark_maximum):>20}"
+    )
+    page.blank()
+    page.add_wrapped(
+        "INDEXED CREDITS DEPEND ON THE INDEX RETURN AND THE CAP, FLOOR, "
+        "PARTICIPATION RATE, SPREAD, SPECIFIED RATE, MULTIPLIER, AND ASSET FEE "
+        "THAT APPLY TO EACH STRATEGY. THESE NON-GUARANTEED PARAMETERS MAY "
+        "CHANGE. THE POLICY DOES NOT DIRECTLY INVEST IN OR OWN AN INDEX."
+    )
+
+
+def _strategy_parameter_lines(
+    strategy: IULStrategyRateRow,
+) -> tuple[str, str, str]:
+    values = strategy.parameters
+    fund_id = strategy.fund_id
+    if fund_id == "IF":
+        return (
+            f"SPRD {_rate(values.get('int_rate_spread'))}",
+            f"FLR {_rate(values.get('floor'))}",
+            "",
+        )
+    if fund_id == "IS":
+        return (
+            f"SPEC {_rate(values.get('specified_rate'))}",
+            f"FLR {_rate(values.get('floor'))}",
+            "",
+        )
+    if fund_id == "M1":
+        return (
+            f"PART {_rate(values.get('participation'))}",
+            f"FLR {_rate(values.get('floor'))}",
+            "",
+        )
+    if fund_id in {"IP", "IR"}:
+        return (
+            f"CAP {_rate(values.get('cap'))}",
+            f"MULT {_rate(values.get('multiplier'))}",
+            f"FEE {_rate(values.get('asset_fee'))}",
+        )
+    return (
+        f"CAP {_rate(values.get('cap'))}",
+        f"FLR {_rate(values.get('floor'))}",
+        "",
+    )
+
+
+def _iul_historical_page(page: _PageBuilder, report: IllustrationReport) -> None:
+    page.add_centered("HISTORICAL INDEX RATE LEDGER - CURRENT SCENARIO")
+    page.blank()
+    page.add_wrapped(
+        "THE ANNUAL CREDITING RATES BELOW APPLY THE CURRENT NON-GUARANTEED "
+        "STRATEGY PARAMETERS TO THE MOST RECENT 20 FULL CALENDAR YEARS OF EACH "
+        "RELEVANT MARKET INDEX. PAST PERFORMANCE DOES NOT PREDICT FUTURE "
+        "RESULTS, AND STRATEGY PARAMETERS MAY CHANGE."
+    )
+    page.blank()
+
+    markets = list(dict.fromkeys(
+        strategy.market_index for strategy in report.iul_strategy_rates
+    ))
+    groups = [
+        (
+            market,
+            [
+                strategy
+                for strategy in report.iul_strategy_rates
+                if strategy.market_index == market
+            ],
+        )
+        for market in markets
+    ]
+    columns = [
+        (kind, key)
+        for market, strategies in groups
+        for kind, key in [
+            ("market", market),
+            *((("strategy", strategy.fund_id) for strategy in strategies)),
+        ]
+    ]
+    label_width = 12
+    column_width = max(
+        8, (PAGE_WIDTH - label_width) // max(len(columns), 1)
+    )
+    market_labels = {
+        "SP500": "S&P 500",
+        "NASDAQ100": "NASDAQ 100",
+        "SPMARC5": "S&P MARC 5",
+    }
+    column_headers = {
+        market: ["MARKET INDEX", market_labels.get(market, market), "RETURNS"]
+        for market in markets
+    }
+    for strategy in report.iul_strategy_rates:
+        first, second, third = _strategy_parameter_lines(strategy)
+        header = [strategy.fund_id, first, second, third]
+        while header and not header[-1]:
+            header.pop()
+        column_headers[strategy.fund_id] = header
+
+    header_height = max(len(header) for header in column_headers.values())
+    for row_index in range(header_height):
+        cells = []
+        for _kind, key in columns:
+            header = column_headers[key]
+            header_index = row_index - (header_height - len(header))
+            text = header[header_index] if header_index >= 0 else ""
+            cells.append(f"{text[:column_width]:>{column_width}}")
+        page.add(
+            f"{'YEAR ENDING' if row_index == header_height - 1 else '':>{label_width}}"
+            + "".join(cells)
+        )
+    page.add(
+        "-" * min(PAGE_WIDTH, label_width + column_width * len(columns))
+    )
+
+    def values_line(label: str, market_returns: dict, credited_rates: dict) -> str:
+        values = []
+        for kind, key in columns:
+            value = market_returns[key] if kind == "market" else credited_rates[key]
+            values.append(f"{_rate(value):>{column_width}}")
+        return f"{label:>{label_width}}" + "".join(values)
+
+    for row in report.iul_historical_rows:
+        label = row.date_eoy.strftime("%m/%d/%Y") if row.date_eoy else ""
+        page.add(values_line(label, row.market_returns, row.credited_rates))
+
+    page.blank()
+    for row in report.iul_compound_yields:
+        page.add(values_line(
+            f"{row.years}-YR YIELD",
+            row.market_returns,
+            row.credited_rates,
+        ))
+
+
 def format_report_pages(
     report: IllustrationReport,
     include_expense_report: bool = False,
@@ -278,7 +469,13 @@ def format_report_pages(
             expense_chunks = [[]]
     # The supplemental Expense Report is a separate exhibit — the illustration's
     # own page numbering excludes it.
-    total = 2 + len(ledger_chunks) + (1 if _has_rider_page(report) else 0)
+    has_iul_history = report.is_iul and bool(report.iul_historical_rows)
+    total = (
+        2
+        + len(ledger_chunks)
+        + (1 if _has_rider_page(report) else 0)
+        + (1 if has_iul_history else 0)
+    )
 
     pages: List[List[str]] = []
 
@@ -306,8 +503,16 @@ def format_report_pages(
     cover.blank()
     if report.av_basis_line:
         cover.add_wrapped(report.av_basis_line)
+        if report.iul_fund_values:
+            for row in report.iul_fund_values:
+                cover.add(f"    {row.label[:88]:<88}{f'${row.value:,.2f}':>20}")
         if report.loan_basis_line:
             cover.add_wrapped(report.loan_basis_line)
+        cover.blank()
+    if report.iul_allocations:
+        cover.add("THE ALLOCATION PERCENTAGES USED IN THIS ILLUSTRATION ARE:")
+        for row in report.iul_allocations:
+            cover.add(f"    {row.label[:88]:<88}{_rate(row.allocation):>20}")
         cover.blank()
     for line in report.request_intro:
         cover.add_wrapped(line)
@@ -349,17 +554,21 @@ def format_report_pages(
 
     # ── Notes page ──
     notes = _PageBuilder(report, 2 + len(ledger_chunks), total)
-    for paragraph in report.note_paragraphs:
-        notes.add_block(paragraph)
-        notes.blank()
-    if report.exception_section:
-        notes.blank()
-        notes.add_block(report.exception_section)
+    if report.is_iul:
+        _iul_assumptions_page(notes, report)
+    else:
+        for paragraph in report.note_paragraphs:
+            notes.add_block(paragraph)
+            notes.blank()
+        if report.exception_section:
+            notes.blank()
+            notes.add_block(report.exception_section)
     pages.append(notes.lines)
 
     # ── Riders / regulatory page ──
     if _has_rider_page(report):
-        riders = _PageBuilder(report, total, total)
+        rider_page_no = 3 + len(ledger_chunks)
+        riders = _PageBuilder(report, rider_page_no, total)
         riders.add("POLICY RIDERS AND BENEFITS AND REGULATORY PREMIUM (IF APPLICABLE)")
         riders.blank()
         as_of = report.as_of_date.strftime("%m/%d/%Y") if report.as_of_date else ""
@@ -388,6 +597,11 @@ def format_report_pages(
                 for line in section.limit_lines:
                     riders.add(f"    {line}")
         pages.append(riders.lines)
+
+    if has_iul_history:
+        history = _PageBuilder(report, total, total)
+        _iul_historical_page(history, report)
+        pages.append(history.lines)
 
     # ── Expense Report supplemental exhibit — its own heading and its own
     #    page numbering, separate from the illustration pages above. ──
