@@ -23,6 +23,11 @@ class DB2ConnectionError(Exception):
     pass
 
 
+def _clean_odbc_message(message: str) -> str:
+    """Remove NUL-padded driver-buffer data from an ODBC message."""
+    return message.split("\x00", 1)[0].strip()
+
+
 def _extract_odbc_message(exc: BaseException) -> str:
     """Walk the exception chain and extract the real ODBC driver message.
 
@@ -44,15 +49,23 @@ def _extract_odbc_message(exc: BaseException) -> str:
         if isinstance(e, pyodbc.Error) and len(getattr(e, 'args', ())) >= 2:
             msg = e.args[1]
             if isinstance(msg, str) and msg:
-                return msg
+                return _clean_odbc_message(msg)
 
     # Fallback: any exception with a useful args[1]
     for e in seen:
         if len(getattr(e, 'args', ())) >= 2 and isinstance(e.args[1], str):
-            return e.args[1]
+            return _clean_odbc_message(e.args[1])
+
+    # Some DB2 ODBC failures provide the complete driver message as their only
+    # argument while a SystemError supplies the unhelpful outer message.
+    for e in seen:
+        if isinstance(e, pyodbc.Error):
+            for arg in getattr(e, "args", ()):
+                if isinstance(arg, str) and arg:
+                    return _clean_odbc_message(arg)
 
     # Last resort: str() of the original
-    return str(exc)
+    return _clean_odbc_message(str(exc))
 
 
 class DB2Connection:

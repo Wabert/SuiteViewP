@@ -536,13 +536,29 @@ def _mdY(date_str: str) -> tuple:
 # MPF-linked benefits — BENCOI from the MPF, BENTRG from the IAF
 # ---------------------------------------------------------------------------
 
-def _mpf_items_for_code(grouped, premcode: str) -> Dict[tuple, dict]:
-    """``{(sex, cls, band): age_table}`` for one MPF premium code."""
-    items: Dict[tuple, dict] = {}
-    for (_company, _benefit, sex, cls, band, pc), table in grouped.items():
-        if pc == premcode:
-            items[(sex, cls, band)] = table
-    return items
+def _mpf_items_for_code(
+    grouped, premcode: str, benefit: str = "",
+) -> Dict[tuple, dict]:
+    """``{(sex, cls, band): age_table}`` for one MPF premium code.
+
+    A single premium code can carry more than one benefit type (e.g. ``GR2``
+    holds both ``3#`` and ``39``), and each type repeats the same
+    (sex, class, band) keys. Keying by combo alone lets one benefit's table
+    silently overwrite another's — including its age range — so charges stop
+    at the wrong attained age. ``benefit`` keeps only the records for the
+    benefit being built; when the code doesn't carry that type (a code picked
+    manually for a different benefit) we fall back to every record so it still
+    loads.
+    """
+    exact: Dict[tuple, dict] = {}
+    every: Dict[tuple, dict] = {}
+    for (_company, rec_benefit, sex, cls, band, pc), table in grouped.items():
+        if pc != premcode:
+            continue
+        every[(sex, cls, band)] = table
+        if benefit and rec_benefit == benefit:
+            exact[(sex, cls, band)] = table
+    return exact or every
 
 
 def _build_linked_benefit(
@@ -574,7 +590,7 @@ def _build_linked_benefit(
             f"Benefit {sel.code}: cease age must be greater than 0.")
     ctp = _benefit_rates_by_combo(result, sel.code, "T")
     mtp = _benefit_rates_by_combo(result, sel.code, "M")
-    trg_bands = {b for (_s, _c, b) in set(ctp) | set(mtp)}
+    trg_keys = set(ctp) | set(mtp)
 
     # ── BENCOI from the MPF premium code ────────────────────────────
     bencoi_rows: List[list] = []
@@ -593,7 +609,7 @@ def _build_linked_benefit(
             conv[age] = val / 100.0 if is_pct else val
             pct_converted += 1 if is_pct else 0
         conv = mpf_parser.fill_forward_age_table(conv)
-        target_key = _map_key(combo, trg_bands)
+        target_key = _map_key(combo, trg_keys)
         c_rates = ctp.get(target_key, {}) if target_key else {}
         m_rates = mtp.get(target_key, {}) if target_key else {}
         issue_age_range = _target_issue_age_range(m_rates, c_rates)
@@ -619,7 +635,7 @@ def _build_linked_benefit(
     trg_groups: "OrderedDict[tuple, int]" = OrderedDict()
     trg_index: Dict[ComboKey, int] = {}
     for combo in combos:
-        key = _map_key(combo, trg_bands)
+        key = _map_key(combo, trg_keys)
         c_rates = ctp.get(key, {}) if key else {}
         m_rates = mtp.get(key, {}) if key else {}
         if not c_rates and not m_rates:
@@ -808,7 +824,8 @@ def build(
                 continue
             if b.mpf_code and mpf_grouped is not None:
                 p_rows, c_rows, t_rows, _block = _build_linked_benefit(
-                    result, b, _mpf_items_for_code(mpf_grouped, b.mpf_code),
+                    result, b,
+                    _mpf_items_for_code(mpf_grouped, b.mpf_code, b.code),
                     combos, start, plancode, issue_version, warnings)
             else:
                 db_spec = BenefitDBSpec(

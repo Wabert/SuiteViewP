@@ -114,17 +114,23 @@ def _benefit_rates_by_combo(
     return out
 
 
-def _map_key(base_combo: ComboKey, benefit_bands: set) -> Optional[ComboKey]:
-    """Map a base (banded) combo to the benefit's rate key.
+def _map_key(base_combo: ComboKey, benefit_keys: set) -> Optional[ComboKey]:
+    """Map a base (sex, class, band) combo to the benefit's rate key.
 
-    If the benefit varies by the combo's band, match it directly; otherwise
-    (unbanded benefit) collapse to band '0'.
+    A benefit rate can be *unclassed* (rate_class '0') and/or *unbanded*
+    (band '0'), meaning the one rate applies across every class/band the base
+    plancode splits by. Relax class and band to '0' independently — exact
+    match first, then a relaxed band, then a relaxed class, then both — so a
+    base combo like ('1', 'N', 'A') still finds a benefit keyed ('1', '0',
+    '0'). ``benefit_keys`` is the set of (sex, class, band) keys the benefit
+    actually carries.
     """
     s, c, b = base_combo
-    if b in benefit_bands:
-        return (s, c, b)
-    if "0" in benefit_bands:
-        return (s, c, "0")
+    for cls in (c, "0"):
+        for band in (b, "0"):
+            key = (s, cls, band)
+            if key in benefit_keys:
+                return key
     return None
 
 
@@ -235,8 +241,8 @@ def build_benefit_rows(
         if spec.cease_age is not None and spec.cease_age <= 0:
             raise ValueError(f"Benefit {code}: cease age must be greater than 0.")
 
-        coi_bands = {b for (_s, _c, b) in cur}
-        trg_bands = {b for (_s, _c, b) in set(ctp) | set(mtp)}
+        coi_keys = set(cur)
+        trg_keys = set(ctp) | set(mtp)
 
         # ── BENCOI indices: group base combos by identical COI content ──
         bencoi_index: Dict[ComboKey, int] = {}
@@ -244,12 +250,12 @@ def build_benefit_rows(
         next_coi = spec.start_index
         coi_pointer_rows = 0
         for bc in base_combos:
-            key = _map_key(bc, coi_bands)
+            key = _map_key(bc, coi_keys)
             cur_rates = cur.get(key) if key else None
             if not cur_rates:
                 continue
             guar_rates = guar.get(key) or cur_rates
-            target_key = _map_key(bc, trg_bands)
+            target_key = _map_key(bc, trg_keys)
             c_rates = ctp.get(target_key, {}) if target_key else {}
             m_rates = mtp.get(target_key, {}) if target_key else {}
             issue_age_range = _target_issue_age_range(m_rates, c_rates)
@@ -276,7 +282,7 @@ def build_benefit_rows(
         trg_groups: "OrderedDict[tuple, int]" = OrderedDict()
         next_trg = spec.start_index
         for bc in base_combos:
-            key = _map_key(bc, trg_bands)
+            key = _map_key(bc, trg_keys)
             c_rates = ctp.get(key, {}) if key else {}
             m_rates = mtp.get(key, {}) if key else {}
             if not c_rates and not m_rates:

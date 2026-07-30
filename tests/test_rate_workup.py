@@ -3,14 +3,15 @@
 import pytest
 
 from suiteview.ratemanager import ckultb01_parser
-from suiteview.ratemanager.benefit_db import BenefitDBSpec, build_benefit_rows
+from suiteview.ratemanager.benefit_db import (
+    BenefitDBSpec, _map_key, build_benefit_rows)
 from suiteview.ratemanager.parser import ParseResult, ProductInfo, RateRecord
 from suiteview.ratemanager.rate_reformatter import RateReformatter
 from suiteview.ratemanager.workup.builder import (
     BENCOI_HEADERS, BENTRG_HEADERS, COI_HEADERS, EPU_HEADERS, SCR_HEADERS,
     WorkupAnalysis, WorkupSpec, _band_out_map, _build_epu, _build_scr,
     _build_linked_benefit, _expand_attained_table, _match_raw,
-    _sex_candidates, _sex_out, build,
+    _mpf_items_for_code, _sex_candidates, _sex_out, build,
     benefit_start_index,
 )
 from suiteview.ratemanager.workup.spec import BenefitSelection
@@ -337,6 +338,66 @@ def test_mpf_linked_bencoi_uses_iaf_target_issue_age_range():
     assert {row[2] for row in bencoi} == set(range(20, 41))
 
 
+def test_mpf_items_for_code_picks_the_matching_benefit_table():
+    """A premium code that carries two benefit types (e.g. GR2 → 3#/39) shares
+    the same (sex, class, band) keys under each type. Selecting a code must
+    keep the records for the benefit being built, otherwise a later, shorter
+    table silently overwrites it and the COI stops before the cease age."""
+    combo = ("1", "N", "A")
+    grouped = {
+        ("00", "3#", "1", "N", "A", "GR2"): {
+            age: (float(age), str(age), False) for age in range(0, 65)
+        },
+        ("00", "39", "1", "N", "A", "GR2"): {
+            age: (float(age), str(age), False) for age in range(0, 61)
+        },
+    }
+
+    matched = _mpf_items_for_code(grouped, "GR2", "3#")
+    assert max(matched[combo]) == 64          # kept 3#, not the shorter 39
+
+    # A code whose type isn't carried falls back to every record so a
+    # manually-picked, single-benefit code still loads.
+    fallback = _mpf_items_for_code(grouped, "GR2", "ZZ")
+    assert combo in fallback
+
+
+def test_mpf_linked_bencoi_honors_cease_age_for_shared_premcode():
+    """End-to-end: benefit 3# drawing COI from GR2 (which also carries 39)
+    must load rates through attained age 64 for cease age 65 — the 39 table
+    stops at 60 and would truncate the wrong benefit."""
+    result = ParseResult(
+        products=[ProductInfo(ref=1, plancode="TESTPLAN", version="1")],
+        rates=[
+            _rate("M", 0, 0, 1.0, band="0", opt="3#"),
+            _rate("M", 64, 0, 1.0, band="0", opt="3#"),
+        ],
+    )
+    combo = ("1", "N", "A")
+    grouped = {
+        ("00", "3#", "1", "N", "A", "GR2"): {
+            age: (float(age), str(age), False) for age in range(0, 65)
+        },
+        ("00", "39", "1", "N", "A", "GR2"): {
+            age: (float(age), str(age), False) for age in range(0, 61)
+        },
+    }
+
+    _pointers, bencoi, _bentrg, _block = _build_linked_benefit(
+        result,
+        BenefitSelection(
+            code="3#", renewable=True, cease_age=65, mpf_code="GR2"),
+        _mpf_items_for_code(grouped, "GR2", "3#"),
+        [combo],
+        200,
+        "TESTPLAN",
+        "1",
+        [],
+    )
+
+    assert max(row[2] + row[3] - 1 for row in bencoi) == 64
+
+
 def test_nonrenewing_bencoi_stops_before_cease_age():
     rates = [_rate("C", 20, 99, 0.1)]
     rates.extend(
@@ -404,6 +465,56 @@ def test_renewable_benefit_requires_and_honors_cease_age():
     )
     issue_20 = [row for row in bencoi if row[2] == 20 and row[1] == 1]
     assert max(20 + row[3] - 1 for row in issue_20) == 64
+
+
+def test_map_key_relaxes_class_and_band_independently():
+    """Benefit rates can be unclassed (class '0') and/or unbanded (band '0').
+    A base combo must still resolve to the benefit's key by relaxing class
+    and/or band to '0' — exact match wins, then either dimension, then both."""
+    # Unclassed + unbanded benefit: only ('1', '0', '0') exists.
+    assert _map_key(("1", "N", "A"), {("1", "0", "0")}) == ("1", "0", "0")
+    # Class-specific but unbanded: relax band only.
+    assert _map_key(("1", "N", "A"), {("1", "N", "0")}) == ("1", "N", "0")
+    # Banded but unclassed: relax class only.
+    assert _map_key(("1", "N", "A"), {("1", "0", "A")}) == ("1", "0", "A")
+    # Exact match preferred over any relaxed key.
+    keys = {("1", "N", "A"), ("1", "0", "0")}
+    assert _map_key(("1", "N", "A"), keys) == ("1", "N", "A")
+    # No compatible key (different sex) → None.
+    assert _map_key(("1", "N", "A"), {("2", "0", "0")}) is None
+
+
+def test_unclassed_benefit_builds_bencoi_and_bentrg():
+    """Regression: a benefit whose IAF rates are unclassed (class '0') and
+    unbanded (band '0') must still produce BENCOI and BENTRG rows against a
+    base plancode that splits by real classes/bands. Previously the combo
+    mapping only relaxed band, so class-'0' benefits matched nothing and both
+    tables came out empty."""
+    rates = [
+        # Base plancode combos: real class 'N', band 'A'.
+        _rate("C", 20, 99, 0.1, cls="N", band="A"),
+        # Benefit '21' rates: unclassed + unbanded (class '0', band '0').
+        *[
+            _rate("C", age, 99, 0.2, cls="0", band="0", opt="21")
+            for age in range(20, 81)
+        ],
+        _rate("M", 20, 0, 1.0, cls="0", band="0", opt="21"),
+        _rate("M", 40, 0, 1.0, cls="0", band="0", opt="21"),
+    ]
+    result = ParseResult(
+        products=[ProductInfo(
+            ref=1, plancode="TESTPLAN", version="1", pay_age=81)],
+        rates=rates,
+    )
+
+    pointers, bencoi, bentrg, _counts = build_benefit_rows(
+        result, [BenefitDBSpec(
+            code="21", renewable=True, start_index=100, cease_age=65)]
+    )
+
+    assert bencoi, "unclassed benefit produced no BENCOI rows"
+    assert bentrg, "unclassed benefit produced no BENTRG rows"
+    assert pointers, "unclassed benefit produced no pointer rows"
 
 
 def test_workup_build_requires_base_index():

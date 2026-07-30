@@ -2685,6 +2685,16 @@ class SuiteViewTaskbar(QWidget):
             return self.compact_region_combo.currentText() or "CKPR"
         return "CKPR"
 
+    def _clear_compact_policy(self):
+        """Clear the compact-bar policy input after it has been handed off.
+
+        Once a policy has been auto-populated into PolView/RERUN we don't want
+        it lingering in the taskbar input, or it would keep re-pulling that same
+        policy every time the app is reopened.
+        """
+        if hasattr(self, 'compact_policy_input'):
+            self.compact_policy_input.clear()
+
     def _open_polview_with_policy(self):
         """Open PolView and load the policy specified in the compact bar inputs."""
         policy = self._compact_policy()
@@ -2700,11 +2710,16 @@ class SuiteViewTaskbar(QWidget):
         # Only load the typed policy when it's new (not already pulled up).
         # If it's already in PolView's list, leave it on whatever policy was
         # last shown. Company left empty so PolView auto-detects it.
-        already_loaded = (hasattr(window, 'has_policy_loaded')
-                          and window.has_policy_loaded(policy))
-        if not already_loaded:
-            window.load_policy(policy, region=self._compact_region(), company_code="")
-        self._bring_to_front(window)
+        try:
+            already_loaded = (hasattr(window, 'has_policy_loaded')
+                              and window.has_policy_loaded(policy))
+            if not already_loaded:
+                window.load_policy(policy, region=self._compact_region(), company_code="")
+            self._bring_to_front(window)
+        finally:
+            # Always clear the handed-off policy so reopening PolView later
+            # doesn't keep re-pulling it — even if the load raised.
+            self._clear_compact_policy()
 
     def _abrquote_btn_clicked(self):
         """Open ABR Quote without passing through the compact-bar policy."""
@@ -2713,11 +2728,16 @@ class SuiteViewTaskbar(QWidget):
     def _illustration_btn_clicked(self):
         """Open Illustration, loading the compact-bar policy when one is typed."""
         policy = self._compact_policy()
-        if policy:
+        if not policy:
+            self._open_illustration()
+            return
+        try:
             self._launch_illustration_with_policy(
                 policy, region=self._compact_region(), company_code="")
-        else:
-            self._open_illustration()
+        finally:
+            # Always clear the handed-off policy so reopening RERUN later
+            # doesn't keep re-pulling it — even if the load raised.
+            self._clear_compact_policy()
 
     def _launch_illustration_with_policy(self, policy_number, region="CKPR",
                                          company_code=""):
