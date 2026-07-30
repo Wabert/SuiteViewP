@@ -1,0 +1,976 @@
+[
+  {
+    "name": "Segment Identification",
+    "line_break": false,
+    "role": "chrome",
+    "const": "02"
+  },
+  {
+    "name": "Segment Length",
+    "line_break": false,
+    "role": "chrome",
+    "const": "0220"
+  },
+  {
+    "name": "Flag Byte A",
+    "line_break": false,
+    "role": "flag",
+    "const": "00000000"
+  },
+  {
+    "name": "Flag Byte B",
+    "line_break": false,
+    "role": "flag",
+    "const": "00000000"
+  },
+  {
+    "name": "Flag Byte C",
+    "line_break": false,
+    "role": "flag",
+    "const": "00000000"
+  },
+  {
+    "name": "Flag Byte D",
+    "line_break": false,
+    "role": "flag",
+    "const": "00000000"
+  },
+  {
+    "name": "Phase Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.COV_PHA_NBR",
+    "cobol": "FCVPHASE-PHASE-CODE",
+    "kind": "int",
+    "byte": "9",
+    "layout_label": "Control Codes. Phase Code"
+  },
+  {
+    "name": "Product Line Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.PRD_LIN_TYP_CD",
+    "cobol": "FCVPROD-PRODUCT",
+    "kind": "char",
+    "byte": "10",
+    "layout_label": "Control Codes. Product Line Code"
+  },
+  {
+    "name": "Rider Status",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.RID_STA_CD",
+    "cobol": "FCVTRST-TERM-RIDER-STATUS",
+    "kind": "char",
+    "byte": "11",
+    "layout_label": "Control Codes. Rider Status"
+  },
+  {
+    "name": "Next Change Date",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.NXT_CHG_DT",
+    "cobol": "FCVTCGMD-MONTH-YEAR-DAY",
+    "kind": "date",
+    "byte": "12-16",
+    "layout_label": "Next Change Date. Date"
+  },
+  {
+    "name": "Next Change Type",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.NXT_CHG_TYP_CD",
+    "cobol": "FCVNCTYP-NEXT-CHANGE-TYPE",
+    "kind": "char",
+    "byte": "17",
+    "layout_label": "Next Change Date. Type"
+  },
+  {
+    "name": "Commission Basic",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.COM_BAS_CD",
+    "cobol": "FCVCBASE-COMMISSION-BASIC",
+    "kind": "char",
+    "byte": "18",
+    "layout_label": "Commission Basic"
+  },
+  {
+    "name": "Agent Phase Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.AGT_COM_PHA_NBR",
+    "cobol": "FCVTAPHS-AGENT-PHASE-CODE",
+    "kind": "int",
+    "byte": "19",
+    "layout_label": "Agent Phase Code"
+  },
+  {
+    "name": "Valuation Code: Mortality Table",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.MTL_FCT_TBL_CD",
+    "cobol": "FCVTABLE-MORTALITY-TABLE",
+    "kind": "char",
+    "byte": "20-21",
+    "layout_label": "Valuation Code. Mortality Table"
+  },
+  {
+    "name": "Valuation Code: Lives",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.NBR_OF_LIVES_CD",
+    "cobol": "FCVLIVES-LIVES",
+    "kind": "char",
+    "byte": "22",
+    "layout_label": "Valuation Code. Lives"
+  },
+  {
+    "name": "Valuation Code: Function",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.MTL_FUN_CD",
+    "cobol": "FCVVFNCT-FUNCTION",
+    "kind": "char",
+    "byte": "23",
+    "layout_label": "Valuation Code. Function"
+  },
+  {
+    "name": "Valuation Code: Interest Rate",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.RES_ITS_RT",
+    "cobol": "FCVVINTR-INTEREST-RATE",
+    "kind": "decimal:3",
+    "byte": "24-26",
+    "layout_label": "Valuation Code. Interest Rate"
+  },
+  {
+    "name": "Valuation Code: Modification",
+    "line_break": true,
+    "role": "data",
+    "db2": "LH_COV_PHA.VAL_MTH_CD",
+    "cobol": "FCVMOD-MODIFICATION",
+    "kind": "char",
+    "byte": "27",
+    "layout_label": "Valuation Code. Modification"
+  },
+  {
+    "name": "Valuation Code: Class",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.INS_CLS_CD",
+    "cobol": "FCVCLASS-CLASS",
+    "kind": "char",
+    "byte": "28",
+    "layout_label": "Valuation Code. Class Series. Class"
+  },
+  {
+    "name": "Valuation Code: Base",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.PLN_BSE_SRE_CD",
+    "cobol": "FCVBASE-BASE",
+    "kind": "char",
+    "byte": "29-31",
+    "layout_label": "Valuation Code. Class Series. Series. Base"
+  },
+  {
+    "name": "Valuation Code: Subseries",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.LIF_PLN_SUB_SRE_CD",
+    "cobol": "FCVSBASE-SUB-BASE",
+    "kind": "char",
+    "byte": "32",
+    "layout_label": "Valuation Code. Class Series. Series. Subseries"
+  },
+  {
+    "name": "Valuation Code: Death Benefit Effective Age",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.DTH_BNF_EFF_AGE",
+    "cobol": "FCVDBEFA-DEATH-BEN-EFF-AGE",
+    "kind": "char",
+    "byte": "34",
+    "layout_label": "Death Benefit Effective Age",
+    "blank_if_zero": true
+  },
+  {
+    "name": "Valuation Code: Death Benefit Rider",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.RID_COI_BAN_RLE_CD",
+    "cobol": "FCVRBAND-RIDER-BAND",
+    "kind": "char",
+    "byte": "36",
+    "layout_label": "Death Benefit Rider"
+  },
+  {
+    "name": "Deficient Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.DFI_CD",
+    "cobol": "FCVDEF-DEFICIENT-CODE",
+    "kind": "char",
+    "byte": "37",
+    "layout_label": "Deficient Code"
+  },
+  {
+    "name": "Return of Premium Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.RET_OF_PRM_CD",
+    "cobol": "FCVRETP-RETURN-OF-PREMIUM-CODE",
+    "kind": "char",
+    "byte": "38",
+    "layout_label": "Return of Premium Code"
+  },
+  {
+    "name": "Sex Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.INS_SEX_CD",
+    "cobol": "FCVSEX-SEX",
+    "kind": "char",
+    "byte": "39",
+    "layout_label": "Sex Code"
+  },
+  {
+    "name": "Age Information: Issue",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.INS_ISS_AGE",
+    "cobol": "FCVAGEIS-ISSUE-AGE",
+    "kind": "packed_num",
+    "byte": "40-41",
+    "layout_label": "Age Information. Issue"
+  },
+  {
+    "name": "Age Information: True",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.TRUE_AGE",
+    "cobol": "FCVAGETR-TRUE-AGE",
+    "kind": "packed_num",
+    "byte": "42-43",
+    "layout_label": "Age Information. True"
+  },
+  {
+    "name": "Age Information: Use",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.AGE_USE_CD",
+    "cobol": "FCVAGEUS-AGE-USE-CODE",
+    "kind": "char",
+    "byte": "44",
+    "layout_label": "Age Information. Use"
+  },
+  {
+    "name": "Age Information: Age Admitted Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.AGE_SRC_CD",
+    "cobol": "FCVAGADM-AGE-ADMITTED-CODE",
+    "kind": "char",
+    "byte": "45",
+    "layout_label": "Age Information. Age Admitted Code"
+  },
+  {
+    "name": "Person Covered",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.LIVES_COV_CD",
+    "cobol": "FCVPERCV-PERSON-COVERED",
+    "kind": "char",
+    "byte": "46",
+    "layout_label": "Person Covered"
+  },
+  {
+    "name": "Issue Date",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.ISSUE_DT",
+    "cobol": "FCVISSDF-ISSUE-DATE-FIELDS",
+    "kind": "date",
+    "byte": "47-51",
+    "layout_label": "Issue Date"
+  },
+  {
+    "name": "Pay-up Date",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.PAY_UP_DT",
+    "cobol": "FCVPAYDF-PAY-UP-DATE-FIELDS",
+    "kind": "date",
+    "byte": "52-56",
+    "layout_label": "Pay-up Date"
+  },
+  {
+    "name": "Mature/Expire Date",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.COV_MT_EXP_DT",
+    "cobol": "FCVMATDF-MAT-EXP-DATE-FIELDS",
+    "kind": "date",
+    "byte": "57-61",
+    "layout_label": "Mature/Expire Date"
+  },
+  {
+    "name": "Number of Units",
+    "line_break": true,
+    "role": "data",
+    "db2": "LH_COV_PHA.COV_UNT_QTY",
+    "cobol": "FCVUNITS-NUMBER-OF-UNITS",
+    "kind": "decimal:3",
+    "byte": "62-66",
+    "layout_label": "Number of Units"
+  },
+  {
+    "name": "Value Per Unit",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.COV_VPU_AMT",
+    "cobol": "FCVUNVAL-VALUE-PER-UNIT",
+    "kind": "decimal:2",
+    "byte": "67-70",
+    "layout_label": "Benefits Per Unit. Value Per Unit"
+  },
+  {
+    "name": "Decreasing Term: Interest",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.DCA_TRM_ITS_RT",
+    "cobol": "FCVBINT-INTEREST",
+    "kind": "decimal:3",
+    "byte": "71",
+    "layout_label": "Benefits Per Unit. Decreasing Term. Interest"
+  },
+  {
+    "name": "Decreasing Term: Value",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.DCA_TRM_VPU_CUM_CD",
+    "cobol": "FCVBVAL-VALUE",
+    "kind": "char",
+    "byte": "74",
+    "layout_label": "Benefits Per Unit. Decreasing Term. Value"
+  },
+  {
+    "name": "Decreasing Term: Level Year",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.DCA_TRM_LVL_YR_DUR",
+    "cobol": "FCVLVLD-LEVEL-YEAR",
+    "kind": "packed_num",
+    "byte": "75",
+    "layout_label": "Benefits Per Unit. Decreasing Term. Level Year"
+  },
+  {
+    "name": "Return Premium Per Unit",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.RET_PRM_UNT_AMT",
+    "cobol": "FCVMISC-RETURN-PREM-PER-UNIT",
+    "kind": "decimal:2",
+    "byte": "77-79",
+    "layout_label": "Benefits Per Unit. Return Premium Per Unit"
+  },
+  {
+    "name": "Annual Premium Per Unit",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.ANN_PRM_UNT_AMT",
+    "cobol": "FCVAPREM-ANNUAL-PREM-PER-UNIT",
+    "kind": "decimal:2",
+    "byte": "80-84",
+    "layout_label": "Annual Premium Per Unit"
+  },
+  {
+    "name": "Nonforfeiture Rules: Nonforfeiture Option",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.COV_NFO_CD",
+    "cobol": "FCVNFOPT-NFO-OPTION",
+    "kind": "char",
+    "byte": "85",
+    "layout_label": "Nonforfeiture Rules. Nonforfeiture Option"
+  },
+  {
+    "name": "Nonforfeiture Rules: Cash Value Year",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.CSH_VAL_YR",
+    "cobol": "FCVCVYR-CASH-VALUE-YEAR",
+    "kind": "packed_num",
+    "byte": "86",
+    "layout_label": "Nonforfeiture Rules. Cash Value Year"
+  },
+  {
+    "name": "Nonforfeiture Rules: Adjust",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.ADJ_ETI_CD",
+    "cobol": "FCVADJ-ADJUST",
+    "kind": "char",
+    "byte": "87",
+    "layout_label": "Nonforfeiture Rules. Adjust"
+  },
+  {
+    "name": "Nonforfeiture Rules: Reduced Paid-up",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.RPU_BNF_CD",
+    "cobol": "FCVRPU-REDUCED-PAID-UP",
+    "kind": "char",
+    "byte": "88",
+    "layout_label": "Nonforfeiture Rules. Reduced Paid-up"
+  },
+  {
+    "name": "Nonforfeiture Rules: EI Initial Amount",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.EI_INT_AMT_CD",
+    "cobol": "FCVEI-EXTENDED-INSURANCE",
+    "kind": "char",
+    "byte": "89",
+    "layout_label": "Nonforfeiture Rules. EI Initial Amount"
+  },
+  {
+    "name": "Nonforfeiture Rules: EI Benefit",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.EI_BNF_CD",
+    "cobol": "FCVBEN-BENEFIT",
+    "kind": "char",
+    "byte": "90",
+    "layout_label": "Nonforfeiture Rules. EI Benefit"
+  },
+  {
+    "name": "Participation Type",
+    "line_break": false,
+    "role": "data",
+    "cobol": "FCVPAR-PAR-TYPE",
+    "layout_label": "Participation Type",
+    "db2": "LH_COV_PHA.DIV_PTP_TYP_CD",
+    "kind": "char"
+  },
+  {
+    "name": "Guarantee Option",
+    "line_break": false,
+    "role": "example",
+    "cobol": "FCVGOPTN-GUAR-OPTION",
+    "layout_label": "Guarantee Option"
+  },
+  {
+    "name": "Major Line of Insurance",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.MAJ_LIN_OF_BUS_CD",
+    "cobol": "FCVMAJLI-MAJOR-LINE",
+    "kind": "char",
+    "byte": "93",
+    "layout_label": "Major Line of Insurance"
+  },
+  {
+    "name": "Entry Source",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.ETR_SRC_CD",
+    "cobol": "FCVENTSR-ENTRY-SOURCE",
+    "kind": "char",
+    "byte": "94",
+    "layout_label": "Entry Source"
+  },
+  {
+    "name": "Rate Book",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.RT_BK_CD",
+    "cobol": "FCVRATBK-RATE-BOOK",
+    "kind": "char",
+    "byte": "95-96",
+    "layout_label": "Rate Book"
+  },
+  {
+    "name": "Medical Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.COV_MED_CD",
+    "cobol": "FCVMEDCO-MEDICAL-CODE",
+    "kind": "char",
+    "byte": "97",
+    "layout_label": "Medical Code"
+  },
+  {
+    "name": "Values-Per-Unit: Use Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.VAL_USE_CD",
+    "cobol": "FCVTRLUS-USE-CODE",
+    "kind": "char",
+    "byte": "98",
+    "layout_label": "Values-Per-Unit. Use Code"
+  },
+  {
+    "name": "Values-Per-Unit: Low Duration",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.LOW_DUR_PER",
+    "cobol": "FCVTRLOT-LOW-DURATION",
+    "kind": "packed_num",
+    "byte": "99-100",
+    "layout_label": "Values-Per-Unit. Low Duration"
+  },
+  {
+    "name": "Values-Per-Unit: Orig Spec Amount Units",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.OGN_SPC_UNT_QTY",
+    "cobol": "FCVSPAMT-ORIG-UNITS",
+    "kind": "decimal:3",
+    "byte": "101",
+    "layout_label": "Values-Per-Unit. Cash Value T0"
+  },
+  {
+    "name": "Rider Plan Option",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.FTD_RID_PLN_OPT_CD",
+    "cobol": "FCVRPOPT-RIDER-PLAN-OPTION",
+    "kind": "char",
+    "byte": "106",
+    "layout_label": "Values-Per-Unit. Rider Plan Option"
+  },
+  {
+    "name": "Values-Per-Unit: Rider Corridor Amount",
+    "line_break": true,
+    "role": "data",
+    "db2": "LH_COV_PHA.FTD_RID_CDR_AMT",
+    "cobol": "FCVRCORR-RIDER-CORRIDOR-AMT",
+    "kind": "packed_num",
+    "byte": "107",
+    "layout_label": "Values-Per-Unit. Rider Corridor Amount"
+  },
+  {
+    "name": "Values-Per-Unit: Rider Net Amount at Risk",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.FTD_RID_AT_RSK_AMT",
+    "cobol": "FCVRNAAR-RIDER-NET-AMT-AT-RISK",
+    "kind": "decimal:2",
+    "byte": "111",
+    "layout_label": "Values-Per-Unit. Rider Net Amount at Risk"
+  },
+  {
+    "name": "Refresh/Renewal Age",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.REFRESH_OR_RNL_AGE",
+    "cobol": "FCVREFAG-REFRESH-AGE",
+    "kind": "packed_num",
+    "byte": "116-117",
+    "layout_label": "Refresh/Renewal Age"
+  },
+  {
+    "name": "Net Single Premium Codes: EI Table",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.NSP_EI_TBL_CD",
+    "cobol": "FCVNSPTB-TABLE",
+    "kind": "char",
+    "byte": "118-119",
+    "layout_label": "Net Single Premium Codes. EI Table"
+  },
+  {
+    "name": "Net Single Premium Codes: RPU Table",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.NSP_RPU_TBL_CD",
+    "cobol": "FCVNSPRP-TABLE",
+    "kind": "char",
+    "byte": "120-121",
+    "layout_label": "Net Single Premium Codes. RPU Table"
+  },
+  {
+    "name": "Net Single Premium Codes: Interest Rate",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.NSP_ITS_RT",
+    "cobol": "FCVNSPIN-INTEREST-RATE",
+    "kind": "decimal:3",
+    "byte": "122-124",
+    "layout_label": "Net Single Premium Codes. Interest Rate"
+  },
+  {
+    "name": "Rider Expense Rule",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.RID_XPN_RLE_CD",
+    "cobol": "FCVRDEXP-RIDER-EXPENSE-RULE",
+    "kind": "char",
+    "byte": "125",
+    "layout_label": "Rider Expense Rule"
+  },
+  {
+    "name": "Person Identification: Person Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.PRS_CD",
+    "cobol": "FCVPERSN-PERSON-CODE",
+    "kind": "char",
+    "byte": "126-127",
+    "layout_label": "Person Identification. Person Code"
+  },
+  {
+    "name": "Person Identification: Person Sequence",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.PRS_SEQ_NBR",
+    "cobol": "FCVPSEQ-SEQUENCE",
+    "kind": "int",
+    "byte": "128",
+    "layout_label": "Person Identification. Person Sequence"
+  },
+  {
+    "name": "Cease Reason Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.CEA_REA_CD",
+    "cobol": "FCVDREAS-DELETE-REASON",
+    "kind": "char",
+    "byte": "129",
+    "layout_label": "Cease Reason Code"
+  },
+  {
+    "name": "Age Calculation Rule",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.AGE_CLC_RLE_CD",
+    "cobol": "FCVC80VC-AGE-CALC",
+    "kind": "char",
+    "byte": "130",
+    "layout_label": "Age Calculation Rule"
+  },
+  {
+    "name": "MEC Indicator",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.MEC_STA_CD",
+    "cobol": "FCVMECIN-MEC-INDICATOR",
+    "kind": "char",
+    "byte": "131",
+    "layout_label": "MEC Indicator"
+  },
+  {
+    "name": "Guaranteed Issue Indicator",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.GUA_ISS_IND",
+    "cobol": "FCVGUARI-GUARANTEED-ISSUE",
+    "kind": "char",
+    "byte": "132",
+    "layout_label": "Guaranteed Issue Indicator"
+  },
+  {
+    "name": "Renewable Premium Indicator",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.RENEWABLE_PRM_CD",
+    "cobol": "FCVRPRIN-RENEW-PREM-IND",
+    "kind": "char",
+    "byte": "133",
+    "layout_label": "Renewable Premium Information. Renewable Premium Indicator"
+  },
+  {
+    "name": "Initial Renewal Period",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.INT_RNL_PER",
+    "cobol": "FCVINTRW-INIT-RENEW-PERIOD",
+    "kind": "packed_num",
+    "byte": "134-135",
+    "layout_label": "Renewable Premium Information. Initial Renewal Period"
+  },
+  {
+    "name": "Subsequent Renewal Start Duration",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.SBQ_RNL_STR_DUR",
+    "cobol": "FCVSRDUR-SUB-RENEW-START-DUR",
+    "kind": "packed_num",
+    "byte": "136-137",
+    "layout_label": "Renewable Premium Information. Subsequent Renewal Start Duration"
+  },
+  {
+    "name": "Subsequent Renewal Period",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.SBQ_RNL_PER",
+    "cobol": "FCVSRPRD-SUB-RENEW-PERIOD",
+    "kind": "packed_num",
+    "byte": "138-139",
+    "layout_label": "Renewable Premium Information. Subsequent Renewal Period"
+  },
+  {
+    "name": "Indeterminate Premium Guaranteed Period",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.IDT_PRM_GUA_PER",
+    "cobol": "FCVIPGUR-INDETER-PRM-GUAR-PD",
+    "kind": "packed_num",
+    "byte": "140-141",
+    "layout_label": "Indeterminate Premium Guaranteed Period"
+  },
+  {
+    "name": "Long Term Care Claim Type",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.LNG_TRM_CLM_TYP_CD",
+    "cobol": "FCVLTCDD-CLAIM-TYPE",
+    "kind": "char",
+    "byte": "142",
+    "layout_label": "Long Term Care Claim Type"
+  },
+  {
+    "name": "Premium Residence Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.PREMIUM_RESID_CD",
+    "cobol": "FCVPCRES-PREM-CONTROL-RESID",
+    "kind": "char",
+    "byte": "143",
+    "layout_label": "Premium Residence Code",
+    "blank_if_zero": true
+  },
+  {
+    "name": "Unisex Override Indicator",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.UNISEX_OVR_CD",
+    "cobol": "FCVUOIND-UNISEX-OVER-IND",
+    "kind": "char",
+    "byte": "144",
+    "layout_label": "Unisex Override Indicator"
+  },
+  {
+    "name": "Unisex Sex Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.UNISEX_SEX_CD",
+    "cobol": "FCVUSEXC-UNISEX-SEX-CODE",
+    "kind": "char",
+    "byte": "145",
+    "layout_label": "Unisex Sex Code"
+  },
+  {
+    "name": "Unisex Subseries Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.UNISEX_SSR_CD",
+    "cobol": "FCVUSUBC-UNISEX-SUBSERIES-CODE",
+    "kind": "char",
+    "byte": "146-147",
+    "layout_label": "Unisex Subseries Code"
+  },
+  {
+    "name": "Unisex Guaranteed Rate Sex Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.UNISEX_GUA_RT_CD",
+    "cobol": "FCVUGRSC-UNISEX-GUAR-RATE-SEX",
+    "kind": "char",
+    "byte": "148",
+    "layout_label": "Unisex Guaranteed Rate Sex Code"
+  },
+  {
+    "name": "Policy Form Number",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.POL_FRM_NBR",
+    "cobol": "FCVPLFNO-POLICY-FORM-NUMBER",
+    "kind": "char",
+    "byte": "149-157",
+    "layout_label": "Policy Form Number"
+  },
+  {
+    "name": "Plan Description Search Key",
+    "line_break": true,
+    "role": "data",
+    "db2": "LH_COV_PHA.PLN_DES_SER_CD",
+    "cobol": "FCVPDSKY-PLAN-DESC-SEARCH-KEY",
+    "kind": "char",
+    "byte": "158-168",
+    "layout_label": "Plan Description Search Key"
+  },
+  {
+    "name": "Plan Description File Version Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.PDF_KEY_VERSION_CD",
+    "cobol": "FCVPVRSN-PDF-KEY-VERSION-CODE",
+    "kind": null,
+    "byte": "169-173",
+    "layout_label": "Plan Description File Version Code"
+  },
+  {
+    "name": "Plan Description File Effective Date",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.PDF_KEY_EFF_DT",
+    "cobol": "FCVPEFDT-PDF-KEY-EFFT-DATE",
+    "kind": "date",
+    "byte": "174-179",
+    "layout_label": "Plan Description File Effective Date"
+  },
+  {
+    "name": "Plan Description File Effective Date Override",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.EFF_DT_OVERRIDE_CD",
+    "cobol": "FCVPEFDO-EFF-DATE-OVERRIDE",
+    "kind": "char",
+    "byte": "180",
+    "layout_label": "Plan Description File Effective Date Override"
+  },
+  {
+    "name": "Issue Age File Version Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.IAF_KEY_VERSION_CD",
+    "cobol": "FCVIVRSN-IAF-KEY-VERSION-CODE",
+    "kind": "char",
+    "byte": "181",
+    "layout_label": "Issue Age File Version Code"
+  },
+  {
+    "name": "PDF Record Control Effective Date",
+    "line_break": false,
+    "role": "example",
+    "cobol": null,
+    "layout_label": null
+  },
+  {
+    "name": "Commission Control Data: Group Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.COM_PLN_GRP_CD",
+    "cobol": "FCVCMCCD-COMM-PLAN-GROUP-CODE",
+    "kind": "char",
+    "byte": "182-184",
+    "layout_label": "Commission Control Data. Group Code"
+  },
+  {
+    "name": "Commission Control Data: Variation",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.COM_PLN_VTN_CD",
+    "cobol": "FCVCMCVR-COMM-PLAN-VARIATION",
+    "kind": "char",
+    "byte": "185",
+    "layout_label": "Commission Control Data. Variation"
+  },
+  {
+    "name": "Commission Control Data: Rule",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.COM_RLE_CD",
+    "cobol": "FCVCMCRL-COMM-RULE",
+    "kind": "char",
+    "byte": "186",
+    "layout_label": "Commission Control Data. Rule"
+  },
+  {
+    "name": "Production Control Data: Use Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.PRD_VAL_USE_CD",
+    "cobol": "FCVPRUSE-PRODUCTION-USE",
+    "kind": "char",
+    "byte": "187",
+    "layout_label": "Production Control Data. Use Code"
+  },
+  {
+    "name": "Production Control Data: Percent",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.PRD_PCT",
+    "cobol": "FCVPRPCT-PRODUCTION-PERCENT",
+    "kind": "decimal:4",
+    "byte": "188-192",
+    "layout_label": "Production Control Data. Amount"
+  },
+  {
+    "name": "Production Control Data: Million Dollar Round Table (MDRT)",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.MDRT_CD",
+    "cobol": "FCVPRMCD-PROD-MDRT-CODE",
+    "kind": "char",
+    "byte": "193",
+    "layout_label": "Production Control Data. Million Dollar Round Table (MDRT)"
+  },
+  {
+    "name": "Values Table Reference Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.VAL_TBL_RFR_CD",
+    "cobol": "FCVVTRCD-VALUE-TBL-REFER-CODE",
+    "kind": "char",
+    "byte": "194-195",
+    "layout_label": "Values Table Reference Code"
+  },
+  {
+    "name": "Joint Exact Age Information: Joint Mortaity Table",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.JNT_ISU_MTL_TBL_CD",
+    "cobol": "FCVJTMTB-JOINT-MORTALITY-TBL",
+    "kind": "char",
+    "byte": "196-197",
+    "layout_label": "Joint Exact Age Information. Joint Mortaity Table"
+  },
+  {
+    "name": "Joint Exact Age Information: Issue Age",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.JNT_ISU_ISS_AGE",
+    "cobol": "FCVJTAGE-JOINT-ISSUE-AGE",
+    "kind": "packed_num",
+    "byte": "198-199",
+    "layout_label": "Joint Exact Age Information. Issue Age"
+  },
+  {
+    "name": "Band Structure Code",
+    "line_break": false,
+    "role": "data",
+    "db2": "LH_COV_PHA.BAN_STRUCTURE_CD",
+    "cobol": "FCVBNDSC-BAND-STRUCTURE",
+    "kind": "char",
+    "byte": "200-201",
+    "layout_label": "Band Structure Code"
+  },
+  {
+    "name": "RESERVED",
+    "line_break": false,
+    "role": "example",
+    "cobol": null,
+    "layout_label": "RESERVED"
+  },
+  {
+    "name": "USER AREA:  ANICO Product Indicator",
+    "line_break": false,
+    "role": "example",
+    "cobol": "FCVPRDID-PROD-IND",
+    "kind": null,
+    "byte": "216",
+    "layout_label": "ANICO Product Indicator"
+  },
+  {
+    "name": "USER AREA",
+    "line_break": false,
+    "role": "example",
+    "cobol": null,
+    "layout_label": null
+  }
+]

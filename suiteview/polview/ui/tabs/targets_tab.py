@@ -659,17 +659,21 @@ class TargetsAccumulatorsTab(QWidget):
             accum_wds_val = (float(policy.total_withdrawals or 0)
                              if policy.policy_totals_count > 0 else None)
 
-            # Prem Allowed by GPT — calculated: max(0, AccumGLP - PremiumTD + AccumWD).
+            # Prem Allowed by GPT — the guideline premium limit is the greater of
+            # the GSP or the accumulated GLP, so:
+            #   max(0, max(GSP, AccumGLP) - PremiumTD + AccumWD).
             # N/A for CVAT policies (traditional products and advanced CVAT).
             is_cvat = (not is_advanced) or str(policy.gpt_cvat).upper() not in ("GP", "GPT")
             if is_cvat:
                 prem_allowed_gpt = "N/A"
             else:
                 try:
+                    gsp_f = float(policy.gsp or 0)
                     accum_glp_f = float(policy.accumulated_glp_target or 0)
                     premium_td_f = float(policy.premium_td or 0)
                     accum_wd_f = float(policy.total_withdrawals or 0)
-                    prem_allowed_gpt = max(0.0, accum_glp_f - premium_td_f + accum_wd_f)
+                    guideline_limit = max(gsp_f, accum_glp_f)
+                    prem_allowed_gpt = max(0.0, guideline_limit - premium_td_f + accum_wd_f)
                 except Exception:
                     prem_allowed_gpt = "N/A"
 

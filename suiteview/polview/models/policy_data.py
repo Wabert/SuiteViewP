@@ -90,6 +90,7 @@ class PolicyData:
 
         # Table cache:  {table_name: {"columns": [...], "rows": [...]}}
         self._table_cache: Dict[str, Dict] = {}
+        self._table_errors: Dict[str, str] = {}
 
         # Connection
         self._conn_mgr = _ConnectionManager()
@@ -227,6 +228,11 @@ class PolicyData:
         dict_rows = [dict(zip(columns, row)) for row in table_data["rows"]]
         table_data["dict_rows"] = dict_rows
         return dict_rows
+
+    def table_error(self, table_name: str) -> str:
+        """Return the DB2 load error for *table_name*, if one occurred."""
+        self._ensure_table_loaded(table_name)
+        return self._table_errors.get(table_name, "")
 
     def if_empty(self, value: Any, default: Any = "") -> Any:
         """Return *default* if *value* is ``None`` or empty string."""
@@ -553,13 +559,18 @@ class PolicyData:
                 "columns": columns,
                 "rows": rows,
             }
+            self._table_errors.pop(table_name, None)
 
         except Exception as exc:
+            from suiteview.core.db2_connection import _extract_odbc_message
+
+            error = _extract_odbc_message(exc)
+            self._table_errors[table_name] = error
             print(
                 f"[PolicyData] FAILED to load table {table_name} for policy "
                 f"{self._policy_number} (region={self._region}, "
                 f"company={self._company_code}, sys={self._system_code}, "
-                f"pol_id={self._policy_id}): {exc}",
+                f"pol_id={self._policy_id}): {error}",
                 file=sys.stderr,
             )
             # Cache empty result so we don't retry on every access

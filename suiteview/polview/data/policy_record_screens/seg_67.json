@@ -1,0 +1,1007 @@
+{
+  "segment": "67",
+  "title": "Renewal Rates (screen 6267)",
+  "source": "Sample 6267 screen.htm (captured reference)",
+  "lines": [
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6264,",
+        "field": "Screen Name"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U0633187 ;.",
+        "field": "Policy Number"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "67",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0143",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Phase Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1U144600   ",
+        "field": "Plan Description Search Key"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "E",
+        "field": "Renewal Class"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00",
+        "field": "Person Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Person Sequence"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "11",
+        "field": "Number of Rate Segments"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "C",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "N",
+        "field": "Rate Class"
+      },
+      {
+        "text": "A",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "000005620C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "T",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "N",
+        "field": "Rate Class"
+      },
+      {
+        "text": "0",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "000007200C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "W",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "N",
+        "field": "Rate Class"
+      },
+      {
+        "text": "0",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "000010000C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "M",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "N",
+        "field": "Rate Class"
+      },
+      {
+        "text": "A",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "000004320C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "T",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "E",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "N",
+        "field": "Rate Class"
+      },
+      {
+        "text": "A",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "000001440C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "L",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "E",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "N",
+        "field": "Rate Class"
+      },
+      {
+        "text": "A",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "000001440C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "M",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "E",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "N",
+        "field": "Rate Class"
+      },
+      {
+        "text": "A",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "000002600C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "E",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B  ",
+        "field": "Table Rating Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "PCT",
+        "field": "Rate Key"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "000150000C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "#",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "0",
+        "field": "Rate Class"
+      },
+      {
+        "text": "0",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "000000000C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "A",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "          ",
+        "field": null
+      },
+      {
+        "text": "00000123587C",
+        "field": "GLP/GSP Premium"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "S",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "          ",
+        "field": null
+      },
+      {
+        "text": "00001522543C",
+        "field": "GLP/GSP Premium"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "67",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0066",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Phase Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1U538F00   ",
+        "field": "Plan Description Search Key"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "C",
+        "field": "Renewal Class"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00",
+        "field": "Person Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Person Sequence"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "4",
+        "field": "Number of Rate Segments"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "C",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "N",
+        "field": "Rate Class"
+      },
+      {
+        "text": "0",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "000058500C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "T",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "N",
+        "field": "Rate Class"
+      },
+      {
+        "text": "0",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "000007800C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "L",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "N",
+        "field": "Rate Class"
+      },
+      {
+        "text": "0",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "000007800C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "M",
+        "field": "Rate Type Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "*",
+        "field": "Benefit Subtype"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Rate Sex"
+      },
+      {
+        "text": "N",
+        "field": "Rate Class"
+      },
+      {
+        "text": "0",
+        "field": "Rate Band"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "000007800C",
+        "field": "Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "                                                                  ",
+        "field": null
+      },
+      {
+        "text": "12/02/16",
+        "field": "Current Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B7Y02",
+        "field": "Part of the user ID?"
+      },
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "CK620 DISPLAY COMPLETE                                            ",
+        "field": null
+      },
+      {
+        "text": "CKPR-ANICO",
+        "field": "Region and Company"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ]
+  ],
+  "fields": {
+    "Screen Name": [],
+    "Policy Number": [],
+    "Segment Identification": [],
+    "Segment Length": [],
+    "Phase Code": [
+      "COBOL: FURPHASE-PHASE-CODE",
+      "DB2: LH_BNF_INS_GDL_PRM.COV_PHA_NBR"
+    ],
+    "Plan Description Search Key": [
+      "COBOL: FURPDSKY-PLAN-DESC-SEARCH-KEY",
+      "DB2: LH_COV_INS_RNL_PER.PLN_DES_SER_CD"
+    ],
+    "Renewal Class": [
+      "COBOL: FURENCLS-RENEW-CLASS",
+      "DB2: LH_COV_INS_RNL_PER.RENEWABLE_PRM_CD"
+    ],
+    "Person Code": [
+      "COBOL: FURPERSN-PERSON-CODE",
+      "DB2: LH_BNF_INS_GDL_PRM.PRS_CD"
+    ],
+    "Person Sequence": [
+      "COBOL: FURPSEQ-SEQUENCE",
+      "DB2: LH_BNF_INS_GDL_PRM.PRS_SEQ_NBR"
+    ],
+    "Number of Rate Segments": [
+      "COBOL: FURNOSEG-NUMBER-SEGMENTS"
+    ],
+    "Rate Type Code": [
+      "COBOL: FURTYREC-TYPE-CODE",
+      "DB2: LH_BNF_INS_GDL_PRM.PRM_RT_TYP_CD"
+    ],
+    "Benefit Type": [
+      "COBOL: FURBTYPE-BENEFIT-TYPE",
+      "DB2: LH_BNF_INS_GDL_PRM.SPM_BNF_TYP_CD"
+    ],
+    "Benefit Subtype": [
+      "COBOL: FURBSBTP-BENEFIT-SUBTYPE",
+      "DB2: LH_BNF_INS_GDL_PRM.SPM_BNF_SBY_CD"
+    ],
+    "Rate Sex": [
+      "COBOL: FURRTSEX-RATE-SEX",
+      "DB2: LH_BNF_INS_GDL_PRM.RT_SEX_CD"
+    ],
+    "Rate Class": [
+      "COBOL: FURRTCLS-RATE-CLASS",
+      "DB2: LH_BNF_INS_GDL_PRM.RT_CLS_CD"
+    ],
+    "Rate Band": [
+      "COBOL: FURRTBND-RATE-BAND",
+      "DB2: LH_BNF_INS_RNL_RT.RT_BAN_CD"
+    ],
+    "Rate": [
+      "COBOL: FURCRATE-CURRENT-RATE",
+      "DB2: LH_BNF_INS_RNL_RT.RNL_RT"
+    ],
+    "Table Rating Code": [],
+    "Rate Key": [],
+    "GLP/GSP Premium": [],
+    "Current Date": [],
+    "Part of the user ID?": [],
+    "Region and Company": []
+  },
+  "layout_html": "<table><tr><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Byte</td><td style = \"width: 310px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Field</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td></tr>\n\n\n<tr><td style = \"text-align: center; border:1px solid;\" rowspan=\"1\">1-2</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Identification\"></a><b>Segment Identification</b></td></tr>\n<tr><td style = \"text-align: center; border:1px solid;\" rowspan=\"1\">3-4</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Length\"></a><b>Segment Length</b></td></tr>\n<tr><td style = \"text-align: center; border:1px solid;\" rowspan=\"9\">5</td><td style = \"border:1px solid;\" rowspan=\"9\">&#160;<a name=\"Phase_Code\"></a><b>Phase Code</b></br>&#160;&#160;&#160;&#160;COBOL: FURPHASE-PHASE-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_GDL_PRM.COV_PHA_NBR</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_RNL_RT.COV_PHA_NBR</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_GDL_PRM.COV_PHA_NBR</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_PER.COV_PHA_NBR</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_RT.COV_PHA_NBR</br>&#160;&#160;&#160;&#160;DB2: LH_SST_XTR_RNL_RT.COV_PHA_NBR</br>&#160;&#160;&#160;&#160;DB2: TH_COV_INS_RNL_RT.COV_PHA_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;\" rowspan=\"3\">6-16</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Plan_Description_Search_Key\"></a><b>Plan Description Search Key</b></br>&#160;&#160;&#160;&#160;COBOL: FURPDSKY-PLAN-DESC-SEARCH-KEY</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_PER.PLN_DES_SER_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;\" rowspan=\"3\">17</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Renewal_Class\"></a><b>Renewal Class</b></br>&#160;&#160;&#160;&#160;COBOL: FURENCLS-RENEW-CLASS</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_PER.RENEWABLE_PRM_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;\" rowspan=\"9\">18-19</td><td style = \"border:1px solid;\" rowspan=\"9\">&#160;<a name=\"Person_Code\"></a><b>Person Code</b></br>&#160;&#160;&#160;&#160;COBOL: FURPERSN-PERSON-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_GDL_PRM.PRS_CD</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_RNL_RT.PRS_CD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_GDL_PRM.PRS_CD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_PER.PRS_CD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_RT.PRS_CD</br>&#160;&#160;&#160;&#160;DB2: LH_SST_XTR_RNL_RT.PRS_CD</br>&#160;&#160;&#160;&#160;DB2: TH_COV_INS_RNL_RT.PRS_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;\" rowspan=\"9\">20</td><td style = \"border:1px solid;\" rowspan=\"9\">&#160;<a name=\"Person_Sequence\"></a><b>Person Sequence</b></br>&#160;&#160;&#160;&#160;COBOL: FURPSEQ-SEQUENCE</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_GDL_PRM.PRS_SEQ_NBR</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_RNL_RT.PRS_SEQ_NBR</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_GDL_PRM.PRS_SEQ_NBR</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_PER.PRS_SEQ_NBR</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_RT.PRS_SEQ_NBR</br>&#160;&#160;&#160;&#160;DB2: LH_SST_XTR_RNL_RT.PRS_SEQ_NBR</br>&#160;&#160;&#160;&#160;DB2: TH_COV_INS_RNL_RT.PRS_SEQ_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;\" rowspan=\"3\">21-22</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Number_of_Rate_Segments\"></a><b>Number of Rate Segments</b></br>&#160;&#160;&#160;&#160;COBOL: FURNOSEG-NUMBER-SEGMENTS</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;background-color: rgb(125,175,255);\" rowspan=\"8\">23</td><td style = \"border:1px solid;\" rowspan=\"8\">&#160;<a name=\"Rate_Type_Code\"></a><b>Rate Type Code</b></br>&#160;&#160;&#160;&#160;COBOL: FURTYREC-TYPE-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_GDL_PRM.PRM_RT_TYP_CD</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_RNL_RT.LH_COV_INS_RNL_PER</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_GDL_PRM.PRM_RT_TYP_CD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_RT.PRM_RT_TYP_CD</br>&#160;&#160;&#160;&#160;DB2: LH_SST_XTR_RNL_RT.PRM_RT_TYP_CD</br>&#160;&#160;&#160;&#160;DB2: TH_COV_INS_RNL_RT.PRM_RT_TYP_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;background-color: rgb(125,175,255);\" rowspan=\"4\">24</td><td style = \"border:1px solid;\" rowspan=\"4\">&#160;<a name=\"Benefit_Type\"></a><b>Benefit Type</b></br>&#160;&#160;&#160;&#160;COBOL: FURBTYPE-BENEFIT-TYPE</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_GDL_PRM.SPM_BNF_TYP_CD</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_RNL_RT.SPM_BNF_TYP_CD</td><td style = \"border:1px solid;\" rowspan=\"8\">&#160;<a name=\"COBOL:_FURBTPST-BEN-TYPE-SUBTYPE\"></a><b>Table Rating Code</b></br>&#160;&#160;&#160;&#160;COBOL: FURBTPST-BEN-TYPE-SUBTYPE</br>&#160;&#160;&#160;&#160;DB2: LH_SST_XTR_RNL_RT.SST_XTR_RT_TBL_CD</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;background-color: rgb(125,175,255);\" rowspan=\"4\">25</td><td style = \"border:1px solid;\" rowspan=\"4\">&#160;<a name=\"Benefit_Subtype\"></a><b>Benefit Subtype</b></br>&#160;&#160;&#160;&#160;COBOL: FURBSBTP-BENEFIT-SUBTYPE</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_GDL_PRM.SPM_BNF_SBY_CD</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_RNL_RT.SPM_BNF_SBY_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;background-color: rgb(125,175,255);\" rowspan=\"7\">26</td><td style = \"border:1px solid;\" rowspan=\"7\">&#160;<a name=\"Rate_Sex\"></a><b>Rate Sex</b></br>&#160;&#160;&#160;&#160;COBOL: FURRTSEX-RATE-SEX</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_GDL_PRM.RT_SEX_CD</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_RNL_RT.RT_SEX_CD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_GDL_PRM.RT_SEX_CD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_RT.RT_SEX_CD</br>&#160;&#160;&#160;&#160;DB2: LH_SST_XTR_RNL_RT.RT_SEX_CD</td><td style = \"border:1px solid;\" rowspan=\"20\">&#160;<a name=\"\"></a><b>Rate Key</b></br>&#160;&#160;&#160;&#160;COBOL: FURRTKEY-RATE-KEY</br>&#160;&#160;&#160;&#160;DB2: LH_SST_XTR_RNL_RT.RT_SEX_CD</br>&#160;&#160;&#160;&#160;LH_SST_XTR_RNL_RT.RT_CLS_CD</br>&#160;&#160;&#160;&#160;LH_SST_XTR_RNL_RT.RT_BAN_CD</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;background-color: rgb(125,175,255);\" rowspan=\"7\">27</td><td style = \"border:1px solid;\" rowspan=\"7\">&#160;<a name=\"Rate_Class\"></a><b>Rate Class</b></br>&#160;&#160;&#160;&#160;COBOL: FURRTCLS-RATE-CLASS</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_GDL_PRM.RT_CLS_CD</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_RNL_RT.RT_CLS_CD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_GDL_PRM.RT_CLS_CD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_RT.RT_CLS_CD</br>&#160;&#160;&#160;&#160;DB2: LH_SST_XTR_RNL_RT.RT_CLS_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;background-color: rgb(125,175,255);\" rowspan=\"6\">28</td><td style = \"border:1px solid;\" rowspan=\"6\">&#160;<a name=\"Rate_Band\"></a><b>Rate Band</b></br>&#160;&#160;&#160;&#160;COBOL: FURRTBND-RATE-BAND</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_RNL_RT.RT_BAN_CD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_RT.RT_BAN_CD</br>&#160;&#160;&#160;&#160;DB2: LH_SST_XTR_RNL_RT.RT_BAN_CD</br>&#160;&#160;&#160;&#160;DB2: TH_COV_INS_RNL_RT.RT_BAN_CD</td><td style = \"border:1px solid;\" rowspan=\"13\">&#160;<a name=\"GLP/GSP_Units\"></a><b>GLP/GSP Premium</b></br>&#160;&#160;&#160;&#160;COBOL: FURPREM-NAP-NSP-PREM</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_GDL_PRM.GDL_PRM_AMT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_GDL_PRM.GDL_PRM_AMT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"text-align: center; border:1px solid;background-color: rgb(125,175,255);\" rowspan=\"7\">29-33</td><td style = \"border:1px solid;\" rowspan=\"7\">&#160;<a name=\"Rate*\"></a><b>Rate*</b></br>&#160;&#160;&#160;&#160;COBOL: FURCRATE-CURRENT-RATE</br>&#160;&#160;&#160;&#160;DB2: LH_BNF_INS_RNL_RT.RNL_RT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_INS_RNL_RT.RNL_RT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td><td style = \"border:1px solid;\" rowspan=\"7\">&#160;<a name=\"\"></a><b>Rate*</b></br>&#160;&#160;&#160;&#160;COBOL: FURCRATE-CURRENT-RATE</br>&#160;&#160;&#160;&#160;DB2: LH_SST_XTR_RNL_RT.SST_XTR_UNT_AMT</br>&#160;&#160;&#160;&#160;DB2: LH_SST_XTR_RNL_RT.SST_XTR_PCT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr></table>"
+}

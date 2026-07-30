@@ -1,0 +1,1235 @@
+{
+  "segment": "66",
+  "title": "Advanced Product (screen 6266)",
+  "source": "Example screen shots.docx img (U0361148) + master build sheet (captured reference)",
+  "lines": [
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6266,",
+        "field": "Screen Name"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U0361148 ;.",
+        "field": "Policy Number"
+      }
+    ],
+    [
+      {
+        "text": "66",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0247",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte C"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte D"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte E"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "User Flag Byte"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "TEFRA/DEFRA"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Plan Option"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "12",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "11",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "        ",
+        "field": null
+      },
+      {
+        "text": "08/15/2070",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "4.000",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "4.000",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "M",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "L0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "120",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "08/15/2026",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "        ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "13",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "300",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "999",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "Y",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "9999999",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "M",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "A",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "185.000",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "25000",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "        ",
+        "field": null
+      },
+      {
+        "text": "91869.61",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "12",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0N15601",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0910",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "100",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "999",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "A",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "4.000",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "002",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "8",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "        ",
+        "field": null
+      },
+      {
+        "text": "6.000",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6.000",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "336",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "61",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "T",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "08/15/2025",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "330",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "        ",
+        "field": null
+      },
+      {
+        "text": "C",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "87",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "5",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "08/15/2008",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "CK620 DISPLAY COMPLETE",
+        "field": null
+      }
+    ]
+  ],
+  "fields": {
+    "Screen Name": [],
+    "Policy Number": [],
+    "Segment Identification": [],
+    "Segment Length": [],
+    "Flag Byte A": [],
+    "Flag Byte B": [],
+    "Flag Byte C": [],
+    "Flag Byte D": [],
+    "Flag Byte E": [],
+    "User Flag Byte": [],
+    "TEFRA/DEFRA": [],
+    "Plan Option": [],
+    "Current Date": [],
+    "Part of the user ID?": [],
+    "Region and Company": [],
+    "TEFRA/DEFRA Code": [
+      "COBOL: FULTFDF-TEFRA-DEFRA",
+      "DB2: LH_NON_TRD_POL.TFDF_CD"
+    ],
+    "Death Benefit Plan Option": [
+      "COBOL: FULPLOPT-PLAN-OPTION",
+      "DB2: LH_NON_TRD_POL.DTH_BNF_PLN_OPT_CD"
+    ],
+    "Decrease. LIFO/FIFO": [
+      "COBOL: FULDLIFI-DECREASE-LIFO-FIFO",
+      "DB2: LH_NON_TRD_POL.DCA_ORD_RLE_CD"
+    ],
+    "Decrease. Plan Option Rule": [
+      "COBOL: FULDRULE-DECREASE-RULE",
+      "DB2: LH_NON_TRD_POL.DCA_PLN_OPT_RLE_CD"
+    ],
+    "Increase. LIFO/FIFO": [
+      "COBOL: FULILIFI-INCREASE-LIFO-FIFO",
+      "DB2: LH_NON_TRD_POL.ICE_ORD_RLE_CD"
+    ],
+    "Increase. Plan Option Rule": [
+      "COBOL: FULIRULE-INCREASE-RULE",
+      "DB2: LH_NON_TRD_POL.ICE_PLN_OPT_RLE_CD"
+    ],
+    "Maturity Date": [
+      "COBOL: FULMTDAT-MATURITY-DATE",
+      "DB2: LH_NON_TRD_POL.MT_DT"
+    ],
+    "Minimum Cash Value Balance. Amount": [
+      "COBOL: FULCVMAM-MIN-CV-BAL-AMOUNT",
+      "DB2: LH_NON_TRD_POL.MIN_CSV_BAL_AMT"
+    ],
+    "Minimum Cash Value Balance. Interest Rate": [
+      "COBOL: FULCVMIR-MIN-CV-BAL-INT-RATE",
+      "DB2: LH_NON_TRD_POL.MIN_CSV_BAL_ITS_RT"
+    ],
+    "Policy Guaranteed Interest Rate": [
+      "COBOL: FULIGIR-GUARANTEED-INT-RATE",
+      "DB2: LH_NON_TRD_POL.POL_GUA_ITS_RT"
+    ],
+    "Cash Value Expense Charges. Frequency": [
+      "COBOL: FULCVEFR-CV-EXPENSE-FREQ",
+      "DB2: LH_NON_TRD_POL.CSV_XPN_FQY_CD"
+    ],
+    "Cash Value Expense Charges. Basis": [
+      "COBOL: FULCVEBA-CV-EXPENSE-BASIS",
+      "DB2: LH_NON_TRD_POL.CSV_XPN_BSS_CD"
+    ],
+    "Cash Value Expense Charges. Table": [
+      "COBOL: FULCVETB-CV-EXPENSE-TABLE",
+      "DB2: LH_NON_TRD_POL.CSV_XPN_TBL_CD"
+    ],
+    "Cash Value Expense Charges. Rule 1": [
+      "COBOL: FULCVER1-CV-EXPENSE-RULE-1",
+      "DB2: LH_NON_TRD_POL.CSV_XPN_RLE_1_CD"
+    ],
+    "Cash Value Expense Charges. Rule 2": [
+      "COBOL: FULCVER2-CV-EXPENSE-RULE-2",
+      "DB2: LH_NON_TRD_POL.CSV_XPN_RLE_2_CD"
+    ],
+    "Cash Value Expense Charges. Rule 3": [
+      "COBOL: FULCVER3-CV-EXPENSE-RULE-3",
+      "DB2: LH_NON_TRD_POL.CSV_XPN_RLE_3_CD"
+    ],
+    "Cost of Insurance. Net Amount at Risk Rule": [
+      "COBOL: FULCNARC-NAR-RULE",
+      "DB2: LH_NON_TRD_POL.CINS_NAR_RLE_CD"
+    ],
+    "Cost of Insurance. Guarantee. Rate Period Code": [
+      "COBOL: FULCGRUL-COI-GPP-RULE",
+      "DB2: LH_NON_TRD_POL.CINS_GUA_RT_PER_CD"
+    ],
+    "Cost of Insurance. Guarantee. Rate Period": [
+      "COBOL: FULCGPER-GPP-PERIOD",
+      "DB2: LH_NON_TRD_POL.CINS_GUA_RT_PER"
+    ],
+    "Cost of Insurance. Guarantee. End Date": [
+      "COBOL: FULCGEND-GPP-END-DATE",
+      "DB2: LH_NON_TRD_POL.CINS_GUA_END_DT"
+    ],
+    "Cost of Insurance. Charge Frequency": [
+      "COBOL: FULCFREQ-FREQUENCY",
+      "DB2: LH_NON_TRD_POL.CINS_CRG_FQY_PER"
+    ],
+    "Cost of Insurance. Rate Calculation Rule": [
+      "COBOL: FULCCALC-CALC-RULE",
+      "DB2: LH_NON_TRD_POL.CINS_RT_CLC_RLE_CD"
+    ],
+    "Cost of Insurance. Charged Through Date": [
+      "COBOL: FULCTHRU-COI-CHARGED-THRU-DATE",
+      "DB2: LH_NON_TRD_POL.CINS_CRG_THRU_DT"
+    ],
+    "Premiums. Received Interest Rule": [
+      "COBOL: FULPRCRD-PREM-CREDIT-INT",
+      "DB2: LH_NON_TRD_POL.PRM_REC_ITS_RLE_CD"
+    ],
+    "Premiums. Late Pay Acceptance Period": [
+      "COBOL: FULPRGPR-PREM-GRACE-PERIOD",
+      "DB2: LH_NON_TRD_POL.PRM_GRA_PER"
+    ],
+    "Premiums. Payment Freeze Period": [
+      "COBOL: FULPRFRZ-PREM-FREEZE-PERIOD",
+      "DB2: LH_NON_TRD_POL.PRM_FREEZE_PER"
+    ],
+    "Premiums. Loads. Table": [
+      "COBOL: FULPLTBL-PREM-LOAD-TABLE",
+      "DB2: LH_NON_TRD_POL.PRM_LD_TBL_CD"
+    ],
+    "Premiums. Loads. Rule 1": [
+      "COBOL: FULPLRU1-PREM-LOAD-RUL1",
+      "DB2: LH_NON_TRD_POL.PRM_LD_RLE_1_CD"
+    ],
+    "Premiums. Loads. Rule 2": [
+      "COBOL: FULPLRU2-PREM-LOAD-RUL2",
+      "DB2: LH_NON_TRD_POL.PRM_LD_RLE_2_CD"
+    ],
+    "Premiums. Loads. Rule 3": [
+      "COBOL: FULPLRU3-PREM-LOAD-RUL3",
+      "DB2: LH_NON_TRD_POL.PRM_LD_RLE_3_CD"
+    ],
+    "Premiums. Additional Payments. Number in One Year": [
+      "COBOL: FULPANO-ADDL-PAY-IN-1-YR",
+      "DB2: LH_NON_TRD_POL.MAX_ADD_PMT_NBR"
+    ],
+    "Premiums. Additional Payments. Debit": [
+      "COBOL: FULPADB-ADDL-PAY-DB-RULE",
+      "DB2: LH_NON_TRD_POL.ADD_PMT_DBT_CD"
+    ],
+    "Premiums. Additional Payments. Minimum Amount": [
+      "COBOL: FULPALMI-ADDL-PAY-LOW",
+      "DB2: LH_NON_TRD_POL.ADD_PMT_MIN_AMT"
+    ],
+    "Premiums. Additional Payments. Maximum Amount": [
+      "COBOL: FULPALMX-ADDL-PAY-HI",
+      "DB2: LH_NON_TRD_POL.ADD_PMT_MAX_AMT"
+    ],
+    "Premiums. Additional Payments. Maximum Rule": [
+      "COBOL: FULPALRU-ADDL-PAY-RULE",
+      "DB2: LH_NON_TRD_POL.ADD_PMT_MAX_CD"
+    ],
+    "Premiums. Premium Tax Indicator": [
+      "COBOL: FULPRMTX-PREM-TAX-INDICATOR",
+      "DB2: LH_NON_TRD_POL.PRM_TAX_CD"
+    ],
+    "Billing. Plan Option": [
+      "COBOL: FULBILLC-BILL-CODE",
+      "DB2: LH_NON_TRD_POL.BIL_PLN_OPT_CD"
+    ],
+    "Billing. Status": [
+      "COBOL: FULBILLS-BILLS-STATUS",
+      "DB2: LH_NON_TRD_POL.BIL_STA_CD"
+    ],
+    "Billing. Commence Date": [
+      "COBOL: FULBILLD-BILL-DATE",
+      "DB2: LH_NON_TRD_POL.BIL_COMMENCE_DT"
+    ],
+    "Reinstatement Rule": [
+      "COBOL: FULRRULE-REIN-RULE",
+      "DB2: LH_NON_TRD_POL.REN_RLE_CD"
+    ],
+    "Commissions Rule": [
+      "COBOL: FULCRULE-COMM-RULE",
+      "DB2: LH_NON_TRD_POL.COM_RLE_CD"
+    ],
+    "Corridor. Rule": [
+      "COBOL: FULCRRUL-CORRIDOR-RULE",
+      "DB2: LH_NON_TRD_POL.CDR_RLE_CD"
+    ],
+    "Corridor. Amount": [
+      "COBOL: FULCRAMT-CORRIDOR-AMOUNT",
+      "DB2: LH_NON_TRD_POL.CDR_AMT"
+    ],
+    "Corridor. Percent": [
+      "COBOL: FULCRPCT-CORRIDOR-PER-CENT",
+      "DB2: LH_NON_TRD_POL.CDR_PCT"
+    ],
+    "Minimum Sum Insured Amount": [
+      "COBOL: FULSAMIN-SPECIFIED-AMOUNT-MIN",
+      "DB2: LH_NON_TRD_POL.MIN_SUM_ISU_AMT"
+    ],
+    "Net Amount at Risk": [
+      "COBOL: FULNAMRK-NET-AMT-RISK",
+      "DB2: LH_NON_TRD_POL.NAR_AMT"
+    ],
+    "Death Benefit Amount": [
+      "COBOL: FULDTHBN-DEATH-BENEFIT",
+      "DB2: LH_NON_TRD_POL.DEATH_BEN_AMT"
+    ],
+    "Annual Statement Frequency": [
+      "COBOL: FULASFRQ-ANN-STMNT-FREQ",
+      "DB2: LH_NON_TRD_POL.ANN_STT_FQY_PER"
+    ],
+    "Confirmation Frequency": [
+      "COBOL: FULCNFRQ-CONFIRM-FREQ",
+      "DB2: LH_NON_TRD_POL.CNFM_FQY_PER"
+    ],
+    "Full Surrender. Allow": [
+      "COBOL: FULSFALW-FS-ALLOW",
+      "DB2: LH_NON_TRD_POL.FUL_SRD_ALW_CD"
+    ],
+    "Full Surrender. Pro Rata Indicator": [
+      "COBOL: FULSFPRA-FS-PRORATA",
+      "DB2: LH_NON_TRD_POL.FUL_SRD_PTA_IND"
+    ],
+    "Full Surrender. Charge Table": [
+      "COBOL: FULSFCTB-FSC-TABLE",
+      "DB2: LH_NON_TRD_POL.FUL_SRD_CRG_TBL_CD"
+    ],
+    "Full Surrender. First Charge": [
+      "COBOL: FULSFCRI-FSC-RULE-1",
+      "DB2: LH_NON_TRD_POL.FUL_SRD_FST_CRG_CD"
+    ],
+    "Full Surrender. Second Charge": [
+      "COBOL: FULSFCR2-FSC-RULE-2",
+      "DB2: LH_NON_TRD_POL.FUL_SRD_2ND_CRG_CD"
+    ],
+    "Full Surrender. Free Look Rule": [
+      "COBOL: FULFLRUL-FREE-LOOK-RULE",
+      "DB2: LH_NON_TRD_POL.FRE_LK_SRD_RLE_CD"
+    ],
+    "Partial Surrender. Allow": [
+      "COBOL: FULSPALW-PS-ALLOW",
+      "DB2: LH_NON_TRD_POL.PAT_SRD_ALW_CD"
+    ],
+    "Partial Surrender. Charge Table": [
+      "COBOL: FULSPCTB-PSC-TABLE",
+      "DB2: LH_NON_TRD_POL.PAT_SRD_CRG_TBL_CD"
+    ],
+    "Partial Surrender. First Charge": [
+      "COBOL: FULSPCRI-PSC-RULE-1",
+      "DB2: LH_NON_TRD_POL.PAT_SRD_FST_CRG_CD"
+    ],
+    "Partial Surrender. Second Charge": [
+      "COBOL: FULSPCR2-PSC-RULE-2",
+      "DB2: LH_NON_TRD_POL.PAT_SRD_2ND_CRG_CD"
+    ],
+    "Partial Surrender. Minimum Amount": [
+      "COBOL: FULSPMIN-PS-MIN-AMT",
+      "DB2: LH_NON_TRD_POL.MIN_PAT_SRD_AMT"
+    ],
+    "Partial Surrender. Number in One Year": [
+      "COBOL: FULSPNUM-PS-IN-1-YR",
+      "DB2: LH_NON_TRD_POL.PAT_SRD_MAX_NBR"
+    ],
+    "Partial Surrender. Balance Rule": [
+      "COBOL: FULSPBRU-PSB-RULE",
+      "DB2: LH_NON_TRD_POL.PAT_SRD_MIN_RLE_CD"
+    ],
+    "Partial Surrender. Balance Months": [
+      "COBOL: FULSPBMT-PSB-MTHS",
+      "DB2: LH_NON_TRD_POL.PAT_SRD_MIN_MO_NBR"
+    ],
+    "Partial Surrender. Balance Amount": [
+      "COBOL: FULSPBAM-PSB-AMT",
+      "DB2: LH_NON_TRD_POL.PAT_SRD_BAL_AMT"
+    ],
+    "Loans. Interest Disbursement Rule": [
+      "COBOL: FULLINTD-LOAN-INT-DISB",
+      "DB2: LH_NON_TRD_POL.LN_ITS_DSB_RLE_CD"
+    ],
+    "Loans. Credit Interest Rate Code": [
+      "COBOL: FULLINTC-CREDIT-CODE",
+      "DB2: LH_NON_TRD_POL.LN_CRE_ITS_RT_CD"
+    ],
+    "Loans. Credit Interest Rate": [
+      "COBOL: FULLINRT-LOAN-AMT-INT-RATE",
+      "DB2: LH_NON_TRD_POL.LN_CRE_ITS_RT"
+    ],
+    "Loans. Minimum Balance Table": [
+      "COBOL: FULLMBTB-LOAN-MIN-BAL-TABLE",
+      "DB2: LH_NON_TRD_POL.LN_MIN_BAL_TBL_CD"
+    ],
+    "Loans. Minimum Balance Rule": [
+      "COBOL: FULLMBRU-LOAN-MIN-BAL-RULE",
+      "DB2: LH_NON_TRD_POL.LN_MIN_BAL_RLE_CD"
+    ],
+    "Loans. Minimum Duration": [
+      "COBOL: FULLMDUR-MIN-DUR",
+      "DB2: LH_NON_TRD_POL.LN_MIN_DUR"
+    ],
+    "Loans. Minimum Amount": [
+      "COBOL: FULLMAMT-MIN-AMT",
+      "DB2: LH_NON_TRD_POL.LN_MIN_AMT"
+    ],
+    "Loans. Preferred Loan Option": [
+      "COBOL: FULLPOPT-PREFERRED-OPTION",
+      "DB2: LH_NON_TRD_POL.PRF_LN_OPT_CD"
+    ],
+    "Loans. Preferred Amount Percent": [
+      "COBOL: FULLPACP-PREF-AMT-PERCENT",
+      "DB2: LH_NON_TRD_POL.PRF_LN_AMT_PCT"
+    ],
+    "Loans. Preferred Policy Year Available": [
+      "COBOL: FULLPPYA-PREF-POLICY-YR-AVAIL",
+      "DB2: LH_NON_TRD_POL.PRF_LN_YR_AVA_NBR"
+    ],
+    "Loans. Preferred Interest Charge Rate": [
+      "COBOL: FULLPCRT-PREF-INTEREST-RATE",
+      "DB2: LH_NON_TRD_POL.PRF_LN_ITS_CRG_RT"
+    ],
+    "Loans. Preferred Interest Credit Code": [
+      "COBOL: FULLPCDR-PREF-CREDIT-RULE",
+      "DB2: LH_NON_TRD_POL.PRF_LN_ITS_CRE_CD"
+    ],
+    "Loans. Preferred Interest Credit Rate": [
+      "COBOL: FULLPCDA-PREF-CREDIT-ADJ-AMT",
+      "DB2: LH_NON_TRD_POL.PRF_LN_ITS_CRE_RT"
+    ],
+    "Last Monthly Duration Processed": [
+      "COBOL: FULLMAP-LAST-MTLY-ANNIV-PROCSD",
+      "DB2: LH_NON_TRD_POL.LST_MO_DUR_PRC_NBR"
+    ],
+    "Grace Period. Days": [
+      "COBOL: FULGRCDY-GRACE-PER-DAYS",
+      "DB2: LH_NON_TRD_POL.GRA_PER_DAY_NBR"
+    ],
+    "Grace Period. Interest Rate Code": [
+      "COBOL: FULGRICD-GP-CREDIT-CODE",
+      "DB2: LH_NON_TRD_POL.GRA_PER_ITS_RT_CD"
+    ],
+    "Grace Period. Credit Rate": [
+      "COBOL: FULGRIRT-GP-CREDIT-RATE",
+      "DB2: LH_NON_TRD_POL.GRA_PER_CRE_RT"
+    ],
+    "Grace Period. Threshold Rule": [
+      "COBOL: FULGRVRU-GP-THRESHOLD-RULE",
+      "DB2: LH_NON_TRD_POL.GRA_THD_RLE_CD"
+    ],
+    "Grace Period. Expiration Date": [
+      "COBOL: FULGPEDT-GRACE-DATE",
+      "DB2: LH_NON_TRD_POL.GRA_PER_EXP_DT"
+    ],
+    "Last Statement Date": [
+      "COBOL: FULSTDAT-AUDIT-DATE",
+      "DB2: LH_NON_TRD_POL.LST_STT_DT"
+    ],
+    "Last Statement Type": [
+      "COBOL: FULSTYPE-TYPE",
+      "DB2: LH_NON_TRD_POL.LST_STT_TYP_CD"
+    ],
+    "Process Back Date": [
+      "COBOL: FULPBDAT-PROCESS-BACK-DATE",
+      "DB2: LH_NON_TRD_POL.PRC_BACK_DT"
+    ],
+    "Last Monthly Duration Number": [
+      "COBOL: FULHSDUR-LATEST-HISTORY-DUR",
+      "DB2: LH_NON_TRD_POL.LST_MO_DUR_NBR"
+    ],
+    "Archive History Durations": [
+      "COBOL: FULLHDUR-LOW-HISTORY-DUR",
+      "DB2: LH_NON_TRD_POL.ARCH_HST_DUR_NBR"
+    ],
+    "Policyowner Rewards. Reward Type": [
+      "COBOL: FULRWTYP-TYPE",
+      "DB2: LH_NON_TRD_POL.REWARD_TYP_CD"
+    ],
+    "Policyowner Rewards. Table Argument": [
+      "COBOL: FULRWTAR-TABLE-ARGUMENT",
+      "DB2: LH_NON_TRD_POL.REWARD_TBL_AGU_CD"
+    ],
+    "Prospective Bonus. Restriction Code": [
+      "COBOL: FULPPBON-PROSP-RESTR-CODE",
+      "DB2: LH_NON_TRD_POL.PRO_BNS_RS_CD"
+    ],
+    "Prospective Bonus. Restriction Date": [
+      "COBOL: FULPPRDT-PROSP-RESTRICT-DATE",
+      "DB2: LH_NON_TRD_POL.PRO_BNS_RS_DT"
+    ],
+    "Retrospective Bonus. Restriction Code": [
+      "COBOL: FULRSBON-RETRO-RESTR-CODE",
+      "DB2: LH_NON_TRD_POL.RETRO_BNS_RS_CD"
+    ],
+    "Retrospective Bonus. Restriction Date": [
+      "COBOL: FULRSRDT-RETRO-RESTRICT-DATE",
+      "DB2: LH_NON_TRD_POL.RETRO_BNS_RS_DT"
+    ],
+    "Current Rates Rule": [
+      "COBOL: FULGLPCR-GLP-CURRENT-RATE-RULE",
+      "DB2: LH_NON_TRD_POL.GLP_CUR_RT_RLE_CD"
+    ],
+    "Threshold Amount": [
+      "COBOL: FULTHRES-THRESHOLD",
+      "DB2: LH_NON_TRD_POL.THD_AMT"
+    ],
+    "SC Free Window. Withdrawal Rule": [],
+    "SC Free Window. Number of Days": [],
+    "Freeze Net Amount at Risk": [],
+    "Reduction Free Partial Surrender Calc": [],
+    "Guaranteed Accumulation Value Rule": [
+      "DB2: LH_NON_TRD_POL.GAV_RULE_CODE"
+    ],
+    "Reserved Decrease Rule Code": []
+  },
+  "layout_html": "<table>\n<tr><td width = 70></td><td style = \"width: 40px; text-align: center; border:1px solid; background-color: rgb(230,160,170)\"> Byte</td><td style = \"width: 500px; border:1px solid; background-color: rgb(230,160,170)\">Field</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte001\"></a> 1</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Segment Identification</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte002\"></a> 2</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte003\"></a> 3</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Segment Length</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte004\"></a> 4</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte005\"></a> 5</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Flag Byte A</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte006\"></a> 6</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Flag Byte B</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte007\"></a> 7</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Flag Byte C</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte008\"></a> 8</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Flag Byte D</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte009\"></a> 9</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Flag Byte E</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte010\"></a> 10</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;User Flag Byte</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte011\"></a> 11</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;TEFRA/DEFRA</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte012\"></a> 12</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Plan Option</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte013\"></a> 13</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Decrease Rules. LIFO/FIFO</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte014\"></a> 14</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Decrease Rules. Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte015\"></a> 15</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Increase. LIFO/FIFO</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte016\"></a> 16</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Increase. Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte017\"></a> 17</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"5\">&#160;Maturity Date</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte018\"></a> 18</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte019\"></a> 19</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte020\"></a> 20</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte021\"></a> 21</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte022\"></a> 22</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Minimum Cash Value Balance. Amount</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte023\"></a> 23</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte024\"></a> 24</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte025\"></a> 25</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Minimum Cash Value Balance. Interest Rate</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte026\"></a> 26</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte027\"></a> 27</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte028\"></a> 28</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Guaranteed Interest Rate</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte029\"></a> 29</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte030\"></a> 30</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte031\"></a> 31</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Cash Value Expense Charges. Frequency</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte032\"></a> 32</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Cash Value Expense Charges. Basis</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte033\"></a> 33</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Cash Value Expense Charges. Table</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte034\"></a> 34</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte035\"></a> 35</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Cash Value Expense Charges. Rules (1-3)</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte036\"></a> 36</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte037\"></a> 37</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte038\"></a> 38</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Cost of Insurance. Net Amount at Risk</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte039\"></a> 39</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Cost of Insurance. Guarantee. Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte040\"></a> 40</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Cost of Insurance. Guarantee. Period</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte041\"></a> 41</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte042\"></a> 42</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Cost of Insurance. Guarantee. End Date</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte043\"></a> 43</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte044\"></a> 44</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte045\"></a> 45</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte046\"></a> 46</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Cost of Insurance. Guarantee. Frequency</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte047\"></a> 47</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte048\"></a> 48</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Cost of Insurance. Guarantee. Calculation Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte049\"></a> 49</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Cost of Insurance. Guarantee. Charged Through</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte050\"></a> 50</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte051\"></a> 51</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte052\"></a> 52</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte053\"></a> 53</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Premiums. Received. Credit</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte054\"></a> 54</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Premiums. Received. Late Pay Acceptance Period</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte055\"></a> 55</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte056\"></a> 56</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Premiums. Payment Freeze Period</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte057\"></a> 57</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte058\"></a> 58</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Premiums. Loads. Tables</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte059\"></a> 59</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte060\"></a> 60</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Premiums. Loads. Rules (1-3)</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte061\"></a> 61</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte062\"></a> 62</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte063\"></a> 63</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Premiums. Additional Payments. Number in One Year</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte064\"></a> 64</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte065\"></a> 65</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Premiums. Additional Payments. Debt</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte066\"></a> 66</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Premiums. Additional Payments. Limits. Min</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte067\"></a> 67</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte068\"></a> 68</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte069\"></a> 69</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte070\"></a> 70</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Premiums. Additional Payments. Limits. Max</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte071\"></a> 71</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte072\"></a> 72</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte073\"></a> 73</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte074\"></a> 74</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Premiums. Additional Payments. Limits. Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte075\"></a> 75</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Premiums. Premium Tax Indicator</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte076\"></a> 76</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Billing. Option</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte077\"></a> 77</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Billing. Status</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte078\"></a> 78</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Billing. Date</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte079\"></a> 79</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte080\"></a> 80</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte081\"></a> 81</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte082\"></a> 82</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Reinstatement. Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte083\"></a> 83</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Reinstatement. User Reserved</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte084\"></a> 84</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte085\"></a> 85</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Commissions. Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte086\"></a> 86</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Commissions. User Reserved</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte087\"></a> 87</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte088\"></a> 88</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Corridor Amount. Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte089\"></a> 89</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Corridor Amount. Amount</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte090\"></a> 90</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte091\"></a> 91</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte092\"></a> 92</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte093\"></a> 93</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Corridor Amount. Percent</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte094\"></a> 94</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte095\"></a> 95</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte096\"></a> 96</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte097\"></a> 97</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"5\">&#160;Specified Amount Min Sum Insured</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte098\"></a> 98</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte099\"></a> 99</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte100\"></a> 100</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte101\"></a> 101</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte102\"></a> 102</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"6\">&#160;Net Amount at Risk</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte103\"></a> 103</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte104\"></a> 104</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte105\"></a> 105</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte106\"></a> 106</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte107\"></a> 107</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte108\"></a> 108</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"6\">&#160;Death Benefit</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte109\"></a> 109</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte110\"></a> 110</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte111\"></a> 111</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte112\"></a> 112</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte113\"></a> 113</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte114\"></a> 114</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Statement Fequency</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte115\"></a> 115</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte116\"></a> 116</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Confirmation Frequency</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte117\"></a> 117</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte118\"></a> 118</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Surrenders. Full Surrender. Allow</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte119\"></a> 119</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Surrenders. Full Surrender. Pro Rata</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte120\"></a> 120</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Surrenders. Full Surrender. Charges. Table</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte121\"></a> 121</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte122\"></a> 122</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Surrenders. Full Surrender. Charges. Rules (1-2)</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte123\"></a> 123</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte124\"></a> 124</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Surrenders. Full Surrender. Charges. Free Look Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte125\"></a> 125</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Surrenders. Partial Surrenders. Allow</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte126\"></a> 126</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Surrenders. Partial Surrenders. Charges. Table</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte127\"></a> 127</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte128\"></a> 128</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Surrenders. Partial Surrenders. Charges. Rules (1-2)</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte129\"></a> 129</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte130\"></a> 130</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Surrenders. Partial Surrenders. Minimum Amount</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte131\"></a> 131</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte132\"></a> 132</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte133\"></a> 133</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte134\"></a> 134</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Surrenders. Partial Surrenders. Number in One Year</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte135\"></a> 135</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte136\"></a> 136</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Surrenders. Partial Surrenders. Balance. Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte137\"></a> 137</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Surrenders. Partial Surrenders. Balance. Months</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte138\"></a> 138</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte139\"></a> 139</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Surrenders. Partial Surrenders. Balance. Amount</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte140\"></a> 140</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte141\"></a> 141</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte142\"></a> 142</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte143\"></a> 143</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Loans. Interest Disbursement</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte144\"></a> 144</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Loans. Credit Rate. Code</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte145\"></a> 145</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Loans. Credit Rate. Percent</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte146\"></a> 146</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte147\"></a> 147</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte148\"></a> 148</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Loans. Minimum Balance. Table</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte149\"></a> 149</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte150\"></a> 150</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Loans. Minimum Balance. Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte151\"></a> 151</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Loans. Filler</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte152\"></a> 152</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Loans. Minimum Duration</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte153\"></a> 153</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte154\"></a> 154</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Loans. Minimum Amount</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte155\"></a> 155</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte156\"></a> 156</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte157\"></a> 157</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte158\"></a> 158</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Loans. Preferred Loan Information. Preferred Loan Option</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte159\"></a> 159</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Loans. Preferred Loan Information. Preferred Amount Calculation Percent</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte160\"></a> 160</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte161\"></a> 161</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Loans. Preferred Loan Information. Policy Year Available</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte162\"></a> 162</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte163\"></a> 163</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Loans. Preferred Loan Information. Preferred Interest Charges. Filler</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte164\"></a> 164</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Loans. Preferred Loan Information. Preferred Interest Charges. Percent</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte165\"></a> 165</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte166\"></a> 166</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte167\"></a> 167</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Loans. Preferred Loan Information. Interest Crediting. Code</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte168\"></a> 168</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Loans. Preferred Loan Information. Interest Crediting. Percent</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte169\"></a> 169</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte170\"></a> 170</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte171\"></a> 171</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Last Policy Monthly Duration Processed</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte172\"></a> 172</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte173\"></a> 173</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte174\"></a> 174</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Grace Period. Days</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte175\"></a> 175</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte176\"></a> 176</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Grace Period. Crediting Rate. Code</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte177\"></a> 177</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Grace Period. Crediting Rate. Rate</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte178\"></a> 178</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte179\"></a> 179</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte180\"></a> 180</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Grace Period. Threshold Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte181\"></a> 181</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Grace Period. End Date</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte182\"></a> 182</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte183\"></a> 183</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte184\"></a> 184</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte185\"></a> 185</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Statement Audit Date. Date</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte186\"></a> 186</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte187\"></a> 187</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte188\"></a> 188</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte189\"></a> 189</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Statement Audit Date. Type</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte190\"></a> 190</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;Process Back Date</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte191\"></a> 191</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte192\"></a> 192</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte193\"></a> 193</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte194\"></a> 194</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Last Monthly History Written</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte195\"></a> 195</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte196\"></a> 196</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte197\"></a> 197</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;Number of Archive History Durations</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte198\"></a> 198</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte199\"></a> 199</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte200\"></a> 200</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Policyowner Rewards. Reward Type</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte201\"></a> 201</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Policyowner Rewards. Table Argument</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte202\"></a> 202</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte203\"></a> 203</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Prospective Bonus Information. Restriction Code</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte204\"></a> 204</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"6\">&#160;Prospective Bonus Information. Restriction Date</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte205\"></a> 205</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte206\"></a> 206</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte207\"></a> 207</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte208\"></a> 208</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte209\"></a> 209</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte210\"></a> 210</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Restrospective Bonus Information. Restriction Code</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte211\"></a> 211</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"6\">&#160;Restrospective Bonus Information. Restriction Date</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte212\"></a> 212</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte213\"></a> 213</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte214\"></a> 214</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte215\"></a> 215</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte216\"></a> 216</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte217\"></a> 217</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Current Rates Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte218\"></a> 218</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"6\">&#160;Threshold Amount</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte219\"></a> 219</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte220\"></a> 220</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte221\"></a> 221</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte222\"></a> 222</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte223\"></a> 223</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte224\"></a> 224</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Surrender Charge Free Window Withdrawal Rule</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte225\"></a> 225</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"2\">&#160;Surrender Charge Free Window Number of Days</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte226\"></a> 226</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte227\"></a> 227</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Freeze Net Amount at Risk</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte228\"></a> 228</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Reduction Free Partial Surrender Calculation</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte229\"></a> 229</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;Guaranteed Accumulation Value</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte230\"></a> 230</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;RESERVED. Decrease Rule Code</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte231\"></a> 231</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"11\">&#160;RESERVED</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte232\"></a> 232</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte233\"></a> 233</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte234\"></a> 234</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte235\"></a> 235</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte236\"></a> 236</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte237\"></a> 237</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte238\"></a> 238</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte239\"></a> 239</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte240\"></a> 240</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte241\"></a> 241</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte242\"></a> 242</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"10\">&#160;USER AREA</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte243\"></a> 243</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte244\"></a> 244</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte245\"></a> 245</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte246\"></a> 246</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte247\"></a> 247</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte248\"></a> 248</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte249\"></a> 249</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte250\"></a> 250</td></tr>\n<tr><td style=\"width: 70px\"><a href = \"#TopOfScreen\">Top</a></td><td style = \"width: 40px; text-align: center; border:1px solid;\"><a name=\"Byte251\"></a> 251</td></tr>\n</table>"
+}

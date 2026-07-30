@@ -1,0 +1,787 @@
+{
+  "segment": "53",
+  "title": "Segment 53 - Automatic Transaction Control",
+  "source": "Sample 6253 screen.htm / attached UE142109 CyberLife capture",
+  "lines": [
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6253,",
+        "field": "Screen Name"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "UE142109",
+        "field": "Policy Number"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "53",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0089",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B",
+        "field": "Automatic Transaction Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Automatic Transaction Sequence"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte C"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte D"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte E"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "08/2021",
+        "field": "Start Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "00/1900",
+        "field": "Suspend Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00/1900",
+        "field": "Restart Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "07/06/2113",
+        "field": "Cease Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "07/2026",
+        "field": "Last Activity Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "08/2026",
+        "field": "Next Scheduled Activity Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Activity Day"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "08/01/2021",
+        "field": "Previous Maintenance Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "SWEEP   ",
+        "field": "Transaction Origin"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Status Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "     ",
+        "field": "Event Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "Error Condition"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Frequency"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Charge Override"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Charge Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "199.80",
+        "field": "Sweep Fund Minimum Balance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "M",
+        "field": "Sweep Frequency"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Sweep Day"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Sweep Month"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "                                                                    ",
+        "field": null
+      },
+      {
+        "text": "07/30/26",
+        "field": "Current Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B7Y02",
+        "field": "Part of the user ID?"
+      }
+    ],
+    [
+      {
+        "text": "  CK620 DISPLAY COMPLETE                                    ",
+        "field": null
+      },
+      {
+        "text": "CKPR-ANICO",
+        "field": "Region and Company"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ]
+  ],
+  "fields": {
+    "Segment Identification": [],
+    "Segment Length": [],
+    "Automatic Transaction Type": [
+      "COBOL: FAUATTYP-AUTO-TRANS-TYPE",
+      "DB2: LH_ATM_TRS_SCH.ATM_TRS_TYP_CD"
+    ],
+    "Automatic Transaction Sequence": [
+      "COBOL: FAUATSQ-AUTO-TRANS-SEQ",
+      "DB2: LH_ATM_TRS_SCH.ATM_TRS_SEQ_NBR"
+    ],
+    "Flag Byte A": [
+      "COBOL: FAUATFBA-FLAG-BYTE-A",
+      "DB2 exposes selected bits only: LH_ATM_TRS_SCH.DFL_STR_DT_ISS_IND"
+    ],
+    "Flag Byte B": [
+      "COBOL: FAUATFBB-FLAG-BYTE-B",
+      "DB2: none"
+    ],
+    "Flag Byte C": [
+      "COBOL: FAUATFBC-FLAG-BYTE-C",
+      "DB2: none"
+    ],
+    "Flag Byte D": [
+      "COBOL: FAUATFBD-FLAG-BYTE-D",
+      "DB2: none"
+    ],
+    "Flag Byte E": [
+      "COBOL: FAUATFBE-FLAG-BYTE-E",
+      "DB2: none"
+    ],
+    "Flag Byte U": [
+      "COBOL: FAUATFBU-FLAG-BYTE-U",
+      "DB2: none"
+    ],
+    "Start Date": [
+      "COBOL: FAUATSTD-AT-START-DATE",
+      "DB2: LH_ATM_TRS_SCH.ATM_TRS_STR_MY_NBR"
+    ],
+    "Suspend Date": [
+      "COBOL: FAUATSUD-AT-SUSPEND-DATE",
+      "DB2: LH_ATM_TRS_SCH.ATM_TRS_SUS_MY_NBR"
+    ],
+    "Restart Date": [
+      "COBOL: FAUATRSD-AT-RESTART-DATE",
+      "DB2: LH_ATM_TRS_SCH.ATM_TRS_RST_MY_NBR"
+    ],
+    "Cease Date": [
+      "COBOL: FAUATCSD-AT-CEASE-DATE",
+      "DB2: LH_ATM_TRS_SCH.ATM_TRS_CEA_DT"
+    ],
+    "Last Activity Date": [
+      "COBOL: FAUATLAC-LAST-ACT-DATE",
+      "DB2: LH_ATM_TRS_SCH.LST_ACY_MY_NBR"
+    ],
+    "Next Scheduled Activity Date": [
+      "COBOL: FAUATNAC-NEXT-SCHD-ACT-DATE",
+      "DB2: LH_ATM_TRS_SCH.NXT_SCH_ACY_MY_NBR"
+    ],
+    "Activity Day": [
+      "COBOL: FAUATDAY-AT-ACT-DAY",
+      "DB2: LH_ATM_TRS_SCH.ACY_DAY_NBR"
+    ],
+    "Previous Maintenance Date": [
+      "COBOL: FAUATPMD-PREV-MAINT-DATE",
+      "DB2: LH_ATM_TRS_SCH.ATM_TRS_PRE_MNT_DT"
+    ],
+    "Transaction Origin": [
+      "COBOL: FAUATORG-ORIGIN",
+      "DB2: LH_ATM_TRS_SCH.DPT_DESK_CD"
+    ],
+    "Status Code": [
+      "COBOL: FAUATSTC-AT-STATUS-CODE",
+      "DB2: LH_ATM_TRS_SCH.ATM_TRS_STA_CD"
+    ],
+    "Event Code": [
+      "COBOL: FAUATSEV-SCRIBE-EVENT-CODE",
+      "DB2: LH_ATM_TRS_SCH.COS_EVT_CD"
+    ],
+    "Error Condition": [
+      "COBOL: FAUATSER-SCRIBE-ERROR-COND",
+      "DB2: LH_ATM_TRS_SCH.COS_ERR_CD"
+    ],
+    "Error Code": [
+      "COBOL: FAUERRCD-ERROR-CODE",
+      "DB2: none"
+    ],
+    "Charge Amount": [
+      "COBOL: FAUATCGA-AT-CHARGE-AMOUNT",
+      "DB2: none"
+    ],
+    "User Reserved": [],
+    "CyberLife Reserved": [],
+    "VARIABLE DATA (Sweep Fund)": [],
+    "Field": [],
+    "Sweep Fund Minimum Balance": [
+      "COBOL: FAUSWMNB-SWEEP-MIN-BALANCE",
+      "DB2: LH_SWF_SCH.SWEEP_MIN_BALANCE"
+    ],
+    "Sweep Frequency": [
+      "COBOL: FAUSWFRQ-SWEEP-FREQUENCY",
+      "DB2: LH_SWF_SCH.SWEEP_FREQUENCY"
+    ],
+    "Sweep Day": [
+      "COBOL: FAUSWDAY-SWEEP-DAY",
+      "DB2: LH_SWF_SCH.SWEEP_DAY"
+    ],
+    "Sweep Month": [
+      "COBOL: FUASWMTH-SWEEP-MONTH",
+      "DB2: LH_SWF_SCH.SWEEP_MONTH"
+    ],
+    "Not Used": [],
+    "VARIABLE DATA (Dollar Cost Averaging)": [],
+    "Allocation Segment Sequence": [
+      "COBOL: FAUAASEQ-ALLOC-SEG-SEQ",
+      "DB2: LH_DCA_SCH.FND_ALC_SEQ_NBR"
+    ],
+    "Last Dollar Cost Averaging Value": [
+      "COBOL: FAUAAVAL-LAST-DCA-VALUE",
+      "DB2: LH_DCA_SCH.LST_DOL_CST_AMT"
+    ],
+    "VARIABLE DATA (Market Timer)": [],
+    "Market Timer ID": [
+      "COBOL: FAUMTID-MARKET-TIMER-ID",
+      "DB2: LH_MKT_TM_AUT.MKT_TM_ID"
+    ],
+    "Market Timer Subgroup ID": [
+      "COBOL: FAUMTSID-MT-SUB-ID",
+      "DB2: LH_MKT_TM_AUT.MKT_TM_POL_GRP_ID"
+    ],
+    "Limited Power of Attorney Indicator": [
+      "COBOL: FAUMTLPA-MT-LPA-IND",
+      "DB2: LH_MKT_TM_AUT.LIM_POA_RCT_IND"
+    ],
+    "Screen Name": [],
+    "Policy Number": [],
+    "Completion Message": [],
+    "Current Date": [],
+    "Part of the user ID?": [],
+    "Region and Company": [],
+    "Frequency": [
+      "COBOL: FAUATFRQ-FREQUENCY",
+      "DB2: LH_ATM_TRS_SCH.ATM_TRS_FQY_PER"
+    ],
+    "Charge Override": [
+      "COBOL: FAUATCGO-AT-CHG-OVERRIDE",
+      "DB2: none"
+    ]
+  },
+  "field_specs": [
+    {
+      "name": "Segment Identification",
+      "byte": "1-2",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Segment Length",
+      "byte": "3-4",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Automatic Transaction Type",
+      "byte": "5",
+      "db2": "LH_ATM_TRS_SCH.ATM_TRS_TYP_CD",
+      "cobol": "FAUATTYP-AUTO-TRANS-TYPE"
+    },
+    {
+      "name": "Automatic Transaction Sequence",
+      "byte": "6-7",
+      "db2": "LH_ATM_TRS_SCH.ATM_TRS_SEQ_NBR",
+      "cobol": "FAUATSQ-AUTO-TRANS-SEQ"
+    },
+    {
+      "name": "Flag Byte A",
+      "byte": "8",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte B",
+      "byte": "9",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte C",
+      "byte": "10",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte D",
+      "byte": "11",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte E",
+      "byte": "12",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte U",
+      "byte": "13",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Start Date",
+      "byte": "14-16",
+      "db2": "LH_ATM_TRS_SCH.ATM_TRS_STR_MY_NBR",
+      "cobol": "FAUATSTD-AT-START-DATE"
+    },
+    {
+      "name": "Suspend Date",
+      "byte": "17-19",
+      "db2": "LH_ATM_TRS_SCH.ATM_TRS_SUS_MY_NBR",
+      "cobol": "FAUATSUD-AT-SUSPEND-DATE"
+    },
+    {
+      "name": "Restart Date",
+      "byte": "20-22",
+      "db2": "LH_ATM_TRS_SCH.ATM_TRS_RST_MY_NBR",
+      "cobol": "FAUATRSD-AT-RESTART-DATE"
+    },
+    {
+      "name": "Cease Date",
+      "byte": "23-27",
+      "db2": "LH_ATM_TRS_SCH.ATM_TRS_CEA_DT",
+      "cobol": "FAUATCSD-AT-CEASE-DATE"
+    },
+    {
+      "name": "Last Activity Date",
+      "byte": "28-30",
+      "db2": "LH_ATM_TRS_SCH.LST_ACY_MY_NBR",
+      "cobol": "FAUATLAC-LAST-ACT-DATE"
+    },
+    {
+      "name": "Next Scheduled Activity Date",
+      "byte": "31-33",
+      "db2": "LH_ATM_TRS_SCH.NXT_SCH_ACY_MY_NBR",
+      "cobol": "FAUATNAC-NEXT-SCHD-ACT-DATE"
+    },
+    {
+      "name": "Activity Day",
+      "byte": "34-35",
+      "db2": "LH_ATM_TRS_SCH.ACY_DAY_NBR",
+      "cobol": "FAUATDAY-AT-ACT-DAY"
+    },
+    {
+      "name": "Previous Maintenance Date",
+      "byte": "36-40",
+      "db2": "LH_ATM_TRS_SCH.ATM_TRS_PRE_MNT_DT",
+      "cobol": "FAUATPMD-PREV-MAINT-DATE"
+    },
+    {
+      "name": "Transaction Origin",
+      "byte": "41-48",
+      "db2": "LH_ATM_TRS_SCH.DPT_DESK_CD",
+      "cobol": "FAUATORG-ORIGIN"
+    },
+    {
+      "name": "Status Code",
+      "byte": "49",
+      "db2": "LH_ATM_TRS_SCH.ATM_TRS_STA_CD",
+      "cobol": "FAUATSTC-AT-STATUS-CODE"
+    },
+    {
+      "name": "Event Code",
+      "byte": "50-54",
+      "db2": "LH_ATM_TRS_SCH.COS_EVT_CD",
+      "cobol": "FAUATSEV-SCRIBE-EVENT-CODE"
+    },
+    {
+      "name": "Error Condition",
+      "byte": "55-56",
+      "db2": "LH_ATM_TRS_SCH.COS_ERR_CD",
+      "cobol": "FAUATSER-SCRIBE-ERROR-COND"
+    },
+    {
+      "name": "Frequency",
+      "byte": "57-58",
+      "db2": "LH_ATM_TRS_SCH.ATM_TRS_FQY_PER",
+      "cobol": "FAUATFRQ-FREQUENCY"
+    },
+    {
+      "name": "Charge Override",
+      "byte": "59",
+      "db2": null,
+      "cobol": "FAUATCGO-AT-CHG-OVERRIDE"
+    },
+    {
+      "name": "Charge Amount",
+      "byte": "60-65",
+      "db2": null,
+      "cobol": "FAUATCGA-AT-CHARGE-AMOUNT"
+    },
+    {
+      "name": "User Reserved",
+      "byte": "66-75",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "CyberLife Reserved",
+      "byte": "76-78",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Sweep Fund Minimum Balance",
+      "byte": "79-84",
+      "db2": "LH_SWF_SCH.SWEEP_MIN_BALANCE",
+      "cobol": "FAUSWMNB-SWEEP-MIN-BALANCE"
+    },
+    {
+      "name": "Sweep Frequency",
+      "byte": "85",
+      "db2": "LH_SWF_SCH.SWEEP_FREQUENCY",
+      "cobol": "FAUSWFRQ-SWEEP-FREQUENCY"
+    },
+    {
+      "name": "Sweep Day",
+      "byte": "86-87",
+      "db2": "LH_SWF_SCH.SWEEP_DAY",
+      "cobol": "FAUSWDAY-SWEEP-DAY"
+    },
+    {
+      "name": "Sweep Month",
+      "byte": "88-89",
+      "db2": "LH_SWF_SCH.SWEEP_MONTH",
+      "cobol": "FUASWMTH-SWEEP-MONTH"
+    },
+    {
+      "name": "Not Used",
+      "byte": "90-258",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Allocation Segment Sequence",
+      "byte": "79",
+      "db2": "LH_DCA_SCH.FND_ALC_SEQ_NBR",
+      "cobol": "FAUAASEQ-ALLOC-SEG-SEQ"
+    },
+    {
+      "name": "Last Dollar Cost Averaging Value",
+      "byte": "80-85",
+      "db2": "LH_DCA_SCH.LST_DOL_CST_AMT",
+      "cobol": "FAUAAVAL-LAST-DCA-VALUE"
+    },
+    {
+      "name": "Not Used",
+      "byte": "86-258",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Market Timer ID",
+      "byte": "79-88",
+      "db2": "LH_MKT_TM_AUT.MKT_TM_ID",
+      "cobol": "FAUMTID-MARKET-TIMER-ID"
+    },
+    {
+      "name": "Market Timer Subgroup ID",
+      "byte": "89-93",
+      "db2": "LH_MKT_TM_AUT.MKT_TM_POL_GRP_ID",
+      "cobol": "FAUMTSID-MT-SUB-ID"
+    },
+    {
+      "name": "Limited Power of Attorney Indicator",
+      "byte": "94",
+      "db2": "LH_MKT_TM_AUT.LIM_POA_RCT_IND",
+      "cobol": "FAUMTLPA-MT-LPA-IND"
+    },
+    {
+      "name": "Not Used",
+      "byte": "95-258",
+      "db2": null,
+      "cobol": null
+    }
+  ],
+  "layout_html": "<table><tr><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Byte</td><td style = \"width: 400px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Field</td><td style = \"width: 400px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td></tr>\n\n\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"1\">1-2</td><td style=\"border:1px solid;\" rowspan=\"1\"><a name=\"Segment_Identification\"></a><b>Segment Identification</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"1\">3-4</td><td style=\"border:1px solid;\" rowspan=\"1\"><a name=\"Segment_Length\"></a><b>Segment Length</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">5</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Automatic_Transaction_Type\"></a><b>Automatic Transaction Type</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATTYP-AUTO-TRANS-TYPE</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.ATM_TRS_TYP_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">6-7</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Automatic_Transaction_Sequence\"></a><b>Automatic Transaction Sequence</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATSQ-AUTO-TRANS-SEQ</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.ATM_TRS_SEQ_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"1\">8</td><td style=\"border:1px solid;\" rowspan=\"1\"><a name=\"Flag_Byte_A\"></a><b>Flag Byte A</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"1\">9</td><td style=\"border:1px solid;\" rowspan=\"1\"><a name=\"Flag_Byte_B\"></a><b>Flag Byte B</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"1\">10</td><td style=\"border:1px solid;\" rowspan=\"1\"><a name=\"Flag_Byte_C\"></a><b>Flag Byte C</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"1\">11</td><td style=\"border:1px solid;\" rowspan=\"1\"><a name=\"Flag_Byte_D\"></a><b>Flag Byte D</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"1\">12</td><td style=\"border:1px solid;\" rowspan=\"1\"><a name=\"Flag_Byte_E\"></a><b>Flag Byte E</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"1\">13</td><td style=\"border:1px solid;\" rowspan=\"1\"><a name=\"Flag_Byte_U\"></a><b>Flag Byte U</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">14-16</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Start_Date\"></a><b>Start Date</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATSTD-AT-START-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.ATM_TRS_STR_MY_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">17-19</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Suspend_Date\"></a><b>Suspend Date</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATSUD-AT-SUSPEND-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.ATM_TRS_SUS_MY_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">20-22</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Restart_Date\"></a><b>Restart Date</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATRSD-AT-RESTART-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.ATM_TRS_RST_MY_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">23-27</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Cease_Date\"></a><b>Cease Date</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATCSD-AT-CEASE-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.ATM_TRS_CEA_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">28-30</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Last_Activity_Date\"></a><b>Last Activity Date</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATLAC-LAST-ACT-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.LST_ACY_MY_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">31-33</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Next_Scheduled_Activity_Date\"></a><b>Next Scheduled Activity Date</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATNAC-NEXT-SCHD-ACT-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.NXT_SCH_ACY_MY_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">34-35</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Activity_Day\"></a><b>Activity Day</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATDAY-AT-ACT-DAY</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.ACY_DAY_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">36-40</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Previous_Maintenance_Date\"></a><b>Previous Maintenance Date</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATPMD-PREV-MAINT-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.ATM_TRS_PRE_MNT_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">41-48</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Transaction_Origin\"></a><b>Transaction Origin</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATORG-ORIGIN</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.DPT_DESK_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">49</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Status_Code\"></a><b>Status Code</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATSTC-AT-STATUS-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.ATM_TRS_STA_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">50-54</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Event_Code\"></a><b>Event Code</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATSEV-SCRIBE-EVENT-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.COS_EVT_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">55-56</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Error_Condition\"></a><b>Error Condition</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATSER-SCRIBE-ERROR-COND</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.COS_ERR_CD</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Error_Code\"></a><b>Error Code</b></br>&#160;&#160;&#160;&#160;COBOL: FAUERRCD-ERROR-CODE</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">57-58</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Frequency\"></a><b>Frequency</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATFRQ-FREQUENCY</br>&#160;&#160;&#160;&#160;DB2: LH_ATM_TRS_SCH.ATM_TRS_FQY_PER</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">59</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Charge_Overrider\"></a><b>Charge Override</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATCGO-AT-CHG-OVERRIDE</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">60-65</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Charge_Amount\"></a><b>Charge Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FAUATCGA-AT-CHARGE-AMOUNT</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">66-75</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"User_Reserved\"></a><b>User Reserved</b></br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">76-78</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"CyberLife_Reserved\"></a><b>CyberLife Reserved</b></br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td >&#160;</td></tr>\n<tr><td >&#160;</td></tr>\n<tr><td >&#160;</td><td style=\"\" rowspan=\"1\"><a name=\"VARIABLE_DATA_(Sweep_Fund)\"></a><b>VARIABLE DATA (Sweep Fund)</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;background-color: rgb(210,210,210);\" rowspan=\"1\">Byte</td><td style=\"border:1px solid;background-color: rgb(210,210,210);\" rowspan=\"1\"><a name=\"Field\"></a><b>Field</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">79-84</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Sweep_Fund_Minimum_Balance\"></a><b>Sweep Fund Minimum Balance</b></br>&#160;&#160;&#160;&#160;COBOL: FAUSWMNB-SWEEP-MIN-BALANCE</br>&#160;&#160;&#160;&#160;DB2: LH_SWF_SCH.SWEEP_MIN_BALANCE</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">85</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Sweep_Frequency\"></a><b>Sweep Frequency</b></br>&#160;&#160;&#160;&#160;COBOL: FAUSWFRQ-SWEEP-FREQUENCY</br>&#160;&#160;&#160;&#160;DB2: LH_SWF_SCH.SWEEP_FREQUENCY</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">86-87</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Sweep_Day\"></a><b>Sweep Day</b></br>&#160;&#160;&#160;&#160;COBOL: FAUSWDAY-SWEEP-DAY</br>&#160;&#160;&#160;&#160;DB2: LH_SWF_SCH.SWEEP_DAY</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">88-89</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Sweep_Month\"></a><b>Sweep Month</b></br>&#160;&#160;&#160;&#160;COBOL: FUASWMTH-SWEEP-MONTH</br>&#160;&#160;&#160;&#160;DB2: LH_SWF_SCH.SWEEP_MONTH</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">90-258</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Not_Used\"></a><b>Not Used</b></br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td >&#160;</td></tr>\n<tr><td >&#160;</td></tr>\n<tr><td >&#160;</td><td style=\"\" rowspan=\"1\"><a name=\"VARIABLE_DATA_(Dollar_Cost_Averaging)\"></a><b>VARIABLE DATA (Dollar Cost Averaging)</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;background-color: rgb(210,210,210);\" rowspan=\"1\">Byte</td><td style=\"border:1px solid;background-color: rgb(210,210,210);\" rowspan=\"1\"><a name=\"Field\"></a><b>Field</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">79</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Allocation_Segment_Sequence\"></a><b>Allocation Segment Sequence</b></br>&#160;&#160;&#160;&#160;COBOL: FAUAASEQ-ALLOC-SEG-SEQ</br>&#160;&#160;&#160;&#160;DB2: LH_DCA_SCH.FND_ALC_SEQ_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">80-85</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Last_Dollar_Cost_Averaging_Value\"></a><b>Last Dollar Cost Averaging Value</b></br>&#160;&#160;&#160;&#160;COBOL: FAUAAVAL-LAST-DCA-VALUE</br>&#160;&#160;&#160;&#160;DB2: LH_DCA_SCH.LST_DOL_CST_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">86-258</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Not_Used\"></a><b>Not Used</b></br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td >&#160;</td></tr>\n<tr><td >&#160;</td></tr>\n<tr><td >&#160;</td><td style=\"\" rowspan=\"1\"><a name=\"VARIABLE_DATA_(Market_Timer)\"></a><b>VARIABLE DATA (Market Timer)</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;background-color: rgb(210,210,210);\" rowspan=\"1\">Byte</td><td style=\"border:1px solid;background-color: rgb(210,210,210);\" rowspan=\"1\"><a name=\"Field\"></a><b>Field</b></td></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">79-88</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Market_Timer_ID\"></a><b>Market Timer ID</b></br>&#160;&#160;&#160;&#160;COBOL: FAUMTID-MARKET-TIMER-ID</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_TM_AUT.MKT_TM_ID</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">89-93</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Market_Timer_Subgroup_ID\"></a><b>Market Timer Subgroup ID</b></br>&#160;&#160;&#160;&#160;COBOL: FAUMTSID-MT-SUB-ID</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_TM_AUT.MKT_TM_POL_GRP_ID</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">94</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Limited_Power_of_Attorney_Indicator\"></a><b>Limited Power of Attorney Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FAUMTLPA-MT-LPA-IND</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_TM_AUT.LIM_POA_RCT_IND</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style=\"text-align: center; border:1px solid;\" rowspan=\"3\">95-258</td><td style=\"border:1px solid;\" rowspan=\"3\"><a name=\"Not_Used\"></a><b>Not Used</b></br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr></table>"
+}

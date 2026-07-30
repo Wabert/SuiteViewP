@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
+from suiteview.core.db2_connection import _extract_odbc_message
+
 from ..config.policy_records import POLICY_RECORD_TABLES, get_sorted_policy_records
 from .styles import (
     BLUE_RICH, BLUE_GRADIENT_TOP, BLUE_PRIMARY, BLUE_DARK,
@@ -42,7 +44,7 @@ class PolicyRecordTreeWidget(QTreeWidget):
         self.itemClicked.connect(self._on_item_clicked)
         self.itemExpanded.connect(self._on_item_expanded)
         self.itemCollapsed.connect(self._on_item_collapsed)
-        self._table_data_cache = {}  # table_name -> has_data
+        self._table_data_cache = {}  # table_name -> True, False, or None on error
         self._mode = self.MODE_TABLES
         self._tables_snapshot = None  # saved tree state for tables mode
         self._rates_snapshot = None   # saved tree state for rates mode
@@ -78,6 +80,7 @@ class PolicyRecordTreeWidget(QTreeWidget):
         for policy_record in get_sorted_policy_records():
             tables = POLICY_RECORD_TABLES.get(policy_record, [])
             tables_with_data = []
+            table_errors = []
             
             # Check each table for data
             for table in tables:
@@ -92,11 +95,14 @@ class PolicyRecordTreeWidget(QTreeWidget):
                     self._table_data_cache[table] = has_data
                     if has_data:
                         tables_with_data.append(table)
-                except Exception:
-                    self._table_data_cache[table] = False
+                except Exception as exc:
+                    error = _extract_odbc_message(exc)
+                    self._table_data_cache[table] = None
+                    table_errors.append((table, error))
             
-            # Only add policy record if it has tables with data
-            if tables_with_data:
+            # Keep access failures visible instead of silently presenting them
+            # as empty tables.
+            if tables_with_data or table_errors:
                 # Add arrow indicator at start of text
                 record_item = QTreeWidgetItem([f"▶  {policy_record}"])
                 record_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "record", "name": policy_record})
@@ -110,6 +116,23 @@ class PolicyRecordTreeWidget(QTreeWidget):
                         "record": policy_record
                     })
                     record_item.addChild(table_item)
+
+                for table, error in table_errors:
+                    error_item = QTreeWidgetItem([
+                        f"      ⚠ {table} (unavailable)"
+                    ])
+                    error_item.setData(0, Qt.ItemDataRole.UserRole, {
+                        "type": "table_error",
+                        "name": table,
+                        "record": policy_record,
+                        "error": error,
+                    })
+                    error_item.setToolTip(
+                        0,
+                        "PolView could not check this DB2 table.\n\n"
+                        f"{error}",
+                    )
+                    record_item.addChild(error_item)
         
         # Cache the freshly-built tables tree
         self._tables_snapshot = self._save_tree_snapshot()
@@ -224,6 +247,7 @@ class PolicyRecordTreeWidget(QTreeWidget):
                 top_data["children"].append({
                     "text": child.text(0),
                     "user_data": child.data(0, Qt.ItemDataRole.UserRole),
+                    "tooltip": child.toolTip(0),
                 })
             snapshot.append(top_data)
         return snapshot
@@ -238,6 +262,7 @@ class PolicyRecordTreeWidget(QTreeWidget):
             for child_data in top_data["children"]:
                 child = QTreeWidgetItem([child_data["text"]])
                 child.setData(0, Qt.ItemDataRole.UserRole, child_data["user_data"])
+                child.setToolTip(0, child_data.get("tooltip", ""))
                 top.addChild(child)
             if top_data["expanded"]:
                 self.expandItem(top)
@@ -518,4 +543,3 @@ class PolicyRecordTreePanel(QWidget):
         self._tree._restore_tree_snapshot(snapshot)
         self._tree._tables_snapshot = snapshot
         self._update_tab_styles("tables")
-

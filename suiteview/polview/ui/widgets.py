@@ -1155,13 +1155,24 @@ StyledTableGroup = lambda title, parent=None: StyledInfoTableGroup(title, show_i
 # =============================================================================
 
 class CopyableLabel(QLabel):
-    """A QLabel that supports right-click copy to clipboard."""
-    
-    def __init__(self, text="", parent=None):
+    """A QLabel that supports right-click copy to clipboard.
+
+    An optional ``copy_text_provider`` callable supplies the text placed on the
+    clipboard when the user chooses Copy with no active text selection. Use it
+    to copy a whole multi-label block (e.g. an entire calculation summary) from
+    a right-click on any one of its labels.
+    """
+
+    def __init__(self, text="", parent=None, copy_text_provider=None):
         super().__init__(text, parent)
+        self._copy_text_provider = copy_text_provider
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
-    
+
+    def set_copy_text_provider(self, provider):
+        """Set a callable returning the text to copy when nothing is selected."""
+        self._copy_text_provider = provider
+
     def _show_context_menu(self, pos):
         from PyQt6.QtWidgets import QMenu, QApplication
         menu = QMenu(self)
@@ -1170,7 +1181,15 @@ class CopyableLabel(QLabel):
         action = menu.exec(self.mapToGlobal(pos))
         if action == copy_action:
             selected = self.selectedText()
-            QApplication.clipboard().setText(selected if selected else self._plain_text())
+            if selected:
+                QApplication.clipboard().setText(selected)
+                return
+            if self._copy_text_provider is not None:
+                provided = self._copy_text_provider()
+                if provided:
+                    QApplication.clipboard().setText(provided)
+                    return
+            QApplication.clipboard().setText(self._plain_text())
 
     def _plain_text(self):
         """Return the label's text as plain text, stripping HTML for rich text."""

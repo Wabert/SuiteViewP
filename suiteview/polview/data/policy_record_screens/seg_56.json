@@ -1,0 +1,971 @@
+{
+  "segment": "56",
+  "title": "Segment 56 - Multiple Fund Control",
+  "source": "Attached UE142109 CyberLife capture / Sample 6256 screen.htm",
+  "lines": [
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6256,",
+        "field": "Screen Name"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "UE142109 ;.",
+        "field": "Policy Number"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "56",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0098",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte C"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "User Flag Byte"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Allowed Transers"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00",
+        "field": "Transfer Charge Table"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Transfer Charge Rule 1"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Transfer Charge Rule 2"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Minimum Transfer Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "999",
+        "field": "Number of Transfers Per Policy Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Transfer Interval"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Transfer Interval Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "07/01/2026",
+        "field": "Last Transfer Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Charges Disbursement"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "999",
+        "field": "Allocations Number of Funds"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "999",
+        "field": "Allocations Number of Changes"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Allocations Minimum Days Frequency"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Allocations Minimum Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Allocations Minimum Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "MVA Death Benefit Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "",
+        "field": "MVA Loan Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "",
+        "field": "MVA Annuity Purchase Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "Fund Maturity Beyond Maturity Date Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "Default Reinvestment Option"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "MVA Adjust Calculation Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "MVA User Multiplicitive Adjustment Factor"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00000",
+        "field": "MVA User Additive Adjustment Factor"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "MVA Adjust Calculation Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "MVA Free Full Surrender Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "Full Surrender Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "MVA Free Partial Withdrawal Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "Partial Withdrawal Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "MVA Free Allow Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "MVA Negative Limit Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "MVA Negative Limit Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Positive MVA Restrict Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "MVA Positive Limit Percent"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "MVA True Up Option"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "MVA Alternate Index Key"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "Unbundled Mortality and Expense Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "Mortality and Expense or Product Fund Class Band"
+      },
+      {
+        "text": "                ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Index Loan Fund Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "                                                                  ",
+        "field": null
+      },
+      {
+        "text": "10/15/16",
+        "field": "Current Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B7Y02",
+        "field": "Part of the user ID?"
+      },
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "CK620 DISPLAY COMPLETE                                            ",
+        "field": null
+      },
+      {
+        "text": "CKPR-ANICO",
+        "field": "Region and Company"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ]
+  ],
+  "fields": {
+    "Segment Identification": [],
+    "Segment Length": [],
+    "Flag Byte A": [],
+    "Flag Byte B": [],
+    "Flag Byte C": [],
+    "User Flag Byte": [],
+    "Allowed Transers": [
+      "COBOL: FMFTALOW-ALLOW-TRNSFR-CD",
+      "DB2: LH_GEN_FND_RLE.ALW_TRF_CD"
+    ],
+    "Transfer Charge Table": [
+      "COBOL: FMFTCTBL-TRNSFR-CHRG-TBL",
+      "DB2: LH_GEN_FND_RLE.TRF_CRG_TBL_CD"
+    ],
+    "Transfer Charge Rule 1": [
+      "COBOL: FMFTCRU1-TRNSFR-RULE-1",
+      "DB2: LH_GEN_FND_RLE.TRF_CRG_RLE_1_CD"
+    ],
+    "Transfer Charge Rule 2": [
+      "COBOL: FMFTCRU2-TRNSFR-RULE-2",
+      "DB2: LH_GEN_FND_RLE.TRF_CRG_RLE_2_CD"
+    ],
+    "Minimum Transfer Amount": [
+      "COBOL: FMFTMAMT-MIN-TRNSFR-AMT",
+      "DB2: LH_GEN_FND_RLE.MIN_TRF_AMT"
+    ],
+    "Number of Transfers Per Policy Year": [
+      "COBOL: FMFTNMYR-MAX-NO-TRNSFRS-PER-YR",
+      "DB2: LH_GEN_FND_RLE.MAX_TRF_NBR"
+    ],
+    "Transfer Interval": [
+      "COBOL: FMFTFINT-MIN-DAYS-INTERVAL",
+      "DB2: LH_GEN_FND_RLE.MIN_TRF_FQY_PER"
+    ],
+    "Transfer Interval Rule": [
+      "COBOL: FMFTFRUL-TIME-INTERVAL-RULE",
+      "DB2: LH_GEN_FND_RLE.TRF_FQY_RLE_CD"
+    ],
+    "Last Transfer Date": [
+      "COBOL: FMFLTRDT-LAST-TRANSFER-DATE",
+      "DB2: LH_GEN_FND_RLE.LST_FND_TRF_DT"
+    ],
+    "Charges Disbursement": [
+      "COBOL: FMFCDSBR-DISBURSEMENT-CODE",
+      "DB2: LH_GEN_FND_RLE.CRG_DSB_CD"
+    ],
+    "Reserved": [],
+    "Allocations Number of Funds": [
+      "COBOL: FMFANFUN-MAX-NUM-ALLOC",
+      "DB2: LH_GEN_FND_RLE.MAX_ALC_FND_NBR"
+    ],
+    "Allocations Number of Changes": [
+      "COBOL: FMFANCYR-MAX-ALLOC-CHNGS-A-YR",
+      "DB2: LH_GEN_FND_RLE.MAX_ALC_CHG_NBR"
+    ],
+    "Allocations Minimum Days Frequency": [
+      "COBOL: FMFAFREQ-MIN-DAYS-INTERVAL",
+      "DB2: LH_GEN_FND_RLE.ALC_CHG_FQY_PER"
+    ],
+    "Allocations Minimum Percent": [
+      "COBOL: FMFAMPCT-MIN-PERCENT-ALLOC",
+      "DB2: LH_GEN_FND_RLE.MIN_ALC_PCT"
+    ],
+    "Allocations Minimum Rule": [
+      "COBOL: FMFALMIN-MIN-BALANCE-RULE",
+      "DB2: LH_GEN_FND_RLE.ALC_MIN_BAL_RLE_CD"
+    ],
+    "MVA Death Benefit Rule": [
+      "COBOL: FMFMVDBR-DEATH-BEN-RULE",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MVA_DTH_BNF_RLE_CD"
+    ],
+    "MVA Loan Rule": [
+      "COBOL: FMFMVLNR-LOAN-RULE",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MVA_LN_RLE_CD"
+    ],
+    "MVA Annuity Purchase Rule": [
+      "COBOL: FMFMVAPR-ANNUITY-PURCH-RULE",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MVA_ANU_PUR_RLE_CD"
+    ],
+    "Fund Maturity Beyond Maturity Date Rule": [
+      "COBOL: FMFMVFMB-FUND-MAT-BEYOND-MAT",
+      "DB2: LH_MKT_VAL_ADJ_RLE.FND_MT_DT_RLE_CD"
+    ],
+    "Default Reinvestment Option": [
+      "COBOL: FMFMVDRE-DEFAULT-REIN-OPTION",
+      "DB2: LH_MKT_VAL_ADJ_RLE.DFL_REIV_OPT_CD"
+    ],
+    "MVA Adjust Calculation Code": [
+      "COBOL: FMFMVACC-ADJUST-CALC-CODE",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MVA_ITS_MTH_CD"
+    ],
+    "MVA User Multiplicitive Adjustment Factor": [
+      "COBOL: FMFMVUMF-USER-MULT-FACTOR",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MUL_MVA_FCT"
+    ],
+    "MVA User Additive Adjustment Factor": [
+      "COBOL: FMFMVUAF-USER-ADD-FACTOR",
+      "DB2: LH_MKT_VAL_ADJ_RLE.ADD_MVA_FCT"
+    ],
+    "MVA Adjust Calculation Rule": [
+      "COBOL: FMFMVACR-ADJUST-CALC-RULE",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MVA_IRT_CLC_RLE_CD"
+    ],
+    "MVA Free Full Surrender Rule": [
+      "COBOL: FMFMVAFS-FULL-SURR-FREE-RULE",
+      "DB2: LH_MKT_VAL_ADJ_RLE.FRE_FUL_SRD_RLE_CD"
+    ],
+    "Full Surrender Percent": [
+      "DB2: LH_MKT_VAL_ADJ_RLE.FUL_SRD_PCT"
+    ],
+    "Full Surrender Months of Interest": [
+      "DB2: LH_MKT_VAL_ADJ_RLE.FUL_SRD_ITS_MO_NBR"
+    ],
+    "MVA Free Partial Withdrawal Rule": [
+      "DB2: LH_MKT_VAL_ADJ_RLE.FRE_PAT_WTD_RLE_CD"
+    ],
+    "Partial Withdrawal Percent": [
+      "DB2: LH_MKT_VAL_ADJ_RLE.PAT_WTD_PCT"
+    ],
+    "Partial Withdrawal Months of Interest": [
+      "DB2: LH_MKT_VAL_ADJ_RLE.PAT_WTD_ITS_MO_NBR"
+    ],
+    "MVA Free Allow Code": [
+      "COBOL: FMFMVMFA-MVA-FREE-ALLOW-CD",
+      "DB2: LH_MKT_VAL_ADJ_RLE.FRE_AMT_ALW_CD"
+    ],
+    "MVA Negative Limit Rule": [
+      "COBOL: FMFMVNLR-NEG-LIMIT-RULE",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MVA_NEG_LIM_RLE_CD"
+    ],
+    "MVA Negative Limit Percent": [
+      "COBOL: FMFMVNLP-NEG-LIMIT-PCT",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MVA_NEG_LIM_PCT"
+    ],
+    "Positive MVA Restrict Rule": [
+      "COBOL: FMFMVPRR-POS-RESTRICT-RULE",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MVA_PTV_RTT_RLE_CD"
+    ],
+    "MVA Positive Limit Percent": [
+      "COBOL: FMFMVPLP-POS-LIMIT-PCT",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MVA_PTV_LIM_PCT"
+    ],
+    "MVA True Up Option": [
+      "COBOL: FMFMVTUO-TRUE-UP-OPTION",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MVA_TRUE_UP_IND"
+    ],
+    "MVA Alternate Index Key": [
+      "COBOL: FMFMVAIK-ALT-INDEX-KEY",
+      "DB2: LH_MKT_VAL_ADJ_RLE.MVA_IDX_SER_NBR"
+    ],
+    "Unbundled Mortality and Expense Indicator": [
+      "COBOL: FMFUBIND-UNBUNDLED-IND",
+      "DB2: LH_GEN_FND_RLE.UNBUNDLED_IND"
+    ],
+    "Mortality and Expense or Product Fund Class Band": [
+      "COBOL: FMFMEBND-ME-BAND",
+      "DB2: LH_GEN_FND_RLE.ME_BAND"
+    ],
+    "Index Loan Fund Indicator": [
+      "COBOL: FMFIDXLN-INDEX-LN-FUND",
+      "DB2: LH_GEN_FND_RLE.INDEX_LN_FUND",
+      "Modification:"
+    ]
+  },
+  "field_specs": [
+    {
+      "name": "Segment Identification",
+      "byte": "1-2",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Segment Length",
+      "byte": "3-4",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte A",
+      "byte": "5",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte B",
+      "byte": "6",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte C",
+      "byte": "7",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "User Flag Byte",
+      "byte": "8",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Allowed Transers",
+      "byte": "9",
+      "db2": "LH_GEN_FND_RLE.ALW_TRF_CD",
+      "cobol": "FMFTALOW-ALLOW-TRNSFR-CD"
+    },
+    {
+      "name": "Transfer Charge Table",
+      "byte": "10-11",
+      "db2": "LH_GEN_FND_RLE.TRF_CRG_TBL_CD",
+      "cobol": "FMFTCTBL-TRNSFR-CHRG-TBL"
+    },
+    {
+      "name": "Transfer Charge Rule 1",
+      "byte": "12",
+      "db2": "LH_GEN_FND_RLE.TRF_CRG_RLE_1_CD",
+      "cobol": "FMFTCRU1-TRNSFR-RULE-1"
+    },
+    {
+      "name": "Transfer Charge Rule 2",
+      "byte": "13",
+      "db2": "LH_GEN_FND_RLE.TRF_CRG_RLE_2_CD",
+      "cobol": "FMFTCRU2-TRNSFR-RULE-2"
+    },
+    {
+      "name": "Minimum Transfer Amount",
+      "byte": "14-17",
+      "db2": "LH_GEN_FND_RLE.MIN_TRF_AMT",
+      "cobol": "FMFTMAMT-MIN-TRNSFR-AMT"
+    },
+    {
+      "name": "Number of Transfers Per Policy Year",
+      "byte": "18-19",
+      "db2": "LH_GEN_FND_RLE.MAX_TRF_NBR",
+      "cobol": "FMFTNMYR-MAX-NO-TRNSFRS-PER-YR"
+    },
+    {
+      "name": "Transfer Interval",
+      "byte": "20-21",
+      "db2": "LH_GEN_FND_RLE.MIN_TRF_FQY_PER",
+      "cobol": "FMFTFINT-MIN-DAYS-INTERVAL"
+    },
+    {
+      "name": "Transfer Interval Rule",
+      "byte": "22",
+      "db2": "LH_GEN_FND_RLE.TRF_FQY_RLE_CD",
+      "cobol": "FMFTFRUL-TIME-INTERVAL-RULE"
+    },
+    {
+      "name": "Last Transfer Date",
+      "byte": "23-26",
+      "db2": "LH_GEN_FND_RLE.LST_FND_TRF_DT",
+      "cobol": "FMFLTRDT-LAST-TRANSFER-DATE"
+    },
+    {
+      "name": "Charges Disbursement",
+      "byte": "27",
+      "db2": "LH_GEN_FND_RLE.CRG_DSB_CD",
+      "cobol": "FMFCDSBR-DISBURSEMENT-CODE"
+    },
+    {
+      "name": "Reserved",
+      "byte": "28",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Allocations Number of Funds",
+      "byte": "29-30",
+      "db2": "LH_GEN_FND_RLE.MAX_ALC_FND_NBR",
+      "cobol": "FMFANFUN-MAX-NUM-ALLOC"
+    },
+    {
+      "name": "Allocations Number of Changes",
+      "byte": "31-32",
+      "db2": "LH_GEN_FND_RLE.MAX_ALC_CHG_NBR",
+      "cobol": "FMFANCYR-MAX-ALLOC-CHNGS-A-YR"
+    },
+    {
+      "name": "Allocations Minimum Days Frequency",
+      "byte": "33-34",
+      "db2": "LH_GEN_FND_RLE.ALC_CHG_FQY_PER",
+      "cobol": "FMFAFREQ-MIN-DAYS-INTERVAL"
+    },
+    {
+      "name": "Allocations Minimum Percent",
+      "byte": "35-37",
+      "db2": "LH_GEN_FND_RLE.MIN_ALC_PCT",
+      "cobol": "FMFAMPCT-MIN-PERCENT-ALLOC"
+    },
+    {
+      "name": "Allocations Minimum Rule",
+      "byte": "38",
+      "db2": "LH_GEN_FND_RLE.ALC_MIN_BAL_RLE_CD",
+      "cobol": "FMFALMIN-MIN-BALANCE-RULE"
+    },
+    {
+      "name": "MVA Death Benefit Rule",
+      "byte": "39",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MVA_DTH_BNF_RLE_CD",
+      "cobol": "FMFMVDBR-DEATH-BEN-RULE"
+    },
+    {
+      "name": "MVA Loan Rule",
+      "byte": "40",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MVA_LN_RLE_CD",
+      "cobol": "FMFMVLNR-LOAN-RULE"
+    },
+    {
+      "name": "MVA Annuity Purchase Rule",
+      "byte": "41",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MVA_ANU_PUR_RLE_CD",
+      "cobol": "FMFMVAPR-ANNUITY-PURCH-RULE"
+    },
+    {
+      "name": "Fund Maturity Beyond Maturity Date Rule",
+      "byte": "42",
+      "db2": "LH_MKT_VAL_ADJ_RLE.FND_MT_DT_RLE_CD",
+      "cobol": "FMFMVFMB-FUND-MAT-BEYOND-MAT"
+    },
+    {
+      "name": "Default Reinvestment Option",
+      "byte": "43",
+      "db2": "LH_MKT_VAL_ADJ_RLE.DFL_REIV_OPT_CD",
+      "cobol": "FMFMVDRE-DEFAULT-REIN-OPTION"
+    },
+    {
+      "name": "MVA Adjust Calculation Code",
+      "byte": "44",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MVA_ITS_MTH_CD",
+      "cobol": "FMFMVACC-ADJUST-CALC-CODE"
+    },
+    {
+      "name": "MVA User Multiplicitive Adjustment Factor",
+      "byte": "45-47",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MUL_MVA_FCT",
+      "cobol": "FMFMVUMF-USER-MULT-FACTOR"
+    },
+    {
+      "name": "MVA User Additive Adjustment Factor",
+      "byte": "48-50",
+      "db2": "LH_MKT_VAL_ADJ_RLE.ADD_MVA_FCT",
+      "cobol": "FMFMVUAF-USER-ADD-FACTOR"
+    },
+    {
+      "name": "MVA Adjust Calculation Rule",
+      "byte": "51",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MVA_IRT_CLC_RLE_CD",
+      "cobol": "FMFMVACR-ADJUST-CALC-RULE"
+    },
+    {
+      "name": "MVA Free Full Surrender Rule",
+      "byte": "52",
+      "db2": "LH_MKT_VAL_ADJ_RLE.FRE_FUL_SRD_RLE_CD",
+      "cobol": "FMFMVAFS-FULL-SURR-FREE-RULE"
+    },
+    {
+      "name": "Full Surrender Percent",
+      "byte": "53-55",
+      "db2": "LH_MKT_VAL_ADJ_RLE.FUL_SRD_PCT",
+      "cobol": null
+    },
+    {
+      "name": "MVA Free Partial Withdrawal Rule",
+      "byte": "56",
+      "db2": "LH_MKT_VAL_ADJ_RLE.FRE_PAT_WTD_RLE_CD",
+      "cobol": null
+    },
+    {
+      "name": "Partial Withdrawal Percent",
+      "byte": "57-59",
+      "db2": "LH_MKT_VAL_ADJ_RLE.PAT_WTD_PCT",
+      "cobol": null
+    },
+    {
+      "name": "MVA Free Allow Code",
+      "byte": "60",
+      "db2": "LH_MKT_VAL_ADJ_RLE.FRE_AMT_ALW_CD",
+      "cobol": "FMFMVMFA-MVA-FREE-ALLOW-CD"
+    },
+    {
+      "name": "MVA Negative Limit Rule",
+      "byte": "61",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MVA_NEG_LIM_RLE_CD",
+      "cobol": "FMFMVNLR-NEG-LIMIT-RULE"
+    },
+    {
+      "name": "MVA Negative Limit Percent",
+      "byte": "62-64",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MVA_NEG_LIM_PCT",
+      "cobol": "FMFMVNLP-NEG-LIMIT-PCT"
+    },
+    {
+      "name": "Positive MVA Restrict Rule",
+      "byte": "65",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MVA_PTV_RTT_RLE_CD",
+      "cobol": "FMFMVPRR-POS-RESTRICT-RULE"
+    },
+    {
+      "name": "MVA Positive Limit Percent",
+      "byte": "66-68",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MVA_PTV_LIM_PCT",
+      "cobol": "FMFMVPLP-POS-LIMIT-PCT"
+    },
+    {
+      "name": "MVA True Up Option",
+      "byte": "69",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MVA_TRUE_UP_IND",
+      "cobol": "FMFMVTUO-TRUE-UP-OPTION"
+    },
+    {
+      "name": "MVA Alternate Index Key",
+      "byte": "70-78",
+      "db2": "LH_MKT_VAL_ADJ_RLE.MVA_IDX_SER_NBR",
+      "cobol": "FMFMVAIK-ALT-INDEX-KEY"
+    },
+    {
+      "name": "Unbundled Mortality and Expense Indicator",
+      "byte": "79",
+      "db2": "LH_GEN_FND_RLE.UNBUNDLED_IND",
+      "cobol": "FMFUBIND-UNBUNDLED-IND"
+    },
+    {
+      "name": "Mortality and Expense or Product Fund Class Band",
+      "byte": "80-81",
+      "db2": "LH_GEN_FND_RLE.ME_BAND",
+      "cobol": "FMFMEBND-ME-BAND"
+    },
+    {
+      "name": "Index Loan Fund Indicator",
+      "byte": "82",
+      "db2": "LH_GEN_FND_RLE.INDEX_LN_FUND",
+      "cobol": "FMFIDXLN-INDEX-LN-FUND"
+    }
+  ],
+  "layout_html": "<table><tr><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Byte</td><td style = \"width: 400px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Field</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td></tr>\n\n\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">1-2</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Identification\"></a><b>Segment Identification</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">3-4</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Length\"></a><b>Segment Length</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">5</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_A\"></a><b>Flag Byte A</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">6</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_B\"></a><b>Flag Byte B</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">7</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_C\"></a><b>Flag Byte C</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">8</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"User_Flag_Byte\"></a><b>User Flag Byte</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">9</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Allowed_Transers\"></a><b>Allowed Transers</b></br>&#160;&#160;&#160;&#160;COBOL: FMFTALOW-ALLOW-TRNSFR-CD</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.ALW_TRF_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">10-11</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Transfer_Charge_Table\"></a><b>Transfer Charge Table</b></br>&#160;&#160;&#160;&#160;COBOL: FMFTCTBL-TRNSFR-CHRG-TBL</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.TRF_CRG_TBL_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">12</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Transfer_Charge_Rule_1\"></a><b>Transfer Charge Rule 1</b></br>&#160;&#160;&#160;&#160;COBOL: FMFTCRU1-TRNSFR-RULE-1</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.TRF_CRG_RLE_1_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">13</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Transfer_Charge_Rule_2\"></a><b>Transfer Charge Rule 2</b></br>&#160;&#160;&#160;&#160;COBOL: FMFTCRU2-TRNSFR-RULE-2</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.TRF_CRG_RLE_2_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">14-17</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Minimum_Transfer_Amount\"></a><b>Minimum Transfer Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FMFTMAMT-MIN-TRNSFR-AMT</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.MIN_TRF_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">18-19</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Number_of_Transfers_Per_Policy_Year\"></a><b>Number of Transfers Per Policy Year</b></br>&#160;&#160;&#160;&#160;COBOL: FMFTNMYR-MAX-NO-TRNSFRS-PER-YR</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.MAX_TRF_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">20-21</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Transfer_Interval\"></a><b>Transfer Interval</b></br>&#160;&#160;&#160;&#160;COBOL: FMFTFINT-MIN-DAYS-INTERVAL</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.MIN_TRF_FQY_PER</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">22</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Transfer_Interval_Rule\"></a><b>Transfer Interval Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FMFTFRUL-TIME-INTERVAL-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.TRF_FQY_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">23-26</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Last_Transfer_Date\"></a><b>Last Transfer Date</b></br>&#160;&#160;&#160;&#160;COBOL: FMFLTRDT-LAST-TRANSFER-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.LST_FND_TRF_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">27</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Charges_Disbursement\"></a><b>Charges Disbursement</b></br>&#160;&#160;&#160;&#160;COBOL: FMFCDSBR-DISBURSEMENT-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.CRG_DSB_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">28</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Reserved\"></a><b>Reserved</b></br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">29-30</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Allocations_Number_of_Funds\"></a><b>Allocations Number of Funds</b></br>&#160;&#160;&#160;&#160;COBOL: FMFANFUN-MAX-NUM-ALLOC</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.MAX_ALC_FND_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">31-32</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Allocations_Number_of_Changes\"></a><b>Allocations Number of Changes</b></br>&#160;&#160;&#160;&#160;COBOL: FMFANCYR-MAX-ALLOC-CHNGS-A-YR</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.MAX_ALC_CHG_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">33-34</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Allocations_Minimum_Days_Frequency\"></a><b>Allocations Minimum Days Frequency</b></br>&#160;&#160;&#160;&#160;COBOL: FMFAFREQ-MIN-DAYS-INTERVAL</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.ALC_CHG_FQY_PER</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">35-37</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Allocations_Minimum_Percent\"></a><b>Allocations Minimum Percent</b></br>&#160;&#160;&#160;&#160;COBOL: FMFAMPCT-MIN-PERCENT-ALLOC</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.MIN_ALC_PCT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">38</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Allocations_Minimum_Rule\"></a><b>Allocations Minimum Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FMFALMIN-MIN-BALANCE-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.ALC_MIN_BAL_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">39</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Death_Benefit_Rule\"></a><b>MVA Death Benefit Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVDBR-DEATH-BEN-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MVA_DTH_BNF_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">40</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Loan_Rule\"></a><b>MVA Loan Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVLNR-LOAN-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MVA_LN_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">41</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Annuity_Purchase_Rule\"></a><b>MVA Annuity Purchase Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVAPR-ANNUITY-PURCH-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MVA_ANU_PUR_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">42</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Fund_Maturity_Beyond_Maturity_Date_Rule\"></a><b>Fund Maturity Beyond Maturity Date Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVFMB-FUND-MAT-BEYOND-MAT</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.FND_MT_DT_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">43</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Default_Reinvestment_Option\"></a><b>Default Reinvestment Option</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVDRE-DEFAULT-REIN-OPTION</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.DFL_REIV_OPT_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">44</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Adjust_Calculation_Code\"></a><b>MVA Adjust Calculation Code</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVACC-ADJUST-CALC-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MVA_ITS_MTH_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">45-47</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_User_Multiplicitive_Adjustment_Factor\"></a><b>MVA User Multiplicitive Adjustment Factor</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVUMF-USER-MULT-FACTOR</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MUL_MVA_FCT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">48-50</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_User_Additive_Adjustment_Factor\"></a><b>MVA User Additive Adjustment Factor</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVUAF-USER-ADD-FACTOR</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.ADD_MVA_FCT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">51</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Adjust_Calculation_Rule\"></a><b>MVA Adjust Calculation Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVACR-ADJUST-CALC-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MVA_IRT_CLC_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">52</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Free_Full_Surrender_Rule\"></a><b>MVA Free Full Surrender Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVAFS-FULL-SURR-FREE-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.FRE_FUL_SRD_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">53-55</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Full_Surrender_Percent\"></a><b>Full Surrender Percent</b></br>&#160;&#160;&#160;&#160;CBOL: FMFMVFSU-FULL-SURR-PCT</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.FUL_SRD_PCT</td><td style = \"width: 300px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Full_Surrender_Months_of_Interest\"></a><b>Full Surrender Months of Interest</b></br>&#160;&#160;&#160;&#160;CBOL: FMFMVFSM-FULL-SURR-MTHS</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.FUL_SRD_ITS_MO_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">56</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Free_Partial_Withdrawal_Rule\"></a><b>MVA Free Partial Withdrawal Rule</b></br>&#160;&#160;&#160;&#160;CBOL: FMFMVAPW-PART-WITH-FREE-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.FRE_PAT_WTD_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">57-59</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Partial_Withdrawal_Percent\"></a><b>Partial Withdrawal Percent</b></br>&#160;&#160;&#160;&#160;CBOL: FMFMVPWP-PARTIAL-WDWL-PCT</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.PAT_WTD_PCT</td><td style = \"width: 300px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Partial_Withdrawal_Months_of_Interest\"></a><b>Partial Withdrawal Months of Interest</b></br>&#160;&#160;&#160;&#160;CBOL: FMFMVPWM-PARTIAL-WDWL-MTHS</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.PAT_WTD_ITS_MO_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">60</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Free_Allow_Code\"></a><b>MVA Free Allow Code</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVMFA-MVA-FREE-ALLOW-CD</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.FRE_AMT_ALW_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">61</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Negative_Limit_Rule\"></a><b>MVA Negative Limit Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVNLR-NEG-LIMIT-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MVA_NEG_LIM_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">62-64</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Negative_Limit_Percent\"></a><b>MVA Negative Limit Percent</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVNLP-NEG-LIMIT-PCT</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MVA_NEG_LIM_PCT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">65</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Positive_MVA_Restrict_Rule\"></a><b>Positive MVA Restrict Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVPRR-POS-RESTRICT-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MVA_PTV_RTT_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">66-68</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Positive_Limit_Percent\"></a><b>MVA Positive Limit Percent</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVPLP-POS-LIMIT-PCT</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MVA_PTV_LIM_PCT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">69</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_True_Up_Option\"></a><b>MVA True Up Option</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVTUO-TRUE-UP-OPTION</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MVA_TRUE_UP_IND</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">70-78</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MVA_Alternate_Index_Key\"></a><b>MVA Alternate Index Key</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMVAIK-ALT-INDEX-KEY</br>&#160;&#160;&#160;&#160;DB2: LH_MKT_VAL_ADJ_RLE.MVA_IDX_SER_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">79</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Unbundled_Mortality_and_Expense_Indicator\"></a><b>Unbundled Mortality and Expense Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FMFUBIND-UNBUNDLED-IND</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.UNBUNDLED_IND</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">80-81</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Mortality_and_Expense_or_Product_Fund_Class_Band\"></a><b>Mortality and Expense or Product Fund Class Band</b></br>&#160;&#160;&#160;&#160;COBOL: FMFMEBND-ME-BAND</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.ME_BAND</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"4\">82</td><td style = \"width: 400px; border:1px solid;\" rowspan=\"4\">&#160;<a name=\"Index_Loan_Fund_Indicator\"></a><b>Index Loan Fund Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FMFIDXLN-INDEX-LN-FUND</br>&#160;&#160;&#160;&#160;DB2: LH_GEN_FND_RLE.INDEX_LN_FUND</br>&#160;&#160;&#160;&#160;Modification: </td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr></table>"
+}

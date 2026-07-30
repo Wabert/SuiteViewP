@@ -1,0 +1,2324 @@
+{
+  "segment": "01",
+  "title": "Segment 01 - Basic Policy",
+  "source": "Policy Record 01 - BKUP 20161205.htm",
+  "template": true,
+  "lines": [
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6201,",
+        "field": "Screen Name",
+        "role": "screen_name"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U0633187",
+        "field": "Policy Number",
+        "role": "policy"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "01",
+        "field": "Segment Identification",
+        "role": "seg_id"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0292",
+        "field": "Segment Length",
+        "role": "seg_len"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Issue Company Code",
+        "db2": "LH_BAS_POL.ISS_CMP_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Administrative Company Code",
+        "db2": "LH_BAS_POL.ADM_CMP_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Financial Company Code",
+        "db2": "LH_BAS_POL.FIN_CMP_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Record Status",
+        "db2": "LH_BAS_POL.ACY_POL_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte A",
+        "db2": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B",
+        "db2": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte C",
+        "db2": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte D",
+        "db2": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10010011",
+        "field": "Flag Byte E",
+        "db2": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte F",
+        "db2": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Initial Monthliversary",
+        "db2": "LH_BAS_POL.INT_MLV_NBR"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "00/00/1099",
+        "field": "Extract Date",
+        "db2": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10/04/2016",
+        "field": "Paid-To Date",
+        "db2": "LH_BAS_POL.PRM_PAID_TO_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10/24/2016",
+        "field": "Billed-To Date",
+        "db2": "LH_BAS_POL.PRM_BILL_TO_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00/00/1900",
+        "field": "Special Scheduleing Date",
+        "db2": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "01/18/2012",
+        "field": "Application Date",
+        "db2": "LH_BAS_POL.APP_WRT_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2016",
+        "field": "Last Anniversary Processed",
+        "db2": "LH_BAS_POL.LST_ANV_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "9",
+        "field": "Billing Day",
+        "db2": "LH_BAS_POL.BIL_DAY_NBR"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Billing Use Code",
+        "db2": "LH_BAS_POL.BIL_DAY_USE_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Option",
+        "db2": "LH_BAS_POL.NFO_OPT_TYP_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Automatic Premium Loan Code",
+        "db2": "LH_BAS_POL.APL_PRC_CD"
+      },
+      {
+        "text": "0",
+        "field": "APL Stop Code",
+        "db2": "LH_BAS_POL.APL_LIM_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Loan Interest Type Code",
+        "db2": "LH_BAS_POL.LN_TYP_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6.000",
+        "field": "Loan Interest Rate",
+        "db2": "LH_BAS_POL.LN_PLN_ITS_RT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Automatic Premium Loan Number",
+        "db2": "LH_FXD_PRM_POL.APL_CNT_QTY"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Restrict Code Assignment",
+        "db2": "LH_BAS_POL.ASN_IND_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Restriction Code",
+        "db2": "LH_BAS_POL.RTT_1_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Dividend Option",
+        "db2": "LH_BAS_POL.PRI_DIV_OPT_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Dividend Secondary",
+        "db2": "LH_BAS_POL.DIV_2ND_OPT_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Other Dividend Option",
+        "db2": "LH_BAS_POL.PRI_OTH_FRM_OPT_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Other Dividend Secondary",
+        "db2": "LH_BAS_POL.OTH_FRM_2ND_OPT_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Pension",
+        "db2": "LH_BAS_POL.PEN_TST_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Reinsured Code",
+        "db2": "LH_BAS_POL.REINSURED_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Resident Country",
+        "db2": "LH_BAS_POL.PAY_CTR_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "08",
+        "field": "Resident State",
+        "db2": "LH_BAS_POL.PRM_PAY_ST_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000",
+        "field": "Resident Area",
+        "db2": "LH_BAS_POL.PAY_TAX_DST_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "79NV0RHB00",
+        "field": "Branch or Agency",
+        "db2": "LH_BAS_POL.SVC_AGC_NBR"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "222284930",
+        "field": "Agent",
+        "db2": "LH_BAS_POL.SVC_AGT_NBR"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Mode Premium Table Code",
+        "db2": "LH_FXD_PRM_POL.MD_PRM_SRC_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00000",
+        "field": "Semiannual Factor",
+        "db2": "LH_FXD_PRM_POL.SAN_MD_FCT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": ".00000",
+        "field": "Quarterly Factor",
+        "db2": "LH_FXD_PRM_POL.QTR_MD_FCT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00000",
+        "field": "Monthly Factor",
+        "db2": "LH_FXD_PRM_POL.MO_MD_FCT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Multiply Order Code",
+        "db2": "LH_FXD_PRM_POL.MD_PRM_MUL_ORD_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Rating Order",
+        "db2": "LH_FXD_PRM_POL.RT_FCT_ORD_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Round Rule",
+        "db2": "LH_FXD_PRM_POL.ROU_RLE_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Mode Factor Modify Code",
+        "db2": "LH_FXD_PRM_POL.POL_FEE_MDF_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Policy Fee/Collection Fee",
+        "db2": "LH_FXD_PRM_POL.COL_FEE_MDF_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Premium Discount",
+        "db2": "LH_BAS_POL.PRM_DSC_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Collection Fee Add Code",
+        "db2": "LH_FXD_PRM_POL.COL_FEE_ADD_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Collection Fee Commissionable Indicator",
+        "db2": "LH_FXD_PRM_POL.COL_FEE_COM_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Collection Fee Amount",
+        "db2": "LH_FXD_PRM_POL.COL_FEE_AMT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Policy Fee Factors Table Code",
+        "db2": "LH_FXD_PRM_POL.POL_FEE_FCT_SRC_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Policy Fee Add Code",
+        "db2": "LH_FXD_PRM_POL.POL_FEE_ADD_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Policy Fee Commission",
+        "db2": "LH_FXD_PRM_POL.POL_FEE_COM_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Policy Fee User-Defined Rule",
+        "db2": "LH_FXD_PRM_POL.POL_FEE_USR_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Policy Fee Amount",
+        "db2": "LH_FXD_PRM_POL.POL_FEE_AMT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "107.00",
+        "field": "Mode Premium",
+        "db2": "LH_BAS_POL.POL_PRM_AMT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Commission Premium Method",
+        "db2": "LH_BAS_POL.PRM_COM_MTH_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Special Commission",
+        "db2": "LH_FXD_PRM_POL.SPE_COM_ARG_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Handling",
+        "db2": "LH_BAS_POL.SPE_BIL_HDL_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonstandard Mode Skip Month",
+        "db2": "LH_BAS_POL.FST_SKIP_MO_NBR"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonstandard Mode Number of Months to Skip",
+        "db2": "LH_BAS_POL.MO_TO_SKIP_NBR"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Suspend Billing Code",
+        "db2": "LH_BAS_POL.SUS_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "22",
+        "field": "Billing Status",
+        "db2": "LH_BAS_POL.PRM_PAY_STA_REA_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "H",
+        "field": "Billing Form",
+        "db2": "LH_BAS_POL.BIL_FRM_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Billing Mode",
+        "db2": "LH_BAS_POL.PMT_FQY_PER"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonstandard Mode",
+        "db2": "LH_BAS_POL.NSD_MD_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Billing Currency",
+        "db2": "LH_BAS_POL.BIL_CRY_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Billing Language",
+        "db2": "LH_BAS_POL.BIL_LGG_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "A",
+        "field": "Original Entry Code",
+        "db2": "LH_BAS_POL.OGN_ETR_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "C",
+        "field": "Last Entry Code",
+        "db2": "LH_BAS_POL.LST_ETR_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Change Pending Code (Reserved)",
+        "db2": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Last Premium Paid",
+        "db2": "LH_FXD_PRM_POL.LST_PRM_PAY_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Accounting Date",
+        "db2": "LH_BAS_POL.LST_ACT_TRS_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Last Financial Date",
+        "db2": "LH_BAS_POL.LST_FIN_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Other Date",
+        "db2": "LH_BAS_POL.LST_POL_CHG_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Other Kind",
+        "db2": "LH_BAS_POL.POL_CHG_RPT_TYP_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Billing Date",
+        "db2": "LH_BAS_POL.LST_BIL_ERT_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Billing Kind",
+        "db2": "LH_BAS_POL.BIL_ERT_TYP_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Special Code",
+        "db2": "LH_BAS_POL.USR_RES_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Issue Country",
+        "db2": "LH_BAS_POL.ISS_CTR_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "08",
+        "field": "Issue State",
+        "db2": "LH_BAS_POL.POL_ISS_ST_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "MEC Indicator - Policy Level",
+        "db2": "LH_BAS_POL.MEC_STATUS_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "   ",
+        "field": "Commission Chargeback Code",
+        "db2": "LH_BAS_POL.COM_CHARGEBACK_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Death Benefit Indicator",
+        "db2": "LH_BAS_POL.DTH_BNF_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "EIL Indicator",
+        "db2": "LH_BAS_POL.EIL_IND"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Pending Status",
+        "db2": "LH_BAS_POL.PND_STA_REA_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "L",
+        "field": "Policy Type",
+        "db2": "LH_BAS_POL.POL_CTT_TYP_CD"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Group History Indicator",
+        "db2": "LH_BAS_POL.GRP_HST_IND"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "   ",
+        "field": "Premium Waiver Option",
+        "db2": "LH_BAS_POL.PW_OPT_CD"
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "00/00/1900",
+        "field": "Next Offline Processing Date",
+        "db2": "LH_BAS_POL.OFL_PRC_REQ_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10/24/2016",
+        "field": "Next Bill Date",
+        "db2": "LH_BAS_POL.NXT_BIL_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": "Next Potential Termination Event Date",
+        "db2": "LH_BAS_POL.PLN_TMN_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "11/01/2016",
+        "field": "Next Scheduled Notification Date",
+        "db2": "LH_BAS_POL.NXT_SCH_NOT_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00/00/1900",
+        "field": "Next Scheduled Statement Date",
+        "db2": "LH_BAS_POL.NXT_SCH_STT_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "11/10/2016",
+        "field": "Next Monthliversary Date",
+        "db2": "LH_BAS_POL.NXT_MVRY_PRC_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "05/21/2017",
+        "field": "Next Year-End Date",
+        "db2": "LH_BAS_POL.NXT_YR_END_PRC_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "11/01/2016",
+        "field": "Next Dividend or Automatic Transaction Activity Date",
+        "db2": "LH_BAS_POL.DIV_ACY_CLC_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "07/01/2014",
+        "field": "Next Index Income Activity Date",
+        "db2": "LH_BAS_POL.NXT_IND_INC_DT"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "PerformancePlus Advance Indicator",
+        "db2": "LH_BAS_POL.ADVANCE_IND"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "3",
+        "field": "PerformancePlus Special Case Indicator",
+        "db2": "LH_BAS_POL.SPEC_CASE_IND"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "New Business Indicator",
+        "db2": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Premium as Loan Payment Indicator",
+        "db2": null
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "A",
+        "field": "LUS Indicator",
+        "db2": "TH_BAS_POL.LUS_IND"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Review Needed Indicator",
+        "db2": "TH_BAS_POL.REVIEW_NEED_IND"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Maximum Indicator",
+        "db2": "TH_BAS_POL.REIN_MAX_XEEDED"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Bill Day 1",
+        "db2": "TH_BAS_POL.BILL_DAY_1"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Bill Day 2",
+        "db2": "TH_BAS_POL.BILL_DAY_2"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Archived Restriction Code",
+        "db2": "TH_BAS_POL.ARCH_RESTR_CODE"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "F",
+        "field": "Forced Premium Indicator",
+        "db2": "TH_BAS_POL.FORCED_PREM_IND"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "LOAN_INT_SEL",
+        "db2": "TH_BAS_POL.LOAN_INT_SEL"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "                                                                  ",
+        "field": null
+      },
+      {
+        "text": "10/15/16",
+        "field": "Current Date",
+        "role": "current_date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B7Y02",
+        "field": "Part of the user ID?",
+        "role": "user"
+      },
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "CK620 DISPLAY COMPLETE                                            ",
+        "field": null
+      },
+      {
+        "text": "CKPR-ANICO",
+        "field": "Region and Company",
+        "role": "region"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ]
+  ],
+  "fields": {
+    "Segment Identification": [],
+    "Segment Length": [],
+    "Issue Company Code": [
+      "COBOL: FBRISSCO-ISSUE-COMPANY-CD",
+      "DB2: LH_BAS_POL.ISS_CMP_CD"
+    ],
+    "Administrative Company Code": [
+      "COBOL: FBRADMCO-ADMIN-COMPANY-CD",
+      "DB2: LH_BAS_POL.ADM_CMP_CD"
+    ],
+    "Financial Company Code": [
+      "COBOL: FBRFINCO-FINAN-COMPANY-CD",
+      "DB2: LH_BAS_POL.FIN_CMP_CD"
+    ],
+    "Reserved": [],
+    "Record Status": [
+      "COBOL: FBRRECST-RECORD-STATUS",
+      "DB2: LH_BAS_POL.ACY_POL_CD"
+    ],
+    "Flag Byte A": [],
+    "Flag Byte B": [],
+    "Flag Byte C": [],
+    "Flag Byte D": [],
+    "Flag Byte E": [],
+    "Flag Byte F": [],
+    "Initial Monthliversary": [
+      "COBOL: FBRINIMV-INITIAL-MTHLYVERSARY",
+      "DB2: LH_BAS_POL.INT_MLV_NBR"
+    ],
+    "Extract Date": [
+      "COBOL: FBRXTRCT-EXTRACT-DATE",
+      "DB2: none"
+    ],
+    "Paid-To Date": [
+      "COBOL: FBRPDTDT-PAID-TO-DATE",
+      "DB2: LH_BAS_POL.PRM_PAID_TO_DT"
+    ],
+    "Billed-To Date": [
+      "COBOL: FBRBILTD-BILLED-TO-DATE",
+      "DB2: LH_BAS_POL.PRM_BILL_TO_DT"
+    ],
+    "Special Scheduleing Date": [
+      "COBOL: FBRSCHDT-SPEC-SCHEDULING-DATE",
+      "DB2: none"
+    ],
+    "Application Date": [
+      "COBOL: FBRAPPDT-APP-DATE",
+      "DB2: LH_BAS_POL.APP_WRT_DT"
+    ],
+    "Last Anniversary Processed": [
+      "COBOL: FBRLSTDF-LAST-ANN-DATE-FIELDS",
+      "DB2: LH_BAS_POL.LST_ANV_DT"
+    ],
+    "Billing Day": [
+      "COBOL: FBRDUEDY-BILLING-DAY",
+      "DB2: LH_BAS_POL.BIL_DAY_NBR"
+    ],
+    "Billing Use Code": [
+      "COBOL: FBRDUEUS-BILLING-USE-CODE",
+      "DB2: LH_BAS_POL.BIL_DAY_USE_CD"
+    ],
+    "Nonforfeiture Option": [
+      "COBOL: FBROPT-NFO-OPTION",
+      "DB2: LH_BAS_POL.NFO_OPT_TYP_CD"
+    ],
+    "Automatic Premium Loan Code": [
+      "COBOL: FBRAPL-APL",
+      "DB2: LH_BAS_POL.APL_PRC_CD"
+    ],
+    "APL Stop Code": [
+      "COBOL: FBRLIM-STOP",
+      "DB2: LH_BAS_POL.APL_LIM_CD"
+    ],
+    "Loan Interest Type Code": [
+      "COBOL: FBRLTYPE-INTEREST-TYPE",
+      "DB2: LH_BAS_POL.LN_TYP_CD"
+    ],
+    "Loan Interest Rate": [
+      "COBOL: FBRLINTR-INTEREST-RATE",
+      "DB2: LH_BAS_POL.LN_PLN_ITS_RT"
+    ],
+    "Automatic Premium Loan Number": [
+      "COBOL: FBRAPLNO-APL-NUM",
+      "DB2: LH_FXD_PRM_POL.APL_CNT_QTY"
+    ],
+    "Restrict Code Assignment": [
+      "COBOL: FBRRESTA-ASSIGNMENT",
+      "DB2: LH_BAS_POL.ASN_IND_CD"
+    ],
+    "Restriction Code": [
+      "COBOL: FBRRESTR-RESTRICT-OTHER",
+      "DB2: LH_BAS_POL.RTT_1_CD"
+    ],
+    "Dividend Option": [
+      "COBOL: FBRPROPD-DIVIDEND-OPTION",
+      "DB2: LH_BAS_POL.PRI_DIV_OPT_CD"
+    ],
+    "Dividend Secondary": [
+      "COBOL: FBRPROSD-DIVIDEND-SECONDARY",
+      "DB2: LH_BAS_POL.DIV_2ND_OPT_CD"
+    ],
+    "Other Dividend Option": [
+      "COBOL: FBRPROPO-OTHER-OPTION",
+      "DB2: LH_BAS_POL.PRI_OTH_FRM_OPT_CD"
+    ],
+    "Other Dividend Secondary": [
+      "COBOL: FBRPROSO-OTHER-SECONDARY",
+      "DB2: LH_BAS_POL.OTH_FRM_2ND_OPT_CD"
+    ],
+    "Pension": [
+      "COBOL: FBRPENSN-PENSION",
+      "DB2: LH_BAS_POL.PEN_TST_CD"
+    ],
+    "LTC Qualification Code": [
+      "COBOL: FBRLTCQN-QUALIFY-LTC-CODES",
+      "DB2:"
+    ],
+    "Reinsured Code": [
+      "COBOL: FBRREINS-REINSURED-CODE",
+      "DB2: LH_BAS_POL.REINSURED_CD"
+    ],
+    "Resident Country": [
+      "COBOL: FBRRCTRY-RESIDENT-COUNTRY",
+      "DB2: LH_BAS_POL.PAY_CTR_CD"
+    ],
+    "Resident State": [
+      "COBOL: FBRSTATE-STATE",
+      "DB2: LH_BAS_POL.PRM_PAY_ST_CD"
+    ],
+    "Resident Area": [
+      "COBOL: FBRAREA-AREA",
+      "DB2: LH_BAS_POL.PAY_TAX_DST_CD"
+    ],
+    "Branch or Agency": [
+      "COBOL: FBRAGNCY-BRANCH-AGENCY",
+      "DB2: LH_BAS_POL.SVC_AGC_NBR"
+    ],
+    "Agent": [
+      "COBOL: FBRAGENT-AGENT",
+      "DB2: LH_BAS_POL.SVC_AGT_NBR"
+    ],
+    "Mode Premium Table Code": [
+      "COBOL: FBRMPCOD-MODE-PREM-TABLE-CODE",
+      "DB2: LH_FXD_PRM_POL.MD_PRM_SRC_CD"
+    ],
+    "Semiannual Factor": [
+      "COBOL: FBRMCALS-SEMIANNUAL-FACTOR",
+      "DB2: LH_FXD_PRM_POL.SAN_MD_FCT"
+    ],
+    "Quarterly Factor": [
+      "COBOL: FBRMCALQ-QUARTERLY-FACTOR",
+      "DB2: LH_FXD_PRM_POL.QTR_MD_FCT"
+    ],
+    "Monthly Factor": [
+      "COBOL: FBRMCALM-MONTHLY-FACTOR",
+      "DB2: LH_FXD_PRM_POL.MO_MD_FCT"
+    ],
+    "Multiply Order Code": [
+      "COBOL: FBRORDCD-ORDER-CODE",
+      "DB2: LH_FXD_PRM_POL.MD_PRM_MUL_ORD_CD"
+    ],
+    "Rating Order": [
+      "COBOL: FBRRORCD-RATING-ORDER-CODE",
+      "DB2: LH_FXD_PRM_POL.RT_FCT_ORD_CD"
+    ],
+    "Round Rule": [
+      "COBOL: FBRROUND-ROUNDING-RULE",
+      "DB2: LH_FXD_PRM_POL.ROU_RLE_CD"
+    ],
+    "Mode Factor Modify Code": [
+      "COBOL: FBRFACTM-MODE-FACTOR-MODIFY",
+      "DB2: LH_FXD_PRM_POL.POL_FEE_MDF_CD"
+    ],
+    "Policy Fee/Collection Fee": [
+      "COBOL: FBRPOLFE-MODIFY-POLICY-FEE",
+      "DB2: LH_FXD_PRM_POL.COL_FEE_MDF_CD"
+    ],
+    "Premium Discount": [
+      "COBOL: FBRPDISC-PREM-DISCOUNTS",
+      "DB2: LH_BAS_POL.PRM_DSC_CD"
+    ],
+    "Collection Fee Add Code": [
+      "COBOL: FBRCFEEA-COLL-FEE-ADD",
+      "DB2: LH_FXD_PRM_POL.COL_FEE_ADD_CD"
+    ],
+    "Collection Fee Commissionable Indicator": [
+      "COBOL: FBRCFEEC-COLL-FEE-COMMISSION",
+      "DB2: LH_FXD_PRM_POL.COL_FEE_COM_CD"
+    ],
+    "Collection Fee Amount": [
+      "COBOL: FBRMCALC-COLLECTION-FEE",
+      "DB2: LH_FXD_PRM_POL.COL_FEE_AMT"
+    ],
+    "Policy Fee Factors Table Code": [
+      "COBOL: FBRPFEEF-POL-FEE-FACT-TBL-CODE",
+      "DB2: LH_FXD_PRM_POL.POL_FEE_FCT_SRC_CD"
+    ],
+    "Policy Fee Add Code": [
+      "COBOL: FBRPFEEA-POL-FEE-ADD",
+      "DB2: LH_FXD_PRM_POL.POL_FEE_ADD_CD"
+    ],
+    "Policy Fee Commission": [
+      "COBOL: FBRPFEEC-POL-FEE-COMMISSION",
+      "DB2: LH_FXD_PRM_POL.POL_FEE_COM_CD"
+    ],
+    "Policy Fee User-Defined Rule": [
+      "COBOL: FBRPFUSR-POL-FEE-USER-CODE",
+      "DB2: LH_FXD_PRM_POL.POL_FEE_USR_CD"
+    ],
+    "Policy Fee Amount": [
+      "COBOL: FBRFEE-POLICY-FEE",
+      "DB2: LH_FXD_PRM_POL.POL_FEE_AMT"
+    ],
+    "Mode Premium": [
+      "COBOL: FBRMPREM-MODE-PREMIUM",
+      "DB2: LH_BAS_POL.POL_PRM_AMT"
+    ],
+    "Commission Premium Method": [
+      "COBOL: FBRCPREM-PREMIUM",
+      "DB2: LH_BAS_POL.PRM_COM_MTH_CD"
+    ],
+    "Special Commission": [
+      "COBOL: FBRCSPEC-SPECIAL",
+      "DB2: LH_FXD_PRM_POL.SPE_COM_ARG_CD"
+    ],
+    "Handling": [
+      "COBOL: FBRHANDL-HANDLING",
+      "DB2: LH_BAS_POL.SPE_BIL_HDL_CD"
+    ],
+    "Nonstandard Mode Skip Month": [
+      "COBOL: FBRSTSKM-SKIP-MONTH",
+      "DB2: LH_BAS_POL.FST_SKIP_MO_NBR"
+    ],
+    "Nonstandard Mode Number of Months to Skip": [
+      "COBOL: FBRSTNOM-NUMBER-MONTHS-SKIP",
+      "DB2: LH_BAS_POL.MO_TO_SKIP_NBR"
+    ],
+    "Suspend Billing Code": [
+      "COBOL: FBRSUSPD-SUSPEND",
+      "DB2: LH_BAS_POL.SUS_CD"
+    ],
+    "Billing Status": [
+      "COBOL: FBRSTAT-STATUS",
+      "DB2: LH_BAS_POL.PRM_PAY_STA_REA_CD"
+    ],
+    "Billing Form": [
+      "COBOL: FBRFORM-FORM",
+      "DB2: LH_BAS_POL.BIL_FRM_CD"
+    ],
+    "Nonstandard Mode": [
+      "COBOL: FBRMDNST-NONSTD-MODE",
+      "DB2: LH_BAS_POL.NSD_MD_CD"
+    ],
+    "Billing Mode": [
+      "COBOL: FBRBMODE-MODE",
+      "DB2: LH_BAS_POL.PMT_FQY_PER"
+    ],
+    "Billing Currency": [
+      "COBOL: FBRBCURR-BILLING-CURRENCY",
+      "DB2: LH_BAS_POL.BIL_CRY_CD"
+    ],
+    "Billing Language": [
+      "COBOL: FBRBLANG-BILLING-LANGUAGE",
+      "DB2: LH_BAS_POL.BIL_LGG_CD"
+    ],
+    "Original Entry Code": [
+      "COBOL: FBRORGEN-ORIGINAL",
+      "DB2: LH_BAS_POL.OGN_ETR_CD"
+    ],
+    "Last Entry Code": [
+      "COBOL: FBRLSTEN-LAST",
+      "DB2: LH_BAS_POL.LST_ETR_CD"
+    ],
+    "Change Pending Code (Reserved)": [
+      "COBOL: FBRPEND-CHANGE-PENDING-CODE",
+      "Reserved \u2014 no DB2 source"
+    ],
+    "Last Premium Paid": [
+      "COBOL: FBRHOWPD-LAST-PREMIUM-PAID",
+      "DB2: LH_FXD_PRM_POL.LST_PRM_PAY_CD"
+    ],
+    "Accounting Date": [
+      "COBOL: FBRPAYDT-ACCOUNTING-DATE",
+      "DB2: LH_BAS_POL.LST_ACT_TRS_DT"
+    ],
+    "Last Financial Date": [
+      "COBOL: FBRFINDT-FIN-DATE",
+      "DB2: LH_BAS_POL.LST_FIN_DT"
+    ],
+    "Other Date": [
+      "COBOL: FBRCHGDT-OTHER-DATE",
+      "DB2: LH_BAS_POL.LST_POL_CHG_DT"
+    ],
+    "Other Kind": [
+      "COBOL: FBRKIND-OTHER-KIND",
+      "DB2: LH_BAS_POL.POL_CHG_RPT_TYP_CD"
+    ],
+    "Billing Date": [
+      "COBOL: FBRBILDT-BILLING-DATE",
+      "DB2: LH_BAS_POL.LST_BIL_ERT_DT"
+    ],
+    "Billing Kind": [
+      "COBOL: FBRBILKD-BILLING-KIND",
+      "DB2: LH_BAS_POL.BIL_ERT_TYP_CD"
+    ],
+    "Special Code": [
+      "COBOL: FBRSPECL-SPECIAL-CODE",
+      "DB2: LH_BAS_POL.USR_RES_CD"
+    ],
+    "Issue Country": [
+      "COBOL: FBRICNTY-ISSUE-COUNTRY",
+      "DB2: LH_BAS_POL.ISS_CTR_CD"
+    ],
+    "Issue State": [
+      "COBOL: FBRISTAT-ISSUE-STATE",
+      "DB2: LH_BAS_POL.POL_ISS_ST_CD"
+    ],
+    "MEC Indicator - Policy Level": [
+      "COBOL: FBRMECIN-MEC-INDICATOR",
+      "DB2: LH_BAS_POL.MEC_STATUS_CD"
+    ],
+    "Commission Chargeback Code": [
+      "COBOL: FBRCMCCD-COMM-CHGBACK-CODE",
+      "DB2: LH_BAS_POL.COM_CHARGEBACK_CD"
+    ],
+    "Death Benefit Indicator": [
+      "COBOL: FBRDBIND-DEATH-BEN-IND",
+      "DB2: LH_BAS_POL.DTH_BNF_CD"
+    ],
+    "EIL Indicator": [
+      "COBOL: FBREIL-EIL-INDICATOR",
+      "DB2: LH_BAS_POL.EIL_IND"
+    ],
+    "Pending Status": [
+      "COBOL: FBRPSTAT-PENDING-STATUS",
+      "DB2: LH_BAS_POL.PND_STA_REA_CD"
+    ],
+    "Policy Type": [
+      "COBOL: FBRPOLTP-POLICY-TYPE",
+      "DB2: LH_BAS_POL.POL_CTT_TYP_CD"
+    ],
+    "Group History Indicator": [
+      "COBOL: FBRGRPHS-GROUP-HISTORY-IND",
+      "DB2: LH_BAS_POL.GRP_HST_IND"
+    ],
+    "Premium Waiver Option": [
+      "COBOL: FBRPWOPT-PREM-WAIVER-OPT",
+      "DB2: LH_BAS_POL.PW_OPT_CD"
+    ],
+    "Next Offline Processing Date": [
+      "COBOL: FBROTDDT-OFFLINE-TODAY",
+      "DB2: LH_BAS_POL.OFL_PRC_REQ_DT"
+    ],
+    "Next Bill Date": [
+      "COBOL: FBRNBLDT-NEXT-BILL",
+      "DB2: LH_BAS_POL.NXT_BIL_DT"
+    ],
+    "Next Potential Termination Event Date": [
+      "COBOL: FBRMTMDT-MAY-TERMINATE",
+      "DB2: LH_BAS_POL.PLN_TMN_DT"
+    ],
+    "Next Scheduled Notification Date": [
+      "COBOL: FBRNNTDT-NEXT-NOTIFY",
+      "DB2: LH_BAS_POL.NXT_SCH_NOT_DT"
+    ],
+    "Next Scheduled Statement Date": [
+      "COBOL: FBRNSTDT-NEXT-STATEMENT",
+      "DB2: LH_BAS_POL.NXT_SCH_STT_DT"
+    ],
+    "Next Monthliversary Date": [
+      "COBOL: FBRNMVDT-NEXT-MV",
+      "DB2: LH_BAS_POL.NXT_MVRY_PRC_DT"
+    ],
+    "Next Year-End Date": [
+      "COBOL: FBRNYEDT-NEXT-YR-END",
+      "DB2: LH_BAS_POL.NXT_YR_END_PRC_DT"
+    ],
+    "Next Dividend or Automatic Transaction Activity Date": [
+      "COBOL: FBRNDVDT-DIV-OR-AUTOTRAN",
+      "DB2: LH_BAS_POL.DIV_ACY_CLC_DT"
+    ],
+    "Next Index Income Activity Date": [
+      "COBOL: FBRNIIDT-NEXT-INDEX-INC",
+      "DB2: LH_BAS_POL.NXT_IND_INC_DT"
+    ],
+    "PerformancePlus Advance Indicator": [
+      "COBOL: FBRADVAN-ADVANCE-IND",
+      "DB2: LH_BAS_POL.ADVANCE_IND"
+    ],
+    "PerformancePlus Special Case Indicator": [
+      "COBOL: FBRSPECA-SPECIAL-CASE-IND",
+      "DB2: LH_BAS_POL.SPEC_CASE_IND"
+    ],
+    "New Business Indicator": [
+      "COBOL: FBRADVNB-NEWB-GEND-IND"
+    ],
+    "Premium as Loan Payment Indicator": [
+      "COBOL: FBRLNPAY-LOAN-PYMT-IND"
+    ],
+    "LUS Indicator": [
+      "COBOL: FBRLUS-LUS-INDICATOR",
+      "DB2: TH_BAS_POL.LUS_IND",
+      "Modification: AN0531"
+    ],
+    "Review Needed Indicator": [
+      "COBOL: FBRREIRV-REVIEW-NEEDED",
+      "DB2: TH_BAS_POL.REVIEW_NEED_IND",
+      "Modification: AN0168"
+    ],
+    "Maximum Indicator": [
+      "COBOL: FBRREIMX-MAXIMUM-INDICATOR",
+      "DB2: TH_BAS_POL.REIN_MAX_XEEDED",
+      "Modification: AN0168"
+    ],
+    "Bill Day 1": [
+      "COBOL: FBRBILD1-BILL-DAY-1",
+      "DB2: TH_BAS_POL.BILL_DAY_1",
+      "Modification: AN0526"
+    ],
+    "Bill Day 2": [
+      "COBOL: FBRBILD2-BILL-DAY-2",
+      "DB2: TH_BAS_POL.BILL_DAY_2",
+      "Modification: AN0526"
+    ],
+    "Archived Restriction Code": [
+      "COBOL: FBRARSTC-ARCHIVED-RSTRCT-CD",
+      "DB2: TH_BAS_POL.ARCH_RESTR_CODE",
+      "Modification: AP0802"
+    ],
+    "Forced Premium Indicator": [
+      "COBOL: FBRFPIND-FORCED-PREM-IND",
+      "DB2: TH_BAS_POL.FORCED_PREM_IND",
+      "Modification: AW2388"
+    ],
+    "LOAN_INT_SEL": [
+      "COBOL: FBRLNINT-LOAN-INT-SELECTION",
+      "DB2: TH_BAS_POL.LOAN_INT_SEL",
+      "Modification: S05914"
+    ]
+  },
+  "field_specs": [
+    {
+      "name": "Segment Identification",
+      "byte": "1-2",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Segment Length",
+      "byte": "3-4",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Issue Company Code",
+      "byte": "5",
+      "db2": "LH_BAS_POL.ISS_CMP_CD",
+      "cobol": "FBRISSCO-ISSUE-COMPANY-CD"
+    },
+    {
+      "name": "Administrative Company Code",
+      "byte": "6",
+      "db2": "LH_BAS_POL.ADM_CMP_CD",
+      "cobol": "FBRADMCO-ADMIN-COMPANY-CD"
+    },
+    {
+      "name": "Financial Company Code",
+      "byte": "7",
+      "db2": "LH_BAS_POL.FIN_CMP_CD",
+      "cobol": "FBRFINCO-FINAN-COMPANY-CD"
+    },
+    {
+      "name": "Reserved",
+      "byte": "8-9",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Record Status",
+      "byte": "10",
+      "db2": "LH_BAS_POL.ACY_POL_CD",
+      "cobol": "FBRRECST-RECORD-STATUS"
+    },
+    {
+      "name": "Flag Byte A",
+      "byte": "11",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte B",
+      "byte": "12",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte C",
+      "byte": "13",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte D",
+      "byte": "14",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte E",
+      "byte": "15",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte F",
+      "byte": "16",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Initial Monthliversary",
+      "byte": "17",
+      "db2": "LH_BAS_POL.INT_MLV_NBR",
+      "cobol": "FBRINIMV-INITIAL-MTHLYVERSARY"
+    },
+    {
+      "name": "Extract Date",
+      "byte": "18-22",
+      "db2": null,
+      "cobol": "FBRXTRCT-EXTRACT-DATE"
+    },
+    {
+      "name": "Paid-To Date",
+      "byte": "23-27",
+      "db2": "LH_BAS_POL.PRM_PAID_TO_DT",
+      "cobol": "FBRPDTDT-PAID-TO-DATE"
+    },
+    {
+      "name": "Billed-To Date",
+      "byte": "28-32",
+      "db2": "LH_BAS_POL.PRM_BILL_TO_DT",
+      "cobol": "FBRBILTD-BILLED-TO-DATE"
+    },
+    {
+      "name": "Special Scheduleing Date",
+      "byte": "33-37",
+      "db2": null,
+      "cobol": "FBRSCHDT-SPEC-SCHEDULING-DATE"
+    },
+    {
+      "name": "Application Date",
+      "byte": "38-42",
+      "db2": "LH_BAS_POL.APP_WRT_DT",
+      "cobol": "FBRAPPDT-APP-DATE"
+    },
+    {
+      "name": "Last Anniversary Processed",
+      "byte": "43-47",
+      "db2": "LH_BAS_POL.LST_ANV_DT",
+      "cobol": "FBRLSTDF-LAST-ANN-DATE-FIELDS"
+    },
+    {
+      "name": "Billing Day",
+      "byte": "48-49",
+      "db2": "LH_BAS_POL.BIL_DAY_NBR",
+      "cobol": "FBRDUEDY-BILLING-DAY"
+    },
+    {
+      "name": "Billing Use Code",
+      "byte": "50",
+      "db2": "LH_BAS_POL.BIL_DAY_USE_CD",
+      "cobol": "FBRDUEUS-BILLING-USE-CODE"
+    },
+    {
+      "name": "Nonforfeiture Option",
+      "byte": "51",
+      "db2": "LH_BAS_POL.NFO_OPT_TYP_CD",
+      "cobol": "FBROPT-NFO-OPTION"
+    },
+    {
+      "name": "Automatic Premium Loan Code",
+      "byte": "52",
+      "db2": "LH_BAS_POL.APL_PRC_CD",
+      "cobol": "FBRAPL-APL"
+    },
+    {
+      "name": "APL Stop Code",
+      "byte": "53",
+      "db2": "LH_BAS_POL.APL_LIM_CD",
+      "cobol": "FBRLIM-STOP"
+    },
+    {
+      "name": "Loan Interest Type Code",
+      "byte": "54",
+      "db2": "LH_BAS_POL.LN_TYP_CD",
+      "cobol": "FBRLTYPE-INTEREST-TYPE"
+    },
+    {
+      "name": "Loan Interest Rate",
+      "byte": "55-57",
+      "db2": "LH_BAS_POL.LN_PLN_ITS_RT",
+      "cobol": "FBRLINTR-INTEREST-RATE"
+    },
+    {
+      "name": "Automatic Premium Loan Number",
+      "byte": "58-59",
+      "db2": "LH_FXD_PRM_POL.APL_CNT_QTY",
+      "cobol": "FBRAPLNO-APL-NUM"
+    },
+    {
+      "name": "Restrict Code Assignment",
+      "byte": "60",
+      "db2": "LH_BAS_POL.ASN_IND_CD",
+      "cobol": "FBRRESTA-ASSIGNMENT"
+    },
+    {
+      "name": "Restriction Code",
+      "byte": "61",
+      "db2": "LH_BAS_POL.RTT_1_CD",
+      "cobol": "FBRRESTR-RESTRICT-OTHER"
+    },
+    {
+      "name": "Dividend Option",
+      "byte": "62",
+      "db2": "LH_BAS_POL.PRI_DIV_OPT_CD",
+      "cobol": "FBRPROPD-DIVIDEND-OPTION"
+    },
+    {
+      "name": "Dividend Secondary",
+      "byte": "63",
+      "db2": "LH_BAS_POL.DIV_2ND_OPT_CD",
+      "cobol": "FBRPROSD-DIVIDEND-SECONDARY"
+    },
+    {
+      "name": "Other Dividend Option",
+      "byte": "64",
+      "db2": "LH_BAS_POL.PRI_OTH_FRM_OPT_CD",
+      "cobol": "FBRPROPO-OTHER-OPTION"
+    },
+    {
+      "name": "Other Dividend Secondary",
+      "byte": "65",
+      "db2": "LH_BAS_POL.OTH_FRM_2ND_OPT_CD",
+      "cobol": "FBRPROSO-OTHER-SECONDARY"
+    },
+    {
+      "name": "Pension",
+      "byte": "66",
+      "db2": "LH_BAS_POL.PEN_TST_CD",
+      "cobol": "FBRPENSN-PENSION"
+    },
+    {
+      "name": "Reinsured Code",
+      "byte": "67",
+      "db2": "LH_BAS_POL.REINSURED_CD",
+      "cobol": "FBRREINS-REINSURED-CODE"
+    },
+    {
+      "name": "Resident Country",
+      "byte": "68",
+      "db2": "LH_BAS_POL.PAY_CTR_CD",
+      "cobol": "FBRRCTRY-RESIDENT-COUNTRY"
+    },
+    {
+      "name": "Resident State",
+      "byte": "69-70",
+      "db2": "LH_BAS_POL.PRM_PAY_ST_CD",
+      "cobol": "FBRSTATE-STATE"
+    },
+    {
+      "name": "Resident Area",
+      "byte": "71-75",
+      "db2": "LH_BAS_POL.PAY_TAX_DST_CD",
+      "cobol": "FBRAREA-AREA"
+    },
+    {
+      "name": "Branch or Agency",
+      "byte": "76-85",
+      "db2": "LH_BAS_POL.SVC_AGC_NBR",
+      "cobol": "FBRAGNCY-BRANCH-AGENCY"
+    },
+    {
+      "name": "Agent",
+      "byte": "86-95",
+      "db2": "LH_BAS_POL.SVC_AGT_NBR",
+      "cobol": "FBRAGENT-AGENT"
+    },
+    {
+      "name": "Mode Premium Table Code",
+      "byte": "96-97",
+      "db2": "LH_FXD_PRM_POL.MD_PRM_SRC_CD",
+      "cobol": "FBRMPCOD-MODE-PREM-TABLE-CODE"
+    },
+    {
+      "name": "Semiannual Factor",
+      "byte": "98-100",
+      "db2": "LH_FXD_PRM_POL.SAN_MD_FCT",
+      "cobol": "FBRMCALS-SEMIANNUAL-FACTOR"
+    },
+    {
+      "name": "Quarterly Factor",
+      "byte": "101-103",
+      "db2": "LH_FXD_PRM_POL.QTR_MD_FCT",
+      "cobol": "FBRMCALQ-QUARTERLY-FACTOR"
+    },
+    {
+      "name": "Monthly Factor",
+      "byte": "104-106",
+      "db2": "LH_FXD_PRM_POL.MO_MD_FCT",
+      "cobol": "FBRMCALM-MONTHLY-FACTOR"
+    },
+    {
+      "name": "Multiply Order Code",
+      "byte": "107",
+      "db2": "LH_FXD_PRM_POL.MD_PRM_MUL_ORD_CD",
+      "cobol": "FBRORDCD-ORDER-CODE"
+    },
+    {
+      "name": "Rating Order",
+      "byte": "108",
+      "db2": "LH_FXD_PRM_POL.RT_FCT_ORD_CD",
+      "cobol": "FBRRORCD-RATING-ORDER-CODE"
+    },
+    {
+      "name": "Round Rule",
+      "byte": "109",
+      "db2": "LH_FXD_PRM_POL.ROU_RLE_CD",
+      "cobol": "FBRROUND-ROUNDING-RULE"
+    },
+    {
+      "name": "Mode Factor Modify Code",
+      "byte": "110",
+      "db2": "LH_FXD_PRM_POL.POL_FEE_MDF_CD",
+      "cobol": "FBRFACTM-MODE-FACTOR-MODIFY"
+    },
+    {
+      "name": "Policy Fee/Collection Fee",
+      "byte": "111",
+      "db2": "LH_FXD_PRM_POL.COL_FEE_MDF_CD",
+      "cobol": "FBRPOLFE-MODIFY-POLICY-FEE"
+    },
+    {
+      "name": "Premium Discount",
+      "byte": "112",
+      "db2": "LH_BAS_POL.PRM_DSC_CD",
+      "cobol": "FBRPDISC-PREM-DISCOUNTS"
+    },
+    {
+      "name": "Collection Fee Add Code",
+      "byte": "113",
+      "db2": "LH_FXD_PRM_POL.COL_FEE_ADD_CD",
+      "cobol": "FBRCFEEA-COLL-FEE-ADD"
+    },
+    {
+      "name": "Collection Fee Commissionable Indicator",
+      "byte": "114",
+      "db2": "LH_FXD_PRM_POL.COL_FEE_COM_CD",
+      "cobol": "FBRCFEEC-COLL-FEE-COMMISSION"
+    },
+    {
+      "name": "Collection Fee Amount",
+      "byte": "115-118",
+      "db2": "LH_FXD_PRM_POL.COL_FEE_AMT",
+      "cobol": "FBRMCALC-COLLECTION-FEE"
+    },
+    {
+      "name": "Policy Fee Factors Table Code",
+      "byte": "119-120",
+      "db2": "LH_FXD_PRM_POL.POL_FEE_FCT_SRC_CD",
+      "cobol": "FBRPFEEF-POL-FEE-FACT-TBL-CODE"
+    },
+    {
+      "name": "Policy Fee Add Code",
+      "byte": "121",
+      "db2": "LH_FXD_PRM_POL.POL_FEE_ADD_CD",
+      "cobol": "FBRPFEEA-POL-FEE-ADD"
+    },
+    {
+      "name": "Policy Fee Commission",
+      "byte": "122",
+      "db2": "LH_FXD_PRM_POL.POL_FEE_COM_CD",
+      "cobol": "FBRPFEEC-POL-FEE-COMMISSION"
+    },
+    {
+      "name": "Policy Fee User-Defined Rule",
+      "byte": "123",
+      "db2": "LH_FXD_PRM_POL.POL_FEE_USR_CD",
+      "cobol": "FBRPFUSR-POL-FEE-USER-CODE"
+    },
+    {
+      "name": "Policy Fee Amount",
+      "byte": "124-127",
+      "db2": "LH_FXD_PRM_POL.POL_FEE_AMT",
+      "cobol": "FBRFEE-POLICY-FEE"
+    },
+    {
+      "name": "Mode Premium",
+      "byte": "128-133",
+      "db2": "LH_BAS_POL.POL_PRM_AMT",
+      "cobol": "FBRMPREM-MODE-PREMIUM"
+    },
+    {
+      "name": "Commission Premium Method",
+      "byte": "134",
+      "db2": "LH_BAS_POL.PRM_COM_MTH_CD",
+      "cobol": "FBRCPREM-PREMIUM"
+    },
+    {
+      "name": "Special Commission",
+      "byte": "135",
+      "db2": "LH_FXD_PRM_POL.SPE_COM_ARG_CD",
+      "cobol": "FBRCSPEC-SPECIAL"
+    },
+    {
+      "name": "Handling",
+      "byte": "136",
+      "db2": "LH_BAS_POL.SPE_BIL_HDL_CD",
+      "cobol": "FBRHANDL-HANDLING"
+    },
+    {
+      "name": "Nonstandard Mode Skip Month",
+      "byte": "137-138",
+      "db2": "LH_BAS_POL.FST_SKIP_MO_NBR",
+      "cobol": "FBRSTSKM-SKIP-MONTH"
+    },
+    {
+      "name": "Nonstandard Mode Number of Months to Skip",
+      "byte": "139-140",
+      "db2": "LH_BAS_POL.MO_TO_SKIP_NBR",
+      "cobol": "FBRSTNOM-NUMBER-MONTHS-SKIP"
+    },
+    {
+      "name": "Suspend Billing Code",
+      "byte": "141",
+      "db2": "LH_BAS_POL.SUS_CD",
+      "cobol": "FBRSUSPD-SUSPEND"
+    },
+    {
+      "name": "Billing Status",
+      "byte": "142-143",
+      "db2": "LH_BAS_POL.PRM_PAY_STA_REA_CD",
+      "cobol": "FBRSTAT-STATUS"
+    },
+    {
+      "name": "Billing Form",
+      "byte": "144",
+      "db2": "LH_BAS_POL.BIL_FRM_CD",
+      "cobol": "FBRFORM-FORM"
+    },
+    {
+      "name": "Billing Mode",
+      "byte": "145-146",
+      "db2": "LH_BAS_POL.PMT_FQY_PER",
+      "cobol": "FBRBMODE-MODE"
+    },
+    {
+      "name": "Nonstandard Mode",
+      "byte": "147",
+      "db2": "LH_BAS_POL.NSD_MD_CD",
+      "cobol": "FBRMDNST-NONSTD-MODE"
+    },
+    {
+      "name": "Billing Currency",
+      "byte": "148",
+      "db2": "LH_BAS_POL.BIL_CRY_CD",
+      "cobol": "FBRBCURR-BILLING-CURRENCY"
+    },
+    {
+      "name": "Billing Language",
+      "byte": "149",
+      "db2": "LH_BAS_POL.BIL_LGG_CD",
+      "cobol": "FBRBLANG-BILLING-LANGUAGE"
+    },
+    {
+      "name": "Original Entry Code",
+      "byte": "150",
+      "db2": "LH_BAS_POL.OGN_ETR_CD",
+      "cobol": "FBRORGEN-ORIGINAL"
+    },
+    {
+      "name": "Last Entry Code",
+      "byte": "151",
+      "db2": "LH_BAS_POL.LST_ETR_CD",
+      "cobol": "FBRLSTEN-LAST"
+    },
+    {
+      "name": "Change Pending Code (Reserved)",
+      "byte": "152",
+      "db2": null,
+      "cobol": "FBRPEND-CHANGE-PENDING-CODE"
+    },
+    {
+      "name": "Last Premium Paid",
+      "byte": "153",
+      "db2": "LH_FXD_PRM_POL.LST_PRM_PAY_CD",
+      "cobol": "FBRHOWPD-LAST-PREMIUM-PAID"
+    },
+    {
+      "name": "Accounting Date",
+      "byte": "154-157",
+      "db2": "LH_BAS_POL.LST_ACT_TRS_DT",
+      "cobol": "FBRPAYDT-ACCOUNTING-DATE"
+    },
+    {
+      "name": "Last Financial Date",
+      "byte": "158-161",
+      "db2": "LH_BAS_POL.LST_FIN_DT",
+      "cobol": "FBRFINDT-FIN-DATE"
+    },
+    {
+      "name": "Other Date",
+      "byte": "162-165",
+      "db2": "LH_BAS_POL.LST_POL_CHG_DT",
+      "cobol": "FBRCHGDT-OTHER-DATE"
+    },
+    {
+      "name": "Other Kind",
+      "byte": "166",
+      "db2": "LH_BAS_POL.POL_CHG_RPT_TYP_CD",
+      "cobol": "FBRKIND-OTHER-KIND"
+    },
+    {
+      "name": "Billing Date",
+      "byte": "167-170",
+      "db2": "LH_BAS_POL.LST_BIL_ERT_DT",
+      "cobol": "FBRBILDT-BILLING-DATE"
+    },
+    {
+      "name": "Billing Kind",
+      "byte": "171",
+      "db2": "LH_BAS_POL.BIL_ERT_TYP_CD",
+      "cobol": "FBRBILKD-BILLING-KIND"
+    },
+    {
+      "name": "Special Code",
+      "byte": "172-173",
+      "db2": "LH_BAS_POL.USR_RES_CD",
+      "cobol": "FBRSPECL-SPECIAL-CODE"
+    },
+    {
+      "name": "Issue Country",
+      "byte": "174",
+      "db2": "LH_BAS_POL.ISS_CTR_CD",
+      "cobol": "FBRICNTY-ISSUE-COUNTRY"
+    },
+    {
+      "name": "Issue State",
+      "byte": "175-176",
+      "db2": "LH_BAS_POL.POL_ISS_ST_CD",
+      "cobol": "FBRISTAT-ISSUE-STATE"
+    },
+    {
+      "name": "MEC Indicator - Policy Level",
+      "byte": "177",
+      "db2": "LH_BAS_POL.MEC_STATUS_CD",
+      "cobol": "FBRMECIN-MEC-INDICATOR"
+    },
+    {
+      "name": "Commission Chargeback Code",
+      "byte": "178-180",
+      "db2": "LH_BAS_POL.COM_CHARGEBACK_CD",
+      "cobol": "FBRCMCCD-COMM-CHGBACK-CODE"
+    },
+    {
+      "name": "Death Benefit Indicator",
+      "byte": "181",
+      "db2": "LH_BAS_POL.DTH_BNF_CD",
+      "cobol": "FBRDBIND-DEATH-BEN-IND"
+    },
+    {
+      "name": "EIL Indicator",
+      "byte": "182",
+      "db2": "LH_BAS_POL.EIL_IND",
+      "cobol": "FBREIL-EIL-INDICATOR"
+    },
+    {
+      "name": "Pending Status",
+      "byte": "183",
+      "db2": "LH_BAS_POL.PND_STA_REA_CD",
+      "cobol": "FBRPSTAT-PENDING-STATUS"
+    },
+    {
+      "name": "Policy Type",
+      "byte": "184-185",
+      "db2": "LH_BAS_POL.POL_CTT_TYP_CD",
+      "cobol": "FBRPOLTP-POLICY-TYPE"
+    },
+    {
+      "name": "Group History Indicator",
+      "byte": "186",
+      "db2": "LH_BAS_POL.GRP_HST_IND",
+      "cobol": "FBRGRPHS-GROUP-HISTORY-IND"
+    },
+    {
+      "name": "Premium Waiver Option",
+      "byte": "187",
+      "db2": "LH_BAS_POL.PW_OPT_CD",
+      "cobol": "FBRPWOPT-PREM-WAIVER-OPT"
+    },
+    {
+      "name": "Next Offline Processing Date",
+      "byte": "188-192",
+      "db2": "LH_BAS_POL.OFL_PRC_REQ_DT",
+      "cobol": "FBROTDDT-OFFLINE-TODAY"
+    },
+    {
+      "name": "Next Bill Date",
+      "byte": "193-197",
+      "db2": "LH_BAS_POL.NXT_BIL_DT",
+      "cobol": "FBRNBLDT-NEXT-BILL"
+    },
+    {
+      "name": "Next Potential Termination Event Date",
+      "byte": "198-202",
+      "db2": "LH_BAS_POL.PLN_TMN_DT",
+      "cobol": "FBRMTMDT-MAY-TERMINATE"
+    },
+    {
+      "name": "Next Scheduled Notification Date",
+      "byte": "203-207",
+      "db2": "LH_BAS_POL.NXT_SCH_NOT_DT",
+      "cobol": "FBRNNTDT-NEXT-NOTIFY"
+    },
+    {
+      "name": "Next Scheduled Statement Date",
+      "byte": "208-212",
+      "db2": "LH_BAS_POL.NXT_SCH_STT_DT",
+      "cobol": "FBRNSTDT-NEXT-STATEMENT"
+    },
+    {
+      "name": "Next Monthliversary Date",
+      "byte": "213-217",
+      "db2": "LH_BAS_POL.NXT_MVRY_PRC_DT",
+      "cobol": "FBRNMVDT-NEXT-MV"
+    },
+    {
+      "name": "Next Year-End Date",
+      "byte": "218-222",
+      "db2": "LH_BAS_POL.NXT_YR_END_PRC_DT",
+      "cobol": "FBRNYEDT-NEXT-YR-END"
+    },
+    {
+      "name": "Next Dividend or Automatic Transaction Activity Date",
+      "byte": "223-227",
+      "db2": "LH_BAS_POL.DIV_ACY_CLC_DT",
+      "cobol": "FBRNDVDT-DIV-OR-AUTOTRAN"
+    },
+    {
+      "name": "Next Index Income Activity Date",
+      "byte": "228-232",
+      "db2": "LH_BAS_POL.NXT_IND_INC_DT",
+      "cobol": "FBRNIIDT-NEXT-INDEX-INC"
+    },
+    {
+      "name": "PerformancePlus Advance Indicator",
+      "byte": "233",
+      "db2": "LH_BAS_POL.ADVANCE_IND",
+      "cobol": "FBRADVAN-ADVANCE-IND"
+    },
+    {
+      "name": "PerformancePlus Special Case Indicator",
+      "byte": "234",
+      "db2": "LH_BAS_POL.SPEC_CASE_IND",
+      "cobol": "FBRSPECA-SPECIAL-CASE-IND"
+    },
+    {
+      "name": "New Business Indicator",
+      "byte": "235",
+      "db2": null,
+      "cobol": "FBRADVNB-NEWB-GEND-IND"
+    },
+    {
+      "name": "Premium as Loan Payment Indicator",
+      "byte": "236",
+      "db2": null,
+      "cobol": "FBRLNPAY-LOAN-PYMT-IND"
+    },
+    {
+      "name": "Reserved",
+      "byte": "237-262",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "LUS Indicator",
+      "byte": "263",
+      "db2": "TH_BAS_POL.LUS_IND",
+      "cobol": "FBRLUS-LUS-INDICATOR"
+    },
+    {
+      "name": "Review Needed Indicator",
+      "byte": "264",
+      "db2": "TH_BAS_POL.REVIEW_NEED_IND",
+      "cobol": "FBRREIRV-REVIEW-NEEDED"
+    },
+    {
+      "name": "Maximum Indicator",
+      "byte": "265",
+      "db2": "TH_BAS_POL.REIN_MAX_XEEDED",
+      "cobol": "FBRREIMX-MAXIMUM-INDICATOR"
+    },
+    {
+      "name": "Bill Day 1",
+      "byte": "266-268",
+      "db2": "TH_BAS_POL.BILL_DAY_1",
+      "cobol": "FBRBILD1-BILL-DAY-1"
+    },
+    {
+      "name": "Bill Day 2",
+      "byte": "269-271",
+      "db2": "TH_BAS_POL.BILL_DAY_2",
+      "cobol": "FBRBILD2-BILL-DAY-2"
+    },
+    {
+      "name": "Archived Restriction Code",
+      "byte": "272",
+      "db2": "TH_BAS_POL.ARCH_RESTR_CODE",
+      "cobol": "FBRARSTC-ARCHIVED-RSTRCT-CD"
+    },
+    {
+      "name": "Forced Premium Indicator",
+      "byte": "273",
+      "db2": "TH_BAS_POL.FORCED_PREM_IND",
+      "cobol": "FBRFPIND-FORCED-PREM-IND"
+    },
+    {
+      "name": "LOAN_INT_SEL",
+      "byte": "274",
+      "db2": "TH_BAS_POL.LOAN_INT_SEL",
+      "cobol": "FBRLNINT-LOAN-INT-SELECTION"
+    }
+  ],
+  "layout_html": "<table><tr><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Byte</td><td style = \"width: 400px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Field</td><td style = \"width: 400px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 300px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td></tr>\n\n\n<tr><td style = \"text-align: center; border:1px solid;\" rowspan=\"1\">1-2</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Identification\"></a><b>Segment Identification</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">3-4</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Length\"></a><b>Segment Length</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">5</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Issue_Company_Code\"></a><b>Issue Company Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRISSCO-ISSUE-COMPANY-CD</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.ISS_CMP_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">6</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Administrative_Company_Code\"></a><b>Administrative Company Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRADMCO-ADMIN-COMPANY-CD</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.ADM_CMP_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">7</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Financial_Company_Code\"></a><b>Financial Company Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRFINCO-FINAN-COMPANY-CD</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.FIN_CMP_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">8-9</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Reserved\"></a><b>Reserved</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">10</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Record_Status\"></a><b>Record Status</b></br>&#160;&#160;&#160;&#160;COBOL: FBRRECST-RECORD-STATUS</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.ACY_POL_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">11</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_A\"></a><b>Flag Byte A</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">12</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_B\"></a><b>Flag Byte B</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">13</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_C\"></a><b>Flag Byte C</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">14</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_D\"></a><b>Flag Byte D</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">15</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_E\"></a><b>Flag Byte E</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">16</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_F\"></a><b>Flag Byte F</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">17</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Initial_Monthliversary\"></a><b>Initial Monthliversary</b></br>&#160;&#160;&#160;&#160;COBOL: FBRINIMV-INITIAL-MTHLYVERSARY</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.INT_MLV_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">18-22</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Extract_Date\"></a><b>Extract Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRXTRCT-EXTRACT-DATE</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">23-27</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Paid-To_Date\"></a><b>Paid-To Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPDTDT-PAID-TO-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PRM_PAID_TO_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">28-32</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Billed-To_Date\"></a><b>Billed-To Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRBILTD-BILLED-TO-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PRM_BILL_TO_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">33-37</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Special_Scheduleing_Date\"></a><b>Special Scheduleing Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRSCHDT-SPEC-SCHEDULING-DATE</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">38-42</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Application_Date\"></a><b>Application Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRAPPDT-APP-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.APP_WRT_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">43-47</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Last_Anniversary_Processed\"></a><b>Last Anniversary Processed</b></br>&#160;&#160;&#160;&#160;COBOL: FBRLSTDF-LAST-ANN-DATE-FIELDS</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.LST_ANV_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">48-49</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Billing_Day\"></a><b>Billing Day</b></br>&#160;&#160;&#160;&#160;COBOL: FBRDUEDY-BILLING-DAY</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.BIL_DAY_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">50</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Billing_Use_Code\"></a><b>Billing Use Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRDUEUS-BILLING-USE-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.BIL_DAY_USE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">51</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Nonforfeiture_Option\"></a><b>Nonforfeiture Option</b></br>&#160;&#160;&#160;&#160;COBOL: FBROPT-NFO-OPTION</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.NFO_OPT_TYP_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">52</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Automatic_Premium_Loan_Code\"></a><b>Automatic Premium Loan Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRAPL-APL</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.APL_PRC_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">53</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"APL_Stop_Code\"></a><b>APL Stop Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRLIM-STOP</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.APL_LIM_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">54</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Loan_Interest_Type_Code\"></a><b>Loan Interest Type Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRLTYPE-INTEREST-TYPE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.LN_TYP_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">55-57</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Loan_Interest_Rate\"></a><b>Loan Interest Rate</b></br>&#160;&#160;&#160;&#160;COBOL: FBRLINTR-INTEREST-RATE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.LN_PLN_ITS_RT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">58-59</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Automatic_Premium_Loan_Number\"></a><b>Automatic Premium Loan Number</b></br>&#160;&#160;&#160;&#160;COBOL: FBRAPLNO-APL-NUM</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.APL_CNT_QTY</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">60</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Restrict_Code_Assignment\"></a><b>Restrict Code Assignment</b></br>&#160;&#160;&#160;&#160;COBOL: FBRRESTA-ASSIGNMENT</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.ASN_IND_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">61</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Restriction_Code\"></a><b>Restriction Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRRESTR-RESTRICT-OTHER</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.RTT_1_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">62</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Dividend_Option\"></a><b>Dividend Option</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPROPD-DIVIDEND-OPTION</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PRI_DIV_OPT_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">63</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Dividend_Secondary\"></a><b>Dividend Secondary</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPROSD-DIVIDEND-SECONDARY</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.DIV_2ND_OPT_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">64</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Other_Dividend_Option\"></a><b>Other Dividend Option</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPROPO-OTHER-OPTION</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PRI_OTH_FRM_OPT_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">65</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Other_Dividend_Secondary\"></a><b>Other Dividend Secondary</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPROSO-OTHER-SECONDARY</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.OTH_FRM_2ND_OPT_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">66</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Pension\"></a><b>Pension</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPENSN-PENSION</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PEN_TST_CD</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"\"></a><b>LTC Qualification Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRLTCQN-QUALIFY-LTC-CODES</br>&#160;&#160;&#160;&#160;DB2: </td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">67</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Reinsured_Code\"></a><b>Reinsured Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRREINS-REINSURED-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.REINSURED_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">68</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Resident_Country\"></a><b>Resident Country</b></br>&#160;&#160;&#160;&#160;COBOL: FBRRCTRY-RESIDENT-COUNTRY</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PAY_CTR_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">69-70</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Resident_State\"></a><b>Resident State</b></br>&#160;&#160;&#160;&#160;COBOL: FBRSTATE-STATE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PRM_PAY_ST_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">71-75</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Resident_Area\"></a><b>Resident Area</b></br>&#160;&#160;&#160;&#160;COBOL: FBRAREA-AREA</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PAY_TAX_DST_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">76-85</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Branch_or_Agency\"></a><b>Branch or Agency</b></br>&#160;&#160;&#160;&#160;COBOL: FBRAGNCY-BRANCH-AGENCY</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.SVC_AGC_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">86-95</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Agent\"></a><b>Agent</b></br>&#160;&#160;&#160;&#160;COBOL: FBRAGENT-AGENT</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.SVC_AGT_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">96-97</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Mode_Premium_Table_Code\"></a><b>Mode Premium Table Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRMPCOD-MODE-PREM-TABLE-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.MD_PRM_SRC_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">98-100</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Semiannual_Factor\"></a><b>Semiannual Factor</b></br>&#160;&#160;&#160;&#160;COBOL: FBRMCALS-SEMIANNUAL-FACTOR</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.SAN_MD_FCT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">101-103</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Quarterly_Factor\"></a><b>Quarterly Factor</b></br>&#160;&#160;&#160;&#160;COBOL: FBRMCALQ-QUARTERLY-FACTOR</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.QTR_MD_FCT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">104-106</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Monthly_Factor\"></a><b>Monthly Factor</b></br>&#160;&#160;&#160;&#160;COBOL: FBRMCALM-MONTHLY-FACTOR</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.MO_MD_FCT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">107</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Multiply_Order_Code\"></a><b>Multiply Order Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRORDCD-ORDER-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.MD_PRM_MUL_ORD_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">108</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Rating_Order\"></a><b>Rating Order</b></br>&#160;&#160;&#160;&#160;COBOL: FBRRORCD-RATING-ORDER-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.RT_FCT_ORD_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">109</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Round_Rule\"></a><b>Round Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FBRROUND-ROUNDING-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.ROU_RLE_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">110</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Mode_Factor_Modify_Code\"></a><b>Mode Factor Modify Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRFACTM-MODE-FACTOR-MODIFY</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.POL_FEE_MDF_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">111</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Policy_Fee/Collection_Fee\"></a><b>Policy Fee/Collection Fee</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPOLFE-MODIFY-POLICY-FEE</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.COL_FEE_MDF_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">112</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Premium_Discount\"></a><b>Premium Discount</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPDISC-PREM-DISCOUNTS</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PRM_DSC_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">113</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Collection_Fee_Add_Code\"></a><b>Collection Fee Add Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRCFEEA-COLL-FEE-ADD</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.COL_FEE_ADD_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">114</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Collection_Fee_Commissionable_Indicator\"></a><b>Collection Fee Commissionable Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBRCFEEC-COLL-FEE-COMMISSION</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.COL_FEE_COM_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">115-118</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Collection_Fee_Amount\"></a><b>Collection Fee Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FBRMCALC-COLLECTION-FEE</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.COL_FEE_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">119-120</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Policy_Fee_Factors_Table_Code\"></a><b>Policy Fee Factors Table Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPFEEF-POL-FEE-FACT-TBL-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.POL_FEE_FCT_SRC_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">121</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Policy_Fee_Add_Code\"></a><b>Policy Fee Add Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPFEEA-POL-FEE-ADD</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.POL_FEE_ADD_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">122</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Policy_Fee_Commission\"></a><b>Policy Fee Commission</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPFEEC-POL-FEE-COMMISSION</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.POL_FEE_COM_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">123</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Policy_Fee_User-Defined_Rule\"></a><b>Policy Fee User-Defined Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPFUSR-POL-FEE-USER-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.POL_FEE_USR_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">124-127</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Policy_Fee_Amount\"></a><b>Policy Fee Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FBRFEE-POLICY-FEE</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.POL_FEE_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">128-133</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Mode_Premium\"></a><b>Mode Premium</b></br>&#160;&#160;&#160;&#160;COBOL: FBRMPREM-MODE-PREMIUM</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.POL_PRM_AMT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">134</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Commission_Premium_Method\"></a><b>Commission Premium Method</b></br>&#160;&#160;&#160;&#160;COBOL: FBRCPREM-PREMIUM</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PRM_COM_MTH_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">135</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Special_Commission\"></a><b>Special Commission</b></br>&#160;&#160;&#160;&#160;COBOL: FBRCSPEC-SPECIAL</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.SPE_COM_ARG_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">136</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Handling\"></a><b>Handling</b></br>&#160;&#160;&#160;&#160;COBOL: FBRHANDL-HANDLING</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.SPE_BIL_HDL_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">137-138</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Nonstandard_Mode_Skip_Month\"></a><b>Nonstandard Mode Skip Month</b></br>&#160;&#160;&#160;&#160;COBOL: FBRSTSKM-SKIP-MONTH</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.FST_SKIP_MO_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">139-140</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Nonstandard_Mode_Number_of_Months_to_Skip\"></a><b>Nonstandard Mode Number of Months to Skip</b></br>&#160;&#160;&#160;&#160;COBOL: FBRSTNOM-NUMBER-MONTHS-SKIP</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.MO_TO_SKIP_NBR</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">141</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Suspend_Billing_Code\"></a><b>Suspend Billing Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRSUSPD-SUSPEND</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.SUS_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">142-143</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Billing_Status\"></a><b>Billing Status</b></br>&#160;&#160;&#160;&#160;COBOL: FBRSTAT-STATUS</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PRM_PAY_STA_REA_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">144</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Billing_Form\"></a><b>Billing Form</b></br>&#160;&#160;&#160;&#160;COBOL: FBRFORM-FORM</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.BIL_FRM_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">145-146</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Nonstandard_Mode\"></a><b>Nonstandard Mode</b></br>&#160;&#160;&#160;&#160;COBOL: FBRMDNST-NONSTD-MODE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.NSD_MD_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">147</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Billing_Mode\"></a><b>Billing Mode</b></br>&#160;&#160;&#160;&#160;COBOL: FBRBMODE-MODE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PMT_FQY_PER</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">148</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Billing_Currency\"></a><b>Billing Currency</b></br>&#160;&#160;&#160;&#160;COBOL: FBRBCURR-BILLING-CURRENCY</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.BIL_CRY_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">149</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Billing_Language\"></a><b>Billing Language</b></br>&#160;&#160;&#160;&#160;COBOL: FBRBLANG-BILLING-LANGUAGE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.BIL_LGG_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">150</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Original_Entry_Code\"></a><b>Original Entry Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRORGEN-ORIGINAL</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.OGN_ETR_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">151</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Last_Entry_Code\"></a><b>Last Entry Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRLSTEN-LAST</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.LST_ETR_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">152</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Change_Pending_Code_(Reserved)\"></a><b>Change Pending Code (Reserved)</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPEND-CHANGE-PENDING-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.POL_CHG_RPT_TYP_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">153</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Last_Premium_Paid\"></a><b>Last Premium Paid</b></br>&#160;&#160;&#160;&#160;COBOL: FBRHOWPD-LAST-PREMIUM-PAID</br>&#160;&#160;&#160;&#160;DB2: LH_FXD_PRM_POL.LST_PRM_PAY_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">154-157</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Accounting_Date\"></a><b>Accounting Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPAYDT-ACCOUNTING-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.LST_ACT_TRS_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">158-161</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Last_Financial_Date\"></a><b>Last Financial Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRFINDT-FIN-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.LST_FIN_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">162-165</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Other_Date\"></a><b>Other Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRCHGDT-OTHER-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.LST_POL_CHG_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">166</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Other_Kind\"></a><b>Other Kind</b></br>&#160;&#160;&#160;&#160;COBOL: FBRKIND-OTHER-KIND</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">167-170</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Billing_Date\"></a><b>Billing Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRBILDT-BILLING-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.LST_BIL_ERT_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">171</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Billing_Kind\"></a><b>Billing Kind</b></br>&#160;&#160;&#160;&#160;COBOL: FBRBILKD-BILLING-KIND</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.BIL_ERT_TYP_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">172-173</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Special_Code\"></a><b>Special Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRSPECL-SPECIAL-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.USR_RES_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">174</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Issue_Country\"></a><b>Issue Country</b></br>&#160;&#160;&#160;&#160;COBOL: FBRICNTY-ISSUE-COUNTRY</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.ISS_CTR_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">175-176</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Issue_State\"></a><b>Issue State</b></br>&#160;&#160;&#160;&#160;COBOL: FBRISTAT-ISSUE-STATE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.POL_ISS_ST_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">177</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MEC_Indicator_-_Policy_Level\"></a><b>MEC Indicator - Policy Level</b></br>&#160;&#160;&#160;&#160;COBOL: FBRMECIN-MEC-INDICATOR</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.MEC_STATUS_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">178-180</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Commission_Chargeback_Code\"></a><b>Commission Chargeback Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRCMCCD-COMM-CHGBACK-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.COM_CHARGEBACK_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">181</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Death_Benefit_Indicator\"></a><b>Death Benefit Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBRDBIND-DEATH-BEN-IND</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.DTH_BNF_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">182</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"EIL_Indicator\"></a><b>EIL Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBREIL-EIL-INDICATOR</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.EIL_IND</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">183</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Pending_Status\"></a><b>Pending Status</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPSTAT-PENDING-STATUS</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PND_STA_REA_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">184-185</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Policy_Type\"></a><b>Policy Type</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPOLTP-POLICY-TYPE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.POL_CTT_TYP_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">186</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Group_History_Indicator\"></a><b>Group History Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBRGRPHS-GROUP-HISTORY-IND</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.GRP_HST_IND</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">187</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Premium_Waiver_Option\"></a><b>Premium Waiver Option</b></br>&#160;&#160;&#160;&#160;COBOL: FBRPWOPT-PREM-WAIVER-OPT</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PW_OPT_CD</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">188-192</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Next_Offline_Processing_Date\"></a><b>Next Offline Processing Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBROTDDT-OFFLINE-TODAY</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.OFL_PRC_REQ_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">193-197</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Next_Bill_Date\"></a><b>Next Bill Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRNBLDT-NEXT-BILL</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.NXT_BIL_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">198-202</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Next_Potential_Termination_Event_Date\"></a><b>Next Potential Termination Event Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRMTMDT-MAY-TERMINATE</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.PLN_TMN_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">203-207</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Next_Scheduled_Notification_Date\"></a><b>Next Scheduled Notification Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRNNTDT-NEXT-NOTIFY</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.NXT_SCH_NOT_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">208-212</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Next_Scheduled_Statement_Date\"></a><b>Next Scheduled Statement Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRNSTDT-NEXT-STATEMENT</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.NXT_SCH_STT_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">213-217</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Next_Monthliversary_Date\"></a><b>Next Monthliversary Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRNMVDT-NEXT-MV</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.NXT_MVRY_PRC_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">218-222</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Next_Year-End_Date\"></a><b>Next Year-End Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRNYEDT-NEXT-YR-END</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.NXT_YR_END_PRC_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">223-227</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Next_Dividend_or_Automatic_Transaction_Activity_Date\"></a><b>Next Dividend or Automatic Transaction Activity Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRNDVDT-DIV-OR-AUTOTRAN</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.DIV_ACY_CLC_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">228-232</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Next_Index_Income_Activity_Date\"></a><b>Next Index Income Activity Date</b></br>&#160;&#160;&#160;&#160;COBOL: FBRNIIDT-NEXT-INDEX-INC</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.NXT_IND_INC_DT</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">233</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"PerformancePlus_Advance_Indicator\"></a><b>PerformancePlus Advance Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBRADVAN-ADVANCE-IND</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.ADVANCE_IND</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">234</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"PerformancePlus_Special_Case_Indicator\"></a><b>PerformancePlus Special Case Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBRSPECA-SPECIAL-CASE-IND</br>&#160;&#160;&#160;&#160;DB2: LH_BAS_POL.SPEC_CASE_IND</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">235</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"New_Business_Indicator\"></a><b>New Business Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBRADVNB-NEWB-GEND-IND</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">236</td><td style = \"border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Premium_as_Loan_Payment_Indicator\"></a><b>Premium as Loan Payment Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBRLNPAY-LOAN-PYMT-IND</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">237-262</td><td style = \"border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Reserved\"></a><b>Reserved</b></td></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"4\">263</td><td style = \"border:1px solid;\" rowspan=\"4\">&#160;<a name=\"LUS_Indicator\"></a><b>LUS Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBRLUS-LUS-INDICATOR</br>&#160;&#160;&#160;&#160;DB2: TH_BAS_POL.LUS_IND</br>&#160;&#160;&#160;&#160;Modification: AN0531</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"4\">264</td><td style = \"border:1px solid;\" rowspan=\"4\">&#160;<a name=\"Review_Needed_Indicator\"></a><b>Review Needed Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBRREIRV-REVIEW-NEEDED</br>&#160;&#160;&#160;&#160;DB2: TH_BAS_POL.REVIEW_NEED_IND</br>&#160;&#160;&#160;&#160;Modification: AN0168</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"4\">265</td><td style = \"border:1px solid;\" rowspan=\"4\">&#160;<a name=\"Maximum_Indicator\"></a><b>Maximum Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBRREIMX-MAXIMUM-INDICATOR</br>&#160;&#160;&#160;&#160;DB2: TH_BAS_POL.REIN_MAX_XEEDED</br>&#160;&#160;&#160;&#160;Modification: AN0168</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"4\">266-268</td><td style = \"border:1px solid;\" rowspan=\"4\">&#160;<a name=\"Bill_Day_1\"></a><b>Bill Day 1</b></br>&#160;&#160;&#160;&#160;COBOL: FBRBILD1-BILL-DAY-1</br>&#160;&#160;&#160;&#160;DB2: TH_BAS_POL.BILL_DAY_1</br>&#160;&#160;&#160;&#160;Modification: AN0526</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"4\">269-271</td><td style = \"border:1px solid;\" rowspan=\"4\">&#160;<a name=\"Bill_Day_2\"></a><b>Bill Day 2</b></br>&#160;&#160;&#160;&#160;COBOL: FBRBILD2-BILL-DAY-2</br>&#160;&#160;&#160;&#160;DB2: TH_BAS_POL.BILL_DAY_2</br>&#160;&#160;&#160;&#160;Modification: AN0526</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"4\">272</td><td style = \"border:1px solid;\" rowspan=\"4\">&#160;<a name=\"Archived_Restriction_Code\"></a><b>Archived Restriction Code</b></br>&#160;&#160;&#160;&#160;COBOL: FBRARSTC-ARCHIVED-RSTRCT-CD</br>&#160;&#160;&#160;&#160;DB2: TH_BAS_POL.ARCH_RESTR_CODE</br>&#160;&#160;&#160;&#160;Modification: AP0802</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"4\">273</td><td style = \"border:1px solid;\" rowspan=\"4\">&#160;<a name=\"Forced_Premium_Indicator\"></a><b>Forced Premium Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FBRFPIND-FORCED-PREM-IND</br>&#160;&#160;&#160;&#160;DB2: TH_BAS_POL.FORCED_PREM_IND</br>&#160;&#160;&#160;&#160;Modification: AW2388</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr>\n<tr><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"4\">274</td><td style = \"border:1px solid;\" rowspan=\"4\">&#160;<a name=\"LOAN_INT_SEL\"></a><b>LOAN_INT_SEL</b></br>&#160;&#160;&#160;&#160;COBOL: FBRLNINT-LOAN-INT-SELECTION</br>&#160;&#160;&#160;&#160;DB2: TH_BAS_POL.LOAN_INT_SEL</br>&#160;&#160;&#160;&#160;Modification: S05914</td></tr>\n<tr></tr>\n<tr></tr>\n<tr></tr></table>"
+}

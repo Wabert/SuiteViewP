@@ -1,0 +1,876 @@
+{
+  "segment": "59",
+  "title": "Segment 59 - TAMRA",
+  "source": "Policy Record html.xls / Policy Segments seg.doc (U0633187)",
+  "lines": [
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6259,",
+        "field": "Screen Name"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U0633187",
+        "field": "Policy Number"
+      },
+      {
+        "text": "   ;    .",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "59",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0191",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00010000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte U"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Segment Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "MEC Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Rated Rates Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": "MEC Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2012",
+        "field": "7-Pay Period Start Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "**/**/****",
+        "field": "7-Pay Next Change Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "3513.71",
+        "field": "7-Pay Level Premium"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "7-Pay Window Premiums"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "7-Pay Current Interest Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "7-Pay Guaranteed Period"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "100000.00",
+        "field": "7-Pay Beginning Specified or Face Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "7-Pay Beginning Cash Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Death Benefit as of June 20, 1988"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Death Benefit as of October 20, 1988"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2889.00",
+        "field": "7-Pay Premiums Paid [1]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "7-Pay Withdrawals [1]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2782.00",
+        "field": "7-Pay Premiums Paid [2]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "7-Pay Withdrawals [2]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "2782.00",
+        "field": "7-Pay Premiums Paid [3]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "7-Pay Withdrawals [3]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2568.00",
+        "field": "7-Pay Premiums Paid [4]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "7-Pay Withdrawals [4]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1177.00",
+        "field": "7-Pay Premiums Paid [5]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "7-Pay Withdrawals [5]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "7-Pay Premiums Paid [6]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "7-Pay Withdrawals [6]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "7-Pay Premiums Paid [7]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "7-Pay Withdrawals [7]"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "1035 Exchange Information"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "CK620 DISPLAY COMPLETE",
+        "field": "Completion Message"
+      },
+      {
+        "text": "                                                              ",
+        "field": null
+      },
+      {
+        "text": "07/29/26",
+        "field": "Current Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B7Y02",
+        "field": "Part of the user ID?"
+      }
+    ],
+    [
+      {
+        "text": "                                                                              ",
+        "field": null
+      },
+      {
+        "text": "CKPR-ANICO",
+        "field": "Region and Company"
+      }
+    ]
+  ],
+  "fields": {
+    "Segment Identification": [],
+    "Segment Length": [],
+    "Flag Byte A": [
+      "COBOL: FTMFLAGA-FLAG-BYTE-A",
+      "DB2 bits 0-5: LH_TAMRA_7_PY_PER.GDF_SVPY_TES_IND, GDF_GDL_PRM_IND, MAT_CHG_IND, SVPY_PRM_CLC_IND, REVERSE_TO_ISS_IND, OVR_MEC_IND"
+    ],
+    "Flag Byte B": [
+      "COBOL: FTMFLAGB-FLAG-BYTE-B",
+      "DB2: none"
+    ],
+    "Flag Byte U": [
+      "COBOL: FTMFLAGU-FLAG-BYTE-U",
+      "DB2: none"
+    ],
+    "Segment Type": [
+      "COBOL: FTMSGTYP-TAMRA-SEG-TYPE",
+      "Derived: LH_TAMRA_7_PY_PER row = Type 1"
+    ],
+    "MEC Indicator": [
+      "COBOL: FTMMECIN-MEC-INDICATOR",
+      "DB2: LH_TAMRA_7_PY_PER.MEC_STA_CD"
+    ],
+    "Rated Rates Indicator": [
+      "COBOL: FTMTAMRR-TAM-RATED-RATES",
+      "DB2: LH_TAMRA_7_PY_PER.TAMRA_SST_RT_CD"
+    ],
+    "MEC Date": [
+      "COBOL: FTMMECDT-MEC-DATE",
+      "DB2: LH_TAMRA_7_PY_PER.TAMRA_MEC_EFF_DT"
+    ],
+    "7-Pay Period Start Date": [
+      "COBOL: FTM7PPDT-7-PAY-PERIOD-DATE",
+      "DB2: LH_TAMRA_7_PY_PER.SVPY_PER_STR_DT"
+    ],
+    "7-Pay Next Change Date": [
+      "COBOL: FTM7PPNC-7-PAY-NEXT-CHNG-DATE",
+      "DB2: LH_TAMRA_7_PY_PER.SVPY_NXT_CHG_DT"
+    ],
+    "7-Pay Level Premium": [
+      "COBOL: FTM7PPRM-7-PAY-PREMIUM",
+      "DB2: LH_TAMRA_7_PY_PER.SVPY_LVL_PRM_AMT"
+    ],
+    "7-Pay Window Premiums": [
+      "COBOL: FTM7PWPR-7-PAY-WINDOW-PREM",
+      "DB2: LH_TAMRA_7_PY_PER.SVPY_WDW_PRM_AMT"
+    ],
+    "7-Pay Current Interest Rate": [
+      "COBOL: FTM7PPCR-7-PAY-PERIOD-CURR-RTE",
+      "DB2: LH_TAMRA_7_PY_PER.TAMRA_ITS_RT"
+    ],
+    "7-Pay Guaranteed Period": [
+      "COBOL: FTM7PPGD-7-PAY-PERIOD-GUAR-DUR",
+      "DB2: LH_TAMRA_7_PY_PER.TAMRA_GUA_PER"
+    ],
+    "7-Pay Beginning Specified or Face Amount": [
+      "COBOL: FTM7PPSA-7-PAY-PERIOD-SPEC-AMT",
+      "DB2: LH_TAMRA_7_PY_PER.SVPY_BEG_FCE_AMT"
+    ],
+    "7-Pay Beginning Cash Value": [
+      "COBOL: FTM7PPCV-7-PAY-PERIOD-CASH-VAL",
+      "DB2: LH_TAMRA_7_PY_PER.SVPY_BEG_CSV_AMT"
+    ],
+    "Death Benefit as of June 20, 1988": [
+      "COBOL: FTMJUNDB-JUNE-20-DEATH-BENEFIT",
+      "DB2: LH_TAMRA_7_PY_PER.GDF_DTH_BNF_1_AMT"
+    ],
+    "Death Benefit as of October 20, 1988": [
+      "COBOL: FTMOCTDB-OCT-20-DEATH-BENEFIT",
+      "DB2: LH_TAMRA_7_PY_PER.GDF_DTH_BNF_2_AMT"
+    ],
+    "7-Pay Premiums Paid [1]": [
+      "COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT"
+    ],
+    "7-Pay Withdrawals [1]": [
+      "COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT"
+    ],
+    "7-Pay Premiums Paid [2]": [
+      "COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT"
+    ],
+    "7-Pay Withdrawals [2]": [
+      "COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT"
+    ],
+    "7-Pay Premiums Paid [3]": [
+      "COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT"
+    ],
+    "7-Pay Withdrawals [3]": [
+      "COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT"
+    ],
+    "7-Pay Premiums Paid [4]": [
+      "COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT"
+    ],
+    "7-Pay Withdrawals [4]": [
+      "COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT"
+    ],
+    "7-Pay Premiums Paid [5]": [
+      "COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT"
+    ],
+    "7-Pay Withdrawals [5]": [
+      "COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT"
+    ],
+    "7-Pay Premiums Paid [6]": [
+      "COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT"
+    ],
+    "7-Pay Withdrawals [6]": [
+      "COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT"
+    ],
+    "7-Pay Premiums Paid [7]": [
+      "COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT"
+    ],
+    "7-Pay Withdrawals [7]": [
+      "COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM",
+      "DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT"
+    ],
+    "1035 Exchange Information": [
+      "COBOL: FTM1035I-1035-EXCH-INFO",
+      "DB2: LH_TAMRA_7_PY_PER.XCG_1035_PMT_QTY"
+    ],
+    "TAMRA Guideline Premium Search Key": [
+      "COBOL: FTMIAFGK-IAF-GLP-KEY",
+      "DB2: none"
+    ],
+    "TAMRA 7-Pay Premium Search Key": [
+      "COBOL: FTMIAF7K-IAF-7PP-KEY",
+      "DB2: none"
+    ],
+    "Number of Variable Entries": [
+      "COBOL: FTMVRENT-VARIABLE-ENTRIES",
+      "Derived: count of LH_TAMRA_MEC_PRM variable-phase rows"
+    ],
+    "Coverage Phase": [
+      "COBOL: FTMCVPHS-COVERAGE-PHASE",
+      "DB2: LH_TAMRA_MEC_PRM.COV_PHA_NBR"
+    ],
+    "Guideline Premium Search Key": [
+      "COBOL: FTMCGLPK-IAF-COVGLP-KEY",
+      "DB2: LH_TAMRA_MEC_PRM.GDL_PRM_SER_NBR"
+    ],
+    "7-Pay Premium Search Key": [
+      "COBOL: FTMC7PYK-IAF-COV7PP-KEY",
+      "DB2: LH_TAMRA_MEC_PRM.SVPY_PRM_SER_NBR"
+    ],
+    "Screen Name": [],
+    "Policy Number": [],
+    "Completion Message": [],
+    "Current Date": [],
+    "Part of the user ID?": [],
+    "Region and Company": []
+  },
+  "field_specs": [
+    {
+      "name": "Segment Identification",
+      "byte": "1-2",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Segment Length",
+      "byte": "3-4",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte A",
+      "byte": "5",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte B",
+      "byte": "6",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte U",
+      "byte": "7",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Segment Type",
+      "byte": "8",
+      "db2": null,
+      "cobol": "FTMSGTYP-TAMRA-SEG-TYPE"
+    },
+    {
+      "name": "MEC Indicator",
+      "byte": "9",
+      "db2": "LH_TAMRA_7_PY_PER.MEC_STA_CD",
+      "cobol": "FTMMECIN-MEC-INDICATOR"
+    },
+    {
+      "name": "Rated Rates Indicator",
+      "byte": "10",
+      "db2": "LH_TAMRA_7_PY_PER.TAMRA_SST_RT_CD",
+      "cobol": "FTMTAMRR-TAM-RATED-RATES"
+    },
+    {
+      "name": "MEC Date",
+      "byte": "11-14",
+      "db2": "LH_TAMRA_7_PY_PER.TAMRA_MEC_EFF_DT",
+      "cobol": "FTMMECDT-MEC-DATE"
+    },
+    {
+      "name": "7-Pay Period Start Date",
+      "byte": "15-18",
+      "db2": "LH_TAMRA_7_PY_PER.SVPY_PER_STR_DT",
+      "cobol": "FTM7PPDT-7-PAY-PERIOD-DATE"
+    },
+    {
+      "name": "7-Pay Next Change Date",
+      "byte": "19-22",
+      "db2": "LH_TAMRA_7_PY_PER.SVPY_NXT_CHG_DT",
+      "cobol": "FTM7PPNC-7-PAY-NEXT-CHNG-DATE"
+    },
+    {
+      "name": "7-Pay Level Premium",
+      "byte": "23-28",
+      "db2": "LH_TAMRA_7_PY_PER.SVPY_LVL_PRM_AMT",
+      "cobol": "FTM7PPRM-7-PAY-PREMIUM"
+    },
+    {
+      "name": "7-Pay Window Premiums",
+      "byte": "29-34",
+      "db2": "LH_TAMRA_7_PY_PER.SVPY_WDW_PRM_AMT",
+      "cobol": "FTM7PWPR-7-PAY-WINDOW-PREM"
+    },
+    {
+      "name": "7-Pay Current Interest Rate",
+      "byte": "35-37",
+      "db2": "LH_TAMRA_7_PY_PER.TAMRA_ITS_RT",
+      "cobol": "FTM7PPCR-7-PAY-PERIOD-CURR-RTE"
+    },
+    {
+      "name": "7-Pay Guaranteed Period",
+      "byte": "38-39",
+      "db2": "LH_TAMRA_7_PY_PER.TAMRA_GUA_PER",
+      "cobol": "FTM7PPGD-7-PAY-PERIOD-GUAR-DUR"
+    },
+    {
+      "name": "7-Pay Beginning Specified or Face Amount",
+      "byte": "40-46",
+      "db2": "LH_TAMRA_7_PY_PER.SVPY_BEG_FCE_AMT",
+      "cobol": "FTM7PPSA-7-PAY-PERIOD-SPEC-AMT"
+    },
+    {
+      "name": "7-Pay Beginning Cash Value",
+      "byte": "47-53",
+      "db2": "LH_TAMRA_7_PY_PER.SVPY_BEG_CSV_AMT",
+      "cobol": "FTM7PPCV-7-PAY-PERIOD-CASH-VAL"
+    },
+    {
+      "name": "Death Benefit as of June 20, 1988",
+      "byte": "54-60",
+      "db2": "LH_TAMRA_7_PY_PER.GDF_DTH_BNF_1_AMT",
+      "cobol": "FTMJUNDB-JUNE-20-DEATH-BENEFIT"
+    },
+    {
+      "name": "Death Benefit as of October 20, 1988",
+      "byte": "61-67",
+      "db2": "LH_TAMRA_7_PY_PER.GDF_DTH_BNF_2_AMT",
+      "cobol": "FTMOCTDB-OCT-20-DEATH-BENEFIT"
+    },
+    {
+      "name": "7-Pay Premiums Paid [1]",
+      "byte": "68-73",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT",
+      "cobol": "FTM7PPPA-7-PAY-PERIOD-PREM-PD"
+    },
+    {
+      "name": "7-Pay Withdrawals [1]",
+      "byte": "74-79",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_WTD_AMT",
+      "cobol": "FTM7PPWA-7-PAY-PERIOD-WD-ACCUM"
+    },
+    {
+      "name": "7-Pay Premiums Paid [2]",
+      "byte": "80-85",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT",
+      "cobol": "FTM7PPPA-7-PAY-PERIOD-PREM-PD"
+    },
+    {
+      "name": "7-Pay Withdrawals [2]",
+      "byte": "86-91",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_WTD_AMT",
+      "cobol": "FTM7PPWA-7-PAY-PERIOD-WD-ACCUM"
+    },
+    {
+      "name": "7-Pay Premiums Paid [3]",
+      "byte": "92-97",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT",
+      "cobol": "FTM7PPPA-7-PAY-PERIOD-PREM-PD"
+    },
+    {
+      "name": "7-Pay Withdrawals [3]",
+      "byte": "98-103",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_WTD_AMT",
+      "cobol": "FTM7PPWA-7-PAY-PERIOD-WD-ACCUM"
+    },
+    {
+      "name": "7-Pay Premiums Paid [4]",
+      "byte": "104-109",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT",
+      "cobol": "FTM7PPPA-7-PAY-PERIOD-PREM-PD"
+    },
+    {
+      "name": "7-Pay Withdrawals [4]",
+      "byte": "110-115",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_WTD_AMT",
+      "cobol": "FTM7PPWA-7-PAY-PERIOD-WD-ACCUM"
+    },
+    {
+      "name": "7-Pay Premiums Paid [5]",
+      "byte": "116-121",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT",
+      "cobol": "FTM7PPPA-7-PAY-PERIOD-PREM-PD"
+    },
+    {
+      "name": "7-Pay Withdrawals [5]",
+      "byte": "122-127",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_WTD_AMT",
+      "cobol": "FTM7PPWA-7-PAY-PERIOD-WD-ACCUM"
+    },
+    {
+      "name": "7-Pay Premiums Paid [6]",
+      "byte": "128-133",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT",
+      "cobol": "FTM7PPPA-7-PAY-PERIOD-PREM-PD"
+    },
+    {
+      "name": "7-Pay Withdrawals [6]",
+      "byte": "134-139",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_WTD_AMT",
+      "cobol": "FTM7PPWA-7-PAY-PERIOD-WD-ACCUM"
+    },
+    {
+      "name": "7-Pay Premiums Paid [7]",
+      "byte": "140-145",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT",
+      "cobol": "FTM7PPPA-7-PAY-PERIOD-PREM-PD"
+    },
+    {
+      "name": "7-Pay Withdrawals [7]",
+      "byte": "146-151",
+      "db2": "LH_TAMRA_7_PY_YR.SVPY_WTD_AMT",
+      "cobol": "FTM7PPWA-7-PAY-PERIOD-WD-ACCUM"
+    },
+    {
+      "name": "1035 Exchange Information",
+      "byte": "152-153",
+      "db2": "LH_TAMRA_7_PY_PER.XCG_1035_PMT_QTY",
+      "cobol": "FTM1035I-1035-EXCH-INFO"
+    },
+    {
+      "name": "Segment Identification",
+      "byte": "1-2",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Segment Length",
+      "byte": "3-4",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte A",
+      "byte": "5",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte B",
+      "byte": "6",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Flag Byte U",
+      "byte": "7",
+      "db2": null,
+      "cobol": null
+    },
+    {
+      "name": "Segment Type",
+      "byte": "8",
+      "db2": null,
+      "cobol": "FTMSGTYP-TAMRA-SEG-TYPE"
+    },
+    {
+      "name": "TAMRA Guideline Premium Search Key",
+      "byte": "9-19",
+      "db2": null,
+      "cobol": "FTMIAFGK-IAF-GLP-KEY"
+    },
+    {
+      "name": "TAMRA 7-Pay Premium Search Key",
+      "byte": "20-30",
+      "db2": null,
+      "cobol": "FTMIAF7K-IAF-7PP-KEY"
+    },
+    {
+      "name": "Number of Variable Entries",
+      "byte": "31-32",
+      "db2": null,
+      "cobol": "FTMVRENT-VARIABLE-ENTRIES"
+    },
+    {
+      "name": "Coverage Phase",
+      "byte": "33",
+      "db2": "LH_TAMRA_MEC_PRM.COV_PHA_NBR",
+      "cobol": "FTMCVPHS-COVERAGE-PHASE"
+    },
+    {
+      "name": "Guideline Premium Search Key",
+      "byte": "34-44",
+      "db2": "LH_TAMRA_MEC_PRM.GDL_PRM_SER_NBR",
+      "cobol": "FTMCGLPK-IAF-COVGLP-KEY"
+    },
+    {
+      "name": "7-Pay Premium Search Key",
+      "byte": "45-55",
+      "db2": "LH_TAMRA_MEC_PRM.SVPY_PRM_SER_NBR",
+      "cobol": "FTMC7PYK-IAF-COV7PP-KEY"
+    }
+  ],
+  "layout_html": "<table>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Byte</td><td style = \"width: 350px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Field (Type 1)</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">1-2</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Identification\"></a><b>Segment Identification</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">3-4</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Length\"></a><b>Segment Length</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">5</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_A\"></a><b>Flag Byte A</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">6</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_B\"></a><b>Flag Byte B</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">7</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_U\"></a><b>Flag Byte U</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">8</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Segment_Type\"></a><b>Segment Type</b></br>&#160;&#160;&#160;&#160;COBOL: FTMSGTYP-TAMRA-SEG-TYPE</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">9</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MEC_Indicator\"></a><b>MEC Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FTMMECIN-MEC-INDICATOR</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.MEC_STA_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">10</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Rated_Rates_Indicator\"></a><b>Rated Rates Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FTMTAMRR-TAM-RATED-RATES</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.TAMRA_SST_RT_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">11-14</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"MEC_Date\"></a><b>MEC Date</b></br>&#160;&#160;&#160;&#160;COBOL: FTMMECDT-MEC-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.TAMRA_MEC_EFF_DT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">15-18</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Period_Start_Date\"></a><b>7-Pay Period Start Date</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPDT-7-PAY-PERIOD-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.SVPY_PER_STR_DT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">19-22</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Next_Change_Date\"></a><b>7-Pay Next Change Date</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPNC-7-PAY-NEXT-CHNG-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.SVPY_NXT_CHG_DT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">23-28</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Level_Premium\"></a><b>7-Pay Level Premium</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPRM-7-PAY-PREMIUM</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.SVPY_LVL_PRM_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">29-34</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Window_Premiums\"></a><b>7-Pay Window Premiums</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PWPR-7-PAY-WINDOW-PREM</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.SVPY_WDW_PRM_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">35-37</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Current_Interest_Rate\"></a><b>7-Pay Current Interest Rate</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPCR-7-PAY-PERIOD-CURR-RTE</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.TAMRA_ITS_RT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">38-39</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Guaranteed_Period\"></a><b>7-Pay Guaranteed Period</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPGD-7-PAY-PERIOD-GUAR-DUR</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.TAMRA_GUA_PER</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">40-46</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Beginning_Specified_or_Face_Amount\"></a><b>7-Pay Beginning Specified or Face Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPSA-7-PAY-PERIOD-SPEC-AMT</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.SVPY_BEG_FCE_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">47-53</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Beginning_Cash_Value\"></a><b>7-Pay Beginning Cash Value</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPCV-7-PAY-PERIOD-CASH-VAL</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.SVPY_BEG_CSV_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">54-60</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Death_Benefit_as_of_June_20,_1988\"></a><b>Death Benefit as of June 20, 1988</b></br>&#160;&#160;&#160;&#160;COBOL: FTMJUNDB-JUNE-20-DEATH-BENEFIT</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.GDF_DTH_BNF_1_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">61-67</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Death_Benefit_as_of_October_20,_1988\"></a><b>Death Benefit as of October 20, 1988</b></br>&#160;&#160;&#160;&#160;COBOL: FTMOCTDB-OCT-20-DEATH-BENEFIT</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.GDF_DTH_BNF_2_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">68-73</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Premiums_Paid_[1]\"></a><b>7-Pay Premiums Paid [1]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">74-79</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Withdrawals_[1]\"></a><b>7-Pay Withdrawals [1]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">80-85</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Premiums_Paid_[2]\"></a><b>7-Pay Premiums Paid [2]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">86-91</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Withdrawals_[2]\"></a><b>7-Pay Withdrawals [2]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">92-97</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Premiums_Paid_[3]\"></a><b>7-Pay Premiums Paid [3]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">98-103</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Withdrawals_[3]\"></a><b>7-Pay Withdrawals [3]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">104-109</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Premiums_Paid_[4]\"></a><b>7-Pay Premiums Paid [4]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">110-115</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Withdrawals_[4]\"></a><b>7-Pay Withdrawals [4]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">116-121</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Premiums_Paid_[5]\"></a><b>7-Pay Premiums Paid [5]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">122-127</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Withdrawals_[5]\"></a><b>7-Pay Withdrawals [5]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">128-133</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Premiums_Paid_[6]\"></a><b>7-Pay Premiums Paid [6]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">134-139</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Withdrawals_[6]\"></a><b>7-Pay Withdrawals [6]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">140-145</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Premiums_Paid_[7]\"></a><b>7-Pay Premiums Paid [7]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPPA-7-PAY-PERIOD-PREM-PD</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_PRM_PAY_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">146-151</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Withdrawals_[7]\"></a><b>7-Pay Withdrawals [7]</b></br>&#160;&#160;&#160;&#160;COBOL: FTM7PPWA-7-PAY-PERIOD-WD-ACCUM</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_YR.SVPY_WTD_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">152-153</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"1035_Exchange_Information\"></a><b>1035 Exchange Information</b></br>&#160;&#160;&#160;&#160;COBOL: FTM1035I-1035-EXCH-INFO</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_7_PY_PER.XCG_1035_PMT_QTY</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Byte</td><td style = \"width: 350px; border:1px solid;  background-color: rgb(230,160,170);\" rowspan=\"1\">Field (Type 2)</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">1-2</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Identification\"></a><b>Segment Identification</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">3-4</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Segment_Length\"></a><b>Segment Length</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">5</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_A\"></a><b>Flag Byte A</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">6</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_B\"></a><b>Flag Byte B</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">7</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"1\">&#160;<a name=\"Flag_Byte_U\"></a><b>Flag Byte U</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">8</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Segment_Type\"></a><b>Segment Type</b></br>&#160;&#160;&#160;&#160;COBOL: FTMSGTYP-TAMRA-SEG-TYPE</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">9-19</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"TAMRA_Guideline_Premium_Search_Key\"></a><b>TAMRA Guideline Premium Search Key</b></br>&#160;&#160;&#160;&#160;COBOL: FTMIAFGK-IAF-GLP-KEY</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">20-30</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"TAMRA_7-Pay_Premium_Search_Key\"></a><b>TAMRA 7-Pay Premium Search Key</b></br>&#160;&#160;&#160;&#160;COBOL: FTMIAF7K-IAF-7PP-KEY</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">31-32</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Number_of_Variable_Entries\"></a><b>Number of Variable Entries</b></br>&#160;&#160;&#160;&#160;COBOL: FTMVRENT-VARIABLE-ENTRIES</br>&#160;&#160;&#160;&#160;Derived: count of LH_TAMRA_MEC_PRM variable-phase rows</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(125,175,255);\" rowspan=\"3\">33</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Coverage_Phase\"></a><b>Coverage Phase</b></br>&#160;&#160;&#160;&#160;COBOL: FTMCVPHS-COVERAGE-PHASE</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_MEC_PRM.COV_PHA_NBR</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(125,175,255);\" rowspan=\"3\">34-44</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"Guideline_Premium_Search_Key\"></a><b>Guideline Premium Search Key</b></br>&#160;&#160;&#160;&#160;COBOL: FTMCGLPK-IAF-COVGLP-KEY</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_MEC_PRM.GDL_PRM_SER_NBR</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(125,175,255);\" rowspan=\"3\">45-55</td><td style = \"width: 350px; border:1px solid;\" rowspan=\"3\">&#160;<a name=\"7-Pay_Premium_Search_Key\"></a><b>7-Pay Premium Search Key</b></br>&#160;&#160;&#160;&#160;COBOL: FTMC7PYK-IAF-COV7PP-KEY</br>&#160;&#160;&#160;&#160;DB2: LH_TAMRA_MEC_PRM.SVPY_PRM_SER_NBR</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n</table>"
+}

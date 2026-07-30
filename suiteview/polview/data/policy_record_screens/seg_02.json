@@ -1,0 +1,2172 @@
+{
+  "segment": "02",
+  "title": "Coverage (screen 6202)",
+  "source": "Policy Record 02 archive + master build sheet (captured reference)",
+  "lines": [
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "6202,",
+        "field": "Screen Name"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U0633187 ;.",
+        "field": "Policy Number"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "02",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0220",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "01000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte C"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10000000",
+        "field": "Flag Byte D"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Phase Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U",
+        "field": "Product Line Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Rider Status"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2102",
+        "field": "Next Change Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Next Change Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Commission Basic"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Agent Phase Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "LL",
+        "field": "Valuation Code: Mortality Table"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Valuation Code: Lives"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Valuation Code: Function"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "4.000",
+        "field": "Valuation Code: Interest Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "3",
+        "field": "Valuation Code: Modification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Valuation Code: Class"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "446",
+        "field": "Valuation Code: Base"
+      },
+      {
+        "text": "FN",
+        "field": "Valuation Code: Subseries"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "Valuation Code: Death Benefit Effective Age"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "3",
+        "field": "Valuation Code: Death Benefit Rider"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Deficient Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Return of Premium Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Sex Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "31",
+        "field": "Age Information: Issue"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "31",
+        "field": "Age Information: True"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Age Information: Use"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Age Information: Age Admitted Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Person Covered"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2012",
+        "field": "Issue Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2102",
+        "field": "Pay-up Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2102",
+        "field": "Mature/Expire Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "100.000",
+        "field": "Number of Units"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1000.00",
+        "field": "Value Per Unit"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "Decreasing Term: Interest"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Decreasing Term: Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Decreasing Term: Level Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Return Premium Per Unit"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".06",
+        "field": "Annual Premium Per Unit"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: Nonforfeiture Option"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: Cash Value Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: Adjust"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: Reduced Paid-up"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: EI Initial Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: EI Benefit"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Participation Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Guarantee Option"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Major Line of Insurance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Entry Source"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1U",
+        "field": "Rate Book"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Medical Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Values-Per-Unit: Use Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Values-Per-Unit: Low Duration"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "100.000",
+        "field": "Values-Per-Unit: Orig Spec Amount Units"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Rider Plan Option"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Values-Per-Unit: Rider Corridor Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Values-Per-Unit: Rider Net Amount at Risk"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "36",
+        "field": "Refresh/Renewal Age"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "LL",
+        "field": "Net Single Premium Codes: EI Table"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "LL",
+        "field": "Net Single Premium Codes: RPU Table"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "Net Single Premium Codes: Interest Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Rider Expense Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00",
+        "field": "Person Identification: Person Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Person Identification: Person Sequence"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Cease Reason Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Age Calculation Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "MEC Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Guaranteed Issue Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Renewable Premium Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Initial Renewal Period"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Subsequent Renewal Start Duration"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Subsequent Renewal Period"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Indeterminate Premium Guaranteed Period"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Long Term Care Claim Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Premium Residence Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Unisex Override Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Unisex Sex Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Unisex Subseries Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Unisex Guaranteed Rate Sex Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "IUL08        ",
+        "field": "Policy Form Number"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "1U144600 ",
+        "field": "Plan Description Search Key"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "A ",
+        "field": "Plan Description File Version Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "01/18/2012",
+        "field": "Plan Description File Effective Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Plan Description File Effective Date Override"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Issue Age File Version Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "PDF Record Control Effective Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U04",
+        "field": "Commission Control Data: Group Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Commission Control Data: Variation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Commission Control Data: Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Production Control Data: Use Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1000.00",
+        "field": "Production Control Data: Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Production Control Data: Million Dollar Round Table (MDRT)"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U1",
+        "field": "Values Table Reference Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Joint Exact Age Information: Joint Mortaity Table"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Joint Exact Age Information: Issue Age"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " 6",
+        "field": "Band Structure Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "RESERVED"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "X",
+        "field": "USER AREA:  ANICO Product Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "USER AREA"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "02",
+        "field": "Segment Identification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0220",
+        "field": "Segment Length"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10000000",
+        "field": "Flag Byte A"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "10000000",
+        "field": "Flag Byte B"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00000000",
+        "field": "Flag Byte C"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "01000000",
+        "field": "Flag Byte D"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Phase Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U",
+        "field": "Product Line Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Rider Status"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2046",
+        "field": "Next Change Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Next Change Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Commission Basic"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Agent Phase Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "L1",
+        "field": "Valuation Code: Mortality Table"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Valuation Code: Lives"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Valuation Code: Function"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "4.000",
+        "field": "Valuation Code: Interest Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "3",
+        "field": "Valuation Code: Modification"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "5",
+        "field": "Valuation Code: Class"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "38F",
+        "field": "Valuation Code: Base"
+      },
+      {
+        "text": "11",
+        "field": "Valuation Code: Subseries"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "  ",
+        "field": "Valuation Code: Death Benefit Effective Age"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "3",
+        "field": "Valuation Code: Death Benefit Rider"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Deficient Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Return of Premium Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Sex Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "31",
+        "field": "Age Information: Issue"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "31",
+        "field": "Age Information: True"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Age Information: Use"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Age Information: Age Admitted Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "7",
+        "field": "Person Covered"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2012",
+        "field": "Issue Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2046",
+        "field": "Pay-up Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "06/10/2046",
+        "field": "Mature/Expire Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "25.000",
+        "field": "Number of Units"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1000.00",
+        "field": "Value Per Unit"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "Decreasing Term: Interest"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Decreasing Term: Value"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Decreasing Term: Level Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Return Premium Per Unit"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".59",
+        "field": "Annual Premium Per Unit"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: Nonforfeiture Option"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: Cash Value Year"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: Adjust"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: Reduced Paid-up"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: EI Initial Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Nonforfeiture Rules: EI Benefit"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Participation Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Guarantee Option"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Major Line of Insurance"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Entry Source"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1U",
+        "field": "Rate Book"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Medical Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Values-Per-Unit: Use Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Values-Per-Unit: Low Duration"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "25.000",
+        "field": "Values-Per-Unit: Orig Spec Amount Units"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Values-Per-Unit: Rider Plan Option"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Values-Per-Unit: Rider Corridor Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": ".00",
+        "field": "Values-Per-Unit: Rider Net Amount at Risk"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "36",
+        "field": "Refresh/Renewal Age"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "LB",
+        "field": "Net Single Premium Codes: EI Table"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "L1",
+        "field": "Net Single Premium Codes: RPU Table"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".000",
+        "field": "Net Single Premium Codes: Interest Rate"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Rider Expense Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "00",
+        "field": "Person Identification: Person Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Person Identification: Person Sequence"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Cease Reason Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Age Calculation Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "MEC Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Guaranteed Issue Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Renewable Premium Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Initial Renewal Period"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Subsequent Renewal Start Duration"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Subsequent Renewal Period"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Indeterminate Premium Guaranteed Period"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Long Term Care Claim Type"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Premium Residence Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Unisex Override Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Unisex Sex Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Unisex Subseries Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Unisex Guaranteed Rate Sex Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "ULCTR91      ",
+        "field": "Policy Form Number"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "            ",
+        "field": null
+      },
+      {
+        "text": "1U53800 ",
+        "field": "Plan Description Search Key"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "A ",
+        "field": "Plan Description File Version Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "01/18/2012",
+        "field": "Plan Description File Effective Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Plan Description File Effective Date Override"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Issue Age File Version Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "PDF Record Control Effective Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Commission Control Data: Group Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Commission Control Data: Variation"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "1",
+        "field": "Commission Control Data: Rule"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "2",
+        "field": "Production Control Data: Use Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": ".5000",
+        "field": "Production Control Data: Amount"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Production Control Data: Million Dollar Round Table (MDRT)"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "U1",
+        "field": "Values Table Reference Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "Joint Exact Age Information: Joint Mortaity Table"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "0",
+        "field": "Joint Exact Age Information: Issue Age"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " 00",
+        "field": "Band Structure Code"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "RESERVED"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "USER AREA:  ANICO Product Indicator"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": "USER AREA"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "                                                                  ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "10/15/16",
+        "field": "Current Date"
+      },
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "B7Y02",
+        "field": "Part of the user ID?"
+      },
+      {
+        "text": " ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": "  ",
+        "field": null
+      },
+      {
+        "text": "CK620 DISPLAY COMPLETE                                            ",
+        "field": null
+      },
+      {
+        "text": " ",
+        "field": null
+      },
+      {
+        "text": "CKPR-ANICO",
+        "field": "Region and Company"
+      },
+      {
+        "text": "  ",
+        "field": null
+      }
+    ],
+    [
+      {
+        "text": " ",
+        "field": null
+      }
+    ]
+  ],
+  "fields": {
+    "Screen Name": [],
+    "Policy Number": [],
+    "Segment Identification": [],
+    "Segment Length": [],
+    "Flag Byte A": [],
+    "Flag Byte B": [],
+    "Flag Byte C": [],
+    "Flag Byte D": [],
+    "Phase Code": [
+      "COBOL: FCVPHASE-PHASE-CODE",
+      "DB2: LH_COV_PHA.COV_PHA_NBR"
+    ],
+    "Product Line Code": [
+      "COBOL: FCVPROD-PRODUCT",
+      "DB2: LH_COV_PHA.PRD_LIN_TYP_CD"
+    ],
+    "Rider Status": [
+      "COBOL: FCVTRST-TERM-RIDER-STATUS",
+      "DB2: LH_COV_PHA.RID_STA_CD"
+    ],
+    "Next Change Date": [
+      "COBOL: FCVTCGMD-MONTH-YEAR-DAY",
+      "DB2: LH_COV_PHA.NXT_CHG_DT"
+    ],
+    "Next Change Type": [
+      "COBOL: FCVNCTYP-NEXT-CHANGE-TYPE",
+      "DB2: LH_COV_PHA.NXT_CHG_TYP_CD"
+    ],
+    "Commission Basic": [
+      "COBOL: FCVCBASE-COMMISSION-BASIC",
+      "DB2: LH_COV_PHA.COM_BAS_CD"
+    ],
+    "Agent Phase Code": [
+      "COBOL: FCVTAPHS-AGENT-PHASE-CODE",
+      "DB2: LH_COV_PHA.AGT_COM_PHA_NBR"
+    ],
+    "Valuation Code: Mortality Table": [
+      "COBOL: FCVTABLE-MORTALITY-TABLE",
+      "DB2: LH_COV_PHA.MTL_FCT_TBL_CD"
+    ],
+    "Valuation Code: Lives": [
+      "COBOL: FCVLIVES-LIVES",
+      "DB2: LH_COV_PHA.NBR_OF_LIVES_CD"
+    ],
+    "Valuation Code: Function": [
+      "COBOL: FCVVFNCT-FUNCTION",
+      "DB2: LH_COV_PHA.MTL_FUN_CD"
+    ],
+    "Valuation Code: Interest Rate": [
+      "COBOL: FCVVINTR-INTEREST-RATE",
+      "DB2: LH_COV_PHA.RES_ITS_RT"
+    ],
+    "Valuation Code: Modification": [
+      "COBOL: FCVMOD-MODIFICATION",
+      "DB2: LH_COV_PHA.VAL_MTH_CD"
+    ],
+    "Valuation Code: Class": [
+      "COBOL: FCVCLASS-CLASS",
+      "DB2: LH_COV_PHA.INS_CLS_CD"
+    ],
+    "Valuation Code: Base": [
+      "COBOL: FCVBASE-BASE",
+      "DB2: LH_COV_PHA.PLN_BSE_SRE_CD"
+    ],
+    "Valuation Code: Subseries": [
+      "COBOL: FCVSBASE-SUB-BASE",
+      "DB2: LH_COV_PHA.LIF_PLN_SUB_SRE_CD"
+    ],
+    "Valuation Code: Death Benefit Effective Age": [
+      "COBOL: FCVDBEFA-DEATH-BEN-EFF-AGE",
+      "DB2: LH_COV_PHA.DTH_BNF_EFF_AGE"
+    ],
+    "Valuation Code: Death Benefit Rider": [
+      "COBOL: FCVRBAND-RIDER-BAND",
+      "DB2: LH_COV_PHA.RID_COI_BAN_RLE_CD"
+    ],
+    "Deficient Code": [
+      "COBOL: FCVDEF-DEFICIENT-CODE",
+      "DB2: LH_COV_PHA.DFI_CD"
+    ],
+    "Return of Premium Code": [
+      "COBOL: FCVRETP-RETURN-OF-PREMIUM-CODE",
+      "DB2: LH_COV_PHA.RET_OF_PRM_CD"
+    ],
+    "Sex Code": [
+      "COBOL: FCVSEX-SEX",
+      "DB2: LH_COV_PHA.INS_SEX_CD"
+    ],
+    "Age Information: Issue": [
+      "COBOL: FCVAGEIS-ISSUE-AGE",
+      "DB2: LH_COV_PHA.INS_ISS_AGE"
+    ],
+    "Age Information: True": [
+      "COBOL: FCVAGETR-TRUE-AGE",
+      "DB2: LH_COV_PHA.TRUE_AGE"
+    ],
+    "Age Information: Use": [
+      "COBOL: FCVAGEUS-AGE-USE-CODE",
+      "DB2: LH_COV_PHA.AGE_USE_CD"
+    ],
+    "Age Information: Age Admitted Code": [
+      "COBOL: FCVAGADM-AGE-ADMITTED-CODE",
+      "DB2: LH_COV_PHA.AGE_SRC_CD"
+    ],
+    "Person Covered": [
+      "COBOL: FCVPERCV-PERSON-COVERED",
+      "DB2: LH_COV_PHA.LIVES_COV_CD"
+    ],
+    "Issue Date": [
+      "COBOL: FCVISSDF-ISSUE-DATE-FIELDS",
+      "DB2: LH_COV_PHA.ISSUE_DT"
+    ],
+    "Pay-up Date": [
+      "COBOL: FCVPAYDF-PAY-UP-DATE-FIELDS",
+      "DB2: LH_COV_PHA.PAY_UP_DT"
+    ],
+    "Mature/Expire Date": [
+      "COBOL: FCVMATDF-MAT-EXP-DATE-FIELDS",
+      "DB2: LH_COV_PHA.COV_MT_EXP_DT"
+    ],
+    "Number of Units": [
+      "COBOL: FCVUNITS-NUMBER-OF-UNITS",
+      "DB2: LH_COV_PHA.COV_UNT_QTY"
+    ],
+    "Value Per Unit": [
+      "COBOL: FCVUNVAL-VALUE-PER-UNIT",
+      "DB2: LH_COV_PHA.COV_VPU_AMT"
+    ],
+    "Decreasing Term: Interest": [
+      "COBOL: FCVBINT-INTEREST",
+      "DB2: LH_COV_PHA.DCA_TRM_ITS_RT"
+    ],
+    "Decreasing Term: Value": [
+      "COBOL: FCVBVAL-VALUE",
+      "DB2: LH_COV_PHA.DCA_TRM_VPU_CUM_CD"
+    ],
+    "Decreasing Term: Level Year": [
+      "COBOL: FCVLVLD-LEVEL-YEAR",
+      "DB2: LH_COV_PHA.DCA_TRM_LVL_YR_DUR"
+    ],
+    "Return Premium Per Unit": [
+      "COBOL: FCVMISC-RETURN-PREM-PER-UNIT",
+      "DB2: LH_COV_PHA.RET_PRM_UNT_AMT"
+    ],
+    "Annual Premium Per Unit": [
+      "COBOL: FCVAPREM-ANNUAL-PREM-PER-UNIT",
+      "DB2: LH_COV_PHA.ANN_PRM_UNT_AMT"
+    ],
+    "Nonforfeiture Rules: Nonforfeiture Option": [
+      "COBOL: FCVNFOPT-NFO-OPTION",
+      "DB2: LH_COV_PHA.COV_NFO_CD"
+    ],
+    "Nonforfeiture Rules: Cash Value Year": [
+      "COBOL: FCVCVYR-CASH-VALUE-YEAR",
+      "DB2: LH_COV_PHA.CSH_VAL_YR"
+    ],
+    "Nonforfeiture Rules: Adjust": [
+      "COBOL: FCVADJ-ADJUST",
+      "DB2: LH_COV_PHA.ADJ_ETI_CD"
+    ],
+    "Nonforfeiture Rules: Reduced Paid-up": [
+      "COBOL: FCVRPU-REDUCED-PAID-UP",
+      "DB2: LH_COV_PHA.RPU_BNF_CD"
+    ],
+    "Nonforfeiture Rules: EI Initial Amount": [
+      "COBOL: FCVEI-EXTENDED-INSURANCE",
+      "DB2: LH_COV_PHA.EI_INT_AMT_CD"
+    ],
+    "Nonforfeiture Rules: EI Benefit": [
+      "COBOL: FCVBEN-BENEFIT",
+      "DB2: LH_COV_PHA.EI_BNF_CD"
+    ],
+    "Participation Type": [
+      "COBOL: FCVPAR-PAR-TYPE",
+      "DB2: LH_COV_PHA.DIV_PTP_TYP_CD"
+    ],
+    "Guarantee Option": [],
+    "Major Line of Insurance": [
+      "COBOL: FCVMAJLI-MAJOR-LINE",
+      "DB2: LH_COV_PHA.MAJ_LIN_OF_BUS_CD"
+    ],
+    "Entry Source": [
+      "COBOL: FCVENTSR-ENTRY-SOURCE",
+      "DB2: LH_COV_PHA.ETR_SRC_CD"
+    ],
+    "Rate Book": [
+      "COBOL: FCVRATBK-RATE-BOOK",
+      "DB2: LH_COV_PHA.RT_BK_CD"
+    ],
+    "Medical Code": [
+      "COBOL: FCVMEDCO-MEDICAL-CODE",
+      "DB2: LH_COV_PHA.COV_MED_CD"
+    ],
+    "Values-Per-Unit: Use Code": [
+      "COBOL: FCVTRLUS-USE-CODE",
+      "DB2: LH_COV_PHA.VAL_USE_CD"
+    ],
+    "Values-Per-Unit: Low Duration": [
+      "COBOL: FCVTRLOT-LOW-DURATION",
+      "DB2: LH_COV_PHA.LOW_DUR_PER"
+    ],
+    "Values-Per-Unit: Orig Spec Amount Units": [
+      "COBOL: FCVSPAMT-ORIG-UNITS",
+      "DB2: LH_COV_PHA.OGN_SPC_UNT_QTY"
+    ],
+    "Rider Plan Option": [
+      "COBOL: FCVRPOPT-RIDER-PLAN-OPTION",
+      "DB2: LH_COV_PHA.FTD_RID_PLN_OPT_CD"
+    ],
+    "Values-Per-Unit: Rider Corridor Amount": [
+      "COBOL: FCVRCORR-RIDER-CORRIDOR-AMT",
+      "DB2: LH_COV_PHA.FTD_RID_CDR_AMT"
+    ],
+    "Values-Per-Unit: Rider Net Amount at Risk": [
+      "COBOL: FCVRNAAR-RIDER-NET-AMT-AT-RISK",
+      "DB2: LH_COV_PHA.FTD_RID_AT_RSK_AMT"
+    ],
+    "Refresh/Renewal Age": [
+      "COBOL: FCVREFAG-REFRESH-AGE",
+      "DB2: LH_COV_PHA.REFRESH_OR_RNL_AGE"
+    ],
+    "Net Single Premium Codes: EI Table": [
+      "COBOL: FCVNSPTB-TABLE",
+      "DB2: LH_COV_PHA.NSP_EI_TBL_CD"
+    ],
+    "Net Single Premium Codes: RPU Table": [
+      "COBOL: FCVNSPRP-TABLE",
+      "DB2: LH_COV_PHA.NSP_RPU_TBL_CD"
+    ],
+    "Net Single Premium Codes: Interest Rate": [
+      "COBOL: FCVNSPIN-INTEREST-RATE",
+      "DB2: LH_COV_PHA.NSP_ITS_RT"
+    ],
+    "Rider Expense Rule": [
+      "COBOL: FCVRDEXP-RIDER-EXPENSE-RULE",
+      "DB2: LH_COV_PHA.RID_XPN_RLE_CD"
+    ],
+    "Person Identification: Person Code": [
+      "COBOL: FCVPERSN-PERSON-CODE",
+      "DB2: LH_COV_PHA.PRS_CD"
+    ],
+    "Person Identification: Person Sequence": [
+      "COBOL: FCVPSEQ-SEQUENCE",
+      "DB2: LH_COV_PHA.PRS_SEQ_NBR"
+    ],
+    "Cease Reason Code": [
+      "COBOL: FCVDREAS-DELETE-REASON",
+      "DB2: LH_COV_PHA.CEA_REA_CD"
+    ],
+    "Age Calculation Rule": [
+      "COBOL: FCVC80VC-AGE-CALC",
+      "DB2: LH_COV_PHA.AGE_CLC_RLE_CD"
+    ],
+    "MEC Indicator": [
+      "COBOL: FCVMECIN-MEC-INDICATOR",
+      "DB2: LH_COV_PHA.MEC_STA_CD"
+    ],
+    "Guaranteed Issue Indicator": [
+      "COBOL: FCVGUARI-GUARANTEED-ISSUE",
+      "DB2: LH_COV_PHA.GUA_ISS_IND"
+    ],
+    "Renewable Premium Indicator": [
+      "COBOL: FCVRPRIN-RENEW-PREM-IND",
+      "DB2: LH_COV_PHA.RENEWABLE_PRM_CD"
+    ],
+    "Initial Renewal Period": [
+      "COBOL: FCVINTRW-INIT-RENEW-PERIOD",
+      "DB2: LH_COV_PHA.INT_RNL_PER"
+    ],
+    "Subsequent Renewal Start Duration": [
+      "COBOL: FCVSRDUR-SUB-RENEW-START-DUR",
+      "DB2: LH_COV_PHA.SBQ_RNL_STR_DUR"
+    ],
+    "Subsequent Renewal Period": [
+      "COBOL: FCVSRPRD-SUB-RENEW-PERIOD",
+      "DB2: LH_COV_PHA.SBQ_RNL_PER"
+    ],
+    "Indeterminate Premium Guaranteed Period": [
+      "COBOL: FCVIPGUR-INDETER-PRM-GUAR-PD",
+      "DB2: LH_COV_PHA.IDT_PRM_GUA_PER"
+    ],
+    "Long Term Care Claim Type": [
+      "COBOL: FCVLTCDD-CLAIM-TYPE",
+      "DB2: LH_COV_PHA.LNG_TRM_CLM_TYP_CD"
+    ],
+    "Premium Residence Code": [
+      "COBOL: FCVPCRES-PREM-CONTROL-RESID",
+      "DB2: LH_COV_PHA.PREMIUM_RESID_CD"
+    ],
+    "Unisex Override Indicator": [
+      "COBOL: FCVUOIND-UNISEX-OVER-IND",
+      "DB2: LH_COV_PHA.UNISEX_OVR_CD"
+    ],
+    "Unisex Sex Code": [
+      "COBOL: FCVUSEXC-UNISEX-SEX-CODE",
+      "DB2: LH_COV_PHA.UNISEX_SEX_CD"
+    ],
+    "Unisex Subseries Code": [
+      "COBOL: FCVUSUBC-UNISEX-SUBSERIES-CODE",
+      "DB2: LH_COV_PHA.UNISEX_SSR_CD"
+    ],
+    "Unisex Guaranteed Rate Sex Code": [
+      "COBOL: FCVUGRSC-UNISEX-GUAR-RATE-SEX",
+      "DB2: LH_COV_PHA.UNISEX_GUA_RT_CD"
+    ],
+    "Policy Form Number": [
+      "COBOL: FCVPLFNO-POLICY-FORM-NUMBER",
+      "DB2: LH_COV_PHA.POL_FRM_NBR"
+    ],
+    "Plan Description Search Key": [
+      "COBOL: FCVPDSKY-PLAN-DESC-SEARCH-KEY",
+      "DB2: LH_COV_PHA.PLN_DES_SER_CD"
+    ],
+    "Plan Description File Version Code": [
+      "COBOL: FCVPVRSN-PDF-KEY-VERSION-CODE",
+      "DB2: LH_COV_PHA.PDF_KEY_VERSION_CD"
+    ],
+    "Plan Description File Effective Date": [
+      "COBOL: FCVPEFDT-PDF-KEY-EFFT-DATE",
+      "DB2: LH_COV_PHA.PDF_KEY_EFF_DT"
+    ],
+    "Plan Description File Effective Date Override": [
+      "COBOL: FCVPEFDO-EFF-DATE-OVERRIDE",
+      "DB2: LH_COV_PHA.EFF_DT_OVERRIDE_CD"
+    ],
+    "Issue Age File Version Code": [
+      "COBOL: FCVIVRSN-IAF-KEY-VERSION-CODE",
+      "DB2: LH_COV_PHA.IAF_KEY_VERSION_CD"
+    ],
+    "PDF Record Control Effective Date": [],
+    "Commission Control Data: Group Code": [
+      "COBOL: FCVCMCCD-COMM-PLAN-GROUP-CODE",
+      "DB2: LH_COV_PHA.COM_PLN_GRP_CD"
+    ],
+    "Commission Control Data: Variation": [
+      "COBOL: FCVCMCVR-COMM-PLAN-VARIATION",
+      "DB2: LH_COV_PHA.COM_PLN_VTN_CD"
+    ],
+    "Commission Control Data: Rule": [
+      "COBOL: FCVCMCRL-COMM-RULE",
+      "DB2: LH_COV_PHA.COM_RLE_CD"
+    ],
+    "Production Control Data: Use Code": [
+      "COBOL: FCVPRUSE-PRODUCTION-USE",
+      "DB2: LH_COV_PHA.PRD_VAL_USE_CD"
+    ],
+    "Production Control Data: Amount": [],
+    "Production Control Data: Million Dollar Round Table (MDRT)": [
+      "COBOL: FCVPRMCD-PROD-MDRT-CODE",
+      "DB2: LH_COV_PHA.MDRT_CD"
+    ],
+    "Values Table Reference Code": [
+      "COBOL: FCVVTRCD-VALUE-TBL-REFER-CODE",
+      "DB2: LH_COV_PHA.VAL_TBL_RFR_CD"
+    ],
+    "Joint Exact Age Information: Joint Mortaity Table": [
+      "COBOL: FCVJTMTB-JOINT-MORTALITY-TBL",
+      "DB2: LH_COV_PHA.JNT_ISU_MTL_TBL_CD"
+    ],
+    "Joint Exact Age Information: Issue Age": [
+      "COBOL: FCVJTAGE-JOINT-ISSUE-AGE",
+      "DB2: LH_COV_PHA.JNT_ISU_ISS_AGE"
+    ],
+    "Band Structure Code": [
+      "COBOL: FCVBNDSC-BAND-STRUCTURE",
+      "DB2: LH_COV_PHA.BAN_STRUCTURE_CD"
+    ],
+    "RESERVED": [],
+    "USER AREA:  ANICO Product Indicator": [],
+    "USER AREA": [],
+    "Values-Per-Unit: Rider Plan Option": [],
+    "Current Date": [],
+    "Part of the user ID?": [],
+    "Region and Company": [],
+    "Production Control Data: Percent": [
+      "COBOL: FCVPRPCT-PRODUCTION-PERCENT",
+      "DB2: LH_COV_PHA.PRD_PCT"
+    ]
+  },
+  "layout_html": "<table>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Byte</td><td style = \"width: 500px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Field</td><td style = \"width: 500px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 500px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td><td style = \"width: 500px; text-align: center; border:1px solid; background-color: rgb(230,160,170);\" rowspan=\"1\">Redefines</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">1-2</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;<b>Segment Identification</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">3-4</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;<b>Segment Length</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">5</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;<b>Flag Byte A</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">6</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;<b>Flag Byte B</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">7</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;<b>Flag Byte C</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"1\">8</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"1\">&#160;<b>Flag Byte D</b></td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">9</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Control Codes. Phase Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPHASE-PHASE-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.COV_PHA_NBR</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">10</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Control Codes. Product Line Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPROD-PRODUCT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PRD_LIN_TYP_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">11</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Control Codes. Rider Status</b></br>&#160;&#160;&#160;&#160;COBOL: FCVTRST-TERM-RIDER-STATUS</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.RID_STA_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">12-16</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Next Change Date. Date</b></br>&#160;&#160;&#160;&#160;COBOL: FCVTCGMD-MONTH-YEAR-DAY</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.NXT_CHG_DT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">17</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Next Change Date. Type</b></br>&#160;&#160;&#160;&#160;COBOL: FCVNCTYP-NEXT-CHANGE-TYPE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.NXT_CHG_TYP_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">18</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Commission Basic</b></br>&#160;&#160;&#160;&#160;COBOL: FCVCBASE-COMMISSION-BASIC</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.COM_BAS_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">19</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Agent Phase Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVTAPHS-AGENT-PHASE-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.NXT_CHG_DT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">20-21</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Valuation Code. Mortality Table</b></br>&#160;&#160;&#160;&#160;COBOL: FCVTABLE-MORTALITY-TABLE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.MTL_FCT_TBL_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">22</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Valuation Code. Lives</b></br>&#160;&#160;&#160;&#160;COBOL: FCVLIVES-LIVES</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.NBR_OF_LIVES_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"4\">23</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"4\">&#160;<b>Valuation Code. Function</b></br>&#160;&#160;&#160;&#160;COBOL: FCVVFNCT-FUNCTION</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.MTL_FUN_CD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.VAL_USE_CD  (??? Need to verify)</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">24-26</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Valuation Code. Interest Rate</b></br>&#160;&#160;&#160;&#160;COBOL: FCVVINTR-INTEREST-RATE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.RES_ITS_RT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">27</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Valuation Code. Modification</b></br>&#160;&#160;&#160;&#160;COBOL: FCVMOD-MODIFICATION</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.VAL_MTH_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">28</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Valuation Code. Class Series. Class</b></br>&#160;&#160;&#160;&#160;COBOL: FCVCLASS-CLASS</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.INS_CLS_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">29-31</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Valuation Code. Class Series. Series. Base</b></br>&#160;&#160;&#160;&#160;COBOL: FCVBASE-BASE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PLN_BSE_SRE_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">32</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"6\">&#160;<b>Valuation Code. Class Series. Series. Subseries</b></br>&#160;&#160;&#160;&#160;COBOL:  FCVSBASE-SUB-BASE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.LIF_PLN_SUB_SRE_CD</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Elimination Period - Accident</b></br>&#160;&#160;&#160;&#160;COBOL:  FCVAHEPA-AH-ELIM-PER-ACC</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.AH_ACC_ELM_PER_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">33</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Elimination Period - Sickness</b></br>&#160;&#160;&#160;&#160;COBOL: FCVAHEPS-AH-ELIM-PER-SICK</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.AH_SIC_ELM_PER_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">34</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"6\">&#160;<b>Death Benefit Effective Age</b></br>&#160;&#160;&#160;&#160;COBOL: FCVDBEFA-DEATH-BEN-EFF-AGE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.DTH_BNF_EFF_AGE</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Further Description - Accident</b></br>&#160;&#160;&#160;&#160;COBOL: FCVAHLMA-AH-LIMIT-ACC</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.AH_ACC_BNF_PER_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">35</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Further Description - Sickness</b></br>&#160;&#160;&#160;&#160;COBOL: FCVAHLMS-AH-LIMIT-SICK</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.AH_SIC_BNF_PER_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">36</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Death Benefit Rider</b></br>&#160;&#160;&#160;&#160;COBOL: FCVRBAND-RIDER-BAND</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.RID_COI_BAN_RLE_CD</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>A&H Deductible Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FCVAHDED-AH-DEDUCT-AMOUNT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.AH_DED_AMT_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">37</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Deficient Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVDEF-DEFICIENT-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.DFI_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">38</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Return of Premium Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVRETP-RETURN-OF-PREMIUM-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.RET_OF_PRM_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">39</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Sex Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVSEX-SEX</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.INS_SEX_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">40-41</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Age Information. Issue</b></br>&#160;&#160;&#160;&#160;COBOL: FCVAGEIS-ISSUE-AGE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.INS_ISS_AGE</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">42-43</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Age Information. True</b></br>&#160;&#160;&#160;&#160;COBOL: FCVAGETR-TRUE-AGE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.TRUE_AGE</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">44</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Age Information. Use</b></br>&#160;&#160;&#160;&#160;COBOL: FCVAGEUS-AGE-USE-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.AGE_USE_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">45</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Age Information. Age Admitted Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVAGADM-AGE-ADMITTED-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.AGE_SRC_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">46</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Person Covered</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPERCV-PERSON-COVERED</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.LIVES_COV_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">47-51</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Issue Date</b></br>&#160;&#160;&#160;&#160;COBOL: FCVISSDF-ISSUE-DATE-FIELDS</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.ISSUE_DT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">52-56</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Pay-up Date</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPAYDF-PAY-UP-DATE-FIELDS</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PAY_UP_DT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">57-61</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Mature/Expire Date</b></br>&#160;&#160;&#160;&#160;COBOL: FCVMATDF-MAT-EXP-DATE-FIELDS</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.COV_MT_EXP_DT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">62-66</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Number of Units</b></br>&#160;&#160;&#160;&#160;COBOL: FCVUNITS-NUMBER-OF-UNITS</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.COV_UNT_QTY</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">67-70</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Benefits Per Unit. Value Per Unit</b></br>&#160;&#160;&#160;&#160;COBOL: FCVUNVAL-VALUE-PER-UNIT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.COV_VPU_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">71</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"9\">&#160;<b>Benefits Per Unit. Decreasing Term. Interest</b></br>&#160;&#160;&#160;&#160;COBOL: FCVBINT-INTEREST</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.DCA_TRM_ITS_RT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Annuity Purchase Value Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FCVFAPVR-ANN-PUR-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.DCA_TRM_ITS_RT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">72</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Annuity Qualification Type</b></br>&#160;&#160;&#160;&#160;COBOL: FCVFQTYP-ANN-QUAL</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.DCA_TRM_ITS_RT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">73</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"6\">&#160;<b>Annuity Settlement Option</b></br>&#160;&#160;&#160;&#160;COBOL: FCVFSOPT-ANN-SETTL-OPT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.ANU_SET_OPT_CD</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">74</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Benefits Per Unit. Decreasing Term. Value</b></br>&#160;&#160;&#160;&#160;COBOL: FCVBVAL-VALUE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.DCA_TRM_VPU_CUM_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">75</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"6\">&#160;<b>Benefits Per Unit. Decreasing Term. Level Year</b></br>&#160;&#160;&#160;&#160;COBOL: FCVLVLD-LEVEL-YEAR</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.DCA_TRM_LVL_YR_DUR</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"6\">&#160;<b>Annuity Durations Guaranteed at Issue</b></br>&#160;&#160;&#160;&#160;COBOL: FCVGDURI-GUAR-DUR-AT-ISSUE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.ANU_AT_ISS_DUR_NBR</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">76</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">77-79</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Benefits Per Unit. Return Premium Per Unit</b></br>&#160;&#160;&#160;&#160;COBOL: FCVMISC-RETURN-PREM-PER-UNIT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.RET_PRM_UNT_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">80-84</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Annual Premium Per Unit</b></br>&#160;&#160;&#160;&#160;COBOL: FCVAPREM-ANNUAL-PREM-PER-UNIT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.ANN_PRM_UNT_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">85</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Nonforfeiture Rules. Nonforfeiture Option</b></br>&#160;&#160;&#160;&#160;COBOL: FCVNFOPT-NFO-OPTION</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.COV_NFO_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">86</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Nonforfeiture Rules. Cash Value Year</b></br>&#160;&#160;&#160;&#160;COBOL: FCVCVYR-CASH-VALUE-YEAR</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.CSH_VAL_YR</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">87</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Nonforfeiture Rules. Adjust</b></br>&#160;&#160;&#160;&#160;COBOL: FCVADJ-ADJUST</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.ADJ_ETI_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">88</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Nonforfeiture Rules. Reduced Paid-up</b></br>&#160;&#160;&#160;&#160;COBOL: FCVRPU-REDUCED-PAID-UP</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.RPU_BNF_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">89</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Nonforfeiture Rules. EI Initial Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FCVEI-EXTENDED-INSURANCE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.EI_INT_AMT_CD</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Nonforfeiture Rules. RMD Payout Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVRMDPC-RMD-PAYOUT-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.RMD_PAYOUT_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">90</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Nonforfeiture Rules. EI Benefit</b></br>&#160;&#160;&#160;&#160;COBOL: FCVBEN-BENEFIT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.EI_BNF_CD</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Nonforfeiture Rules. RMD Calculation Method Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVRMDCC-RMD-CALC-METHOD-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.RMD_CLC_MTH_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">91</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Participation Type</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPAR-PAR-TYPE</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">92</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Guarantee Option</b></br>&#160;&#160;&#160;&#160;COBOL: FCVGOPTN-GUAR-OPTION</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">93</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Major Line of Insurance</b></br>&#160;&#160;&#160;&#160;COBOL: FCVMAJLI-MAJOR-LINE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.MAJ_LIN_OF_BUS_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">94</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Entry Source</b></br>&#160;&#160;&#160;&#160;COBOL: FCVENTSR-ENTRY-SOURCE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.ETR_SRC_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">95-96</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Rate Book</b></br>&#160;&#160;&#160;&#160;COBOL: FCVRATBK-RATE-BOOK</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.RT_BK_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">97</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Medical Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVMEDCO-MEDICAL-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.COV_MED_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">98</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Values-Per-Unit. Use Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVTRLUS-USE-CODE</br>&#160;&#160;&#160;&#160;DB2: none</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">99-100</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Values-Per-Unit. Low Duration</b></br>&#160;&#160;&#160;&#160;COBOL: FCVTRLOT-LOW-DURATION</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.LOW_DUR_PER</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">101</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"12\">&#160;<b>Values-Per-Unit. Cash Value T0</b></br>&#160;&#160;&#160;&#160;COBOL: FCVCVT0-CASH-VALUE-T0</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.LOW_DUR_CSV_AMT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"12\">&#160;<b>Values-Per-Unit. Net Single Premium T0</b></br>&#160;&#160;&#160;&#160;COBOL: FCVNSPT-NET-SINGLE-PREM-T</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.LOW_DUR_NSP_AMT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"15\">&#160;<b>Values-Per-Unit. Original Specified Amount Units</b></br>&#160;&#160;&#160;&#160;COBOL: FCVSPAMT-ORIG-UNITS</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.OGN_SPC_UNT_QTY</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"15\">&#160;<b>Values-Per-Unit. Original DBA Units</b></br>&#160;&#160;&#160;&#160;COBOL: FCVOUNIT-ORIG-NUM-UNITS</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.ORG_LTC_UNT_QTY</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">102</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">103</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">104</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">105</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"12\">&#160;<b>Values-Per-Unit. Cash Value T1</b></br>&#160;&#160;&#160;&#160;COBOL: FCVCVT1-CASH-VALUE-T1</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.LOW_DUR_1_CSV_AMT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"12\">&#160;<b>Values-Per-Unit. Net Single Premium T1</b></br>&#160;&#160;&#160;&#160;COBOL: FCVNSPT1-NET-SINGLE-PREM-T1</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.LOW_DUR_1_NSP_AMT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">106</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Values-Per-Unit. Rider Plan Option</b></br>&#160;&#160;&#160;&#160;COBOL: FCVRPOPT-RIDER-PLAN-OPTION</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.FTD_RID_PLN_OPT_CD</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"12\">&#160;<b>Values-Per-Unit. Original DBA Value Per Unit</b></br>&#160;&#160;&#160;&#160;COBOL: FCVOUVPU-ORIG-VALUE-UNIT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.ORG_LTC_VPU_AMT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">107</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"12\">&#160;<b>Values-Per-Unit. Rider Corridor Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FCVRCORR-RIDER-CORRIDOR-AMT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.FTD_RID_CDR_AMT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">108</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">109</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"12\">&#160;<b>Values-Per-Unit. Cash Value T2</b></br>&#160;&#160;&#160;&#160;COBOL: FCVCVT2-CASH-VALUE-T2</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.LOW_DUR_2_CSV_AMT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"12\">&#160;<b>Values-Per-Unit. Net Single Premium T2</b></br>&#160;&#160;&#160;&#160;COBOL: FCVNSPT2-NET-SINGLE-PREM-T2</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.LOW_DUR_2_NSP_AMT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">110</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"9\">&#160;<b>Values-Per-Unit. Inflation Factor</b></br>&#160;&#160;&#160;&#160;COBOL: FCVINF-INFLATION-FACTOR</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.CPI_IFT_FCT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">111</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"15\">&#160;<b>Values-Per-Unit. Rider Net Amount at Risk</b></br>&#160;&#160;&#160;&#160;COBOL: FCVRNAAR-RIDER-NET-AMT-AT-RISK</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.FTD_RID_AT_RSK_AMT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">112</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">113</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"9\">&#160;<b>Values-Per-Unit. Cash Value T3</b></br>&#160;&#160;&#160;&#160;COBOL: FCVCVT3-CASH-VALUE-T3</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.LOW_DUR_3_CSV_AMT</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"9\">&#160;<b>Filler</b></br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">114</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"6\">&#160;<b>Filler</b></br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">115</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">116-117</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Refresh/Renewal Age</b></br>&#160;&#160;&#160;&#160;COBOL: FCVREFAG-REFRESH-AGE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.REFRESH_OR_RNL_AGE</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">118-119</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Net Single Premium Codes. EI Table</b></br>&#160;&#160;&#160;&#160;COBOL: FCVNSPTB-TABLE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.NSP_EI_TBL_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">120-121</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Net Single Premium Codes. RPU Table</b></br>&#160;&#160;&#160;&#160;COBOL: FCVNSPRP-TABLE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.NSP_RPU_TBL_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">122-124</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Net Single Premium Codes. Interest Rate</b></br>&#160;&#160;&#160;&#160;COBOL: FCVNSPIN-INTEREST-RATE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.NSP_ITS_RT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">125</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Rider Expense Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FCVRDEXP-RIDER-EXPENSE-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.RID_XPN_RLE_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">126-127</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Person Identification. Person Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPERSN-PERSON-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PRS_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">128</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Person Identification. Person Sequence</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPSEQ-SEQUENCE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PRS_SEQ_NBR</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">129</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Cease Reason Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVDREAS-DELETE-REASON</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.CEA_REA_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">130</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Age Calculation Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FCVC80VC-AGE-CALC</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.AGE_CLC_RLE_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">131</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>MEC Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FCVMECIN-MEC-INDICATOR</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.MEC_STA_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">132</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Guaranteed Issue Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FCVGUARI-GUARANTEED-ISSUE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.GUA_ISS_IND</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">133</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Renewable Premium Information. Renewable Premium Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FCVRPRIN-RENEW-PREM-IND</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.RENEWABLE_PRM_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">134-135</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Renewable Premium Information. Initial Renewal Period</b></br>&#160;&#160;&#160;&#160;COBOL: FCVINTRW-INIT-RENEW-PERIOD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.INT_RNL_PER</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">136-137</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Renewable Premium Information. Subsequent Renewal Start Duration</b></br>&#160;&#160;&#160;&#160;COBOL: FCVSRDUR-SUB-RENEW-START-DUR</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.SBQ_RNL_STR_DUR</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">138-139</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Renewable Premium Information. Subsequent Renewal Period</b></br>&#160;&#160;&#160;&#160;COBOL: FCVSRPRD-SUB-RENEW-PERIOD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.SBQ_RNL_PER</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">140-141</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Indeterminate Premium Guaranteed Period</b></br>&#160;&#160;&#160;&#160;COBOL: FCVIPGUR-INDETER-PRM-GUAR-PD</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.IDT_PRM_GUA_PER</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">142</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Long Term Care Claim Type</b></br>&#160;&#160;&#160;&#160;COBOL: FCVLTCDD-CLAIM-TYPE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.LNG_TRM_CLM_TYP_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">143</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Premium Residence Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPCRES-PREM-CONTROL-RESID</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PREMIUM_RESID_CD  </td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">144</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Unisex Override Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FCVUOIND-UNISEX-OVER-IND</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.UNISEX_OVR_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">145</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Unisex Sex Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVUSEXC-UNISEX-SEX-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.UNISEX_SEX_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">146-147</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Unisex Subseries Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVUSUBC-UNISEX-SUBSERIES-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.UNISEX_SSR_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">148</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Unisex Guaranteed Rate Sex Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVUGRSC-UNISEX-GUAR-RATE-SEX</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.UNISEX_GUA_RT_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">149-157</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Policy Form Number</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPLFNO-POLICY-FORM-NUMBER</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.POL_FRM_NBR</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">158-168</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Plan Description Search Key</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPDSKY-PLAN-DESC-SEARCH-KEY</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PLN_DES_SER_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">169-173</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Plan Description File Version Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPVRSN-PDF-KEY-VERSION-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PDF_KEY_VERSION_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">174-179</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Plan Description File Effective Date</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPEFDT-PDF-KEY-EFFT-DATE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PDF_KEY_EFF_DT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">180</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Plan Description File Effective Date Override</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPEFDO-EFF-DATE-OVERRIDE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PDF_KEY_EFF_DT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">181</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Issue Age File Version Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVIVRSN-IAF-KEY-VERSION-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PDF_KEY_EFF_DT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">182-184</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Commission Control Data. Group Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVCMCCD-COMM-PLAN-GROUP-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.COM_PLN_GRP_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">185</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Commission Control Data. Variation</b></br>&#160;&#160;&#160;&#160;COBOL: FCVCMCVR-COMM-PLAN-VARIATION</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.COM_PLN_VTN_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">186</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Commission Control Data. Rule</b></br>&#160;&#160;&#160;&#160;COBOL: FCVCMCRL-COMM-RULE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.COM_RLE_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">187</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Production Control Data. Use Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPRUSE-PRODUCTION-USE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PRD_VAL_USE_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">188-192</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Production Control Data. Amount</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPRAMT-PRODUCTION-AMOUNT</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.PRD_AMT</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">193</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Production Control Data. Million Dollar Round Table (MDRT)</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPRMCD-PROD-MDRT-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.MDRT_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">194-195</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Values Table Reference Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVVTRCD-VALUE-TBL-REFER-CODE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.VAL_TBL_RFR_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">196-197</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Joint Exact Age Information. Joint Mortaity Table</b></br>&#160;&#160;&#160;&#160;COBOL: FCVJTMTB-JOINT-MORTALITY-TBL</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.JNT_ISU_MTL_TBL_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">198-199</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Joint Exact Age Information. Issue Age</b></br>&#160;&#160;&#160;&#160;COBOL: FCVJTAGE-JOINT-ISSUE-AGE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.JNT_ISU_ISS_AGE</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">200-201</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Band Structure Code</b></br>&#160;&#160;&#160;&#160;COBOL: FCVBNDSC-BAND-STRUCTURE</br>&#160;&#160;&#160;&#160;DB2: LH_COV_PHA.BAN_STRUCTURE_CD</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">202</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>Filler</b></br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">203-215</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>RESERVED</b></br>&#160;&#160;&#160;&#160;</br>&#160;&#160;&#160;&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td><td style = \"width: 60px; text-align: center; border:1px solid;\" rowspan=\"3\">216</td><td style = \"width: 500px; border:1px solid;\" rowspan=\"3\">&#160;<b>ANICO Product Indicator</b></br>&#160;&#160;&#160;&#160;COBOL: FCVPRDID-PROD-IND</br>&#160;&#160;&#160;&#160;DB2: TH_COV_PHA.AN_PRD_ID</td></tr>\n<tr><td>&#160;</td></tr>\n<tr><td>&#160;</td></tr>\n</table>"
+}

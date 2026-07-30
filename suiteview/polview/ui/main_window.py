@@ -125,6 +125,7 @@ class GetPolicyWindow(FramelessWindowBase):
         self._policy_info = {}
         self._policy_history = []
         self._child_polview_windows = []
+        self._record_windows = []
         self._history_panel_visible = False
         # Cache: (policy_number, region) -> (PolicyInformation, policy_info_dict, where_clause)
         self._policy_cache: dict = {}
@@ -140,6 +141,14 @@ class GetPolicyWindow(FramelessWindowBase):
         self.open_illustrator_btn.setEnabled(False)
         self.open_illustrator_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
 
+        # Header-bar "Policy Record" button -- opens the CyberLife green-screen
+        # segment viewer.  Always enabled (currently sample data).
+        self.open_record_btn = QPushButton("📟 Record")
+        self.open_record_btn.setToolTip(
+            "View the CyberLife policy record segments (mainframe-style)"
+        )
+        self.open_record_btn.setStyleSheet(HEADER_ILLUSTRATOR_BUTTON_STYLE)
+
         super().__init__(
             title="SuiteView:  PolView",
             default_size=(1200, 780),
@@ -151,9 +160,10 @@ class GetPolicyWindow(FramelessWindowBase):
                 else POLVIEW_DUPLICATE_HEADER_COLORS
             ),
             border_color=POLVIEW_BORDER_COLOR,
-            header_widgets=[self.open_illustrator_btn],
+            header_widgets=[self.open_record_btn, self.open_illustrator_btn],
         )
         self.open_illustrator_btn.clicked.connect(self._open_in_illustrator)
+        self.open_record_btn.clicked.connect(self._open_policy_record)
 
         # Optionally pull in a policy on open (e.g. launched from the taskbar).
         if initial_policy:
@@ -738,6 +748,22 @@ class GetPolicyWindow(FramelessWindowBase):
             initial_company=company,
         )
         self._illustrator_window.show()
+
+    def _open_policy_record(self):
+        """Open the CyberLife policy-record segment viewer (green-screen)."""
+        from .policy_record_viewer import PolicyRecordViewerWindow
+        company = str((self._policy_info or {}).get("CompanyCode", "") or "")
+        window = PolicyRecordViewerWindow(
+            policy_number=self._current_policy or "",
+            region=self._current_region or "CKPR",
+            company_code=company,
+        )
+        window.destroyed.connect(
+            lambda *_: self._record_windows.remove(window)
+            if window in self._record_windows else None
+        )
+        self._record_windows.append(window)
+        window.show()
 
     def _on_get_policy(self, policy_number: str, region: str, company_code: str = ""):
         """Handle policy lookup request using PolicyInformation.

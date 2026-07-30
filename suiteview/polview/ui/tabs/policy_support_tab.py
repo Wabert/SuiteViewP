@@ -1460,6 +1460,7 @@ class PolicySupportTab(QWidget):
         self._glp_formula_label = CopyableLabel(
             "Accum GLP Adjustment = max(0, Premiums-to-Date \u2212 AccumWDs \u2212 AccumGLP)"
         )
+        self._glp_formula_label.set_copy_text_provider(self._glp_summary_copy_text)
         self._glp_formula_label.setStyleSheet(
             f"font-size: 12px; font-weight: bold; color: {GREEN_DARK}; "
             f"background: transparent; border: none;"
@@ -1467,6 +1468,7 @@ class PolicySupportTab(QWidget):
         rg.addWidget(self._glp_formula_label)
 
         self._glp_plugged_label = CopyableLabel("-")
+        self._glp_plugged_label.set_copy_text_provider(self._glp_summary_copy_text)
         self._glp_plugged_label.setTextFormat(Qt.TextFormat.RichText)
         self._glp_plugged_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._glp_plugged_label.setStyleSheet(
@@ -1477,6 +1479,7 @@ class PolicySupportTab(QWidget):
         # 72-segment note: plain text (so the styled right-click Copy yields the
         # exact note), shown only when exception premiums are required.
         self._glp_segment_note_label = CopyableLabel("")
+        self._glp_segment_note_label.set_copy_text_provider(self._glp_summary_copy_text)
         self._glp_segment_note_label.setTextFormat(Qt.TextFormat.PlainText)
         self._glp_segment_note_label.setWordWrap(True)
         self._glp_segment_note_label.setStyleSheet(
@@ -2044,7 +2047,8 @@ class PolicySupportTab(QWidget):
         The summary is fixed for the quote and does not change when the user
         switches forecast tabs. When the policy enters the exception-premium
         period before the target date (``zero_md`` is present) it shows the
-        New Accum GLP formula, its value, and the instruction to set GLP to 0;
+        target date, the New Accum GLP, the (conditional) New GLP, the premium
+        needed to reach the target date, and the copy-ready 72-segment note;
         otherwise it states no exception premium is required.
         """
         target_text = self._glp_target_date.text().strip()
@@ -2058,39 +2062,104 @@ class PolicySupportTab(QWidget):
             self._glp_segment_note_label.setVisible(False)
             return
 
-        s = result.zero_md.summary
-        new_accum = s.premiums_to_date_on_target - s.accumulated_withdrawals
-        glp_not_zero = round(result.current_glp, 2) != 0.0
+        v = self._glp_summary_values(result)
         red = "#C00000"
         self._glp_formula_label.setVisible(False)
         summary_html = (
-            f"<b style='color:{red};'>EXCEPTION PREMIUM REQUIRED</b> "
-            f"(Updates needed to Accum GLP and the GLP)"
-            f"<br>New Accum GLP = PremiumsPaidToDate \u2212 AccumWithdrawals"
-            f"<br>New Accum = <b style='color:{red};'>${new_accum:,.2f}</b>"
+            f"<b style='color:{red};'>EXCEPTION PREMIUM REQUIRED FOR "
+            f"{v['target_text']}</b>"
+            f"<br>New Accum GLP = <b style='color:{red};'>{v['new_accum']:,.2f}</b>"
         )
-        if glp_not_zero:
-            summary_html += f"<br>Set GLP = <b style='color:{red};'>0</b>"
+        if v["glp_not_zero"]:
+            summary_html += f"<br>New GLP = <b style='color:{red};'>0</b>"
+        summary_html += (
+            f"<br>Premium to get to {v['target_text']} = "
+            f"<b style='color:{red};'>{v['premium_to_target']:,.2f}</b>"
+        )
         self._glp_plugged_label.setText(summary_html)
         self._glp_segment_note_label.setText(
-            self._glp_segment_note_text(new_accum, result.current_glp)
+            self._glp_segment_note_text(
+                v["new_accum"], v["current_accum"], result.current_glp)
         )
         self._glp_segment_note_label.setVisible(True)
 
+    def _glp_summary_values(
+        self,
+        result: GuidelineExceptionMaturityForecastResult,
+    ) -> dict:
+        """Values shared by the on-screen summary, the clipboard copy and the
+        Excel export for an exception-premium-required quote.
+
+        ``premium_to_target`` is the sum of the Premium column in the 0 - MD
+        Prem forecast up to (but not including) the target date — the greyed
+        target-date row is not used.
+        """
+        s = result.zero_md.summary
+        new_accum = s.premiums_to_date_on_target - s.accumulated_withdrawals
+        premium_to_target = sum(
+            row.premium
+            for row in result.zero_md.rows
+            if row.date is not None and row.date < s.target_date
+        )
+        return {
+            "target_text": s.target_date.strftime("%m/%d/%Y"),
+            "new_accum": new_accum,
+            "current_accum": s.accumulated_glp,
+            "premium_to_target": premium_to_target,
+            "glp_not_zero": round(result.current_glp, 2) != 0.0,
+        }
+
+    def _glp_summary_lines(
+        self,
+        result: GuidelineExceptionMaturityForecastResult,
+    ) -> list[str]:
+        """The full Calculation Summary as ordered plain-text lines."""
+        v = self._glp_summary_values(result)
+        lines = [
+            f"EXCEPTION PREMIUM REQUIRED FOR {v['target_text']}",
+            f"New Accum GLP = {v['new_accum']:,.2f}",
+        ]
+        if v["glp_not_zero"]:
+            lines.append("New GLP = 0")
+        lines.append(
+            f"Premium to get to {v['target_text']} = {v['premium_to_target']:,.2f}"
+        )
+        lines.append(
+            self._glp_segment_note_text(
+                v["new_accum"], v["current_accum"], result.current_glp)
+        )
+        return lines
+
+    def _glp_summary_copy_text(self) -> str:
+        """Whole Calculation Summary as plain text for the right-click Copy."""
+        result = getattr(self, "_glp_result", None)
+        if result is None:
+            return ""
+        if result.zero_md is None:
+            target_text = self._glp_target_date.text().strip()
+            return (
+                f"NO EXCEPTION PREMIUM NEEDED for target date {target_text}. "
+                f"DO NOT ADJUST THE ACCUM GLP."
+            )
+        return "\n".join(self._glp_summary_lines(result))
+
     @staticmethod
-    def _glp_segment_note_text(new_accum: float, current_glp: float = 0.0) -> str:
+    def _glp_segment_note_text(
+        new_accum: float, current_accum: float, current_glp: float = 0.0
+    ) -> str:
         """The copy-ready 72-segment note documenting the exception zap.
 
-        The "AND GLP LEVEL TO $0.00" clause is only included when the policy's
+        Records the Accum GLP moving from its current value to the New Accum
+        GLP. The "AND GLP TO 0.00" clause is only included when the policy's
         current GLP is not already zero (there is nothing to zap otherwise).
         """
         note = (
-            f"72 segment note:  SXXXXXXX EXCEPTION PREMIUM:  ZAPPED GLP ACCUM TO "
-            f"${new_accum:,.2f}"
+            f"72 segment note:  SXXXXXX ZAPPED GLP ACCUM FROM "
+            f"{current_accum:,.2f} to {new_accum:,.2f}"
         )
         if round(current_glp, 2) != 0.0:
-            note += " AND GLP LEVEL TO  $0.00"
-        return note + "."
+            note += " AND GLP TO 0.00"
+        return note
 
     def _display_glp_exception_result(self, result: GuidelineExceptionMaturityForecastResult):
         self._glp_result = result
@@ -2164,10 +2233,14 @@ class PolicySupportTab(QWidget):
         result = getattr(self, "_glp_result", None)
         s = result.zero_md.summary if result is not None and result.zero_md else None
         target_text = self._glp_target_date.text().strip()
+        summary_values = (
+            self._glp_summary_values(result) if s is not None else None
+        )
+        header_target = summary_values["target_text"] if summary_values else target_text
         ws.cell(
             row=row_num, column=1,
             value=(
-                "EXCEPTION PREMIUM REQUIRED (Updates needed to Accum GLP and the GLP)"
+                f"EXCEPTION PREMIUM REQUIRED FOR {header_target}"
                 if s is not None
                 else f"NO EXCEPTION PREMIUM NEEDED for target date {target_text}. "
                      "DO NOT ADJUST THE ACCUM GLP."
@@ -2190,24 +2263,27 @@ class PolicySupportTab(QWidget):
                 ),
             )
             row_num += 1
-        if s is not None:
-            new_accum = s.premiums_to_date_on_target - s.accumulated_withdrawals
+        if summary_values is not None:
             summary_rows = [
-                ("New Accum GLP = PremiumsPaidToDate \u2212 AccumWithdrawals", ""),
-                ("New Accum", f"${new_accum:,.2f}"),
+                ("New Accum GLP", f"{summary_values['new_accum']:,.2f}"),
             ]
-            if round(result.current_glp, 2) != 0.0:
-                summary_rows.append(("Set GLP", "0"))
+            if summary_values["glp_not_zero"]:
+                summary_rows.append(("New GLP", "0"))
+            summary_rows.append((
+                f"Premium to get to {summary_values['target_text']}",
+                f"{summary_values['premium_to_target']:,.2f}",
+            ))
             for label, value in summary_rows:
-                ws.cell(row=row_num, column=1, value=label)
-                ws.cell(row=row_num, column=2, value=value)
-                if label in {"New Accum", "Set GLP"}:
-                    ws.cell(row=row_num, column=1).font = bold_font
-                    ws.cell(row=row_num, column=2).font = bold_font
+                ws.cell(row=row_num, column=1, value=label).font = bold_font
+                ws.cell(row=row_num, column=2, value=value).font = bold_font
                 row_num += 1
             note_cell = ws.cell(
                 row=row_num, column=1,
-                value=self._glp_segment_note_text(new_accum, result.current_glp))
+                value=self._glp_segment_note_text(
+                    summary_values["new_accum"],
+                    summary_values["current_accum"],
+                    result.current_glp,
+                ))
             note_cell.font = bold_font
             row_num += 1
 

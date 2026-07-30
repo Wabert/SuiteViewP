@@ -174,6 +174,10 @@ class PolicyInformation:
     def fetch_table(self, table_name: str) -> List[Dict[str, Any]]:
         """Get entire table as list of dictionaries."""
         return self._data.fetch_table(table_name)
+
+    def table_error(self, table_name: str) -> str:
+        """Return the DB2 load error for a table, if one occurred."""
+        return self._data.table_error(table_name)
     
     def if_empty(self, value: Any, default: Any = "") -> Any:
         """Return default if value is None or empty string."""
@@ -3861,4 +3865,3 @@ def close_all_connections():
     """Close all database connections (both PolicyInformation and shared pools)."""
     _ConnectionManager().close_all()
     _DB2Connection.close_all()
-
