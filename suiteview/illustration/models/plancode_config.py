@@ -37,7 +37,6 @@ class PlancodeConfig:
 
     # EPU
     epu_code: str = "Table"             # "Table" or flat rate
-    epu_sa_basis: str = "CurrentSA"     # "CurrentSA", "OriginalSA"
 
     # Monthly fee
     mfee: str = "5"                     # "Table" or flat $ (e.g., "5")
@@ -58,10 +57,11 @@ class PlancodeConfig:
     # waiver targets to the FFL basis (CalcEngine IW..JD via sblnFFL).
     company_sub: str = "ANICO"
 
-    # Target premiums (MTP/CTP) — RERUN sTarget_SA_Basis / sTarget_BandLock.
-    # Defaults validated against RERUN for the EXECUL family: targets use the
-    # CURRENT specified amount and re-band to the current total-SA band.
-    target_sa_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA"
+    # Target premiums (MTP/CTP) — RERUN sTarget_BandLock. The specified-amount
+    # basis for MTP/CTP is driven by ``expense_basis`` (see below). RERUN's
+    # sTarget_SA_Basis also gates the withdrawal fee (CalcEngine BP); that is
+    # what ``target_sa_basis`` still controls here.
+    target_sa_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA" (withdrawal fee gate)
     target_band_lock: bool = False       # True = keep each segment's original band
 
     # Withdrawals — RERUN sWithdrawalFee / sMD_HoldBack / sbln_PSC, plus the
@@ -99,7 +99,8 @@ class PlancodeConfig:
     # Expense (charge) specified-amount basis. Derived from skipped_cov_rein:
     # plans that reinstate skipped coverage (the IUL family) charge expenses on
     # the ORIGINAL specified amount ("OriginalSA"); every other plan charges on
-    # the CURRENT specified amount ("CurrentSA").
+    # the CURRENT specified amount ("CurrentSA"). Drives the EPU charge, the
+    # MTP/CTP target premiums, and the surrender charge (SCR) units.
     expense_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA"
 
     # Loans
@@ -198,7 +199,6 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         premium_load=data.get("PremiumLoad", "Table"),
         prem_flat_load=float(data.get("PremFlatLoad", 0)),
         epu_code=data.get("EPU_Code", "Table"),
-        epu_sa_basis=data.get("EPU_SA_Basis", "CurrentSA"),
         mfee=str(data.get("MFEE", "5")),
         poav_code=str(data.get("PoAV_Table", data.get("PoAV_Code", "0"))),
         poav_table=str(data.get("PoAV_Table", data.get("PoAV_Code", "0"))),

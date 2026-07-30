@@ -307,7 +307,7 @@ class IllustrationEngine:
         )
 
         scr_rate_0, surrender_charge_0, scr_rates_by_coverage_0, surrender_charges_by_coverage_0 = _calculate_surrender_charge(
-            policy, rates, rate_year_inforce, month_date_inforce
+            policy, rates, rate_year_inforce, month_date_inforce, config
         )
         lapse_check_debt_0 = loan0.policy_debt
         surrender_value_0 = policy.account_value - surrender_charge_0 - lapse_check_debt_0
@@ -825,7 +825,7 @@ class IllustrationEngine:
         if (b2md_active and not b2md_switched and not state.lapsed
                 and _b2md_latch_allowed(options, month_date)):
             _, sc_probe, _, _ = _calculate_surrender_charge(
-                policy, rates, rate_year, month_date)
+                policy, rates, rate_year, month_date, config)
             probe_debt = cap_loan.policy_debt
             snet_probe = (
                 (prem.premiums_to_date - withdrawals_to_date - probe_debt)
@@ -866,7 +866,7 @@ class IllustrationEngine:
         loan_cap = None
         if options.restrict_loans_to_sv:
             _, full_sc_for_loan, _, _ = _calculate_surrender_charge(
-                policy, rates, rate_year, month_date)
+                policy, rates, rate_year, month_date, config)
             loan_cap = (
                 av - full_sc_for_loan - cap_loan.policy_debt
                 - config.md_holdback * ded.total_deduction
@@ -995,7 +995,7 @@ class IllustrationEngine:
         )
 
         scr_rate, surrender_charge, scr_rates_by_coverage, surrender_charges_by_coverage = _calculate_surrender_charge(
-            policy, rates, rate_year, month_date
+            policy, rates, rate_year, month_date, config
         )
         lapse_check_av = exception.av_after_exception
         lapse_check_debt = cap_loan.policy_debt
@@ -1484,7 +1484,7 @@ class IllustrationEngine:
         loan_cap = None
         if options.restrict_loans_to_sv:
             _, full_sc_for_loan, _, _ = _calculate_surrender_charge(
-                policy, rates, rate_year, month_date)
+                policy, rates, rate_year, month_date, config)
             loan_cap = (
                 av_end - full_sc_for_loan - cap_loan.policy_debt
                 - config.md_holdback * ded.total_deduction
@@ -3230,7 +3230,13 @@ def _calculate_surrender_charge(
     rates: IllustrationRates,
     rate_year: int,
     projection_date,
+    config: PlancodeConfig = None,
 ):
+    # Expense_Basis drives the SCR units basis: OriginalSA plans charge the
+    # surrender charge on the coverage's ORIGINAL units; every other plan uses
+    # the current units. (Units are the specified amount per $1,000.)
+    original_basis = bool(config is not None and config.expense_basis == "OriginalSA")
+
     segments = policy.segments or [policy.base_segment]
     segments = [segment for segment in segments if segment is not None]
     if not segments:
@@ -3244,7 +3250,10 @@ def _calculate_surrender_charge(
         segment_schedule = rates.segment_scr.get(segment.coverage_phase, rates.scr)
         segment_rate_year = _coverage_year(segment, projection_date, rate_year)
         segment_scr_rate = _rate_from_schedule(segment_schedule, segment_rate_year)
-        segment_surrender_charge = segment_scr_rate * segment.units
+        segment_units = (
+            segment.original_face_amount / 1000.0 if original_basis else segment.units
+        )
+        segment_surrender_charge = segment_scr_rate * segment_units
         key = f"cov{index}"
         scr_rates_by_coverage[key] = segment_scr_rate
         surrender_charges_by_coverage[key] = segment_surrender_charge

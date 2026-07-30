@@ -585,7 +585,7 @@
       "ShadowDBDRate": "0",
       "ShadowIntRateCode": "0",
       "ShadowLoanImpact": "Reduce",
-      "MFEE": 5,
+      "MFEE": "Table",
       "EPU_Code": "Table",
       "TableRatingFactor": 0.25,
       "DBD": 0.02,

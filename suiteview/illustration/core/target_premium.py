@@ -275,9 +275,12 @@ def compute_target_premiums(
         if seg.face_amount <= 0:
             continue
         band = seg.original_band if config.target_band_lock else current_band
+        # Expense_Basis drives the MTP/CTP specified-amount basis: OriginalSA
+        # plans use the coverage's ORIGINAL SA (i.e. original units); every
+        # other plan uses the current specified amount.
         sa = (
             seg.original_face_amount
-            if config.target_sa_basis == "OriginalSA"
+            if config.expense_basis == "OriginalSA"
             else seg.face_amount
         )
         table = (

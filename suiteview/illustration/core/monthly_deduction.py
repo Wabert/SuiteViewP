@@ -512,9 +512,10 @@ def calculate_deduction(
             segment_schedule = rates.epu if segment is None else rates.segment_epu.get(segment.coverage_phase, rates.epu)
             segment_rate_year = _coverage_year(segment, projection_date, rate_year)
             segment_epu_rate = _rate_from_schedule(segment_schedule, segment_rate_year)
-            if config.epu_sa_basis == "CurrentSA":
-                segment_basis = segment.face_amount if segment else face
-            elif config.epu_sa_basis == "OriginalSA":
+            # Expense_Basis drives the EPU specified-amount basis: OriginalSA
+            # plans (SkippedCovRein family) charge on the coverage's ORIGINAL
+            # specified amount; everything else uses the current specified amount.
+            if config.expense_basis == "OriginalSA":
                 segment_basis = segment.original_face_amount if segment else face
             else:
                 segment_basis = segment.face_amount if segment else face
