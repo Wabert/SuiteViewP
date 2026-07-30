@@ -20,7 +20,7 @@ Migrate the RERUN Excel workbook — a 27-sheet, 20-year-old inforce UL illustra
 | In Scope | Out of Scope (v1) |
 |---|---|
 | Inforce illustrations | New business illustrations |
-| All 3 product types: UL, IUL, SGUL | PDF report generation |
+| All 3 product types: UL, IUL, SGUL | New business report forms |
 | Penny-for-penny accuracy (early years) | Batch processing |
 | What-if scenario modeling (core) | Annual Qualification Test |
 | 7702 compliance (GP, TAMRA, DCV, NSP) | Saved cases (nice-to-have) |
@@ -550,14 +550,32 @@ For debugging and validation, the engine should expose monthly-level values acro
   - **AV bonus (EXECUL):** When AV > $100,000
 
 ### 10.2 Blend (IUL Products)
-- User inputs illustrated rates per fund per month
+- Current per-fund illustrated rates load from `SV_INDEX_ILL_RATES` as of the
+  illustration run date (the current date), not the policy valuation date, and
+  remain editable for the illustration scenario.
+- Current cap, floor, participation, spread, specified-rate, multiplier, and
+  asset-fee parameters load from `SV_INDEX_PARAMS` as of the illustration run
+  date.
 - Fixed and index fund rates blended by allocation percentage
 - Single blended rate applied to account value
-- **Decision:** IUL rates are user inputs for v1; database storage is future
 
 ### 10.3 Interest Method: ExactDays
 - Interest calculation uses exact day count for the policy month
 - `interest = AV × rate × days_in_month / days_in_year`
+
+### 10.4 IUL Report Sections
+- The cover breaks the accumulation value out by funds with nonzero balances
+  and lists allocation percentages only for funds available on the product.
+- The assumptions page lists illustrated rates only for positively allocated
+  index strategies, plus the fixed-account rate when fixed has an allocation.
+- Benchmark-strategy average minimum/maximum rates load from
+  `SV_INDEX_BENCHMARK_MINMAX` as of the illustration run date.
+- The historical index rate ledger reads the most recent 20 full calendar years
+  from `SV_INDEX_MARKET_RETURNS`, applies each allocated strategy's current
+  parameters, and reports 5-, 10-, 15-, and 20-year geometric compound yields.
+- Market mappings are SP500 for IX/IF/IS/IC/IP/IR, NASDAQ100 for NX, and
+  SPMARC5 for M1.
+- A policy year in which the policy terminates shows zero death benefit.
 
 ---
 

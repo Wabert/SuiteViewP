@@ -73,3 +73,10 @@ tmp_compare/
 
 # Office temp/lock files (e.g. ~$RERUN (v20.0).xlsm)
 ~$*
+
+# Research scratch and captured customer data (PII / large binaries — never commit)
+research_scratch/
+docs/CyberDoc/
+docs/Policy Record/
+docs/Illustration_UL/*.pdf
+tools/research_*

@@ -56,10 +56,11 @@ Engine status (implemented 2026-07-18):
   on a constructed IP-allocation run; WAIR VI exact on the valuation row,
   VJ deltas 7e-5–9e-5 fully explained by non-IUL deduction drift; VV spread
   branch exact (both accrue at UO − 0.01) on a constructed variable-loan
-  run; the VB typo below is inert with ApplyPremToLoan off. Residual
-  AV-level deltas trace to two NON-crediting engine gaps (band boundary in
-  `Rates.get_band`, PoAV charge gated off by the `poav_code == "Table"`
-  check) — details + evidence in WORK_LAPTOP_SPEC.md §5.5.
+  run; the VB typo below is inert with ApplyPremToLoan off. The two
+  NON-crediting engine gaps found during that comparison are now resolved:
+  the issue-date band boundary is handled by `Rates.get_band`, and PoAV uses
+  local table-code schedules from `tRates_PoAV.json`. Details and evidence
+  remain in WORK_LAPTOP_SPEC.md §5.5.
 
 ---
 

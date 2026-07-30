@@ -737,11 +737,12 @@ export session (`tools/export_local_rate_data.py` on the UL_Rates DSN):
    `Testing/details/rerun_vs_app_iul_blend_bandfix_20260718_200353.xlsx`
    (COI exact through mo 528; residual AV drift 30,714 → 998.24 = bug (b)
    + PW-cease/MTP-mapping divergences below).
-   (b) *PoAV charge missing* — plancode_table PoAV_Table is a table code
-   ("1"/"2"/"3") on the IUL plans, but `monthly_deduction.py:559` and
-   `rate_loader.py:181` gate on `poav_code == "Table"` → av_charge silently 0.
-   RERUN charges SI = MAX(0, OO × SH) inside vTotalFees; the system's
-   EXP_CRG_AMT confirms (~7–17/mo, policy years 1–10 only). Both cases.
+   (b) *PoAV charge fixed locally (2026-07-29)* — plancode_table PoAV_Table is
+   a table code ("1"/"2"/"3") on the IUL plans. The supplied current and
+   guaranteed monthly rates now live in `tRates_PoAV.json`; rate loading uses
+   the code and current band, and `monthly_deduction.py` charges
+   SI = MAX(0, OO × SH). The system's EXP_CRG_AMT confirms the expected
+   ~7–17/mo charges (table 1 current rates cease after policy year 10).
 
    **RERUN divergences flagged (engine matches the system, not RERUN):**
    PW cease — RERUN stops the PW charge at attained age 60 (its benefit
