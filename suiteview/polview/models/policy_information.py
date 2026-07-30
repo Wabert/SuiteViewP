@@ -2700,10 +2700,17 @@ class PolicyInformation:
     
     @property
     def total_specified_amount(self) -> Decimal:
-        """Total specified amount across all base coverages."""
+        """Total specified amount across all *active* base coverages.
+
+        Terminated (or otherwise inactive) base coverages no longer contribute
+        to the policy's specified amount, so their face is excluded here. This
+        matters for band determination: including a terminated base coverage's
+        face would over-count the total and can push the policy into a higher
+        band than CyberLife (e.g. band 3 vs band 2 across the 250,000 boundary).
+        """
         total = Decimal("0")
         for cov in self.get_base_coverages():
-            if cov.face_amount:
+            if cov.face_amount and self._coverage_is_active(cov):
                 total += cov.face_amount
         return total
     
