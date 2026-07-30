@@ -96,6 +96,11 @@ class PlancodeConfig:
     # does not depend on issue date (every other plancode).
     band_table2_issue_date: Optional[date] = None
     skipped_cov_rein: bool = False
+    # Expense (charge) specified-amount basis. Derived from skipped_cov_rein:
+    # plans that reinstate skipped coverage (the IUL family) charge expenses on
+    # the ORIGINAL specified amount ("OriginalSA"); every other plan charges on
+    # the CURRENT specified amount ("CurrentSA").
+    expense_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA"
 
     # Loans
     loan_type: str = "Arrears"           # "Arrears" or "Advance"
@@ -218,6 +223,10 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         rachet_banding=bool(data.get("Rachet_Banding", False)),
         band_table2_issue_date=_date_or_none(data.get("BandTable2IssueDate")),
         skipped_cov_rein=bool(data.get("SkippedCovRein", False)),
+        expense_basis=data.get(
+            "Expense_Basis",
+            "OriginalSA" if bool(data.get("SkippedCovRein", False)) else "CurrentSA",
+        ),
         loan_type=data.get("LoanType", "Arrears"),
         loan_charge_rate_guar=float(data.get("LoanChargeRate", data.get("LoanChargeRateGuar", 0))),
         loan_charge_rate_curr=float(data.get("LoanCollateralCreditRate", data.get("LoanChargeRateCurr", 0))),
