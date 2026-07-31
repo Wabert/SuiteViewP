@@ -651,9 +651,14 @@ class ABRQuoteWindow(FramelessWindowBase):
                 premium_schedule[yr_idx] = modal_total * remaining_payments
 
             # ── 5. Compute APV ──────────────────────────────────────────
+            # Project the locked-in death benefit (Face + Account Value for
+            # Option B, Face + Premiums Paid for Option C, else Face). The
+            # PVDB and eligible amounts must all use this same benefit.
+            projected_death_benefit = p.default_death_benefit
             apv_engine = APVEngine(annual_rate, p)
             self._apv_detail, self._apv_summary = apv_engine.compute_detailed_table(
                 monthly_qx, premium_schedule, is_terminal=is_terminal,
+                death_benefit=projected_death_benefit,
             )
 
             admin_fee = db.get_admin_fee(p.issue_state)
@@ -680,7 +685,7 @@ class ABRQuoteWindow(FramelessWindowBase):
                 apv_summary=self._apv_summary,
                 loan_repayment=loan_amount,
                 surrender_value=surrender_value,
-                eligible_death_benefit=p.default_death_benefit,
+                eligible_death_benefit=projected_death_benefit,
             )
 
             partial = apv_engine.compute_partial_acceleration(

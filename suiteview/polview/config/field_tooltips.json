@@ -15,6 +15,14 @@
       "label": "Impaired AV",
       "tooltip": "Impaired Account Value - The portion of the account value pledged as collateral for policy loans. Calculated as TotalFundPrefLnPrinciple + TotalFundRegLnPrinciple."
     },
+    "surrender_charge": {
+      "label": "Surrender Charge",
+      "tooltip": "Calculated (italic) - The full surrender charge as of the valuation date, computed by the Illustration engine from the plancode's surrender-charge schedule and current coverage units. Shows 'cannot calc' if the required rates are unavailable. UL products only."
+    },
+    "surrender_value": {
+      "label": "Surrender Value",
+      "tooltip": "Calculated (italic) - Net surrender value as of the valuation date: account value less the full surrender charge and any policy debt, computed by the Illustration engine. Shows 'cannot calc' if the required rates are unavailable. UL products only."
+    },
     "gav": {
       "label": "GAV",
       "tooltip": "Guaranteed Account Value - The minimum guaranteed account value based on the guaranteed interest rate. Only applicable to certain UL products."

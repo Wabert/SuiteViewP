@@ -1285,7 +1285,8 @@ class OutputPanel(QWidget):
 
         apv_headers = [
             "Month", "t", "qx Monthly", "px Monthly", "tpx (cum surv)",
-            "v^(t+1) (benefit)", "v^t (premium)", "PVDB(t) (this mo)",
+            "v^(t+1) (benefit)", "v^t (premium)", "Death Benefit",
+            "PVDB(t) (this mo)",
             "PVDB Cum", "Prem Rate (per $1K)", "PVFP(t) (this mo)",
             "PVFP Cum", "tpx End",
         ]
@@ -1300,6 +1301,7 @@ class OutputPanel(QWidget):
                 arow["month"], arow["t"],
                 arow["qx_monthly"], arow["px_monthly"], arow["tp_x"],
                 arow["v_benefit"], arow["v_premium"],
+                arow.get("death_benefit", 0.0),
                 arow["pvdb_t"], arow["pvdb_cum"],
                 arow["prem_rate"] if arow["prem_rate"] > 0 else "",
                 arow["pvfp_t"], arow["pvfp_cum"],
@@ -1322,8 +1324,8 @@ class OutputPanel(QWidget):
                 ("PVFP:", s.get("pvfp", 0), '#,##0.00'),
                 ("Actuarial Discount:", s.get("actuarial_discount", 0), '#,##0.00'),
             ]:
-                ws5.cell(row=apv_sum_row, column=8, value=label).font = summary_font_xl
-                cell = ws5.cell(row=apv_sum_row, column=9, value=val)
+                ws5.cell(row=apv_sum_row, column=9, value=label).font = summary_font_xl
+                cell = ws5.cell(row=apv_sum_row, column=10, value=val)
                 cell.font = summary_font_xl
                 cell.number_format = fmt
                 apv_sum_row += 1

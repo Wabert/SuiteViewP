@@ -2104,6 +2104,7 @@ class SuiteViewTaskbar(QWidget):
         self.polview_window = None
         self.audit_window = None
         self.ratemanager_window = None
+        self.db2_table_check_window = None
         self.abrquote_window = None
         self.illustration_window = None
         self.file_nav_window = None
@@ -2841,6 +2842,21 @@ class SuiteViewTaskbar(QWidget):
                 return
         self._bring_to_front(self.ratemanager_window)
 
+    def _open_db2_table_check(self):
+        """Open the DB2 Table Check window (scans CKPR LH_/TH_ table access)."""
+        if self.db2_table_check_window is None:
+            try:
+                from suiteview.ui.db2_table_check_window import DB2TableCheckWindow
+                self.db2_table_check_window = DB2TableCheckWindow(region="CKPR")
+                self._setup_child_window(
+                    self.db2_table_check_window, "DB2 Table Check (CKPR)"
+                )
+            except Exception as e:
+                logger.error(f"Failed to open DB2 Table Check: {e}")
+                self.db2_table_check_window = None
+                return
+        self._bring_to_front(self.db2_table_check_window)
+
     def _open_file_nav(self):
         """Open the File Navigator as a separate window."""
         # Guard: if the stored window was destroyed, reset it
@@ -2863,14 +2879,14 @@ class SuiteViewTaskbar(QWidget):
         self._bring_to_front(self.file_nav_window)
 
     def _open_app_data_location(self):
-        """Navigate to the app data folder (~/.suiteview) in the details view"""
+        """Open the app data folder (~/.suiteview) in Windows File Explorer."""
         app_data_dir = Path.home() / '.suiteview'
-        # Create the directory if it doesn't exist
+        # Create the directory if it doesn't exist so Explorer has a target.
         app_data_dir.mkdir(parents=True, exist_ok=True)
-        # Navigate to it in the current tab's details pane
-        current_tab = self.get_current_tab()
-        if current_tab and hasattr(current_tab, 'navigate_to_path'):
-            current_tab.navigate_to_path(str(app_data_dir))
+        try:
+            os.startfile(str(app_data_dir))
+        except Exception as e:
+            logger.error(f"Failed to open app data location {app_data_dir}: {e}")
 
     def _toggle_scratchpad_window(self):
         """Toggle the ScratchPad window visibility."""
@@ -3580,6 +3596,7 @@ class SuiteViewTaskbar(QWidget):
             self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)
             self.tools_menu.addAction("Audit Tool", self._open_audit)
             self.tools_menu.addAction("Rate Manager", self._open_rate_manager)
+            self.tools_menu.addAction("DB2 Table Check (CKPR)", self._open_db2_table_check)
         if DEV_MODE and not LIGHT_MODE:
             self.tools_menu.addAction("Email Attachments", self._open_email_attachments)
         self.tools_menu.addSeparator()

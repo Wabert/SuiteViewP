@@ -30,7 +30,7 @@ class AdvProdValuesTab(QWidget):
         left_column.setSpacing(4)
 
         self.policy_info = StyledInfoTableGroup("Policy Info", columns=2, show_table=False)
-        self.policy_info.setFixedSize(595, 160)
+        self.policy_info.setFixedSize(595, 190)
         self._setup_policy_info_fields()
         left_column.addWidget(self.policy_info)
 
@@ -73,20 +73,36 @@ class AdvProdValuesTab(QWidget):
 
     def _setup_policy_info_fields(self):
         section = "AdvProdValues"
-        self.policy_info.add_field("Total AV", "total_av", 85, 65, section, "total_av")
-        self.policy_info.add_field("Short Pay Prem", "short_pay_prem", 85, 65, section, "short_pay_prem")
-        self.policy_info.add_field("Unimpaired AV", "unimpaired_av", 85, 65, section, "unimpaired_av")
-        self.policy_info.add_field("Short Pay Mode", "short_pay_mode", 85, 65, section, "short_pay_mode")
-        self.policy_info.add_field("Impaired AV", "impaired_av", 85, 65, section, "impaired_av")
-        self.policy_info.add_field("Short Pay Dur", "short_pay_dur", 85, 65, section, "short_pay_dur")
-        self.policy_info._current_col = 1
-        self.policy_info.add_field("SP Billing Cease", "sp_billing_cease_date", 85, 65, section, "sp_billing_cease_date")
-        self.policy_info.add_field("CCV", "ccv", 85, 65, section, "ccv")
-        self.policy_info.add_field("SP Prem Cease Age", "sp_prem_cease_age", 85, 65, section, "sp_prem_cease_age")
-        self.policy_info.add_field("Guar Int Rate", "guar_int_rate", 85, 65, section, "guar_int_rate")
-        self.policy_info.add_field("DB Dial-To Age", "db_dial_to_age", 85, 65, section, "db_dial_to_age")
-        self.policy_info.add_field("Grace Rule Code", "grace_rule_code", 85, 65, section, "grace_rule_code")
-        self.policy_info.add_field("Corridor Rate", "corridor_rate", 85, 65, section, "corridor_rate")
+
+        def place(row, col, label, attr, lwidth=85, vwidth=65, italic=False):
+            self.policy_info._current_row = row
+            self.policy_info._current_col = col
+            self.policy_info.add_field(label, attr, lwidth, vwidth, section, attr)
+            if italic:
+                self.policy_info._fields[attr].setStyleSheet(
+                    self.policy_info._val_style + " font-style: italic;")
+                self.policy_info._labels[attr].setStyleSheet(
+                    self.policy_info._lbl_style + " font-style: italic;")
+
+        # Left column (AV / calculated / rate fields)
+        place(0, 0, "Total AV", "total_av", lwidth=100)
+        place(1, 0, "Unimpaired AV", "unimpaired_av", lwidth=100)
+        place(2, 0, "Impaired AV", "impaired_av", lwidth=100)
+        place(3, 0, "Surrender Charge", "surrender_charge", lwidth=100, italic=True)
+        place(4, 0, "Surrender Value", "surrender_value", lwidth=100, italic=True)
+        place(5, 0, "CCV", "ccv", lwidth=100)
+        place(6, 0, "Guar Int Rate", "guar_int_rate", lwidth=100)
+        place(7, 0, "Grace Rule Code", "grace_rule_code", lwidth=100)
+
+        # Right column (short-pay / other) — wider labels so long names
+        # like "SP Prem Cease Age" are not clipped
+        place(0, 1, "Short Pay Prem", "short_pay_prem", lwidth=115)
+        place(1, 1, "Short Pay Mode", "short_pay_mode", lwidth=115)
+        place(2, 1, "Short Pay Dur", "short_pay_dur", lwidth=115)
+        place(3, 1, "SP Billing Cease", "sp_billing_cease_date", lwidth=115)
+        place(4, 1, "SP Prem Cease Age", "sp_prem_cease_age", lwidth=115)
+        place(5, 1, "DB Dial-To Age", "db_dial_to_age", lwidth=115)
+        place(6, 1, "Corridor Rate", "corridor_rate", lwidth=115)
 
     # ── PolicyInformation path ───────────────────────────────────────────
 
@@ -104,6 +120,7 @@ class AdvProdValuesTab(QWidget):
                 return
 
             self._load_policy_info_from_policy(policy)
+            self._load_surrender_values_from_policy(policy)
             self._load_monthliversary_from_policy(policy)
             self._load_fund_history_from_policy(policy)
             self._load_fund_summary_from_policy(policy)
@@ -186,6 +203,31 @@ class AdvProdValuesTab(QWidget):
                 self.policy_info.set_value("sp_prem_cease_age", str(policy.sp_prem_cease_age))
         if policy.db_dial_to_age:
             self.policy_info.set_value("db_dial_to_age", str(policy.db_dial_to_age))
+
+    def _load_surrender_values_from_policy(self, policy):
+        """Compute the full surrender charge and net surrender value as of the
+        valuation date using the Illustration engine.
+
+        UL/advanced products only (this tab already returns early for trad).
+        If the required rates are missing or any error occurs, show "cannot calc".
+        """
+        try:
+            from suiteview.illustration import build_illustration_data, IllustrationEngine
+
+            ill_policy = build_illustration_data(
+                policy.policy_number, policy.region, policy.company_code
+            )
+            results = IllustrationEngine().project(ill_policy, months=0)
+            inforce = results[0]
+            self.policy_info.set_value(
+                "surrender_charge", format_currency(inforce.surrender_charge))
+            self.policy_info.set_value(
+                "surrender_value", format_currency(inforce.surrender_value))
+        except Exception as e:
+            import sys
+            print(f"[AdvProdValuesTab] Surrender calc failed: {e}", file=sys.stderr)
+            self.policy_info.set_value("surrender_charge", "cannot calc")
+            self.policy_info.set_value("surrender_value", "cannot calc")
 
     def _load_monthliversary_from_policy(self, policy):
         mv_rows = policy.fetch_table("LH_POL_MVRY_VAL")

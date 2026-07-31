@@ -729,6 +729,7 @@ class CalcViewerDialog(FramelessWindowBase):
             ("tpx\n(cum surv)", 85),
             ("v^(t+1)\n(benefit)", 90),
             ("v^t\n(premium)", 90),
+            ("Death\nBenefit", 90),
             ("PVDB(t)\n(this mo)", 95),
             ("PVDB Cum", 100),
             ("Prem Rate\n(per $1K)", 82),
@@ -750,15 +751,16 @@ class CalcViewerDialog(FramelessWindowBase):
             self._set_pct(table, r, 4, row["tp_x"])
             self._set_decimal(table, r, 5, row["v_benefit"], 10)
             self._set_decimal(table, r, 6, row["v_premium"], 10)
-            self._set_money(table, r, 7, row["pvdb_t"])
-            self._set_money(table, r, 8, row["pvdb_cum"])
+            self._set_money(table, r, 7, row.get("death_benefit", 0.0))
+            self._set_money(table, r, 8, row["pvdb_t"])
+            self._set_money(table, r, 9, row["pvdb_cum"])
             if row["prem_rate"] > 0:
-                self._set_decimal(table, r, 9, row["prem_rate"], 4)
+                self._set_decimal(table, r, 10, row["prem_rate"], 4)
             else:
-                self._set_text(table, r, 9, "")
-            self._set_money(table, r, 10, row["pvfp_t"])
-            self._set_money(table, r, 11, row["pvfp_cum"])
-            self._set_pct(table, r, 12, row["tp_x_end"])
+                self._set_text(table, r, 10, "")
+            self._set_money(table, r, 11, row["pvfp_t"])
+            self._set_money(table, r, 12, row["pvfp_cum"])
+            self._set_pct(table, r, 13, row["tp_x_end"])
 
             # Highlight year boundaries (rows where premium is applied)
             if row["prem_rate"] > 0:
@@ -779,12 +781,12 @@ class CalcViewerDialog(FramelessWindowBase):
             item_label.setFont(summary_font)
             item_label.setForeground(summary_color)
             item_label.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            table.setItem(row_idx, 7, item_label)
+            table.setItem(row_idx, 8, item_label)
             if fmt == "money":
-                self._set_money(table, row_idx, 8, value)
+                self._set_money(table, row_idx, 9, value)
             elif fmt == "rate":
-                self._set_decimal(table, row_idx, 8, value, 10)
-            item_val = table.item(row_idx, 8)
+                self._set_decimal(table, row_idx, 9, value, 10)
+            item_val = table.item(row_idx, 9)
             if item_val:
                 item_val.setFont(summary_font)
                 item_val.setForeground(summary_color)
@@ -1284,7 +1286,7 @@ class CalcViewerDialog(FramelessWindowBase):
 
             apv_headers = (
                 "Month", "t", "qx Monthly", "px Monthly", "tpx (cum surv)",
-                "v^(t+1)", "v^t", "PVDB(t)", "PVDB Cum",
+                "v^(t+1)", "v^t", "Death Benefit", "PVDB(t)", "PVDB Cum",
                 "Prem Rate", "PVFP(t)", "PVFP Cum", "tpx End",
             )
             apv_col_count = len(apv_headers)
@@ -1296,6 +1298,7 @@ class CalcViewerDialog(FramelessWindowBase):
                     arow["month"], arow["t"],
                     arow["qx_monthly"], arow["px_monthly"],
                     arow["tp_x"], arow["v_benefit"], arow["v_premium"],
+                    arow.get("death_benefit", 0.0),
                     arow["pvdb_t"], arow["pvdb_cum"],
                     arow["prem_rate"], arow["pvfp_t"], arow["pvfp_cum"],
                     arow["tp_x_end"],
@@ -1316,10 +1319,11 @@ class CalcViewerDialog(FramelessWindowBase):
                 ws5.Range(ws5.Cells(2, 3), ws5.Cells(total_apv, 4)).NumberFormat = "0.00000000"
                 ws5.Range(ws5.Cells(2, 5), ws5.Cells(total_apv, 5)).NumberFormat = "0.000000%"
                 ws5.Range(ws5.Cells(2, 6), ws5.Cells(total_apv, 7)).NumberFormat = "0.0000000000"
-                ws5.Range(ws5.Cells(2, 8), ws5.Cells(total_apv, 9)).NumberFormat = "#,##0.000000"
-                ws5.Range(ws5.Cells(2, 10), ws5.Cells(total_apv, 10)).NumberFormat = "0.0000"
-                ws5.Range(ws5.Cells(2, 11), ws5.Cells(total_apv, 12)).NumberFormat = "#,##0.000000"
-                ws5.Range(ws5.Cells(2, 13), ws5.Cells(total_apv, 13)).NumberFormat = "0.000000%"
+                ws5.Range(ws5.Cells(2, 8), ws5.Cells(total_apv, 8)).NumberFormat = "#,##0.00"
+                ws5.Range(ws5.Cells(2, 9), ws5.Cells(total_apv, 10)).NumberFormat = "#,##0.000000"
+                ws5.Range(ws5.Cells(2, 11), ws5.Cells(total_apv, 11)).NumberFormat = "0.0000"
+                ws5.Range(ws5.Cells(2, 12), ws5.Cells(total_apv, 13)).NumberFormat = "#,##0.000000"
+                ws5.Range(ws5.Cells(2, 14), ws5.Cells(total_apv, 14)).NumberFormat = "0.000000%"
 
             for pr_row in apv_prem_rows:
                 ws5.Range(ws5.Cells(pr_row, 1), ws5.Cells(pr_row, apv_col_count)).Interior.Color = 0xD0F3FF
@@ -1334,11 +1338,11 @@ class CalcViewerDialog(FramelessWindowBase):
                 ("PVFP:", s["pvfp"], "#,##0.000000"),
                 ("Actuarial Discount:", s["actuarial_discount"], "#,##0.00"),
             ]):
-                ws5.Cells(sr + i, 8).Value = label
-                ws5.Cells(sr + i, 8).Font.Bold = True
-                ws5.Cells(sr + i, 9).Value = value
+                ws5.Cells(sr + i, 9).Value = label
                 ws5.Cells(sr + i, 9).Font.Bold = True
-                ws5.Cells(sr + i, 9).NumberFormat = fmt
+                ws5.Cells(sr + i, 10).Value = value
+                ws5.Cells(sr + i, 10).Font.Bold = True
+                ws5.Cells(sr + i, 10).NumberFormat = fmt
 
             ws5.Activate()
             ws5.Range("A2").Select()
@@ -1403,7 +1407,7 @@ class CalcViewerDialog(FramelessWindowBase):
     def _apv_to_tsv(self) -> list[str]:
         headers = [
             "Month", "t", "qx_Monthly", "px_Monthly", "tpx",
-            "v_benefit", "v_premium", "PVDB_t", "PVDB_cum",
+            "v_benefit", "v_premium", "DeathBenefit", "PVDB_t", "PVDB_cum",
             "PremRate", "PVFP_t", "PVFP_cum", "tpx_end",
         ]
         lines = ["\t".join(headers)]
@@ -1412,7 +1416,8 @@ class CalcViewerDialog(FramelessWindowBase):
                 str(row["month"]), str(row["t"]),
                 f'{row["qx_monthly"]:.8f}', f'{row["px_monthly"]:.8f}',
                 f'{row["tp_x"]:.8f}', f'{row["v_benefit"]:.10f}',
-                f'{row["v_premium"]:.10f}', f'{row["pvdb_t"]:.6f}',
+                f'{row["v_premium"]:.10f}', f'{row.get("death_benefit", 0.0):.2f}',
+                f'{row["pvdb_t"]:.6f}',
                 f'{row["pvdb_cum"]:.6f}', f'{row["prem_rate"]:.4f}',
                 f'{row["pvfp_t"]:.6f}', f'{row["pvfp_cum"]:.6f}',
                 f'{row["tp_x_end"]:.8f}',

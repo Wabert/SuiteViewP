@@ -87,8 +87,19 @@ class APVEngine:
         monthly_qx: List[float],
         premium_schedule: List[float],
         is_terminal: bool = True,
+        death_benefit: float | None = None,
     ) -> list[dict]:
         """Compute APV with ALL intermediate values exposed per month.
+
+        Args:
+            monthly_qx: Monthly mortality rates from MortalityEngine.
+            premium_schedule: Annual premium rates per $1,000 per policy year.
+            is_terminal: If True and state is FL, set PVFP=0.
+            death_benefit: The level death benefit to project. For Option B
+                UL the benefit is locked at Face + Account Value (and for
+                Option C at Face + Premiums Paid), so the PVDB projection must
+                use that amount, not the bare face. Defaults to the policy's
+                ``default_death_benefit`` which already encodes this logic.
 
         Returns a list of dicts (one per month) with keys:
             month           – absolute policy month
@@ -98,6 +109,7 @@ class APVEngine:
             tp_x            – cumulative survival at START of month
             v_benefit       – discount factor for benefit v^(t+1)
             v_premium       – discount factor for premium v^t
+            death_benefit   – level death benefit projected this month
             pvdb_t          – PV of death benefit this month (before adj)
             pvdb_cum        – running PVFB subtotal (before cont_adj × 1000)
             prem_rate       – premium rate applied (0 if not year boundary)
@@ -106,7 +118,9 @@ class APVEngine:
             tp_x_end        – cumulative survival at END of month
         """
         p = self.policy
-        face_units = p.face_amount / 1000.0
+        if death_benefit is None:
+            death_benefit = p.default_death_benefit
+        face_units = death_benefit / 1000.0
         # Convert month-within-year to absolute policy month since issue
         current_month = (p.policy_year - 1) * 12 + p.policy_month
         maturity_duration = (p.maturity_age - p.issue_age) * 12
@@ -156,6 +170,7 @@ class APVEngine:
                 "tp_x": tp_x,
                 "v_benefit": v_benefit,
                 "v_premium": v_premium,
+                "death_benefit": death_benefit,
                 "pvdb_t": pvdb_t,
                 "pvdb_cum": pvfb_cum,
                 "prem_rate": prem_rate,
@@ -176,7 +191,8 @@ class APVEngine:
             "cont_mort_adj": self.cont_mort_adj,
             "pvfb_adjusted": pvfb_final,
             "pvfp": pvfp_final,
-            "actuarial_discount": round(p.face_amount - (pvfb_final - pvfp_final), 2),
+            "death_benefit": death_benefit,
+            "actuarial_discount": round(death_benefit - (pvfb_final - pvfp_final), 2),
             "monthly_rate": self.monthly_rate,
             "annual_rate": self.annual_rate,
         }
@@ -201,7 +217,7 @@ class APVEngine:
             eligible_db, actuarial_discount, admin_fee, loan_repayment,
             surrender_value, calculated_benefit, accelerated_benefit, benefit_ratio
         """
-        base_face = self.policy.face_amount
+        base_face = apv_summary.get("death_benefit", self.policy.face_amount)
         face = eligible_death_benefit if eligible_death_benefit is not None else base_face
         base_discount = apv_summary["actuarial_discount"]
         if base_face > 0 and face != base_face:
@@ -233,7 +249,9 @@ class APVEngine:
     ) -> dict:
         """Compute max partial accelerated benefit.
 
-        Partial acceleration = Face - MinFace, with proportional discount.
+        Partial acceleration = DeathBenefit - MinFace, with proportional
+        discount. The eligible death benefit mirrors the full acceleration
+        basis (Face + Account Value for Option B, etc.), not the bare face.
 
         Args:
             full_result: Dict from compute_full_acceleration().
@@ -242,7 +260,7 @@ class APVEngine:
 
         Returns dict with partial acceleration values.
         """
-        face = self.policy.face_amount
+        face = full_result.get("eligible_db", self.policy.face_amount)
         eligible_partial = face - min_face
         full_loan = full_result.get("loan_repayment", 0.0)
         full_surrender = full_result.get("surrender_value", 0.0)
