@@ -15,6 +15,15 @@ Usage:
 
 import os
 import sys
+from pathlib import Path
+
+# Bundle every captured policy-record screen definition so the Policy Record
+# viewer has its static schema at runtime (otherwise it reports "live data
+# unavailable" even when DB2 data is present).
+_POLICY_RECORD_SCREEN_DATAS = [
+    (str(p), 'suiteview/polview/data/policy_record_screens')
+    for p in Path('suiteview/polview/data/policy_record_screens').glob('*.json')
+]
 
 
 a = Analysis(
@@ -36,6 +45,8 @@ a = Analysis(
         ('suiteview/illustration/plancodes/tRates_CORR.json', 'suiteview/illustration/plancodes'),
         ('suiteview/illustration/plancodes/tRates_IntBonus.json', 'suiteview/illustration/plancodes'),
         ('suiteview/illustration/plancodes/tRates_MDBR.json', 'suiteview/illustration/plancodes'),
+        # Policy Record viewer captured screen definitions (seg_<n>.json)
+        *_POLICY_RECORD_SCREEN_DATAS,
     ],
     hiddenimports=[
         'PyQt6', 'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets',

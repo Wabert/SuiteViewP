@@ -30,6 +30,16 @@ _PLANCODES_DATAS = [
     for p in Path('suiteview/illustration/plancodes').glob('*.json')
 ]
 
+# Bundle every captured policy-record screen definition (seg_<n>.json plus the
+# coverage/field-format helpers). The Policy Record viewer loads these at
+# runtime from suiteview/polview/data/policy_record_screens/; without them the
+# viewer has no static schema and reports "live data unavailable" even when DB2
+# data is present.
+_POLICY_RECORD_SCREEN_DATAS = [
+    (str(p), 'suiteview/polview/data/policy_record_screens')
+    for p in Path('suiteview/polview/data/policy_record_screens').glob('*.json')
+]
+
 
 a = Analysis(
     ['suiteview\\main.py'],
@@ -50,6 +60,8 @@ a = Analysis(
         ('suiteview/audit/tabs/_checkmark.png', 'suiteview/audit/tabs'),
         # Illustration / GLP Exception plancode and rate data (all JSON files)
         *_PLANCODES_DATAS,
+        # Policy Record viewer captured screen definitions (seg_<n>.json)
+        *_POLICY_RECORD_SCREEN_DATAS,
     ],
     hiddenimports=[
         'PyQt6', 'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets',
