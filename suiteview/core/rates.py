@@ -400,11 +400,15 @@ class Rates:
             return None
 
         sql = (
-            "SELECT TOP 1 b.[MIN_GEOMETRIC_AVG], b.[MAX_GEOMETRIC_AVG] "
+            "SELECT b.[MIN_GEOMETRIC_AVG], b.[MAX_GEOMETRIC_AVG] "
             "FROM [SV_INDEX_BENCHMARK_MINMAX] b "
             "WHERE b.[PLAN_ID] = ? AND b.[REIN_BLOCK_IND] = ? "
-            "AND b.[FUND_ID] = ? AND b.[EFFECTIVE_DATE] <= ? "
-            "ORDER BY b.[EFFECTIVE_DATE] DESC"
+            "AND b.[FUND_ID] = ? AND b.[EFFECTIVE_DATE] = ("
+            "SELECT MAX(b2.[EFFECTIVE_DATE]) FROM [SV_INDEX_BENCHMARK_MINMAX] b2 "
+            "WHERE b2.[PLAN_ID] = b.[PLAN_ID] "
+            "AND b2.[REIN_BLOCK_IND] = b.[REIN_BLOCK_IND] "
+            "AND b2.[FUND_ID] = b.[FUND_ID] "
+            "AND b2.[EFFECTIVE_DATE] <= ?)"
         )
         rows = self._fetch_rates(
             sql,

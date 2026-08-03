@@ -102,7 +102,7 @@ def test_benchmark_minmax_selects_latest_effective_ix_row(monkeypatch):
 
     assert result == pytest.approx({"minimum": 0.044, "maximum": 0.0786})
     assert "SV_INDEX_BENCHMARK_MINMAX" in captured["sql"]
-    assert "ORDER BY b.[EFFECTIVE_DATE] DESC" in captured["sql"]
+    assert "MAX(b2.[EFFECTIVE_DATE])" in captured["sql"]
     assert captured["params"] == [
         "1U147500", "R", "IX", "2026-07-31",
     ]
