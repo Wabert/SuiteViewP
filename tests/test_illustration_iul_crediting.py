@@ -457,7 +457,9 @@ def test_engine_variable_loan_accrues_at_spread_rate(monkeypatch):
     )
     options = IllustrationOptions(use_policy_ag49_regime=True)   # index 2, spread 1%
     results = _project(policy, options, monkeypatch, months=1)
-    # Accrual at MAX(0.04, 0.0625 − 0.01) = 5.25%: 10000 × 0.0525 × (365/12)/365.
+    # The valuation row accrues one month's interest, as RERUN's VV does on
+    # its valuation row. Accrual at MAX(0.04, 0.0625 − 0.01) = 5.25%:
+    # 10000 × 0.0525 × (365/12)/365.
     assert results[0].vbl_loan_charge == pytest.approx(10_000.0 * 0.0525 / 12.0)
 
 

@@ -26,6 +26,7 @@ Modes:
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -180,8 +181,10 @@ def assert_comparison_inputs(wb, case) -> None:
 
 
 def _temp_copy(workbook: str) -> Path:
+    # Per-process temp name: two COM tools (e.g. compare_rerun_vs_app and
+    # rerun_find_errors) can run concurrently without fighting over one copy.
     src = Path(workbook)
-    tmp = Path(tempfile.gettempdir()) / f"rerun_com_{src.stem}.xlsm"
+    tmp = Path(tempfile.gettempdir()) / f"rerun_com_{src.stem}_{os.getpid()}.xlsm"
     shutil.copyfile(src, tmp)
     return tmp
 

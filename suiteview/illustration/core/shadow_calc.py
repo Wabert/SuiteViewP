@@ -232,7 +232,9 @@ def calculate_shadow(
     else:
         shadow_int_rate = float(config.shadow_int_rate_code)
 
-    shadow_eff_rate = (1.0 + shadow_int_rate) ** (days_in_month / 365.0) - 1.0
+    # RERUN XW = (1+XV)^(XU/365) − 1 where XU is the OPTION-AWARE day count
+    # (365/12 with exact-days off), not the actual calendar days.
+    shadow_eff_rate = (1.0 + shadow_int_rate) ** (shadow_days / 365.0) - 1.0
     shadow_interest = max(0.0, shadow_eff_rate * shadow_av)
 
     # ── Shadow EAV (col XW) ──────────────────────────────────

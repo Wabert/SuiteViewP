@@ -97,6 +97,39 @@ def _years_since(start: Optional[date], as_of: Optional[date]) -> int:
     return max(1, years + 1)
 
 
+def target_actives_signature(
+    policy: IllustrationPolicyData, as_of: Optional[date]
+) -> tuple:
+    """Hashable snapshot of every date-gated component of the target premiums.
+
+    Two months with equal signatures produce identical compute_target_premiums
+    results for an unchanged coverage state, so the engine only recomputes the
+    MTP/CTP detail when this changes (a rider/benefit/substandard charge
+    crossing its cease date) or when a policy change moves the coverage.
+    """
+    seg_flags = tuple(
+        (
+            s.coverage_phase,
+            s.table_rating > 0 and _active(s.table_cease_date, as_of),
+            bool(s.flat_extra) and s.flat_extra > 0 and _active(s.flat_cease_date, as_of),
+        )
+        for s in policy.segments
+    )
+    ben_keys = tuple(sorted(
+        (ben.benefit_type or "") + (ben.benefit_subtype or "")
+        for ben in policy.benefits
+        if ben.is_active
+        and not (ben.benefit_type or "").startswith("#")
+        and not (ben.cease_date is not None and as_of is not None and as_of >= ben.cease_date)
+    ))
+    rider_keys = tuple(sorted(
+        rider.export_key
+        for rider in policy.riders
+        if rider.is_active and rider.plancode and rider_active_on(rider, policy, as_of)
+    ))
+    return (seg_flags, ben_keys, rider_keys)
+
+
 def _schedule_rate(schedule, index: int) -> float:
     """Rate array lookup — arrays are 1-indexed by duration, last value carries."""
     if not schedule or len(schedule) < 2:

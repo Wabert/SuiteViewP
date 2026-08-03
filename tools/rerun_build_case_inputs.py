@@ -151,9 +151,21 @@ def build_mapping(data, warnings: list[str], skip_benefits: bool = False) -> dic
 
     # ── Allocations / IUL rates ──────────────────────────────────────
     # IUL test: the plancode has index strategies (product_type strings vary).
-    from suiteview.illustration.models.index_strategies import load_index_strategies
+    from suiteview.illustration.models.index_strategies import (
+        load_index_strategies, with_current_index_data,
+    )
 
     plan_strat = load_index_strategies(data.plancode)
+    # Overlay the illustration-date SV_INDEX_ILL_RATES / SV_INDEX_PARAMS that
+    # build_illustration_data already fetched. Without this the case gets the
+    # catalog defaults, which are stale (and 0.0 for some funds, e.g. 1U148000
+    # IX), so the case would illustrate a crediting rate the engine never uses.
+    if plan_strat is not None:
+        plan_strat = with_current_index_data(
+            plan_strat,
+            data.index_illustration_rates,
+            data.index_strategy_parameters,
+        )
     is_iul = plan_strat is not None
     allocs = {f: 0.0 for f in _FUND_IDS}
     if is_iul:

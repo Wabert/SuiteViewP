@@ -31,7 +31,7 @@ DEBUG_COLUMNS = [
     {"col": "C",  "label": "Month",            "engine": "policy_month",          "kind": "int"},
     {"col": "D",  "label": "Premium",          "engine": "gross_premium",         "kind": "val"},
     {"col": "E",  "label": "Load",             "engine": "total_premium_load",    "kind": "val"},
-    {"col": "F",  "label": "Fee",              "engine": ["mfee_charge", "epu_charge"], "kind": "val"},  # RERUN "Fee" = policy fee + EPU
+    {"col": "F",  "label": "Fee",              "engine": ["mfee_charge", "epu_charge", "av_charge"], "kind": "val"},  # RERUN "Fee" = vTotalFees = AVCharge + MFee + EPU
     {"col": "G",  "label": "Riders",           "engine": ["benefit_charges", "rider_charges"], "kind": "val"},
     {"col": "H",  "label": "COI",              "engine": "coi_charge",            "kind": "val"},
     {"col": "I",  "label": "COI Rate",         "engine": "coi_rate",              "kind": "rate"},
@@ -47,16 +47,25 @@ DEBUG_COLUMNS = [
     {"col": "P",  "label": "Illustration DB",  "engine": "ending_db",             "kind": "val"},
     {"col": "Q",  "label": "Surrender Charge", "engine": "surrender_charge",      "kind": "val"},
     {"col": "R",  "label": "Cost Basis",       "engine": "cost_basis",            "kind": "val"},
-    {"col": "S",  "label": "Loan Balance",     "engine": "policy_debt",           "kind": "val"},
-    {"col": "T",  "label": "Var Loan",         "engine": ["end_vbl_loan_princ", "end_vbl_loan_accrued"], "kind": "val"},
-    {"col": "U",  "label": "Pref Loan",        "engine": ["end_pf_loan_princ", "end_pf_loan_accrued"],   "kind": "val"},
-    {"col": "V",  "label": "STD Loan",         "engine": ["end_rg_loan_princ", "end_rg_loan_accrued"],   "kind": "val"},
+    # S = vPolicyDebtDisplay = SUM(MS:MX): the post-capitalize/repay,
+    # PRE-accrual (beginning-of-month) balance — NOT the ending debt. The
+    # engine's Set-1 buckets are the same stage (before new loans/accrual).
+    {"col": "S",  "label": "Loan Balance",
+     "engine": ["rg_loan_princ", "rg_loan_accrued", "pf_loan_princ",
+                "pf_loan_accrued", "vbl_loan_princ", "vbl_loan_accrued"],
+     "kind": "val"},
+    # T/U/V are PRINCIPAL-ONLY (=INDEX(vVarLoanPrinciple,...) etc.) — accrued
+    # interest lives only in S vPolicyDebtDisplay. (Advance loans carry accrued
+    # 0, which is why the old principal+accrued sum never showed a delta.)
+    {"col": "T",  "label": "Var Loan",         "engine": "end_vbl_loan_princ",    "kind": "val"},
+    {"col": "U",  "label": "Pref Loan",        "engine": "end_pf_loan_princ",     "kind": "val"},
+    {"col": "V",  "label": "STD Loan",         "engine": "end_rg_loan_princ",     "kind": "val"},
     {"col": "W",  "label": "Withdrawal",       "engine": "gross_withdrawal",      "kind": "val"},
     {"col": "X",  "label": "Accum WD",         "engine": "withdrawals_to_date",   "kind": "val"},
     # ── CCV block = SuiteView shadow account (pipeline comment: "SHADOW ACCOUNT (CCV)") ──
-    {"col": "Y",  "label": "CCV Value",        "engine": "shadow_av",             "kind": "val"},    # tentative: shadow_av vs shadow_eav
+    {"col": "Y",  "label": "CCV Value",        "engine": "shadow_eav",            "kind": "val"},    # =INDEX(vShadowEAV,...)
     {"col": "Z",  "label": "CCV Load",         "engine": "shadow_prem_load",      "kind": "val"},    # tentative
-    {"col": "AA", "label": "CCV Fee",          "engine": "shadow_mfee",           "kind": "val"},    # tentative
+    {"col": "AA", "label": "CCV Fee",          "engine": ["shadow_epu", "shadow_mfee"], "kind": "val"},  # RERUN CCV Fee = shadow EPU + MFEE
     {"col": "AB", "label": "CCV Riders",       "engine": "shadow_rider_charges",  "kind": "val"},    # tentative
     {"col": "AC", "label": "CCV COI",          "engine": "shadow_coi",            "kind": "val"},    # tentative
     {"col": "AD", "label": "CCV COI Rate",     "engine": "shadow_coi_rate",       "kind": "rate"},   # tentative
@@ -64,10 +73,16 @@ DEBUG_COLUMNS = [
     {"col": "AF", "label": "CCV Interest",     "engine": "shadow_interest",       "kind": "val"},    # tentative
     {"col": "AG", "label": "DCV Value",        "engine": None,                    "kind": "val"},    # RERUN-only (DCV meaning TBD)
     {"col": "AH", "label": "PSC",              "engine": "wd_partial_sc",         "kind": "val"},    # tentative (partial surr charge)
-    {"col": "AI", "label": "MTP",              "engine": "mtp_annual",            "kind": "val"},  # RERUN "MTP" is the annual MTP (monthly_mtp x 12)
+    # AI =INDEX(vMTPwoPW,...) and AK =INDEX(vMTP,...) — both RECOMPUTED from
+    # rates each month (ceased riders/benefits drop out); Accum MTP (AJ) still
+    # accrues the LOADED CyberLife target.
+    {"col": "AI", "label": "MTP",              "engine": "mtp_wo_pw_recomputed",  "kind": "val"},
     {"col": "AJ", "label": "Accum MTP",        "engine": "accumulated_mtp",       "kind": "val"},
-    {"col": "AK", "label": "Min Prem",         "engine": None,                    "kind": "val"},    # RERUN-only (which engine field TBD)
-    {"col": "AL", "label": "Net Amount At Risk","engine": "nar",                  "kind": "val"},
+    {"col": "AK", "label": "Min Prem",         "engine": "mtp_recomputed_annual", "kind": "val"},
+    # AL = vTotalNAAR = PG+PH+PI: the per-COVERAGE NARs only — the corridor
+    # slice (PJ) is excluded, so at high ages / big AVs this column reads 0
+    # while COI still charges the corridor NAR.
+    {"col": "AL", "label": "Net Amount At Risk","engine": ["nar_cov1", "nar_cov2", "nar_cov3"], "kind": "val"},
     {"col": "AM", "label": "Necessary Prem",   "engine": None,                    "kind": "val"},    # RERUN-only
     {"col": "AN", "label": "NPT NSP",          "engine": None,                    "kind": "val"},    # RERUN-only
     {"col": "AO", "label": "NPT NSP Riders",   "engine": None,                    "kind": "val"},    # RERUN-only

@@ -354,6 +354,15 @@ def _build_projection_order(
 
 
 def _get_projection_value(state: MonthlyState, field_name: str):
+    if field_name == "mtp_recomputed_annual":
+        # RERUN's displayed vMTP (JG): recomputed from rates, so ceased
+        # riders/benefits drop out — unlike mtp_annual (the loaded CyberLife
+        # target, which also drives the Accum MTP accumulation).
+        return (state.mtp_detail or {}).get("vMTP", 0.0)
+    if field_name == "mtp_wo_pw_recomputed":
+        # RERUN vMTPwoPW (IT): the recomputed annual MTP before the PWoC
+        # gross-up (Debug File column AI).
+        return (state.mtp_detail or {}).get("MTP w/o PW", 0.0)
     if field_name.startswith("db_cov"):
         key = field_name[len("db_"):]
         return state.db_by_coverage.get(key, 0.0)

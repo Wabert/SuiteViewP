@@ -63,6 +63,7 @@ from suiteview.illustration.core.target_premium import (
     compute_target_premiums,
     floor_annual_cent,
     floor_monthly_cent,
+    target_actives_signature,
 )
 from suiteview.illustration.core.withdrawal_handler import (
     WithdrawalResult,
@@ -139,12 +140,17 @@ class IllustrationEngine:
             val_date = policy.valuation_date or policy.issue_date
             bonus = load_bonus_config(policy.plancode, val_date)
 
-        if months is None:
-            remaining_years = policy.maturity_age - policy.attained_age
-            remaining_months = remaining_years * 12 - policy.policy_month + 1
-            total_months = max(remaining_months, 0)
-        else:
-            total_months = months
+        # Months to maturity always caps the projection — an explicit `months`
+        # can only shorten it. The final row is the maturity month itself
+        # (starts on the maturity anniversary; no premium or deduction is
+        # taken there). RERUN has no such row — its INPUT Year list ends at
+        # age 121, so its sheet shows #N/A past maturity; the comparison
+        # tooling treats those cells as missing data.
+        remaining_years = policy.maturity_age - policy.attained_age
+        remaining_months = max(remaining_years * 12 - policy.policy_month + 1, 0)
+        total_months = (
+            remaining_months if months is None else min(months, remaining_months)
+        )
 
         # Policy changes (face decrease, DBO change) mutate a PRIVATE copy of the
         # policy at their effective month — as can a withdrawal that reduces the
@@ -231,7 +237,12 @@ class IllustrationEngine:
                 av_end_of_month=policy.account_value + vl0,
             )
 
-        # Loan interest accrual for inforce month
+        # Loan interest accrual for inforce month. RERUN does the same on its
+        # valuation row (VR/VT/VV add one month's accrual to the seeded
+        # accrued); its Debug File "Loan Balance" only LOOKS raw because that
+        # column is vPolicyDebtDisplay = SUM(MS:MX) — the post-capitalize/
+        # repay, PRE-accrual balance. Keep the accrual; map displays to the
+        # BOM buckets instead (tools/rerun_debug_map.py).
         loan0 = LoanState(
             rg_loan_princ=policy.regular_loan_principal,
             rg_loan_accrued=policy.regular_loan_accrued,
@@ -646,11 +657,16 @@ class IllustrationEngine:
 
         # ── 7b. MTP/CTP detail snapshots (HO..JG / JI..KQ) ────
         # Recomputed when a change or SA-reducing withdrawal moved the coverage
-        # this month (vPolicyChangeIndicator); carried forward otherwise.
+        # this month (vPolicyChangeIndicator), or when a date-gated component
+        # (rider/benefit/table/flat) crosses its cease date — RERUN recomputes
+        # vMTP monthly, so ceased riders drop out of its displayed target.
+        # Carried forward otherwise.
         if (
             not state.mtp_detail
             or policy_changes
             or wd.face_decrease > 1e-9
+            or target_actives_signature(policy, month_date)
+            != target_actives_signature(policy, state.date)
         ):
             mtp_detail, ctp_detail = build_target_detail_snapshots(
                 policy, compute_target_premiums(policy, config, as_of=month_date)

@@ -184,6 +184,10 @@ def build_illustration_data(
     var_loan_acc = float(pi.total_variable_loan_accrued or 0)
     var_loan_rate_raw = getattr(pi, "variable_loan_charge_rate", None)
     var_loan_charge_rate = float(var_loan_rate_raw) if var_loan_rate_raw is not None else None
+    # CyberLife stores LN_CRG_ITS_RT percent-form (5.700 = 5.7%); the engine
+    # contract is an annual fraction. Values <= 1 are already fractions.
+    if var_loan_charge_rate is not None and var_loan_charge_rate > 1:
+        var_loan_charge_rate /= 100.0
 
     # ── Withdrawals ───────────────────────────────────────────
     withdrawals = float(pi.total_withdrawals or 0)

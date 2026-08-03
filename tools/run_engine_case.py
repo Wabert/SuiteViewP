@@ -180,6 +180,8 @@ def run_engine_case(cmd: dict) -> dict:
     extra = [
         "glp", "gsp", "accumulated_glp", "guideline_limit", "guideline_forceout",
         "monthly_mtp", "ctp", "accumulated_mtp", "mtp_annual",
+        "mtp_recomputed_annual", "mtp_wo_pw_recomputed",
+        "nar_cov2", "nar_cov3",
         "accumulated_7pay", "amount_in_7pay", "tamra_year", "tamra_7pay_level",
         "premium_cap", "premium_capped",
         # Withdrawal block (CalcEngine AX..BU)

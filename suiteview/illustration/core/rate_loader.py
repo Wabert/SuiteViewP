@@ -48,8 +48,17 @@ class IllustrationRates:
     plncrg: List = field(default_factory=list)   # Preferred loan credit rate — guaranteed
     plncrd: List = field(default_factory=list)   # Preferred loan credit rate — declared
 
-    # Shadow account (CCV) COI rates (duration-based)
+    # Shadow account (CCV) rates — loaded from the ShadowPlancode (e.g.
+    # CCV48000) when the policy has a shadow account. Names match the
+    # get_rate() keys used in core.shadow_calc.
     shadow_coi: List = field(default_factory=list)
+    shadow_epu: List = field(default_factory=list)
+    shadow_tpp: List = field(default_factory=list)
+    shadow_epp: List = field(default_factory=list)
+    shadow_tpr: List = field(default_factory=list)       # MTP scalar as constant array
+    shadow_tpr_tbl1: List = field(default_factory=list)  # TBL1MTP scalar as constant array
+    shadow_int: List = field(default_factory=list)       # GINT (ShadowIntRateCode="Table")
+    shadow_dbd: List = field(default_factory=list)       # DBD  (ShadowDBDRate="Table")
 
     # Benefit COI rates — keyed by combined type+subtype string (e.g. "39" for PW)
     # Each value is a 1-indexed list by policy year (benefit duration)
@@ -229,12 +238,39 @@ def load_rates(
         result.plncrg = rates_db.get_rates("PLNCRG", policy.plancode) or []
         result.plncrd = rates_db.get_rates("PLNCRD", policy.plancode) or []
 
-    # Load shadow COI rates (uses CCV plancode, original band)
+    # Load shadow rates (uses CCV plancode, original band). Every series the
+    # shadow calc can be configured to look up ("Table" codes) is loaded here;
+    # flat-code plancodes simply never read the unused arrays.
     if policy.has_shadow_account and config.shadow_plancode:
+        shp = config.shadow_plancode
         result.shadow_coi = rates_db.get_rates(
-            "COI", config.shadow_plancode, seg.issue_age, seg.rate_sex,
+            "COI", shp, seg.issue_age, seg.rate_sex,
             seg.rate_class, scale=1, band=seg.original_band,
         ) or []
+        result.shadow_epu = rates_db.get_rates(
+            "EPU", shp, seg.issue_age, seg.rate_sex,
+            seg.rate_class, scale=1, band=seg.original_band,
+        ) or []
+        result.shadow_tpp = rates_db.get_rates(
+            "TPP", shp, issue_age=seg.issue_age, sex=seg.rate_sex,
+            rateclass=seg.rate_class, scale=1, band=seg.original_band,
+        ) or []
+        result.shadow_epp = rates_db.get_rates(
+            "EPP", shp, issue_age=seg.issue_age, sex=seg.rate_sex,
+            rateclass=seg.rate_class, scale=1, band=seg.original_band,
+        ) or []
+        shadow_mtp = rates_db.get_mtp(
+            shp, seg.issue_age, seg.rate_sex, seg.rate_class, seg.original_band,
+        )
+        result.shadow_tpr = [None, shadow_mtp] if shadow_mtp is not None else []
+        shadow_tbl1 = rates_db.get_tbl1_mtp(
+            shp, seg.issue_age, seg.rate_sex, seg.rate_class, seg.original_band,
+        )
+        result.shadow_tpr_tbl1 = [None, shadow_tbl1] if shadow_tbl1 is not None else []
+        if config.shadow_int_rate_code == "Table":
+            result.shadow_int = rates_db.get_rates("GINT", shp) or []
+        if config.shadow_dbd_rate == "Table":
+            result.shadow_dbd = rates_db.get_rates("DBD", shp) or []
 
     # Load benefit COI rates — keyed by a unique per-benefit schedule key so two
     # benefits of the same type+subtype (each with its own coverage/issue age)

@@ -20,7 +20,7 @@ Usage (optional single JSON arg; all keys optional):
     {"workbook": "docs/Illustration_UL/RERUN (v20.0).xlsm",
      "cases":    [1,2,3,4],          # case numbers or CaseID strings (default: 4 baselines)
      "months":   750,                # months to project/compare (engine caps at maturity)
-     "company":  "01", "region": "CKPR",
+     "company":  null, "region": "CKPR",   # null = resolve per policy
      "out_dir":  "<Documents>/SuiteView_DevTest",
      "open":     true,               # open the saved .xlsx in Excel when done
      "wair":     false,              # IUL: credit the WAIR instead of the blend on
@@ -244,6 +244,19 @@ def _app_cmd_from_case(pairs, months, company, region):
 
 # ── RERUN side (Excel COM) ──────────────────────────────────────────────────
 
+# Excel error values surface through COM as these sentinel ints (xlErrNA
+# etc.). RERUN's sheet shows #N/A past the policy's maturity (its INPUT Year
+# list ends at age 121) — treat error cells as missing data, not numbers.
+_XL_ERROR_INTS = {
+    -2146826281, -2146826246, -2146826259, -2146826288,
+    -2146826252, -2146826265, -2146826273,
+}
+
+
+def _clean_xl(v):
+    return None if isinstance(v, (int, float)) and int(v) in _XL_ERROR_INTS else v
+
+
 def _read_debug_file(wb, months):
     """Read the Debug File block; return (labels, {vID: {col_letter: value}})."""
     ws = wb.Worksheets("Debug File")
@@ -253,10 +266,10 @@ def _read_debug_file(wb, months):
     rows = {}
     for raw in block[1:]:
         vid = raw[0] if raw else None
-        if vid is None:
+        if vid is None or _clean_xl(vid) is None:
             break
         vid = int(round(float(vid)))
-        rows[vid] = {c["col"]: (raw[i] if i < len(raw) else None)
+        rows[vid] = {c["col"]: (_clean_xl(raw[i]) if i < len(raw) else None)
                      for i, c in enumerate(DEBUG_COLUMNS)}
     return labels, rows
 
@@ -571,7 +584,7 @@ def main():
     workbook = Path(cmd.get("workbook") or DEFAULT_WORKBOOK)
     cases = cmd.get("cases") or DEFAULT_CASES
     months = int(cmd.get("months", DEFAULT_MONTHS))
-    company = cmd.get("company", "01")
+    company = cmd.get("company")  # None = PolicyInformation resolves per policy
     region = cmd.get("region", "CKPR")
     out_dir = Path(cmd.get("out_dir") or DEFAULT_OUT_DIR)
     do_open = cmd.get("open", True)
