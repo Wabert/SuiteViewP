@@ -1801,7 +1801,7 @@ def _reload_policy_band_rates(rates, policy, config) -> None:
         return
     rates_db = Rates()
     band = rates_db.get_band(
-        policy.plancode, policy.total_face, issue_date=policy.issue_date)
+        policy.plancode, policy.band_specified_amount, issue_date=policy.issue_date)
     band = int(band) if band is not None else seg.band
     for attr, kind in (("tpp", "TPP"), ("epp", "EPP"), ("mfee", "MFEE")):
         setattr(rates, attr, rates_db.get_rates(
@@ -1944,7 +1944,10 @@ def _coverage_after_change_snapshot(policy, config, month_date, av_reduction, pr
     current_sa = float(policy.total_face)
     snap["CurrentSA"] = current_sa
     base = policy.base_segment
-    band = Rates().get_band(policy.plancode, current_sa, issue_date=policy.issue_date)
+    # Band is looked up on the specified amount PLUS any rider that bands as base
+    # coverage (see core.band_rules); equals current_sa when there is none.
+    band = Rates().get_band(
+        policy.plancode, policy.band_specified_amount, issue_date=policy.issue_date)
     snap["CurrentBand"] = (
         int(band) if band is not None else (int(base.original_band) if base else 0)
     )
@@ -2015,7 +2018,11 @@ def _append_face_increase_segment(policy, rates, delta, attained_age, change_dat
     increase_age = _age_on_date(
         getattr(policy, "insured_birth_date", None), change_date, age_basis, attained_age)
     new_total = policy.total_face + delta
-    new_band = Rates().get_band(policy.plancode, new_total, issue_date=policy.issue_date)
+    # Band the increase on the new TOTAL specified amount, including any rider
+    # that bands as base coverage (see core.band_rules).
+    new_band = Rates().get_band(
+        policy.plancode, policy.band_specified_amount + delta,
+        issue_date=policy.issue_date)
     new_band = int(new_band) if new_band is not None else base.band
     new_phase = max((s.coverage_phase for s in policy.segments), default=1) + 1
     new_seg = CoverageSegment(

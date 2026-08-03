@@ -10,6 +10,7 @@ from datetime import date
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Dict
 
+from suiteview.core.benefit_rate_rules import benefit_charge_factor
 from suiteview.illustration.core.corridor_rates import get_corridor_factor
 from suiteview.illustration.core.rate_loader import IllustrationRates, get_rate
 from suiteview.illustration.models.plancode_config import PlancodeConfig
@@ -648,13 +649,21 @@ def calculate_deduction(
         substandard_factor = ben.rating_factor if ben.rating_factor and ben.rating_factor > 0 else 1.0
         adjusted_rate = ben_coi_rate * substandard_factor
 
+        # A few plancodes store a benefit's rate in a different unit/frequency
+        # than the deduction formula (e.g. MLUL/MLUL502 benefit 10 stores an
+        # annual-per-unit rate → ÷12 ×1000). CyberLife converts at deduction
+        # time and leaves the stored/displayed rate raw, so apply the factor to
+        # the charge only. See suiteview/core/benefit_rate_rules.py.
+        charge_factor = benefit_charge_factor(
+            policy.plancode, ben_type + (ben.benefit_subtype or ""))
+
         if ben_type == "3":
             benefit_amount = max(monthly_mtp, base_deduction + rider_charges + non_pw_benefit_charges)
-            charge = adjusted_rate * benefit_amount
+            charge = adjusted_rate * benefit_amount * charge_factor
             pw_charge = charge
         else:
             benefit_amount = ben.benefit_amount
-            charge = ben.units * adjusted_rate
+            charge = ben.units * adjusted_rate * charge_factor
 
         charge = _round_near(charge, 2)
         if ben_type == "3":

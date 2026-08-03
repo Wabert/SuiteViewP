@@ -2713,6 +2713,37 @@ class PolicyInformation:
             if cov.face_amount and self._coverage_is_active(cov):
                 total += cov.face_amount
         return total
+
+    def _base_banding_rider_face(self) -> Decimal:
+        """Face of active riders that band as base coverage (see core.band_rules).
+
+        A few riders (e.g. ``1U144A00`` on IUL08 plans) act like a segment of
+        base coverage: their face is folded into the base specified amount when
+        determining the band. This returns the total such rider face; it is
+        added ONLY to the band-determining face, never to the death-benefit
+        specified amount.
+        """
+        from suiteview.core.band_rules import rider_bands_as_base
+
+        total = Decimal("0")
+        for cov in self.get_riders():
+            if (
+                cov.face_amount
+                and self._coverage_is_active(cov)
+                and rider_bands_as_base(cov.plancode)
+            ):
+                total += cov.face_amount
+        return total
+
+    @property
+    def base_band_specified_amount(self) -> Decimal:
+        """Specified amount used for BASE band determination.
+
+        Active base coverages plus any rider that bands as base coverage. Kept
+        separate from ``total_specified_amount`` (which stays base-only for
+        display/export) so the rider quirk only ever moves the band.
+        """
+        return self.total_specified_amount + self._base_banding_rider_face()
     
     # =========================================================================
     # SUBSTANDARD RATINGS (LH_SST_XTR_CRG and LH_SST_XTR_RNL_RT)
@@ -2937,15 +2968,26 @@ class PolicyInformation:
             return None
 
         cov = covs[cov_index - 1]
-        band_face = float(self.total_specified_amount if cov.is_base else (cov.face_amount or 0))
+        from suiteview.core.band_rules import rider_bands_as_base
 
-        plancode = self.cov_plancode(cov_index)
-        # Base coverages pass the policy issue date for the Rates_Control-CZ
-        # issue-date band boundary (see Rates.get_band); the rule never
-        # applies to rider band tables, so riders stay dateless.
+        cov_plancode = self.cov_plancode(cov_index)
+        # A base-banding rider (e.g. 1U144A00) acts like a segment of base
+        # coverage: it is banded on the BASE plancode's band table using the
+        # combined base specified amount — the same band as the policy.
+        bands_as_base = cov.is_base or rider_bands_as_base(cov_plancode)
+        if bands_as_base:
+            band_face = float(self.base_band_specified_amount)
+            band_plancode = self.base_plancode if not cov.is_base else cov_plancode
+        else:
+            band_face = float(cov.face_amount or 0)
+            band_plancode = cov_plancode
+
+        # Base coverages (and base-banding riders) pass the policy issue date for
+        # the Rates_Control-CZ issue-date band boundary (see Rates.get_band); the
+        # rule never applies to ordinary rider band tables, so they stay dateless.
         band = rates.get_band(
-            plancode, band_face,
-            issue_date=self.issue_date if cov.is_base else None,
+            band_plancode, band_face,
+            issue_date=self.issue_date if bands_as_base else None,
         )
         self._band_cache[cov_index] = band
         return band

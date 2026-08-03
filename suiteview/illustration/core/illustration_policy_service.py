@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
+from suiteview.core.band_rules import rider_bands_as_base
 from suiteview.core.policy_service import get_policy_info
 from suiteview.core.rates import Rates
 from suiteview.illustration.core.target_premium import floor_monthly_cent
@@ -55,7 +56,10 @@ def build_illustration_data(
     face_amount = float(face_raw) if face_raw else 0.0
     units = face_amount / 1000.0 if face_amount else 0.0
     db_option = _translate_dbo(pi.db_option_code or "")
-    raw_band = rates_db.get_band(plancode, face_amount, issue_date=issue_date)
+    # Preliminary band on the base specified amount incl. any base-banding rider
+    # (core.band_rules); refined from the summed base coverages below.
+    raw_band = rates_db.get_band(
+        plancode, float(pi.base_band_specified_amount), issue_date=issue_date)
     band = raw_band if raw_band is not None else 1
 
     # ── Account value ─────────────────────────────────────────
@@ -230,7 +234,10 @@ def build_illustration_data(
             float(cov.units) if cov.units else float(cov.face_amount or 0.0) / 1000.0
             for cov in active_base_covs
         )
-        raw_band = rates_db.get_band(plancode, face_amount, issue_date=issue_date)
+        # Band is looked up on the base specified amount PLUS any rider that
+        # bands as base coverage (e.g. 1U144A00 on IUL08 — see core.band_rules).
+        band_face = float(pi.base_band_specified_amount)
+        raw_band = rates_db.get_band(plancode, band_face, issue_date=issue_date)
         band = raw_band if raw_band is not None else 1
 
     substandard_by_phase = {}
@@ -247,7 +254,7 @@ def build_illustration_data(
         try:
             raw_seg_band = pi.cov_band(cov.cov_pha_nbr)
         except Exception:
-            raw_seg_band = rates_db.get_band(plancode, face_amount, issue_date=issue_date)
+            raw_seg_band = rates_db.get_band(plancode, band_face, issue_date=issue_date)
         seg_band = raw_seg_band if raw_seg_band is not None else 1
 
         # Get rate sex from coverage record
@@ -335,10 +342,17 @@ def build_illustration_data(
         rider_counts[rider_plancode] = rider_counts.get(rider_plancode, 0) + 1
         rider_face = float(rider.face_amount) if rider.face_amount else 0.0
         rider_units = float(rider.units) if rider.units else rider_face / 1000.0
-        # No issue_date: RERUN's CZ issue-date band rule applies only to the
-        # BASE plancode's band table (sBandTableCode), never to rider bands.
-        raw_rider_band = rates_db.get_band(rider_plancode, rider_face)
-        rider_band = raw_rider_band if raw_rider_band is not None else 1
+        if rider_bands_as_base(rider_plancode):
+            # This rider acts like a segment of base coverage: it charges on the
+            # policy's (combined) band, not its own face-based band. Reuse the
+            # base band computed above (base plancode band table on the combined
+            # specified amount). See core.band_rules.
+            rider_band = band
+        else:
+            # No issue_date: RERUN's CZ issue-date band rule applies only to the
+            # BASE plancode's band table (sBandTableCode), never to rider bands.
+            raw_rider_band = rates_db.get_band(rider_plancode, rider_face)
+            rider_band = raw_rider_band if raw_rider_band is not None else 1
         riders.append(RiderInfo(
             coverage_phase=rider.cov_pha_nbr,
             occurrence=rider_counts[rider_plancode],

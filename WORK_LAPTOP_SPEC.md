@@ -737,6 +737,18 @@ export session (`tools/export_local_rate_data.py` on the UL_Rates DSN):
    `Testing/details/rerun_vs_app_iul_blend_bandfix_20260718_200353.xlsx`
    (COI exact through mo 528; residual AV drift 30,714 → 998.24 = bug (b)
    + PW-cease/MTP-mapping divergences below).
+   *Update (2026-07-31) — banding is now DATA-DRIVEN by policy issue date:*
+   `RATE_BANDSPECS` carries an `Issue_Date` column (part of its PK), exposed by
+   the `Select_RATE_BANDSPECS` view. Each distinct `Issue_Date` is a complete
+   band set effective from that date (sentinel `1900-01-01` = from the
+   beginning). `Rates.get_band(..., issue_date=<POLICY issue date>)` selects the
+   set whose `Issue_Date` is the latest on/before the **policy** issue date
+   (mirrors ABR `TERM_RATE_BANDSPECS`). Always pass the POLICY issue date, never
+   a coverage/rider issue date. The `BandTable2IssueDate` +$1 shift above is now
+   a transitional FALLBACK applied only while a plancode still has a single
+   effective-dated set; once its dated rows are curated in `RATE_BANDSPECS`
+   (e.g. 1U145500 already has 1900-01-01 @ 250,001 + 2018-10-01 @ 250,000) the
+   data drives banding and the shift is skipped (no double-adjust).
    (b) *PoAV charge fixed locally (2026-07-29)* — plancode_table PoAV_Table is
    a table code ("1"/"2"/"3") on the IUL plans. The supplied current and
    guaranteed monthly rates now live in `tRates_PoAV.json`; rate loading uses

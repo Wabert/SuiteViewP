@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List
 
+from suiteview.core.band_rules import rider_bands_as_base
 from suiteview.core.rates import Rates
 from suiteview.illustration.core.poav_rates import load_poav_schedule
 from suiteview.illustration.models.policy_data import (
@@ -81,9 +82,15 @@ def get_rate(rates_obj: IllustrationRates, rate_name: str, index: int) -> float:
 
 
 def _load_rider_coi_rates(rates_db: Rates, rider) -> List:
-    band = rates_db.get_band(rider.plancode, rider.face_amount)
-    if band is None:
+    if rider_bands_as_base(rider.plancode):
+        # Base-banding rider (e.g. 1U144A00): keep the policy's combined band set
+        # in illustration_policy_service — do NOT re-derive from the rider's own
+        # face. See core.band_rules.
         band = rider.band if rider.band is not None else 1
+    else:
+        band = rates_db.get_band(rider.plancode, rider.face_amount)
+        if band is None:
+            band = rider.band if rider.band is not None else 1
     rider.band = int(band)
     return rates_db.get_coi(
         rider.plancode,

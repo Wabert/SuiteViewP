@@ -245,6 +245,24 @@ class IllustrationPolicyData:
         return sum(s.face_amount for s in self.segments) if self.segments else self.face_amount
 
     @property
+    def band_specified_amount(self) -> float:
+        """Total face used for BASE band determination.
+
+        The base specified amount (``total_face``) plus the face of any rider
+        that bands as base coverage (e.g. ``1U144A00`` on IUL08 plans — see
+        ``suiteview.core.band_rules``). Kept separate from ``total_face`` (death
+        benefit / NAR), which must never include these riders. For a policy with
+        no such rider this equals ``total_face`` exactly.
+        """
+        from suiteview.core.band_rules import rider_bands_as_base
+
+        extra = sum(
+            r.face_amount for r in self.riders
+            if r.is_active and rider_bands_as_base(r.plancode)
+        )
+        return self.total_face + extra
+
+    @property
     def total_units(self) -> float:
         return sum(s.units for s in self.segments) if self.segments else self.units
 

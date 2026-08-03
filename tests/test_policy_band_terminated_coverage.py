@@ -31,10 +31,10 @@ def _build_policy(cov_rows):
     return policy
 
 
-def _cov_row(cov_nbr, face, terminate_date=None):
+def _cov_row(cov_nbr, face, terminate_date=None, plancode=PLANCODE):
     return {
         "COV_PHA_NBR": cov_nbr,
-        "PLN_DES_SER_CD": PLANCODE,
+        "PLN_DES_SER_CD": plancode,
         "POL_FRM_NBR": "FORM",
         "ISSUE_DT": date(2018, 6, 1),
         "COV_MT_EXP_DT": date(2121, 6, 1),
@@ -93,3 +93,61 @@ def test_cov_band_uses_active_total(monkeypatch):
 
     # 200,000 active total -> band 2 (matches CyberLife), not band 3.
     assert policy.cov_band(1) == 2
+
+
+def test_base_banding_rider_face_folded_into_band(monkeypatch):
+    # Rider 1U144A00 "acts like base coverage" for banding: its face is added to
+    # the base specified amount when determining the base band (IUL08 quirk).
+    monkeypatch.setattr(
+        PolicyInformation, "valuation_date", property(lambda _self: VALUATION)
+    )
+    monkeypatch.setattr(
+        PolicyInformation, "issue_date", property(lambda _self: date(2018, 6, 1))
+    )
+    policy = _build_policy([
+        _cov_row(1, 200_000),
+        _cov_row(2, 100_000, plancode="1U144A00"),  # base-banding rider
+    ])
+
+    class _FakeRates:
+        def get_band(self, _plancode, face, issue_date=None):
+            return 3 if face >= 250_000 else 2
+
+    policy._get_rates = lambda: _FakeRates()
+
+    # total_specified_amount stays base-only (display/export) = 200,000...
+    assert policy.total_specified_amount == Decimal("200000")
+    # ...but band determination folds in the 100,000 rider -> 300,000 -> band 3.
+    assert policy.base_band_specified_amount == Decimal("300000")
+    assert policy.cov_band(1) == 3
+    # The base-banding rider itself charges on the SAME policy band (3), not the
+    # band its own 100,000 face would give (2).
+    assert policy.cov_band(2) == 3
+
+
+def test_ordinary_rider_face_not_folded_into_band(monkeypatch):
+    # A rider that is NOT in the base-banding registry keeps its own band and
+    # does not move the base band.
+    monkeypatch.setattr(
+        PolicyInformation, "valuation_date", property(lambda _self: VALUATION)
+    )
+    monkeypatch.setattr(
+        PolicyInformation, "issue_date", property(lambda _self: date(2018, 6, 1))
+    )
+    policy = _build_policy([
+        _cov_row(1, 200_000),
+        _cov_row(2, 300_000, plancode="1U999Z00"),  # ordinary rider
+    ])
+
+    class _FakeRates:
+        def get_band(self, _plancode, face, issue_date=None):
+            return 3 if face >= 250_000 else 2
+
+    policy._get_rates = lambda: _FakeRates()
+
+    # Ordinary rider face is NOT folded into the base band...
+    assert policy.base_band_specified_amount == Decimal("200000")
+    assert policy.cov_band(1) == 2
+    # ...and the rider bands on its OWN 300,000 face -> band 3, independent of
+    # the base band.
+    assert policy.cov_band(2) == 3

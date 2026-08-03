@@ -220,6 +220,25 @@ for _pointer_name, _pointer_spec in TABLE_SPECS.items():
         RATE_REFERENCES[_rate_table] = (_pointer_name, _column)
 
 
+def _build_table_groups() -> "OrderedDict[str, tuple[str, ...]]":
+    """Map each pointer table to the full set of files that load together.
+
+    A workup folder is organized into independent rate *groups*, one per
+    pointer table. The base-rate group (``POINT_PVSRB``) owns the general
+    rate tables; the benefit group (``POINT_BENEFIT``) owns the benefit rate
+    tables. Either group may be loaded on its own — deleting every file in a
+    group simply means that group is not part of the workup.
+    """
+    groups: "OrderedDict[str, tuple[str, ...]]" = OrderedDict()
+    for name, spec in TABLE_SPECS.items():
+        if spec.is_pointer:
+            groups[name] = (name, *spec.pointer_refs.values())
+    return groups
+
+
+TABLE_GROUPS: "OrderedDict[str, tuple[str, ...]]" = _build_table_groups()
+
+
 def _parse_integer(value: Any, label: str) -> Optional[int]:
     if value is None or str(value).strip() == "":
         return None
@@ -371,43 +390,75 @@ class WorkupPackage:
         if not root.is_dir():
             raise PackageValidationError(f"Workup folder does not exist: {root}")
 
+        # A group participates only when its pointer file is present. This lets
+        # a folder hold just the benefit files (or just the base files) without
+        # forcing the other group's CSVs to exist.
+        present_pointers = [
+            pointer for pointer in TABLE_GROUPS
+            if (root / f"{pointer}.csv").is_file()
+        ]
+        if not present_pointers:
+            expected = " or ".join(f"{p}.csv" for p in TABLE_GROUPS)
+            raise PackageValidationError(
+                "No workup pointer file found. Provide at least one rate group "
+                f"({expected})."
+            )
+
         tables: "OrderedDict[str, TableData]" = OrderedDict()
+        for pointer in present_pointers:
+            for name in TABLE_GROUPS[pointer]:
+                path = root / f"{name}.csv"
+                if not path.is_file():
+                    raise PackageValidationError(
+                        f"Missing required workup file: {path.name} "
+                        f"(required by the {pointer} rate group)."
+                    )
+                tables[name] = _read_csv_table(path, TABLE_SPECS[name])
+
+        # Absent groups are represented by empty tables so every downstream
+        # consumer can address all table names uniformly (they simply load
+        # nothing and default to Skip).
         for name, spec in TABLE_SPECS.items():
-            path = root / f"{name}.csv"
-            if not path.is_file():
-                raise PackageValidationError(f"Missing required workup file: {path.name}")
-            tables[name] = _read_csv_table(path, spec)
+            tables.setdefault(name, TableData(spec, ()))
+        tables = OrderedDict((name, tables[name]) for name in TABLE_SPECS)
 
-        pointer_rows = tables["POINT_PVSRB"].rows
-        if not pointer_rows:
-            raise PackageValidationError("POINT_PVSRB.csv contains no pointer rows.")
-        plancode_pos = TABLE_SPECS["POINT_PVSRB"].column_index("Plancode")
-        version_pos = TABLE_SPECS["POINT_PVSRB"].column_index("IssueVersion")
-        plancodes = {row[plancode_pos] for row in pointer_rows}
-        versions = {row[version_pos] for row in pointer_rows}
-        if len(plancodes) != 1 or None in plancodes:
-            raise PackageValidationError(
-                "POINT_PVSRB.csv must contain exactly one nonblank plancode."
-            )
-        if len(versions) != 1 or None in versions:
-            raise PackageValidationError(
-                "POINT_PVSRB.csv must contain exactly one IssueVersion."
-            )
+        plancode: Optional[str] = None
+        issue_version: Optional[int] = None
+        for pointer in present_pointers:
+            pointer_rows = tables[pointer].rows
+            if not pointer_rows:
+                # An empty pointer (header only) contributes no rows to load
+                # and does not constrain the plancode/version.
+                continue
+            spec = TABLE_SPECS[pointer]
+            plancode_pos = spec.column_index("Plancode")
+            version_pos = spec.column_index("IssueVersion")
+            plancodes = {row[plancode_pos] for row in pointer_rows}
+            versions = {row[version_pos] for row in pointer_rows}
+            if len(plancodes) != 1 or None in plancodes:
+                raise PackageValidationError(
+                    f"{pointer}.csv must contain exactly one nonblank plancode."
+                )
+            if len(versions) != 1 or None in versions:
+                raise PackageValidationError(
+                    f"{pointer}.csv must contain exactly one IssueVersion."
+                )
+            this_plancode = str(next(iter(plancodes)))
+            this_version = int(next(iter(versions)))
+            if plancode is None:
+                plancode, issue_version = this_plancode, this_version
+            elif this_plancode != plancode or this_version != issue_version:
+                raise PackageValidationError(
+                    "Workup pointer files disagree: "
+                    f"{pointer}.csv has plancode {this_plancode} / "
+                    f"IssueVersion {this_version}, but expected plancode "
+                    f"{plancode} / IssueVersion {issue_version}."
+                )
 
-        plancode = str(next(iter(plancodes)))
-        issue_version = int(next(iter(versions)))
-        benefit = tables["POINT_BENEFIT"]
-        if benefit.rows:
-            ben_plan_pos = benefit.spec.column_index("Plancode")
-            ben_version_pos = benefit.spec.column_index("IssueVersion")
-            if {row[ben_plan_pos] for row in benefit.rows} != {plancode}:
-                raise PackageValidationError(
-                    "POINT_BENEFIT.csv contains a different plancode."
-                )
-            if {row[ben_version_pos] for row in benefit.rows} != {issue_version}:
-                raise PackageValidationError(
-                    "POINT_BENEFIT.csv contains a different IssueVersion."
-                )
+        if plancode is None or issue_version is None:
+            raise PackageValidationError(
+                "The workup pointer file(s) contain no rows to load."
+            )
 
         return cls(root, plancode, issue_version, tables)
 

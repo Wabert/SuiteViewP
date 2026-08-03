@@ -51,6 +51,7 @@ from datetime import date
 from decimal import ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Dict, Optional
 
+from suiteview.core.band_rules import rider_bands_as_base
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
     IllustrationPolicyData,
@@ -260,10 +261,11 @@ def compute_target_premiums(
     base = policy.base_segment
     total_face = policy.total_face
 
-    # Target band: current total-SA band unless the plancode locks bands.
+    # Target band: current total-SA band unless the plancode locks bands. The
+    # band face includes any rider that bands as base coverage (core.band_rules).
     # issue_date feeds the Rates_Control-CZ issue-date band boundary.
     current_band = rates_db.get_band(
-        policy.plancode, total_face, issue_date=policy.issue_date)
+        policy.plancode, policy.band_specified_amount, issue_date=policy.issue_date)
     current_band = int(current_band) if current_band is not None else base.band
     result.target_band = current_band
 
@@ -392,8 +394,13 @@ def compute_target_premiums(
             mtp_rate_r = 0.0 if policy.plancode in CTR_MTP_ZERO_PLANCODES else CTR_TARGET_RATE
             ctp_rate_r = CTR_TARGET_RATE
         else:
-            r_band = rates_db.get_band(rider.plancode, rider.face_amount)
-            r_band = int(r_band) if r_band is not None else rider.band
+            if rider_bands_as_base(rider.plancode):
+                # Base-banding rider (e.g. 1U144A00): use the policy's combined
+                # band, not its own face-based band. See core.band_rules.
+                r_band = int(current_band)
+            else:
+                r_band = rates_db.get_band(rider.plancode, rider.face_amount)
+                r_band = int(r_band) if r_band is not None else rider.band
             r_args = (rider.plancode, rider.issue_age, rider.rate_sex,
                       rider.rate_class, r_band)
             mtp_rate_r = rates_db.get_mtp(*r_args) or 0.0

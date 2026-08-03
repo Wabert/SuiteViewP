@@ -254,6 +254,52 @@ def test_benefit_charge_uses_benefit_duration_at_policy_anniversary():
     assert result.benefit_charge_detail["11"] == pytest.approx(700.0)
 
 
+def _benefit_10_deduction(plancode):
+    """Monthly deduction for a policy carrying benefit '10' (type 1 + subtype 0)
+    with 250 units at a raw .00144 rate on the given plancode."""
+    benefit = BenefitInfo(
+        benefit_type="1",
+        benefit_subtype="0",
+        units=250.0,
+        issue_date=date(2010, 1, 1),
+        is_active=True,
+    )
+    policy = _minimal_policy_with_riders_and_benefits(benefits=[benefit])
+    policy.plancode = plancode
+    policy.issue_date = date(2010, 1, 1)
+    config, rates = _minimal_config_and_rates()
+    rates.benefit_coi["10"] = [None] + [0.00144 for _ in range(80)]
+
+    return calculate_deduction(
+        10_000.0,
+        policy,
+        config,
+        rates,
+        rate_year=5,
+        attained_age=50,
+        premiums_to_date=0.0,
+        projection_date=date(2015, 7, 24),
+    )
+
+
+def test_mlul_benefit_10_charge_converts_annual_unit_rate_at_charge_time():
+    # MLUL/MLUL502 benefit 10 stores an annual-per-unit rate (.00144). CyberLife
+    # converts to monthly-per-1000 (÷12 ×1000 → .12) when applying the charge but
+    # leaves the displayed rate raw: .12 × 250 units = 30.00.
+    for plancode in ("MLUL", "MLUL502"):
+        result = _benefit_10_deduction(plancode)
+        assert result.benefit_rates["10"] == pytest.approx(0.00144)   # raw, as RERUN
+        assert result.benefit_charge_detail["10"] == pytest.approx(30.0)
+        assert result.benefit_charges == pytest.approx(30.0)
+
+
+def test_unlisted_plancode_benefit_10_charge_is_units_times_raw_rate():
+    # No quirk registered → charge = units × raw rate = 250 × .00144 = .36.
+    result = _benefit_10_deduction("OTHERPLAN")
+    assert result.benefit_rates["10"] == pytest.approx(0.00144)
+    assert result.benefit_charge_detail["10"] == pytest.approx(0.36)
+
+
 def test_rider_and_benefit_charges_round_to_cents_by_default():
     rider = RiderInfo(
         plancode="LTR",

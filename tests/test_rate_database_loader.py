@@ -152,6 +152,68 @@ def test_workup_package_rejects_duplicate_primary_key(tmp_path):
         _write_package(tmp_path, rows)
 
 
+def _write_group_files(tmp_path, rows, table_names):
+    for table_name in table_names:
+        spec = TABLE_SPECS[table_name]
+        path = tmp_path / f"{table_name}.csv"
+        with path.open("w", newline="", encoding="utf-8-sig") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(spec.columns)
+            writer.writerows(rows.get(table_name, []))
+
+
+_BASE_GROUP = ("POINT_PVSRB", "RATE_COI", "RATE_TRGPREM", "RATE_SCR", "RATE_EPU")
+_BENEFIT_GROUP = ("POINT_BENEFIT", "RATE_BENCOI", "RATE_BENTRG")
+
+
+def test_workup_loads_benefit_group_without_base_files(tmp_path):
+    _write_group_files(tmp_path, _base_rows(), _BENEFIT_GROUP)
+
+    package = WorkupPackage.load(tmp_path)
+
+    assert package.plancode == "PLAN1"
+    assert package.issue_version == 1
+    assert package.tables["POINT_BENEFIT"].rows
+    assert package.tables["POINT_PVSRB"].rows == ()
+    assert package.tables["RATE_COI"].rows == ()
+
+    analysis = analyze_package(package, FakeRepository())
+    plan = create_execution_plan(package, analysis, _all_insert_actions())
+
+    assert plan.is_safe
+    assert (
+        plan.insert_rows["POINT_BENEFIT"]
+        == package.tables["POINT_BENEFIT"].rows
+    )
+    assert not plan.insert_rows.get("POINT_PVSRB")
+    assert not plan.insert_rows.get("RATE_COI")
+
+
+def test_workup_loads_base_group_without_benefit_files(tmp_path):
+    _write_group_files(tmp_path, _base_rows(), _BASE_GROUP)
+
+    package = WorkupPackage.load(tmp_path)
+
+    assert package.plancode == "PLAN1"
+    assert package.tables["POINT_PVSRB"].rows
+    assert package.tables["POINT_BENEFIT"].rows == ()
+    assert package.tables["RATE_BENCOI"].rows == ()
+
+
+def test_workup_requires_all_files_in_a_present_group(tmp_path):
+    _write_group_files(tmp_path, _base_rows(), ("POINT_BENEFIT", "RATE_BENCOI"))
+
+    with pytest.raises(PackageValidationError, match="RATE_BENTRG.csv"):
+        WorkupPackage.load(tmp_path)
+
+
+def test_workup_requires_at_least_one_pointer_file(tmp_path):
+    _write_group_files(tmp_path, _base_rows(), ("RATE_COI",))
+
+    with pytest.raises(PackageValidationError, match="No workup pointer file"):
+        WorkupPackage.load(tmp_path)
+
+
 def test_new_package_builds_safe_all_table_insert_plan(tmp_path):
     package = _write_package(tmp_path)
     analysis = analyze_package(package, FakeRepository())

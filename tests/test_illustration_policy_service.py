@@ -45,6 +45,7 @@ class _FakePolicyInfo:
     base_sex_code = "M"
     base_rate_class = "N"
     base_total_face_amount = 300_000.0
+    base_band_specified_amount = 200_000.0  # two active 100k covs (third terminated)
     db_option_code = "A"
     modal_premium = 100.0
     billing_frequency = 1

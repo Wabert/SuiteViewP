@@ -681,3 +681,78 @@ def test_unmapped_rate_types_warn():
     ref = RateReformatter(_mk_result(rates))
     joined = " ".join(ref.warnings)
     assert "'W'" in joined and "'N'" in joined
+
+
+# ---------------------------------------------------------------------------
+# RateManager leaves benefit BENCOI rates raw
+# ---------------------------------------------------------------------------
+# The MLUL/MLUL502 benefit-10 "annual-per-unit → monthly-per-1000" quirk is a
+# *charge-time* conversion applied by the illustration engine (CyberLife stores
+# and displays the raw rate). RateManager must therefore export the raw rate
+# unchanged so the rate tables mirror CyberLife — no bake-in here, no
+# double-application downstream.
+
+def _build_benefit_10_bencoi(tmp_path, plancode):
+    """Run a full workup for one plancode carrying benefit '10' and return the
+    RATE_BENCOI rate column (current scale, issue age 0)."""
+    import csv
+
+    rates = [_rate("C", att, 99, 0.1) for att in range(10)]                # base
+    rates += [_rate("C", att, 99, 0.2, band="0", opt="10")                 # benefit 10
+              for att in range(10)]
+    result = ParseResult(
+        products=[ProductInfo(ref=1, plancode=plancode, version="1",
+                              pay_age=10, me_age=10)],
+        rates=rates,
+    )
+    analysis = WorkupAnalysis(
+        iaf_result=result, plancode=plancode, issue_version="1", pay_age=10)
+    spec = WorkupSpec(
+        plancode=plancode, output_dir=str(tmp_path), fmt="db", base_index=13400,
+        benefits=[BenefitSelection(code="10", renewable=False, cease_age=10)],
+    )
+
+    res = build(spec, analysis)
+    assert not res.error, res.error
+
+    bencoi_path = tmp_path / f"{plancode}_Workup" / "RATE_BENCOI.csv"
+    with open(bencoi_path, newline="", encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))[1:]        # drop header
+    # Scale 1 (current), issue age 0, duration 1 → the benefit's issue-0 rate.
+    return next(float(r[4]) for r in rows
+                if r[1] == "1" and r[2] == "0" and r[3] == "1")
+
+
+def test_workup_leaves_mlul_benefit_10_rate_raw(tmp_path):
+    # No RateManager-side conversion — the raw rate is exported verbatim.
+    assert _build_benefit_10_bencoi(tmp_path, "MLUL") == 0.2
+
+
+def test_workup_leaves_unlisted_plancode_benefit_10_raw(tmp_path):
+    assert _build_benefit_10_bencoi(tmp_path, "OTHERPLAN") == 0.2
+
+
+def _benefit_10_rows(plancode):
+    """Build benefit-10 BENCOI rows via the shared build_benefit_rows path
+    (the standalone Benefits DB converter). Uses the real .00144 rate."""
+    rates = [_rate("C", 20, 99, 0.1)]                              # base combo
+    rates += [_rate("C", age, 99, 0.00144, band="0", opt="10")     # benefit 10
+              for age in range(20, 41)]
+    result = ParseResult(
+        products=[ProductInfo(ref=1, plancode=plancode, version="1", pay_age=41)],
+        rates=rates,
+    )
+    _pointers, bencoi, _bentrg, _counts = build_benefit_rows(
+        result,
+        [BenefitDBSpec(code="10", renewable=False, start_index=100, cease_age=41)],
+    )
+    # Current scale (1), issue age 20, duration 1 → benefit's issue-20 rate.
+    return next(r[4] for r in bencoi if r[1] == 1 and r[2] == 20 and r[3] == 1)
+
+
+def test_build_benefit_rows_leaves_benefit_10_rate_raw():
+    # RateManager exports the raw CyberLife rate for every plancode; the ÷12×1000
+    # conversion happens at charge-time in the illustration engine.
+    assert _benefit_10_rows("MLUL") == 0.00144
+    assert _benefit_10_rows("MLUL502") == 0.00144
+    assert _benefit_10_rows("OTHERPLAN") == 0.00144

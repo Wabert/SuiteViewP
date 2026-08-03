@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import logging
 import pyodbc
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, List, Dict, Any, Union, Tuple
 
 from .local_dev import connect_local_rates_database, local_data_enabled
@@ -245,7 +245,7 @@ class Rates:
             "BENMTP": ("SELECT Rate FROM Select_RATE_BENMTP WHERE Plancode=? AND BenefitType=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, benefit_type, issue_age, sex, rateclass, band]),
             "BENCTP": ("SELECT Rate FROM Select_RATE_BENCTP WHERE Plancode=? AND BenefitType=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=?", [plancode, benefit_type, issue_age, sex, rateclass, band]),
             "BENCOI": ("SELECT Rate FROM Select_RATE_BENCOI WHERE Plancode=? AND BenefitType=? AND IssueVersion=1 AND IssueAge=? AND Sex=? AND Rateclass=? AND [Band]=? AND Scale=?", [plancode, benefit_type, issue_age, sex, rateclass, band, scale]),
-            "BANDSPECS": ("SELECT SpecifiedAmount, [Band] FROM Select_RATE_BANDSPECS WHERE Plancode=? AND IssueVersion=1", [plancode]),
+            "BANDSPECS": ("SELECT SpecifiedAmount, [Band], [Issue_Date] FROM Select_RATE_BANDSPECS WHERE Plancode=? AND IssueVersion=1", [plancode]),
             "PLNCRD": ("SELECT Rate FROM Select_RATE_PLNCRD WHERE Plancode=? AND IssueVersion=1", [plancode]),
             "PLNCRG": ("SELECT Rate FROM Select_RATE_PLNCRG WHERE Plancode=? AND IssueVersion=1", [plancode]),
             "RLNCRD": ("SELECT Rate FROM Select_RATE_RLNCRD WHERE Plancode=? AND IssueVersion=1", [plancode]),
@@ -560,8 +560,15 @@ class Rates:
         
         # Process results based on rate type
         if rate_type_upper == "BANDSPECS":
-            # Returns 2D array of [SpecifiedAmount, Band]
-            result = [[row[0], row[1]] for row in rows]
+            # Returns 2D array of [SpecifiedAmount, Band, Issue_Date]. Issue_Date
+            # is the effective-from date of that band set (sentinel 1900-01-01 =
+            # "from the beginning"); get_band() selects the set effective for the
+            # POLICY issue date. Tolerate a 2-column row (a mirror without the
+            # Issue_Date column) by defaulting Issue_Date to None.
+            result = [
+                [row[0], row[1], (row[2] if len(row) > 2 else None)]
+                for row in rows
+            ]
             self._cache[rate_key] = result
         elif rate_type_upper == "COI_SCALE":
             # Returns raw rows
@@ -586,74 +593,127 @@ class Rates:
         issue_date=None,
     ) -> Optional[int]:
         """
-        Get band number for specified amount.
+        Get band number for specified amount, effective for the POLICY issue date.
 
         Thresholds are INCLUSIVE — the band is the highest BANDSPECS row whose
         SpecifiedAmount is <= face. This matches RERUN's band lookup
         (CalcEngine ``vCurrentBand = VLOOKUP(face, mBandTable<code>, 2)``, an
         approximate-match VLOOKUP).
 
-        ISSUE-DATE-DEPENDENT BAND BOUNDARY (RERUN Rates_Control column CZ,
-        "Use Band Table 2 by Issue Date"): for the plancodes RERUN lists in
-        Rates_Control!CZ12:CZ32 (1U145500..1U146700, 1U536A00-1U536C00), the
-        band-3 start depends on the POLICY issue date against the cutoff in
-        Rates_Control!CZ9 (2018-10-01):
+        ISSUE-DATE-DEPENDENT BANDING (single source of truth = the data):
+        ``RATE_BANDSPECS.Issue_Date`` lets a plancode's band breakpoints vary by
+        issue date. Each distinct ``Issue_Date`` is one complete band set that is
+        effective from that date forward (sentinel ``1900-01-01`` = "from the
+        beginning"). When a plancode has more than one effective-dated set, the
+        set whose ``Issue_Date`` is the latest on/before the **policy** issue date
+        is used — exactly mirroring ``TERM_RATE_BANDSPECS`` on the ABR side.
 
-        * issued ON/AFTER the cutoff  -> mBandTable2: band 3 starts at 250,000
-          (these are the thresholds stored in UL_Rates BANDSPECS);
-        * issued BEFORE the cutoff    -> mBandTable1: identical except band 3
-          starts at 250,001 — so a face of exactly 250,000 is band 2.
+        You MUST pass the POLICY issue date here, never the coverage issue date:
+        a policy's band structure is fixed by when the *policy* was issued, and
+        all base coverages share it. (Riders are banded on their own face amount
+        but still under the base plancode's dateless call — the CZ rule below and
+        the effective-dating apply to base plancodes only.)
 
-        (RERUN: ``CZ6 = AND(MATCH(sPlancode, CZ12:CZ32),
-        sINPUT_Issue_Date >= CZ9)``; ``sBandTableCode = IF(CZ6, 2, <plancode
-        table "Band Table" col U>)``.) This is the only banding in the product
-        line that varies by issue date. The affected plancodes carry
-        ``BandTable2IssueDate`` in the illustration plancode table
-        (suiteview/illustration/plancodes/plancode_table.json, merged by
-        tools/merge_band_table2_date.py).
+        LEGACY CZ FALLBACK (transitional): before a CZ plancode's effective-dated
+        rows are curated in ``RATE_BANDSPECS`` it still has a single (1900-01-01)
+        set holding the mBandTable2 thresholds (band 3 @ 250,000). For those
+        plancodes RERUN's Rates_Control!CZ rule shifts the band-3 start to 250,001
+        for policies issued before the cutoff (Rates_Control!CZ9 = 2018-10-01).
+        That $1 shift is applied here ONLY while the plancode still has fewer than
+        two effective-dated sets; once the effective-dated rows exist in the data,
+        the data drives banding and this fallback is skipped (no double-adjust).
 
         Args:
             plancode: Product plan code
             specified_amount: Face amount to band
             issue_date: POLICY issue date (RERUN sINPUT_Issue_Date), a
                 datetime.date/datetime. Pass it whenever known. When omitted,
-                the raw BANDSPECS thresholds apply unchanged — correct for
-                every plancode without the CZ rule, and for CZ plancodes
-                issued on/after the cutoff; a CZ plancode issued BEFORE
-                2018-10-01 with a face exactly on the 250,000 boundary would
-                band one band too high without it.
+                the earliest (1900-01-01) band set is used and the legacy CZ
+                shift is not applied.
 
         Returns:
             Band number or None if not found
         """
         band_specs = self.get_rates("BANDSPECS", plancode)
-
         if not band_specs:
             return None
 
-        if issue_date is not None:
-            cutoff = self._band_table2_cutoff(plancode)
-            if cutoff is not None:
-                if hasattr(issue_date, "date") and callable(issue_date.date):
-                    issue_date = issue_date.date()  # datetime -> date
-                if issue_date < cutoff:
-                    # Pre-cutoff issues band with RERUN mBandTable1: the
-                    # band-3 threshold is one dollar higher (250,001 vs the
-                    # 250,000 stored in BANDSPECS); all other rows identical.
-                    band_specs = [
-                        [amount + 1 if int(band) == 3 else amount, band]
-                        for amount, band in band_specs
-                    ]
+        rows = self._effective_band_rows(plancode, band_specs, issue_date)
+        if not rows:
+            return None
 
-        # band_specs is [[amount1, band1], [amount2, band2], ...]
-        # Find the highest band where specified_amount >= threshold
-        band_count = len(band_specs)
+        # rows is [[amount1, band1], [amount2, band2], ...] sorted by amount asc.
+        # Find the highest band where specified_amount >= threshold.
+        band_count = len(rows)
         while band_count > 0:
-            if specified_amount >= band_specs[band_count - 1][0]:
-                return int(band_specs[band_count - 1][1])
+            if specified_amount >= rows[band_count - 1][0]:
+                return int(rows[band_count - 1][1])
             band_count -= 1
 
-        return int(band_specs[0][1]) if band_specs else None
+        return int(rows[0][1]) if rows else None
+
+    @staticmethod
+    def _coerce_date(value):
+        """Normalize a date/datetime/'YYYY-MM-DD' string to a ``date`` (or None)."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            return None
+
+    def _effective_band_rows(self, plancode, band_specs, issue_date):
+        """Resolve the ``[amount, band]`` rows effective for ``issue_date``.
+
+        ``band_specs`` rows are ``[SpecifiedAmount, Band, Issue_Date]`` (a legacy
+        2-element row without Issue_Date is tolerated). When two or more distinct
+        Issue_Dates are present the set is picked by policy-issue-date effectivity
+        (latest Issue_Date on/before the policy issue date). Otherwise the legacy
+        Rates_Control-CZ $1 band-3 shift is applied as a transitional fallback.
+        Returns rows sorted by SpecifiedAmount ascending.
+        """
+        parsed = []
+        for row in band_specs:
+            amount = row[0]
+            band = int(row[1])
+            eff = self._coerce_date(row[2]) if len(row) > 2 else None
+            parsed.append((amount, band, eff))
+
+        distinct_dates = sorted({eff for _, _, eff in parsed if eff is not None})
+
+        if len(distinct_dates) >= 2:
+            # Data-driven effective dating (single source of truth).
+            ref = self._coerce_date(issue_date) or date(1900, 1, 1)
+            effective = distinct_dates[0]
+            for eff in distinct_dates:
+                if eff <= ref:
+                    effective = eff
+            rows = [[amount, band] for amount, band, eff in parsed if eff == effective]
+        else:
+            # Legacy transitional path: a single (or no) effective-dated set.
+            rows = [[amount, band] for amount, band, _ in parsed]
+            if issue_date is not None:
+                cutoff = self._band_table2_cutoff(plancode)
+                if cutoff is not None:
+                    ref = self._coerce_date(issue_date)
+                    if ref is not None and ref < cutoff:
+                        # Pre-cutoff issues band with RERUN mBandTable1: the
+                        # band-3 threshold is one dollar higher (250,001 vs the
+                        # 250,000 stored in BANDSPECS); all other rows identical.
+                        rows = [
+                            [amount + 1 if band == 3 else amount, band]
+                            for amount, band in rows
+                        ]
+
+        rows.sort(key=lambda r: r[0])
+        return rows
 
     @staticmethod
     def _band_table2_cutoff(plancode: str):
@@ -670,7 +730,9 @@ class Rates:
         except (ImportError, KeyError, FileNotFoundError):
             return None
 
-    def get_band_break(self, plancode: str, band: int = 2) -> Optional[float]:
+    def get_band_break(
+        self, plancode: str, band: int = 2, issue_date=None
+    ) -> Optional[float]:
         """Get the face-amount threshold at which ``band`` begins.
 
         Used by ratchet banding: net amount at risk up to this break is charged
@@ -678,12 +740,15 @@ class Rates:
         ``QG = Band 2 Amount``). Returns the ``SpecifiedAmount`` from BANDSPECS for
         the requested band (e.g. 50000 for the 2-band plancode 1U130N2X), or
         ``None`` if the plancode has no such band.
+
+        ``issue_date`` is the POLICY issue date; it selects the effective-dated
+        band set the same way ``get_band`` does.
         """
         band_specs = self.get_rates("BANDSPECS", plancode)
         if not band_specs:
             return None
-        # band_specs is [[amount1, band1], [amount2, band2], ...]
-        for amount, spec_band in band_specs:
+        rows = self._effective_band_rows(plancode, band_specs, issue_date)
+        for amount, spec_band in rows:
             if int(spec_band) == int(band):
                 return float(amount)
         return None

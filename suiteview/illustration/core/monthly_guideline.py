@@ -71,6 +71,7 @@ from datetime import date
 from decimal import ROUND_DOWN, Decimal
 from typing import List, Optional
 
+from suiteview.core.benefit_rate_rules import benefit_charge_factor
 from suiteview.illustration.core.rate_loader import IllustrationRates, _safe_rate
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import (
@@ -266,10 +267,15 @@ def build_guideline_basis(
                 continue
             factor = ben.rating_factor if ben.rating_factor and ben.rating_factor > 0 else 1.0
             gross = rate * factor
+            # Same per-(plancode, benefit) charge normalisation as the monthly
+            # deduction — one shared rule (see core/benefit_rate_rules.py) so the
+            # two engines never diverge.
+            charge_factor = benefit_charge_factor(
+                policy.plancode, ben_type + (ben.benefit_subtype or ""))
             if ben_type == "3":
-                charge = _trunc2(gross * monthly_mtp)
+                charge = _trunc2(gross * monthly_mtp * charge_factor)
             else:
-                charge = (ben.units or 0.0) * gross
+                charge = (ben.units or 0.0) * gross * charge_factor
             ben_total += charge
             gm.benefit_charge_detail[_benefit_label(ben_type, ben.benefit_subtype)] = charge
         gm.benefit_charges = ben_total
