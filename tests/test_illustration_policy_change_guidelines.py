@@ -6,7 +6,12 @@ from suiteview.illustration.core.monthly_guideline import GuidelineSolveResult
 from suiteview.illustration.core.rate_loader import IllustrationRates
 from suiteview.illustration.models.input_set import PolicyChangeEvent, PolicyChangeKind
 from suiteview.illustration.models.plancode_config import PlancodeConfig
-from suiteview.illustration.models.policy_data import BenefitInfo, IllustrationPolicyData, RiderInfo
+from suiteview.illustration.models.policy_data import (
+    BenefitInfo,
+    CoverageSegment,
+    IllustrationPolicyData,
+    RiderInfo,
+)
 
 
 def _patch_policy_change_dependencies(monkeypatch, solve_calls):
@@ -133,3 +138,46 @@ def test_cvat_rider_drop_does_not_solve_guideline_premiums(monkeypatch):
     assert policy.gsp == 2_400.0
     assert policy.tamra_7pay_level == 72.0
     assert solve_calls == []
+
+
+def test_specified_face_decrease_charges_no_withdrawal_fee(monkeypatch):
+    """A specified (elective) face decrease never incurs the $25 withdrawal fee.
+
+    The fee is a withdrawal charge (RERUN CalcEngine BN — see
+    ``withdrawal_handler.compute_withdrawal``). Reducing the specified amount is
+    a coverage change: it charges only the decreased units' surrender charge
+    (SCR/PSC), and here — with no SCR schedule — the AV is untouched. If a fee
+    ever leaked into this path the AV adjustment would be -25.0.
+    """
+    solve_calls = []
+    _patch_policy_change_dependencies(monkeypatch, solve_calls)
+    policy = IllustrationPolicyData(
+        def_of_life_ins="GPT",
+        face_amount=100_000.0,
+        glp=1_200.0,
+        gsp=2_400.0,
+        tamra_7pay_level=72.0,
+        segments=[CoverageSegment(coverage_phase=1, face_amount=100_000.0)],
+    )
+
+    outcome = calc_engine._apply_policy_change(
+        policy,
+        PlancodeConfig(withdrawal_fee=25.0),
+        PolicyChangeEvent(
+            kind=PolicyChangeKind.FACE_AMOUNT,
+            effective_date=date(2026, 6, 9),
+            value=60_000.0,
+        ),
+        attained_age=56,
+        change_date=date(2026, 6, 9),
+        rates=IllustrationRates(),
+        rate_year=7,
+        av=10_000.0,
+    )
+
+    assert outcome.coverage_changed
+    assert policy.face_amount == 60_000.0
+    assert outcome.face_detail["Specified Face Decrease"] == 40_000.0
+    # No fee and (with no SCR schedule) no surrender charge hit the AV.
+    assert outcome.av_adjustment == 0.0
+    assert outcome.face_detail["Total PSC Spec Dec"] == 0.0
