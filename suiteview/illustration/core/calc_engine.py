@@ -546,6 +546,7 @@ class IllustrationEngine:
                     policy_changes=changes_by_duration.get(state.duration + 1),
                     iul_ctx=iul_ctx,
                 )
+            state = _apply_retroactive_mec(policy, results, state)
             results.append(state)
             if stop_on_lapse and state.lapsed:
                 break
@@ -1129,6 +1130,8 @@ class IllustrationEngine:
             amount_in_7pay=accumulated_7pay_base,
             tamra_year=tamra_year,
             tamra_7pay_level=policy.tamra_7pay_level,
+            is_mec=policy.is_mec,
+            mec_year=state.mec_year,
             guideline_limit_reached=guideline_limit_reached,
             md_premium_mode=exception.md_premium_mode,
             billable_md_switched=b2md_switched,
@@ -1709,6 +1712,28 @@ class IllustrationEngine:
         return load_rates(policy, config)
 
 
+def _apply_retroactive_mec(policy, prior_states, state: MonthlyState) -> MonthlyState:
+    """Latch a mid-window seven-pay back-test failure into projection state."""
+    detail = state.guideline_recalc
+    if policy.is_mec or detail.get("tamra_case") != "within_period":
+        return state
+
+    from suiteview.illustration.core.mec import seven_pay_backtest
+
+    history = list(prior_states) + [state]
+    backtest = seven_pay_backtest(policy, history, len(history) - 1, detail)
+    if backtest is None:
+        return state
+
+    detail = dict(detail)
+    detail["seven_pay_backtest"] = backtest
+    state = replace(state, guideline_recalc=detail)
+    if backtest["is_mec"]:
+        policy.is_mec = True
+        state = replace(state, is_mec=True, mec_year=state.policy_year)
+    return state
+
+
 def _change_duration(policy: IllustrationPolicyData, effective_date) -> int:
     """Projection duration (1-indexed month) at which a dated change takes effect."""
     issue = policy.issue_date
@@ -1822,7 +1847,7 @@ def _reload_policy_band_rates(rates, policy, config) -> None:
     for attr, kind in (("tpp", "TPP"), ("epp", "EPP"), ("mfee", "MFEE")):
         setattr(rates, attr, rates_db.get_rates(
             kind, policy.plancode, issue_age=seg.issue_age, sex=seg.rate_sex,
-            rateclass=seg.rate_class, scale=1, band=band,
+            rateclass=seg.rate_class, scale=rates.expense_scale, band=band,
         ) or [])
     if config.poav_table != "0":
         from suiteview.illustration.core.poav_rates import load_poav_schedule
@@ -1830,7 +1855,7 @@ def _reload_policy_band_rates(rates, policy, config) -> None:
         rates.poav = load_poav_schedule(
             config.poav_table,
             band,
-            scale=rates.poav_scale,
+            scale=rates.expense_scale,
         )
 
 
@@ -2121,6 +2146,13 @@ def _process_withdrawal(
     if wd.face_decrease > 1e-9:
         before = _solve_guideline_state(
             policy, config, attained_age, month_date, options)
+        seven_pay_start = policy.tamra_7pay_start_date or month_date
+        seven_pay_before = _solve_guideline_state(
+            policy, config, _attained_age_at(policy, seven_pay_start),
+            seven_pay_start, options,
+            starting_av=policy.tamra_7pay_start_av,
+            active_as_of=month_date,
+        ).seven_pay
         before_pv_detail = _safe_guideline_pv_recalc_detail(
             policy, config, attained_age, month_date)
         _reduce_base_face(
@@ -2143,6 +2175,7 @@ def _process_withdrawal(
             material_change=False,
             options=options,
             before_pv_detail=before_pv_detail,
+            seven_pay_before=seven_pay_before,
         )
     return wd
 
@@ -2193,6 +2226,7 @@ def _apply_policy_change(
     md = change.metadata or {}
     fully_injected = {"new_glp", "new_gsp", "new_7pay"} <= md.keys()
     before = None
+    seven_pay_before = None
     before_pv_detail: Dict[str, object] = {}
     if (
         _will_alter_coverage(policy, change, face_before, av)
@@ -2200,6 +2234,13 @@ def _apply_policy_change(
     ) and not fully_injected:
         before = _solve_guideline_state(
             policy, config, attained_age, change_date, options)
+        seven_pay_start = policy.tamra_7pay_start_date or change_date
+        seven_pay_before = _solve_guideline_state(
+            policy, config, _attained_age_at(policy, seven_pay_start),
+            seven_pay_start, options,
+            starting_av=policy.tamra_7pay_start_av,
+            active_as_of=change_date,
+        ).seven_pay
         before_pv_detail = _safe_guideline_pv_recalc_detail(
             policy, config, attained_age, change_date)
 
@@ -2223,7 +2264,7 @@ def _apply_policy_change(
                 # decreased units' surrender charge (RERUN deducts it from AV).
                 cuts = _reduce_base_face(
                     policy, av_whole, rates, change_date, rate_year,
-                    charge_scr=True,
+                    charge_scr=config.partial_surrender_charge,
                 )
                 outcome.av_adjustment += cuts.av_adjustment
                 outcome.coverage_changed = True
@@ -2265,7 +2306,13 @@ def _apply_policy_change(
         }
         if delta < -1e-6:
             cuts = _reduce_base_face(
-                policy, -delta, rates, change_date, rate_year, charge_scr=True)
+                policy,
+                -delta,
+                rates,
+                change_date,
+                rate_year,
+                charge_scr=config.partial_surrender_charge,
+            )
             outcome.av_adjustment += cuts.av_adjustment
             outcome.coverage_changed = True
             detail["Specified Face Decrease"] = -delta
@@ -2338,6 +2385,8 @@ def _apply_policy_change(
         logger.warning("Policy change kind %s is not implemented; ignored", change.kind)
 
     if outcome.coverage_changed:
+        if policy.is_mec:
+            outcome.material_change = False
         _reload_policy_band_rates(rates, policy, config)
         targets = compute_target_premiums(policy, config, as_of=change_date)
         policy.mtp = targets.mtp_annual / 12.0
@@ -2350,6 +2399,7 @@ def _apply_policy_change(
             material_change=outcome.material_change,
             options=options,
             before_pv_detail=before_pv_detail,
+            seven_pay_before=seven_pay_before,
         )
     return outcome
 
@@ -2528,6 +2578,7 @@ def _recalc_guideline_on_change(
     material_change: bool,
     options=None,
     before_pv_detail: Optional[Dict[str, object]] = None,
+    seven_pay_before: Optional[float] = None,
 ) -> Dict[str, object]:
     """Recalculate GLP/GSP/7-pay at a policy change.
 
@@ -2557,7 +2608,7 @@ def _recalc_guideline_on_change(
 
     # A MATERIAL change restarts the 7-pay period at the change date with the
     # current account value as the period's starting AV (CH24 "Starting AV").
-    if material_change:
+    if material_change and not policy.is_mec:
         policy.tamra_7pay_start_date = change_date
         policy.tamra_7pay_start_av = max(av, 0.0)
 
@@ -2627,8 +2678,10 @@ def _recalc_guideline_on_change(
     # policy-change indicator), solved from the CURRENT 7-pay period start —
     # the change date after a material change, otherwise the original start
     # date — with that period's starting account value.
+    seven_pay_after = None
     if new_7pay is not None:
         policy.tamra_7pay_level = floor_monthly_cent(float(new_7pay))
+        seven_pay_after = float(new_7pay)
     elif before is not None:
         start = policy.tamra_7pay_start_date or change_date
         start_age = _attained_age_at(policy, start)
@@ -2641,12 +2694,15 @@ def _recalc_guideline_on_change(
             active_as_of=change_date,
         )
         policy.tamra_7pay_level = floor_monthly_cent(seven_solve.seven_pay)
+        seven_pay_after = seven_solve.seven_pay
 
     # TAMRA sheet detail: classify the change against the 7-pay window and
     # (when the recalc matters) attach the 7-pay PV breakdown. Only recalcs
     # with a genuine before/after solve carry drill-down detail.
     if recalc_detail:
-        if material_change:
+        if policy.is_mec:
+            tamra_case = "no_recalc"
+        elif material_change:
             tamra_case = "new_period"
         elif tamra_year_at_change <= 7:
             tamra_case = "within_period"
@@ -2656,6 +2712,8 @@ def _recalc_guideline_on_change(
             "tamra_case": tamra_case,
             "tamra_year_at_change": tamra_year_at_change,
             "seven_pay_prior": seven_pay_prior,
+            "seven_pay_before": seven_pay_before,
+            "seven_pay_after": seven_pay_after,
             "seven_pay_new": policy.tamra_7pay_level,
             "seven_pay_prior_start": seven_pay_prior_start,
             "seven_pay_window_start": policy.tamra_7pay_start_date or change_date,

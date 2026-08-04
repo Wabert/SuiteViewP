@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from suiteview.illustration.core.loan_handler import empty_loan_cap_repay_detail
+from suiteview.illustration.core.mec import seven_pay_backtest
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.ui.widgets.filter_table_view import FilterTableView
@@ -341,83 +342,6 @@ def _add_years(value, years: int):
         return value.replace(year=value.year + years, day=28)
 
 
-def _seven_pay_backtest(
-    policy, states: list, recalc_index: int, detail: dict,
-) -> dict | None:
-    """Back-test the current 7-pay window against the NEW 7-pay premium.
-
-    A recalc INSIDE the 7-pay window applies the recomputed limit retroactively
-    to the whole window, so every TAMRA year's cumulative net premiums must be
-    re-tested — exceeding ``year × new 7-pay`` in any year makes the policy a
-    MEC. Cumulative premiums come from the engine's 7-pay accumulator
-    (``accumulated_7pay``) for projected months and from the policy's
-    historical per-year contributions for TAMRA years completed before the
-    valuation date. The in-progress year tests premiums received through the
-    month BEFORE the change.
-    """
-    new_level = float(detail.get("seven_pay_new") or 0.0)
-    window_start = detail.get("seven_pay_window_start")
-    change_year = int(detail.get("tamra_year_at_change") or 0)
-    if new_level <= 0.0 or window_start is None or not (1 <= change_year <= 7):
-        return None
-    recalc_state = states[recalc_index]
-
-    # Cumulative net premiums at the end of each projected TAMRA year of THIS
-    # window (the last month of a year carries the year-end accumulator).
-    projected_cum: dict[int, float] = {}
-    for st in states[1:recalc_index + 1]:
-        if st.tamra_7pay_start_date == window_start and 1 <= st.tamra_year <= 7:
-            projected_cum[st.tamra_year] = st.accumulated_7pay
-    # The change year only tests premiums received BEFORE the change month.
-    projected_cum[change_year] = recalc_state.amount_in_7pay
-
-    # Historical per-year contributions only apply when the window predates the
-    # valuation (a window opened mid-projection is fully covered by the states).
-    contributions = list(getattr(policy, "tamra_7year_contributions", None) or [])
-    window_is_original = states[0].tamra_7pay_start_date == window_start
-
-    rows: list[dict] = []
-    mec_year: int | None = None
-    prior_cum = 0.0
-    for year in range(1, 8):
-        if year > change_year:
-            cumulative = None
-        elif year in projected_cum:
-            cumulative = projected_cum[year]
-        elif window_is_original and year <= len(contributions):
-            cumulative = sum(contributions[:year])
-        else:
-            cumulative = None
-        limit = year * new_level
-        if cumulative is None:
-            result = "not reached"
-        elif cumulative > limit + 0.005:
-            result = "MEC"
-            if mec_year is None:
-                mec_year = year
-        else:
-            result = "OK"
-        rows.append({
-            "TAMRA Year": year,
-            "Year Begins": _fmt_recalc_date(_add_years(window_start, year - 1)),
-            "Net Prems (Year)": None if cumulative is None else cumulative - prior_cum,
-            "Net Prems (Cum)": cumulative,
-            "7-Pay Limit (Cum)": limit,
-            "Margin": None if cumulative is None else limit - cumulative,
-            "Result": result,
-        })
-        if cumulative is not None:
-            prior_cum = cumulative
-    return {
-        "rows": rows,
-        "is_mec": mec_year is not None,
-        "mec_year": mec_year,
-        "new_level": new_level,
-        "window_start": window_start,
-        "through_date": recalc_state.date,
-    }
-
-
 _NA_NOTE_STYLE = (
     "color: #6A5A8A; background: transparent; font-size: 12px; font-style: italic;")
 
@@ -583,6 +507,18 @@ class GuidelineRecalcDetailView(QWidget):
                 "New Prem": detail.get("gsp_new"),
             },
         ]
+        if any(
+            detail.get(key) is not None
+            for key in ("seven_pay_prior", "seven_pay_before", "seven_pay_after", "seven_pay_new")
+        ):
+            rows.append({
+                "Premium": "7-Pay",
+                "Prior Prem": detail.get("seven_pay_prior"),
+                "Before Change": detail.get("seven_pay_before"),
+                "After Change": detail.get("seven_pay_after"),
+                "Δ (After − Before)": _recalc_delta(detail, "seven_pay"),
+                "New Prem": detail.get("seven_pay_new"),
+            })
         self.summary_grid.set_dataframe(pd.DataFrame(rows), limit_rows=False)
         self.summary_grid.set_numeric_formatting(default_decimals=2)
         if self.summary_grid.model is not None:
@@ -1742,8 +1678,10 @@ class IllustrationValuesTab(QWidget):
                 # A recalc inside the 7-pay window re-tests the window's
                 # premiums at the new 7-pay premium (the MEC back-test sheet).
                 if detail.get("tamra_case") == "within_period":
-                    detail["seven_pay_backtest"] = _seven_pay_backtest(
-                        policy, result_list, index, detail)
+                    detail["seven_pay_backtest"] = (
+                        detail.get("seven_pay_backtest")
+                        or seven_pay_backtest(policy, result_list, index, detail)
+                    )
                 recalcs.append(detail)
         self.recalc_view.show_recalcs(baseline, recalcs)
         self._rebuild_navigator(navigator_columns)

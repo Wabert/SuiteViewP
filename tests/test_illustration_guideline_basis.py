@@ -104,6 +104,19 @@ def test_guideline_epu_follows_current_schedule_cessation():
     assert all(gm.epu == 0.0 for gm in basis.months[120:])
 
 
+def test_post_2020_policy_uses_2_percent_glp_and_4_percent_gsp_rates():
+    policy = _policy()
+    policy.issue_date = date(2021, 1, 1)
+
+    basis = build_guideline_basis(
+        policy, _config(), _rates(),
+        attained_age=40, as_of=date(2021, 1, 1),
+    )
+
+    assert basis.glp_rate_floor == 0.02
+    assert basis.gsp_rate_floor == 0.04
+
+
 def test_load_rates_uses_current_scale_for_expenses_with_guaranteed_coi():
     """load_rates(coi_scale=0): COI is scale 0, EPU/MFEE/TPP/EPP stay scale 1."""
 

@@ -5,6 +5,7 @@ import pytest
 from suiteview.illustration.core.bonus_rates import BonusConfig, load_bonus_config
 from suiteview.illustration.core.interest_calc import credit_interest
 from suiteview.illustration.core.rate_loader import IllustrationRates
+from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.plancode_config import PlancodeConfig, load_plancode
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
@@ -25,6 +26,82 @@ def test_int_bonus_table_resolves_1u135k00_latest_effective_rate():
     assert bonus.bonus_dur_threshold == 10
     assert bonus.bonus_av_rate == 0.0
     assert bonus.bonus_av_threshold == 0.0
+
+
+def test_int_bonus_table_resolves_1u147800_current_and_guaranteed_rates():
+    bonus = load_bonus_config("1U147800", date(2026, 8, 3))
+
+    assert bonus.bonus_dur_rate == 0.0025
+    assert bonus.bonus_dur_threshold == 0
+    assert bonus.guaranteed().bonus_dur_rate == 0.001
+    assert bonus.guaranteed().bonus_av_rate == 0.0
+
+
+def test_missing_guaranteed_bonus_fields_default_to_zero():
+    bonus = load_bonus_config("1U135D00", date(2026, 6, 15)).guaranteed()
+
+    assert bonus.bonus_dur_rate == 0.0
+    assert bonus.bonus_av_rate == 0.0
+
+
+def test_guaranteed_projection_uses_1u147800_guaranteed_bonus(monkeypatch):
+    from suiteview.illustration.core import guaranteed_projection
+
+    captured = {}
+
+    class RecordingEngine:
+        def project(self, _policy, **kwargs):
+            captured.update(kwargs)
+            return []
+
+    monkeypatch.setattr(
+        guaranteed_projection, "load_plancode",
+        lambda _plancode: PlancodeConfig(plancode="1U147800"),
+    )
+    monkeypatch.setattr(
+        guaranteed_projection, "load_rates",
+        lambda *_args, **_kwargs: IllustrationRates(),
+    )
+    policy = IllustrationPolicyData(
+        plancode="1U147800",
+        issue_date=date(2010, 1, 1),
+        valuation_date=date(2026, 8, 3),
+    )
+
+    guaranteed_projection.run_guaranteed_projection(
+        policy,
+        [MonthlyState(duration=0), MonthlyState(duration=1)],
+        engine=RecordingEngine(),
+    )
+
+    bonus = captured["bonus_override"]
+    assert bonus.bonus_dur_rate == 0.001
+    assert bonus.bonus_dur_threshold == 0
+    assert bonus.bonus_av_rate == 0.0
+
+
+@pytest.mark.parametrize(
+    ("guaranteed", "expected_rate"),
+    [(False, 0.0025), (True, 0.001)],
+)
+def test_1u147800_duration_bonus_starts_immediately(guaranteed, expected_rate):
+    bonus = load_bonus_config("1U147800", date(2026, 8, 3))
+    if guaranteed:
+        bonus = bonus.guaranteed()
+
+    result = credit_interest(
+        100_000.0,
+        IllustrationPolicyData(current_interest_rate=0.03),
+        load_plancode("1U147800"),
+        IllustrationRates(),
+        bonus,
+        rate_year=1,
+        attained_age=40,
+        month_date=date(2026, 8, 3),
+    )
+
+    assert result.bonus_interest_rate == expected_rate
+    assert result.effective_annual_rate == 0.03 + expected_rate
 
 
 def test_credit_interest_uses_duration_bonus_after_threshold():

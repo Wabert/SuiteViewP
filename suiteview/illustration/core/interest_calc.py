@@ -73,10 +73,9 @@ def credit_interest(
     # ── 3.3.2 Bonus interest ─────────────────────────────────
     bonus_rate = 0.0
 
-    # Duration bonus — added after threshold year
-    if bonus.bonus_dur_threshold > 0 and bonus.bonus_dur_rate > 0:
-        if rate_year > bonus.bonus_dur_threshold:
-            bonus_rate += bonus.bonus_dur_rate
+    # Duration bonus — added after threshold year; zero starts immediately.
+    if bonus.bonus_dur_rate > 0 and rate_year > bonus.bonus_dur_threshold:
+        bonus_rate += bonus.bonus_dur_rate
 
     # AV bonus — when AV exceeds threshold
     if bonus.bonus_av_threshold > 0 and bonus.bonus_av_rate > 0:

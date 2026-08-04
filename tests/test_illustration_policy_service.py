@@ -222,3 +222,26 @@ def test_build_illustration_data_loads_illustration_date_index_data(monkeypatch)
     assert policy.index_market_returns == {
         "SP500": [{"date": date(2023, 12, 31), "return": 0.2423}]
     }
+
+
+def test_coverage_segment_data_warnings_identifies_blank_active_fields():
+    policy = _FakePolicyInfo()
+    coverages = policy.get_base_coverages()
+    coverages[1].face_amount = None
+    coverages[1].rate_class = " "
+    coverages[1].issue_age = None
+    coverages[2].face_amount = None
+    policy.get_base_coverages = lambda: coverages
+
+    warnings = illustration_policy_service.coverage_segment_data_warnings(policy)
+
+    assert warnings == [
+        "CyberLife coverage data is incomplete: Segment 2: Current Specified "
+        "Amount, Rate Class, Issue Age."
+    ]
+
+
+def test_coverage_segment_data_warnings_is_clear_for_complete_segments():
+    assert illustration_policy_service.coverage_segment_data_warnings(
+        _FakePolicyInfo()
+    ) == []

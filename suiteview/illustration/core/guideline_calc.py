@@ -270,6 +270,7 @@ def policy_to_guideline_inputs(
     loaded lazily so this module stays import-light for callers that only need
     the pure commutation math.
     """
+    from suiteview.illustration.core.monthly_guideline import statutory_guideline_rates
     from suiteview.illustration.core.rate_loader import load_rates
 
     guar = load_rates(policy, config, coi_scale=0)
@@ -298,6 +299,7 @@ def policy_to_guideline_inputs(
         per_unit_charge_annual=12.0 * _lvl(cur.epu),
         units=total_face / 1000.0,
     )
+    glp_rate, gsp_rate = statutory_guideline_rates(policy.issue_date)
     return GuidelinePremiumInputs(
         attained_age=attained_age,
         mortality=mort,
@@ -305,8 +307,8 @@ def policy_to_guideline_inputs(
         db_option="A",                 # commutation detail is the level-DB view
         endowment_age=endowment_age,
         guaranteed_rate=float(policy.guaranteed_interest_rate or 0.0),
-        glp_rate=0.04,
-        gsp_rate=0.06,
+        glp_rate=glp_rate,
+        gsp_rate=gsp_rate,
         expenses=expenses,
         issue_age=policy.issue_age,
     )
@@ -581,7 +583,7 @@ def search_guideline_premiums(
     attained_age: int,
     as_of=None,
     starting_av: float = 0.0,
-    glp_rate_floor: float = 0.04,
+    glp_rate_floor: Optional[float] = None,
     gsp_rate_spread: float = 0.02,
     maturity_age: int = 100,
     tolerance: float = 0.01,
@@ -607,6 +609,7 @@ def search_guideline_premiums(
     from suiteview.illustration.core.monthly_guideline import (
         SEVEN_PAY_YEARS,
         GuidelineSolveResult,
+        statutory_guideline_rates,
     )
     from suiteview.illustration.models.input_set import (
         IllustrationInputSet,
@@ -620,8 +623,12 @@ def search_guideline_premiums(
     if months <= 0 or face <= 0:
         return GuidelineSolveResult()
 
-    glp_rate = max(float(policy.guaranteed_interest_rate or 0.0), glp_rate_floor)
-    gsp_rate = max(float(policy.guaranteed_interest_rate or 0.0), glp_rate_floor + gsp_rate_spread)
+    statutory_glp, statutory_gsp = statutory_guideline_rates(policy.issue_date)
+    selected_glp_floor = statutory_glp if glp_rate_floor is None else glp_rate_floor
+    selected_gsp_floor = (
+        statutory_gsp if glp_rate_floor is None else glp_rate_floor + gsp_rate_spread)
+    glp_rate = max(float(policy.guaranteed_interest_rate or 0.0), selected_glp_floor)
+    gsp_rate = max(float(policy.guaranteed_interest_rate or 0.0), selected_gsp_floor)
 
     # Anchor the projection so the FIRST projected month is the anniversary at
     # ``attained_age`` (policy month 1) — the annual premium then lands on the

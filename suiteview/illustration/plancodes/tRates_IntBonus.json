@@ -502,7 +502,8 @@
         "Plancode": "1U147800",
         "EffectiveDate": "1900-01-01",
         "BonusDurRate": 0.0025,
-        "BonusDurThreshold": 10,
+        "BonusDurRateGuar": 0.0010,
+        "BonusDurThreshold": 0,
         "BonusAVRate": 0.0,
         "BonusAVThreshold": 0
     }

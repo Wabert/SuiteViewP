@@ -40,7 +40,10 @@ class IllustrationRates:
     tpp: List = field(default_factory=list)
     epp: List = field(default_factory=list)
     poav: List = field(default_factory=list)
-    poav_scale: int = 1  # 1 = current, 0 = guaranteed
+    # Expense-rate scale (EPU, MFEE, PoAV, premium loads TPP/EPP): 1 = current,
+    # 0 = guaranteed. Current & guideline runs use 1; only the guaranteed
+    # illustration side uses 0. Stored so band reloads preserve the basis.
+    expense_scale: int = 1
 
     # Loan credit rates (duration-based)
     rlncrg: List = field(default_factory=list)   # Regular loan credit rate — guaranteed
@@ -134,27 +137,45 @@ def load_rates(
     policy: IllustrationPolicyData,
     config: PlancodeConfig,
     coi_scale: int = 1,
-    poav_scale: int = 1,
+    expense_scale: int = 1,
 ) -> IllustrationRates:
     """Load all rate arrays for the policy's base segment.
 
     Uses the Rates class to fetch from UL_Rates SQL Server database.
     Rates are cached at the Rates class level.
 
-    ``coi_scale`` selects the COI scale: 1 = current (illustrated, the default and
-    what matches RERUN's projection), 0 = guaranteed maximum COI. Build guaranteed
-    rates with ``coi_scale=0`` to feed the 7702 guideline / TAMRA calculators
-    (loads/fees, including PoAV, stay current). ``poav_scale=0`` is reserved for
-    the guaranteed illustration side. The active COI scale per plancode is in
-    ``Select_SCALE_COI`` (= 1 for these plancodes).
+    Two independent scale axes drive the three run situations:
+
+    - ``coi_scale``     — the mortality (COI) scale: 1 = current (illustrated),
+                          0 = guaranteed maximum.
+    - ``expense_scale`` — the expense scale governing EPU, MFEE, PoAV, and the
+                          premium loads (TPP target / EPP excess): 1 = current,
+                          0 = guaranteed.
+
+    The three situations:
+
+    1. Current illustration values  → ``coi_scale=1, expense_scale=1`` (default).
+    2. Guaranteed illustration values → ``coi_scale=0, expense_scale=0``. The
+       guaranteed EPU/MFEE/load schedules carry real charges to maturity,
+       whereas the current schedules zero out after their level period (~10
+       years) — so the guaranteed side must load them at scale 0 or its expense
+       charges wrongly drop off.
+    3. Guideline (7702) calculations → ``coi_scale=0, expense_scale=1``:
+       guaranteed COI but CURRENT expense rates. Build these with
+       ``coi_scale=0`` (expense_scale defaults to 1).
+
+    The active COI scale per plancode is in ``Select_SCALE_COI`` (= 1 for these
+    plancodes).
     """
     rates_db = Rates()
     seg = policy.base_segment
 
     if seg is None:
         return IllustrationRates()
-    if poav_scale not in (0, 1):
-        raise ValueError(f"PoAV scale must be 0 or 1, got {poav_scale}")
+    if coi_scale not in (0, 1):
+        raise ValueError(f"COI scale must be 0 or 1, got {coi_scale}")
+    if expense_scale not in (0, 1):
+        raise ValueError(f"Expense scale must be 0 or 1, got {expense_scale}")
 
     segment_coi = {}
     segment_epu = {}
@@ -166,7 +187,7 @@ def load_rates(
         ) or []
         segment_epu[base_seg.coverage_phase] = rates_db.get_rates(
             "EPU", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
-            base_seg.rate_class, scale=1, band=base_seg.band,
+            base_seg.rate_class, scale=expense_scale, band=base_seg.band,
         ) or []
         segment_scr[base_seg.coverage_phase] = rates_db.get_rates(
             "SCR", policy.plancode, base_seg.issue_age, base_seg.rate_sex,
@@ -183,18 +204,18 @@ def load_rates(
         segment_scr=segment_scr,
         mfee=rates_db.get_rates(
             "MFEE", policy.plancode, seg.issue_age, seg.rate_sex,
-            seg.rate_class, scale=1, band=seg.band,
+            seg.rate_class, scale=expense_scale, band=seg.band,
         ) or [],
         gint=rates_db.get_rates("GINT", policy.plancode) or [],
         tpp=rates_db.get_rates(
             "TPP", policy.plancode, issue_age=seg.issue_age,
             sex=seg.rate_sex, rateclass=seg.rate_class,
-            scale=1, band=seg.band,
+            scale=expense_scale, band=seg.band,
         ) or [],
         epp=rates_db.get_rates(
             "EPP", policy.plancode, issue_age=seg.issue_age,
             sex=seg.rate_sex, rateclass=seg.rate_class,
-            scale=1, band=seg.band,
+            scale=expense_scale, band=seg.band,
         ) or [],
         mtp=rates_db.get_mtp(
             policy.plancode, seg.issue_age, seg.rate_sex,
@@ -204,7 +225,7 @@ def load_rates(
             policy.plancode, seg.issue_age, seg.rate_sex,
             seg.rate_class, seg.band,
         ) or 0.0,
-        poav_scale=poav_scale,
+        expense_scale=expense_scale,
     )
 
     # Ratchet banding (RERUN PP-QX): load band-1 AND band-2 COI schedules for
@@ -228,7 +249,7 @@ def load_rates(
         result.poav = load_poav_schedule(
             config.poav_table,
             seg.band,
-            scale=poav_scale,
+            scale=expense_scale,
         )
 
     # Load loan credit rates (plancode-only, no age/sex/band)

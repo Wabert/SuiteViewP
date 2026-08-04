@@ -104,7 +104,7 @@ def test_rate_loader_uses_local_poav_table_for_current_and_guaranteed(monkeypatc
 
     current = load_rates(_policy(), config)
     statutory = load_rates(_policy(), config, coi_scale=0)
-    guaranteed = load_rates(_policy(), config, coi_scale=0, poav_scale=0)
+    guaranteed = load_rates(_policy(), config, coi_scale=0, expense_scale=0)
 
     assert current.poav[1] == pytest.approx(0.0004)
     assert current.poav[11] == pytest.approx(0.0)
@@ -112,6 +112,47 @@ def test_rate_loader_uses_local_poav_table_for_current_and_guaranteed(monkeypatc
     assert guaranteed.poav[1] == pytest.approx(0.0004)
     assert guaranteed.poav[11] == pytest.approx(0.0004)
     assert all(call[0] != "POAV" for call in fake.calls)
+
+
+def test_rate_loader_expense_scale_governs_all_expense_rates(monkeypatch):
+    """The expense scale (EPU, MFEE, TPP target load, EPP excess load, PoAV)
+    is 1 by default — including for the 7702 guideline basis where COI is
+    guaranteed (coi_scale=0) but fees stay current — and only 0 for the
+    guaranteed illustration side, where the guaranteed expense schedules run
+    their charges to maturity."""
+    config = PlancodeConfig(plancode="TESTPOAV", poav_table="0")
+    expense_types = {"EPU", "MFEE", "TPP", "EPP"}
+
+    def _expense_scales(fake):
+        return {scale for rate_type, scale, _band in fake.calls
+                if rate_type in expense_types}
+
+    # Current run: all expense rates at scale 1.
+    fake = _FakeRates()
+    monkeypatch.setattr(rate_loader, "Rates", lambda: fake)
+    load_rates(_policy(), config)
+    assert _expense_scales(fake) == {1}
+
+    # Guideline/TAMRA basis (coi_scale=0, default expense_scale): fees stay current.
+    fake = _FakeRates()
+    monkeypatch.setattr(rate_loader, "Rates", lambda: fake)
+    load_rates(_policy(), config, coi_scale=0)
+    assert _expense_scales(fake) == {1}
+    assert ("COI", 0, 1) in fake.calls
+
+    # Guaranteed illustration side: all expense rates at the guaranteed scale.
+    fake = _FakeRates()
+    monkeypatch.setattr(rate_loader, "Rates", lambda: fake)
+    load_rates(_policy(), config, coi_scale=0, expense_scale=0)
+    assert _expense_scales(fake) == {0}
+
+
+def test_rate_loader_rejects_invalid_expense_scale(monkeypatch):
+    fake = _FakeRates()
+    monkeypatch.setattr(rate_loader, "Rates", lambda: fake)
+    config = PlancodeConfig(plancode="TESTPOAV", poav_table="0")
+    with pytest.raises(ValueError, match="Expense scale must be 0 or 1"):
+        load_rates(_policy(), config, expense_scale=2)
 
 
 def test_monthly_deduction_applies_poav_rate_to_positive_account_value():
@@ -146,7 +187,7 @@ def test_policy_band_reload_keeps_guaranteed_poav_basis(monkeypatch):
 
     fake = _FakeRates()
     monkeypatch.setattr(core_rates, "Rates", lambda: fake)
-    rates = IllustrationRates(poav_scale=0)
+    rates = IllustrationRates(expense_scale=0)
 
     _reload_policy_band_rates(
         rates,
@@ -156,6 +197,11 @@ def test_policy_band_reload_keeps_guaranteed_poav_basis(monkeypatch):
 
     assert rates.poav[11] == pytest.approx(0.0004)
     assert all(call[0] != "POAV" for call in fake.calls)
+    # TPP/EPP/MFEE reloaded on a band change must preserve the guaranteed
+    # expense scale, not revert to current fees.
+    reload_scales = {scale for rate_type, scale, _band in fake.calls
+                     if rate_type in {"TPP", "EPP", "MFEE"}}
+    assert reload_scales == {0}
 
 
 def test_plancode_config_reads_poav_table_code():

@@ -47,8 +47,6 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from suiteview.illustration.core.monthly_guideline import (
-    GLP_RATE_FLOOR,
-    GSP_RATE_SPREAD,
     SEVEN_PAY_YEARS,
     GuidelineBasis,
     _anniversary_months,
@@ -248,7 +246,7 @@ def guideline_glp_detail(basis: GuidelineBasis) -> dict:
     deemed maturity, on the contract's death-benefit option, at max(guaranteed,
     4%).
     """
-    glp_rate = max(basis.guaranteed_rate, GLP_RATE_FLOOR)
+    glp_rate = max(basis.guaranteed_rate, basis.glp_rate_floor)
     return _guideline_premium_detail(
         basis,
         premium_label="GLP",
@@ -263,7 +261,7 @@ def guideline_gsp_detail(basis: GuidelineBasis) -> dict:
     The GSP is the single premium paid at the calculation month, at max
     (guaranteed, 6%), and follows the same level-DB mechanics as the solver.
     """
-    gsp_rate = max(basis.guaranteed_rate, GLP_RATE_FLOOR + GSP_RATE_SPREAD)
+    gsp_rate = max(basis.guaranteed_rate, basis.gsp_rate_floor)
     return _guideline_premium_detail(
         basis,
         premium_label="GSP",
@@ -291,7 +289,7 @@ def guideline_7pay_detail(basis: GuidelineBasis, *, starting_av: float = 0.0) ->
     return _guideline_premium_detail(
         net,
         premium_label="7-Pay",
-        annual_rate=max(basis.guaranteed_rate, GLP_RATE_FLOOR),
+        annual_rate=max(basis.guaranteed_rate, basis.glp_rate_floor),
         premium_months=seven_pay_months,
         db_option="A",
         starting_av=starting_av,

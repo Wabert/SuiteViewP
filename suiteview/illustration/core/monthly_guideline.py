@@ -94,6 +94,14 @@ COI_MONTHLY_CAP = 83.333          # per $1000 per month — Guideline_Premiums T
 DEEMED_MATURITY_AGE = 100         # s7702_MaturityAge
 GLP_RATE_FLOOR = 0.04             # s7702_GLP_Rate (pre-2021 contracts)
 GSP_RATE_SPREAD = 0.02            # GSP floor = GLP floor + 2%
+_POST_2020_EFFECTIVE_DATE = date(2021, 1, 1)
+
+
+def statutory_guideline_rates(issue_date: Optional[date]) -> tuple[float, float]:
+    """Return the statutory GLP/7-pay and GSP floors for an issue date."""
+    if issue_date is not None and issue_date >= _POST_2020_EFFECTIVE_DATE:
+        return 0.02, 0.04
+    return GLP_RATE_FLOOR, GLP_RATE_FLOOR + GSP_RATE_SPREAD
 
 
 def _trunc2(value: float) -> float:
@@ -128,6 +136,8 @@ class GuidelineBasis:
     db_option: str = "A"
     ctp: float = 0.0               # annual commission target premium (for the $-load)
     guaranteed_rate: float = 0.0
+    glp_rate_floor: float = GLP_RATE_FLOOR
+    gsp_rate_floor: float = GLP_RATE_FLOOR + GSP_RATE_SPREAD
 
 
 @dataclass
@@ -170,11 +180,14 @@ def build_guideline_basis(
     # Year offset from ISSUE for duration-indexed schedules (COI/loads/fees).
     start_year = max(1, attained_age - issue_age + 1)
 
+    glp_rate_floor, gsp_rate_floor = statutory_guideline_rates(policy.issue_date)
     basis = GuidelineBasis(
         total_sa=policy.total_face,
         db_option=str(policy.db_option or "A").upper(),
         ctp=float(policy.ctp or 0.0),
         guaranteed_rate=float(policy.guaranteed_interest_rate or 0.0),
+        glp_rate_floor=glp_rate_floor,
+        gsp_rate_floor=gsp_rate_floor,
     )
 
     monthly_mtp = _trunc2(float(policy.mtp or 0.0))
@@ -451,6 +464,8 @@ def _net_premium_basis(basis: GuidelineBasis) -> GuidelineBasis:
         db_option=basis.db_option,
         ctp=basis.ctp,
         guaranteed_rate=basis.guaranteed_rate,
+        glp_rate_floor=basis.glp_rate_floor,
+        gsp_rate_floor=basis.gsp_rate_floor,
     )
     for month in basis.months:
         stripped.months.append(GuidelineMonth(
@@ -467,7 +482,7 @@ def solve_guideline_premiums(
     basis: GuidelineBasis,
     *,
     starting_av: float = 0.0,
-    glp_rate_floor: float = GLP_RATE_FLOOR,
+    glp_rate_floor: Optional[float] = None,
 ) -> GuidelineSolveResult:
     """GLP, GSP, and 7-pay from one guideline basis.
 
@@ -483,8 +498,14 @@ def solve_guideline_premiums(
     7-pay blocks to option A (a true increasing-DB single-premium endowment is
     degenerate: the fund earns no COI offset, producing absurd premiums).
     """
-    glp_rate = max(basis.guaranteed_rate, glp_rate_floor)
-    gsp_rate = max(basis.guaranteed_rate, glp_rate_floor + GSP_RATE_SPREAD)
+    selected_glp_floor = basis.glp_rate_floor if glp_rate_floor is None else glp_rate_floor
+    selected_gsp_floor = (
+        basis.gsp_rate_floor
+        if glp_rate_floor is None
+        else glp_rate_floor + GSP_RATE_SPREAD
+    )
+    glp_rate = max(basis.guaranteed_rate, selected_glp_floor)
+    gsp_rate = max(basis.guaranteed_rate, selected_gsp_floor)
 
     gsp = solve_endowment_premium(basis, gsp_rate, premium_months={0}, db_option="A")
 

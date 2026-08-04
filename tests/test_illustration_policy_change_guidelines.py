@@ -1,6 +1,8 @@
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.monthly_guideline import GuidelineSolveResult
 from suiteview.illustration.core.rate_loader import IllustrationRates
@@ -67,7 +69,7 @@ def test_gpt_rider_drop_recalculates_guideline_premiums(monkeypatch):
     assert policy.glp == 1_140.0
     assert policy.gsp == 2_280.0
     assert policy.tamra_7pay_level == 36.0
-    assert solve_calls == [1, 0, 0]
+    assert solve_calls == [1, 1, 0, 0]
 
 
 def test_gpt_benefit_drop_recalculates_guideline_premiums(monkeypatch):
@@ -102,7 +104,7 @@ def test_gpt_benefit_drop_recalculates_guideline_premiums(monkeypatch):
     assert policy.glp == 1_140.0
     assert policy.gsp == 2_280.0
     assert policy.tamra_7pay_level == 36.0
-    assert solve_calls == [1, 0, 0]
+    assert solve_calls == [1, 1, 0, 0]
 
 
 def test_cvat_rider_drop_does_not_solve_guideline_premiums(monkeypatch):
@@ -140,14 +142,20 @@ def test_cvat_rider_drop_does_not_solve_guideline_premiums(monkeypatch):
     assert solve_calls == []
 
 
-def test_specified_face_decrease_charges_no_withdrawal_fee(monkeypatch):
+@pytest.mark.parametrize(
+    ("expense_basis", "expected_psc"),
+    [("CurrentSA", 400.0), ("OriginalSA", 0.0)],
+)
+def test_specified_face_decrease_follows_expense_basis_without_withdrawal_fee(
+    monkeypatch, expense_basis, expected_psc,
+):
     """A specified (elective) face decrease never incurs the $25 withdrawal fee.
 
     The fee is a withdrawal charge (RERUN CalcEngine BN — see
     ``withdrawal_handler.compute_withdrawal``). Reducing the specified amount is
     a coverage change: it charges only the decreased units' surrender charge
-    (SCR/PSC), and here — with no SCR schedule — the AV is untouched. If a fee
-    ever leaked into this path the AV adjustment would be -25.0.
+    (SCR/PSC) only for CurrentSA plans. OriginalSA plans do not assess PSC.
+    Neither basis may leak the withdrawal-only $25 fee into this path.
     """
     solve_calls = []
     _patch_policy_change_dependencies(monkeypatch, solve_calls)
@@ -162,7 +170,7 @@ def test_specified_face_decrease_charges_no_withdrawal_fee(monkeypatch):
 
     outcome = calc_engine._apply_policy_change(
         policy,
-        PlancodeConfig(withdrawal_fee=25.0),
+        PlancodeConfig(withdrawal_fee=25.0, expense_basis=expense_basis),
         PolicyChangeEvent(
             kind=PolicyChangeKind.FACE_AMOUNT,
             effective_date=date(2026, 6, 9),
@@ -170,7 +178,10 @@ def test_specified_face_decrease_charges_no_withdrawal_fee(monkeypatch):
         ),
         attained_age=56,
         change_date=date(2026, 6, 9),
-        rates=IllustrationRates(),
+        rates=IllustrationRates(
+            scr=[None, 10.0],
+            segment_scr={1: [None, 10.0]},
+        ),
         rate_year=7,
         av=10_000.0,
     )
@@ -178,6 +189,5 @@ def test_specified_face_decrease_charges_no_withdrawal_fee(monkeypatch):
     assert outcome.coverage_changed
     assert policy.face_amount == 60_000.0
     assert outcome.face_detail["Specified Face Decrease"] == 40_000.0
-    # No fee and (with no SCR schedule) no surrender charge hit the AV.
-    assert outcome.av_adjustment == 0.0
-    assert outcome.face_detail["Total PSC Spec Dec"] == 0.0
+    assert outcome.av_adjustment == pytest.approx(-expected_psc)
+    assert outcome.face_detail["Total PSC Spec Dec"] == pytest.approx(expected_psc)

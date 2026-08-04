@@ -340,6 +340,31 @@ def plan_with_ag49_index(plan: PlanIndexStrategies, ag49_index: int) -> PlanInde
                    loan_credit_spread=loan_credit_spread_for_index(ag49_index))
 
 
+def guaranteed_blended_rate(allocations: Dict[str, float], gint: float) -> float:
+    """The guaranteed-basis blended crediting rate (RERUN INPUT!B53).
+
+    On guaranteed assumptions every index strategy guarantees only a 0% floor,
+    so the blended guaranteed rate is the *fixed*-strategy allocation × the plan
+    guaranteed interest rate — the index slices contribute nothing. Example:
+    25% fixed + 75% index at GINT 2.5% → 0.25 × 0.025 = 0.625%.
+
+    ``allocations`` are keyed by fund ID and may arrive decimal (0.25) or
+    percent (25) form; they are normalized by their total like the allocations
+    panel does. Note this is the free-AV crediting rate only — loan collateral
+    keeps earning its guaranteed loan credit rate (handled in
+    ``core/interest_calc``), so a 6% guaranteed loan credit is unaffected even
+    when this blend floors near 0%.
+    """
+    if not allocations or not gint:
+        return 0.0
+    total = sum(float(v or 0.0) for v in allocations.values())
+    if total <= 0.0:
+        return 0.0
+    scale = 100.0 if total > 1.5 else 1.0
+    fixed_alloc = float(allocations.get(FIXED_FUND_ID, 0.0) or 0.0) / scale
+    return fixed_alloc * float(gint)
+
+
 def compute_blended_rates(
     plan: PlanIndexStrategies,
     allocations: Dict[str, float],
@@ -365,11 +390,10 @@ def compute_blended_rates(
             asset_charge += alloc * strat.asset_charge
         else:
             effective += alloc * rate
-    guaranteed = float(allocations.get(FIXED_FUND_ID, 0.0) or 0.0) * float(gint or 0.0)
     return BlendedRates(
         nominal=_trunc4(nominal),
         effective=_trunc4(effective),
-        guaranteed=guaranteed,
+        guaranteed=guaranteed_blended_rate(allocations, gint),
         asset_charge_rate=asset_charge,
     )
 

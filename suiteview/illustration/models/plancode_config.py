@@ -64,12 +64,12 @@ class PlancodeConfig:
     target_sa_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA" (withdrawal fee gate)
     target_band_lock: bool = False       # True = keep each segment's original band
 
-    # Withdrawals — RERUN sWithdrawalFee / sMD_HoldBack / sbln_PSC, plus the
+    # Withdrawals — RERUN sWithdrawalFee / sMD_HoldBack, plus the
     # post-withdrawal minimum face hardcoded in the workbook (AY: SA - 25,025
-    # = 25,000 floor + the fee).
+    # = 25,000 floor + the fee). Partial surrender charge eligibility is
+    # derived from ``expense_basis`` below.
     withdrawal_fee: float = 25.0
     md_holdback: float = 0.0             # months of prior MD held back from max-net
-    partial_surrender_charge: bool = True
     min_face_after_wd: float = 25000.0
 
     # Corridor
@@ -100,8 +100,15 @@ class PlancodeConfig:
     # plans that reinstate skipped coverage (the IUL family) charge expenses on
     # the ORIGINAL specified amount ("OriginalSA"); every other plan charges on
     # the CURRENT specified amount ("CurrentSA"). Drives the EPU charge, the
-    # MTP/CTP target premiums, and the surrender charge (SCR) units.
+    # MTP/CTP target premiums, and the full surrender charge (SCR) units.
+    # CurrentSA plans assess partial surrender charges on withdrawals and
+    # specified-amount decreases; OriginalSA plans do not.
     expense_basis: str = "CurrentSA"   # "CurrentSA" or "OriginalSA"
+
+    @property
+    def partial_surrender_charge(self) -> bool:
+        """Whether decreases assess a partial surrender charge."""
+        return self.expense_basis == "CurrentSA"
 
     # Loans
     loan_type: str = "Arrears"           # "Arrears" or "Advance"
@@ -211,7 +218,6 @@ def load_plancode(plancode: str) -> PlancodeConfig:
         target_band_lock=bool(data.get("Target_BandLock", False)),
         withdrawal_fee=float(data.get("WithdrawalFee", 25)),
         md_holdback=float(data.get("MD_HoldBack", 0)),
-        partial_surrender_charge=bool(data.get("PartialSurrenderCharge", True)),
         min_face_after_wd=float(data.get("MinFaceAfterWD", 25000)),
         corridor_code=int(data.get("CorridorCode", 1)),
         premium_cease_age=int(data.get("PremiumCeaseAge", 121)),

@@ -23,7 +23,10 @@ from suiteview.core.build_env import is_distribution_build
 from suiteview.core.db2_connection import DB2Connection
 from suiteview.core.odbc_utils import is_password_error
 from suiteview.illustration.core.calc_engine import IllustrationEngine
-from suiteview.illustration.core.illustration_policy_service import build_illustration_data
+from suiteview.illustration.core.illustration_policy_service import (
+    build_illustration_data,
+    coverage_segment_data_warnings,
+)
 from suiteview.illustration.core.rate_loader import load_rates
 from suiteview.illustration.core.rate_validation import missing_required_rate_warnings
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
@@ -825,6 +828,7 @@ class IllustrationWindow(FramelessWindowBase):
         warnings: list[str] = []
         self._illustration_data = None
         try:
+            warnings.extend(coverage_segment_data_warnings(self._policy))
             policy_data = build_illustration_data(policy_number, region=region, company_code=company_code)
             self._illustration_data = policy_data
             warnings.extend(self._definition_of_life_warnings(policy_data))
@@ -832,7 +836,8 @@ class IllustrationWindow(FramelessWindowBase):
             rates = load_rates(policy_data, config)
             warnings.extend(missing_required_rate_warnings(policy_data, rates))
         except Exception as exc:
-            return [f"Unable to validate illustration rider/benefit rates: {exc}"], None
+            warnings.append(f"Unable to validate illustration data/rates: {exc}")
+            return warnings, None
 
         md_check = None
         try:

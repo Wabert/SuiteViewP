@@ -103,6 +103,16 @@ def test_material_change_starts_new_period_at_change_date(monkeypatch):
     assert policy.tamra_7pay_start_date == CHANGE_DATE
 
 
+def test_material_change_does_not_start_new_period_after_policy_is_mec(monkeypatch):
+    policy = _policy(date(2015, 6, 9))
+    policy.is_mec = True
+
+    detail = _recalc(monkeypatch, policy, material=True, av=5_000.0)
+
+    assert detail["tamra_case"] == "no_recalc"
+    assert policy.tamra_7pay_start_date == date(2015, 6, 9)
+
+
 # ── Detail-sheet reconciliation ───────────────────────────────────────────
 # The GLP/GSP Before/After sheets are guideline_pv details rendered verbatim,
 # so their roll-up AND the visible row arithmetic must land on the engine's
@@ -182,7 +192,7 @@ def _state(tamra_year, accumulated, amount_in, when):
 
 
 def _backtest(new_level):
-    from suiteview.illustration.ui.values_tab import _seven_pay_backtest
+    from suiteview.illustration.core.mec import seven_pay_backtest
 
     # Window years 1-2 are historical (per-year contributions); the valuation
     # sits in TAMRA year 3 and the recalc fires two projected months later.
@@ -197,7 +207,7 @@ def _backtest(new_level):
         "seven_pay_window_start": WINDOW_START,
         "tamra_year_at_change": 3,
     }
-    return _seven_pay_backtest(policy, states, 2, detail)
+    return seven_pay_backtest(policy, states, 2, detail)
 
 
 def test_backtest_flags_mec_when_new_limit_is_exceeded():
@@ -223,6 +233,58 @@ def test_backtest_passes_when_premiums_stay_inside_new_limit():
     assert result["mec_year"] is None
     assert [r["Result"] for r in result["rows"][:3]] == ["OK", "OK", "OK"]
     assert result["through_date"] == date(2026, 5, 15)
+
+
+def test_backtest_stays_mec_after_first_failed_year():
+    from suiteview.illustration.core.mec import seven_pay_backtest
+
+    policy = SimpleNamespace(
+        tamra_7year_contributions=[1_000.0, 1_200.0, 0, 0, 0, 0, 0])
+    states = [
+        _state(3, 2_200.0, 2_200.0, date(2026, 3, 15)),
+        _state(3, 2_300.0, 2_200.0, date(2026, 4, 15)),
+        _state(3, 2_600.0, 2_300.0, date(2026, 5, 15)),
+    ]
+    detail = {
+        "seven_pay_new": 800.0,
+        "seven_pay_window_start": WINDOW_START,
+        "tamra_year_at_change": 3,
+    }
+
+    result = seven_pay_backtest(policy, states, 2, detail)
+
+    assert result["mec_year"] == 1
+    assert [row["Result"] for row in result["rows"][:3]] == ["MEC", "MEC", "MEC"]
+
+
+def test_engine_latches_retroactive_mec_in_discovery_year():
+    from suiteview.illustration.models.calc_state import MonthlyState
+
+    policy = IllustrationPolicyData(
+        tamra_7year_contributions=[1_000.0, 1_200.0, 0, 0, 0, 0, 0])
+    seed = MonthlyState(
+        date=date(2026, 3, 15), policy_year=4,
+        tamra_7pay_start_date=WINDOW_START, tamra_year=3,
+        accumulated_7pay=2_200.0, amount_in_7pay=2_200.0,
+    )
+    change_state = MonthlyState(
+        date=date(2026, 5, 15), policy_year=4,
+        tamra_7pay_start_date=WINDOW_START, tamra_year=3,
+        accumulated_7pay=2_900.0, amount_in_7pay=2_500.0,
+        guideline_recalc={
+            "tamra_case": "within_period",
+            "seven_pay_new": 800.0,
+            "seven_pay_window_start": WINDOW_START,
+            "tamra_year_at_change": 3,
+        },
+    )
+
+    result = calc_engine._apply_retroactive_mec(policy, [seed], change_state)
+
+    assert policy.is_mec is True
+    assert result.is_mec is True
+    assert result.mec_year == 4
+    assert result.guideline_recalc["seven_pay_backtest"]["mec_year"] == 1
 
 
 # ── Sheet rendering ───────────────────────────────────────────────────────
@@ -296,6 +358,26 @@ def test_within_period_sheet_shows_calc_and_backtest():
     assert not view.backtest_verdict.isHidden()
     assert "becomes a MEC" in view.backtest_verdict.text()
     assert view.new_period_label.isHidden()
+
+
+def test_summary_sheet_includes_recalculated_7pay_values():
+    view = _view()
+    view.show_recalc(_base_detail(
+        seven_pay_prior=60.0,
+        seven_pay_before=60.0,
+        seven_pay_after=48.0,
+        seven_pay_new=48.0,
+    ))
+
+    row = view.summary_grid.df.iloc[2]
+    assert row.to_dict() == {
+        "Premium": "7-Pay",
+        "Prior Prem": 60.0,
+        "Before Change": 60.0,
+        "After Change": 48.0,
+        "Δ (After − Before)": -12.0,
+        "New Prem": 48.0,
+    }
 
 
 def test_summary_sheet_shows_midyear_accum_glp_equation():

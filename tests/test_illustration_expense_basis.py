@@ -6,6 +6,11 @@ charge (SCR) are all computed on each coverage's ORIGINAL specified amount /
 original units. Every other plan (``"CurrentSA"``) uses the current specified
 amount — the historical default.
 
+Expense_Basis also controls partial surrender charge eligibility: CurrentSA
+plans assess PSC on withdrawals and specified decreases; OriginalSA plans do
+not. The full surrender charge schedule remains based on original units for
+OriginalSA plans.
+
 Each fixture uses a segment whose original SA (200,000) differs from its
 current SA (100,000) so the two bases produce distinct, hand-computable values.
 """

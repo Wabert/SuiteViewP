@@ -285,7 +285,8 @@ def _annualize(
         by_year.setdefault(state.policy_year, []).append(state)
 
     maturity_age = int(policy.maturity_age or 121)
-    year_of_mec: Optional[int] = None
+    year_of_mec: Optional[int] = next(
+        (state.mec_year for state in projected if state.mec_year > 0), None)
     termination_year: Optional[int] = None
     rows: List[LedgerRow] = []
     for year in sorted(by_year):
@@ -361,6 +362,9 @@ def _seven_pay_restarts(results: List[MonthlyState]) -> List[tuple]:
     restarts: List[tuple] = []
     previous = results[0].tamra_7pay_start_date if results else None
     for state in results[1:]:
+        if state.is_mec:
+            previous = state.tamra_7pay_start_date
+            continue
         start = state.tamra_7pay_start_date
         if start is not None and start != previous:
             restarts.append((state.policy_year, start))
@@ -704,7 +708,7 @@ def _change_sections(
                 before = [s for s in projected if s.date and s.date < change.effective_date]
                 prior_start = (before[-1] if before else results[0]).tamra_7pay_start_date
                 new_start = eff.tamra_7pay_start_date
-                if new_start is not None and new_start != prior_start:
+                if not eff.is_mec and new_start is not None and new_start != prior_start:
                     section.limit_lines.append(
                         f"NEW 7-PAY PERIOD STARTS = {new_start.strftime('%m/%d/%Y')}")
         sections.append(section)
@@ -1081,7 +1085,7 @@ def build_ul_report(
             "^ THESE PREMIUMS INCLUDE GUIDELINE EXCEPTION PREMIUMS. SEE GUIDELINE EXCEPTION "
             "PREMIUM SECTION FOR MORE DETAILS")
     if "&" in markers:
-        legends.append("& THE POLICY IS FORECASTED TO BECOME A MEC DURING THIS YEAR")
+        legends.append("& THE POLICY IS ILLUSTRATED TO BECOME A MEC IN THIS YEAR")
     for _year, start in report.seven_pay_restarts:
         legends.append(
             f"+ A NEW 7-PAY PREMIUM TEST PERIOD STARTS ON {start.strftime('%m/%d/%Y')} "

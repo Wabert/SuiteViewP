@@ -5,6 +5,7 @@ from suiteview.illustration.models.index_strategies import (
     allocation_problems,
     compound_yield,
     compute_blended_rates,
+    guaranteed_blended_rate,
     historical_credited_rate,
     is_iul_plan,
     load_index_strategies,
@@ -72,6 +73,34 @@ def test_blend_truncates_to_four_decimals():
     assert blended.nominal == 0.0486
     assert blended.effective == 0.0486
     assert blended.guaranteed == pytest.approx(0.5 * 0.035)
+
+
+def test_guaranteed_blended_rate_blends_fixed_alloc_only():
+    # Guaranteed basis: index strategies floor at 0%, so only the fixed
+    # allocation × GINT contributes. 25% fixed + 75% index at GINT 2.5% →
+    # 0.25 × 0.025 = 0.625%.
+    assert guaranteed_blended_rate({"U1": 0.25, "IX": 0.75}, 0.025) == pytest.approx(
+        0.00625)
+    # 100% index → guaranteed 0%.
+    assert guaranteed_blended_rate({"IX": 1.0}, 0.025) == 0.0
+    # 100% fixed → the full GINT.
+    assert guaranteed_blended_rate({"U1": 1.0}, 0.03) == pytest.approx(0.03)
+    # Percent-form allocations normalize by their total.
+    assert guaranteed_blended_rate({"U1": 25.0, "IX": 75.0}, 0.025) == pytest.approx(
+        0.00625)
+    # Degenerate inputs → 0.
+    assert guaranteed_blended_rate({}, 0.025) == 0.0
+    assert guaranteed_blended_rate({"U1": 0.5}, 0.0) == 0.0
+
+
+def test_blend_guaranteed_matches_helper():
+    # compute_blended_rates.guaranteed is the same fixed-alloc × GINT blend.
+    plan = load_index_strategies("1U145500")   # IUL14
+    blended = compute_blended_rates(
+        plan, {"U1": 0.25, "IX": 0.75}, {"U1": 0.025, "IX": 0.0623}, gint=0.025)
+    assert blended.guaranteed == pytest.approx(guaranteed_blended_rate(
+        {"U1": 0.25, "IX": 0.75}, 0.025))
+    assert blended.guaranteed == pytest.approx(0.00625)
 
 
 def test_blend_multiplier_strategy_effective_rate():

@@ -17,7 +17,7 @@ from typing import List, Optional
 
 from dateutil.relativedelta import relativedelta
 
-from suiteview.illustration.core.bonus_rates import BonusConfig
+from suiteview.illustration.core.bonus_rates import load_bonus_config
 from suiteview.illustration.core.rate_loader import load_rates
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
@@ -28,6 +28,10 @@ from suiteview.illustration.models.input_set import (
     TransactionKind,
 )
 from suiteview.illustration.models.plancode_config import load_plancode
+from suiteview.illustration.models.index_strategies import (
+    guaranteed_blended_rate,
+    load_index_strategies,
+)
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
 _EPS = 0.005
@@ -109,6 +113,30 @@ def guaranteed_options(base: Optional[IllustrationOptions] = None) -> Illustrati
     )
 
 
+def _guaranteed_crediting_rate(
+    policy: IllustrationPolicyData,
+    gint: float,
+    base_options: Optional[IllustrationOptions],
+) -> float:
+    """The free-AV crediting rate for the guaranteed side.
+
+    Declared-rate plans (and IUL runs using the WAIR method, where the
+    guaranteed basis is enforced by the WAIR cap — RERUN VK) credit the plan
+    guaranteed interest rate directly. An IUL plan illustrated with the
+    **blended** method blends the guaranteed rate the same way the current side
+    blends its crediting rate: index strategies guarantee only a 0% floor, so
+    the guaranteed blend is the fixed-strategy allocation × GINT (RERUN
+    INPUT!B53). Loan collateral is credited separately in ``core/interest_calc``
+    at the guaranteed loan credit rate, so it keeps earning interest regardless
+    of how far this blend floors.
+    """
+    plan = load_index_strategies(policy.plancode)
+    wair = bool(getattr(base_options, "iul_wair_crediting", False)) if base_options else False
+    if plan is not None and not wair and policy.premium_allocations:
+        return guaranteed_blended_rate(policy.premium_allocations, gint)
+    return gint
+
+
 def run_guaranteed_projection(
     policy: IllustrationPolicyData,
     current_results: List[MonthlyState],
@@ -120,7 +148,14 @@ def run_guaranteed_projection(
     """Project the guaranteed side from a finished current-assumption run.
 
     Guaranteed assumptions: guaranteed maximum COI (rate scale 0), guaranteed
-    PoAV, the guaranteed interest rate, and no interest bonus. Cash flows come
+    PoAV, guaranteed EPU (scale 0 — its expense charges continue to maturity,
+    unlike the current schedule that drops after the level period), the
+    guaranteed interest rate, and any explicitly configured guaranteed bonus.
+    Missing ``BonusDurRateGuar`` / ``BonusAVRateGuar`` values default to zero.
+    For an IUL plan
+    illustrated with the blended method the guaranteed interest rate is itself
+    blended (fixed allocation × GINT; index strategies floor at 0%) — loan
+    collateral still earns its guaranteed loan credit rate. Cash flows come
     verbatim from ``lock_values``. Projects the same number of months as the
     current run, stopping on lapse (later report years render as zero).
     """
@@ -134,8 +169,10 @@ def run_guaranteed_projection(
 
     gpolicy = copy.deepcopy(policy)
     gpolicy.modal_premium = 0.0
-    if (policy.guaranteed_interest_rate or 0.0) > 0.0:
-        gpolicy.current_interest_rate = policy.guaranteed_interest_rate
+    gint = policy.guaranteed_interest_rate or 0.0
+    if gint > 0.0:
+        gpolicy.current_interest_rate = _guaranteed_crediting_rate(
+            policy, gint, base_options)
     # IUL WAIR declared rate reverts to the plan guaranteed rate on the
     # guaranteed side (None → the engine's GINT fallback).
     gpolicy.iul_declared_rate = None
@@ -145,15 +182,18 @@ def run_guaranteed_projection(
         gpolicy,
         config,
         coi_scale=0,
-        poav_scale=0,
+        expense_scale=0,
     )
+    valuation_date = policy.valuation_date or policy.issue_date
+    guaranteed_bonus = load_bonus_config(
+        policy.plancode, valuation_date).guaranteed()
 
     return engine.project(
         gpolicy,
         months=months,
         future_inputs=lock_values(policy, current_results, base_future_inputs),
         options=guaranteed_options(base_options),
-        bonus_override=BonusConfig(),
+        bonus_override=guaranteed_bonus,
         rates_override=guaranteed_rates,
         stop_on_lapse=True,
     )

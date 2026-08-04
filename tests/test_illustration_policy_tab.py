@@ -53,6 +53,22 @@ def test_policy_tab_monthly_deduction_fields_are_under_insured_dob():
     assert calculated_row == insured_row + 3
 
 
+def test_policy_tab_cvat_values_are_under_definition_of_life():
+    _app()
+    tab = IllustrationPolicyTab()
+
+    layout = tab.mec_values._info_layout
+
+    def row(attr_name: str):
+        widget = tab.mec_values._labels[attr_name]
+        return layout.getItemPosition(layout.indexOf(widget))[0]
+
+    assert row("deemed_cash_value") == row("policy_definition") + 1
+    assert row("nsp") == row("deemed_cash_value") + 1
+    assert "prem_allowed_gpt" not in tab.mec_values._labels
+    assert not hasattr(tab, "account_values")
+
+
 def test_policy_tab_sets_monthly_deduction_values_from_check():
     _app()
     tab = IllustrationPolicyTab()

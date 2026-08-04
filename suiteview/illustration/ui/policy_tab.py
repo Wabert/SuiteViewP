@@ -217,22 +217,14 @@ class IllustrationPolicyTab(QWidget):
                 self.tax_values.add_field(label, attr, 150, 105)
         self.mec_values = self._make_value_group("TEFRA/DEFRA", [
             ("Definition of Life", "policy_definition"),
+            ("Deemed Cash Value", "deemed_cash_value"),
+            ("NSP", "nsp"),
             ("Guideline Single", "guideline_single"),
             ("Guideline Level", "guideline_level"),
             ("Accum GLP", "accum_glp"),
-            ("Prem Allowed by GPT", "prem_allowed_gpt"),
-        ])
-        # Calculated field — italicized to indicate it is derived, not read from DB2.
-        self._make_group_field_italic(self.mec_values, "prem_allowed_gpt")
-        # Policy Values swapped into Fund Values' old slot — what remains here
-        # are the CVAT-only figures.
-        self.account_values = self._make_value_group("Policy Values", [
-            ("Deemed Cash Value", "deemed_cash_value"),
-            ("NSP", "nsp"),
         ])
         tax_row.addWidget(self.tax_values, 2)
         tax_row.addWidget(self.mec_values, 1)
-        tax_row.addWidget(self.account_values, 1)
         layout.addLayout(tax_row)
 
         layout.addStretch(1)
@@ -288,35 +280,6 @@ class IllustrationPolicyTab(QWidget):
         for label, attr in fields:
             group.add_field(label, attr, 150, 105)
         return group
-
-    @staticmethod
-    def _make_group_field_italic(group, attr_name: str):
-        """Italicize a field's label and value to flag it as a calculated value."""
-        labels = getattr(group, "_labels", {})
-        if attr_name in labels:
-            lbl = labels[attr_name]
-            lbl.setStyleSheet(lbl.styleSheet() + " font-style: italic;")
-        fields = getattr(group, "_fields", {})
-        if attr_name in fields:
-            val = fields[attr_name]
-            val.setStyleSheet(val.styleSheet() + " font-style: italic;")
-
-    @staticmethod
-    def _prem_allowed_by_gpt(definition, gsp, accum_glp, premium_td, withdrawals) -> str:
-        """Calculated: max(0, max(GSP, AccumGLP) - PremiumTD + AccumWD).
-
-        The guideline premium limit is the greater of the GSP or the accumulated
-        GLP. N/A for CVAT.
-        """
-        if definition != "GP":
-            return "N/A"
-        try:
-            guideline_limit = max(float(gsp or 0), float(accum_glp or 0))
-            val = max(0.0, guideline_limit
-                      - float(premium_td or 0) + float(withdrawals or 0))
-        except (TypeError, ValueError):
-            return "N/A"
-        return format_currency(val, "$")
 
     def _make_fund_subtable(self, title: str, value_header: str = "Fund Value"):
         """A captioned, compact Fund ID / value table for nesting inside the
@@ -547,12 +510,12 @@ class IllustrationPolicyTab(QWidget):
         self.fund_values.set_value(
             "guaranteed_int_rate", self._format_rate(s.guaranteed_interest_rate))
 
-        # CVAT-only Policy Values — deemed cash value mirrors the account value
-        # (as live does); NSP was not captured, so it stays blank.
-        self.account_values.set_value("deemed_cash_value", format_currency(s.account_value, "$"))
-        self.account_values.set_value("nsp", "")
+        # CVAT-only values — deemed cash value mirrors the account value (as
+        # live does); NSP was not captured, so it stays blank.
+        self.mec_values.set_value("deemed_cash_value", format_currency(s.account_value, "$"))
+        self.mec_values.set_value("nsp", "")
         for attr in ["deemed_cash_value", "nsp"]:
-            self._set_group_field_visible(self.account_values, attr, definition == "CVAT")
+            self._set_group_field_visible(self.mec_values, attr, definition == "CVAT")
 
         self.premium_values.set_value("premium_ytd", format_currency(s.premiums_ytd, "$"))
         self.premium_values.set_value("premium_td", format_currency(s.premiums_paid_to_date, "$"))
@@ -597,8 +560,6 @@ class IllustrationPolicyTab(QWidget):
         self.mec_values.set_value("accum_glp", format_currency(s.accumulated_glp, "$"))
         for attr in ["guideline_single", "guideline_level", "accum_glp"]:
             self._set_group_field_visible(self.mec_values, attr, definition == "GP")
-        self.mec_values.set_value("prem_allowed_gpt", self._prem_allowed_by_gpt(
-            definition, s.gsp, s.accumulated_glp, s.premiums_paid_to_date, s.withdrawals_to_date))
 
     def _populate_fund_values_from_snapshot(self, s):
         # Unimpaired = free fund value by fund. The snapshot captures only the
@@ -729,7 +690,6 @@ class IllustrationPolicyTab(QWidget):
     def _clear_all(self):
         for group in [
             self.policy_info,
-            self.account_values,
             self.premium_values,
             self.loan_values,
             self.tax_values,
@@ -813,10 +773,10 @@ class IllustrationPolicyTab(QWidget):
         self.fund_values.set_value("sweep_account_min", "—")
         self.fund_values.set_value(
             "guaranteed_int_rate", self._format_rate(policy.guaranteed_interest_rate))
-        self.account_values.set_value("deemed_cash_value", format_currency(policy.mv_av(0), "$"))
-        self.account_values.set_value("nsp", format_currency(self._nsp_total(policy), "$"))
+        self.mec_values.set_value("deemed_cash_value", format_currency(policy.mv_av(0), "$"))
+        self.mec_values.set_value("nsp", format_currency(self._nsp_total(policy), "$"))
         for attr in ["deemed_cash_value", "nsp"]:
-            self._set_group_field_visible(self.account_values, attr, definition == "CVAT")
+            self._set_group_field_visible(self.mec_values, attr, definition == "CVAT")
 
         self.premium_values.set_value("premium_ytd", format_currency(policy.premium_ytd, "$"))
         self.premium_values.set_value("premium_td", format_currency(policy.premium_td, "$"))
@@ -862,8 +822,6 @@ class IllustrationPolicyTab(QWidget):
         self.mec_values.set_value("accum_glp", format_currency(policy.accumulated_glp_target, "$"))
         for attr in ["guideline_single", "guideline_level", "accum_glp"]:
             self._set_group_field_visible(self.mec_values, attr, definition == "GP")
-        self.mec_values.set_value("prem_allowed_gpt", self._prem_allowed_by_gpt(
-            definition, policy.gsp, policy.accumulated_glp_target, policy.premium_td, policy.total_withdrawals))
 
     def _populate_fund_values(self, policy):
         # Unimpaired = free fund value (CSV); Impaired = loan-collateralized

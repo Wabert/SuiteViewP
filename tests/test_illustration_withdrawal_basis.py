@@ -43,7 +43,7 @@ def _config(**overrides) -> PlancodeConfig:
     values = dict(
         withdrawal_fee=FEE,
         md_holdback=0.0,
-        partial_surrender_charge=True,
+        expense_basis="CurrentSA",
         min_face_after_wd=25_000.0,
     )
     values.update(overrides)
@@ -143,6 +143,42 @@ def test_net_basis_with_psc_adds_charge_into_gross():
     assert wd.reduces_sa is True
     assert wd.partial_sc == pytest.approx(200.0)
     assert wd.gross_withdrawal == pytest.approx(10_000.0 + 200.0 + FEE)
+
+
+def test_original_sa_withdrawal_charges_fee_but_not_psc():
+    wd = _compute(
+        _policy(),
+        _config(expense_basis="OriginalSA"),
+        request=10_000.0,
+        corridor_rate=1.0,
+        scr=20.0,
+    )
+    assert wd.reduces_sa is True
+    assert wd.partial_sc == 0.0
+    assert wd.gross_withdrawal == pytest.approx(10_000.0 + FEE)
+    assert wd.av_post_withdrawal == pytest.approx(50_000.0 - 10_000.0 - FEE)
+
+
+def test_original_sa_full_surrender_charge_still_uses_original_face():
+    policy = IllustrationPolicyData(
+        db_option="A",
+        segments=[
+            CoverageSegment(
+                coverage_phase=1,
+                face_amount=100_000.0,
+                original_face_amount=200_000.0,
+            )
+        ],
+    )
+    wd = _compute(
+        policy,
+        _config(expense_basis="OriginalSA"),
+        request=1.0,
+        av=50_000.0,
+        corridor_rate=2.5,
+        scr=20.0,
+    )
+    assert wd.max_net_withdrawal == pytest.approx(50_000.0 - 4_000.0 - FEE)
 
 
 # ── handler: gross basis ─────────────────────────────────────────────────

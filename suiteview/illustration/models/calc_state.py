@@ -129,6 +129,8 @@ class MonthlyState:
     tamra_7pay_start_date: Optional[date] = None  # start of the active 7-pay period
     tamra_7pay_level: float = 0.0          # 7-pay annual premium level (KY)
     lowest_7yr_face: float = 0.0           # lowest specified amount over the 7-pay period
+    is_mec: bool = False                   # permanent MEC status as of this month
+    mec_year: int = 0                      # projection year status was first established
     guideline_limit_reached: bool = False  # SX — at guideline ceiling this year
 
     # ── 1d. GP Exception Premium (cols 519-524) ──

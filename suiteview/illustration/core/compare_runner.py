@@ -381,13 +381,15 @@ def _fmt_delta_money(value: Optional[float]) -> str:
 def _mec_status(policy, projected: list) -> str:
     """MEC status from the inforce flag plus the projected 7-pay test.
 
-    Scans the engine's running 7-pay accumulator against the active window's
-    limit (``tamra_year × 7-pay level``). A retroactive MEC created by a
-    mid-window guideline recalc back-test is not re-derived here — the Values
-    tab's MEC Back-Test sheet remains the authority for that edge.
+    Uses the engine's permanent MEC state first, then scans the running 7-pay
+    accumulator against the active window's limit.
     """
     if getattr(policy, "is_mec", False):
         return "MEC (inforce)"
+    established = next(
+        (state.mec_year for state in projected if state.mec_year > 0), None)
+    if established is not None:
+        return f"Becomes MEC (Yr {established})"
     for state in projected:
         if (1 <= state.tamra_year <= 7 and state.tamra_7pay_level > 0
                 and state.accumulated_7pay

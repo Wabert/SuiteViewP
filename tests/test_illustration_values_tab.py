@@ -381,6 +381,10 @@ def _recalc_state():
         "glp_new": 115.0,
         "gsp_prior": 1100.0,
         "gsp_new": 1050.0,
+        "seven_pay_prior": 80.0,
+        "seven_pay_before": 80.0,
+        "seven_pay_after": 95.0,
+        "seven_pay_new": 95.0,
         "monthly_pv_recalc": {
             "before": {"glp": _recalc_pv_detail("GLP", 100.0),
                        "gsp": _recalc_pv_detail("GSP", 1000.0)},
@@ -465,6 +469,10 @@ def test_tefra_tamra_recalc_detail_page_renders_summary_and_pv_tabs():
     assert summary.iloc[0].to_dict() == {
         "Premium": "GLP", "Prior Prem": 90.0, "Before Change": 100.0,
         "After Change": 125.0, "Δ (After − Before)": 25.0, "New Prem": 115.0,
+    }
+    assert summary.iloc[2].to_dict() == {
+        "Premium": "7-Pay", "Prior Prem": 80.0, "Before Change": 80.0,
+        "After Change": 95.0, "Δ (After − Before)": 15.0, "New Prem": 95.0,
     }
 
     recalc_tabs = detail_view.tabs

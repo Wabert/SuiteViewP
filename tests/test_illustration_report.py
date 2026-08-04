@@ -368,6 +368,33 @@ def test_seven_pay_restart_marks_ledger_and_footnotes():
     assert "NEW 7-PAY PERIOD STARTS = 11/09/2027" in flat
 
 
+def test_retroactive_mec_marks_discovery_year_and_suppresses_later_restart():
+    rows = [MonthlyState(
+        policy_year=3, policy_month=12, duration=36,
+        tamra_7pay_start_date=date(2023, 7, 12),
+    )]
+    for year in range(4, 9):
+        start = date(2030, 7, 12) if year == 8 else date(2023, 7, 12)
+        for month in range(1, 13):
+            rows.append(_month(
+                year, month,
+                tamra_7pay_start_date=start,
+                is_mec=True,
+                mec_year=4,
+            ))
+
+    report = build_ul_report(_policy(), rows, run_date=date(2026, 8, 3))
+
+    assert report.year_of_mec == 4
+    assert "&" in next(row.markers for row in report.ledger if row.year == 4)
+    assert report.seven_pay_restarts == []
+    assert not any("NEW 7-PAY" in line for line in report.footnote_legends)
+    assert any(
+        line == "& THE POLICY IS ILLUSTRATED TO BECOME A MEC IN THIS YEAR"
+        for line in report.footnote_legends
+    )
+
+
 def test_report_dates_all_use_slash_mm_dd_yyyy():
     """Every numeric date in the report renders mm/dd/yyyy. The regulatory
     page's 7-PAY START DATE and the cover's premiums-paid AS OF date were
@@ -867,6 +894,53 @@ def test_lock_values_locks_current_cash_flows():
              if t.kind == TransactionKind.LOAN and t.effective_date == month2]
     assert sorted(t.amount for t in loans) == [75.0, 200.0]
     assert any(t.subtype == "variable" and t.amount == 75.0 for t in loans)
+
+
+def test_guaranteed_projection_blends_the_guaranteed_rate_for_iul():
+    """IUL blended-rate run: the guaranteed side blends GINT the same way the
+    current side blends its crediting rate (index strategies floor at 0%)."""
+    from suiteview.illustration.core.guaranteed_projection import (
+        _guaranteed_crediting_rate,
+    )
+    from suiteview.illustration.models.input_set import IllustrationOptions
+
+    policy = _policy()
+    policy.plancode = "1U145500"                 # IUL14 — a real IUL plancode
+    policy.premium_allocations = {"U1": 0.25, "IX": 0.75}
+
+    rate = _guaranteed_crediting_rate(
+        policy, 0.025, IllustrationOptions(iul_wair_crediting=False))
+    # 0.25 fixed × 0.025 GINT = 0.625% — not the full 2.5% plan GINT.
+    assert rate == pytest.approx(0.00625)
+
+
+def test_guaranteed_projection_keeps_full_gint_for_declared_rate_plan():
+    """Non-IUL (declared-rate) plans credit the plan GINT directly."""
+    from suiteview.illustration.core.guaranteed_projection import (
+        _guaranteed_crediting_rate,
+    )
+    from suiteview.illustration.models.input_set import IllustrationOptions
+
+    policy = _policy()                            # plancode 1U143900 — declared rate
+    rate = _guaranteed_crediting_rate(policy, 0.03, IllustrationOptions())
+    assert rate == pytest.approx(0.03)
+
+
+def test_guaranteed_projection_uses_full_gint_for_iul_wair_run():
+    """WAIR runs enforce the guaranteed basis via the WAIR cap (RERUN VK), so
+    the free-AV declared rate stays the plan GINT — it is not blended here."""
+    from suiteview.illustration.core.guaranteed_projection import (
+        _guaranteed_crediting_rate,
+    )
+    from suiteview.illustration.models.input_set import IllustrationOptions
+
+    policy = _policy()
+    policy.plancode = "1U145500"                 # IUL14
+    policy.premium_allocations = {"U1": 0.25, "IX": 0.75}
+
+    rate = _guaranteed_crediting_rate(
+        policy, 0.025, IllustrationOptions(iul_wair_crediting=True))
+    assert rate == pytest.approx(0.025)
 
 
 # ── Expense Report supplemental page ────────────────────────────────────────

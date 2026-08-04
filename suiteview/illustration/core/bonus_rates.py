@@ -25,6 +25,17 @@ class BonusConfig:
     bonus_dur_threshold: int = 0
     bonus_av_rate: float = 0.0
     bonus_av_threshold: float = 0.0
+    bonus_dur_rate_guar: float = 0.0
+    bonus_av_rate_guar: float = 0.0
+
+    def guaranteed(self) -> "BonusConfig":
+        """Return the bonus config used by the guaranteed projection."""
+        return BonusConfig(
+            bonus_dur_rate=self.bonus_dur_rate_guar,
+            bonus_dur_threshold=self.bonus_dur_threshold,
+            bonus_av_rate=self.bonus_av_rate_guar,
+            bonus_av_threshold=self.bonus_av_threshold,
+        )
 
 
 def _load_table() -> List[dict]:
@@ -73,6 +84,8 @@ def load_bonus_config(plancode: str, valuation_date: date) -> BonusConfig:
                 bonus_dur_threshold=int(entry.get("BonusDurThreshold", 0)),
                 bonus_av_rate=float(entry.get("BonusAVRate", 0)),
                 bonus_av_threshold=float(entry.get("BonusAVThreshold", 0)),
+                bonus_dur_rate_guar=float(entry.get("BonusDurRateGuar", 0)),
+                bonus_av_rate_guar=float(entry.get("BonusAVRateGuar", 0)),
             )
 
     return BonusConfig()

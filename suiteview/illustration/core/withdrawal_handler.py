@@ -118,9 +118,14 @@ def compute_withdrawal(
     # AY — CSV less the MD holdback and fee; under DBO A the SA floor also
     # caps. Computed every month (RERUN has no request gate on the column).
     full_sc = sum(
-        seg.face_amount * scr_rates_by_phase.get(seg.coverage_phase, 0.0) / 1000.0
+        (
+            seg.original_face_amount
+            if config.expense_basis == "OriginalSA"
+            else seg.face_amount
+        )
+        * scr_rates_by_phase.get(seg.coverage_phase, 0.0)
+        / 1000.0
         for seg in policy.segments
-        if seg.face_amount > 0
     )
     csv = av - full_sc - policy_debt
     sa_cap = (

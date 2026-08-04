@@ -521,12 +521,48 @@ def active_rider_benefit_codes(pi) -> str:
     return ", ".join(codes)
 
 
+def coverage_segment_data_warnings(pi) -> list[str]:
+    """Flag blank CyberLife fields before illustration defaults mask them."""
+    as_of_date = pi.valuation_date or date.today()
+    incomplete_segments: list[str] = []
+
+    for coverage in pi.get_base_coverages():
+        if _coverage_is_terminated(coverage, as_of_date):
+            continue
+
+        missing_fields: list[str] = []
+        if _is_blank(coverage.face_amount):
+            missing_fields.append("Current Specified Amount")
+        if _is_blank(coverage.rate_class):
+            missing_fields.append("Rate Class")
+        if _is_blank(coverage.issue_age):
+            missing_fields.append("Issue Age")
+
+        if missing_fields:
+            phase = coverage.cov_pha_nbr
+            incomplete_segments.append(
+                f"Segment {phase}: {', '.join(missing_fields)}"
+            )
+
+    if not incomplete_segments:
+        return []
+    return [
+        "CyberLife coverage data is incomplete: "
+        + "; ".join(incomplete_segments)
+        + "."
+    ]
+
+
 def _active_as_of(item, as_of_date) -> bool:
     cease_date = getattr(item, "cease_date", None) or getattr(item, "terminate_date", None)
     return cease_date is None or cease_date >= as_of_date
 
 
 # ── Private helpers ───────────────────────────────────────────
+
+
+def _is_blank(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
 def _translate_sex(code: str) -> str:
