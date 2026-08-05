@@ -15,7 +15,10 @@ from datetime import date
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from suiteview.illustration.core.calc_engine import _recalc_guideline_on_change
+from suiteview.illustration.core.calc_engine import (
+    _recalc_guideline_on_change,
+    _record_accum_glp_recalc_detail,
+)
 from suiteview.illustration.models.input_set import PolicyChangeEvent, PolicyChangeKind
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 
@@ -51,6 +54,41 @@ def test_midyear_recalc_prorates_accum_glp():
     assert detail["accum_glp_adjustment"] == -2250.0
     assert detail["accum_glp_months_remaining"] == 9
     assert policy.glp == 999.96
+
+
+def test_accum_glp_recalc_detail_records_actual_before_and_after_amounts():
+    detail = {}
+
+    _record_accum_glp_recalc_detail(
+        detail,
+        prior_amount=10_000.0,
+        new_amount=7_750.0,
+        policy_month=4,
+    )
+
+    assert detail == {
+        "accum_glp_prior_amount": 10_000.0,
+        "accum_glp_months_prior": 3,
+        "accum_glp_months_after": 9,
+        "accum_glp_prorata_delta": -2_250.0,
+        "accum_glp_new_amount": 7_750.0,
+    }
+
+
+def test_accum_glp_recalc_detail_records_full_anniversary_accrual():
+    detail = {}
+
+    _record_accum_glp_recalc_detail(
+        detail,
+        prior_amount=10_000.0,
+        new_amount=10_999.96,
+        policy_month=1,
+    )
+
+    assert detail["accum_glp_months_prior"] == 0
+    assert detail["accum_glp_months_after"] == 12
+    assert detail["accum_glp_prorata_delta"] == 999.96
+    assert detail["accum_glp_new_amount"] == 10_999.96
 
 
 def test_recalc_summary_shows_accum_glp_adjustment():

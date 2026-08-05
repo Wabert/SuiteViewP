@@ -522,7 +522,11 @@ def _billable_to_md_run(policy):
                 continue
             dated.append(DatedTransaction(
                 kind=TransactionKind.PREMIUM, effective_date=when,
-                amount=billable, metadata={"billable_to_md": True}))
+                amount=billable, metadata={
+                    "billable_to_md": True,
+                    "scheduled_current_year": True,
+                    "mode": mode,
+                }))
             when = when + relativedelta(months=interval)
     # Later years ride a plain schedule; the window suppresses it post-switch.
     if billable and maturity_year > forecast_year:

@@ -309,6 +309,11 @@ def _base_detail(**extra):
         "change_date": CHANGE_DATE,
         "glp_before": 96.0, "glp_after": 120.0, "glp_prior": 96.0, "glp_new": 120.0,
         "gsp_before": 192.0, "gsp_after": 240.0, "gsp_prior": 192.0, "gsp_new": 240.0,
+        "accum_glp_prior_amount": 10_000.0,
+        "accum_glp_months_prior": 3,
+        "accum_glp_months_after": 9,
+        "accum_glp_prorata_delta": 18.0,
+        "accum_glp_new_amount": 10_018.0,
     }
     detail.update(extra)
     return detail
@@ -363,6 +368,7 @@ def test_within_period_sheet_shows_calc_and_backtest():
 def test_summary_sheet_includes_recalculated_7pay_values():
     view = _view()
     view.show_recalc(_base_detail(
+        tamra_case="within_period",
         seven_pay_prior=60.0,
         seven_pay_before=60.0,
         seven_pay_after=48.0,
@@ -370,14 +376,28 @@ def test_summary_sheet_includes_recalculated_7pay_values():
     ))
 
     row = view.summary_grid.df.iloc[2]
-    assert row.to_dict() == {
-        "Premium": "7-Pay",
-        "Prior Prem": 60.0,
-        "Before Change": 60.0,
-        "After Change": 48.0,
-        "Δ (After − Before)": -12.0,
-        "New Prem": 48.0,
-    }
+    assert row["Premium"] == "7-Pay"
+    assert row["Prior Prem"] == 60.0
+    assert row["New Prem"] == 48.0
+    assert row[["Before Change", "After Change", "Δ (After − Before)"]].isna().all()
+
+
+def test_summary_sheet_omits_prior_for_new_7pay_period():
+    view = _view()
+    view.show_recalc(_base_detail(
+        tamra_case="new_period",
+        seven_pay_prior=60.0,
+        seven_pay_before=60.0,
+        seven_pay_after=48.0,
+        seven_pay_new=48.0,
+    ))
+
+    row = view.summary_grid.df.iloc[2]
+    assert row["Premium"] == "7-Pay"
+    assert row["New Prem"] == 48.0
+    assert row[
+        ["Prior Prem", "Before Change", "After Change", "Δ (After − Before)"]
+    ].isna().all()
 
 
 def test_summary_sheet_shows_midyear_accum_glp_equation():
@@ -398,11 +418,35 @@ def test_summary_sheet_shows_midyear_accum_glp_equation():
     )
 
 
+def test_summary_sheet_shows_accum_glp_before_to_after_ledger():
+    view = _view()
+    view.show_recalc(_base_detail(accum_glp_adjustment=18.0))
+
+    ledger = view.accum_glp_grid.df
+    assert list(ledger.columns) == [
+        "Premium", "Prior Amount", "New GLP - Old GLP", "Months Remaining",
+        "AccumGLP Adj.", "New Amount",
+    ]
+    assert ledger.iloc[0].to_dict() == {
+        "Premium": "AccumGLP",
+        "Prior Amount": 10_000.0,
+        "New GLP - Old GLP": 24.0,
+        "Months Remaining": 9,
+        "AccumGLP Adj.": 18.0,
+        "New Amount": 10_018.0,
+    }
+
+
 def test_summary_sheet_notes_no_adjustment_on_anniversary():
     # Anniversary recalc (GLP changed, no adjustment in the detail): the greyed
     # italic note explains why, instead of leaving empty space.
     view = _view()
-    view.show_recalc(_base_detail())
+    view.show_recalc(_base_detail(
+        accum_glp_months_prior=0,
+        accum_glp_months_after=12,
+        accum_glp_prorata_delta=120.0,
+        accum_glp_new_amount=10_120.0,
+    ))
 
     assert view.accum_glp_equation.isHidden()
     assert not view.accum_glp_note.isHidden()

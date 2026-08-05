@@ -522,6 +522,8 @@ def _fill_everything(tab: IllustrationInputsTab):
     tbl_row.value_combo.setCurrentIndex(tbl_row.value_combo.findData("0"))
     # Header controls on the Input panel.
     panel.lumpsum_edit.setText("2,500.00")
+    panel.forecast_loan_edit.setText("1,250.00")
+    panel.forecast_withdrawal_edit.setText("625.00")
     panel.apply_prem_to_loan_check.setChecked(True)
     panel.tamra_check.setChecked(False)
     panel.excess_apply_radio.setChecked(True)
@@ -587,6 +589,8 @@ def test_capture_apply_round_trips_every_input_group(tmp_path):
     # Spot-check widget state (positions preserved, including the row gap).
     assert target.unscheduled_premium_table.item(5, 1).text() == "2,000"
     assert target.dynamic_panel.premium_section.rows()[0].amount_edit.text() == "250.00"
+    assert target.dynamic_panel.forecast_loan_edit.text() == "1,250.00"
+    assert target.dynamic_panel.forecast_withdrawal_edit.text() == "625.00"
     assert len(target.dynamic_panel.premium_section.rows()) == 2
     assert target.dynamic_panel.withdrawal_section.rows()[0].basis() == "gross"
     assert target.variable_loan_toggle.isChecked()

@@ -54,7 +54,8 @@ class MonthlyState:
     # Populated only on the month a policy change re-solved the guideline
     # premiums by the attained-age delta method. Keys: change_kind, change_date,
     # glp_before, glp_after, gsp_before, gsp_after, glp_prior, glp_new,
-    # gsp_prior, gsp_new. Empty in every month with no recalc.
+    # gsp_prior, gsp_new, plus the AccumGLP prior amount, month split, prorata
+    # delta, and new amount. Empty in every month with no recalc.
     guideline_recalc: Dict[str, object] = field(default_factory=dict)
 
     # ── MTP / CTP detail (CalcEngine HO..JG / JI..KQ) ──
@@ -111,10 +112,14 @@ class MonthlyState:
     planned_premium_mode: str = ""         # mode of the planned premium (M/Q/S/A)
     premium_cap: float = 0.0               # applied cap (Annual Cap2 — NQ)
     premium_capped: bool = False           # True when the cap reduced the premium
+    premium_capped_by_guideline: bool = False
+    premium_capped_by_tamra: bool = False
     prem_less_wd: float = 0.0              # KW — PremTD − WithdrawalTD (before force-out)
     applied_lumpsum: float = 0.0           # NM — accepted unscheduled premium
     applied_scheduled_premium: float = 0.0  # NZ — accepted scheduled premium
     scheduled_prem_cap: float = 0.0        # NV — per-payment level cap (carried all year)
+    scheduled_cap_by_guideline: bool = False
+    scheduled_cap_by_tamra: bool = False
     levelized_max_premium: float = 0.0     # NW — MIN(Sched Prem Cap, scheduled)
     apply_levelized: bool = False          # NX — levelizing active this month
     # Full "Apply Premium" allowance chain (CalcEngine NC..NZ) keyed by the
@@ -156,6 +161,8 @@ class MonthlyState:
     gp_exception_prem_gross: float = 0.0   # SZ — gross shortfall covered
     gp_exception_prem: float = 0.0         # TB — grossed-up exception premium
     gp_exception_prem_discount: float = 0.0  # TA — COI saving when the exception fires
+    gp_exception_percentage_load: float = 0.0
+    gp_exception_flat_load: float = 0.0
     exception_protection: bool = False     # YQ — exception keeps policy in force
 
     # ── 2. Monthly Deduction (cols 405-516) ───

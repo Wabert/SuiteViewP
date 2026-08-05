@@ -233,6 +233,7 @@ class IllustrationReport:
 
     # Ledger
     ledger: List[LedgerRow] = field(default_factory=list)
+    loan_repayments_illustrated: bool = False
     # Supplemental Expense Report rows (RERUN "Expense Report" J:Y) — always
     # built; the Report tab appends the page only when the user opts in.
     expense_rows: List[ExpenseRow] = field(default_factory=list)
@@ -298,12 +299,16 @@ def _annualize(
         if months[0].attained_age >= maturity_age:
             continue
         eoy = months[-1]
-        outlay = sum(m.premium_outlay for m in months)
+        outlay = sum(
+            m.premium_outlay + m.applied_loan_repayment
+            for m in months
+        )
         forceout = sum(m.guideline_forceout for m in months)
         exception = sum(m.gp_exception_prem for m in months)
         withdrawals = sum(m.gross_withdrawal for m in months)
         loans = sum(m.applied_new_loan for m in months)
-        capped = any(m.premium_capped for m in months)
+        guideline_capped = any(m.premium_capped_by_guideline for m in months)
+        tamra_capped = any(m.premium_capped_by_tamra for m in months)
 
         # MEC: 7-pay contributions exceed level x year inside the window
         # (only reachable with TAMRA conformance off, or an already-MEC load).
@@ -322,17 +327,16 @@ def _annualize(
             termination_year = year
 
         markers = ""
-        if capped and exception <= 0.005:
+        if guideline_capped and exception <= 0.005:
             markers += "* "
+        if tamra_capped and exception <= 0.005:
+            markers += "# "
         if forceout > 0.005:
             markers += "@ "
         if exception > 0.005:
             markers += "^ "
         if year_of_mec == year:
             markers += "& "
-        # '#' (premiums repaid loans) — loan repayment inputs are not yet
-        # surfaced per-month by the engine; wire when they are.
-
         rows.append(LedgerRow(
             # EOY age: the age the insured reaches at the END of the policy year
             # (issue_age + year). The engine's attained_age holds the age at the
@@ -590,8 +594,12 @@ def _request_lines(
 
     issue = policy.issue_date
     dated_loan_runs: dict[tuple[str, str, float], List[int]] = {}
+    forecast_loans: List[DatedTransaction] = []
     for tx in future_inputs.dated_transactions:
         if tx.kind != TransactionKind.LOAN or tx.amount <= 0 or issue is None:
+            continue
+        if tx.metadata.get("forecast_date_transaction"):
+            forecast_loans.append(tx)
             continue
         months = (tx.effective_date.year - issue.year) * 12 + (
             tx.effective_date.month - issue.month)
@@ -636,11 +644,55 @@ def _request_lines(
         lines.append(
             f"{run['mode']} {run['loan_type']} LOAN OF "
             f"{_money(run['amount'])} {span}")
+    for tx in sorted(forecast_loans, key=lambda item: item.effective_date):
+        loan_type = str(tx.metadata.get("loan_type", "fixed")).upper()
+        lines.append(
+            f"ONE-TIME {loan_type} LOAN OF {_money(tx.amount)} "
+            f"ON {tx.effective_date.strftime('%m/%d/%Y')}")
+
+    # Loan repayments are exported as dated modal transactions. Group equal
+    # per-payment amounts across consecutive policy years into one assumption.
+    repayment_years: dict[tuple[str, float], set[int]] = {}
+    for tx in future_inputs.dated_transactions:
+        if tx.kind != TransactionKind.LOAN_REPAYMENT or tx.amount <= 0 or issue is None:
+            continue
+        months = (tx.effective_date.year - issue.year) * 12 + (
+            tx.effective_date.month - issue.month)
+        year = months // 12 + 1
+        mode = _SCHEDULE_MODE_LABELS.get(
+            str(tx.metadata.get("mode", "A")).strip().upper(), "ANNUAL")
+        repayment_years.setdefault((mode, round(tx.amount, 2)), set()).add(year)
+
+    for (mode, amount), years in sorted(
+        repayment_years.items(), key=lambda item: min(item[1])
+    ):
+        ordered_years = sorted(years)
+        start_year = end_year = ordered_years[0]
+        runs: List[tuple[int, int]] = []
+        for year in ordered_years[1:]:
+            if year == end_year + 1:
+                end_year = year
+            else:
+                runs.append((start_year, end_year))
+                start_year = end_year = year
+        runs.append((start_year, end_year))
+        for start_year, end_year in runs:
+            span = (
+                f"FOR POLICY YEARS {start_year} THROUGH {end_year}"
+                if end_year != start_year
+                else f"IN POLICY YEAR {start_year}"
+            )
+            lines.append(
+                f"{mode} LOAN REPAYMENT OF {_money(amount)} {span}")
 
     # Withdrawals: dated, one line per year (AY22..AY27).
     wd_by_year: dict[tuple[int, str], float] = {}
+    forecast_withdrawals: List[DatedTransaction] = []
     for tx in future_inputs.dated_transactions:
         if tx.kind != TransactionKind.WITHDRAWAL or issue is None:
+            continue
+        if tx.metadata.get("forecast_date_transaction"):
+            forecast_withdrawals.append(tx)
             continue
         months = (tx.effective_date.year - issue.year) * 12 + (tx.effective_date.month - issue.month)
         year = months // 12 + 1
@@ -652,6 +704,11 @@ def _request_lines(
         lines.append(
             f"{mode} WITHDRAWAL OF {_money(wd_by_year[(year, mode)])} "
             f"IN POLICY YEAR {year}")
+    for tx in sorted(forecast_withdrawals, key=lambda item: item.effective_date):
+        basis = "GROSS" if tx.subtype == "gross" else "NET"
+        lines.append(
+            f"ONE-TIME {basis} WITHDRAWAL OF {_money(tx.amount)} "
+            f"ON {tx.effective_date.strftime('%m/%d/%Y')}")
     return lines
 
 
@@ -968,6 +1025,21 @@ def build_ul_report(
     # ── Ledger + derived facts ──
     report.ledger, report.year_of_mec, report.termination_year = _annualize(
         policy, results, options)
+    report.loan_repayments_illustrated = any(
+        state.applied_loan_repayment > 0.005 for state in projected
+    )
+    if future_inputs is not None:
+        report.loan_repayments_illustrated = (
+            report.loan_repayments_illustrated
+            or any(
+                tx.kind == TransactionKind.LOAN_REPAYMENT and tx.amount > 0.005
+                for tx in future_inputs.dated_transactions
+            )
+            or any(
+                tx.kind == TransactionKind.LOAN_REPAYMENT and tx.amount > 0.005
+                for tx in future_inputs.scheduled_transactions
+            )
+        )
     report.expense_rows = _expense_rows(
         results, report.termination_year, int(policy.maturity_age or 121))
     report.seven_pay_restarts = _seven_pay_restarts(results)
@@ -1051,14 +1123,17 @@ def build_ul_report(
     if inforce_debt > 0.005:
         report.loan_basis_line = f"WITH A LOAN BALANCE OF {inforce_debt:,.2f}"
 
-    report.request_intro = [
-        "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION."
-    ]
-    prem_restricted = any(r.markers and "*" in r.markers for r in report.ledger)
-    if prem_restricted:
-        report.request_intro.append(
-            "HOWEVER IN THIS ILLUSTRATION PREMIUMS HAVE BEEN RESTRICTED BY THE GUIDELINE "
-            "PREMIUM LIMIT. THIS IS INDICATED IN THE LEDGER WHERE APPLICABLE.")
+    guideline_restricted = any("*" in r.markers for r in report.ledger)
+    tamra_restricted = any("#" in r.markers for r in report.ledger)
+    intro = "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION."
+    if guideline_restricted and tamra_restricted:
+        intro += (
+            " HOWEVER, PREMIUMS MAY BE RESTRICTED BY GUIDELINE OR 7-PAY PREMIUM LIMITS.")
+    elif guideline_restricted:
+        intro += " HOWEVER, PREMIUMS MAY BE RESTRICTED BY GUIDELINE PREMIUM LIMITS."
+    elif tamra_restricted:
+        intro += " HOWEVER, PREMIUMS MAY BE RESTRICTED BY 7-PAY PREMIUM LIMITS."
+    report.request_intro = [intro]
     report.request_lines = _request_lines(policy, results, future_inputs)
 
     report.rider_lines = _rider_lines(policy)
@@ -1076,6 +1151,10 @@ def build_ul_report(
         legends.append(
             "* PREMIUMS IN THIS YEAR WERE RESTRICTED BY THE GUIDELINE PREMIUM LIMIT TO "
             "MAINTAIN DEFINITION OF LIFE INSURANCE")
+    if "#" in markers:
+        legends.append(
+            "# PREMIUMS IN THIS YEAR WERE RESTRICTED BY THE 7-PAY PREMIUM LIMIT TO "
+            "PREVENT THE POLICY FROM BECOMING A MEC")
     if "@" in markers:
         legends.append(
             "@ PREMIUMS WERE FORCED OUT OF THE POLICY TO MAINTAIN LIFE INSURANCE PREMIUM "

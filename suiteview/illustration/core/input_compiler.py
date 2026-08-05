@@ -14,9 +14,8 @@ class CompiledMonthInputs:
 
     scheduled_premium: float | None = None
     unscheduled_premium: float = 0.0
-    # Portion of unscheduled_premium that is a "Billable to MD" row's dated
-    # billable payment (current policy year only — later years ride the
-    # schedule). The engine stops paying it once the MD hand-off latches.
+    # Portion of unscheduled_premium that belongs to a tagged one-time
+    # Billable-to-MD deposit. Current-year modal payments compile as scheduled.
     billable_to_md_premium: float = 0.0
     premium_mode: str = ""
     regular_loan: float = 0.0
@@ -125,8 +124,15 @@ def _compile_dated_transactions(
             continue
         month_inputs = compiled[duration]
         if entry.kind == TransactionKind.PREMIUM:
-            month_inputs.unscheduled_premium += entry.amount
-            if (entry.metadata or {}).get("billable_to_md"):
+            metadata = entry.metadata or {}
+            if metadata.get("scheduled_current_year"):
+                month_inputs.scheduled_premium = (
+                    float(month_inputs.scheduled_premium or 0.0) + entry.amount
+                )
+                month_inputs.premium_mode = str(metadata.get("mode") or "")
+            else:
+                month_inputs.unscheduled_premium += entry.amount
+            if metadata.get("billable_to_md") and not metadata.get("scheduled_current_year"):
                 month_inputs.billable_to_md_premium += entry.amount
         elif entry.kind == TransactionKind.LOAN:
             if entry.subtype.lower() == "variable":

@@ -40,9 +40,11 @@ class IllustrationRates:
     tpp: List = field(default_factory=list)
     epp: List = field(default_factory=list)
     poav: List = field(default_factory=list)
-    # Expense-rate scale (EPU, MFEE, PoAV, premium loads TPP/EPP): 1 = current,
-    # 0 = guaranteed. Current & guideline runs use 1; only the guaranteed
-    # illustration side uses 0. Stored so band reloads preserve the basis.
+    # Active assumption scales are retained so coverage segments created or
+    # rebanded during a projection load rates on the same basis as the run.
+    # COI: 1 = current, 0 = guaranteed maximum. Expense: 1 = current,
+    # 0 = guaranteed (EPU, MFEE, PoAV, and premium loads).
+    coi_scale: int = 1
     expense_scale: int = 1
 
     # Loan credit rates (duration-based)
@@ -225,6 +227,7 @@ def load_rates(
             policy.plancode, seg.issue_age, seg.rate_sex,
             seg.rate_class, seg.band,
         ) or 0.0,
+        coi_scale=coi_scale,
         expense_scale=expense_scale,
     )
 

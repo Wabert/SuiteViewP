@@ -10,6 +10,7 @@ from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.input_set import (
     DatedTransaction,
     IllustrationInputSet,
+    IllustrationOptions,
     PolicyChangeEvent,
     PolicyChangeKind,
     ScheduledTransaction,
@@ -145,7 +146,12 @@ def _results():
         for month in range(1, 13):
             kw = {}
             if year == 9 and month == 1:
-                kw = dict(guideline_forceout=6266.37, premium_capped=True, gross_premium=0.0)
+                kw = dict(
+                    guideline_forceout=6266.37,
+                    premium_capped=True,
+                    premium_capped_by_guideline=True,
+                    gross_premium=0.0,
+                )
             rows.append(_month(year, month, **kw))
     return rows
 
@@ -184,8 +190,11 @@ def test_report_ledger_annualizes_and_marks():
 
     # Cover activity is ordered as premiums, loans, then withdrawals.
     assert report.request_intro[0] == (
-        "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION."
+        "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION. "
+        "HOWEVER, PREMIUMS MAY BE RESTRICTED BY GUIDELINE PREMIUM LIMITS."
     )
+
+
     assert report.request_lines == [
         "MONTHLY PREMIUM OF $100.00 FOR POLICY YEARS 8 THROUGH 9",
         "ANNUAL FIXED LOAN OF $3,000.00 FOR POLICY YEARS 12 THROUGH 15",
@@ -232,6 +241,47 @@ def test_report_ledger_annualizes_and_marks():
     # Regulatory limits from the inforce snapshot.
     assert any("GUIDELINE SINGLE = $31,311.48" in line for line in report.regulatory_lines)
     assert any("PREMIUM WAIVER" in line for line in report.rider_lines)
+
+
+def test_report_distinguishes_tamra_premium_restriction():
+    results = _results()
+    restricted = next(
+        state for state in results
+        if state.policy_year == 9 and state.policy_month == 1
+    )
+    restricted.premium_capped_by_guideline = False
+    restricted.premium_capped_by_tamra = True
+
+    report = build_ul_report(_policy(), results, run_date=date(2026, 6, 10))
+
+    year9 = next(row for row in report.ledger if row.year == 9)
+    assert "#" in year9.markers
+    assert "*" not in year9.markers
+    assert any(
+        legend.startswith("#") and "PREVENT THE POLICY FROM BECOMING A MEC" in legend
+        for legend in report.footnote_legends
+    )
+    assert not any(legend.startswith("*") for legend in report.footnote_legends)
+    assert report.request_intro == [
+        "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION. "
+        "HOWEVER, PREMIUMS MAY BE RESTRICTED BY 7-PAY PREMIUM LIMITS."
+    ]
+
+
+def test_report_combines_guideline_and_tamra_restriction_intro():
+    results = _results()
+    restricted = next(
+        state for state in results
+        if state.policy_year == 9 and state.policy_month == 1
+    )
+    restricted.premium_capped_by_tamra = True
+
+    report = build_ul_report(_policy(), results, run_date=date(2026, 6, 10))
+
+    assert report.request_intro == [
+        "THE FOLLOWING ACTIVITY WAS REQUESTED IN PREPARING THIS ILLUSTRATION. "
+        "HOWEVER, PREMIUMS MAY BE RESTRICTED BY GUIDELINE OR 7-PAY PREMIUM LIMITS."
+    ]
 
 
 def test_report_plan_option_descriptions():
@@ -311,6 +361,106 @@ def test_activity_section_includes_current_year_dated_loan():
         "MONTHLY PREMIUM OF $100.00 FOR POLICY YEARS 8 THROUGH 9",
         "MONTHLY FIXED LOAN OF $250.00 FOR POLICY YEARS 7 THROUGH 8",
     ]
+
+
+def test_activity_section_lists_recurring_and_forecast_date_distributions():
+    inputs = IllustrationInputSet(
+        scheduled_transactions=[
+            ScheduledTransaction(
+                kind=TransactionKind.LOAN,
+                policy_year=10,
+                amount=500.0,
+                mode="A",
+                metadata={"loan_type": "fixed"},
+            ),
+            ScheduledTransaction(
+                kind=TransactionKind.LOAN,
+                policy_year=11,
+                amount=0.0,
+                mode="A",
+                metadata={"loan_type": "fixed"},
+            ),
+        ],
+        dated_transactions=[
+            DatedTransaction(
+                kind=TransactionKind.LOAN,
+                effective_date=date(2026, 6, 9),
+                amount=2500.0,
+                metadata={
+                    "loan_type": "fixed",
+                    "forecast_date_transaction": True,
+                },
+            ),
+            DatedTransaction(
+                kind=TransactionKind.WITHDRAWAL,
+                effective_date=date(2026, 6, 9),
+                amount=750.0,
+                subtype="net",
+                metadata={"forecast_date_transaction": True},
+            ),
+            DatedTransaction(
+                kind=TransactionKind.WITHDRAWAL,
+                effective_date=date(2029, 11, 9),
+                amount=1000.0,
+                subtype="net",
+                metadata={"mode": "A"},
+            ),
+        ],
+    )
+
+    report = build_ul_report(
+        _policy(), _results(), future_inputs=inputs, run_date=date(2026, 6, 10))
+
+    assert "ANNUAL FIXED LOAN OF $500.00 IN POLICY YEAR 10" in report.request_lines
+    assert "ONE-TIME FIXED LOAN OF $2,500.00 ON 06/09/2026" in report.request_lines
+    assert "ONE-TIME NET WITHDRAWAL OF $750.00 ON 06/09/2026" in report.request_lines
+    assert "ANNUAL WITHDRAWAL OF $1,000.00 IN POLICY YEAR 11" in report.request_lines
+
+
+def test_report_describes_loan_repayments_and_combines_them_with_ledger_outlay():
+    rows = _results()
+    rows[1].applied_loan_repayment = 1700.0
+    inputs = IllustrationInputSet(dated_transactions=[
+        DatedTransaction(
+            kind=TransactionKind.LOAN_REPAYMENT,
+            effective_date=date(year, 11, 9),
+            amount=1700.0,
+            metadata={"mode": "A"},
+        )
+        for year in range(2026, 2031)
+    ])
+
+    report = build_ul_report(
+        _policy(), rows, future_inputs=inputs, run_date=date(2026, 7, 22)
+    )
+
+    assert report.loan_repayments_illustrated
+    assert report.request_lines == [
+        "MONTHLY PREMIUM OF $100.00 FOR POLICY YEARS 8 THROUGH 9",
+        "ANNUAL LOAN REPAYMENT OF $1,700.00 FOR POLICY YEARS 8 THROUGH 12",
+    ]
+    assert report.ledger[0].premium_outlay == 2900.0
+
+    from suiteview.illustration.ui.report_tab import format_report_pages
+
+    pages = format_report_pages(report)
+    cover = "\n".join(pages[0])
+    ledger = "\n".join(pages[1])
+    assert "ANNUAL LOAN REPAYMENT OF $1,700.00 FOR POLICY YEARS 8 THROUGH 12" in cover
+    assert "PREMIUM +     " in ledger
+    assert "LOAN REPAY" in ledger
+    assert "    2,900" in ledger
+
+
+def test_report_keeps_premium_outlay_heading_without_loan_repayments():
+    from suiteview.illustration.ui.report_tab import format_report_pages
+
+    report = build_ul_report(_policy(), _results(), run_date=date(2026, 7, 22))
+    ledger = "\n".join(format_report_pages(report)[1])
+
+    assert not report.loan_repayments_illustrated
+    assert "PREMIUM" in ledger
+    assert "LOAN REPAY" not in ledger
 
 
 def test_cash_from_policy_includes_gross_withdrawals_loans_and_forceouts():
@@ -874,6 +1024,7 @@ def test_lock_values_locks_current_cash_flows():
     results = [MonthlyState(policy_year=7, policy_month=6, duration=78)]
     results.append(_month(8, 1, gross_premium=100.0, gp_exception_prem=25.0))
     results.append(_month(8, 2, gross_premium=0.0, applied_net_withdrawal=500.0,
+                          guideline_forceout=750.0,
                           applied_regular_loan=200.0, applied_variable_loan=75.0,
                           applied_loan_repayment=40.0))
 
@@ -888,12 +1039,27 @@ def test_lock_values_locks_current_cash_flows():
     month2 = policy.issue_date + relativedelta(months=results[2].duration - 1)
     by_key = {(t.kind, t.effective_date): t.amount for t in locked.dated_transactions}
     assert by_key[(TransactionKind.PREMIUM, month1)] == 125.0  # premium + exception
+    # Force-outs are recalculated independently by the guaranteed projection,
+    # not folded into its locked requested withdrawal.
     assert by_key[(TransactionKind.WITHDRAWAL, month2)] == 500.0
     assert by_key[(TransactionKind.LOAN_REPAYMENT, month2)] == 40.0
     loans = [t for t in locked.dated_transactions
              if t.kind == TransactionKind.LOAN and t.effective_date == month2]
     assert sorted(t.amount for t in loans) == [75.0, 200.0]
     assert any(t.subtype == "variable" and t.amount == 75.0 for t in loans)
+
+
+def test_guaranteed_options_respect_disabled_tefra_forceouts():
+    from suiteview.illustration.core.guaranteed_projection import guaranteed_options
+
+    options = guaranteed_options(IllustrationOptions(
+        conform_to_tefra=False,
+        conform_to_tamra=False,
+    ))
+
+    assert not options.force_out_enabled
+    assert not options.guideline_cap_enabled
+    assert not options.tamra_cap_enabled
 
 
 def test_guaranteed_projection_blends_the_guaranteed_rate_for_iul():
@@ -1124,16 +1290,27 @@ def test_expense_report_checkbox_uses_shared_run_controls_style():
     assert tab.expense_report_check.styleSheet() == INPUT_CHECKBOX_STYLE
 
 
-def test_guaranteed_options_disable_limits():
+def test_guaranteed_options_preserve_regulatory_conformance():
     from suiteview.illustration.core.guaranteed_projection import guaranteed_options
-    from suiteview.illustration.models.input_set import IllustrationOptions
-
     base = IllustrationOptions(conform_to_tefra=True, conform_to_tamra=True,
                                allow_exception_prems=True, apply_prem_to_loan=True)
     opts = guaranteed_options(base)
-    assert not opts.conform_to_tefra
-    assert not opts.conform_to_tamra
+    assert opts.conform_to_tefra
+    assert opts.conform_to_tamra
     assert not opts.allow_exception_prems
     assert not opts.apply_prem_to_loan
     assert not opts.restrict_loans_to_sv
-    assert not opts.guideline_cap_enabled and not opts.force_out_enabled
+    assert opts.guideline_cap_enabled and opts.force_out_enabled
+    assert opts.tamra_cap_enabled
+
+
+def test_guaranteed_options_preserve_explicit_acceptance_cap_override():
+    from suiteview.illustration.core.guaranteed_projection import guaranteed_options
+
+    opts = guaranteed_options(IllustrationOptions(
+        conform_to_tefra=True,
+        cap_premiums_at_acceptance=False,
+    ))
+
+    assert opts.force_out_enabled
+    assert not opts.guideline_cap_enabled

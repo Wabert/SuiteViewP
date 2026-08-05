@@ -40,6 +40,7 @@ def _alw(**overrides):
         has_loan_balance=False,
         levelizing_premium=False,
         beginning_of_year=True,
+        policy_anniversary=True,
         prior_scheduled_prem_cap=0.0,
     )
     kwargs.update(overrides)
@@ -64,6 +65,8 @@ def test_guideline_cap_dollar_for_dollar():
     assert a.annual_cap_2 == 300.0
     assert a.applied_scheduled_premium == 300.0
     assert a.applied_total_premium == 300.0
+    assert a.capped_by_guideline
+    assert not a.capped_by_tamra
 
 
 def test_forceout_adds_guideline_room_back():
@@ -97,6 +100,8 @@ def test_tamra_seven_pay_cap_binds():
     assert a.tamra_allowance_0 == 400.0
     assert a.annual_cap_2 == 400.0
     assert a.applied_scheduled_premium == 400.0
+    assert a.capped_by_tamra
+    assert not a.capped_by_guideline
 
 
 def test_levelizing_spreads_cap_over_year_vs_dollar_for_dollar():
@@ -118,7 +123,7 @@ def test_levelizing_spreads_cap_over_year_vs_dollar_for_dollar():
     assert on.applied_scheduled_premium == pytest.approx(50.0)
 
 
-def test_levelizing_disabled_by_a_loan():
+def test_guideline_levelizing_remains_disabled_by_a_loan():
     a = _alw(
         tefra_force=True, guideline_limit=10_000.0, prem_less_wd=9_400.0,
         requested_scheduled=500.0, levelizing_premium=True, has_loan_balance=True,
@@ -151,10 +156,30 @@ def test_levelized_cap_locks_and_carries_forward_after_year_start():
     a = _alw(
         tefra_force=True, guideline_limit=10_000.0, prem_less_wd=0.0,
         levelizing_premium=True, requested_scheduled=500.0,
-        beginning_of_year=False, prior_scheduled_prem_cap=50.0,
+        beginning_of_year=False, policy_anniversary=False,
+        prior_scheduled_prem_cap=50.0,
     )
     assert a.scheduled_prem_cap == 50.0
     assert a.applied_scheduled_premium == pytest.approx(50.0)
+
+
+def test_levelized_cap_carries_its_tamra_source_forward():
+    a = _alw(
+        tamra_force=True,
+        seven_pay_level=1_200.0,
+        tamra_year=2,
+        tamra_month_of_year=2,
+        requested_scheduled=500.0,
+        levelizing_premium=True,
+        beginning_of_year=False,
+        policy_anniversary=False,
+        prior_scheduled_prem_cap=100.0,
+        prior_scheduled_cap_by_tamra=True,
+    )
+
+    assert a.applied_scheduled_premium == 100.0
+    assert a.capped_by_tamra
+    assert not a.capped_by_guideline
 
 
 def test_boy_and_eoy_level_allowances_take_the_smaller():
@@ -173,6 +198,199 @@ def test_boy_and_eoy_level_allowances_take_the_smaller():
     assert a.tamra_level_allowance_boy == pytest.approx(900.0 / 9)   # 100
     assert a.tamra_level_allowance_eoy == pytest.approx((900.0 + 1_200.0) / 12)  # 175
     assert a.scheduled_prem_cap == pytest.approx(100.0)             # the smaller
+
+
+def test_eoy_allowance_uses_remaining_policy_year_payments():
+    a = _alw(
+        tamra_force=True,
+        seven_pay_level=1_000.0,
+        tamra_year=2,
+        tamra_month_of_year=10,
+        policy_month=3,
+        amount_in_7pay=1_000.0,
+        payment_count_policy_year=10,
+        payment_count_tamra_year=3,
+        requested_scheduled=1_000.0,
+        levelizing_premium=True,
+        beginning_of_year=False,
+        prior_scheduled_prem_cap=0.0,
+    )
+
+    assert a.tamra_level_allowance_boy == pytest.approx(1_000.0 / 3)
+    assert a.tamra_level_allowance_eoy == pytest.approx(2_000.0 / 10)
+    assert a.scheduled_prem_cap == pytest.approx(200.0)
+
+
+def test_off_anniversary_new_period_uses_level_seven_pay_premium():
+    a = _alw(
+        tefra_force=True,
+        tamra_force=True,
+        guideline_limit=89_703.17,
+        seven_pay_level=12_408.36,
+        tamra_year=1,
+        tamra_month_of_year=1,
+        policy_month=8,
+        tamra_reset=True,
+        payment_count_policy_year=5,
+        payment_count_tamra_year=12,
+        requested_scheduled=1_200.0,
+        levelizing_premium=True,
+        beginning_of_year=False,
+        policy_anniversary=False,
+        prior_scheduled_prem_cap=1_200.0,
+    )
+
+    assert a.tamra_level_allowance_boy == pytest.approx(12_408.36 / 12)
+    assert a.gp_level_allowance == pytest.approx(89_703.17 / 5)
+    assert a.scheduled_prem_cap == pytest.approx(12_408.36 / 12)
+    assert a.applied_scheduled_premium == pytest.approx(1_034.03)
+
+
+def test_policy_anniversary_recalculates_all_three_rerun_level_allowances():
+    a = _alw(
+        tefra_force=True,
+        tamra_force=True,
+        guideline_limit=84_296.0,
+        seven_pay_level=12_408.36,
+        tamra_year=1,
+        tamra_month_of_year=6,
+        policy_month=1,
+        amount_in_7pay=5_170.15,
+        payment_count_policy_year=12,
+        payment_count_tamra_year=7,
+        requested_scheduled=1_200.0,
+        levelizing_premium=True,
+        beginning_of_year=True,
+        policy_anniversary=True,
+        prior_scheduled_prem_cap=900.0,
+        prior_scheduled_cap_by_tamra=True,
+    )
+
+    assert a.tamra_allowance_2 == pytest.approx(7_238.21)
+    assert a.tamra_level_allowance_boy == pytest.approx(7_238.21 / 7)
+    assert a.tamra_level_allowance_eoy == pytest.approx(
+        (7_238.21 + 12_408.36) / 12
+    )
+    assert a.gp_level_allowance == pytest.approx(84_296.0 / 12)
+    assert a.scheduled_prem_cap == pytest.approx(1_034.03)
+    assert a.applied_scheduled_premium == pytest.approx(1_034.03)
+
+
+def test_later_tamra_anniversary_keeps_policy_year_level():
+    a = _alw(
+        tefra_force=True,
+        tamra_force=True,
+        guideline_limit=100_000.0,
+        seven_pay_level=12_408.36,
+        tamra_year=2,
+        tamra_month_of_year=1,
+        policy_month=8,
+        amount_in_7pay=12_408.36,
+        payment_count_policy_year=5,
+        payment_count_tamra_year=12,
+        requested_scheduled=1_200.0,
+        levelizing_premium=True,
+        beginning_of_year=False,
+        policy_anniversary=False,
+        prior_scheduled_prem_cap=1_034.03,
+        prior_scheduled_cap_by_tamra=True,
+    )
+
+    assert a.scheduled_prem_cap == pytest.approx(1_034.03)
+    assert a.applied_scheduled_premium == pytest.approx(1_034.03)
+
+
+def test_new_tamra_period_uses_only_remaining_policy_year_guideline_room():
+    a = _alw(
+        tefra_force=True,
+        tamra_force=True,
+        guideline_limit=5_000.0,
+        seven_pay_level=12_408.36,
+        tamra_year=1,
+        tamra_month_of_year=1,
+        policy_month=8,
+        tamra_reset=True,
+        payment_count_policy_year=5,
+        payment_count_tamra_year=12,
+        requested_scheduled=1_200.0,
+        levelizing_premium=True,
+        beginning_of_year=False,
+        policy_anniversary=False,
+        prior_scheduled_prem_cap=1_200.0,
+    )
+
+    assert a.tamra_level_allowance_boy == pytest.approx(12_408.36 / 12)
+    assert a.gp_level_allowance == pytest.approx(5_000.0 / 5)
+    assert a.scheduled_prem_cap == pytest.approx(1_000.0)
+    assert a.capped_by_guideline
+    assert not a.capped_by_tamra
+
+
+def test_off_anniversary_annual_mode_uses_tamra_when_no_payment_remains_this_year():
+    a = _alw(
+        tefra_force=True,
+        tamra_force=True,
+        guideline_limit=10_000.0,
+        seven_pay_level=40_000.0,
+        tamra_year=1,
+        tamra_month_of_year=1,
+        policy_month=8,
+        tamra_reset=True,
+        payment_count_policy_year=0,
+        payment_count_tamra_year=1,
+        requested_scheduled=40_000.0,
+        levelizing_premium=True,
+        beginning_of_year=False,
+        policy_anniversary=False,
+        prior_scheduled_prem_cap=40_000.0,
+    )
+
+    assert a.gp_level_allowance == INF
+    assert a.scheduled_prem_cap == pytest.approx(40_000.0)
+
+
+def test_zero_tamra_cap_recalculates_to_zero_at_policy_anniversary():
+    a = _alw(
+        tamra_force=True,
+        seven_pay_level=1_200.0,
+        tamra_year=1,
+        tamra_month_of_year=6,
+        policy_month=1,
+        amount_in_7pay=1_200.0,
+        payment_count_policy_year=12,
+        payment_count_tamra_year=12,
+        requested_scheduled=500.0,
+        levelizing_premium=True,
+        beginning_of_year=True,
+        prior_scheduled_prem_cap=0.0,
+        prior_scheduled_cap_by_tamra=True,
+    )
+
+    assert a.scheduled_prem_cap == 0.0
+    assert a.applied_scheduled_premium == 0.0
+
+
+def test_tamra_cap_releases_when_seven_pay_period_ends():
+    a = _alw(
+        tamra_force=True,
+        seven_pay_level=1_200.0,
+        tamra_year=8,
+        tamra_month_of_year=1,
+        policy_month=8,
+        payment_count_policy_year=5,
+        payment_count_tamra_year=12,
+        requested_scheduled=500.0,
+        levelizing_premium=True,
+        beginning_of_year=False,
+        policy_anniversary=False,
+        prior_scheduled_prem_cap=100.0,
+        prior_scheduled_cap_by_tamra=True,
+    )
+
+    assert a.scheduled_prem_cap == INF
+    assert a.applied_scheduled_premium == 500.0
+    assert not a.scheduled_cap_by_tamra
+    assert not a.capped_by_tamra
 
 
 def test_inforce_mec_bypasses_tamra_cap():

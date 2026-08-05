@@ -150,6 +150,85 @@ def test_md_premium_hands_off_to_gp_exception_when_capped(monkeypatch):
         assert s.gp_exception_prem > 0.0
 
 
+def test_gp_exception_premium_includes_flat_load_for_1u135100():
+    config = calc_engine.load_plancode("1U135100")
+    assert config.prem_flat_load == 1.65
+    rates = IllustrationRates(tpp=[0.0, 0.10])
+
+    result = calc_engine._compute_exception_premium(
+        IllustrationOptions(allow_exception_prems=True),
+        _md_policy(),
+        config,
+        rates,
+        rate_year=1,
+        av_after_charge=-100.0,
+        coi_rate=0.0,
+        guideline_limit_reached=True,
+        past_snet=True,
+        prior_exception_mode=False,
+        prior_lapsed=False,
+        attained_age=70,
+    )
+
+    # Net premium is exactly the $100 shortfall after both the 10% load and
+    # 1U135100's $1.65 flat load.
+    assert result.prem == pytest.approx((100.0 + 1.65) / 0.90)
+    assert result.percentage_load == pytest.approx(result.prem * 0.10)
+    assert result.flat_load == pytest.approx(1.65)
+    assert result.gp_percentage_load == pytest.approx(result.prem * 0.10)
+    assert result.gp_flat_load == pytest.approx(1.65)
+    assert result.prem - result.percentage_load - result.flat_load == pytest.approx(100.0)
+    assert result.av_after_exception == pytest.approx(0.0)
+
+
+def test_exception_loads_are_included_in_monthly_premium_load_totals(monkeypatch):
+    monkeypatch.setattr(
+        calc_engine, "load_plancode",
+        lambda _p: PlancodeConfig(
+            plancode="1U135100",
+            maturity_age=95,
+            snet_period=10,
+            dbd=0.0,
+            gint=0.0,
+            corridor_code=None,
+            epu_code="0",
+            mfee="0",
+            premium_load="Table",
+            prem_flat_load=1.65,
+        ),
+    )
+    monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())
+    policy = _md_policy()
+    policy.plancode = "1U135100"
+    policy.account_value = 0.0
+    policy.gsp = 0.0
+    rates = IllustrationRates(
+        coi=[0.0, 6.0],
+        segment_coi={1: [0.0, 6.0]},
+        tpp=[0.0, 0.10],
+        epp=[0.0, 0.10],
+    )
+
+    state = IllustrationEngine().project(
+        policy,
+        months=1,
+        options=IllustrationOptions(allow_exception_prems=True),
+        rates_override=rates,
+        bonus_override=BonusConfig(),
+    )[1]
+
+    assert state.gp_exception_prem > 0.0
+    assert state.gp_exception_percentage_load == pytest.approx(
+        state.gp_exception_prem * 0.10
+    )
+    assert state.gp_exception_flat_load == pytest.approx(1.65)
+    assert state.flat_load == pytest.approx(1.65)
+    assert state.target_load > 0.0
+    assert state.total_premium_load == pytest.approx(
+        state.target_load + state.excess_load + state.flat_load
+    )
+
+
 def test_monthly_deduction_premium_active_honors_windows():
     # The fix locus: a Monthly-Deduction premium row must be active ONLY within
     # its year window. Without windows the premium runs the whole projection

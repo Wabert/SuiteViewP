@@ -616,8 +616,12 @@ class ValuesOverview(QWidget):
         if not results:
             return
 
-        projected = results[1:] if len(results) > 1 else []
-        final = results[-1]
+        maturity_age = int(getattr(policy, "maturity_age", 121) or 121)
+        projected = [
+            state for state in (results[1:] if len(results) > 1 else [])
+            if int(getattr(state, "attained_age", 0) or 0) < maturity_age
+        ]
+        final = projected[-1] if projected else results[0]
 
         # ── KPIs ──
         self.kpi_av.set(_fmt_money(final.av_end_of_month), alert=final.av_end_of_month < 0)
@@ -782,11 +786,12 @@ def build_chart_series(projected: list) -> list[ChartSeries]:
     if any(s.policy_debt > 0 for s in projected):
         series.append(ChartSeries(
             "Policy Debt", [(xs(s), s.policy_debt) for s in projected]))
-    # Accumulated 7-pay contributions, only while a 7-pay window is running
-    # (TAMRA year 1-7). A material change restarts the window mid-projection,
-    # so the line can break and resume against the NEW window's accumulation.
+    # Cumulative IRC 7702A limit: the annual 7-pay premium multiplied by the
+    # current TAMRA year, analogous to the accumulated GLP guideline line. This
+    # is the permitted cumulative premium, not actual premiums contributed.
+    # A material change restarts TAMRA year at 1 against the new 7-pay level.
     seven_pay_points = [
-        (xs(s), s.accumulated_7pay)
+        (xs(s), s.tamra_7pay_level * s.tamra_year)
         for s in projected
         if 1 <= s.tamra_year <= 7 and s.tamra_7pay_level > 0
     ]
@@ -1115,11 +1120,15 @@ class AccumulatedChargesChart(QWidget):
 
 
 def _status_text(state) -> str:
-    if getattr(state, "matured", False):
-        return "Maturity"
-    if state.lapsed:
-        return "LAPSED"
     flags = []
+    if getattr(state, "is_mec", False):
+        flags.append("MEC")
+    if getattr(state, "matured", False):
+        flags.append("Maturity")
+        return " ".join(flags)
+    if state.lapsed:
+        flags.append("LAPSED")
+        return " ".join(flags)
     # "Bill to MD" hand-off: once the scheduled billable premium can no longer
     # carry the policy, the Monthly Deduction premium pays instead. Flag the
     # periods where an MD premium is actually being used.

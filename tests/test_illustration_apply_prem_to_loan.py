@@ -139,7 +139,8 @@ def _alw(**overrides):
         payment_count_policy_year=12, payment_count_tamra_year=12,
         loan_repay_from_lumpsum=0.0, loan_repay_from_scheduled=0.0,
         ln_repay_left_over=0.0, has_loan_balance=False, levelizing_premium=False,
-        beginning_of_year=True, prior_scheduled_prem_cap=0.0,
+        beginning_of_year=True, policy_anniversary=True,
+        prior_scheduled_prem_cap=0.0,
     )
     kwargs.update(overrides)
     return compute_premium_allowances(**kwargs)

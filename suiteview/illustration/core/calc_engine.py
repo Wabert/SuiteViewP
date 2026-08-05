@@ -697,6 +697,7 @@ class IllustrationEngine:
         # ── 10. 7702 — GLP accumulation, guideline limit, force-out ─
         # GLP is normalized to a monthly-cent annual value. GSP is only floored
         # to annual cents; it is not divided into monthly premium slices.
+        accum_glp_prior_amount = state.accumulated_glp
         gsp_floored = floor_annual_cent(policy.gsp)
         accumulated_glp = _accumulate_guideline_premium(
             state, policy, is_anniversary, attained_age
@@ -707,6 +708,13 @@ class IllustrationEngine:
         if attained_age < 100:
             accumulated_glp += float(
                 guideline_recalc.get("accum_glp_adjustment", 0.0) or 0.0)
+        if guideline_recalc:
+            _record_accum_glp_recalc_detail(
+                guideline_recalc,
+                prior_amount=accum_glp_prior_amount,
+                new_amount=accumulated_glp,
+                policy_month=next_month,
+            )
         guideline_limit = max(gsp_floored, accumulated_glp)
 
         # Force-out: limit is the GREATER of GSP and AccumGLP, capped by
@@ -772,7 +780,7 @@ class IllustrationEngine:
         accumulated_7pay_base = 0.0 if tamra_reset else state.accumulated_7pay
         tamra_year = _tamra_year(policy, month_date)
         tamra_moy = _tamra_month_of_year(policy, month_date)
-        pc_policy, pc_tamra, _mode = _payment_counts(
+        pc_policy, pc_tamra, _payment_mode = _payment_counts(
             state, policy, month_date, next_month, month_inputs
         )
         beginning_of_year = is_anniversary or state.payment_count_policy_year == 0
@@ -793,7 +801,10 @@ class IllustrationEngine:
             payment_count_tamra_year=pc_tamra,
             has_loan_balance=has_loan_balance,
             beginning_of_year=beginning_of_year,
+            policy_anniversary=is_anniversary,
             prior_scheduled_prem_cap=state.scheduled_prem_cap,
+            prior_scheduled_cap_by_guideline=state.scheduled_cap_by_guideline,
+            prior_scheduled_cap_by_tamra=state.scheduled_cap_by_tamra,
             loan_repay_from_lumpsum=cash_flows.loan_repay_from_lumpsum,
             loan_repay_from_scheduled=cash_flows.loan_repay_from_scheduled,
             ln_repay_left_over=cash_flows.ln_repay_left_over,
@@ -1112,10 +1123,14 @@ class IllustrationEngine:
             prem_over_target=prem.prem_over_target,
             tpp_rate=prem.tpp_rate,
             epp_rate=prem.epp_rate,
-            target_load=prem.target_load,
+            target_load=prem.target_load + exception.percentage_load,
             excess_load=prem.excess_load,
-            flat_load=prem.flat_load,
-            total_premium_load=prem.total_premium_load,
+            flat_load=prem.flat_load + exception.flat_load,
+            total_premium_load=(
+                prem.total_premium_load
+                + exception.percentage_load
+                + exception.flat_load
+            ),
             net_premium=prem.net_premium,
             av_after_premium=prem.av_after_premium,
             **_premium_state_fields(allowances, requested_scheduled + requested_lumpsum),
@@ -1144,6 +1159,8 @@ class IllustrationEngine:
             gp_exception_prem_gross=exception.gross,
             gp_exception_prem=exception.prem,
             gp_exception_prem_discount=exception.discount,
+            gp_exception_percentage_load=exception.gp_percentage_load,
+            gp_exception_flat_load=exception.gp_flat_load,
             exception_protection=exception_protection,
             # Deduction
             nar_av=ded.nar_av,
@@ -1405,7 +1422,7 @@ class IllustrationEngine:
         # ── Apply premium (CalcEngine NC..NZ acceptance chain) ──
         tamra_year = _tamra_year(policy, month_date)
         tamra_moy = _tamra_month_of_year(policy, month_date)
-        pc_policy, pc_tamra, _mode = _payment_counts(
+        pc_policy, pc_tamra, _payment_mode = _payment_counts(
             state, policy, month_date, next_month, month_inputs
         )
         beginning_of_year = is_anniversary or state.payment_count_policy_year == 0
@@ -1426,7 +1443,10 @@ class IllustrationEngine:
             payment_count_tamra_year=pc_tamra,
             has_loan_balance=has_loan_balance,
             beginning_of_year=beginning_of_year,
+            policy_anniversary=is_anniversary,
             prior_scheduled_prem_cap=state.scheduled_prem_cap,
+            prior_scheduled_cap_by_guideline=state.scheduled_cap_by_guideline,
+            prior_scheduled_cap_by_tamra=state.scheduled_cap_by_tamra,
             loan_repay_from_lumpsum=cash_flows.loan_repay_from_lumpsum,
             loan_repay_from_scheduled=cash_flows.loan_repay_from_scheduled,
             ln_repay_left_over=cash_flows.ln_repay_left_over,
@@ -1576,10 +1596,14 @@ class IllustrationEngine:
             prem_over_target=prem.prem_over_target,
             tpp_rate=prem.tpp_rate,
             epp_rate=prem.epp_rate,
-            target_load=prem.target_load,
+            target_load=prem.target_load + exception.percentage_load,
             excess_load=prem.excess_load,
-            flat_load=prem.flat_load,
-            total_premium_load=prem.total_premium_load,
+            flat_load=prem.flat_load + exception.flat_load,
+            total_premium_load=(
+                prem.total_premium_load
+                + exception.percentage_load
+                + exception.flat_load
+            ),
             net_premium=prem.net_premium,
             av_after_premium=prem.av_after_premium,
             **_premium_state_fields(allowances, requested_scheduled + requested_lumpsum),
@@ -1605,6 +1629,8 @@ class IllustrationEngine:
             gp_exception_prem_gross=exception.gross,
             gp_exception_prem=exception.prem,
             gp_exception_prem_discount=exception.discount,
+            gp_exception_percentage_load=exception.gp_percentage_load,
+            gp_exception_flat_load=exception.gp_flat_load,
             exception_protection=exception_protection,
             nar_av=ded.nar_av,
             standard_db=ded.standard_db,
@@ -1770,10 +1796,13 @@ def _reband_segment(rates, segment, plancode: str, issue_date=None) -> None:
     if new_band is None or int(new_band) == segment.band:
         return
     segment.band = int(new_band)
-    for attr, kind in (("segment_coi", "COI"), ("segment_epu", "EPU")):
+    for attr, kind, scale in (
+        ("segment_coi", "COI", rates.coi_scale),
+        ("segment_epu", "EPU", rates.expense_scale),
+    ):
         schedule = rates_db.get_rates(
             kind, plancode, segment.issue_age, segment.rate_sex,
-            segment.rate_class, scale=1, band=segment.band,
+            segment.rate_class, scale=scale, band=segment.band,
         ) or []
         getattr(rates, attr)[segment.coverage_phase] = schedule
 
@@ -1793,17 +1822,21 @@ def _load_segment_rates(rates, segment, plancode: str, config=None) -> None:
     from suiteview.core.rates import Rates
 
     rates_db = Rates()
-    for attr, kind in (("segment_coi", "COI"), ("segment_epu", "EPU"), ("segment_scr", "SCR")):
+    for attr, kind, scale in (
+        ("segment_coi", "COI", rates.coi_scale),
+        ("segment_epu", "EPU", rates.expense_scale),
+        ("segment_scr", "SCR", 1),
+    ):
         schedule = rates_db.get_rates(
             kind, plancode, segment.issue_age, segment.rate_sex,
-            segment.rate_class, scale=1, band=segment.band,
+            segment.rate_class, scale=scale, band=segment.band,
         ) or []
         getattr(rates, attr)[segment.coverage_phase] = schedule
     if config is not None and getattr(config, "rachet_banding", False):
         for band, attr in ((1, "segment_coi_band1"), (2, "segment_coi_band2")):
             getattr(rates, attr)[segment.coverage_phase] = rates_db.get_rates(
                 "COI", plancode, segment.issue_age, segment.rate_sex,
-                segment.rate_class, scale=1, band=band,
+                segment.rate_class, scale=rates.coi_scale, band=band,
             ) or []
 
 
@@ -2821,6 +2854,24 @@ def _accumulate_guideline_premium(
     )
 
 
+def _record_accum_glp_recalc_detail(
+    detail: Dict[str, object],
+    *,
+    prior_amount: float,
+    new_amount: float,
+    policy_month: int,
+) -> None:
+    """Record the actual AccumGLP transition around a guideline recalc."""
+    months_prior = max(0, min(12, int(policy_month) - 1))
+    detail.update({
+        "accum_glp_prior_amount": prior_amount,
+        "accum_glp_months_prior": months_prior,
+        "accum_glp_months_after": 12 - months_prior,
+        "accum_glp_prorata_delta": round(new_amount - prior_amount, 2),
+        "accum_glp_new_amount": new_amount,
+    })
+
+
 def _apply_guideline_forceout(
     gsp: float,
     accumulated_glp: float,
@@ -2857,6 +2908,8 @@ def _tamra_year(policy: IllustrationPolicyData, month_date) -> int:
     start = policy.tamra_7pay_start_date
     if start is None or month_date is None:
         return 999
+    if month_date < start:
+        return 999
     months = (month_date.year - start.year) * 12 + (month_date.month - start.month)
     if month_date.day < start.day:
         months -= 1
@@ -2877,6 +2930,8 @@ def _tamra_month_of_year(policy: IllustrationPolicyData, month_date) -> int:
     start = policy.tamra_7pay_start_date
     if start is None or month_date is None:
         return 0
+    if month_date < start:
+        return 0
     months = (month_date.year - start.year) * 12 + (month_date.month - start.month)
     if month_date.day < start.day:
         months -= 1
@@ -2886,9 +2941,10 @@ def _tamra_month_of_year(policy: IllustrationPolicyData, month_date) -> int:
 def _payment_counts(prior_state, policy, month_date, next_month, month_inputs) -> tuple[int, int, str]:
     """Modal payment counts for the policy / TAMRA year (CalcEngine LT / LU).
 
-    INT((13 - month)/interval) computed at the start of each year and held
-    through it (the prior-state count carries on non-anniversary months). The
-    TAMRA count only applies inside an active 7-pay window (years 1..7).
+    Counts are recomputed at policy-year and TAMRA-year boundaries. TAMRA years
+    may be off-anniversary, so their remaining payments follow policy-anchored
+    modal due months rather than the TAMRA month number. The TAMRA count only
+    applies inside an active 7-pay window (years 1..7).
     Returns ``(payment_count_policy_year, payment_count_tamra_year, mode)``.
     """
     mode = (
@@ -2898,17 +2954,32 @@ def _payment_counts(prior_state, policy, month_date, next_month, month_inputs) -
     )
     interval = _MODE_INTERVALS.get(mode, 12)
     tamra_moy = _tamra_month_of_year(policy, month_date)
-    in_period = _tamra_year(policy, month_date) <= 7
+    in_period = 1 <= _tamra_year(policy, month_date) <= 7
 
-    if next_month == 1 or prior_state.payment_count_policy_year == 0:
-        pc_policy = (13 - next_month) // interval
+    def count_due_months(start_policy_month: int, month_count: int) -> int:
+        return sum(
+            1
+            for offset in range(month_count)
+            if ((start_policy_month - 1 + offset) % 12) % interval == 0
+        )
+
+    if (
+        next_month == 1
+        or tamra_moy == 1
+        or prior_state.payment_count_policy_year == 0
+    ):
+        pc_policy = count_due_months(next_month, 13 - next_month)
     else:
         pc_policy = prior_state.payment_count_policy_year
 
     if not in_period:
         pc_tamra = 0
-    elif tamra_moy == 1 or prior_state.payment_count_tamra_year == 0:
-        pc_tamra = (13 - tamra_moy) // interval
+    elif (
+        next_month == 1
+        or tamra_moy == 1
+        or prior_state.payment_count_tamra_year == 0
+    ):
+        pc_tamra = count_due_months(next_month, 13 - tamra_moy)
     else:
         pc_tamra = prior_state.payment_count_tamra_year
 
@@ -2996,6 +3067,9 @@ def _premium_allowances(
     has_loan_balance: bool,
     beginning_of_year: bool,
     prior_scheduled_prem_cap: float,
+    policy_anniversary: Optional[bool] = None,
+    prior_scheduled_cap_by_guideline: bool = False,
+    prior_scheduled_cap_by_tamra: bool = False,
     loan_repay_from_lumpsum: float = 0.0,
     loan_repay_from_scheduled: float = 0.0,
     ln_repay_left_over: float = 0.0,
@@ -3044,7 +3118,13 @@ def _premium_allowances(
         has_loan_balance=has_loan_balance,
         levelizing_premium=options.levelizing_premium,
         beginning_of_year=beginning_of_year,
+        policy_anniversary=(
+            beginning_of_year if policy_anniversary is None
+            else policy_anniversary
+        ),
         prior_scheduled_prem_cap=prior_scheduled_prem_cap,
+        prior_scheduled_cap_by_guideline=prior_scheduled_cap_by_guideline,
+        prior_scheduled_cap_by_tamra=prior_scheduled_cap_by_tamra,
     )
 
 
@@ -3055,10 +3135,14 @@ def _premium_state_fields(allowances: PremiumAllowances, requested_total: float)
         "requested_premium": requested_total,
         "premium_cap": allowances.annual_cap_2,
         "premium_capped": applied < requested_total - 1e-9,
+        "premium_capped_by_guideline": allowances.capped_by_guideline,
+        "premium_capped_by_tamra": allowances.capped_by_tamra,
         "prem_less_wd": allowances.prem_less_wd,
         "applied_lumpsum": allowances.applied_lumpsum,
         "applied_scheduled_premium": allowances.applied_scheduled_premium,
         "scheduled_prem_cap": allowances.scheduled_prem_cap,
+        "scheduled_cap_by_guideline": allowances.scheduled_cap_by_guideline,
+        "scheduled_cap_by_tamra": allowances.scheduled_cap_by_tamra,
         "levelized_max_premium": allowances.levelized_max_premium,
         "apply_levelized": allowances.apply_levelized,
         "premium_allowance_detail": allowances.to_detail(),
@@ -3109,6 +3193,10 @@ class _ExceptionPremium:
     gross: float = 0.0             # GP exception gross shortfall covered
     prem: float = 0.0              # grossed-up GP exception premium
     discount: float = 0.0          # COI saving (CalcEngine TA) when the exception fires
+    percentage_load: float = 0.0   # TPP load charged on MD + GP exception premiums
+    flat_load: float = 0.0         # flat dollar load charged per generated premium
+    gp_percentage_load: float = 0.0
+    gp_flat_load: float = 0.0
     av_after_exception: float = 0.0
 
     @property
@@ -3274,6 +3362,8 @@ def _compute_exception_premium(
                 av += av_bump
                 result.md_prem = md_prem
                 result.md_prem_gross = av_bump
+                result.percentage_load += md_prem * tpp
+                result.flat_load += flat
                 # COI saving: the part of the AV bump funded by the lower COI
                 # (the premium lifting the pre-deduction AV), not the net premium.
                 result.md_discount = av_bump - net
@@ -3301,6 +3391,10 @@ def _compute_exception_premium(
         result.gross = gross
         result.prem = gp_prem
         result.discount = discount
+        result.gp_percentage_load = gp_prem * tpp
+        result.gp_flat_load = flat
+        result.percentage_load += result.gp_percentage_load
+        result.flat_load += result.gp_flat_load
 
     result.av_after_exception = av
     return result

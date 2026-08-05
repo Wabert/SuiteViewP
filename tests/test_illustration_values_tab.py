@@ -2,6 +2,8 @@ import os
 from dataclasses import replace
 from datetime import date
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QTabWidget
@@ -15,12 +17,48 @@ from suiteview.illustration.ui.values_overview import (
     LEDGER_COLUMNS,
     SPACER_COLUMN,
     ValuesOverview,
+    _status_text,
     build_charge_bands,
     build_chart_series,
 )
 
 
 _QT_APP = None
+
+
+def test_overview_status_includes_permanent_mec_state():
+    assert _status_text(MonthlyState(is_mec=True)) == "MEC"
+    assert _status_text(MonthlyState(is_mec=True, lapsed=True)) == "MEC LAPSED"
+    assert _status_text(
+        MonthlyState(is_mec=True, lapsed=True, matured=True)
+    ) == "MEC Maturity"
+
+
+def test_overview_excludes_post_maturity_row():
+    _app()
+    overview = ValuesOverview()
+    policy = _policy()
+    policy.maturity_age = 95
+    inforce = MonthlyState(policy_year=0, policy_month=0, attained_age=94)
+    maturity = MonthlyState(
+        policy_year=58,
+        policy_month=12,
+        attained_age=94,
+        av_end_of_month=1000.0,
+    )
+    post_maturity = MonthlyState(
+        policy_year=59,
+        policy_month=1,
+        attained_age=95,
+        av_end_of_month=-25.0,
+        matured=True,
+    )
+
+    overview.display(policy, [inforce, maturity, post_maturity])
+
+    assert overview.ledger.topLevelItemCount() == 1
+    assert overview.ledger.topLevelItem(0).text(LEDGER_COLUMNS.index("Year")) == "58"
+    assert overview.kpi_av.value.text() == "1,000"
 
 
 def _app():
@@ -381,10 +419,16 @@ def _recalc_state():
         "glp_new": 115.0,
         "gsp_prior": 1100.0,
         "gsp_new": 1050.0,
+        "accum_glp_prior_amount": 4500.0,
+        "accum_glp_months_prior": 4,
+        "accum_glp_months_after": 8,
+        "accum_glp_prorata_delta": 125.0,
+        "accum_glp_new_amount": 4625.0,
         "seven_pay_prior": 80.0,
         "seven_pay_before": 80.0,
         "seven_pay_after": 95.0,
         "seven_pay_new": 95.0,
+        "tamra_case": "within_period",
         "monthly_pv_recalc": {
             "before": {"glp": _recalc_pv_detail("GLP", 100.0),
                        "gsp": _recalc_pv_detail("GSP", 1000.0)},
@@ -397,8 +441,6 @@ def _recalc_state():
 
 
 def test_tefra_tamra_recalc_summary_table_leads_with_valuation_baseline():
-    import pandas as pd
-
     _app()
     tab = IllustrationValuesTab()
 
@@ -406,38 +448,32 @@ def test_tefra_tamra_recalc_summary_table_leads_with_valuation_baseline():
     seed.date = date(2026, 6, 1)
     seed.glp = 90.0
     seed.gsp = 1100.0
+    seed.accumulated_glp = 4500.0
     seed.tamra_7pay_start_date = date(2026, 1, 1)
     seed.tamra_7pay_level = 80.0
+    seed.tamra_year = 1
+    recalc = _recalc_state()
+    recalc.accumulated_glp = 4625.0
 
-    tab.display_projection(_policy(), [seed, _recalc_state()])
+    tab.display_projection(_policy(), [seed, recalc])
 
     summary = tab.recalc_view.summary_grid.df
     assert list(summary.columns) == [
-        "Effective Date",
-        "GLPb", "GLPa", "GLP Delta", "GLP", "AccumGLP Adjust", "blank1",
-        "GSPb", "GSPa", "GSP Delta", "GSP", "blank2",
-        "7-Pay Start Date", "7-Pay Premium",
+        "Effective Date", "GLP", "GSP", "AccumGLP",
+        "7-Pay Premium", "7-Pay Start Date",
     ]
-    # Two columns each share a display label (Delta / blank) yet keep unique keys.
-    assert tab.recalc_view.summary_grid.model._header_labels == {
-        "GLP Delta": "Delta", "GSP Delta": "Delta", "blank1": "", "blank2": "",
-    }
 
-    # Row 0 is the valuation baseline: only GLP/GSP/7-pay are populated.
+    # Row 0 is the valuation baseline.
     base = summary.iloc[0]
     assert base["Effective Date"] == "06/01/2026"
     assert base["GLP"] == 90.0 and base["GSP"] == 1100.0
-    assert base["AccumGLP Adjust"] == ""
+    assert base["AccumGLP"] == 4500.0
     assert base["7-Pay Start Date"] == "01/01/2026" and base["7-Pay Premium"] == 80.0
-    for blank in ("GLPb", "GLPa", "GLP Delta", "GSPb", "GSPa", "GSP Delta"):
-        assert pd.isna(base[blank]), blank
 
-    # Row 1 is the recalc: before/after/Δ/new for both premiums plus the 7-pay.
+    # Row 1 shows the resulting values plus the active seven-pay period.
     row = summary.iloc[1]
     assert row["Effective Date"] == "05/15/2026"
-    assert (row["GLPb"], row["GLPa"], row["GLP Delta"], row["GLP"]) == (100.0, 125.0, 25.0, 115.0)
-    assert (row["GSPb"], row["GSPa"], row["GSP Delta"], row["GSP"]) == (1000.0, 950.0, -50.0, 1050.0)
-    assert row["AccumGLP Adjust"] == "none — anniversary (full year at new GLP)"
+    assert (row["GLP"], row["GSP"], row["AccumGLP"]) == (115.0, 1050.0, 4625.0)
     assert row["7-Pay Start Date"] == "05/15/2026" and row["7-Pay Premium"] == 95.0
 
     # The navigator gets a TEFRA/TAMRA Recalc parent with a child per recalc date.
@@ -450,6 +486,23 @@ def test_tefra_tamra_recalc_summary_table_leads_with_valuation_baseline():
     assert [recalc_item.child(i).text(0) for i in range(recalc_item.childCount())] == [
         "Recalc 05/15/2026",
     ]
+
+
+def test_tefra_tamra_recalc_summary_hides_inactive_seven_pay_values():
+    _app()
+    tab = IllustrationValuesTab()
+    seed = _state()
+    seed.tamra_year = 8
+    seed.tamra_7pay_start_date = date(2018, 1, 1)
+    seed.tamra_7pay_level = 80.0
+    recalc = _recalc_state()
+    recalc.guideline_recalc["tamra_case"] = "no_recalc"
+
+    tab.display_projection(_policy(), [seed, recalc])
+
+    summary = tab.recalc_view.summary_grid.df
+    assert summary["7-Pay Start Date"].tolist() == ["", ""]
+    assert summary["7-Pay Premium"].isna().all()
 
 
 def test_tefra_tamra_recalc_detail_page_renders_summary_and_pv_tabs():
@@ -470,10 +523,21 @@ def test_tefra_tamra_recalc_detail_page_renders_summary_and_pv_tabs():
         "Premium": "GLP", "Prior Prem": 90.0, "Before Change": 100.0,
         "After Change": 125.0, "Δ (After − Before)": 25.0, "New Prem": 115.0,
     }
-    assert summary.iloc[2].to_dict() == {
-        "Premium": "7-Pay", "Prior Prem": 80.0, "Before Change": 80.0,
-        "After Change": 95.0, "Δ (After − Before)": 15.0, "New Prem": 95.0,
+    assert detail_view.accum_glp_grid.df.iloc[0].to_dict() == {
+        "Premium": "AccumGLP",
+        "Prior Amount": 4500.0,
+        "New GLP - Old GLP": 25.0,
+        "Months Remaining": 8,
+        "AccumGLP Adj.": 125.0,
+        "New Amount": 4625.0,
     }
+    tamra = summary.iloc[2]
+    assert tamra["Premium"] == "7-Pay"
+    assert tamra["Prior Prem"] == 80.0
+    assert tamra["New Prem"] == 95.0
+    assert tamra[
+        ["Before Change", "After Change", "Δ (After − Before)"]
+    ].isna().all()
 
     recalc_tabs = detail_view.tabs
     assert [recalc_tabs.tabText(index) for index in range(recalc_tabs.count())] == [
@@ -523,6 +587,24 @@ def test_cov_slot_groups_show_only_active_coverages():
     assert "Current SA Cov 2" in list(tab._tab_grids["Cov After Change"].df.columns)
     assert "MTP Cov 2" in list(tab._tab_grids["MTP"].df.columns)
     assert "Cov 3 Active" not in list(tab._tab_grids["Cov After Change"].df.columns)
+
+
+def test_change_groups_carry_total_sa_on_every_month():
+    _app()
+    tab = IllustrationValuesTab()
+    first = _state()
+    first.coverage_after_change = {"CurrentSA": 100000.0}
+    second = _state()
+    second.coverage_after_change = {"CurrentSA": 75000.0}
+    second.face_change_detail = {
+        "Input Face": 75000.0,
+        "Total SA": 75000.0,
+    }
+
+    tab.display_projection(_policy(), [first, second])
+
+    for group in ("DB Option Change", "Increase/Decrease"):
+        assert list(tab._tab_grids[group].df["Total SA"]) == [100000.0, 75000.0]
 
 
 def test_summary_tab_columns_and_relabels():
@@ -583,6 +665,27 @@ def test_premium_outlay_includes_exception_premium_in_ending_values():
     assert ending.iloc[0]["PremiumOutlay"] == 125.0
 
 
+def test_exception_premium_grid_exposes_percentage_and_flat_loads():
+    state = MonthlyState(
+        gp_exception_prem_gross=462.01,
+        gp_exception_prem_discount=4.25,
+        gp_exception_percentage_load=24.18,
+        gp_exception_flat_load=1.65,
+        gp_exception_prem=483.59,
+    )
+
+    values = IllustrationValuesTab._exception_premium_values(state)
+
+    assert values["Exception_Percent_Load"] == 24.18
+    assert values["Exception_Flat_Load"] == 1.65
+    assert (
+        values["GP_Exception_Prem_Gross"]
+        - values["Exception_Prem_Discount"]
+        + values["Exception_Percent_Load"]
+        + values["Exception_Flat_Load"]
+    ) == pytest.approx(values["vGP_Exception_Prem"])
+
+
 def test_chart_cumulative_premium_uses_premium_outlay():
     # The cumulative-premium line reads premiums_to_date_after_exception, which
     # already folds in the MD and GP exception premiums (carried forward).
@@ -597,6 +700,69 @@ def test_chart_cumulative_premium_uses_premium_outlay():
     cum_premium = next(entry for entry in series if entry.name == "Cum Premium")
 
     assert cum_premium.points == [(1.0, 10_025.0), (1 + 1 / 12, 20_030.0)]
+
+
+def test_chart_accum_7pay_uses_7702a_annual_limit_not_premiums_paid():
+    states = [
+        MonthlyState(
+            policy_year=3,
+            policy_month=12,
+            tamra_year=3,
+            tamra_7pay_level=8_000.0,
+            accumulated_7pay=1_500.0,
+        ),
+        MonthlyState(
+            policy_year=4,
+            policy_month=12,
+            tamra_year=4,
+            tamra_7pay_level=8_000.0,
+            accumulated_7pay=30_000.0,
+        ),
+        MonthlyState(
+            policy_year=8,
+            policy_month=12,
+            tamra_year=8,
+            tamra_7pay_level=8_000.0,
+            accumulated_7pay=35_000.0,
+        ),
+    ]
+
+    series = build_chart_series(states)
+    accumulated_limit = next(
+        entry for entry in series if entry.name == "Accum 7-Pay Prem"
+    )
+
+    assert accumulated_limit.points == [
+        (3 + 11 / 12, 24_000.0),
+        (4 + 11 / 12, 32_000.0),
+    ]
+
+
+def test_chart_accum_7pay_restarts_with_new_tamra_period():
+    states = [
+        MonthlyState(
+            policy_year=10,
+            policy_month=5,
+            tamra_year=6,
+            tamra_7pay_level=5_000.0,
+        ),
+        MonthlyState(
+            policy_year=10,
+            policy_month=6,
+            tamra_year=1,
+            tamra_7pay_level=7_500.0,
+        ),
+    ]
+
+    series = build_chart_series(states)
+    accumulated_limit = next(
+        entry for entry in series if entry.name == "Accum 7-Pay Prem"
+    )
+
+    assert accumulated_limit.points == [
+        (10 + 4 / 12, 30_000.0),
+        (10 + 5 / 12, 7_500.0),
+    ]
 
 
 def test_chart_adds_policy_debt_series_when_projection_has_a_loan():

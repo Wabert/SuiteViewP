@@ -173,6 +173,22 @@ _LEDGER_HEADER = [
     "-" * PAGE_WIDTH,
 ]
 
+
+def _ledger_header(loan_repayments_illustrated: bool) -> List[str]:
+    if not loan_repayments_illustrated:
+        return _LEDGER_HEADER
+    return [
+        f"{'AGE':>4}{'END':>5}{'PREMIUM +':>9}{'':5}{'':>8}{'':>10}  "
+        f"{'+- GUARANTEED VALUES -+':^32}  {'+ NON-GUARANTEED VALUES +':^32}",
+        f"{'AT':>4}{'OF':>5}{'LOAN REPAY':>14}{'':>8}{'LOAN':>10}  "
+        f"{'ACCUM':>10} {'SURR':>10} {'DEATH':>10}  "
+        f"{'ACCUM':>10} {'SURR':>10} {'DEATH':>10}",
+        f"{'EOY':>4}{'YEAR':>5}{'OUTLAY':>9}{'':5}{'PROCEEDS':>8}{'BALANCE':>10}  "
+        f"{'VALUE':>10} {'VALUE':>10} {'BENEFIT':>10}  "
+        f"{'VALUE':>10} {'VALUE':>10} {'BENEFIT':>10}",
+        "-" * PAGE_WIDTH,
+    ]
+
 # Assumption note printed under the ledger: cash flows are beginning-of-period,
 # the tabulated policy values (and the age) are end-of-year.
 _LEDGER_ASSUMPTION_NOTE = (
@@ -536,7 +552,7 @@ def format_report_pages(
     # ── Ledger pages ──
     for index, chunk in enumerate(ledger_chunks):
         page = _PageBuilder(report, 2 + index, total)
-        page.lines.extend(_LEDGER_HEADER)
+        page.lines.extend(_ledger_header(report.loan_repayments_illustrated))
         base = index * LEDGER_ROWS_PER_PAGE
         for row_index, row in enumerate(chunk):
             page.add(_ledger_line(row))

@@ -169,6 +169,8 @@ COMPACT_HEADER_LABELS = {
     "vExceptionPremMode": "Exc Prem Mode",
     "GP_Exception_Prem_Gross": "Exc Prem Gross",
     "Exception_Prem_Discount": "Exc Prem Discount",
+    "Exception_Percent_Load": "Exc % Load",
+    "Exception_Flat_Load": "Exc Flat Load",
     "vGP_Exception_Prem": "Exception Prem",
     "PremTD_AfterExc": "Prem TD aft Exc",
     "PremYTD_AfterExc": "Prem YTD aft Exc",
@@ -386,6 +388,16 @@ class GuidelineRecalcDetailView(QWidget):
         self.summary_grid.set_filtering_enabled(False)
         self.summary_grid.set_full_row_selection(True)
         summary_layout.addWidget(self.summary_grid, 1)
+        summary_layout.addSpacing(8)
+        self.accum_glp_grid = FilterTableView(summary_page)
+        self.accum_glp_grid.set_search_visible(False)
+        self.accum_glp_grid.apply_ledger_style()
+        self.accum_glp_grid.set_sort_enabled(False)
+        self.accum_glp_grid.set_filtering_enabled(False)
+        self.accum_glp_grid.set_full_row_selection(True)
+        self.accum_glp_grid.info_label.setVisible(False)
+        self.accum_glp_grid.setFixedHeight(58)
+        summary_layout.addWidget(self.accum_glp_grid)
         # ── AccumGLP pro-rata true-up, worked out under the GLP/GSP table
         # (styled like the PV sheets' bottom equation line); when the recalc
         # lands on an anniversary the italic note explains why there is none.
@@ -511,12 +523,17 @@ class GuidelineRecalcDetailView(QWidget):
             detail.get(key) is not None
             for key in ("seven_pay_prior", "seven_pay_before", "seven_pay_after", "seven_pay_new")
         ):
+            prior = (
+                None
+                if detail.get("tamra_case") == "new_period"
+                else detail.get("seven_pay_prior")
+            )
             rows.append({
                 "Premium": "7-Pay",
-                "Prior Prem": detail.get("seven_pay_prior"),
-                "Before Change": detail.get("seven_pay_before"),
-                "After Change": detail.get("seven_pay_after"),
-                "Δ (After − Before)": _recalc_delta(detail, "seven_pay"),
+                "Prior Prem": prior,
+                "Before Change": None,
+                "After Change": None,
+                "Δ (After − Before)": None,
                 "New Prem": detail.get("seven_pay_new"),
             })
         self.summary_grid.set_dataframe(pd.DataFrame(rows), limit_rows=False)
@@ -524,6 +541,29 @@ class GuidelineRecalcDetailView(QWidget):
         if self.summary_grid.model is not None:
             self.summary_grid.model._left_align_columns = {0}
         self.summary_grid.autofit_columns_to_data()
+
+        accum_glp_rows = [{
+            "Premium": "AccumGLP",
+            "Prior Amount": detail.get("accum_glp_prior_amount"),
+            "New GLP - Old GLP": (
+                detail.get("glp_new") - detail.get("glp_prior")
+                if detail.get("glp_new") is not None
+                and detail.get("glp_prior") is not None
+                else None
+            ),
+            "Months Remaining": detail.get("accum_glp_months_after"),
+            "AccumGLP Adj.": detail.get("accum_glp_prorata_delta"),
+            "New Amount": detail.get("accum_glp_new_amount"),
+        }]
+        self.accum_glp_grid.set_dataframe(
+            pd.DataFrame(accum_glp_rows), limit_rows=False)
+        self.accum_glp_grid.set_numeric_formatting(
+            default_decimals=2,
+            column_decimals={"Months Remaining": 0},
+        )
+        if self.accum_glp_grid.model is not None:
+            self.accum_glp_grid.model._left_align_columns = {0}
+        self.accum_glp_grid.autofit_columns_to_data()
 
         # AccumGLP true-up under the table: the worked equation for a mid-year
         # recalc, the greyed italic note when no adjustment applies.
@@ -669,29 +709,16 @@ class TefraTamraRecalcView(QWidget):
     """TEFRA/TAMRA Recalc group: a one-row-per-recalc summary over every 7702
     re-solve, plus a per-date detail page for each recalc.
 
-    The summary leads with the valuation baseline (only GLP/GSP/7-pay populated),
-    then a row per recalc carrying the before/after/Δ/new guideline premiums and
-    the recomputed 7-pay level. Each recalc date also gets its own detail page
-    (the before/after present-value breakdown), reached from the navigator."""
+    The summary leads with the valuation baseline, then a row per recalc carrying
+    the resulting guideline values. Seven-pay values appear only while an active
+    seven-pay period applies. Each recalc date also gets its own detail page (the
+    before/after present-value breakdown), reached from the navigator."""
 
     SUMMARY_COLUMNS = [
-        "Effective Date",
-        "GLPb", "GLPa", "GLP Delta", "GLP", "AccumGLP Adjust", "blank1",
-        "GSPb", "GSPa", "GSP Delta", "GSP", "blank2",
-        "7-Pay Start Date", "7-Pay Premium",
+        "Effective Date", "GLP", "GSP", "AccumGLP",
+        "7-Pay Premium", "7-Pay Start Date",
     ]
-    # Each pair shares a display label (Delta / blank) while keeping distinct
-    # DataFrame keys so the frame's columns stay unique.
-    SUMMARY_HEADER_LABELS = {
-        "GLP Delta": "Delta",
-        "GSP Delta": "Delta",
-        "blank1": "",
-        "blank2": "",
-    }
-    _NUMERIC_COLUMNS = (
-        "GLPb", "GLPa", "GLP Delta", "GLP",
-        "GSPb", "GSPa", "GSP Delta", "GSP", "7-Pay Premium",
-    )
+    _NUMERIC_COLUMNS = ("GLP", "GSP", "AccumGLP", "7-Pay Premium")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -755,32 +782,35 @@ class TefraTamraRecalcView(QWidget):
 
         rows: list[dict] = []
         if baseline:
-            # Valuation baseline: only the in-force GLP/GSP/7-pay are known.
+            show_seven_pay = (
+                baseline.get("seven_pay_start") is not None
+                and 1 <= int(baseline.get("tamra_year") or 999) <= 7
+            )
             rows.append({
                 "Effective Date": _fmt_recalc_date(baseline.get("date")),
-                "GLPb": None, "GLPa": None, "GLP Delta": None,
-                "GLP": baseline.get("glp"), "AccumGLP Adjust": "", "blank1": "",
-                "GSPb": None, "GSPa": None, "GSP Delta": None,
-                "GSP": baseline.get("gsp"), "blank2": "",
-                "7-Pay Start Date": _fmt_recalc_date(baseline.get("seven_pay_start")),
-                "7-Pay Premium": baseline.get("seven_pay_level"),
+                "GLP": baseline.get("glp"),
+                "GSP": baseline.get("gsp"),
+                "AccumGLP": baseline.get("accumulated_glp"),
+                "7-Pay Premium": baseline.get("seven_pay_level") if show_seven_pay else None,
+                "7-Pay Start Date": (
+                    _fmt_recalc_date(baseline.get("seven_pay_start"))
+                    if show_seven_pay else ""
+                ),
             })
         for detail in recalcs:
             when = detail.get("change_date")
             self.recalc_dates.append(when)
+            show_seven_pay = detail.get("tamra_case") in {"within_period", "new_period"}
             rows.append({
                 "Effective Date": _fmt_recalc_date(when),
-                "GLPb": detail.get("glp_before"),
-                "GLPa": detail.get("glp_after"),
-                "GLP Delta": _recalc_delta(detail, "glp"),
                 "GLP": detail.get("glp_new"),
-                "AccumGLP Adjust": _accum_glp_adjust_text(detail), "blank1": "",
-                "GSPb": detail.get("gsp_before"),
-                "GSPa": detail.get("gsp_after"),
-                "GSP Delta": _recalc_delta(detail, "gsp"),
-                "GSP": detail.get("gsp_new"), "blank2": "",
-                "7-Pay Start Date": _fmt_recalc_date(detail.get("seven_pay_start")),
-                "7-Pay Premium": detail.get("seven_pay_level"),
+                "GSP": detail.get("gsp_new"),
+                "AccumGLP": detail.get("accumulated_glp"),
+                "7-Pay Premium": detail.get("seven_pay_level") if show_seven_pay else None,
+                "7-Pay Start Date": (
+                    _fmt_recalc_date(detail.get("seven_pay_start"))
+                    if show_seven_pay else ""
+                ),
             })
             view = GuidelineRecalcDetailView(self.stack)
             view.show_recalc(detail)
@@ -789,15 +819,12 @@ class TefraTamraRecalcView(QWidget):
 
         frame = pd.DataFrame(rows, columns=self.SUMMARY_COLUMNS)
         self.summary_grid.set_dataframe(frame, limit_rows=False)
-        self.summary_grid.set_header_labels(self.SUMMARY_HEADER_LABELS)
         self.summary_grid.set_numeric_formatting(
             default_decimals=2,
             column_decimals={column: 2 for column in self._NUMERIC_COLUMNS},
         )
         if self.summary_grid.model is not None:
-            # Left-align the date columns (Effective Date, 7-Pay Start Date)
-            # and the AccumGLP Adjust explanation text.
-            self.summary_grid.model._left_align_columns = {0, 5, 12}
+            self.summary_grid.model._left_align_columns = {0, 5}
         self.summary_grid.autofit_columns_to_data()
         self.stack.setCurrentIndex(0)
 
@@ -940,6 +967,8 @@ class IllustrationValuesTab(QWidget):
         "vExceptionPremMode",
         "GP_Exception_Prem_Gross",
         "Exception_Prem_Discount",
+        "Exception_Percent_Load",
+        "Exception_Flat_Load",
         "vGP_Exception_Prem",
         "PremTD_AfterExc",
         "PremYTD_AfterExc",
@@ -1665,14 +1694,17 @@ class IllustrationValuesTab(QWidget):
                 "date": seed.date,
                 "glp": seed.glp,
                 "gsp": seed.gsp,
+                "accumulated_glp": seed.accumulated_glp,
                 "seven_pay_start": seed.tamra_7pay_start_date,
                 "seven_pay_level": seed.tamra_7pay_level,
+                "tamra_year": seed.tamra_year,
             }
         recalcs = []
         for index, state in enumerate(result_list):
             if state.guideline_recalc:
                 # The 7-pay level/start live on the state, not the recalc detail.
                 detail = dict(state.guideline_recalc)
+                detail["accumulated_glp"] = state.accumulated_glp
                 detail["seven_pay_start"] = state.tamra_7pay_start_date
                 detail["seven_pay_level"] = state.tamra_7pay_level
                 # A recalc inside the 7-pay window re-tests the window's
@@ -2235,6 +2267,8 @@ class IllustrationValuesTab(QWidget):
             # COI saving from the exception premium lifting the pre-deduction AV
             # (CalcEngine TA); folded into the gross-up, surfaced here for tracing.
             "Exception_Prem_Discount": state.gp_exception_prem_discount,
+            "Exception_Percent_Load": state.gp_exception_percentage_load,
+            "Exception_Flat_Load": state.gp_exception_flat_load,
             "vGP_Exception_Prem": state.gp_exception_prem,
             # Second set of cumulative trackers, after BOTH the MD and exception
             # premiums; the next month carries forward from these.
@@ -2358,15 +2392,18 @@ class IllustrationValuesTab(QWidget):
 
     @classmethod
     def _dbo_change_values(cls, state: MonthlyState) -> dict:
-        # DB Option Change block (CalcEngine BW..CU) — zeros on no-change
-        # months. Rows always carry every slot; the per-tab column list trims
-        # to the coverages active in the run.
+        # DB Option Change block (CalcEngine BW..CU). Change activity is zero on
+        # no-change months, while Total SA carries the monthly coverage snapshot.
         row = {col: 0.0 for col in cls._dbo_change_column_names([1, 2, 3])}
         row.update({
             "Prev DBO": "", "Input DBO": "", "DBO Changed": False,
             "Change Type": "", "DBO Change Allowed": "", "DBO": "",
         })
         row.update(state.dbo_change_detail)
+        row["Total SA"] = cls._detail_float(
+            state.coverage_after_change,
+            "CurrentSA",
+        ) or cls._detail_float(state.dbo_change_detail, "Total SA")
         return row
 
     @classmethod
@@ -2374,6 +2411,10 @@ class IllustrationValuesTab(QWidget):
         # Specified Increase/Decrease block (CalcEngine CW..DO).
         row = {col: 0.0 for col in cls._face_change_column_names([1, 2, 3])}
         row.update(state.face_change_detail)
+        row["Total SA"] = cls._detail_float(
+            state.coverage_after_change,
+            "CurrentSA",
+        ) or cls._detail_float(state.face_change_detail, "Total SA")
         return row
 
     @staticmethod

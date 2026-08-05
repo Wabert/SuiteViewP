@@ -244,7 +244,11 @@ def context_from_policy(policy) -> PolicyContext:
     issue_date = getattr(policy, "issue_date", None) or getattr(policy, "base_issue_date", None)
     issue_age = int(getattr(policy, "base_issue_age", None) or getattr(policy, "issue_age", 0) or 0)
     valuation = getattr(policy, "valuation_date", None) or getattr(policy, "last_valuation_date", None)
-    forecast = valuation + relativedelta(months=1) if valuation else None
+    duration = int(getattr(policy, "duration", 0) or 0)
+    if issue_date is not None and duration > 0:
+        forecast = issue_date + relativedelta(months=duration)
+    else:
+        forecast = valuation + relativedelta(months=1) if valuation else None
     if issue_date is not None and forecast is not None:
         months = (forecast.year - issue_date.year) * 12 + (forecast.month - issue_date.month)
         if forecast.day < issue_date.day:
@@ -2037,6 +2041,34 @@ class DynamicInputsPanel(QWidget):
         self.loan_section = DynamicSection(SectionSpec("Loans", default_mode="A"))
         self.withdrawal_section = DynamicSection(SectionSpec(
             "Withdrawals", has_basis=True, default_mode="A"))
+        self.forecast_loan_edit = _Field(90, decimals=2)
+        self.forecast_loan_edit.setToolTip(
+            "A one-time fixed loan taken on the forecast date.")
+        forecast_loan_header = QWidget()
+        forecast_loan_row = QHBoxLayout(forecast_loan_header)
+        forecast_loan_row.setContentsMargins(0, 0, 0, 8)
+        forecast_loan_row.setSpacing(4)
+        forecast_loan_caption = QLabel("Forecast Date Loan")
+        forecast_loan_caption.setStyleSheet(_CAPTION_STYLE)
+        forecast_loan_row.addWidget(forecast_loan_caption)
+        forecast_loan_row.addWidget(self.forecast_loan_edit)
+        forecast_loan_row.addStretch(1)
+        self.loan_section.add_header_widget(forecast_loan_header)
+
+        self.forecast_withdrawal_edit = _Field(90, decimals=2)
+        self.forecast_withdrawal_edit.setToolTip(
+            "A one-time net withdrawal taken on the forecast date.")
+        forecast_withdrawal_header = QWidget()
+        forecast_withdrawal_row = QHBoxLayout(forecast_withdrawal_header)
+        forecast_withdrawal_row.setContentsMargins(0, 0, 0, 8)
+        forecast_withdrawal_row.setSpacing(4)
+        forecast_withdrawal_caption = QLabel("Forecast Date Withdrawal")
+        forecast_withdrawal_caption.setStyleSheet(_CAPTION_STYLE)
+        forecast_withdrawal_row.addWidget(forecast_withdrawal_caption)
+        forecast_withdrawal_row.addWidget(self.forecast_withdrawal_edit)
+        forecast_withdrawal_row.addStretch(1)
+        self.withdrawal_section.add_header_widget(forecast_withdrawal_header)
+
         self.repayment_section = DynamicSection(SectionSpec(
             "Loan Repayments", allow_payoff=True))
         # Excess-repayment behavior (apply_excess_repayment_as_premium): what a
@@ -2127,6 +2159,8 @@ class DynamicInputsPanel(QWidget):
         self._ctx.shadow_ceased = shadow_ceased
         # A freshly retrieved policy starts with an empty lump sum.
         self.lumpsum_edit.clear()
+        self.forecast_loan_edit.clear()
+        self.forecast_withdrawal_edit.clear()
         for section in (self.premium_section, self.loan_section, self.withdrawal_section,
                         self.repayment_section, self.face_section, self.dbo_section,
                         self.rateclass_section, self.table_section):
@@ -2581,6 +2615,8 @@ class DynamicInputsPanel(QWidget):
         state: dict = {
             "illustrated_rate": self.illustrated_rate_edit.text(),
             "lumpsum": self.lumpsum_edit.text(),
+            "forecast_loan": self.forecast_loan_edit.text(),
+            "forecast_withdrawal": self.forecast_withdrawal_edit.text(),
             "lumpsum_to_next": self.lumpsum_to_next_check.isChecked(),
             "apply_prem_to_loan": self.apply_prem_to_loan_check.isChecked(),
             "tamra": self.tamra_check.isChecked(),
@@ -2615,6 +2651,9 @@ class DynamicInputsPanel(QWidget):
         self.lumpsum_to_next_check.setChecked(bool(state.get("lumpsum_to_next")))
         if not self.lumpsum_to_next_check.isChecked():
             self.lumpsum_edit.setText(str(state.get("lumpsum") or ""))
+        self.forecast_loan_edit.setText(str(state.get("forecast_loan") or ""))
+        self.forecast_withdrawal_edit.setText(
+            str(state.get("forecast_withdrawal") or ""))
         self.apply_prem_to_loan_check.setChecked(
             bool(state.get("apply_prem_to_loan")))
         self.tamra_check.setChecked(bool(state.get("tamra", True)))
@@ -2791,6 +2830,10 @@ class DynamicInputsPanel(QWidget):
             if entry.get("type") in (_TYPE_BILLABLE_TO_MD, _TYPE_INPUT_TO_MD):
                 entry["metadata"] = {"billable_to_md": True}
         dated_prem, sched_prem = self._split_current_year(prem_entries)
+        for entry in dated_prem:
+            metadata = dict(entry.get("metadata") or {})
+            metadata["scheduled_current_year"] = True
+            entry["metadata"] = metadata
         if prem_entries or md_active:
             # Any premium input REPLACES the billed default from the forecast
             # year on: silence billing with a zero schedule, then layer the
@@ -2846,6 +2889,17 @@ class DynamicInputsPanel(QWidget):
         (and never solves them under a level type)."""
         ctx = self._ctx
         if include_loans:
+            forecast_loan = self.forecast_loan_edit.value()
+            if forecast_loan and ctx.forecast_date is not None:
+                input_set.dated_transactions.append(DatedTransaction(
+                    kind=TransactionKind.LOAN,
+                    effective_date=ctx.forecast_date,
+                    amount=float(forecast_loan),
+                    metadata={
+                        "loan_type": "fixed",
+                        "forecast_date_transaction": True,
+                    },
+                ))
             loan_entries = [e for e in self.loan_section.entries()
                             if e["amount"] is not None]
             dated_loan, sched_loan = self._split_current_year(loan_entries)
@@ -2854,6 +2908,15 @@ class DynamicInputsPanel(QWidget):
             input_set.scheduled_transactions.extend(
                 self._scheduled(sched_loan, TransactionKind.LOAN,
                                 metadata={"loan_type": "fixed"}))
+        forecast_withdrawal = self.forecast_withdrawal_edit.value()
+        if forecast_withdrawal and ctx.forecast_date is not None:
+            input_set.dated_transactions.append(DatedTransaction(
+                kind=TransactionKind.WITHDRAWAL,
+                effective_date=ctx.forecast_date,
+                amount=float(forecast_withdrawal),
+                subtype="net",
+                metadata={"forecast_date_transaction": True},
+            ))
         input_set.dated_transactions.extend(
             self._expand_dated(self.withdrawal_section.entries(),
                                TransactionKind.WITHDRAWAL))

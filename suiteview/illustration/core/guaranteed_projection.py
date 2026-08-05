@@ -3,11 +3,12 @@
 When an illustration runs, the CURRENT side runs first. The applied premiums,
 net withdrawals, loans, and GP exception premiums are then hard-copied
 ("locked") per month — RERUN's LockValues tab. The guaranteed side re-projects
-with guaranteed COIs and the guaranteed interest rate using those locked cash
-flows verbatim: it does NOT re-limit distributions with its own surrender
-value, and it does NOT re-cap premiums with its own recalculated guideline /
-TAMRA limits. This keeps a single column of premiums and distributions on the
-illustration while showing both guaranteed and current values.
+with guaranteed COIs and the guaranteed interest rate using those cash flows as
+its requested inputs. It does not re-limit distributions with its own surrender
+value, but it does honor the same TEFRA and TAMRA settings as the current side:
+premium limits and guideline force-outs are independently applied to the
+guaranteed projection. This allows guaranteed values to satisfy the selected
+definition-of-life-insurance tests and lapse sooner when appropriate.
 """
 from __future__ import annotations
 
@@ -93,13 +94,11 @@ def lock_values(
 
 
 def guaranteed_options(base: Optional[IllustrationOptions] = None) -> IllustrationOptions:
-    """Run options for the guaranteed side: locked inputs pass through as-is."""
+    """Run options preserving the selected regulatory conformance settings."""
     if base is None:
         base = IllustrationOptions()
     return replace(
         base,
-        conform_to_tefra=False,          # no guideline cap / force-out re-check
-        conform_to_tamra=False,          # no 7-pay re-check
         allow_exception_prems=False,     # exception premium already locked in
         pay_monthly_deduction=False,     # MD premium already locked in
         billable_to_md_windows=None,     # Billable-to-MD premiums locked in too
@@ -107,7 +106,6 @@ def guaranteed_options(base: Optional[IllustrationOptions] = None) -> Illustrati
         apply_excess_repayment_as_premium=False,
         levelizing_premium=False,
         restrict_loans_to_sv=False,      # do not re-limit locked distributions
-        cap_premiums_at_acceptance=None,
         guaranteed_assumption=True,      # sAssumptionCode=3 — caps the IUL WAIR
                                          # at the declared rate (RERUN VK)
     )
@@ -156,8 +154,10 @@ def run_guaranteed_projection(
     illustrated with the blended method the guaranteed interest rate is itself
     blended (fixed allocation × GINT; index strategies floor at 0%) — loan
     collateral still earns its guaranteed loan credit rate. Cash flows come
-    verbatim from ``lock_values``. Projects the same number of months as the
-    current run, stopping on lapse (later report years render as zero).
+    verbatim from ``lock_values``. Guideline force-outs are recalculated on the
+    guaranteed values rather than locked; acceptance capping stays off so the
+    locked premium itself is never altered. Projects the same number of months
+    as the current run, stopping on lapse (later report years render as zero).
     """
     if engine is None:
         from suiteview.illustration.core.calc_engine import IllustrationEngine

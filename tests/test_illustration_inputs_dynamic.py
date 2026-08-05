@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
+from suiteview.illustration.core.input_compiler import compile_month_inputs
 from suiteview.illustration.core.scenario_builder import build_illustration_scenario
 from suiteview.illustration.models.app_settings import get_illustration_settings
 from suiteview.illustration.models.input_set import (
@@ -51,6 +52,7 @@ class _FakePolicy:
     attained_age = 56
     valuation_date = date(2026, 5, 9)
     policy_year = 7
+    duration = 79
     maturity_age = 121
     billing_frequency = 1
     modal_premium = 153.56
@@ -695,6 +697,17 @@ def test_premium_overlap_auto_adjusts_prior_span_and_gap_emits_zero_schedule():
     assert by_year[7] == 0.0
     dated = [t for t in input_set.dated_transactions if t.kind == TransactionKind.PREMIUM]
     assert dated and min(t.effective_date for t in dated) == date(2026, 6, 9)
+    assert all(t.metadata.get("scheduled_current_year") is True for t in dated)
+    assert {t.metadata.get("mode") for t in dated} == {"M"}
+    policy = IllustrationPolicyData(
+        issue_date=date(2019, 11, 9),
+        valuation_date=date(2026, 5, 9),
+        duration=79,
+    )
+    first_month = compile_month_inputs(policy, input_set, 12)[80]
+    assert first_month.scheduled_premium == pytest.approx(153.56)
+    assert first_month.unscheduled_premium == 0.0
+    assert first_month.premium_mode == "M"
     assert by_year[8] > 0                      # the rest of the first span schedules
     assert by_year[9] == 0.0                   # gap zero
     assert by_year[12] == 500.0
@@ -857,6 +870,53 @@ def test_withdrawals_expand_to_monthliversary_dates():
     assert wds[0].effective_date == date(2029, 11, 9)   # year-11 anniversary
     assert wds[0].amount == 1000.0
     assert wds[0].subtype == "net"                      # basis defaults to Net
+
+
+def test_forecast_date_loan_and_withdrawal_export_once():
+    panel = _panel()
+    panel.forecast_loan_edit.setText("2,500")
+    panel.forecast_withdrawal_edit.setText("750")
+
+    input_set = IllustrationInputSet()
+    panel.collect_into(input_set)
+
+    forecast = [
+        transaction for transaction in input_set.dated_transactions
+        if transaction.metadata.get("forecast_date_transaction")
+    ]
+    assert [
+        (transaction.kind, transaction.effective_date, transaction.amount,
+         transaction.subtype)
+        for transaction in forecast
+    ] == [
+        (TransactionKind.LOAN, date(2026, 6, 9), 2500.0, ""),
+        (TransactionKind.WITHDRAWAL, date(2026, 6, 9), 750.0, "net"),
+    ]
+
+
+def test_forecast_date_transactions_follow_month_end_monthliversary():
+    class _MonthEndPolicy(_FakePolicy):
+        issue_date = date(2026, 1, 31)
+        valuation_date = date(2026, 2, 28)
+        policy_year = 1
+        duration = 2
+
+    _app()
+    panel = DynamicInputsPanel()
+    panel.load_from_policy(_MonthEndPolicy())
+    panel.forecast_loan_edit.setText("2,500")
+    panel.forecast_withdrawal_edit.setText("750")
+
+    input_set = IllustrationInputSet()
+    panel.collect_into(input_set)
+
+    forecast = [
+        transaction for transaction in input_set.dated_transactions
+        if transaction.metadata.get("forecast_date_transaction")
+    ]
+    assert {transaction.effective_date for transaction in forecast} == {
+        date(2026, 3, 31)
+    }
 
 
 def test_withdrawal_basis_toggle_defaults_net_and_exports_gross():

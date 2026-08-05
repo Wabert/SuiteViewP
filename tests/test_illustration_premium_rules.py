@@ -90,6 +90,83 @@ def test_payment_count_held_at_year_start_and_counts_current_year_modes():
     assert held["payment_count_policy_year"] == 4
 
 
+def test_payment_count_restarts_current_year_piece_at_tamra_anniversary():
+    from suiteview.illustration.core.calc_engine import _tamra_premium_display
+    from suiteview.illustration.models.calc_state import MonthlyState
+
+    policy = IllustrationPolicyData(
+        issue_date=date(2019, 11, 9),
+        issue_age=50,
+        maturity_age=121,
+        face_amount=100_000.0,
+        billing_frequency=3,
+        tamra_7pay_start_date=date(2026, 6, 9),
+        segments=[CoverageSegment(coverage_phase=1, face_amount=100_000.0)],
+    )
+    prior = MonthlyState(
+        payment_count_policy_year=4,
+        payment_count_tamra_year=4,
+    )
+
+    reset = _tamra_premium_display(
+        prior, policy, date(2026, 6, 9), 8, None)
+
+    assert reset["payment_count_policy_year"] == 1
+    assert reset["payment_count_tamra_year"] == 4
+
+
+def test_policy_anniversary_counts_payments_to_next_tamra_anniversary():
+    from suiteview.illustration.core.calc_engine import _tamra_premium_display
+    from suiteview.illustration.models.calc_state import MonthlyState
+
+    policy = IllustrationPolicyData(
+        issue_date=date(1985, 2, 2),
+        issue_age=33,
+        maturity_age=121,
+        face_amount=100_000.0,
+        billing_frequency=1,
+        tamra_7pay_start_date=date(2026, 9, 2),
+        segments=[CoverageSegment(coverage_phase=1, face_amount=100_000.0)],
+    )
+
+    anniversary = _tamra_premium_display(
+        MonthlyState(
+            payment_count_policy_year=5,
+            payment_count_tamra_year=12,
+        ),
+        policy,
+        date(2027, 2, 2),
+        1,
+        None,
+    )
+
+    assert anniversary["payment_count_policy_year"] == 12
+    assert anniversary["payment_count_tamra_year"] == 7
+
+
+def test_mid_tamra_payment_count_follows_policy_modal_due_months():
+    from suiteview.illustration.core.calc_engine import _tamra_premium_display
+    from suiteview.illustration.models.calc_state import MonthlyState
+
+    policy = IllustrationPolicyData(
+        issue_date=date(2019, 11, 9),
+        issue_age=50,
+        maturity_age=121,
+        face_amount=100_000.0,
+        billing_frequency=3,
+        tamra_7pay_start_date=date(2026, 6, 9),
+        segments=[CoverageSegment(coverage_phase=1, face_amount=100_000.0)],
+    )
+
+    partial = _tamra_premium_display(
+        MonthlyState(), policy, date(2026, 10, 9), 12, None)
+
+    assert partial["payment_count_policy_year"] == 0
+    # Policy months 1, 4, and 7 are quarterly due dates before the next
+    # off-anniversary TAMRA boundary.
+    assert partial["payment_count_tamra_year"] == 3
+
+
 def test_no_premium_on_maturity_date():
     states = _project_to_maturity(maturity_age=47)
     maturity = states[-1]

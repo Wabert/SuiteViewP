@@ -16,8 +16,9 @@ same intermediate allowances RERUN does:
     NN..NQ    GP / NPT / TAMRA allowance *after the lumpsum*, Annual Cap2
     NR..NU    the per-mode *level* allowances (the allowance spread across the
               remaining modal payments in the year)
-    NV        Scheduled Prem Cap — the binding per-payment level cap, locked at
-              the start of each policy year and carried forward
+    NV        Scheduled Prem Cap — the binding per-payment level cap, initialized
+              at a new 7-pay start, recalculated each policy year, and carried
+              between those anchors
     NW        Levelized Max Premium = MIN(NV, requested scheduled)
     NX        Apply Levelized Premium? — the levelizing option, off when the
               policy carries a loan
@@ -83,6 +84,10 @@ class PremiumAllowances:
     apply_levelized: bool = False            # NX
     scheduled_less_loan_repay: float = 0.0   # NY
     applied_scheduled_premium: float = 0.0   # NZ
+    scheduled_cap_by_guideline: bool = False
+    scheduled_cap_by_tamra: bool = False
+    capped_by_guideline: bool = False
+    capped_by_tamra: bool = False
     # ── carried for display only ──
     prem_less_wd: float = 0.0                # KW = PremTD − WithdrawalTD
 
@@ -167,7 +172,10 @@ def compute_premium_allowances(
     has_loan_balance: bool,            # SUM(LX:LY, MB:MC) > 0
     levelizing_premium: bool,          # sINPUT_LevelizingPremium
     beginning_of_year: bool,           # vBeginningOfYearCalc
+    policy_anniversary: bool,          # policy month 1; anchors NV recalculation
     prior_scheduled_prem_cap: float,   # NV (prior month) — for the carry-forward
+    prior_scheduled_cap_by_guideline: bool = False,
+    prior_scheduled_cap_by_tamra: bool = False,
 ) -> PremiumAllowances:
     """Compute the NC..NZ "Apply Premium" chain for one month.
 
@@ -227,7 +235,7 @@ def compute_premium_allowances(
     # ── NR..NU — per-mode level allowances (allowance spread over the payments
     #    left in the year). LU = TAMRA-year payments, LT = policy-year payments. ──
     lu = payment_count_tamra_year
-    lt = payment_count_policy_year or 1
+    lt = payment_count_policy_year
     a.tamra_level_allowance_boy = (
         a.tamra_allowance_2 if lu == 0 else a.tamra_allowance_2 / lu
     )
@@ -235,36 +243,67 @@ def compute_premium_allowances(
         eoy_numerator = a.tamra_allowance_2 + (0.0 if tamra_reset else seven_pay_level)
     else:
         eoy_numerator = INF
-    a.tamra_level_allowance_eoy = eoy_numerator / lt
+    a.tamra_level_allowance_eoy = (
+        eoy_numerator / lt if payment_count_policy_year > 0 else INF
+    )
     a.npt_level_allowance = (
         a.npt_allowance_2 if lu == 0 else a.npt_allowance_2 / lu
     )
-    a.gp_level_allowance = a.gp_allowance_2 / lt
+    a.gp_level_allowance = (
+        a.gp_allowance_2 / lt if lt > 0 else INF
+    )
 
-    # ── NV — Scheduled Prem Cap: locked at the start of each policy year, then
-    #    carried forward (so a level premium is held all year). ──
-    if beginning_of_year:
-        if tamra_force:
-            tamra_side = INF if mec_bypass else min(
+    # ── NV — Scheduled Prem Cap. Start the first level at a new TAMRA period,
+    # then recalculate at each policy anniversary from the three RERUN limits:
+    # TAMRA room before its off-anniversary increase (NR), TAMRA room after that
+    # increase (NS), and policy-year guideline room (NU). Carry NV between those
+    # anchors; a later TAMRA anniversary does not restart the policy-year level.
+    active_tamra = tamra_force and not mec_bypass and tamra_year <= 7
+    tamra_constraint_exit = (
+        prior_scheduled_cap_by_tamra and not active_tamra
+    )
+    cap_uninitialized = (
+        prior_scheduled_prem_cap <= 0.0
+        and not prior_scheduled_cap_by_guideline
+        and not prior_scheduled_cap_by_tamra
+    )
+    recalculate_cap = (
+        tamra_reset
+        or policy_anniversary
+        or tamra_constraint_exit
+        or cap_uninitialized
+    )
+    if recalculate_cap:
+        if not tamra_force or mec_bypass:
+            tamra_side = INF
+        elif not active_tamra and not is_cvat:
+            tamra_side = INF
+        else:
+            tamra_side = min(
                 a.tamra_level_allowance_boy,
                 a.tamra_level_allowance_eoy,
                 a.npt_level_allowance,
             )
-        else:
-            tamra_side = INF
         gp_side = a.gp_level_allowance if (is_gpt and tefra_force) else INF
         a.scheduled_prem_cap = min(tamra_side, gp_side)
+        a.scheduled_cap_by_guideline = (
+            gp_side < INF and gp_side <= tamra_side + 1e-9
+        )
+        a.scheduled_cap_by_tamra = (
+            tamra_side < INF and tamra_side <= gp_side + 1e-9
+        )
     else:
         a.scheduled_prem_cap = prior_scheduled_prem_cap
+        a.scheduled_cap_by_guideline = prior_scheduled_cap_by_guideline
+        a.scheduled_cap_by_tamra = prior_scheduled_cap_by_tamra
 
     # ── NW / NX / NY / NZ ──
     a.levelized_max_premium = min(a.scheduled_prem_cap, requested_scheduled)
-    # NX: vForecasting is always true in a projection, so the cap is recomputed
-    # every month — levelize only when the option is on and the policy is loan-free.
     a.apply_levelized = levelizing_premium and not has_loan_balance
     a.scheduled_less_loan_repay = requested_scheduled - loan_repay_from_scheduled
     levelized_or_full = (
-        a.levelized_max_premium if a.apply_levelized else a.scheduled_less_loan_repay
+        min(a.levelized_max_premium, a.scheduled_less_loan_repay)
+        if a.apply_levelized else a.scheduled_less_loan_repay
     )
     if tamra_force:
         tamra_scheduled_gate = INF if mec_bypass else a.npt_allowance_0
@@ -273,5 +312,38 @@ def compute_premium_allowances(
     a.applied_scheduled_premium = min(
         a.annual_cap_2, levelized_or_full, tamra_scheduled_gate
     )
+
+    def annual_cap_sources(
+        gp_allowance: float,
+        npt_allowance: float,
+        tamra_allowance: float,
+    ) -> tuple[bool, bool]:
+        gp_side = gp_allowance if (is_gpt and tefra_force) else INF
+        tamra_side = (
+            INF if (not tamra_force or mec_bypass)
+            else min(npt_allowance, tamra_allowance)
+        )
+        return (
+            gp_side < INF and gp_side <= tamra_side + 1e-9,
+            tamra_side < INF and tamra_side <= gp_side + 1e-9,
+        )
+
+    if a.applied_lumpsum < a.lumpsum_remaining - 1e-9:
+        gp_binds, tamra_binds = annual_cap_sources(
+            a.gp_allowance_1, a.npt_allowance_1, a.tamra_allowance_1)
+        a.capped_by_guideline |= gp_binds
+        a.capped_by_tamra |= tamra_binds
+
+    if a.applied_scheduled_premium < a.scheduled_less_loan_repay - 1e-9:
+        if a.annual_cap_2 <= min(levelized_or_full, tamra_scheduled_gate) + 1e-9:
+            gp_binds, tamra_binds = annual_cap_sources(
+                a.gp_allowance_2, a.npt_allowance_2, a.tamra_allowance_2)
+            a.capped_by_guideline |= gp_binds
+            a.capped_by_tamra |= tamra_binds
+        if a.apply_levelized and a.levelized_max_premium < a.scheduled_less_loan_repay - 1e-9:
+            a.capped_by_guideline |= a.scheduled_cap_by_guideline
+            a.capped_by_tamra |= a.scheduled_cap_by_tamra
+        if tamra_scheduled_gate <= min(a.annual_cap_2, levelized_or_full) + 1e-9:
+            a.capped_by_tamra = True
 
     return a

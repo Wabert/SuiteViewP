@@ -37,6 +37,67 @@ def _patch_policy_change_dependencies(monkeypatch, solve_calls):
     monkeypatch.setattr(calc_engine, "_solve_guideline_state", fake_solve)
 
 
+def test_new_increase_segment_preserves_guaranteed_rate_basis(monkeypatch):
+    calls = []
+
+    class FakeRates:
+        def get_rates(
+            self, kind, plancode, issue_age, sex, rateclass, *, scale, band
+        ):
+            calls.append((kind, scale, band))
+            return [None, float(scale)]
+
+    monkeypatch.setattr("suiteview.core.rates.Rates", FakeRates)
+    segment = CoverageSegment(
+        coverage_phase=2,
+        issue_age=79,
+        rate_sex="F",
+        rate_class="N",
+        band=2,
+    )
+    rates = IllustrationRates(coi_scale=0, expense_scale=0)
+
+    calc_engine._load_segment_rates(
+        rates, segment, "1U145500", PlancodeConfig(rachet_banding=True)
+    )
+
+    assert calls == [
+        ("COI", 0, 2),
+        ("EPU", 0, 2),
+        ("SCR", 1, 2),
+        ("COI", 0, 1),
+        ("COI", 0, 2),
+    ]
+    assert rates.segment_coi[2] == [None, 0.0]
+    assert rates.segment_epu[2] == [None, 0.0]
+
+
+def test_new_increase_segment_keeps_current_rate_basis(monkeypatch):
+    calls = []
+
+    class FakeRates:
+        def get_rates(
+            self, kind, plancode, issue_age, sex, rateclass, *, scale, band
+        ):
+            calls.append((kind, scale))
+            return [None, float(scale)]
+
+    monkeypatch.setattr("suiteview.core.rates.Rates", FakeRates)
+    segment = CoverageSegment(
+        coverage_phase=2,
+        issue_age=79,
+        rate_sex="F",
+        rate_class="N",
+        band=2,
+    )
+
+    calc_engine._load_segment_rates(
+        IllustrationRates(), segment, "1U145500", PlancodeConfig()
+    )
+
+    assert calls == [("COI", 1), ("EPU", 1), ("SCR", 1)]
+
+
 def test_gpt_rider_drop_recalculates_guideline_premiums(monkeypatch):
     solve_calls = []
     _patch_policy_change_dependencies(monkeypatch, solve_calls)
