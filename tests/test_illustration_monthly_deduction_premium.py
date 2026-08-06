@@ -248,7 +248,7 @@ def test_option_b_switches_to_a_before_first_gp_exception(monkeypatch):
         policy, months=3,
         options=IllustrationOptions(
             pay_monthly_deduction=True, conform_to_tefra=True,
-            allow_exception_prems=True),
+            allow_exception_prems=True, switch_to_option_a_in_exception=True),
         rates_override=_rates(), bonus_override=BonusConfig(),
     )
     option_a = _md_policy()
@@ -303,7 +303,8 @@ def test_option_b_exception_period_uses_option_a_every_row(monkeypatch):
     states = IllustrationEngine().project(
         policy, months=6,
         options=IllustrationOptions(
-            conform_to_tefra=True, allow_exception_prems=True),
+            conform_to_tefra=True, allow_exception_prems=True,
+            switch_to_option_a_in_exception=True),
         rates_override=_rates(), bonus_override=BonusConfig(),
     )
     exc_rows = [s for s in states[1:] if s.gp_exception_mode]
@@ -318,6 +319,38 @@ def test_option_b_exception_period_uses_option_a_every_row(monkeypatch):
                 s.gp_exception_prem_gross * s.coi_rate / 1000.0, rel=1e-6)
     # The caller's policy object is untouched (private-copy guard).
     assert policy.db_option == "B"
+
+
+def test_option_b_exception_period_default_keeps_option_b(monkeypatch):
+    # Gating check: without switch_to_option_a_in_exception, an Option B policy
+    # keeps Option B assumptions through the GP exception period (the switch is
+    # opt-in via the "Switch to Option A in exception period" control).
+    dbd = 0.0425
+    monkeypatch.setattr(
+        calc_engine, "load_plancode",
+        lambda _p: PlancodeConfig(
+            plancode="MDPREM", dbd=dbd, gint=0.0, corridor_code=None,
+            epu_code="0", mfee="0", premium_load="0", prem_flat_load=0.0,
+        ),
+    )
+    monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())
+    monkeypatch.setattr(calc_engine, "_guideline_limit_reached", lambda *a, **k: True)
+
+    policy = _md_policy()
+    policy.db_option = "B"
+    policy.account_value = 100.0
+
+    states = IllustrationEngine().project(
+        policy, months=6,
+        options=IllustrationOptions(
+            conform_to_tefra=True, allow_exception_prems=True),
+        rates_override=_rates(), bonus_override=BonusConfig(),
+    )
+    exc_rows = [s for s in states[1:] if s.gp_exception_mode]
+    assert len(exc_rows) >= 3
+    # No opt-in -> the policy stays Option B for the whole exception period.
+    for s in exc_rows:
+        assert s.db_option == "B"
 
 
 def test_monthly_deduction_premium_active_honors_windows():

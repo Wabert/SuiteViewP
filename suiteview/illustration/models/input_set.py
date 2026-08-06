@@ -119,6 +119,14 @@ class IllustrationOptions:
     # period to keep the policy alive once it is sitting at the guideline limit.
     allow_exception_prems: bool = False
 
+    # Switch to Option A in the exception period — when an Option B policy enters
+    # the GP exception period, re-run its monthly deduction + exception premium
+    # under Option A (level death benefit) assumptions. This changes the COI
+    # saving that discounts the exception premium (Option A gives the full COI
+    # saving; Option B nearly washes it out). Off by default — the policy keeps
+    # its own death-benefit option through the exception period unless opted in.
+    switch_to_option_a_in_exception: bool = False
+
     # sINPUT_LevelizingPremium — when a premium cap binds, spread the allowed
     # premium evenly across the year's modal payments instead of billing each
     # payment in full until the annual room runs out mid-year. Off by default
