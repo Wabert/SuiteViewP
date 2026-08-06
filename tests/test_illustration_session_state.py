@@ -1,9 +1,9 @@
 """Per-policy session persistence in the Illustration window.
 
-Switching between policies (Get / the Policy List) must preserve each
-policy's Illustration Inputs and last computed Values for the session:
-coming back restores the exact inputs widget and re-renders the cached
-projection without any engine run.
+Policy-list switching preserves each policy's Illustration Inputs and last
+computed Values for the session: coming back restores the exact inputs widget
+and re-renders the cached projection without any engine run. Explicitly clicking
+Get resets that policy to fresh defaults.
 """
 import os
 from datetime import date
@@ -236,6 +236,30 @@ def test_revisit_without_a_run_restores_inputs_and_empty_values(monkeypatch):
     assert window.inputs_tab is tab_a
     assert tab_a.dynamic_panel.premium_section.rows()[0].amount_edit.text() == "777.00"
     # Never ran → values stay empty, no phantom projection.
+    assert window.values_tab._current_view is None
+    assert window.report_tab.current_report() is None
+
+    window.close()
+
+
+def test_clicking_get_reloads_same_policy_with_default_inputs(monkeypatch):
+    window = _make_window(monkeypatch)
+    window.lookup_bar.region_input.setText("CKPR")
+    window.lookup_bar.company_input.setText("01")
+    window.lookup_bar.policy_input.setText("POLA")
+
+    window.lookup_bar.get_button.click()
+    original_tab = window.inputs_tab
+    original_tab.dynamic_panel.premium_section.rows()[0].amount_edit.setText("777.00")
+    original_tab.exact_days_check.setChecked(True)
+    window.values_tab.display_projection(_policy_data(), [_state()], months=1)
+    window.report_tab.display_report(_report())
+
+    window.lookup_bar.get_button.click()
+
+    assert window.inputs_tab is not original_tab
+    assert window.inputs_tab.dynamic_panel.premium_section.rows()[0].amount_edit.text() != "777.00"
+    assert window.inputs_tab.exact_days_check.isChecked() is False
     assert window.values_tab._current_view is None
     assert window.report_tab.current_report() is None
 
