@@ -220,7 +220,6 @@ class DynamicQuery(QWidget):
     """
     config_changed = pyqtSignal()
     common_tables_changed = pyqtSignal(dict)  # {name: [(col, type), ...]}
-    dataset_pinned = pyqtSignal(object)  # PinnedDataset
     query_saved = pyqtSignal(object)     # SavedQuery
     query_deleted = pyqtSignal(str)      # query name deleted
     new_query_requested = pyqtSignal()
@@ -337,7 +336,6 @@ class DynamicQuery(QWidget):
 
         self.results_tab = ResultsTab()
         self.tab_widget.addTab(self.results_tab, "Results")
-        self.results_tab.pin_requested.connect(self._on_pin_requested)
 
         self.sql_tab = SqlTab()
         self.tab_widget.addTab(self.sql_tab, "SQL")
@@ -927,35 +925,6 @@ class DynamicQuery(QWidget):
         self.btn_save_query.setVisible(bool(self._saved_query_name.strip()))
         self.btn_save_as.setVisible(True)
         self.btn_new_query.setVisible(True)
-
-    # ── Pin to Workbench ───────────────────────────────────────────
-
-    def _on_pin_requested(self, df: pd.DataFrame):
-        """Pin the current results to the Workbench dataset store."""
-        from suiteview.workbench.models import PinnedDataset
-        from suiteview.workbench import dataset_store as store
-
-        sql = self.sql_tab.txt_sql.toPlainText().strip()
-        name, ok = QInputDialog.getText(
-            self, "Pin to Workbench",
-            "Dataset name:",
-            text=f"{self.query_name} — {len(df)} rows",
-        )
-        if not ok or not name.strip():
-            return
-
-        ds = PinnedDataset.from_dataframe(
-            df,
-            name=name.strip(),
-            source_type="dynamic_group",
-            source_label=f"{self.query_name} ({self.dsn})",
-            source_sql=sql,
-        )
-        store.save_dataset(ds)
-
-        self.results_tab.lbl_status.setText(
-            f"📌 Pinned \"{ds.name}\" ({ds.shape_label})")
-        self.dataset_pinned.emit(ds)
 
     # ── Build SQL feature ────────────────────────────────────────────
 

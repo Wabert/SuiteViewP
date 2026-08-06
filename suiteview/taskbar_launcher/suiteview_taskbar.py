@@ -2097,7 +2097,6 @@ class SuiteViewTaskbar(QWidget):
         self._start_geometry = None
         
         # Store references to opened app windows
-        self.db_window = None
         self.mainframe_window = None
         self.email_attachments_window = None
         self.screenshot_window = None
@@ -2391,7 +2390,7 @@ class SuiteViewTaskbar(QWidget):
             self._unregister_appbar()
             
             # Close all child windows
-            for window in [self.db_window, self.mainframe_window, self.email_attachments_window, 
+            for window in [self.mainframe_window, self.email_attachments_window,
                            self.screenshot_window, self.polview_window, self.ratemanager_window,
                            self.abrquote_window, self.illustration_window, self.file_nav_window]:
                 if window:
@@ -2571,19 +2570,6 @@ class SuiteViewTaskbar(QWidget):
                 return
         self._bring_to_front(self.agent_chat_window)
 
-    def _open_data_manager(self):
-        """Open the Data Manager window"""
-        if self.db_window is None:
-            try:
-                from suiteview.database_manager.main_window import MainWindow
-                from suiteview.utils.config import Config
-                self.db_window = MainWindow(Config())
-                self._setup_child_window(self.db_window, "Data Manager")
-            except Exception as e:
-                logger.error(f"Failed to open Data Manager: {e}")
-                return
-        self._bring_to_front(self.db_window)
-    
     def _open_mainframe(self):
         """Open the Mainframe Navigator window"""
         if self.mainframe_window is None:

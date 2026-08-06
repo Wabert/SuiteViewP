@@ -735,7 +735,7 @@ class UniqueValueRegistryWindow(FramelessWindowBase):
                         0,
                         f"{reg['table_name']}.{reg['column_name']}\n"
                         f"{reg['value_count']} unique values\n"
-                        f"Last scanned: {reg.get('last_scanned_at', '\u2014')}",
+                        "Last scanned: " + str(reg.get("last_scanned_at", "\u2014")),
                     )
 
         self.lbl_summary.setText(
