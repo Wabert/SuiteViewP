@@ -31,7 +31,7 @@ Input basis (SuiteView extension — RERUN's vINPUT_Withdrawal is net-only):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, Optional
 
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
@@ -61,6 +61,8 @@ class WithdrawalResult:
     # guideline premiums (filled by the engine after the recalc); empty
     # when the withdrawal did not move the specified amount.
     guideline_recalc: Dict[str, object] = field(default_factory=dict)
+    guideline_before: Optional[object] = None
+    guideline_before_pv_detail: Dict[str, object] = field(default_factory=dict)
 
 
 def compute_withdrawal(

@@ -618,6 +618,7 @@ class IllustrationEngine:
         wd = _process_withdrawal(
             state, policy, config, rates, rate_year, attained_age, month_date,
             av, cost_basis, month_inputs, cap_loan, is_anniversary, options,
+            defer_guideline_recalc=bool(policy_changes),
         )
         av = wd.av_post_withdrawal
         # BO (AV post withdrawal) — the begin AV of the WAIR one-year TAV
@@ -628,30 +629,69 @@ class IllustrationEngine:
 
         # ── 3-7. Policy changes / coverage after change ───────
         # Apply any dated policy change effective this month (mutates the private
-        # policy copy) before coverage/deduction reads the segments. A coverage
-        # change recomputes vMTP/vCTP and the guideline premiums; a material
-        # change (face increase, B→A) also restarts the 7-pay period.
+        # policy copy) before coverage/deduction reads the segments. Targets are
+        # refreshed as each change is applied; GLP/GSP are recalculated once from
+        # the policy state before the withdrawal through the final changed state.
+        # A material change (face increase, B→A) also restarts the 7-pay period.
         tamra_reset = False
         # FQ vPolicyChangeAVReduction = gross WD + change partial SCs.
         policy_change_av_reduction = wd.gross_withdrawal
         dbo_change_detail: Dict[str, object] = {}
         face_change_detail: Dict[str, object] = {}
-        # First guideline re-solve this month: a SA-reducing withdrawal recalcs
-        # before the dated changes, so it wins ties on "first instance".
         guideline_recalc: Dict[str, object] = dict(wd.guideline_recalc)
+        guideline_before = wd.guideline_before
+        guideline_before_pv_detail = wd.guideline_before_pv_detail
+        guideline_changes = 1 if wd.face_decrease > 1e-9 else 0
+        recalc_change = (
+            PolicyChangeEvent(
+                kind=PolicyChangeKind.FACE_AMOUNT,
+                effective_date=month_date,
+                value=policy.total_face,
+            )
+            if guideline_changes
+            else None
+        )
         if policy_changes:
-            for change in policy_changes:
+            for change in sorted(
+                policy_changes,
+                key=lambda item: _POLICY_CHANGE_ORDER.get(item.kind, 99),
+            ):
                 outcome = _apply_policy_change(
                     policy, config, change, attained_age, month_date,
                     rates, rate_year, av, options=options,
+                    defer_guideline_recalc=True,
+                    capture_guideline_before=guideline_before is None,
                 )
                 av += outcome.av_adjustment
                 policy_change_av_reduction += max(0.0, -outcome.av_adjustment)
                 tamra_reset = tamra_reset or outcome.material_change
                 dbo_change_detail.update(outcome.dbo_detail)
                 face_change_detail.update(outcome.face_detail)
-                if outcome.guideline_recalc and not guideline_recalc:
-                    guideline_recalc = outcome.guideline_recalc
+                if outcome.coverage_changed:
+                    guideline_changes += 1
+                    if recalc_change is None:
+                        recalc_change = change
+                if guideline_before is None and outcome.guideline_before is not None:
+                    guideline_before = outcome.guideline_before
+                    guideline_before_pv_detail = outcome.guideline_before_pv_detail
+
+            if guideline_changes and recalc_change is not None:
+                if guideline_changes > 1:
+                    recalc_change = PolicyChangeEvent(
+                        kind=recalc_change.kind,
+                        effective_date=month_date,
+                        value=recalc_change.value,
+                        metadata={"change_label": "Combined Policy Changes"},
+                    )
+                guideline_recalc = _recalc_guideline_on_change(
+                    policy, config, recalc_change, attained_age,
+                    change_date=month_date,
+                    before=guideline_before,
+                    av=av,
+                    material_change=tamra_reset,
+                    options=options,
+                    before_pv_detail=guideline_before_pv_detail,
+                )
 
         # A material change restarts the 7-pay period at the change date, so the
         # TAMRA year/month and 7-pay accumulation count from here.
@@ -1847,11 +1887,23 @@ def _change_duration(policy: IllustrationPolicyData, effective_date) -> int:
     return max(1, months + 1)
 
 
+_POLICY_CHANGE_ORDER = {
+    PolicyChangeKind.DB_OPTION: 0,
+    PolicyChangeKind.FACE_AMOUNT: 1,
+    PolicyChangeKind.RATE_CLASS: 2,
+    PolicyChangeKind.SUBSTANDARD: 3,
+    PolicyChangeKind.RIDER_DROP: 4,
+}
+
+
 def _compile_policy_changes(policy: IllustrationPolicyData, changes) -> Dict[int, list]:
-    """Bucket dated policy changes by the projection duration they take effect."""
+    """Bucket and order dated changes by their position in the monthly pipeline."""
     by_duration: Dict[int, list] = {}
     for change in changes:
         by_duration.setdefault(_change_duration(policy, change.effective_date), []).append(change)
+    for month_changes in by_duration.values():
+        month_changes.sort(
+            key=lambda change: _POLICY_CHANGE_ORDER.get(change.kind, 99))
     return by_duration
 
 
@@ -1981,6 +2033,8 @@ class _PolicyChangeOutcome:
     # Before/after GLP & GSP solves when this change re-solved the guideline
     # premiums (see _recalc_guideline_on_change); empty otherwise.
     guideline_recalc: Dict[str, object] = dataclass_field(default_factory=dict)
+    guideline_before: Optional[object] = None
+    guideline_before_pv_detail: Dict[str, object] = dataclass_field(default_factory=dict)
 
 
 @dataclass
@@ -2217,6 +2271,7 @@ def _primary_insured_rider_face(policy, month_date) -> float:
 def _process_withdrawal(
     state, policy, config, rates, rate_year, attained_age, month_date,
     av, cost_basis, month_inputs, cap_loan, is_anniversary, options,
+    defer_guideline_recalc=False,
 ) -> WithdrawalResult:
     """Compute and APPLY one month's withdrawal (CalcEngine AX..BU).
 
@@ -2255,15 +2310,19 @@ def _process_withdrawal(
     if wd.face_decrease > 1e-9:
         before = _solve_guideline_state(
             policy, config, attained_age, month_date, options)
-        seven_pay_start = policy.tamra_7pay_start_date or month_date
-        seven_pay_before = _solve_guideline_state(
-            policy, config, _attained_age_at(policy, seven_pay_start),
-            seven_pay_start, options,
-            starting_av=policy.tamra_7pay_start_av,
-            active_as_of=month_date,
-        ).seven_pay
+        seven_pay_before = None
+        if not defer_guideline_recalc:
+            seven_pay_start = policy.tamra_7pay_start_date or month_date
+            seven_pay_before = _solve_guideline_state(
+                policy, config, _attained_age_at(policy, seven_pay_start),
+                seven_pay_start, options,
+                starting_av=policy.tamra_7pay_start_av,
+                active_as_of=month_date,
+            ).seven_pay
         before_pv_detail = _safe_guideline_pv_recalc_detail(
             policy, config, attained_age, month_date)
+        wd.guideline_before = before
+        wd.guideline_before_pv_detail = before_pv_detail
         _reduce_base_face(
             policy, wd.face_decrease, rates, month_date, rate_year,
             charge_scr=False)
@@ -2271,21 +2330,22 @@ def _process_withdrawal(
         targets = compute_target_premiums(policy, config, as_of=month_date)
         policy.mtp = targets.mtp_annual / 12.0
         policy.ctp = targets.ctp_annual
-        wd.guideline_recalc = _recalc_guideline_on_change(
-            policy, config,
-            PolicyChangeEvent(
-                kind=PolicyChangeKind.FACE_AMOUNT,
-                effective_date=month_date,
-                value=policy.total_face),
-            attained_age,
-            change_date=month_date,
-            before=before,
-            av=wd.av_post_withdrawal,
-            material_change=False,
-            options=options,
-            before_pv_detail=before_pv_detail,
-            seven_pay_before=seven_pay_before,
-        )
+        if not defer_guideline_recalc:
+            wd.guideline_recalc = _recalc_guideline_on_change(
+                policy, config,
+                PolicyChangeEvent(
+                    kind=PolicyChangeKind.FACE_AMOUNT,
+                    effective_date=month_date,
+                    value=policy.total_face),
+                attained_age,
+                change_date=month_date,
+                before=before,
+                av=wd.av_post_withdrawal,
+                material_change=False,
+                options=options,
+                before_pv_detail=before_pv_detail,
+                seven_pay_before=seven_pay_before,
+            )
     return wd
 
 
@@ -2311,7 +2371,7 @@ def _withdrawal_state_fields(wd: WithdrawalResult) -> Dict[str, object]:
 
 def _apply_policy_change(
     policy, config, change, attained_age, change_date, rates, rate_year, av,
-    options=None,
+    options=None, defer_guideline_recalc=False, capture_guideline_before=True,
 ) -> _PolicyChangeOutcome:
     """Mutate the (private) policy state for one change at its effective month.
 
@@ -2338,20 +2398,27 @@ def _apply_policy_change(
     seven_pay_before = None
     before_pv_detail: Dict[str, object] = {}
     if (
-        _will_alter_coverage(policy, change, face_before, av)
-        or _will_alter_guideline_charge_basis(policy, change)
-    ) and not fully_injected:
+        capture_guideline_before
+        and (
+            _will_alter_coverage(policy, change, face_before, av)
+            or _will_alter_guideline_charge_basis(policy, change)
+        )
+        and not fully_injected
+    ):
         before = _solve_guideline_state(
             policy, config, attained_age, change_date, options)
-        seven_pay_start = policy.tamra_7pay_start_date or change_date
-        seven_pay_before = _solve_guideline_state(
-            policy, config, _attained_age_at(policy, seven_pay_start),
-            seven_pay_start, options,
-            starting_av=policy.tamra_7pay_start_av,
-            active_as_of=change_date,
-        ).seven_pay
+        if not defer_guideline_recalc:
+            seven_pay_start = policy.tamra_7pay_start_date or change_date
+            seven_pay_before = _solve_guideline_state(
+                policy, config, _attained_age_at(policy, seven_pay_start),
+                seven_pay_start, options,
+                starting_av=policy.tamra_7pay_start_av,
+                active_as_of=change_date,
+            ).seven_pay
         before_pv_detail = _safe_guideline_pv_recalc_detail(
             policy, config, attained_age, change_date)
+        outcome.guideline_before = before
+        outcome.guideline_before_pv_detail = before_pv_detail
 
     if change.kind == PolicyChangeKind.DB_OPTION:
         old = str(policy.db_option or "").upper()
@@ -2500,16 +2567,17 @@ def _apply_policy_change(
         targets = compute_target_premiums(policy, config, as_of=change_date)
         policy.mtp = targets.mtp_annual / 12.0
         policy.ctp = targets.ctp_annual
-        outcome.guideline_recalc = _recalc_guideline_on_change(
-            policy, config, change, attained_age,
-            change_date=change_date,
-            before=before,
-            av=av,
-            material_change=outcome.material_change,
-            options=options,
-            before_pv_detail=before_pv_detail,
-            seven_pay_before=seven_pay_before,
-        )
+        if not defer_guideline_recalc:
+            outcome.guideline_recalc = _recalc_guideline_on_change(
+                policy, config, change, attained_age,
+                change_date=change_date,
+                before=before,
+                av=av,
+                material_change=outcome.material_change,
+                options=options,
+                before_pv_detail=before_pv_detail,
+                seven_pay_before=seven_pay_before,
+            )
     return outcome
 
 
@@ -2526,7 +2594,20 @@ def _will_alter_coverage(policy, change, face_before: float, av: float) -> bool:
 
 
 def _will_alter_guideline_charge_basis(policy, change) -> bool:
-    if change.kind != PolicyChangeKind.RIDER_DROP or not policy.is_gpt:
+    if not policy.is_gpt:
+        return False
+    if change.kind == PolicyChangeKind.RATE_CLASS:
+        base = policy.base_segment
+        new_class = str(change.value or "").strip().upper()
+        return (
+            base is not None
+            and bool(new_class)
+            and new_class != (base.rate_class or "").upper()
+        )
+    if change.kind == PolicyChangeKind.SUBSTANDARD:
+        base = policy.base_segment
+        return base is not None and int(change.value or 0) != base.table_rating
+    if change.kind != PolicyChangeKind.RIDER_DROP:
         return False
     target = str((change.metadata or {}).get("target", ""))
     new_amount = float(change.value or 0.0)
@@ -2765,7 +2846,7 @@ def _recalc_guideline_on_change(
         after_pv_detail = _safe_guideline_pv_recalc_detail(
             policy, config, attained_age, change_date)
         recalc_detail = {
-            "change_kind": _CHANGE_KIND_LABELS.get(
+            "change_kind": md.get("change_label") or _CHANGE_KIND_LABELS.get(
                 change.kind, change.kind.name.replace("_", " ").title()),
             "change_date": change_date,
             "glp_before": before.glp,
