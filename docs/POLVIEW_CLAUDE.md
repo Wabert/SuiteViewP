@@ -16,7 +16,7 @@ application (`SuiteView v2.2`).
 
 ### Original VBA Application
 - **Location:** `SuiteView (v2.2).xlsm`
-- **Extracted VBA Code:** `Archive/VBA_Extracted/` folder
+- **Extracted VBA Code:** `docs/vba_reference/` folder
 
 #### Key VBA Files
 | File | Lines | Purpose |

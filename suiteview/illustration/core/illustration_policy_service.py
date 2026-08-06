@@ -197,7 +197,7 @@ def build_illustration_data(
     # current CCV *account value*, not the GPT GAV. The correct DB2 source is
     # unconfirmed and is absent from the local fixtures (gav & ccv_target both null
     # for U0492070). RERUN injects sInput_CurrentShadowAV at the valuation date.
-    # See QUESTION_LOG.md. Until confirmed, fall back to gav.
+    # See docs/Illustration_UL/QUESTION_LOG.md. Until confirmed, fall back to gav.
     gav_raw = pi.gav
     shadow_av = float(gav_raw) if gav_raw is not None else 0.0
 

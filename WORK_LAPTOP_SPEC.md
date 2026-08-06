@@ -371,7 +371,7 @@ Built a fully-offline harness that drives the **RERUN** workbook via Excel COM a
 diffs it against the SuiteView engine, using the local SQLite fixtures. Found and
 fixed **three** engine bugs; **all four** local inforce cases now match RERUN to
 **sub-penny** on the base AV chain, deduction breakdown, interest, values, and
-rates. Branch pushed to origin. See `QUESTION_LOG.md` (root) for open questions and
+rates. Branch pushed to origin. See `docs/Illustration_UL/QUESTION_LOG.md` (root) for open questions and
 the policy-change plan.
 
 **Harness (all offline, minipc-safe — Excel IS available here now):**
@@ -461,7 +461,7 @@ in the running app**:
 ### 1.10 Query Browser groups/IDs/colors + Append Tables backbone (2026-06-11, minipc)
 
 The Query Object browser was rebuilt on a bookmark-style organizer
-(`audit/query_organizer.py`; design in `DATAFORGE_DESIGN.md` §8) and queries
+(`audit/query_organizer.py`; design in `docs/DATAFORGE_DESIGN.md` §8) and queries
 got permanent unique ids (`QueryObject.id`, id-keyed store files with
 in-place legacy migration — the first browser open MIGRATES
 `~/.suiteview/query_objects/*.json` to `name__id8.json`; verify it's clean).

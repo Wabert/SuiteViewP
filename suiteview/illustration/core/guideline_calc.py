@@ -195,7 +195,7 @@ def calculate_7pay_premium(inputs: GuidelinePremiumInputs, pay_years: int = 7) -
     Guideline_Premiums sheet needs the guaranteed-COI mortality table (live
     UL_Rates) — verify on the work laptop. RERUN computes its own 7-pay
     (CalcEngine ``KY`` ← Guideline_Premiums col 6) by a slightly different method;
-    they should agree closely. See QUESTION_LOG.md for the expense/interest basis
+    they should agree closely. See docs/Illustration_UL/QUESTION_LOG.md for the expense/interest basis
     questions.
     """
     _check_level_db(inputs)
