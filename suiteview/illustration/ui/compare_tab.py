@@ -36,7 +36,6 @@ this tab is a thin Qt shell that extracts each side's widget state into a
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -76,6 +75,7 @@ from .styles import (
     VALUE_BUTTON_STYLE,
     WHITE,
 )
+from .saved_case_scenario import build_spec_from_tab, materialize_saved_case
 
 logger = logging.getLogger(__name__)
 
@@ -473,22 +473,20 @@ class IllustrationCompareTab(QWidget):
                     or self._fetch_live_policy_data(key))
             return self._spec_from_tab(CURRENT_INPUTS_LABEL, window.inputs_tab, base)
 
-        from .inputs_tab import IllustrationInputsTab
-
         snapshot = case.policy_snapshot
         if snapshot is not None:
-            # Deepcopy so neither the tab load nor the engine can mutate the
-            # case's stored snapshot across repeated comparisons.
-            base_policy = load_policy = deepcopy(snapshot)
-            has_shadow = bool(getattr(snapshot, "has_shadow_account", False))
-            shadow_ceased = bool(getattr(snapshot, "ccv_ceased", False))
-        else:
-            base_policy = self._fetch_live_policy_data(key)
-            load_policy = window._policy
-            illustration_data = getattr(window, "_illustration_data", None)
-            has_shadow = bool(getattr(illustration_data, "has_shadow_account", False))
-            shadow_ceased = bool(getattr(illustration_data, "ccv_ceased", False))
+            return materialize_saved_case(
+                case,
+                warning_prefix=f"[{side} · {case.name}] ",
+                spec_builder=self._spec_from_tab,
+            )
 
+        from .inputs_tab import IllustrationInputsTab
+        base_policy = self._fetch_live_policy_data(key)
+        load_policy = window._policy
+        illustration_data = getattr(window, "_illustration_data", None)
+        has_shadow = bool(getattr(illustration_data, "has_shadow_account", False))
+        shadow_ceased = bool(getattr(illustration_data, "ccv_ceased", False))
         tab = IllustrationInputsTab()
         try:
             tab.load_data_from_policy(
@@ -520,26 +518,7 @@ class IllustrationCompareTab(QWidget):
     @staticmethod
     def _spec_from_tab(label: str, inputs_tab, policy_data) -> ScenarioSpec:
         """The same widget reads Run Values performs, bundled for the worker."""
-        from suiteview.illustration.core.scenario_builder import (
-            build_illustration_scenario,
-        )
-        scenario = build_illustration_scenario(
-            policy_data,
-            inforce_overrides=inputs_tab.export_inforce_overrides(),
-            future_inputs=inputs_tab.export_input_set(),
-        )
-        return ScenarioSpec(
-            label=label,
-            scenario=scenario,
-            months=inputs_tab.projection_months(scenario.projectable_policy),
-            options=inputs_tab.export_options(),
-            stop_on_lapse=inputs_tab.stop_on_lapse_enabled(),
-            lumpsum_to_next=inputs_tab.lumpsum_to_next_enabled(),
-            max_level=inputs_tab.max_level_request(),
-            min_level=inputs_tab.min_level_request(),
-            shadow_level=inputs_tab.shadow_level_request(),
-            payoff_requests=inputs_tab.loan_payoff_requests(),
-        )
+        return build_spec_from_tab(label, inputs_tab, policy_data)
 
     def _show_apply_warnings(self, specs: list):
         warnings = [w for spec in specs for w in spec.apply_warnings]

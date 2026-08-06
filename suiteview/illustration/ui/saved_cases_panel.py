@@ -346,6 +346,10 @@ class SavedCasesView(QWidget):
                 names.append(name)
         return names
 
+    def selected_case_names(self) -> list[str]:
+        """Public snapshot of the selected saved-case names, in tree order."""
+        return self._selected_case_names()
+
     def _on_delete_key_pressed(self):
         names = self._selected_case_names()
         if names:

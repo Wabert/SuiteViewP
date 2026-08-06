@@ -613,7 +613,7 @@ Includes everything:
 
 **Taskbar buttons:** PolView (P), FileNav (F), ABR Quote (A), Audit/QueryTool (Q), ScratchPad (📝), File History (H)
 
-**Tools menu:** View Screenshots, PolView, ABR Quote, Mainframe Navigator, Audit Tool, Email Attachments (dev), Task Tracker (dev), Rate File Converter (dev), App Data Location
+**Tools menu:** View Screenshots, PolView, ABR Quote, Mainframe Navigator, Audit Tool, DB2 Table Check, Email Attachments (dev), Task Tracker (dev), Rate File Converter (dev), App Data Location
 
 ### SuiteViewLight
 
@@ -623,7 +623,7 @@ Stripped-down build for users who only need the essentials:
 
 **Tools menu:** View Screenshots, App Data Location
 
-**Excluded from Light:** Audit Tool, ScratchPad, File History, Mainframe Navigator, Email Attachments, Task Tracker, Rate File Converter, messaging badge
+**Excluded from Light:** Audit Tool, DB2 Table Check, ScratchPad, File History, Mainframe Navigator, Email Attachments, Task Tracker, Rate File Converter, messaging badge
 
 ### How Light Mode Works
 

@@ -43,6 +43,7 @@ from .inputs_tab import IllustrationInputsTab
 from .policy_list import IllustrationPolicyListWindow
 from .policy_tab import IllustrationPolicyTab
 from .compare_tab import IllustrationCompareTab
+from .regression_tab import IllustrationRegressionTab
 from .report_tab import IllustrationReportTab
 from .saved_cases_panel import format_saved_stamp
 from .values_tab import IllustrationValuesTab
@@ -269,11 +270,13 @@ class IllustrationWindow(FramelessWindowBase):
         self.values_tab = IllustrationValuesTab()
         self.report_tab = IllustrationReportTab()
         self.compare_tab = IllustrationCompareTab(window=self)
+        self.regression_tab = IllustrationRegressionTab(window=self)
         self.tabs.addTab(self.policy_tab, "Policy")
         self.tabs.addTab(self._inputs_stack, "Illustration Inputs")
         self.tabs.addTab(self.values_tab, "Values")
         self.tabs.addTab(self.report_tab, "Report")
         self.tabs.addTab(self.compare_tab, "Compare")
+        self.tabs.addTab(self.regression_tab, "Regression")
         tabs_layout.addWidget(self.tabs)
         main_layout.addWidget(tabs_container, 1)
 

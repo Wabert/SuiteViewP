@@ -167,6 +167,32 @@ def load_case(name: str, directory: Optional[Path] = None) -> SavedCase:
     return _read_case_file(path)
 
 
+def encode_saved_case(case: SavedCase) -> dict:
+    """Return a complete JSON-safe payload for an embedded saved case."""
+    return {
+        "kind": CASE_KIND,
+        "schema_version": case.schema_version,
+        "name": case.name,
+        "policy_number": case.policy_number,
+        "region": case.region,
+        "company_code": case.company_code,
+        "saved_at": case.saved_at.isoformat(timespec="seconds"),
+        "app_version": case.app_version,
+        "inputs": case.inputs,
+        "policy_snapshot": (
+            encode_policy_snapshot(case.policy_snapshot)
+            if case.policy_snapshot is not None else None
+        ),
+    }
+
+
+def decode_saved_case(data: dict, path: Optional[Path] = None) -> SavedCase:
+    """Validate and materialize an embedded saved-case payload."""
+    source = Path(path) if path is not None else Path("<embedded-case>")
+    _validate_case_envelope(data, source)
+    return _case_from_payload(data, source)
+
+
 def list_cases(
     policy_number: Optional[str] = None,
     directory: Optional[Path] = None,
@@ -269,6 +295,11 @@ def _read_case_file(path: Path) -> SavedCase:
     except json.JSONDecodeError as exc:
         raise CorruptCaseError(
             f"Saved case {path} is not valid JSON: {exc}") from exc
+    _validate_case_envelope(data, path)
+    return _case_from_payload(data, path)
+
+
+def _validate_case_envelope(data: dict, path: Path) -> None:
     if not isinstance(data, dict):
         raise CorruptCaseError(f"Saved case {path} is not a JSON object.")
     if data.get("kind") != CASE_KIND:
@@ -285,7 +316,6 @@ def _read_case_file(path: Path) -> SavedCase:
             f"Saved case {path} uses schema version {version}; this build "
             f"understands version(s) {known}. It was likely saved by a newer "
             f"SuiteView.")
-    return _case_from_payload(data, path)
 
 
 def _case_from_payload(data: dict, path: Path) -> SavedCase:

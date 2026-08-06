@@ -13,6 +13,8 @@ import os
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pandas as pd
@@ -38,6 +40,9 @@ from suiteview.illustration.core.compare_runner import (
     side_tags,
 )
 from suiteview.illustration.models.calc_state import MonthlyState
+from suiteview.illustration.models.app_settings import get_illustration_settings
+from suiteview.illustration.models.case_store import CaseStoreError
+from suiteview.illustration.ui.saved_case_scenario import materialize_saved_case
 from suiteview.illustration.ui.compare_tab import (
     CURRENT_INPUTS_LABEL,
     NO_SCENARIO_LABEL,
@@ -818,6 +823,8 @@ class _FakeInputsTab:
 
     def apply_case_inputs(self, inputs):
         self.applied = inputs
+        self.additional_types_enabled = (
+            get_illustration_settings().additional_premium_types)
         return ["landed rows"]
 
     def deleteLater(self):
@@ -864,6 +871,26 @@ def test_build_spec_saved_case_uses_its_snapshot_not_live_policy(monkeypatch):
     assert _FakeInputsTab.last.load_kw == {
         "has_shadow": True, "shadow_ceased": False}
     assert spec.apply_warnings == ["[A · Opt A] landed rows"]
+
+
+def test_strict_saved_case_materialization_restores_advanced_type_setting(monkeypatch):
+    _app()
+    import suiteview.illustration.ui.inputs_tab as inputs_tab_mod
+    monkeypatch.setattr(inputs_tab_mod, "IllustrationInputsTab", _FakeInputsTab)
+    settings = get_illustration_settings()
+    settings.set_additional_premium_types(False)
+    case = SimpleNamespace(
+        name="Strict", schema_version=2,
+        policy_snapshot=SimpleNamespace(
+            has_shadow_account=False, ccv_ceased=False),
+        inputs={"premium": "advanced"},
+    )
+
+    with pytest.raises(CaseStoreError, match="could not be reproduced exactly"):
+        materialize_saved_case(case, strict=True)
+
+    assert _FakeInputsTab.last.additional_types_enabled is True
+    assert settings.additional_premium_types is False
 
 
 def test_build_spec_current_inputs_uses_window_loaded_data(monkeypatch):

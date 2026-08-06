@@ -2103,6 +2103,7 @@ class SuiteViewTaskbar(QWidget):
         self.screenshot_window = None
         self.polview_window = None
         self.audit_window = None
+        self.db2_check_window = None
         self.ratemanager_window = None
         self.abrquote_window = None
         self.illustration_window = None
@@ -2840,6 +2841,26 @@ class SuiteViewTaskbar(QWidget):
                 logger.error(f"Failed to open Rate Manager: {e}")
                 return
         self._bring_to_front(self.ratemanager_window)
+
+    def _open_db2_table_check(self):
+        """Open the CKPR DB2 Table Check window."""
+        if self.db2_check_window is None:
+            try:
+                from suiteview.ui.db2_table_check_window import DB2TableCheckWindow
+                self.db2_check_window = DB2TableCheckWindow(region="CKPR")
+                self._setup_child_window(
+                    self.db2_check_window, "DB2 Table Check")
+            except Exception as e:
+                logger.error(
+                    "Failed to open DB2 Table Check: %s", e, exc_info=True)
+                QMessageBox.warning(
+                    self,
+                    "DB2 Table Check Error",
+                    f"Failed to open DB2 Table Check:\n\n{e}",
+                )
+                self.db2_check_window = None
+                return
+        self._bring_to_front(self.db2_check_window)
 
     def _open_file_nav(self):
         """Open the File Navigator as a separate window."""
@@ -3580,6 +3601,8 @@ class SuiteViewTaskbar(QWidget):
             self.tools_menu.addAction("Mainframe Navigator", self._open_mainframe)
             self.tools_menu.addAction("Audit Tool", self._open_audit)
             self.tools_menu.addAction("Rate Manager", self._open_rate_manager)
+            self.tools_menu.addAction(
+                "DB2 Table Check", self._open_db2_table_check)
         if DEV_MODE and not LIGHT_MODE:
             self.tools_menu.addAction("Email Attachments", self._open_email_attachments)
         self.tools_menu.addSeparator()

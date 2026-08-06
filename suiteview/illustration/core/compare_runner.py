@@ -121,6 +121,8 @@ class ScenarioOutcome:
     policy: Optional[object] = None        # projectable policy the run used
     error: Optional[str] = None
     solved: dict = field(default_factory=dict)
+    future_inputs: Optional[object] = None
+    options: Optional[object] = None
 
     @property
     def ok(self) -> bool:
@@ -332,7 +334,13 @@ def run_scenario(spec: ScenarioSpec, engine=None) -> ScenarioOutcome:
         stop_on_lapse=spec.stop_on_lapse,
     )
     return ScenarioOutcome(
-        label=spec.label, results=list(results), policy=policy, solved=solved)
+        label=spec.label,
+        results=list(results),
+        policy=policy,
+        solved=solved,
+        future_inputs=future_inputs,
+        options=run_options,
+    )
 
 
 # ── the comparison ──────────────────────────────────────────────────

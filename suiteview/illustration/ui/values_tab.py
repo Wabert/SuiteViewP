@@ -19,6 +19,11 @@ from PyQt6.QtWidgets import (
 
 from suiteview.illustration.core.loan_handler import empty_loan_cap_repay_detail
 from suiteview.illustration.core.mec import seven_pay_backtest
+from suiteview.illustration.core.summary_results import (
+    LEAD_COLUMNS,
+    SUMMARY_COLUMNS,
+    summary_values,
+)
 from suiteview.illustration.models.calc_state import MonthlyState
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
 from suiteview.ui.widgets.filter_table_view import FilterTableView
@@ -845,47 +850,9 @@ class IllustrationValuesTab(QWidget):
     """
 
     LIGHT_PURPLE = QColor("#E8DDF8")
-    LEAD_COLUMNS = ["Date", "Year", "Month", "Attained Age"]
+    LEAD_COLUMNS = list(LEAD_COLUMNS)
     SUMMARY_GROUP = "Summary"
-    SUMMARY_COLUMNS = [
-        "GrossWD",
-        "DBO",
-        "TotalSA",
-        "PSC",
-        "MonthlyMTP",
-        "Accum MTP",
-        "GLP",
-        "GSP",
-        "AccumGLP",
-        "ForceOut",
-        "Loan Int",
-        "Loan Balance",
-        "Loan Repay",
-        "Premium",
-        "PremTD",
-        "Prem Load",
-        "mAV",
-        "NAAR",
-        "Base COI",
-        "Rider COI",
-        "Benefit COI",
-        "EPU",
-        "MFEE",
-        "MD",
-        "Exception Prem",
-        "AV",
-        "New Loan",
-        "Interest Rate",
-        "Interest",
-        "EAV",
-        "SC",
-        "ESV",
-        "Var Loan",
-        "Pref Loan",
-        "Reg Loan",
-        "Ending LB",
-        "IllustratedDB",
-    ]
+    SUMMARY_COLUMNS = list(SUMMARY_COLUMNS)
     SUMMARY_HEADER_LABELS = {
         "Attained Age": "Age",
     }
@@ -1817,42 +1784,7 @@ class IllustrationValuesTab(QWidget):
 
     @classmethod
     def _summary_values(cls, policy: IllustrationPolicyData, state: MonthlyState) -> dict:
-        return {
-            "GrossWD": state.gross_withdrawal,
-            "DBO": str(state.db_option or state.dbo_change_detail.get("DBO") or policy.db_option or "").upper(),
-            "TotalSA": cls._total_specified_amount(policy, state),
-            "PSC": cls._partial_surrender_charge(state),
-            "MonthlyMTP": state.monthly_mtp,
-            "Loan Balance": cls._beginning_loan_balance(state),
-            "Loan Repay": state.applied_loan_repayment,
-            "PremTD": state.premiums_to_date,
-            "Prem Load": state.total_premium_load,
-            "NAAR": state.total_nar or state.nar,
-            "Base COI": state.total_coi_charge or state.coi_charge,
-            "Rider COI": state.rider_charges,
-            "Benefit COI": state.benefit_charges,
-            "EPU": state.epu_charge,
-            "MFEE": state.mfee_charge,
-            "MD": state.total_deduction,
-            "Exception Prem": state.gp_exception_prem,
-            "Interest Rate": state.effective_annual_rate,
-            "EAV": state.av_end_of_month,
-            "SC": state.surrender_charge,
-            "ESV": state.ending_sv,
-            "Var Loan": state.end_vbl_loan_princ + state.end_vbl_loan_accrued,
-            "Pref Loan": state.end_pf_loan_princ + state.end_pf_loan_accrued,
-            "Reg Loan": state.end_rg_loan_princ + state.end_rg_loan_accrued,
-            "Ending LB": state.policy_debt,
-            "IllustratedDB": state.ending_db or state.gross_db,
-        }
-
-    @staticmethod
-    def _beginning_loan_balance(state: MonthlyState) -> float:
-        return (
-            state.rg_loan_princ + state.rg_loan_accrued
-            + state.pf_loan_princ + state.pf_loan_accrued
-            + state.vbl_loan_princ + state.vbl_loan_accrued
-        )
+        return summary_values(policy, state)
 
     @staticmethod
     def _detail_float(mapping: dict, key: str) -> float:
@@ -1861,25 +1793,6 @@ class IllustrationValuesTab(QWidget):
             return float(value or 0.0)
         except (TypeError, ValueError):
             return 0.0
-
-    @classmethod
-    def _partial_surrender_charge(cls, state: MonthlyState) -> float:
-        return (
-            state.wd_partial_sc
-            + cls._detail_float(state.dbo_change_detail, "Total PSC DBO")
-            + cls._detail_float(state.face_change_detail, "Total PSC Spec Dec")
-        )
-
-    @staticmethod
-    def _total_specified_amount(policy: IllustrationPolicyData, state: MonthlyState) -> float:
-        for mapping in (state.coverage_after_change, state.face_change_detail, state.dbo_change_detail):
-            value = mapping.get("CurrentSA") if mapping is state.coverage_after_change else mapping.get("Total SA")
-            if value not in (None, ""):
-                try:
-                    return float(value)
-                except (TypeError, ValueError):
-                    pass
-        return float(policy.total_face or 0.0)
 
     @staticmethod
     def _testing_values(state: MonthlyState) -> dict:
