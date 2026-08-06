@@ -150,6 +150,97 @@ def test_md_premium_hands_off_to_gp_exception_when_capped(monkeypatch):
         assert s.gp_exception_prem > 0.0
 
 
+def test_option_b_switches_to_a_before_first_gp_exception(monkeypatch):
+    dbd = 0.03
+    monkeypatch.setattr(
+        calc_engine, "load_plancode",
+        lambda _p: PlancodeConfig(
+            plancode="MDPREM", dbd=dbd, gint=0.0, corridor_code=None,
+            epu_code="0", mfee="0", premium_load="0", prem_flat_load=0.0,
+        ),
+    )
+    monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())
+    policy = _md_policy()
+    policy.db_option = "B"
+    policy.account_value = 200.0
+    policy.gsp = 50.0
+
+    states = IllustrationEngine().project(
+        policy, months=3,
+        options=IllustrationOptions(
+            pay_monthly_deduction=True, conform_to_tefra=True,
+            allow_exception_prems=True),
+        rates_override=_rates(), bonus_override=BonusConfig(),
+    )
+    option_a = _md_policy()
+    option_a.account_value = 200.0
+    option_a.gsp = 50.0
+    option_a_states = IllustrationEngine().project(
+        option_a, months=3,
+        options=IllustrationOptions(
+            pay_monthly_deduction=True, conform_to_tefra=True,
+            allow_exception_prems=True),
+        rates_override=_rates(), bonus_override=BonusConfig(),
+    )
+
+    assert states[0].db_option == "B"
+    assert states[1].gp_exception_prem > 0.0
+    assert states[1].total_deduction == pytest.approx(option_a_states[1].total_deduction)
+    assert states[1].gp_exception_prem_gross == pytest.approx(
+        option_a_states[1].gp_exception_prem_gross
+    )
+    assert states[1].gp_exception_prem_discount == pytest.approx(
+        option_a_states[1].gp_exception_prem_discount
+    )
+    assert all(state.db_option == "A" for state in states[1:])
+    assert policy.db_option == "B"
+
+
+def test_option_b_exception_period_uses_option_a_every_row(monkeypatch):
+    # Mirrors the real "Prem to Maturity" path: NO Monthly-Deduction premium, the
+    # GP exception fires purely because the policy is at the guideline limit with
+    # a residual negative AV, and the exception is CARRIED FORWARD (latched) for
+    # many months. Every exception row — the first trigger AND all carried-forward
+    # rows — must use Option A (level DB) assumptions, so the COI feedback
+    # ("Exc Prem Discount") equals gross x coi_rate/1000 rather than collapsing to
+    # the near-wash Option B factor.
+    dbd = 0.0425
+    monkeypatch.setattr(
+        calc_engine, "load_plancode",
+        lambda _p: PlancodeConfig(
+            plancode="MDPREM", dbd=dbd, gint=0.0, corridor_code=None,
+            epu_code="0", mfee="0", premium_load="0", prem_flat_load=0.0,
+        ),
+    )
+    monkeypatch.setattr(calc_engine, "load_bonus_config", lambda _p, _d: BonusConfig())
+    # Force the guideline-limit-reached flag on (no room), so the exception is
+    # driven by the guideline — not a capped MD premium.
+    monkeypatch.setattr(calc_engine, "_guideline_limit_reached", lambda *a, **k: True)
+
+    policy = _md_policy()
+    policy.db_option = "B"
+    policy.account_value = 100.0   # thin → negative every month → exception refills
+
+    states = IllustrationEngine().project(
+        policy, months=6,
+        options=IllustrationOptions(
+            conform_to_tefra=True, allow_exception_prems=True),
+        rates_override=_rates(), bonus_override=BonusConfig(),
+    )
+    exc_rows = [s for s in states[1:] if s.gp_exception_mode]
+    # A multi-row exception period (not just the trigger edge).
+    assert len(exc_rows) >= 3
+    for s in exc_rows:
+        # The policy acts as Option A for the whole exception period.
+        assert s.db_option == "A"
+        if s.gp_exception_prem_gross > 0.0:
+            # Option A COI feedback: full COI rate, NOT the Option B near-wash.
+            assert s.gp_exception_prem_discount == pytest.approx(
+                s.gp_exception_prem_gross * s.coi_rate / 1000.0, rel=1e-6)
+    # The caller's policy object is untouched (private-copy guard).
+    assert policy.db_option == "B"
+
+
 def test_monthly_deduction_premium_active_honors_windows():
     # The fix locus: a Monthly-Deduction premium row must be active ONLY within
     # its year window. Without windows the premium runs the whole projection
