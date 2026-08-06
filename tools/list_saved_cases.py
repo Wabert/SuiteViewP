@@ -6,7 +6,7 @@ without dumping full inputs (use dump_saved_case_summary.py for that).
 
 Usage:
     venv\\Scripts\\python.exe tools/list_saved_cases.py '<json>'
-    {"workbook": "docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm"}
+    {"workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm"}
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ INTEREST_ROWS = ("sINPUT_CaseID", "sINPUT_Policy_Number", "sINPUT_Company",
 
 def main() -> None:
     cmd = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
-    workbook = cmd.get("workbook") or "docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm"
+    workbook = cmd.get("workbook") or "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm"
 
     wb = openpyxl.load_workbook(workbook, read_only=True, data_only=True)
     ws = wb["Saved Cases"]

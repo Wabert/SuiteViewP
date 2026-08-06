@@ -19,8 +19,8 @@ Usage (single JSON arg):
 
     {"plancodes": ["1U135100"],          # base plancode(s); riders auto-typed
      "state": "TX",                       # optional; default: workbook's sQueryWithStateCode
-     "workbook": "docs/Illustration_UL/RERUN (v20.0).xlsm",   # default shown
-     "out": "docs/Illustration_UL/RERUN (v20.0) local.xlsm",  # default shown
+     "workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0).xlsm",   # default shown
+     "out": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local.xlsm",  # default shown
      "dry_run": false}                    # true = print block row counts, no COM
 
 Plancode expansion mirrors AddBaseRateTypes / AddTermRiderRateTypes /
@@ -46,8 +46,8 @@ RATES_DB = ROOT / "bundled_data" / "dev" / "rates.sqlite"
 PLANCODE_TABLE = ROOT / "suiteview" / "illustration" / "plancodes" / "plancode_table.json"
 RIDER_TABLE = ROOT / "suiteview" / "illustration" / "plancodes" / "rider_table.json"
 
-DEFAULT_WORKBOOK = ROOT / "docs" / "Illustration_UL" / "RERUN (v20.0).xlsm"
-DEFAULT_OUT = ROOT / "docs" / "Illustration_UL" / "RERUN (v20.0) local.xlsm"
+DEFAULT_WORKBOOK = ROOT.parent / "SuiteViewP_archived_docs" / "Illustration_UL" / "RERUN (v20.0).xlsm"
+DEFAULT_OUT = ROOT.parent / "SuiteViewP_archived_docs" / "Illustration_UL" / "RERUN (v20.0) local.xlsm"
 
 XL_UP = -4162
 XL_XLSM = 52  # xlOpenXMLWorkbookMacroEnabled

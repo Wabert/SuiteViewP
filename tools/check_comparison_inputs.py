@@ -16,7 +16,7 @@ the "local" workbook, never on the pristine production copy.
 Usage (single JSON arg):
     venv\\Scripts\\python.exe tools/check_comparison_inputs.py '<json>'
 
-    {"workbook": "docs/Illustration_UL/RERUN (v20.0) local.xlsm",
+    {"workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local.xlsm",
      "fix": false}
 """
 from __future__ import annotations
@@ -145,7 +145,7 @@ def fix(workbook: Path, scan_result: dict) -> dict:
 def main():
     cmd = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
     workbook = Path(cmd.get("workbook")
-                    or "docs/Illustration_UL/RERUN (v20.0) local.xlsm").resolve()
+                    or "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local.xlsm").resolve()
     if not workbook.exists():
         print(json.dumps({"ok": False, "error": f"workbook not found: {workbook}"}))
         sys.exit(1)

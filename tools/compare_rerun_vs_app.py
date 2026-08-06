@@ -17,7 +17,7 @@ Usage (optional single JSON arg; all keys optional):
     venv\\Scripts\\python.exe tools/compare_rerun_vs_app.py
     venv\\Scripts\\python.exe tools/compare_rerun_vs_app.py '{"cases":[1,2,3,4],"months":750}'
 
-    {"workbook": "docs/Illustration_UL/RERUN (v20.0).xlsm",
+    {"workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0).xlsm",
      "cases":    [1,2,3,4],          # case numbers or CaseID strings (default: 4 baselines)
      "months":   750,                # months to project/compare (engine caps at maturity)
      "company":  null, "region": "CKPR",   # null = resolve per policy
@@ -58,7 +58,7 @@ from rerun_debug_map import (  # noqa: E402
     DEBUG_COLUMNS, KIND_TOL, LABEL_ROW, LAST_COL,
 )
 
-DEFAULT_WORKBOOK = ROOT / "docs" / "Illustration_UL" / "RERUN (v20.0).xlsm"
+DEFAULT_WORKBOOK = ROOT.parent / "SuiteViewP_archived_docs" / "Illustration_UL" / "RERUN (v20.0).xlsm"
 DEFAULT_CASES = [1, 2, 3, 4]
 DEFAULT_MONTHS = 750
 DEFAULT_OUT_DIR = Path.home() / "Documents" / "SuiteView_DevTest"

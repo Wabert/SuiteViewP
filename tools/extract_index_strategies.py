@@ -24,7 +24,7 @@ from pathlib import Path
 import openpyxl
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_WORKBOOK = ROOT / "docs" / "Illustration_UL" / "RERUN (v20.0).xlsm"
+DEFAULT_WORKBOOK = ROOT.parent / "SuiteViewP_archived_docs" / "Illustration_UL" / "RERUN (v20.0).xlsm"
 OUT_PATH = ROOT / "suiteview" / "illustration" / "plancodes" / "index_strategies.json"
 
 SHEET = "Illustration Values"

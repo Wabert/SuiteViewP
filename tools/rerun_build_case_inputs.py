@@ -17,7 +17,7 @@ Usage (single JSON arg):
 
     {"policy": "UE013383",
      "region": "CKPR", "company": null,
-     "workbook": "docs/Illustration_UL/RERUN (v20.0) local.xlsm",
+     "workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local.xlsm",
      "template_case": 1,          # case whose values seed unmapped inputs
      "case_id": null,             # default: policy number
      "description": null,
@@ -40,7 +40,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-DEFAULT_WORKBOOK = ROOT / "docs" / "Illustration_UL" / "RERUN (v20.0) local.xlsm"
+DEFAULT_WORKBOOK = ROOT.parent / "SuiteViewP_archived_docs" / "Illustration_UL" / "RERUN (v20.0) local.xlsm"
 
 # RERUN benefit-name translation (cls_PolicyInformation.TranslateBenefitTypeToText).
 _BENEFIT_NAMES = {

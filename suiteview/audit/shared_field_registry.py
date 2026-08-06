@@ -2,8 +2,8 @@
 Shared Field Registry — SQL Server-backed storage for field definitions
 and their unique values.
 
-Tables: ABATBL_FIELD_REG, ABATBL_FIELD_VAL (created by
-scripts/create_field_registry_tables.py).
+Tables: ABATBL_FIELD_REG, ABATBL_FIELD_VAL (pre-existing on the shared SQL
+Server; the one-shot creation script has been retired).
 """
 from __future__ import annotations
 

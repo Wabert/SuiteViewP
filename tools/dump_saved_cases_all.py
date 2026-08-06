@@ -7,7 +7,7 @@ output focused on what a case actually specifies.
 
 Usage:
     venv\\Scripts\\python.exe tools/dump_saved_cases_all.py '<json>'
-    {"workbook": "docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm",
+    {"workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm",
      "skip_blank": true, "cases": [8, 9, 12]}   # cases optional -> all
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ def _rle(values: list) -> str:
 
 def main() -> None:
     cmd = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
-    workbook = cmd.get("workbook") or "docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm"
+    workbook = cmd.get("workbook") or "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm"
     want_cases = set(cmd.get("cases") or [])
     skip_blank = bool(cmd.get("skip_blank", True))
 

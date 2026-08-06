@@ -2,7 +2,7 @@
 
 Usage:
     venv\\Scripts\\python.exe tools/dump_sheet_formulas.py '<json>'
-    {"workbook": "docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm",
+    {"workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm",
      "sheet": "Debug File", "cells": ["D13","F13","K13"]}
     or {"sheet": "Debug File", "row": 13, "cols": ["A","AU"]}  # col range
 """

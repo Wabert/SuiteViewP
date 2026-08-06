@@ -13,15 +13,12 @@ How to use this doc (for the laptop LLM):
 3. **§3 Backlog** — safe but unverified consolidations to do incrementally.
 4. Update the **Changelog** at the bottom whenever you complete or add an item.
 
-Branch layout:
-- `main` — untouched baseline. Restore tag: `pre-cleanup-2026-06-06`.
-- `cleanup/tier0-tier1` — Tier 0 (dead code) + Tier 1 (Excel helper, rates.py fix). Pushed to origin.
-- `cleanup/tier2` — Tier 2a (DB2Connection hardening) + Tier 2b (JsonStore).
-- `minipc-handoff-2026-06-07` — **START HERE (see §0).** DataForge "intuitive
-  tooling" logic + standards consolidation + a checkpoint of the in-flight
-  Illustration 7702/GLP work (§1.6–1.7). Pushed to origin.
-
----
+> **HISTORICAL NOTE (2026-08-05):** the branch layout below and §0 describe the
+> June 2026 handoff. Those branches (`cleanup/tier0-tier1`, `cleanup/tier2`,
+> `minipc-handoff-2026-06-07`, `fix/dataforge-review`) have since been merged
+> and deleted — only `main` exists now. Restore tags: `pre-cleanup-2026-06-06`,
+> `pre-cleanup-2026-08-05`. Treat §0 and the early §1.x items as completed
+> history; current open work starts at the later §1.x entries and §2+.
 
 ## §0 — START HERE: 2026-06-07 minipc handoff (branch `minipc-handoff-2026-06-07`)
 

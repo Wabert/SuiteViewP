@@ -9,7 +9,7 @@ run of the same policy.  Also scans the dump for Excel error values.
 
 Usage (single JSON arg):
     venv\\Scripts\\python.exe tools/rerun_test_local_vba.py '<json>'
-    {"workbook": "docs/Illustration_UL/RERUN (v20.0) local.xlsm",
+    {"workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local.xlsm",
      "policy": "U0375726", "region": "CKPR",
      "data_source": "Local",              # or "Local (no benefits)"
      "out_csv": "<path>", "max_month": 360, "cols": ["B","C","D","G","AL","AM"]}
@@ -52,8 +52,8 @@ def _open_excel_macros_on(visible: bool = False):
 def main():
     cmd = json.loads(sys.argv[1])
     workbook = Path(cmd.get("workbook")
-                    or Path(__file__).resolve().parents[1] / "docs" / "Illustration_UL"
-                    / "RERUN (v20.0) local.xlsm").resolve()
+                    or Path(__file__).resolve().parents[2] / "SuiteViewP_archived_docs"
+                    / "Illustration_UL" / "RERUN (v20.0) local.xlsm").resolve()
     cols = cmd.get("cols", DEFAULT_COLS)
     max_month = int(cmd.get("max_month", 360))
     out_csv = cmd.get("out_csv")

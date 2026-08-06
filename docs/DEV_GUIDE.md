@@ -285,13 +285,23 @@ SuiteView should feel **friendly, approachable, and occasionally witty** - like 
 ### Module Organization
 ```
 suiteview/
-├── core/           # Business logic, data access, external integrations
-├── data/           # Database and data models
-├── models/         # Data structures and types
+├── core/              # Shared business logic: policy_service, rates, excel_export, db2, local_dev
+├── data/              # Connection/database plumbing shared across apps
 ├── ui/
-│   ├── dialogs/    # Modal dialogs and popups
-│   └── widgets/    # Reusable UI components (can be large files with related classes)
-└── utils/          # Shared utilities
+│   ├── dialogs/       # Modal dialogs and popups
+│   └── widgets/       # Reusable UI components (FramelessWindowBase, FilterTableView, bookmarks…)
+├── utils/             # Shared utilities (config, logger)
+├── taskbar_launcher/  # The SuiteView taskbar — main entry point, launches every sub-app
+├── audit/             # Audit / Query Studio / DataForge / File Sources
+├── illustration/      # UL/IUL inforce illustration engine + UI
+├── polview/           # Policy viewer
+├── abrquote/          # ABR quoting wizard
+├── ratemanager/       # Rate workup pipeline + database view
+├── agent_chat/        # LLM agent chat window
+├── file_nav/          # File explorer
+├── mainframe_nav/     # Mainframe navigator
+├── screenshot_manager/# Screenshot capture/browser
+└── scratchpad/        # ScratchPad panel
 ```
 
 ### Example: Bookmark Widgets

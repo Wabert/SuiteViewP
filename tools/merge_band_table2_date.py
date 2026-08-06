@@ -16,7 +16,7 @@ Usage:
     venv\\Scripts\\python.exe tools/merge_band_table2_date.py '<json>'
 
 JSON arg:
-    {"workbook": "docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm",
+    {"workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm",
      "table": "suiteview/illustration/plancodes/plancode_table.json",
      "write": true}
 
@@ -31,7 +31,7 @@ import openpyxl
 
 def main():
     cmd = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
-    workbook = cmd.get("workbook", "docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm")
+    workbook = cmd.get("workbook", "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm")
     table_path = cmd.get(
         "table", "suiteview/illustration/plancodes/plancode_table.json"
     )

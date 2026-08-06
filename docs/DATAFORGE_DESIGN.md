@@ -2,7 +2,10 @@
 
 **Living document.** The shared reference for designing and building DataForge,
 the Audit-tool utility for joining and querying saved Queries. Update as
-decisions change. Status: **design agreed, not yet built on.**
+decisions change. Status: **built and in active use** —
+`suiteview/audit/dataforge/` implements the design (Phases 2/3 landed
+2026-06; see WORK_LAPTOP_SPEC §1.4/§1.9). This doc remains the normative
+vocabulary/data-model reference cited throughout that package.
 
 DataForge already exists as a partial implementation under
 `suiteview/audit/dataforge/`. This doc records what we keep, what we change, the

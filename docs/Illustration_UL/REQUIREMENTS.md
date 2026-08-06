@@ -4,7 +4,7 @@
 **Version:** 0.1 (Draft)  
 **Last Updated:** 2026-04-12  
 **Author:** Robert Haessly / GitHub Copilot  
-**Source Workbook:** RERUN (v19.1).xlsm  
+**Source Workbook:** RERUN (v20.0).xlsm (work-laptop archive)  
 
 ---
 

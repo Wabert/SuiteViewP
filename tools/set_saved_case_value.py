@@ -7,7 +7,7 @@ appends a NEW case, which is wrong for in-place fixes.
 Usage (single JSON arg):
     venv\\Scripts\\python.exe tools/set_saved_case_value.py '<json>'
 
-    {"workbook": "docs/Illustration_UL/RERUN (v20.0) local.xlsm",
+    {"workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local.xlsm",
      "case": 30,                       # case number or CaseID string
      "values": {"sINPUT_Variable_Loan_Rate": 0.057}}
 
@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main() -> None:
     cmd = json.loads(sys.argv[1])
     workbook = (ROOT / (cmd.get("workbook")
-                        or "docs/Illustration_UL/RERUN (v20.0) local.xlsm")).resolve() \
+                        or "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local.xlsm")).resolve() \
         if not Path(cmd.get("workbook", "")).is_absolute() else Path(cmd["workbook"])
     values: dict = cmd["values"]
 

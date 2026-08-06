@@ -6,7 +6,7 @@ summary like ``150 x121`` — so a case's full input picture fits on a screen.
 
 Usage:
     venv\\Scripts\\python.exe tools/dump_saved_case_summary.py '<json>'
-    {"workbook": "docs/Illustration_UL/RERUN (v20.0) local.xlsm", "cases": [7, 9, 12]}
+    {"workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local.xlsm", "cases": [7, 9, 12]}
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _rle(values: list) -> str:
 
 def main() -> None:
     cmd = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
-    workbook = cmd.get("workbook") or "docs/Illustration_UL/RERUN (v20.0) local.xlsm"
+    workbook = cmd.get("workbook") or "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local.xlsm"
     cases = cmd.get("cases") or [7]
 
     for case in cases:

@@ -14,7 +14,7 @@ from suiteview.abrquote.models.abr_database import get_abr_database
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-EXCEL_FILE = r"C:\Users\ab7y02\Dev\SuiteViewP\docs\ABRQuote\StateForms.xlsx"
+EXCEL_FILE = os.path.join(os.getcwd(), "docs", "ABRQuote", "StateForms.xlsx")
 
 def import_state_forms():
     if not os.path.exists(EXCEL_FILE):

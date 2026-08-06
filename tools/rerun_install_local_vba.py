@@ -16,7 +16,7 @@ The tool detects and reports when it's off.
 
 Usage (single JSON arg, all keys optional):
     venv\\Scripts\\python.exe tools/rerun_install_local_vba.py '{}'
-    {"workbook": "docs/Illustration_UL/RERUN (v20.0) local.xlsm"}
+    {"workbook": "../SuiteViewP_archived_docs/Illustration_UL/RERUN (v20.0) local.xlsm"}
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rerun_com import _open_excel  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_WORKBOOK = ROOT / "docs" / "Illustration_UL" / "RERUN (v20.0) local.xlsm"
+DEFAULT_WORKBOOK = ROOT.parent / "SuiteViewP_archived_docs" / "Illustration_UL" / "RERUN (v20.0) local.xlsm"
 MODULE_BAS = ROOT / "docs" / "Illustration_UL" / "RERUN_VBA_local" / "mdl_LocalData.bas"
 
 BRANCH_MARK = "LOCAL DATA BRANCH"
