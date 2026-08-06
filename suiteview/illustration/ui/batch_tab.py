@@ -1,8 +1,8 @@
 """Illustration Batch tab — run batch forecasts over a pasted policy list.
 
 Business-user surface for the batch forecasts that previously lived only in the
-developer CLI tools (``tools/run_glp_forecast_batch.py`` and
-``tools/run_min_level_to_exception_batch.py``). Paste a policy list (one per
+developer CLI tools (``tools/glp/run_glp_forecast_batch.py`` and
+``tools/glp/run_min_level_to_exception_batch.py``). Paste a policy list (one per
 line, optional two-digit company prefix), pick the forecast type, and Run: the
 batch executes on a background thread (the UI stays live), a progress bar shows
 "n of N — <policy>", Cancel stops after the in-flight policy, and results land

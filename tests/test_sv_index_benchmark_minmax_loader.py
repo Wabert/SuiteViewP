@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from tools.create_sv_index_benchmark_minmax import (
+from tools.rates.create_sv_index_benchmark_minmax import (
     CREATE_SQL,
     TABLE_NAME,
     parse_config,

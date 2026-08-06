@@ -64,7 +64,7 @@ def connect_local_policy_database(region: str = "CKPR") -> sqlite3.Connection:
     path = local_policy_db_path()
     if not path.exists():
         raise FileNotFoundError(
-            f"Local policy database not found: {path}. Run tools/create_local_dev_data.py."
+            f"Local policy database not found: {path}. Run tools/localdev/create_local_dev_data.py."
         )
 
     conn = sqlite3.connect(":memory:")
@@ -83,6 +83,6 @@ def connect_local_rates_database() -> sqlite3.Connection:
     path = local_rates_db_path()
     if not path.exists():
         raise FileNotFoundError(
-            f"Local rates database not found: {path}. Run tools/create_local_dev_data.py."
+            f"Local rates database not found: {path}. Run tools/localdev/create_local_dev_data.py."
         )
     return sqlite3.connect(path)

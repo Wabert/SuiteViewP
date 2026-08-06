@@ -725,7 +725,7 @@ class Rates:
 
         Reads ``BandTable2IssueDate`` from the illustration plancode table
         (the single source of truth for the CZ plancode list — see
-        tools/merge_band_table2_date.py). Plancodes without a row in that
+        tools/rates/merge_band_table2_date.py). Plancodes without a row in that
         table (e.g. Traditional products) have no issue-date banding rule.
         """
         try:

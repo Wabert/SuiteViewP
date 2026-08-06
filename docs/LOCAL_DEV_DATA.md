@@ -18,8 +18,8 @@ This creates ignored local files under `bundled_data/dev/`:
 
 > **`rates.sqlite` is NOT in the repo (2026-08).** At ~2 GB it was bloating
 > git/LFS storage, so it is machine-local only. Each machine either exports it
-> from live UL_Rates on the laptop (`tools/export_local_rate_data.py` /
-> `tools/create_local_dev_data.py`) or copies the file out-of-band (USB /
+> from live UL_Rates on the laptop (`tools/localdev/export_local_rate_data.py` /
+> `tools/localdev/create_local_dev_data.py`) or copies the file out-of-band (USB /
 > OneDrive). Do not `git add -f` it again.
 
 The current synthetic fixture set uses plancode `1U144600` and these policies:

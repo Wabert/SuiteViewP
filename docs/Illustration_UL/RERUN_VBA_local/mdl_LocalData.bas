@@ -1,15 +1,15 @@
 Attribute VB_Name = "mdl_LocalData"
 Option Explicit
 
-'Absolute repo root baked in at install time (tools/rerun_install_local_vba.py).
+'Absolute repo root baked in at install time (tools/rerun/rerun_install_local_vba.py).
 Private Const REPO_ROOT_FALLBACK As String = "__REPO_ROOT__"
 
 '=====================================================================
-' LOCAL DATA PATH  (installed by tools/rerun_install_local_vba.py)
+' LOCAL DATA PATH  (installed by tools/rerun/rerun_install_local_vba.py)
 '
 ' When INPUT!sDataSource starts with "Local", GetPolicyFromCyberlife and
 ' MainGetRates branch here instead of hitting DB2 / UL_Rates SQL Server.
-' Both subs shell the repo's venv Python bridge (tools/rerun_local_bridge.py),
+' Both subs shell the repo's venv Python bridge (tools/rerun/rerun_local_bridge.py),
 ' which reads bundled_data/dev/*.sqlite and writes a temp .xlsx that is
 ' pasted onto the same ranges the production path uses.
 '

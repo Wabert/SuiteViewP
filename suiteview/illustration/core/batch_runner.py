@@ -1,8 +1,8 @@
 """UI-independent batch forecast orchestration for the Illustration app.
 
 One place owns the per-policy forecast logic that used to live inside the CLI
-batch tools (``tools/run_glp_forecast_batch.py`` and
-``tools/run_min_level_to_exception_batch.py``). Both the CLI tools and the
+batch tools (``tools/glp/run_glp_forecast_batch.py`` and
+``tools/glp/run_min_level_to_exception_batch.py``). Both the CLI tools and the
 Illustration app's Batch tab call through here:
 
   * ``FORECAST_TYPES`` — the registry of available batch forecasts. Each entry

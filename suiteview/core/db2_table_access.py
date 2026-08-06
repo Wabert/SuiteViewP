@@ -8,7 +8,7 @@ has read access.  Tables that raise an insufficient-privilege error
 (SQLCODE ``-551`` / SQLSTATE ``42501``) -- or any other error -- are reported as
 not accessible.
 
-Shared by the ``tools/scan_db2_table_access.py`` script and the taskbar's
+Shared by the ``tools/policyrecord/scan_db2_table_access.py`` script and the taskbar's
 "DB2 Table Check" window so the classification logic lives in exactly one place.
 """
 from __future__ import annotations

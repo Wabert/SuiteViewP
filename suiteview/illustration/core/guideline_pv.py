@@ -20,7 +20,7 @@ The roll-up is an EXACT algebraic unrolling of the solver's monthly recursion
 ``AV_end = SA`` through by the accumulated fund-growth factor ∏(1+T_eff)(1+i_m)
 and every term becomes a survival-discounted PV. So the roll-up premium matches
 ``solve_guideline_premiums(basis).glp`` to the cent for BOTH death-benefit
-options (``tools/check_guideline_pv.py`` asserts it on real policies). Both run
+options (``tools/engine/check_guideline_pv.py`` asserts it on real policies). Both run
 off the **same** :class:`~suiteview.illustration.core.monthly_guideline.GuidelineBasis`
 (guaranteed COI, current expense charges, statutory interest), so the COI cap,
 flat-extra truncation, PW-on-MTP basis, and load handling are shared exactly.

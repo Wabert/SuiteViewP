@@ -1,12 +1,12 @@
 {
   "_readme": [
     "Source of truth for docs/Illustration_UL/Testing/TEST_MATRIX.xlsx.",
-    "Regenerate the workbook with:  venv\\Scripts\\python.exe tools/build_test_matrix.py",
+    "Regenerate the workbook with:  venv\\Scripts\\python.exe tools/rerun/build_test_matrix.py",
     "",
     "HOW TO ADD A TEST CASE:",
     "  1. Add the case to the RERUN workbook's Saved Cases sheet (or capture a",
     "     constructed override scenario) and run the comparison",
-    "     (tools/compare_rerun_vs_app.py) -> put the detail workbook in Testing/details/.",
+    "     (tools/rerun/compare_rerun_vs_app.py) -> put the detail workbook in Testing/details/.",
     "  2. Append a row object to 'rows' below. Fields:",
     "       company / policy / form / db_option - identity (list_local_policies.py has these)",
     "       description     - what kind of policy this is (product, age, class, riders, benefits)",
@@ -228,7 +228,7 @@
       "description": "Saved Case 25 (U0356726-DBO) - DBO change scenario on Case 11 (FFL PW-target family).",
       "forecast_inputs": "Level $60/mo; DBO B -> A (case description @yr31; input vector switches at year 31).",
       "status": "PARTIAL",
-      "comments": "2026-07-17 (WORK_LAPTOP_SPEC changelog + par. 5.4): before-change GLP/GSP match RERUN to 12 decimals; after-change within cents (GLP/GSP/7-pay ~0.12-0.68 off). Residual classified: PW target-index rate gap (RERUN keys the PW target by TARGET index 0.044, app's BENMTP-by-benefit-code gives 0.042) - target-index rate export is a laptop task; repro: tools/repro_pw_target_rate_gap.py. Full-projection detail workbook to be generated.",
+      "comments": "2026-07-17 (WORK_LAPTOP_SPEC changelog + par. 5.4): before-change GLP/GSP match RERUN to 12 decimals; after-change within cents (GLP/GSP/7-pay ~0.12-0.68 off). Residual classified: PW target-index rate gap (RERUN keys the PW target by TARGET index 0.044, app's BENMTP-by-benefit-code gives 0.042) - target-index rate export is a laptop task; repro: tools/engine/repro_pw_target_rate_gap.py. Full-projection detail workbook to be generated.",
       "glp_gsp": 0.68, "contributions": "-", "distributions": "-", "policy_debt": "-", "eav": "-", "esv": "-"
     },
     {

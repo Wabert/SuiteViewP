@@ -944,7 +944,7 @@ class TestSegment66LiveBuild:
 
 # Two real coverage phases of U0361148 (base 35DMP + rider 34LMP), exactly as
 # DB2 returns each LH_COV_PHA row -- limited to the columns the seg-02 builder
-# reads (see tools/extract_seg02_fixture.py).  Frozen here so the whole seg-02
+# reads (see tools/policyrecord/extract_seg02_fixture.py).  Frozen here so the whole seg-02
 # mapping + per-coverage loop + blank-collapse rules are verified against the
 # known-good 6202 screen (img_002).
 _U0361148_COV1 = {

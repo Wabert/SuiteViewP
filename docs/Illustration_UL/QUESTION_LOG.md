@@ -103,8 +103,8 @@ without you, and (3) a running progress log. I'll append as I go.
 
 ## C. Progress log
 
-- **Done before tonight:** RERUN COM bridge (`tools/rerun_com.py`), engine dump
-  (`tools/run_engine_case.py`), aligned diff (`tools/compare_case.py`); validated
+- **Done before tonight:** RERUN COM bridge (`tools/rerun/rerun_com.py`), engine dump
+  (`tools/rerun/run_engine_case.py`), aligned diff (`tools/rerun/compare_case.py`); validated
   **U0688012** (table-2 + PW) to sub-penny after fixing the ExactDays interest
   day-count bug in `interest_calc.py`.
 - **Tonight:**
@@ -129,7 +129,7 @@ without you, and (3) a running progress log. I'll append as I go.
     (`monthly_deduction.py` `_trunc2`); (3) rider COI ignored rider substandard
     (`monthly_deduction.py`). No test regressions (3 `md_check` failures are
     pre-existing — need live DB2).
-  - **Comparison harness extended:** `tools/calc_compare_map.py` (grouped,
+  - **Comparison harness extended:** `tools/rerun/calc_compare_map.py` (grouped,
     RERUN-ordered column map + detail levels), `compare_case.py` rewritten for
     group/detail/collapse + drill-down, `query_local_fixture.py` (policy & rates DB),
     `inspect_illustration_inputs.py`. All four cases' base calc validated; only
@@ -139,7 +139,7 @@ without you, and (3) a running progress log. I'll append as I go.
     RERUN's `ROUND(rate,5)` vs engine full precision — cosmetic).
   - **TAMRA 7-pay calc built** — `calculate_7pay_premium` in `guideline_calc.py`
     (PV/commutation method; the GLP numerator over a 7-year annuity). Unit-tested
-    against actuarial identities (`tools/test_commutation_glp.py`, now 25 green:
+    against actuarial identities (`tools/engine/test_commutation_glp.py`, now 25 green:
     `7pay*ä7 == GLP*än`, `7pay > GLP`, `pay_years=n → GLP`, composes with
     `glp_on_change`). Penny-validation vs RERUN needs live mortality (work laptop).
   - **Committed + pushed** the foundation to branch
@@ -155,7 +155,7 @@ My earlier claim that guideline/TAMRA validation "needs live rates" was **wrong*
 **Scale 1 = current** (illustrated, what the engine charges, matches RERUN — confirmed
 by `Select_SCALE_COI`), **Scale 0 = guaranteed** COI. So the guideline/TAMRA calc is
 fully computable **offline**. Wired `coi_scale` into `rate_loader.load_rates`
-(`coi_scale=0` → guaranteed) and added `tools/validate_guideline.py`.
+(`coi_scale=0` → guaranteed) and added `tools/engine/validate_guideline.py`.
 
 Robert confirmed: GLP mortality = the guaranteed COI (scale 0), 7702 maturity = 100.
 
@@ -203,7 +203,7 @@ takes a `"changes":[{"kind":"face_amount"|"db_option","date":...,"value":...}]` 
 Original plan (still the roadmap for increase + guideline/TAMRA recalc) below.
 
 **RERUN face-increase reference (captured):** I added `overrides` to
-`tools/rerun_com.py` and built a face increase on U0688012 (100k→150k at policy
+`tools/rerun/rerun_com.py` and built a face increase on U0688012 (100k→150k at policy
 year 9) — `rerun_U0688012_faceinc.csv`. RERUN behavior:
 - At the **year-9 anniversary** (mo 97): GSP 31,311 → 52,004 and AccGLP jumps by the
   change delta (attained-age delta method = `glp_on_change`). MD steps 102 → 172.
@@ -548,7 +548,7 @@ workbook's "UL - Illustration Pages" + 'Illustration Values' sheets:
   per-change ESTIMATED limits from the engine's recalc'd values).
 - MEC detection: accumulated_7pay > level×year inside the window (reachable
   with TAMRA conformance off). Rendered vs the validated W1/T1 runs — ledger
-  numbers match the harness CSVs. mock: tools/mock_illustration_report.py.
+  numbers match the harness CSVs. mock: tools/engine/mock_illustration_report.py.
 - '#4/#5/#6' benefit → ABR terminal/critical/chronic name mapping worked
   against the U0688012 fixture (TODO marked: verify on live data).
 
@@ -632,7 +632,7 @@ on FilterTableView — icon zone reclaimed, autofit tighter).
 
 Implemented the FFL premium-waiver target basis in `target_premium.py`:
 plancodes with `CompanySub = "FFL"` (new plancode-table column, merged from
-RERUN Rates_Control C12:BE206 by `tools/merge_plancode_company_sub.py`;
+RERUN Rates_Control C12:BE206 by `tools/rates/merge_plancode_company_sub.py`;
 `sblnFFL = sCompanySub="FFL"`, 49 plancodes) compute PWoC (benefit type 3,
 IV=JB=TRUNC(pwRate·IZ·(1+factor·table),2)) and PWoT/PWSTP (benefit type 4,
 IK=JD=TRUNC(JA·JC,2), CTP KE=JC·vMTP) from cost bases. IZ = benefit MTPs/12 +

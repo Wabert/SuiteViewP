@@ -125,7 +125,7 @@ def migrate_adhoc_to_file_source(query_object) -> FileDataSource:
     The old model stored the parse spec + columns + a single file path on one
     QueryObject; this lifts those into a FileDataSource with one member. Caller
     persists the result and removes the legacy QueryObject (see
-    ``tools/migrate_adhoc_sources.py``).
+    ``tools/audit/migrate_adhoc_sources.py``).
     """
     if query_object.kind != OBJECT_KIND_ADHOC_SOURCE:
         raise FileValidationError(

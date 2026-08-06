@@ -1,20 +1,38 @@
-# Tools
+# tools/ — auditable helper scripts
 
-This directory contains small, single-purpose helper scripts used by AI
-assistants (and developers) to perform tasks that require code execution.
+All AI-assisted execution goes through small, single-purpose scripts in this
+directory (no inline `python -c`). Scripts take CLI args (prefer a single JSON
+argument) and write JSON to stdout.
+
+## Organization — one folder per pipeline
+
+| Folder | Scope |
+|---|---|
+| `office/` | Generic workbook/CSV/doc/PDF utilities (`dump_xlsx_*`, `compare_workbook_*`, `read_xls`, `extract_docx`, `render_pdf_page`, …) — **check here before writing a new file utility** |
+| `localdev/` | Local SQLite dev-data pipeline (`create_local_dev_data`, `export_local_*`, `check_local_*`, `query_local_sqlite`, …) — see `docs/LOCAL_DEV_DATA.md` |
+| `rerun/` | RERUN workbook COM bridge + engine comparison (`rerun_com`, `compare_rerun_vs_app`, `compare_case`, saved-case dumps, `build_test_matrix`) — workbooks live in the work-laptop archive |
+| `engine/` | Illustration engine verification harnesses (`check_guideline_*`, `check_target_premium`, ratchet/benefit checks, `drive_illustration_app`) |
+| `glp/` | The GLP forecast batch pipeline (policy list → fetch AV/debt → append columns → batch run → report) |
+| `rates/` | UL_Rates / SV_INDEX / rate-workup tooling (`query_ul_rates`, `run_rate_workup`, `create_sv_index_*`, `verify_sv_index_*`, mortality loader) |
+| `policyrecord/` | CyberDoc / policy-record segment screens (`build_seg*`, `probe_segment*`, `gen_seg02_fields`, `build_cyberdoc_index`) |
+| `audit/` | Audit / File Sources / source-dashboard UI harnesses and data migrations |
+| `app/` | App-level dev UX (`take_screenshot`, `sandbox_suiteview`, `check_imports`, `generate_testing_plan`, `create_taskbar_shortcut`) |
+
+Intra-folder imports (e.g. `compare_case` ← `calc_compare_map`,
+`rerun_*` ← `rerun_com`) rely on scripts living in the **same** folder — keep
+pipeline families together when adding or moving scripts.
 
 ## Rules
 
-- **No inline execution.** All Python execution must go through scripts in
-  this directory — never via `python -c "..."` or similar inline commands.
-- **Single-purpose.** Each script should do one thing well.
-- **Auditable.** Keep scripts small and easy to review.
-- **CLI input/output.** Accept input via command-line args (prefer JSON as a
-  single argument) and write output to stdout as JSON.
-- **Reuse.** Check for existing scripts before creating new ones.
-
-## Usage
-
-```powershell
-python tools/<script>.py '<json_args>'
-```
+1. **Reuse.** Before writing a new script, grep the relevant folder — the
+   generic utilities in `office/` cover most workbook/CSV inspection needs.
+2. **Single purpose, auditable.** Small scripts; input via CLI args (JSON
+   preferred); output JSON to stdout.
+3. **No inline execution.** Never `python -c` — create/extend a script here.
+4. **Retirement policy.** One-shot diagnostics (a single policy, a single bug,
+   a shipped UI change) are **deleted when the investigation closes** — git
+   history is the archive. Durable pipeline stages stay.
+5. **Naming.** `check_`/`verify_`/`validate_` = assert correctness;
+   `dump_`/`inspect_`/`list_` = read and print; `probe_` = live-source schema
+   discovery; `build_`/`create_`/`make_` = produce an artifact; `run_` = batch
+   driver; `show_`/`preview_`/`screenshot_` = UI harness.

@@ -55,7 +55,7 @@ The pipeline is distributed across these modules:
 - `suiteview/illustration/core/shadow_calc.py` - parallel CCV / shadow account calculation
 - `suiteview/polview/services/glp_exception.py` - PolView GLP exception and policy-support premium forecast consumer
 - `suiteview/illustration/debug/excel_export.py` - exposes the pipeline field order used for debug export
-- `tools/rerun_com.py`, `tools/run_engine_case.py`, `tools/compare_case.py`, and `tools/calc_compare_map.py` - RERUN workbook dump, engine dump, and grouped comparison harness
+- `tools/rerun/rerun_com.py`, `tools/rerun/run_engine_case.py`, `tools/rerun/compare_case.py`, and `tools/rerun/calc_compare_map.py` - RERUN workbook dump, engine dump, and grouped comparison harness
 
 ## 2. High-Level Flow
 
@@ -272,7 +272,7 @@ On any specified-amount change the engine now recomputes the target premiums (vM
 - PWoT/PWSTP (benefit type 4, `IK`) = `JD = TRUNC(JA·JC, 2)` where `JA` = coverage MTPs + benefit MTPs + PWoC target (no CCV, no PWoT itself) and `JC = TRUNC(x/(1−x), 5)`, `x = pwstRate/100·(1+table·factor)` — the self-grossing waiver factor.
 - PWoT CTP (`KE`) = `JC·vMTP` (the full annual MTP) for FFL, vs `units·rate·(1+factor·table)` non-FFL; the PWoC CTP component stays `ROUND(IV, 2)` (`KP`).
 
-The non-FFL PWoT target (`IK = units·pwstRate·(1+factor·table)`) was implemented in the same change (previously a TODO). `CompanySub` was merged into `plancode_table.json` from RERUN Rates_Control C12:BE206 via `tools/merge_plancode_company_sub.py`; `PlancodeConfig.is_ffl` exposes the switch. Unit-tested against hand-computed RERUN formulas in `tests/test_illustration_ffl_waiver_targets.py`; not yet compared against a live RERUN FFL case (needs an FFL policy fixture — laptop work).
+The non-FFL PWoT target (`IK = units·pwstRate·(1+factor·table)`) was implemented in the same change (previously a TODO). `CompanySub` was merged into `plancode_table.json` from RERUN Rates_Control C12:BE206 via `tools/rates/merge_plancode_company_sub.py`; `PlancodeConfig.is_ffl` exposes the switch. Unit-tested against hand-computed RERUN formulas in `tests/test_illustration_ffl_waiver_targets.py`; not yet compared against a live RERUN FFL case (needs an FFL policy fixture — laptop work).
 
 ### 4.6 Step 7 - Coverage After Change
 

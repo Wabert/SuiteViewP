@@ -129,7 +129,7 @@ IUL groundwork UI finished on the minipc; three items need live IUL data:
 `target_premium.py` now implements the RERUN CalcEngine **IW..JD "FFL Premium
 Waivers"** basis: for plancodes with `CompanySub = "FFL"` (new column merged
 into `plancode_table.json` from RERUN Rates_Control C12:BE206 via
-`tools/merge_plancode_company_sub.py`; `PlancodeConfig.is_ffl` = RERUN
+`tools/rates/merge_plancode_company_sub.py`; `PlancodeConfig.is_ffl` = RERUN
 `sblnFFL`), PWoC (benefit type 3, IV=JB) and PWoT/PWSTP (benefit type 4,
 IK=JD, CTP KE=JC·vMTP) are computed from cost bases. The non-FFL PWoT target
 (units·rate·(1+factor·table)) was implemented in the same change (was a TODO).
@@ -157,7 +157,7 @@ NU), Scheduled Prem Cap (NV, locked at BOY), and **levelizing**
 spreads a capped premium level across the year's modal payments instead of
 dollar-for-dollar. TAMRA BOY/EOY handles a 7-pay anniversary mid-policy-year.
 - **Headless:** 12 pure unit tests pass (`tests/test_illustration_premium_allowance.py`);
-  `tools/test_guideline_helpers.py` updated to the new API (32 checks pass).
+  `tools/engine/test_guideline_helpers.py` updated to the new API (32 checks pass).
   Proved (algebra + test) that with levelizing OFF the applied TOTAL premium is
   identical to the prior behavior → the 11 validated scenarios are unchanged.
 - **VALIDATE on laptop:** run the `rerun_com → run_engine_case → compare_case`
@@ -280,9 +280,9 @@ has explicit joins to read (today only the canvas `joins_tab` state is saved).
 
 ### 1.6 Illustration — guideline pipeline completion (2026-06-07, branch `fix/dataforge-review`)
 Reverse-engineered the RERUN **CalcEngine** formulas (full column map dumped to
-`docs/Illustration_UL/calcengine_map.tsv` via the new `tools/extract_calcengine.py`)
+`docs/Illustration_UL/calcengine_map.tsv` via the new `tools/rerun/extract_calcengine.py`)
 and completed the 7702 guideline machinery in the Python engine. Pure logic is
-unit-tested headless (`tools/test_guideline_helpers.py`, 32 green), but nothing
+unit-tested headless (`tools/engine/test_guideline_helpers.py`, 32 green), but nothing
 was run against **live UL_Rates / DB2** or in the **UI**. Verify on the laptop:
 
 - **Force-out now floored by GSP (the real bug).** `_apply_guideline_forceout`
@@ -330,7 +330,7 @@ New actuarial GLP/GSP module, two independent methods. New files:
 - **Commutation / PV method** (`calculate_glp` / `calculate_gsp`):
   GLP = (SA·A_{x:n} + PV expenses) / ((1−load)·ä_{x:n}); GSP single-premium form.
   Fully self-contained (pass a `MortalityTable`), **already unit-tested headless**
-  — `tools/test_commutation_glp.py`, 21 green, validated against the standard
+  — `tools/engine/test_commutation_glp.py`, 21 green, validated against the standard
   identities (A = 1 − d·ä, term+PE = endowment, P = A/ä) and exact no-mortality
   hand values, plus the **Fackler reserve roll** (forward/backward, prospective
   reserve match). Parameterized by age, sex/table, substandard (table mult + flat
@@ -372,16 +372,16 @@ rates. Branch pushed to origin. See `docs/Illustration_UL/QUESTION_LOG.md` (root
 the policy-change plan.
 
 **Harness (all offline, minipc-safe — Excel IS available here now):**
-- `tools/rerun_com.py` — load a RERUN Saved Case into an **isolated** Excel
+- `tools/rerun/rerun_com.py` — load a RERUN Saved Case into an **isolated** Excel
   instance (`DispatchEx`), recalc, dump CalcEngine columns. Run-mode `overrides`
   build face-change/DBO scenarios. **Gotchas baked in:** pywin32 needed
   (`pip install pywin32`, now in requirements); set `Calculation=manual` before
   writing inputs (else a recalc storm hangs Excel); block-write vectors.
-- `tools/run_engine_case.py` — engine on a local policy → MonthlyState CSV, with
+- `tools/rerun/run_engine_case.py` — engine on a local policy → MonthlyState CSV, with
   per-case TEFRA/TAMRA/exception/exact-days toggles (read from the Saved Case).
-- `tools/compare_case.py` + `calc_compare_map.py` — align by valuation date, diff a
+- `tools/rerun/compare_case.py` + `calc_compare_map.py` — align by valuation date, diff a
   RERUN-ordered grouped column map with detail levels + collapse/drill-down.
-- `tools/query_local_fixture.py`, `tools/inspect_illustration_inputs.py` — data-gap
+- `tools/localdev/query_local_fixture.py`, `tools/engine/inspect_illustration_inputs.py` — data-gap
   diagnostics. `extract_calcengine.py` gained names/props/dump modes.
 - **JSON arg gotcha:** PowerShell mangles the single-JSON-arg; run these via **Bash**
   with `MSYS_NO_PATHCONV=1`.
@@ -628,11 +628,11 @@ proceed with the cleanup below:**
   "Visual Query →" button.
 - **3** `dialogs/file_source_browser.py` (open/delete saved sources) + an
   "Open…" button on the editor; `migrate_adhoc_to_file_source` +
-  `tools/migrate_adhoc_sources.py`.
+  `tools/audit/migrate_adhoc_sources.py`.
 
 **Remaining (laptop):**
 1. **Run the migration on real data.** The minipc has no legacy `adhoc_source`
-   objects. On the laptop: `venv\Scripts\python.exe tools/migrate_adhoc_sources.py`
+   objects. On the laptop: `venv\Scripts\python.exe tools/audit/migrate_adhoc_sources.py`
    (dry run) to review, then `'{"apply": true}'` to convert + remove originals.
 2. **Remove the dead legacy adhoc code** once #1 is done and the browser is
    confirmed clean: `tabs/csv_excel_object_editor.py`, the `OBJECT_KIND_ADHOC_SOURCE`
@@ -652,9 +652,9 @@ proceed with the cleanup below:**
 
 ## §5 — Local rate-export gaps found by the offline RERUN pipeline (2026-07-16)
 
-The offline RERUN tooling (`tools/rerun_load_local_rates.py` +
-`tools/rerun_build_case_inputs.py`) surfaced three gaps that need a laptop
-export session (`tools/export_local_rate_data.py` on the UL_Rates DSN):
+The offline RERUN tooling (`tools/rerun/rerun_load_local_rates.py` +
+`tools/rerun/rerun_build_case_inputs.py`) surfaced three gaps that need a laptop
+export session (`tools/localdev/export_local_rate_data.py` on the UL_Rates DSN):
 
 1. **`Select_RATE_SHDINT` missing from `bundled_data/dev/rates.sqlite`** — the
    Span_ShadowINT block cannot be loaded offline. Only matters for plancodes
@@ -680,7 +680,7 @@ export session (`tools/export_local_rate_data.py` on the UL_Rates DSN):
    guideline recalc (GLP/GSP/7-pay ~0.12–0.68 off after the change; before-
    change solves are exact). Laptop: export the target-index keyed rows
    (Select_RATE_BENTRG or equivalent) and point the PW/PWST target lookups at
-   them. Repro: `tools/repro_pw_target_rate_gap.py` — patching the PW rate to
+   them. Repro: `tools/engine/repro_pw_target_rate_gap.py` — patching the PW rate to
    0.044 makes the recalc'd 7-pay exact and GSP/GLP land within one
    monthly-cent floor step of RERUN.
 5. **IUL AG49/WAIR engine crediting — RERUN comparison (2026-07-18)** —
@@ -729,7 +729,7 @@ export session (`tools/export_local_rate_data.py` on the UL_Rates DSN):
    band 2, proven by the system's own LH_POL_MVRY_VAL CINS 24.12 = band-2
    dur-9 rate 0.0967 × NAR/1000. Fix: `Rates.get_band(..., issue_date=)` +
    `BandTable2IssueDate` in the plancode table (merged by
-   `tools/merge_band_table2_date.py`); unit tests `tests/test_rates_band.py`;
+   `tools/rates/merge_band_table2_date.py`); unit tests `tests/test_rates_band.py`;
    re-run evidence
    `Testing/details/rerun_vs_app_iul_blend_bandfix_20260718_200353.xlsx`
    (COI exact through mo 528; residual AV drift 30,714 → 998.24 = bug (b)
@@ -787,9 +787,9 @@ The four-forecast GLP batch over `docs\Illustration_UL\GLP Limit Calc v2.xlsx`
 (17,324 policies, only ~5 rows run so far) needs live DB2. On the laptop:
 
 1. Run the batch (resumable via `--start-row` / sidecar replay):
-   `venv\Scripts\python.exe tools/run_glp_forecast_batch.py "docs\Illustration_UL\GLP Limit Calc v2.xlsx"`
+   `venv\Scripts\python.exe tools/glp/run_glp_forecast_batch.py "docs\Illustration_UL\GLP Limit Calc v2.xlsx"`
 2. Build the management exhibit from the completed workbook:
-   `venv\Scripts\python.exe tools/build_glp_forecast_report.py "docs\Illustration_UL\GLP Limit Calc v2.xlsx"`
+   `venv\Scripts\python.exe tools/glp/build_glp_forecast_report.py "docs\Illustration_UL\GLP Limit Calc v2.xlsx"`
    → writes `docs\Illustration_UL\GLP Funding Outlook.html` (self-contained,
    email/print-ready) and prints a JSON audit summary (tier counts, label
    vocabulary seen, bypass reasons, unclassified rows — should be 0).
@@ -803,7 +803,7 @@ Accepts current labels ("(none)") and legacy ones ("not needed"). Centerpiece
 is an interactive by-form breakdown: click a category chip or funnel segment
 → forms ranked by that category (share-of-form bars); open with `#cat=D` to
 preselect. Exhibit verified on the minipc against a 2,400-row synthetic
-workbook (`tools/make_glp_report_demo_workbook.py`, form-correlated mix).
+workbook (`tools/glp/make_glp_report_demo_workbook.py`, form-correlated mix).
 Sanity checks after the real run: `unclassified_count` = 0 and no unexpected
 strings in `labels_seen`; exception-date rows with a blank abs-max column are
 counted in `missing_abs_max` (not front-load-capable, conservative).

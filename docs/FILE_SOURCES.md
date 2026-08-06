@@ -116,7 +116,7 @@ this was a small, additive change.
   lists saved sources (name, format, file/column counts) with Open/Delete; the
   File Source editor gained an **Open…** button to reopen a saved source for
   editing. Migration: `file_source_intake.migrate_adhoc_to_file_source()` +
-  `tools/migrate_adhoc_sources.py` (dry-run by default; `apply=true` converts
+  `tools/audit/migrate_adhoc_sources.py` (dry-run by default; `apply=true` converts
   every legacy `adhoc_source` QueryObject to a FileDataSource and removes the
   original). Tests: `test_file_source_intake.py` (+2 migration). A dedicated
   browser was chosen over shoehorning a new entity into the 3,300-line
@@ -152,7 +152,7 @@ this was a small, additive change.
     routed to the dashboard read-only (Setup + Used-by; health from
     `get_dsn_details` / file existence). Removed the dead
     `_configure_data_source_tables` + four source-row helpers. Harness:
-    `tools/show_source_dashboard.py`.
+    `tools/audit/show_source_dashboard.py`.
   - **Step 3b — ODBC registry (done, screenshot-verified):** registered ODBC
     sources are now first-class. New `data_source.py` (`RegisteredDataSource` —
     pure model, kind=odbc|access) + `data_source_store.py` (id-keyed atomic JSON
@@ -164,7 +164,7 @@ this was a small, additive change.
     and Tests it. Registered DSNs are **pinned** in the tree (shown gold, even
     with no query) with their own dashboard (Setup + live Test health + Edit /
     Delete); discovered DSNs get a **Register** action to promote them. Tests:
-    `tests/test_data_source.py` (9). Harness: `tools/show_odbc_data_source.py`.
+    `tests/test_data_source.py` (9). Harness: `tools/audit/show_odbc_data_source.py`.
   - **Step 3b — MS Access (done, screenshot-verified):** "Add Data Source → MS
     Access" picks a `.accdb`/`.mdb` file (`_RegisterAccessDialog`, with Browse +
     Test), registered as `RegisteredDataSource(kind=access)`. Access connects
@@ -175,7 +175,7 @@ this was a small, additive change.
     Tables = the file's user tables when the driver can read it, Edit / Open
     Folder / Delete). Delete generalized to `_delete_registered_source` for both
     kinds. Tests: `test_data_source.py` (+3). Harness:
-    `tools/show_access_data_source.py`.
+    `tools/audit/show_access_data_source.py`.
   - **Step 3b — remaining:** "New Query on a DSN / Access source" from the
     dashboard (needs builder wiring — File Sources already have it), and folding
     away the legacy `Files` tree group (§6.6).
@@ -318,8 +318,8 @@ All in `query_object_viewer_window.py` unless noted:
   `_ensure_file_source_editor_window`, `_open_query_on_file_source`,
   `_show_window`). Tests: `apply_column_names`/`parse_column_names` covered in
   `test_file_source_intake.py`; suite 458 passed / 13 pre-existing fails.
-  Harnesses: `tools/show_source_dashboard.py` (edit/view),
-  `tools/show_audit_file_source.py` (add-new), `tools/verify_file_source_canvas_save.py`
+  Harnesses: `tools/audit/show_source_dashboard.py` (edit/view),
+  `tools/audit/show_audit_file_source.py` (add-new), `tools/audit/verify_file_source_canvas_save.py`
   (headless Save round-trip).
 - **2026-06-22 (Phase 4 polish — Manual SQL matches Visual Query)** — Restructured
   `ManualSqlObjectEditor` to mirror the Visual Query builder: SQL Assist
@@ -353,7 +353,7 @@ All in `query_object_viewer_window.py` unless noted:
   for sources that have none (ODBC). Dashboard emits `table_selected` /
   `remove_table_requested` / `open_table_folder_requested`; the window wires
   preview / remove / per-file open-folder. Harness:
-  `tools/show_source_dashboard_tables.py`.
+  `tools/audit/show_source_dashboard_tables.py`.
 - **2026-06-22 (Phase 4 polish — File Source editor window)** — The File Source
   editor is now its own dedicated frameless window (`FileSourceEditorWindow` in
   `tabs/file_source_editor.py`), not a build mode embedded in the Audit tool. The
@@ -373,7 +373,7 @@ All in `query_object_viewer_window.py` unless noted:
   `_delete_registered_source` now covers both registered kinds. Updated
   `..._file_source_keeps_left_width...` for the new group order (0=ODBC, 1=MS
   Access, 2=Files, 3=File Sources). Tests +3; suite 453 passed / 13 pre-existing.
-  Harness: `tools/show_access_data_source.py`. Remaining 3b: New-Query-on-a-DSN,
+  Harness: `tools/audit/show_access_data_source.py`. Remaining 3b: New-Query-on-a-DSN,
   fold the `Files` group.
 - **2026-06-22 (Phase 4, step 3b — ODBC registry)** — Registered ODBC sources
   are first-class. New `data_source.py` (`RegisteredDataSource`) +
@@ -395,7 +395,7 @@ All in `query_object_viewer_window.py` unless noted:
   Blue/Gold. First-class File Sources got a real single-click detail view +
   member-file health; `AuditWindow.new_query_on_file_source(id, mode)` powers the
   New Query action. Removed dead `_configure_data_source_tables` and four
-  now-unused source-row helpers. `tools/show_source_dashboard.py`. Suite: 441
+  now-unused source-row helpers. `tools/audit/show_source_dashboard.py`. Suite: 441
   passed, 13 pre-existing live-DB2/illustration failures (unrelated). Remaining:
   step 3b (Add Data Source chooser + registered ODBC/Access + fold `Files`).
 - **2026-06-22 (Phase 4, step 1 + spec)** — Started the Data Sources tab →
@@ -410,7 +410,7 @@ All in `query_object_viewer_window.py` unless noted:
   dashboard + registered ODBC/Access sources) deferred.
 - **2026-06-22 (Phase 3)** — Discoverability + migration. `dialogs/file_source_browser.py`
   (list/open/delete saved sources) + an "Open…" button on the editor;
-  `migrate_adhoc_to_file_source` + `tools/migrate_adhoc_sources.py` (dry-run
+  `migrate_adhoc_to_file_source` + `tools/audit/migrate_adhoc_sources.py` (dry-run
   default). Tests +2 (migration). Legacy adhoc code removal + unified-browser
   fold deferred to the laptop (needs interactive verification).
 - **2026-06-22 (2c)** — Visual builder over a File Source. `DUCKDB` dialect from

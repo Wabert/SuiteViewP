@@ -15,13 +15,13 @@ actuarial source-of-truth workbook for inforce UL/IUL illustrations.
 > (`details/rerun_vs_app_*.xlsx`) and stale generated outputs (`archive/`) were
 > moved out of the repo to `..\SuiteViewP_archived_docs` on the **work laptop**,
 > along with the RERUN workbooks themselves. They are not present on other
-> machines; regenerate via `tools/compare_rerun_vs_app.py` on the laptop when
+> machines; regenerate via `tools/rerun/compare_rerun_vs_app.py` on the laptop when
 > new evidence is needed.
 
 ## Regenerating the matrix
 
 ```powershell
-venv\Scripts\python.exe tools/build_test_matrix.py
+venv\Scripts\python.exe tools/rerun/build_test_matrix.py
 ```
 
 The script reads `test_matrix.json`, writes `TEST_MATRIX.xlsx` (frozen header,
@@ -32,7 +32,7 @@ row/column counts as a self-check.
 
 1. Add the case to the RERUN workbook's **Saved Cases** sheet (or capture a
    constructed override scenario) and run the comparison
-   (`tools/compare_rerun_vs_app.py`); retain the resulting detail workbook in
+   (`tools/rerun/compare_rerun_vs_app.py`); retain the resulting detail workbook in
    the laptop archive (`..\SuiteViewP_archived_docs`).
 2. Append a row object to `rows` in `test_matrix.json` — the `_readme` block
    at the top of the JSON documents every field.
@@ -78,10 +78,10 @@ Debt (loan balance), EAV (ending account value), ESV (ending surrender value):
 - **Saved Cases 1–27** are enumerated from the `RERUN (v20.0) local IUL.xlsm`
   Saved Cases sheet (one case per column) — the workbook lives in the laptop
   archive, not the repo. Form / DB Option come from the local policy DB
-  (`tools/list_local_policies.py`).
+  (`tools/localdev/list_local_policies.py`).
 - **Constructed scenarios (S-\*)** are override runs (face/DBO changes,
   TEFRA/TAMRA-binding premiums, withdrawals, loans) built on validated
-  baselines via `tools/rerun_com.py` overrides — the 2026-06 validation
+  baselines via `tools/rerun/rerun_com.py` overrides — the 2026-06 validation
   campaign documented in `QUESTION_LOG.md` §E–§H.
 
 ## Benefit / rider reference notes

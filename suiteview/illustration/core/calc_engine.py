@@ -249,7 +249,7 @@ class IllustrationEngine:
         # accrued); its Debug File "Loan Balance" only LOOKS raw because that
         # column is vPolicyDebtDisplay = SUM(MS:MX) — the post-capitalize/
         # repay, PRE-accrual balance. Keep the accrual; map displays to the
-        # BOM buckets instead (tools/rerun_debug_map.py).
+        # BOM buckets instead (tools/rerun/rerun_debug_map.py).
         loan0 = LoanState(
             rg_loan_princ=policy.regular_loan_principal,
             rg_loan_accrued=policy.regular_loan_accrued,

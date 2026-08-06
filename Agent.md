@@ -123,7 +123,7 @@ One line: **Bloomberg-terminal density with a hand-crafted frame.**
 >
 > **Environment & workflow.** Windows + PyQt6. Always `venv\Scripts\python.exe`.
 > No inline execution — only auditable scripts under `tools/`. The desktop app
-> can't be inspected by browser tools; verify UI via `tools/take_screenshot.py`.
+> can't be inspected by browser tools; verify UI via `tools/app/take_screenshot.py`.
 > Respect the minipc/work-laptop split: defer anything needing live
 > DB2/SQL-Server to `WORK_LAPTOP_SPEC.md`. Local SQLite policy/rates databases
 > are forbidden unless `SUITEVIEW_LOCAL_DATA` is set exactly to `1`; never treat
@@ -197,7 +197,7 @@ venv\Scripts\python.exe <script_or_args>
 ```
 
 Examples:
-- Run a script: `venv\Scripts\python.exe tools/verify_abr_rate.py`
+- Run a script: `venv\Scripts\python.exe tools/rates/verify_abr_rate.py`
 - Run tests: `venv\Scripts\python.exe -m pytest tests/ -v`
 - Install a package: `venv\Scripts\python.exe -m pip install <package>`
 
@@ -214,7 +214,7 @@ It is **NOT** a web/browser application. This means:
 - **To visually verify the UI**, use the screenshot helper script:
 
   ```powershell
-  venv\Scripts\python.exe tools/take_screenshot.py
+  venv\Scripts\python.exe tools/app/take_screenshot.py
   ```
 
   This captures the entire desktop using PyQt6's `QScreen.grabWindow(0)` and
@@ -928,7 +928,7 @@ across all apps. For app-specific details, see the relevant doc:
 |---------|----------|---------|
 | **PolView** | [`docs/POLVIEW_CLAUDE.md`](docs/POLVIEW_CLAUDE.md) | Policy viewer — VBA reference, Trad vs Advanced deep dive, coverage/rate logic, VBA property mappings, Cyber Audit |
 | **ABR Quote** | *(see section below)* | Accelerated Death Benefit quoting tool — 3-step wizard, dedicated SQLite DB, Crimson Slate theme |
-| **RateManager** | *(module docstrings in `suiteview/ratemanager/`)* | Opens straight to the **Rate Workup** (`workup/`): single-pass multi-file load of one plancode into UL_Rates-ready CSVs (POINT_PVSRB, RATE_COI, RATE_TRGPREM, RATE_SCR, RATE_EPU, POINT_BENEFIT, RATE_BENCOI, RATE_BENTRG). Generated headers use exact physical UL_Rates names such as `Index(COI)` and `Rate(MTP)`. Base Index is required with no default. Every benefit requires a cease age and emits charges only through the preceding attained age. Sparse MPF benefit rates fill forward through omitted ages. Output codes: sex 1→M/2→F (unisex unchanged), band letters→1,2,3… (X,Y first). Header buttons open Workup, Database, or the per-file Converters. The **Database** view validates all CSV schemas, compares complete index groups, blocks cross-plancode collisions, requires explicit per-table replacement, backs up removed rows, commits selected changes atomically, and supports POINT_PVSRB/POINT_BENEFIT editing plus unreferenced whole-index deletion. Rate files load as two independent **groups** keyed by their pointer file — the base group (POINT_PVSRB + RATE_COI/TRGPREM/SCR/EPU) and the benefit group (POINT_BENEFIT + RATE_BENCOI/BENTRG). Either group can stand alone: `WorkupPackage.load` participates a group only when its pointer CSV is present (all files in a present group are still required), so deleting the base files to load benefit rates only — or vice-versa — is fully supported. Verify workup output against the `1U1F4M00_DB` reference CSVs (work-laptop archive `..\SuiteViewP_archived_docs`) via `tools/run_rate_workup.py` + `tools/compare_workup_to_reference.py` |
+| **RateManager** | *(module docstrings in `suiteview/ratemanager/`)* | Opens straight to the **Rate Workup** (`workup/`): single-pass multi-file load of one plancode into UL_Rates-ready CSVs (POINT_PVSRB, RATE_COI, RATE_TRGPREM, RATE_SCR, RATE_EPU, POINT_BENEFIT, RATE_BENCOI, RATE_BENTRG). Generated headers use exact physical UL_Rates names such as `Index(COI)` and `Rate(MTP)`. Base Index is required with no default. Every benefit requires a cease age and emits charges only through the preceding attained age. Sparse MPF benefit rates fill forward through omitted ages. Output codes: sex 1→M/2→F (unisex unchanged), band letters→1,2,3… (X,Y first). Header buttons open Workup, Database, or the per-file Converters. The **Database** view validates all CSV schemas, compares complete index groups, blocks cross-plancode collisions, requires explicit per-table replacement, backs up removed rows, commits selected changes atomically, and supports POINT_PVSRB/POINT_BENEFIT editing plus unreferenced whole-index deletion. Rate files load as two independent **groups** keyed by their pointer file — the base group (POINT_PVSRB + RATE_COI/TRGPREM/SCR/EPU) and the benefit group (POINT_BENEFIT + RATE_BENCOI/BENTRG). Either group can stand alone: `WorkupPackage.load` participates a group only when its pointer CSV is present (all files in a present group are still required), so deleting the base files to load benefit rates only — or vice-versa — is fully supported. Verify workup output against the `1U1F4M00_DB` reference CSVs (work-laptop archive `..\SuiteViewP_archived_docs`) via `tools/rates/run_rate_workup.py` + `tools/rates/compare_workup_to_reference.py` |
 | **Task Manager** | *(future)* | Task management |
 
 > **To add a new sub-app doc:** create `docs/<APPNAME>_CLAUDE.md`, add a row to
