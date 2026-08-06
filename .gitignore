@@ -48,6 +48,9 @@ nul
 *.log
 logs/
 .suiteview/
+# bundled_data is ignored; ONLY policy_records.sqlite is force-tracked (LFS).
+# rates.sqlite (~2 GB) is machine-local — never git add -f it (see
+# docs/LOCAL_DEV_DATA.md).
 bundled_data/
 .gemini/
 docs/Illustration_UL/*.results.jsonl

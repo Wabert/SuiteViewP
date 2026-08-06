@@ -12,9 +12,15 @@ venv\Scripts\python.exe tools\create_local_dev_data.py
 This creates ignored local files under `bundled_data/dev/`:
 
 - `policy_records.sqlite` - DB2-shaped policy record tables, attached as the
-  `DB2TAB` schema in local mode.
+  `DB2TAB` schema in local mode. (Small; tracked in git via LFS.)
 - `rates.sqlite` - one-plancode UL rate tables using the same `Select_RATE_*`
   names queried by `suiteview.core.rates.Rates`.
+
+> **`rates.sqlite` is NOT in the repo (2026-08).** At ~2 GB it was bloating
+> git/LFS storage, so it is machine-local only. Each machine either exports it
+> from live UL_Rates on the laptop (`tools/export_local_rate_data.py` /
+> `tools/create_local_dev_data.py`) or copies the file out-of-band (USB /
+> OneDrive). Do not `git add -f` it again.
 
 The current synthetic fixture set uses plancode `1U144600` and these policies:
 
