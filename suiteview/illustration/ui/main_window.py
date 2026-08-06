@@ -81,11 +81,13 @@ class IllustrationWindow(FramelessWindowBase):
         # (policy_number, region, company_code). Each entry keeps the policy's
         # live IllustrationInputsTab widget (the inputs ARE the widget state —
         # dynamic rows, grids, control toggles, solved amounts) plus snapshots
-        # of the last computed values/report/status, so switching back to a
-        # visited policy restores everything without re-entering or re-running.
+        # of the last computed values/report/status, so policy-list switching
+        # restores everything without re-entering or re-running. Clicking Get
+        # deliberately replaces that state with fresh policy defaults.
         # Session-only: never persisted to disk.
         self._session_states: dict[tuple, dict] = {}
         self._current_key: tuple | None = None
+        self._default_inputs_on_next_get = False
         # Set while a saved case's FROZEN policy snapshot is loaded instead of
         # live DB2 data (activated from the Saved Cases panel).
         # Run Values then projects the snapshot — no DB2 round trip — and the
@@ -221,6 +223,8 @@ class IllustrationWindow(FramelessWindowBase):
         self.lookup_bar.policy_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.lookup_bar.policy_requested.connect(self._on_get_policy)
         self.lookup_bar.company_chosen.connect(self._on_get_policy)
+        self.lookup_bar.get_button.pressed.connect(
+            self._mark_next_get_for_default_inputs)
 
         self.run_values_btn = QPushButton("Run Values")
         self.run_values_btn.setStyleSheet(VALUE_BUTTON_STYLE)
@@ -316,6 +320,7 @@ class IllustrationWindow(FramelessWindowBase):
     def _on_policy_selected_from_list(self, region: str, company: str, policy: str):
         if not self.isVisible():
             self.show()
+        self._default_inputs_on_next_get = False
         self.lookup_bar.region_input.setText(region)
         self.lookup_bar.company_input.setText(company)
         self.lookup_bar.policy_input.setText(policy)
@@ -383,6 +388,9 @@ class IllustrationWindow(FramelessWindowBase):
     def _show_status(self, message: str):
         self._status_label.setText(message)
 
+    def _mark_next_get_for_default_inputs(self):
+        self._default_inputs_on_next_get = True
+
     def _apply_illustration_gate(self) -> bool:
         """DISTRIBUTION-ONLY: if the loaded policy's plancode is flagged
         ``CanIllustrate = False``, disable Run Values and post a persistent
@@ -411,6 +419,7 @@ class IllustrationWindow(FramelessWindowBase):
         return True
 
     def _on_get_policy(self, policy_number: str, region: str, company_code: str = ""):
+        default_inputs = self._default_inputs_on_next_get
         self.lookup_bar.hide_company_chooser()
         # A fresh policy load always returns to LIVE data — clear any saved-
         # case as-of state so the user can trust what the header shows.
@@ -432,7 +441,9 @@ class IllustrationWindow(FramelessWindowBase):
                 self._where_clause = cached["where_clause"]
                 self._current_policy = policy_number
                 self._current_region = region
-                self._load_policy_into_ui(region, cached=True)
+                self._load_policy_into_ui(
+                    region, cached=True, default_inputs=default_inputs)
+                self._default_inputs_on_next_get = False
                 return
 
             self._show_status(f"Loading policy {policy_number} from {region}...")
@@ -454,6 +465,7 @@ class IllustrationWindow(FramelessWindowBase):
             if not self._policy.exists:
                 QMessageBox.warning(self, "Not Found", f"Policy {policy_number} not found in {region}")
                 self._show_status("Policy not found")
+                self._default_inputs_on_next_get = False
                 self.run_values_btn.setEnabled(False)
                 self.save_case_btn.setEnabled(False)
                 self.values_tab.clear_results("Load a policy, then click Run Values.")
@@ -482,9 +494,12 @@ class IllustrationWindow(FramelessWindowBase):
             self._current_policy = policy_number
             self._current_region = region
             self._add_policy_to_history(region, company_code, policy_number)
-            self._load_policy_into_ui(region, cached=False)
+            self._load_policy_into_ui(
+                region, cached=False, default_inputs=default_inputs)
+            self._default_inputs_on_next_get = False
 
         except Exception as exc:
+            self._default_inputs_on_next_get = False
             if is_password_error(str(exc)):
                 self._show_status(f"{region} connection failed - update your ODBC password and retry")
             else:
@@ -493,7 +508,9 @@ class IllustrationWindow(FramelessWindowBase):
         finally:
             QApplication.restoreOverrideCursor()
 
-    def _load_policy_into_ui(self, region: str, cached: bool = False):
+    def _load_policy_into_ui(
+            self, region: str, cached: bool = False,
+            default_inputs: bool = False):
         if not self._policy or not self._policy.exists:
             return
         self.open_polview_btn.setEnabled(True)
@@ -530,6 +547,12 @@ class IllustrationWindow(FramelessWindowBase):
             company_code,
         )
         session = self._session_states.get(key)
+        if default_inputs and session is not None:
+            # Explicit Get is the user's reset-to-live-defaults action. Results
+            # must be discarded with the inputs because they describe the old
+            # input state.
+            self._drop_session_state(key)
+            session = None
         if session is None:
             # First visit this session: fresh inputs from the policy, empty values.
             inputs_tab = IllustrationInputsTab()
