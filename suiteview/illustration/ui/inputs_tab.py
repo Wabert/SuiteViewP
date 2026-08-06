@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDateEdit,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -500,8 +501,6 @@ class IllustrationInputsTab(QWidget):
         outer.setContentsMargins(10, 10, 10, 10)
         outer.setSpacing(8)
 
-        outer.addWidget(self._build_illustration_duration_group(), 0, Qt.AlignmentFlag.AlignTop)
-
         group = QGroupBox("Run Controls")
         group.setStyleSheet(GROUP_STYLE)
         # Two columns: the editable controls pack down the left, the two
@@ -595,6 +594,9 @@ class IllustrationInputsTab(QWidget):
             "Normally on — projection rows stop once the lapse test fails. "
             "Enable Illustration Options to toggle it off.")
         locked_column.addWidget(self.stop_on_lapse_check)
+        # Illustration Duration lives beneath the Enable-switch controls in the
+        # same right-hand column so all the run-level toggles read top-to-bottom.
+        locked_column.addWidget(self._build_illustration_duration_group())
         locked_column.addStretch(1)
 
         note = QLabel("Unchecked Exact Days uses monthly compounding.")
@@ -733,9 +735,14 @@ class IllustrationInputsTab(QWidget):
         self.duration_mode_group = QButtonGroup(self)
         self.duration_mode_group.setExclusive(True)
 
-        date_row = QHBoxLayout()
-        date_row.setContentsMargins(0, 0, 0, 0)
-        date_row.setSpacing(8)
+        # A grid keeps the radio labels in column 0 and the inputs in column 1,
+        # so the date edit and the years combo share one left edge and line up
+        # even though the two labels differ in width.
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(6)
+
         self.illustration_to_date_radio = self._make_control_radio("Illustration to Date")
         self.illustration_to_date_edit = QDateEdit(self)
         self.illustration_to_date_edit.setCalendarPopup(True)
@@ -744,14 +751,9 @@ class IllustrationInputsTab(QWidget):
         self.illustration_to_date_edit.setStyleSheet(self._control_input_style())
         self.illustration_to_date_edit.setMinimumWidth(120)
         self.duration_mode_group.addButton(self.illustration_to_date_radio)
-        date_row.addWidget(self.illustration_to_date_radio)
-        date_row.addWidget(self.illustration_to_date_edit)
-        date_row.addStretch(1)
-        layout.addLayout(date_row)
+        grid.addWidget(self.illustration_to_date_radio, 0, 0)
+        grid.addWidget(self.illustration_to_date_edit, 0, 1)
 
-        years_row = QHBoxLayout()
-        years_row.setContentsMargins(0, 0, 0, 0)
-        years_row.setSpacing(8)
         self.illustration_years_radio = self._make_control_radio("Illustration Years")
         self.illustration_years_combo = QComboBox(self)
         self.illustration_years_combo.setEditable(True)
@@ -761,10 +763,11 @@ class IllustrationInputsTab(QWidget):
         self.illustration_years_combo.setStyleSheet(self._control_input_style())
         self.illustration_years_combo.setMinimumWidth(120)
         self.duration_mode_group.addButton(self.illustration_years_radio)
-        years_row.addWidget(self.illustration_years_radio)
-        years_row.addWidget(self.illustration_years_combo)
-        years_row.addStretch(1)
-        layout.addLayout(years_row)
+        grid.addWidget(self.illustration_years_radio, 1, 0)
+        grid.addWidget(self.illustration_years_combo, 1, 1)
+
+        grid.setColumnStretch(2, 1)
+        layout.addLayout(grid)
 
         self.illustration_years_radio.setChecked(True)
         self.illustration_to_date_radio.toggled.connect(self._sync_duration_controls)
