@@ -81,3 +81,20 @@ docs/Policy Record/
 docs/Illustration_UL/*.pdf
 tools/research_*
 tools/_backups/
+
+# --- Heavy reference/harness binaries moved to ..\SuiteViewP_archived_docs (2026-08) ---
+# Raw mainframe rate extracts (rate-workup dev input)
+docs/RateManager/CKULTB01/
+docs/RateManager/CKULTB04/
+docs/RateManager/MPF/
+docs/RateManager/IAF/
+docs/RateManager/*_DB/
+docs/RateManager/1U1F4N00.txt
+# Validation-harness workbooks and regenerable batch outputs
+docs/**/*.xlsm
+docs/**/*.jsonl
+docs/Illustration_UL/Testing/archive/
+docs/Illustration_UL/Testing/details/
+docs/Illustration_UL/Archive/
+docs/Illustration_WL/
+docs/polview/Annuity_Rider_Forward_Verification*.xlsx
