@@ -644,6 +644,14 @@ class IllustrationWindow(FramelessWindowBase):
         company_code = case.company_code or snapshot.company_code or ""
         key = (policy_number, region, company_code)
 
+        # Populate the lookup bar inputs so the loaded case's company/policy are
+        # visible (and ready for a live Get) — the snapshot path never fired the
+        # Get flow that normally fills these.
+        self.lookup_bar.region_input.setText(region)
+        self.lookup_bar.company_input.setText(company_code)
+        self.lookup_bar.policy_input.setText(policy_number)
+        self.lookup_bar.set_policy_display(company_code, policy_number, region)
+
         self._snapshot_case = case
         self._policy = None            # no live PolicyInformation in this mode
         self._where_clause = None
