@@ -5,6 +5,11 @@ SQL Server rates or DB2. Run:
 
     venv\\Scripts\\python.exe tools/engine/test_guideline_helpers.py
 """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from suiteview.illustration.core.calc_engine import (
     _accumulate_guideline_premium,
     _apply_guideline_forceout,

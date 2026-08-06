@@ -53,7 +53,7 @@ from suiteview.audit.tabs._sort_controls import (
 # drawn join lines) replaces the old card-based ForgeJoinsTab. JoinCanvasView
 # is API-compatible (update_queries / get_merge_ops / get_state / set_state /
 # state_changed) and its set_state migrates the old {"cards": [...]} format, so
-# previously-saved Forges still load. forge_joins_tab.py is kept for rollback.
+# previously-saved Forges still load.
 from suiteview.audit.dataforge.join_canvas_view import (
     JoinCanvasView,
     ORANGE_JOIN_CANVAS_THEME,

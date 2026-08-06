@@ -9,7 +9,7 @@ This script is designed for resilience against network hiccups:
   - Reconnects and retries if the connection drops
 
 Usage:
-    python scripts/create_sv_abr_large_tables.py
+    python tools/rates/create_sv_abr_large_tables.py
 """
 
 import os
@@ -19,7 +19,7 @@ import time
 import pyodbc
 
 # ── Paths ───────────────────────────────────────────────────────────────
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SQLITE_DB = os.path.join(os.path.expanduser("~"), ".suiteview", "abr_quote.db")
 ODBC_DSN = "UL_Rates"
 

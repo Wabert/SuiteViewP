@@ -14,7 +14,7 @@ Tables created:
 NOTE: SV_ABR_INTEREST_RATES was already created by create_sv_abr_interest_rates.py
 
 Usage:
-    python scripts/create_sv_abr_tables.py
+    python tools/rates/create_sv_abr_tables.py
 """
 
 import os
@@ -24,7 +24,7 @@ import time
 import pyodbc
 
 # ── Paths ───────────────────────────────────────────────────────────────
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Use the RUNTIME DB (~/.suiteview/) which has all migrated/seeded tables,
 # not the bundled DB which only has the original pre-migration tables.
 SQLITE_DB = os.path.join(os.path.expanduser("~"), ".suiteview", "abr_quote.db")

@@ -268,8 +268,7 @@ implementations.
 - Eliminates duplicated row-height / delegate / stylesheet boilerplate
 
 **Applied to:**
-- `SavedQueriesShelf` (`suiteview/audit/ui/saved_queries_shelf.py`) — converted
-  from `QTableWidget` to `FilterTableView`
+- The saved-queries shelf (now inline in `suiteview/audit/audit_window.py`)
 - `ResultsTab`, `BuildSqlResultsTab`, `TablesDialog` — already use `FilterTableView`
 
 **Pattern:** Wrap `FilterTableView` in a parent widget, call `set_dataframe(df)`
@@ -416,7 +415,7 @@ needed — just inherit from `FramelessWindowBase`.
   but is always visible for layout/debugging reference.
 
 ### ScratchPad
-**Location:** `suiteview/ui/widgets/scratchpad_panel.py`
+**Location:** `suiteview/scratchpad/scratchpad_panel.py`
 
 Every `FramelessWindowBase` window includes a **ScratchPad** button (📝) in the
 header bar. Clicking it opens a persistent text area for notes.

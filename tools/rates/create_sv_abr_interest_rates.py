@@ -9,7 +9,7 @@ This script:
   5. Verifies the row count matches
 
 Usage:
-    python scripts/create_sv_abr_interest_rates.py
+    python tools/rates/create_sv_abr_interest_rates.py
 """
 
 import os
@@ -18,7 +18,7 @@ import sqlite3
 import pyodbc
 
 # ── Paths ───────────────────────────────────────────────────────────────
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SQLITE_DB = os.path.join(PROJECT_ROOT, "bundled_data", "abr_quote.db")
 ODBC_DSN = "UL_Rates"
 

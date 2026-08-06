@@ -3,8 +3,13 @@
 Validates against table-agnostic actuarial identities and exact no-mortality
 hand values (no DB / rates needed). Run:
 
-    PYTHONPATH=. venv\\Scripts\\python.exe tools/engine/test_commutation_glp.py
+    venv\\Scripts\\python.exe tools/engine/test_commutation_glp.py
 """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from suiteview.illustration.core.commutation import (
     CommutationFunctions,
     MortalityTable,

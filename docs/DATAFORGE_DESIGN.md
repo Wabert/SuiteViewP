@@ -127,7 +127,7 @@ Foundation to **keep** (it's sound):
 - `dataforge_model.py` — `DataForge` / `DataForgeSource` dataclasses + JSON
   persistence. Right shape; extend for editable-copy + per-Source filters.
 - `dataforge_store.py` — list/load/save/delete. Keep.
-- `forge_joins_tab.py` — sophisticated card-canvas join UI (drag/resize/multi-key/
+- (retired) card-canvas join UI (drag/resize/multi-key/
   auto-match/state migration). **Join model kept; visual layer rebuilt** to the
   MS-Access style.
 - `dataforge_group.py` — the designer widget + current execution path
@@ -171,13 +171,13 @@ canonical `core/db2_connection.py`, SQL Server via `core/connection_manager.py`.
     relationships (multi-key, per-relationship join type), reconcile-on-update,
     `to_join_specs()` / `to_config_joins()` / `get_merge_ops()` conversions,
     state round-trip, and `from_legacy_cards` / `from_legacy_merges` importers.
-  - `forge_canvas_view.py` — PyQt6 QGraphics layer: `ForgeJoinCanvas` (drop-in
+  - `join_canvas_view.py` — PyQt6 QGraphics layer: `JoinCanvasView` (drop-in
     for `ForgeJoinsTab`) with movable Source boxes, drag-a-field-onto-a-field to
     draw join lines, click/right-click a line to set inner/left/right/outer or
     delete, collapse boxes. Logic lives in the model; this only renders/edits it.
-  - `dataforge_group.py` — designer now imports `ForgeJoinCanvas as ForgeJoinsTab`
+  - `dataforge_group.py` — designer imports `JoinCanvasView`
     (API-compatible; `set_state` migrates the old `{"cards": …}` format, so saved
-    Forges still load). Old `forge_joins_tab.py` kept for rollback.
+    Forges still load). The old card-based forge_joins_tab.py was deleted in the 2026-08 cleanup (git history has it).
   - Tests: `test_forge_canvas.py` — 11 headless model tests + 1 offscreen-Qt view
     smoke test (boxes/lines/specs/state round-trip/remove).
   - **Remaining (needs work laptop):** interactive verification of the canvas
@@ -392,9 +392,9 @@ Visual Query once it adopts the canvas (roadmap #1):
   none. Remaining Phase 1 work (UI `_run_forge` swap + live `default_fetch`)
   deferred to the work laptop.
 - **2026-06-06** — Phase 2 MS-Access join canvas built + unit-tested on the
-  minipc: `forge_canvas_model.py` (pure) + `forge_canvas_view.py` (QGraphics) +
+  minipc: `forge_canvas_model.py` (pure) + `join_canvas_view.py` (QGraphics) +
   `test_forge_canvas.py` (12 tests, incl. offscreen-Qt smoke). Designer swapped
-  to `ForgeJoinCanvas` via API-compatible alias with backward-compatible
+  to `JoinCanvasView` via API-compatible alias with backward-compatible
   `set_state` migration of old card state. Interactive UI verification deferred
   to the work laptop (see `WORK_LAPTOP_SPEC.md` §1.4).
 - **2026-06-07** — Code-review pass over the laptop's finished DataForge work

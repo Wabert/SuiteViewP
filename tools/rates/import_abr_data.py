@@ -5,7 +5,7 @@ and populate:
   2. ~/.suiteview/abr_quote.db              (term rates, interest rates, per diem)
 
 Usage:
-    python scripts/import_abr_data.py
+    python tools/rates/import_abr_data.py
 
 Requires the workbook at:
     ABRQuote/ABR Quote System Signature Term(v5.6) - WIP.xlsm
@@ -16,7 +16,7 @@ import sys
 import textwrap
 
 # Add project root to path
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
 import openpyxl
@@ -82,7 +82,7 @@ def extract_vbt_2008(wb):
         f.write('"""\n')
         f.write("2008 Valuation Basic Table (VBT) — Select mortality rates.\n\n")
         f.write("Auto-generated from ABR Quote System Signature Term (v5.6) workbook.\n")
-        f.write("DO NOT EDIT — regenerate with: python scripts/import_abr_data.py\n\n")
+        f.write("DO NOT EDIT — regenerate with: python tools/rates/import_abr_data.py\n\n")
         f.write("Blocks:\n")
         f.write("    MN = Male Non-smoker    FN = Female Non-smoker\n")
         f.write("    MS = Male Smoker        FS = Female Smoker\n\n")
