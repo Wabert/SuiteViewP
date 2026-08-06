@@ -154,9 +154,13 @@ class IllustrationEngine:
 
         # Policy changes (face decrease, DBO change) mutate a PRIVATE copy of the
         # policy at their effective month — as can a withdrawal that reduces the
-        # specified amount. Base cases (no changes, no withdrawals) keep the
-        # original object and fast path — byte-for-byte unchanged.
+        # specified amount or an Option B policy starting exception premiums.
+        # Base cases with no possible mutation keep the original object.
         changes_by_duration: Dict[int, list] = {}
+        requires_private_policy = (
+            options.allow_exception_prems
+            and str(policy.db_option or "").upper() == "B"
+        )
         if future_inputs is not None and not future_inputs.is_empty():
             has_withdrawal = any(
                 tx.kind == TransactionKind.WITHDRAWAL
@@ -166,7 +170,10 @@ class IllustrationEngine:
                 for tx in future_inputs.scheduled_transactions
             )
             if future_inputs.policy_changes or has_withdrawal:
-                policy = copy.deepcopy(policy)
+                requires_private_policy = True
+        if requires_private_policy:
+            policy = copy.deepcopy(policy)
+        if future_inputs is not None and not future_inputs.is_empty():
             changes_by_duration = _compile_policy_changes(policy, future_inputs.policy_changes)
 
         # Inforce snapshot (month 0) — AV from CyberLife is after-deduction.
@@ -886,6 +893,40 @@ class IllustrationEngine:
             withdrawals_to_date=withdrawals_to_date,
             guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
         )
+        if exception.requires_option_a:
+            policy.db_option = "A"
+            ded = calculate_deduction(
+                av_before_deduction,
+                policy,
+                config,
+                rates,
+                rate_year,
+                attained_age,
+                prem.premiums_to_date,
+                monthly_mtp=pw_monthly_mtp,
+                projection_date=month_date,
+            )
+            asset_charge = monthly_asset_charge(
+                iul_ctx, av_before_deduction,
+                cap_loan.rg_loan_princ, cap_loan.rg_loan_accrued,
+            )
+            av_after_charge = ded.av_after_deduction - asset_charge
+            exception = _compute_exception_premium(
+                options, policy, config, rates, rate_year,
+                av_after_charge=av_after_charge,
+                coi_rate=ded.coi_rate,
+                guideline_limit_reached=guideline_limit_reached,
+                past_snet=past_snet,
+                prior_exception_mode=prior_exception_mode,
+                prior_lapsed=state.lapsed,
+                attained_age=attained_age,
+                md_premium_active=md_premium_active,
+                total_deduction=ded.total_deduction,
+                guideline_limit=guideline_limit,
+                premiums_to_date=prem.premiums_to_date,
+                withdrawals_to_date=withdrawals_to_date,
+                guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
+            )
         av = exception.av_after_exception
 
         # ── 15. Policy values / new fixed loans (gain → preferred) ─
@@ -1518,6 +1559,41 @@ class IllustrationEngine:
             withdrawals_to_date=withdrawals_to_date,
             guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
         )
+        if exception.requires_option_a:
+            policy.db_option = "A"
+            ded = calculate_deduction(
+                av_before_deduction,
+                policy,
+                config,
+                rates,
+                rate_year,
+                attained_age,
+                prem.premiums_to_date,
+                monthly_mtp=math.trunc(policy.mtp * 100) / 100,
+                projection_date=month_date,
+            )
+            asset_charge = monthly_asset_charge(
+                iul_ctx, av_before_deduction,
+                cash_flows.loan_state.rg_loan_princ, cash_flows.loan_state.rg_loan_accrued,
+            )
+            exception = _compute_exception_premium(
+                options, policy, config, rates, rate_year,
+                av_after_charge=ded.av_after_deduction - asset_charge,
+                coi_rate=ded.coi_rate,
+                guideline_limit_reached=guideline_limit_reached,
+                past_snet=past_snet,
+                prior_exception_mode=prior_exception_mode,
+                prior_lapsed=state.lapsed,
+                attained_age=attained_age,
+                md_premium_active=(
+                    _monthly_deduction_premium_active(options, next_year)
+                    or (b2md_active and b2md_switched)),
+                total_deduction=ded.total_deduction,
+                guideline_limit=guideline_limit,
+                premiums_to_date=prem.premiums_to_date,
+                withdrawals_to_date=withdrawals_to_date,
+                guideline_cap_enabled=options.guideline_cap_enabled and policy.is_gpt,
+            )
         av_end = exception.av_after_exception
 
         loan_cap = None
@@ -3198,6 +3274,7 @@ class _ExceptionPremium:
     gp_percentage_load: float = 0.0
     gp_flat_load: float = 0.0
     av_after_exception: float = 0.0
+    requires_option_a: bool = False
 
     @property
     def total_prem(self) -> float:
@@ -3303,8 +3380,11 @@ def _compute_exception_premium(
     ``phi`` is the COI saving per dollar of AV: the full ``coi_rate/1000`` for a
     level death benefit (Option A), but only ``r·(1 - 1/(1+dbd)^(1/12))`` for an
     increasing death benefit (Option B/C), where the rising DB nearly offsets the
-    NAR drop. Exact for the uncapped MD premium and the GP exception, and correct
-    for a partially-funded (capped) MD premium.
+    NAR drop. When an Option B policy would first enter GP exception mode, this
+    calculation requests an Option A rerun so the entire exception month uses the
+    level-benefit deduction and premium assumptions. Exact for the uncapped MD
+    premium and the GP exception, and correct for a partially-funded (capped) MD
+    premium.
     """
     result = _ExceptionPremium(av_after_exception=av_after_charge)
     past_maturity = attained_age >= config.maturity_age
@@ -3376,6 +3456,14 @@ def _compute_exception_premium(
     at_guideline = guideline_limit_reached or result.md_prem_capped
     triggered = options.allow_exception_prems and at_guideline and av < 0.0
     gp_mode = prior_exception_mode or triggered      # already past_maturity-guarded
+    # An Option B policy uses Option A (level death benefit) assumptions for the
+    # entire GP exception period — not just the trigger month. Flag the switch on
+    # ANY month the policy is in exception mode while still Option B, so the
+    # caller reruns the month's deduction + exception under the level benefit
+    # (idempotent: once db_option is "A" this is False).
+    result.requires_option_a = (
+        gp_mode and str(policy.db_option or "").upper() == "B"
+    )
     result.mode = gp_mode
     result.is_gp_exception = gp_mode
     if gp_mode and past_snet and not ccv_active and not prior_lapsed and av < 0.0:
