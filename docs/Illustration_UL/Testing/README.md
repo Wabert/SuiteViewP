@@ -10,8 +10,13 @@ actuarial source-of-truth workbook for inforce UL/IUL illustrations.
 |---|---|
 | `TEST_MATRIX.xlsx` | The baseline test matrix — one row per test case with per-quantity results. **Generated; never edit by hand.** |
 | `test_matrix.json` | Source of truth for the matrix. Edit this, then regenerate. |
-| `details/` | Per-case detailed comparison workbooks (`rerun_vs_app_*.xlsx`) — the month-by-month RERUN vs engine evidence behind each matrix row. |
-| `archive/` | Stale generated outputs (old batch captures, debug dumps, superseded reports) moved out of `docs/Illustration_UL/` — retained, not deleted. |
+
+> **Archived evidence (2026-08):** the per-case detail workbooks
+> (`details/rerun_vs_app_*.xlsx`) and stale generated outputs (`archive/`) were
+> moved out of the repo to `..\SuiteViewP_archived_docs` on the **work laptop**,
+> along with the RERUN workbooks themselves. They are not present on other
+> machines; regenerate via `tools/compare_rerun_vs_app.py` on the laptop when
+> new evidence is needed.
 
 ## Regenerating the matrix
 
@@ -27,8 +32,8 @@ row/column counts as a self-check.
 
 1. Add the case to the RERUN workbook's **Saved Cases** sheet (or capture a
    constructed override scenario) and run the comparison
-   (`tools/compare_rerun_vs_app.py`); put the resulting detail workbook in
-   `details/`.
+   (`tools/compare_rerun_vs_app.py`); retain the resulting detail workbook in
+   the laptop archive (`..\SuiteViewP_archived_docs`).
 2. Append a row object to `rows` in `test_matrix.json` — the `_readme` block
    at the top of the JSON documents every field.
 3. Rerun the build script.
@@ -57,8 +62,8 @@ Debt (loan balance), EAV (ending account value), ESV (ending surrender value):
 
 ## Honesty rules
 
-- A cell may only say `EXACT` when there is a retained artifact in `details/`
-  **or** a documented validation record (cited in Comments — e.g.
+- A cell may only say `EXACT` when there is a retained detail workbook in the
+  laptop archive **or** a documented validation record (cited in Comments — e.g.
   `QUESTION_LOG.md`, `WORK_LAPTOP_SPEC.md`, or a pass annotation stored in the
   RERUN Saved Case itself).
 - Cases whose historical validation artifacts were not retained are marked
@@ -70,11 +75,33 @@ Debt (loan balance), EAV (ending account value), ESV (ending surrender value):
 
 ## Where the cases come from
 
-- **Saved Cases 1–27** are enumerated from
-  `docs/Illustration_UL/RERUN (v20.0) local IUL.xlsm` (Saved Cases sheet — the
-  authoritative current copy; one case per column). Form / DB Option come from
-  the local policy DB (`tools/list_local_policies.py`).
+- **Saved Cases 1–27** are enumerated from the `RERUN (v20.0) local IUL.xlsm`
+  Saved Cases sheet (one case per column) — the workbook lives in the laptop
+  archive, not the repo. Form / DB Option come from the local policy DB
+  (`tools/list_local_policies.py`).
 - **Constructed scenarios (S-\*)** are override runs (face/DBO changes,
   TEFRA/TAMRA-binding premiums, withdrawals, loans) built on validated
   baselines via `tools/rerun_com.py` overrides — the 2026-06 validation
   campaign documented in `QUESTION_LOG.md` §E–§H.
+
+## Benefit / rider reference notes
+
+Salvaged from the original hand-written `TEST_MATRIX.md` (superseded by
+`test_matrix.json`); kept because these details are not encoded in the json:
+
+- **Benefit 39** = Premium Waiver. Charge = `pw_coi_rate × max(monthly_mtp,
+  base_deduction)`. Unrounded.
+- **Benefit A1** = type `A`, subtype `1`. Charge formula TBD (not yet
+  implemented at the time of writing).
+- **Benefit 4C** = PWSTP/PWoT. Rate present on `U0930725` (`0.04` from the DB2
+  benefit renewal record).
+- **Benefit 76** = GIO. Rate present on `U0930725` (`0.09` from the DB2 benefit
+  renewal record).
+- **LTR 1U536C00** = UL Signature Term Rider 20 Yr on `UE070657` (`$50,000`,
+  issue age 35, F/N, matures 2039-08-02).
+- **CTR 1U538F00** = UL Child Term Rider on `UE070657` (`$25,000`, issue age
+  41, M/N, matures 2043-08-02).
+- **UIP23179** validates UL increases: coverage phase 1 is `$100,000` issued at
+  age 58; phase 2 is `$100,000` issued at age 62. Account value reduces
+  discounted DB FIFO by coverage phase. DBO B/C additions apply to phase 1
+  only.

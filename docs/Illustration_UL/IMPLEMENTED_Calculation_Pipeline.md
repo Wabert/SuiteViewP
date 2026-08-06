@@ -1126,7 +1126,9 @@ Based on the current implementation, the next useful review questions are:
 4. Should future face and DB option changes trigger automatic GLP/GSP/7-pay recalculation in the projection month, and if so should that timing follow RERUN's anniversary/new-segment lag exactly?
 5. Do we want projected withdrawals and loans to trigger any additional business rules beyond simple AV and debt movement?
 6. Should GLP force-out continue to be modeled as a withdrawal accumulator movement in all forecast contexts, or should the GLP Exception result distinguish actual withdrawals from force-outs more explicitly?
-7. Should the older `SPEC_Calculation.md` be revised to match the current engine, or kept as milestone history?
+
+> The older M1-only `SPEC_Calculation.md` was retired in the 2026-08 cleanup
+> (recoverable in git history); this document is the calculation spec.
 
 ## 9. Bottom Line
 
