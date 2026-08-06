@@ -53,6 +53,9 @@ bundled_data/
 docs/Illustration_UL/*.results.jsonl
 docs/Illustration_UL/GLP Funding Outlook.html
 
+# Generated report (regenerate via tools/generate_testing_plan.py)
+TESTING_PLAN.html
+
 # pytest
 .pytest_cache/
 

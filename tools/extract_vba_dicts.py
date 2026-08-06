@@ -1,8 +1,8 @@
 import re
 
 def main():
-    vba_file = 'C:/Users/ab7y02/Dev/SuiteViewP/docs/VBA_Extracted/mdlDataItemSupport.bas.bas'
-    frm_file = 'C:/Users/ab7y02/Dev/SuiteViewP/docs/VBA_Extracted/frmAudit.frm.bas'
+    vba_file = 'C:/Users/ab7y02/Dev/SuiteViewP/docs/Archive/VBA_Extracted/mdlDataItemSupport.bas.bas'
+    frm_file = 'C:/Users/ab7y02/Dev/SuiteViewP/docs/Archive/VBA_Extracted/frmAudit.frm.bas'
     
     with open(vba_file, 'r', encoding='utf-8', errors='ignore') as f:
         vba_text = f.read()

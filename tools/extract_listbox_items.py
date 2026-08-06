@@ -20,14 +20,14 @@ def extract_dict(dict_name, text):
 
 def main():
     try:
-        with open('C:/Users/ab7y02/Dev/SuiteViewP/docs/VBA_Extracted/mdlDataItemSupport.bas.bas', encoding='utf-8', errors='ignore') as f:
+        with open('C:/Users/ab7y02/Dev/SuiteViewP/docs/Archive/VBA_Extracted/mdlDataItemSupport.bas.bas', encoding='utf-8', errors='ignore') as f:
             data_support_text = f.read()
     except Exception as e:
         print(f"Error reading mdlDataItemSupport: {e}")
         return
 
     try:
-        with open('C:/Users/ab7y02/Dev/SuiteViewP/docs/VBA_Extracted/frmAudit.frm.bas', encoding='utf-8', errors='ignore') as f:
+        with open('C:/Users/ab7y02/Dev/SuiteViewP/docs/Archive/VBA_Extracted/frmAudit.frm.bas', encoding='utf-8', errors='ignore') as f:
             frm_audit_text = f.read()
     except Exception as e:
         print(f"Error reading frmAudit: {e}")
