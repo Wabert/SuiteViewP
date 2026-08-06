@@ -75,6 +75,21 @@ def test_advance_capitalization_grosses_prepaid_interest_at_anniversary():
     # AA = Z * X/(1-X); the total grosses up to Z/(1-X).
     assert cap.rg_loan_princ == pytest.approx(10_000.0 / (1 - 0.074))
     assert cap.rg_loan_accrued == 0.0
+    # The prepaid interest folded into principal is surfaced for the Values tab
+    # (vAdvRegLNInt): it equals the gross-up amount added this anniversary.
+    assert cap.adv_reg_int == pytest.approx(_round2(10_000.0 * 0.074 / (1 - 0.074)))
+    assert cap.adv_pref_int == 0.0
+
+
+def test_arrears_capitalization_records_no_interest_in_advance():
+    # Interest-in-arrears loans never expose vAdvRegLNInt — the accrued interest
+    # rolls into principal and is shown in the Accumulation accrued buckets, not
+    # the Policy Values "Adv Reg Ln Int" column.
+    cap = capitalize_loans(
+        1_000.0, 50.0, 500.0, 25.0, 0.0, 0.0, is_anniversary=True, config=ARREARS,
+    )
+    assert cap.adv_reg_int == 0.0
+    assert cap.adv_pref_int == 0.0
 
 
 def test_arrears_capitalization_rolls_accrued_into_principal():

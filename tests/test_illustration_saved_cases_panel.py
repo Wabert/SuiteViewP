@@ -405,6 +405,11 @@ def test_case_context_menu_offers_rename_copy_and_delete(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "suiteview.illustration.ui.case_controls._name_prompt",
         lambda *a, **kw: None)
+    # Triggering every action now includes Export — stub the save dialog so it
+    # cancels instead of blocking headlessly.
+    monkeypatch.setattr(
+        "PyQt6.QtWidgets.QFileDialog.getSaveFileName",
+        staticmethod(lambda *a, **kw: ("", "")))
     _RecordingMsgBox.answer = QMessageBox.StandardButton.No
 
     renames, copies, deletes = [], [], []
@@ -416,7 +421,8 @@ def test_case_context_menu_offers_rename_copy_and_delete(monkeypatch, tmp_path):
     # _show_context_menu only adds the blocking exec() at the call site.
     menu = panel._build_case_menu("Frozen A")
     labels = [action.text() for action in menu.actions()]
-    assert labels == ["Rename Case…", "Copy Case…", "Delete Case…"]
+    assert labels == [
+        "Rename Case…", "Copy Case…", "Export Case…", "Delete Case…"]
     for action in menu.actions():
         action.trigger()
     assert renames == ["Frozen A"]
@@ -453,8 +459,8 @@ def test_batch_context_menu_offers_delete_all_selected(monkeypatch, tmp_path):
     # menu — mirrors _build_case_menu's split for testability.
     menu = panel._build_batch_menu(["A", "B"])
     labels = [action.text() for action in menu.actions()]
-    assert labels == ["Delete 2 Cases…"]
-    menu.actions()[0].trigger()
+    assert labels == ["Export 2 Cases…", "Delete 2 Cases…"]
+    menu.actions()[1].trigger()
     assert batches == [["A", "B"]]
     window.close()
 

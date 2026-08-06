@@ -2399,8 +2399,12 @@ class IllustrationValuesTab(QWidget):
             "Gain": 0.0,
             "New Reg LN": state.applied_regular_loan,
             "New Pref LN": state.applied_preferred_loan,
-            "AdvRegLNInt": state.reg_loan_charge,
-            "PrefRegLNInt": state.pref_loan_charge,
+            # Interest-in-advance only (RERUN vAdvRegLNInt / vPrefRegLNInt). This
+            # is the prepaid interest folded into Total Reg/Pref Princ at the
+            # anniversary; it is zero for interest-in-arrears loans (whose loan
+            # interest accrues into the Accumulation accrued-interest buckets).
+            "AdvRegLNInt": state.adv_reg_ln_int,
+            "PrefRegLNInt": state.adv_pref_ln_int,
             "Total Rg Ln Princ": state.end_rg_loan_princ,
             "Total Pref Ln Princ": state.end_pf_loan_princ,
             "Total Vbl Ln Princ": state.end_vbl_loan_princ,

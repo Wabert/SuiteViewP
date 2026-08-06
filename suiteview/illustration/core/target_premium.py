@@ -608,10 +608,3 @@ def floor_monthly_cent(value: float) -> float:
     """
     monthly_cents = (Decimal(f"{value:.10f}") * 100 / 12).to_integral_value(rounding=ROUND_FLOOR)
     return float(monthly_cents * 12) / 100.0
-
-
-def floor_annual_cent(value: float) -> float:
-    """Floor an annual amount to cents without monthly normalization."""
-    if value <= 0.0:
-        return value
-    return float(Decimal(f"{value:.10f}").quantize(Decimal("0.01"), rounding=ROUND_DOWN))

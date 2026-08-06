@@ -127,6 +127,10 @@ class SavedCasesView(QWidget):
     # multi-row context menu (Rename/Copy stay single-case-only; deleting
     # several at once still routes through this one signal).
     cases_delete_requested = pyqtSignal(list)
+    # Export — one or more case names to a single readable .cases.json bundle.
+    # A single-row export sends a one-name list; a multi-row export sends them
+    # all. The window owns the file dialog + write (through CasesController).
+    cases_export_requested = pyqtSignal(list)
 
     def __init__(self, host_panel=None, parent=None):
         super().__init__(parent)
@@ -370,6 +374,11 @@ class SavedCasesView(QWidget):
             lambda checked=False, name=case_name:
                 self.case_copy_requested.emit(name))
         menu.addAction(copy_action)
+        export_action = QAction("Export Case…", self)
+        export_action.triggered.connect(
+            lambda checked=False, name=case_name:
+                self.cases_export_requested.emit([name]))
+        menu.addAction(export_action)
         delete_action = QAction("Delete Case…", self)
         delete_action.triggered.connect(
             lambda checked=False, name=case_name:
@@ -381,6 +390,11 @@ class SavedCasesView(QWidget):
         """Delete-only menu for multiple selected cases — Rename/Copy don't
         make sense across more than one case (split for testability)."""
         menu = QMenu(self)
+        export_action = QAction(f"Export {len(case_names)} Cases…", self)
+        export_action.triggered.connect(
+            lambda checked=False, names=list(case_names):
+                self.cases_export_requested.emit(names))
+        menu.addAction(export_action)
         delete_action = QAction(f"Delete {len(case_names)} Cases…", self)
         delete_action.triggered.connect(
             lambda checked=False, names=list(case_names):

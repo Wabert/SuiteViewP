@@ -53,6 +53,8 @@ class LoanState:
     reg_loan_charge: float = 0.0     # Regular loan interest accrued this month
     pref_loan_charge: float = 0.0    # Preferred loan interest accrued this month
     vbl_loan_charge: float = 0.0     # Variable loan interest accrued this month
+    adv_reg_int: float = 0.0         # Interest-in-advance rolled into reg principal (anniversary)
+    adv_pref_int: float = 0.0        # Interest-in-advance rolled into pref principal (anniversary)
 
     @property
     def policy_debt(self) -> float:
@@ -125,6 +127,11 @@ def capitalize_loans(
             # Variable loans accrue in arrears even on advance plancodes.
             vbl_loan_princ=vbl_princ + vbl_accrued,
             vbl_loan_accrued=0.0,
+            # Surface the interest-in-advance gross-up folded into principal so the
+            # Values tab can display it (vAdvRegLNInt / vPrefRegLNInt). Zero for
+            # arrears loans, which never take this branch.
+            adv_reg_int=rg_adv,
+            adv_pref_int=pf_adv,
         )
 
     return LoanState(

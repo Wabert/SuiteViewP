@@ -1527,6 +1527,32 @@ def test_placeholder_dataframe_values_stay_raw_for_copy_and_export():
     assert tab._tab_grids["Ending Values"].df.iloc[0]["IllustrationGCO"] == 0.0
 
 
+def test_adv_reg_ln_int_shows_only_interest_in_advance():
+    from PyQt6.QtCore import Qt as QtCore
+
+    # The Policy Values "Adv Reg Ln Int" / "Pref Ln Int" columns are for
+    # interest-in-advance only. An arrears loan accrues loan interest into the
+    # Accumulation accrued buckets (reg_loan_charge) and must NOT leak it here.
+    _app()
+    tab = IllustrationValuesTab()
+    arrears = replace(_state(), reg_loan_charge=0.67, pref_loan_charge=0.4,
+                      adv_reg_ln_int=0.0, adv_pref_ln_int=0.0)
+
+    tab.display_projection(_policy(), [arrears])
+
+    policy_values = tab._tab_grids["Policy Values"]
+    assert _cell(policy_values, "AdvRegLNInt", QtCore.ItemDataRole.DisplayRole) == "0.00"
+    assert _cell(policy_values, "PrefRegLNInt", QtCore.ItemDataRole.DisplayRole) == "0.00"
+
+    # An advance loan surfaces the prepaid interest folded into principal.
+    advance = replace(_state(), reg_loan_charge=0.0, pref_loan_charge=0.0,
+                      adv_reg_ln_int=5.25, adv_pref_ln_int=1.75)
+    tab.display_projection(_policy(), [advance])
+    policy_values = tab._tab_grids["Policy Values"]
+    assert _cell(policy_values, "AdvRegLNInt", QtCore.ItemDataRole.DisplayRole) == "5.25"
+    assert _cell(policy_values, "PrefRegLNInt", QtCore.ItemDataRole.DisplayRole) == "1.75"
+
+
 def test_remaining_distribution_not_computed_only_on_policy_values_tab():
     from PyQt6.QtCore import Qt as QtCore
 

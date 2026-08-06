@@ -14,7 +14,7 @@ The last active view sticks for the session (the stacked widget simply keeps
 its index). The window header's single "List" button shows/hides the panel.
 """
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
 from suiteview.core.db2_constants import REGIONS
 from suiteview.polview.ui.tabs.policy_list_tab import PolicyListWindow
 
+from .imported_cases_panel import ImportedCasesView
 from .saved_cases_panel import SavedCasesView
 from .styles import (
     GOLD_PRIMARY,
@@ -58,6 +59,10 @@ _HEADER_TOGGLE_STYLE = HEADER_PANEL_BUTTON_STYLE + """
 class IllustrationPolicyListWindow(PolicyListWindow):
     """Merged List panel with Illustration purple/gold styling."""
 
+    # One or more case-bundle files were dropped anywhere on the panel — the
+    # window imports them (into the Imported Cases view).
+    case_files_dropped = pyqtSignal(list)
+
     def __init__(self, parent_window=None):
         # Form number per policy (IllustrationPolicyData.form_number — base
         # coverage LH_COV_PHA.POL_FRM_NBR), shown as a trailing "| <form>"
@@ -71,6 +76,9 @@ class IllustrationPolicyListWindow(PolicyListWindow):
         # is re-fitted to the parent on dock, so only width is set here.
         self.resize(375, self.height())
         self._bg_color = PURPLE_PRIMARY
+        # The whole List panel accepts case-bundle file drops (on any of the
+        # three views); a drop switches to Imported Cases and imports the files.
+        self.setAcceptDrops(True)
         self._frame.setStyleSheet(f"""
             QFrame {{
                 background: {PURPLE_PRIMARY};
@@ -114,7 +122,9 @@ class IllustrationPolicyListWindow(PolicyListWindow):
         # would sit — the checked button IS the title.
         self.policies_view_btn = QPushButton("Policies")
         self.cases_view_btn = QPushButton("Saved Cases")
-        for btn in (self.policies_view_btn, self.cases_view_btn):
+        self.imported_view_btn = QPushButton("Imported Cases")
+        for btn in (self.policies_view_btn, self.cases_view_btn,
+                    self.imported_view_btn):
             btn.setCheckable(True)
             btn.setStyleSheet(_HEADER_TOGGLE_STYLE)
             header_layout.addWidget(btn)
@@ -123,6 +133,8 @@ class IllustrationPolicyListWindow(PolicyListWindow):
             lambda: self.show_view("policies"))
         self.cases_view_btn.clicked.connect(
             lambda: self.show_view("cases"))
+        self.imported_view_btn.clicked.connect(
+            lambda: self.show_view("imported"))
         header_layout.addStretch()
 
         close_btn = QPushButton("✕")
@@ -277,9 +289,13 @@ class IllustrationPolicyListWindow(PolicyListWindow):
         # ── page 1: Saved Cases view ──────────────────────────────────
         self.cases_view = SavedCasesView(host_panel=self)
 
+        # ── page 2: Imported Cases view ───────────────────────────────
+        self.imported_view = ImportedCasesView(host_panel=self)
+
         self._view_stack = QStackedWidget()
-        self._view_stack.addWidget(policies_page)    # index 0
-        self._view_stack.addWidget(self.cases_view)  # index 1
+        self._view_stack.addWidget(policies_page)      # index 0
+        self._view_stack.addWidget(self.cases_view)    # index 1
+        self._view_stack.addWidget(self.imported_view)  # index 2
         inner_layout.addWidget(self._view_stack, 1)
 
         body_layout.addWidget(content)
@@ -311,21 +327,64 @@ class IllustrationPolicyListWindow(PolicyListWindow):
     # ── view switching ────────────────────────────────────────────────
 
     def show_view(self, name: str):
-        """Front the "policies" or "cases" view; the choice sticks for the
-        session (the stack keeps its index while the panel is hidden). The
-        checked header button identifies the active view — no title text."""
-        cases = name == "cases"
-        self._view_stack.setCurrentIndex(1 if cases else 0)
-        self.policies_view_btn.setChecked(not cases)
-        self.cases_view_btn.setChecked(cases)
+        """Front the "policies", "cases", or "imported" view; the choice
+        sticks for the session (the stack keeps its index while the panel is
+        hidden). The checked header button identifies the active view."""
+        index = {"policies": 0, "cases": 1, "imported": 2}.get(name, 0)
+        self._view_stack.setCurrentIndex(index)
+        self.policies_view_btn.setChecked(index == 0)
+        self.cases_view_btn.setChecked(index == 1)
+        self.imported_view_btn.setChecked(index == 2)
 
     def current_view(self) -> str:
-        return "cases" if self._view_stack.currentIndex() == 1 else "policies"
+        return {0: "policies", 1: "cases", 2: "imported"}.get(
+            self._view_stack.currentIndex(), "policies")
 
     # ── saved-cases pass-through ──────────────────────────────────────
 
     def refresh_cases(self):
         self.cases_view.refresh_cases()
+
+    def refresh_imported(self):
+        self.imported_view.refresh()
+
+    # ── file drag-drop (case bundles) ─────────────────────────────────
+
+    @staticmethod
+    def _dropped_bundle_paths(event) -> list:
+        """Local ``.cases.json`` file paths from a drag event's mime data."""
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            return []
+        paths = []
+        for url in mime.urls():
+            if not url.isLocalFile():
+                continue
+            local = url.toLocalFile()
+            if local.lower().endswith(".cases.json"):
+                paths.append(local)
+        return paths
+
+    def dragEnterEvent(self, event):
+        if self._dropped_bundle_paths(event):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if self._dropped_bundle_paths(event):
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        paths = self._dropped_bundle_paths(event)
+        if not paths:
+            super().dropEvent(event)
+            return
+        event.acceptProposedAction()
+        self.show_view("imported")
+        self.case_files_dropped.emit(paths)
 
     # ── form-number label segment ─────────────────────────────────────
 

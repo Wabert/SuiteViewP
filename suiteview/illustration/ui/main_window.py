@@ -39,6 +39,7 @@ from suiteview.illustration.models.case_store import CaseStoreError
 from suiteview.illustration.models.app_settings import get_illustration_settings
 
 from .case_controls import CasesController
+from .imported_case_controls import ImportedCasesController
 from .inputs_tab import IllustrationInputsTab
 from .policy_list import IllustrationPolicyListWindow
 from .policy_tab import IllustrationPolicyTab
@@ -244,6 +245,10 @@ class IllustrationWindow(FramelessWindowBase):
         # live in the Saved Cases panel (header toggle).
         self._cases_controller = CasesController(
             self, on_cases_changed=self._refresh_saved_cases)
+        # Imported cases: a separate on-disk collection loaded/dropped from
+        # files, browsed in the List panel's Imported Cases view.
+        self._imported_controller = ImportedCasesController(
+            self, on_changed=self._refresh_imported_cases)
         self.save_case_btn = QPushButton("Save")
         self.save_case_btn.setToolTip(
             "Save the current illustration inputs (and policy data) as a "
@@ -310,10 +315,33 @@ class IllustrationWindow(FramelessWindowBase):
         cases_view.cases_delete_requested.connect(self._on_cases_delete_requested)
         cases_view.case_rename_requested.connect(self._on_case_rename_requested)
         cases_view.case_copy_requested.connect(self._on_case_copy_requested)
+        cases_view.cases_export_requested.connect(
+            self._cases_controller.export_flow)
+
+        # Imported Cases view (third page of the panel's toggle): import,
+        # activation, remove, and export route to the imported controller.
+        imported_view = self.policy_list_window.imported_view
+        imported_view.import_requested.connect(
+            self._imported_controller.pick_and_import)
+        imported_view.case_activated.connect(
+            self._imported_controller.activate_case)
+        imported_view.cases_remove_requested.connect(
+            self._imported_controller.remove_cases)
+        imported_view.bundles_remove_requested.connect(
+            self._imported_controller.remove_bundles)
+        imported_view.cases_export_requested.connect(
+            self._imported_controller.export_cases)
+        # A file dropped anywhere on the List panel imports it.
+        self.policy_list_window.case_files_dropped.connect(
+            self._imported_controller.import_files)
 
     def _refresh_saved_cases(self):
         if hasattr(self, "policy_list_window"):
             self.policy_list_window.refresh_cases()
+
+    def _refresh_imported_cases(self):
+        if hasattr(self, "policy_list_window"):
+            self.policy_list_window.refresh_imported()
 
     def _toggle_list_panel(self):
         self._list_panel_visible = not self._list_panel_visible
@@ -627,6 +655,15 @@ class IllustrationWindow(FramelessWindowBase):
             QMessageBox.warning(self, "Load Case", str(exc))
             self._show_status(f"Load Case failed: {exc}")
             return
+        self._activate_case(case)
+
+    def _activate_case(self, case):
+        """Load a SavedCase (from the saved OR imported store) into the tab.
+
+        v2 cases restore their frozen snapshot; v1 cases fall back to a live
+        load. Shared by the Saved Cases and Imported Cases panels."""
+        if not self.isVisible():
+            self.show()
         if case.policy_snapshot is None:
             self._load_v1_case_against_live(case)
         else:

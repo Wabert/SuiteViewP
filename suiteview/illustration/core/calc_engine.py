@@ -61,7 +61,6 @@ from suiteview.illustration.core.shadow_calc import calculate_shadow
 from suiteview.illustration.core.target_premium import (
     build_target_detail_snapshots,
     compute_target_premiums,
-    floor_annual_cent,
     floor_monthly_cent,
     target_actives_signature,
 )
@@ -349,9 +348,9 @@ class IllustrationEngine:
             mtp_annual=policy.mtp * 12.0,
             av_after_premium=md_check_av_before_deduction,
             glp=floor_monthly_cent(policy.glp),
-            gsp=floor_annual_cent(policy.gsp),
+            gsp=floor_monthly_cent(policy.gsp),
             accumulated_glp=policy.accumulated_glp,
-            guideline_limit=max(floor_annual_cent(policy.gsp), policy.accumulated_glp),
+            guideline_limit=max(floor_monthly_cent(policy.gsp), policy.accumulated_glp),
             guideline_forceout=0.0,
             guideline_av_before_monthly_deduction=md_check_av_before_deduction,
             accumulated_7pay=sum(policy.tamra_7year_contributions or []),
@@ -613,6 +612,11 @@ class IllustrationEngine:
             adv_reg_factor=adv_reg_factor,
             adv_pref_factor=adv_pref_factor,
         )
+        # Interest-in-advance folded into principal this month (vAdvRegLNInt /
+        # vPrefRegLNInt display). Zero for arrears loans. Captured before the
+        # loan buckets are transformed by repay / new-loan / accrual.
+        adv_reg_ln_int = cap_loan.adv_reg_int
+        adv_pref_ln_int = cap_loan.adv_pref_int
 
         # ── 2c. Withdrawal (CalcEngine AX..BU — before the dated changes) ─
         wd = _process_withdrawal(
@@ -742,10 +746,10 @@ class IllustrationEngine:
         # ── 9. Commission Target Premium (split handled in apply_premium) ─
 
         # ── 10. 7702 — GLP accumulation, guideline limit, force-out ─
-        # GLP is normalized to a monthly-cent annual value. GSP is only floored
-        # to annual cents; it is not divided into monthly premium slices.
+        # GLP and GSP are both normalized to a monthly-cent annual value so the
+        # annual amount is an exact 12x its monthly twelfth.
         accum_glp_prior_amount = state.accumulated_glp
-        gsp_floored = floor_annual_cent(policy.gsp)
+        gsp_floored = floor_monthly_cent(policy.gsp)
         accumulated_glp = _accumulate_guideline_premium(
             state, policy, is_anniversary, attained_age
         )
@@ -1319,6 +1323,8 @@ class IllustrationEngine:
             reg_loan_charge=accrual_loan.reg_loan_charge,
             pref_loan_charge=accrual_loan.pref_loan_charge,
             vbl_loan_charge=accrual_loan.vbl_loan_charge,
+            adv_reg_ln_int=adv_reg_ln_int,
+            adv_pref_ln_int=adv_pref_ln_int,
             end_rg_loan_princ=accrual_loan.rg_loan_princ,
             end_rg_loan_accrued=accrual_loan.rg_loan_accrued,
             end_pf_loan_princ=accrual_loan.pf_loan_princ,
@@ -1428,6 +1434,10 @@ class IllustrationEngine:
             adv_reg_factor=adv_reg_factor,
             adv_pref_factor=adv_pref_factor,
         )
+        # Interest-in-advance folded into principal this month (vAdvRegLNInt /
+        # vPrefRegLNInt display). Zero for arrears loans.
+        adv_reg_ln_int = cap_loan.adv_reg_int
+        adv_pref_ln_int = cap_loan.adv_pref_int
 
         intr = credit_interest(
             state.av_end_of_month,
@@ -1452,7 +1462,7 @@ class IllustrationEngine:
         )
         cost_basis = wd.cost_basis_after_wd
 
-        gsp_floored = floor_annual_cent(policy.gsp)
+        gsp_floored = floor_monthly_cent(policy.gsp)
         accumulated_glp = _accumulate_guideline_premium(
             state, policy, is_anniversary, attained_age
         )
@@ -1813,6 +1823,8 @@ class IllustrationEngine:
             reg_loan_charge=accrual_loan.reg_loan_charge,
             pref_loan_charge=accrual_loan.pref_loan_charge,
             vbl_loan_charge=accrual_loan.vbl_loan_charge,
+            adv_reg_ln_int=adv_reg_ln_int,
+            adv_pref_ln_int=adv_pref_ln_int,
             end_rg_loan_princ=accrual_loan.rg_loan_princ,
             end_rg_loan_accrued=accrual_loan.rg_loan_accrued,
             end_pf_loan_princ=accrual_loan.pf_loan_princ,
@@ -2809,16 +2821,16 @@ def _recalc_guideline_on_change(
 
     # Prior (pre-recalc) values feed both the delta formula and the recalc detail.
     glp_prior = floor_monthly_cent(policy.glp)
-    gsp_prior = floor_annual_cent(policy.gsp)
+    gsp_prior = floor_monthly_cent(policy.gsp)
 
     if new_glp is not None:
         policy.glp = floor_monthly_cent(float(new_glp))
     elif after is not None:
         policy.glp = floor_monthly_cent(glp_prior + after.glp - before.glp)
     if new_gsp is not None:
-        policy.gsp = floor_annual_cent(float(new_gsp))
+        policy.gsp = floor_monthly_cent(float(new_gsp))
     elif after is not None:
-        policy.gsp = floor_annual_cent(gsp_prior + after.gsp - before.gsp)
+        policy.gsp = floor_monthly_cent(gsp_prior + after.gsp - before.gsp)
 
     # Mid-year recalc: the anniversary already banked a FULL year of the prior
     # GLP into AccumGLP, so true it up pro-rata for the months remaining in the

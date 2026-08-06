@@ -1,6 +1,6 @@
 from suiteview.illustration.core import calc_engine
 from suiteview.illustration.core.illustration_policy_service import _translate_doli
-from suiteview.illustration.core.target_premium import floor_annual_cent, floor_monthly_cent
+from suiteview.illustration.core.target_premium import floor_monthly_cent
 from suiteview.illustration.models.input_set import IllustrationOptions
 from suiteview.illustration.models.plancode_config import PlancodeConfig
 from suiteview.illustration.models.policy_data import IllustrationPolicyData
@@ -11,11 +11,10 @@ def test_blank_definition_of_life_code_stays_blank():
     assert _translate_doli("   ") == ""
 
 
-def test_glp_is_monthly_normalized_but_gsp_is_only_cent_floored():
+def test_glp_and_gsp_are_both_monthly_normalized():
     annual_amount = 1_000.009
 
     assert floor_monthly_cent(annual_amount) == 999.96
-    assert floor_annual_cent(annual_amount) == 1_000.00
 
 
 def test_blank_definition_of_life_disables_guideline_and_tamra_caps():

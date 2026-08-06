@@ -145,14 +145,15 @@ def build_illustration_data(
     doli_code = str(pi.def_of_life_ins_code or "")
     def_of_life_ins = _translate_doli(doli_code)
 
-    # GLP is normalized to a monthly mode — rounddown(GLP/12, 2) * 12 — so the
-    # annual level premium is an exact 12x its monthly twelfth. This matches how
-    # the engine accumulates/displays GLP (floor_monthly_cent) and keeps every
-    # consumer (e.g. the Max Annual Level Premium) on the same normalized value.
+    # GLP and GSP are both normalized to a monthly mode — rounddown(x/12, 2) * 12
+    # — so the annual premium is an exact 12x its monthly twelfth. This matches
+    # how the engine accumulates/displays them (floor_monthly_cent) and keeps
+    # every consumer on the same normalized value. Normalizing the GSP the same
+    # way as the GLP matters when a premium is limited by the GSP.
     glp_raw = pi.glp
     glp = floor_monthly_cent(float(glp_raw)) if glp_raw is not None else 0.0
     gsp_raw = pi.gsp
-    gsp = float(gsp_raw) if gsp_raw is not None else 0.0
+    gsp = floor_monthly_cent(float(gsp_raw)) if gsp_raw is not None else 0.0
     accum_glp_raw = pi.accumulated_glp_target
     accumulated_glp = float(accum_glp_raw) if accum_glp_raw is not None else 0.0
     corr_raw = pi.corridor_percent

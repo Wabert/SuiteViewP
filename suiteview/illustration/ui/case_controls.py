@@ -57,6 +57,12 @@ def _date_stamp(when: Optional[date] = None) -> str:
     return f"{when.month:02d}/{when.day:02d}/{when.year}"
 
 
+def _export_slug(name: str) -> str:
+    """A filesystem-friendly default file name for an export dialog."""
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", (name or "").strip()).strip("._-")
+    return slug or "cases"
+
+
 def default_case_name(
     policy_number: str,
     plancode: str = "",
@@ -297,3 +303,36 @@ class CasesController:
     def apply_case(self, case: SavedCase) -> list[str]:
         """Prompt-free apply onto the active inputs tab; returns warnings."""
         return self._window.inputs_tab.apply_case_inputs(case.inputs)
+
+    def export_flow(self, names: list[str]):
+        """Export one or more saved cases to a single readable ``.cases.json``
+        bundle. A single-name list writes a bundle of one; the file dialog
+        pre-fills from the case name (single) or a generic ``N cases`` name."""
+        from PyQt6.QtWidgets import QFileDialog
+
+        from suiteview.illustration.models import case_bundle
+
+        window = self._window
+        if not names:
+            return
+        try:
+            cases = [case_store.load_case(name, self._directory) for name in names]
+        except case_store.CaseStoreError as exc:
+            QMessageBox.warning(window, "Export Cases", str(exc))
+            return
+        default_name = case_bundle.default_bundle_name(cases)
+        suggested = f"{_export_slug(default_name)}{case_bundle.BUNDLE_SUFFIX}"
+        path, _ = QFileDialog.getSaveFileName(
+            window, "Export Cases", suggested,
+            f"Case bundle (*{case_bundle.BUNDLE_SUFFIX})")
+        if not path:
+            return
+        try:
+            written = case_bundle.write_bundle(path, cases, name=default_name)
+        except case_bundle.CaseBundleError as exc:
+            QMessageBox.warning(window, "Export Cases", str(exc))
+            return
+        count = len(cases)
+        window._show_status(
+            f"Exported {count} case{'s' if count != 1 else ''} to "
+            f"{written.name}.")
