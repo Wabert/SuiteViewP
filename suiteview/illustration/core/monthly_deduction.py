@@ -567,7 +567,8 @@ def calculate_deduction(
         av_charge = max(0.0, mAV * poav_rate)
 
     # ── 3.2.10 Benefit charges ────────────────────────────────
-    # Computed AFTER base deduction — PW waives greater of MTP or base deduction
+    # Computed AFTER base deduction — waivers 39/3# waive the greater of MTP or
+    # the monthly deduction; all other type-3 waivers waive the deduction only.
     pw_charge = 0.0
     benefit_charges = 0.0
     benefit_amounts: Dict[str, float] = {}
@@ -658,9 +659,20 @@ def calculate_deduction(
             policy.plancode, ben_type + (ben.benefit_subtype or ""))
 
         if ben_type == "3":
-            benefit_amount = max(monthly_mtp, base_deduction + rider_charges + non_pw_benefit_charges)
+            # PW waive basis = the monthly deduction excluding the PW charge
+            # itself (base + riders + any non-PW benefits already charged).
+            monthly_deduction_basis = (
+                base_deduction + rider_charges + non_pw_benefit_charges
+            )
+            # Only waivers 39 and 3# waive the GREATER of the monthly minimum
+            # target premium (MTP) or the monthly deduction. Every other type-3
+            # premium waiver waives only the monthly deduction.
+            ben_subtype = ben.benefit_subtype or ""
+            if ben_subtype in ("9", "#"):
+                benefit_amount = max(monthly_mtp, monthly_deduction_basis)
+            else:
+                benefit_amount = monthly_deduction_basis
             charge = adjusted_rate * benefit_amount * charge_factor
-            pw_charge = charge
         else:
             benefit_amount = ben.benefit_amount
             charge = ben.units * adjusted_rate * charge_factor

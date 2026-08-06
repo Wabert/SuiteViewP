@@ -378,6 +378,61 @@ def test_two_benefits_of_same_type_both_charge_and_report_separately():
     assert result.benefit_charges == pytest.approx(15.0)
 
 
+def _pw_waiver_result(*, benefit_subtype: str):
+    """Deduction for a policy whose only benefit is a type-3 premium waiver.
+
+    A rider supplies a non-zero monthly deduction basis (19.39) that is smaller
+    than the monthly minimum target premium (20.00), so the greater-of vs.
+    deduction-only distinction is observable in the PW charge.
+    """
+    rider = RiderInfo(
+        plancode="LTR",
+        occurrence=1,
+        face_amount=19_390.0,
+        units=1.0,
+        premium_rate=19.39,
+        is_active=True,
+    )
+    waiver = BenefitInfo(
+        benefit_type="3",
+        benefit_subtype=benefit_subtype,
+        coi_rate=0.1447,
+        is_active=True,
+    )
+    policy = _minimal_policy_with_riders_and_benefits(riders=[rider], benefits=[waiver])
+    config, rates = _minimal_config_and_rates()
+    return calculate_deduction(
+        10_000.0,
+        policy,
+        config,
+        rates,
+        rate_year=1,
+        attained_age=45,
+        premiums_to_date=0.0,
+        monthly_mtp=20.00,
+    )
+
+
+def test_pw_waiver_39_waives_greater_of_mtp_or_deduction():
+    # Waiver 39 (type 3 subtype 9) waives the GREATER of the monthly MTP (20.00)
+    # or the monthly deduction (19.39) → 0.1447 x 20.00 = 2.89.
+    result = _pw_waiver_result(benefit_subtype="9")
+    assert result.pw_charge == pytest.approx(2.89)
+
+
+def test_pw_waiver_3hash_waives_greater_of_mtp_or_deduction():
+    # Waiver 3# also waives the greater of MTP or the monthly deduction.
+    result = _pw_waiver_result(benefit_subtype="#")
+    assert result.pw_charge == pytest.approx(2.89)
+
+
+def test_other_pw_waivers_waive_monthly_deduction_only():
+    # Every other type-3 waiver waives only the monthly deduction (19.39),
+    # excluding the PW charge itself → 0.1447 x 19.39 = 2.81, NOT the MTP basis.
+    result = _pw_waiver_result(benefit_subtype="1")
+    assert result.pw_charge == pytest.approx(2.81)
+
+
 def test_benefit_rate_issue_age_added_at_issue_equals_coverage_issue_age():
     # A benefit added at the coverage's issue takes the coverage's issue age.
     policy = IllustrationPolicyData(
