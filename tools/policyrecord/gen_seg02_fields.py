@@ -22,7 +22,7 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SEG_JSON = ROOT / "suiteview" / "polview" / "data" / "policy_record_screens" / "seg_02.json"
 
 # These screen field indices START a new (indented) line -- i.e. the mainframe

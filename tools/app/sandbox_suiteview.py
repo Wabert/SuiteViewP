@@ -58,7 +58,7 @@ def _run() -> None:
     env = dict(os.environ)
     env["USERPROFILE"] = str(SANDBOX)
     env["HOME"] = str(SANDBOX)
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
     subprocess.run([sys.executable, "scripts/run_audit.py"], env=env)
 
 

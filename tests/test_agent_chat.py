@@ -7,6 +7,10 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+
+pytest.importorskip(
+    "copilot", reason="Copilot SDK not installed (minipc) — agent_chat tests run on the laptop")
+
 from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from copilot.generated.rpc import (

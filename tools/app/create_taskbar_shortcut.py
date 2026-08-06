@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 # Project root = parent of this tools/ directory.
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 ICON_SIZES = [16, 24, 32, 48, 64, 128, 256]

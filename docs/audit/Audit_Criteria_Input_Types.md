@@ -1,6 +1,6 @@
 # Cyberlife Audit Tool - Criteria Input Classification
 
-This document categorizes all the input types across the first 8 tabs (Policy through Transaction) of the Cyberlife Audit Tool based on the provided screenshots and corresponding VBA source code `frmAudit.frm.bas`.
+This document categorizes all the input types across the first 8 tabs (Policy through Transaction) of the Cyberlife Audit Tool based on the provided screenshots and corresponding VBA source code `frmAudit.frm`.
 
 ## Input Categories Identified
 

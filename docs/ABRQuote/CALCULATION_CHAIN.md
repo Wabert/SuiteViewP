@@ -5,7 +5,7 @@ from the VBA workbook is complete — see suiteview/abrquote/). This section
 is the surviving reference for the quoting math: 2008 VBT + substandard
 modifications → modified mortality → APV → actuarial discount → benefit.
 
-## 2. Complete Calculation Chain
+## 1. Complete Calculation Chain
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -39,7 +39,7 @@ modifications → modified mortality → APV → actuarial discount → benefit.
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.1 Step-by-Step Calculation
+### 1.1 Step-by-Step Calculation
 
 #### Step 1: Policy Data Retrieval
 - Input: Policy number + region
@@ -129,9 +129,10 @@ For each month from current policy month to maturity (up to 1,460 months ≈ 121
 | **Accelerated Benefit** | **Eligible - Discount - Fee** |
 
 #### Step 6: Goal Seek (for medical assessment → substandard)
-The VBA uses Excel's Goal Seek to derive table ratings and flat extras from medical
-assessment inputs (5yr survival, 10yr survival, life expectancy). In Python, we'll use
-`scipy.optimize.brentq` or `scipy.optimize.bisect`:
+The VBA used Excel's Goal Seek to derive table ratings and flat extras from medical
+assessment inputs (5yr survival, 10yr survival, life expectancy). The Python port
+implements this in `suiteview/abrquote/core/goal_seek.py` (scipy `brentq` when
+available, with a pure-Python `_bisect_fallback` — scipy is not a hard dependency):
 
 - **Table Rating Goal Seek**: Find `table_rating` (0–25) such that
   `Assessment_Index(table_rating) = target_index` (1–7)

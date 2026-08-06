@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rerun_com import _open_excel, XL_CALC_MANUAL  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 RATES_DB = ROOT / "bundled_data" / "dev" / "rates.sqlite"
 PLANCODE_TABLE = ROOT / "suiteview" / "illustration" / "plancodes" / "plancode_table.json"
 RIDER_TABLE = ROOT / "suiteview" / "illustration" / "plancodes" / "rider_table.json"

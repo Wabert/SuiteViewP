@@ -2,7 +2,7 @@
 IAF Rate File Excel Exporter
 
 Builds a structured .xlsx workbook from parsed IAF data.
-Ports the VBA CPDReady() logic from ProgressBar.frm.
+Ports the VBA CPDReady() logic from ProgressBar.frm (legacy converter VBA; retired from docs/, see git history for docs/RateManager/VBA_code/).
 """
 
 import os

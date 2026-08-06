@@ -2,7 +2,7 @@
 IAF (Issue Age Factor) Rate File Parser
 
 Parses Cyberlife mainframe IAF fixed-width text files into structured data.
-Ported from the VBA ProgressBar.frm Analyze() and storeRate() logic.
+Ported from the legacy converter VBA ProgressBar.frm Analyze()/storeRate() (retired from docs/, see git history).
 """
 
 from dataclasses import dataclass, field

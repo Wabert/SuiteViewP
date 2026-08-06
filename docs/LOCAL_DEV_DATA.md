@@ -6,7 +6,7 @@ work network, DB2, or the `UL_Rates` ODBC data source.
 ## Generate Local Databases
 
 ```powershell
-venv\Scripts\python.exe tools\create_local_dev_data.py
+venv\Scripts\python.exe tools\localdev\create_local_dev_data.py
 ```
 
 This creates ignored local files under `bundled_data/dev/`:
@@ -46,7 +46,7 @@ SQLite rates file:
 
 ```powershell
 $env:SUITEVIEW_LOCAL_DATA = "1"
-venv\Scripts\python.exe tools\check_local_dev_data.py
+venv\Scripts\python.exe tools\localdev\check_local_dev_data.py
 ```
 
 ## Export A Real Policy From The Work Network
@@ -55,14 +55,14 @@ On a machine that can reach DB2, export the same data-bearing policy record
 tables shown in PolView's Tables panel:
 
 ```powershell
-venv\Scripts\python.exe tools\export_local_policy_data.py UE000576 --region CKPR
+venv\Scripts\python.exe tools\localdev\export_local_policy_data.py UE000576 --region CKPR
 ```
 
 If the policy exists in multiple companies, rerun with the company code PolView
 shows:
 
 ```powershell
-venv\Scripts\python.exe tools\export_local_policy_data.py UE000576 --region CKPR --company AA
+venv\Scripts\python.exe tools\localdev\export_local_policy_data.py UE000576 --region CKPR --company AA
 ```
 
 The exporter writes `bundled_data/dev/policy_records.sqlite` by default.  It
@@ -76,7 +76,7 @@ To add more policies to an existing local clone without replacing the policies
 already in the file, pass multiple policy numbers with `--append`:
 
 ```powershell
-venv\Scripts\python.exe tools\export_local_policy_data.py `
+venv\Scripts\python.exe tools\localdev\export_local_policy_data.py `
   UE000576 U0688012 U0492070 U0656998 `
   --region CKPR `
   --append
@@ -85,7 +85,7 @@ venv\Scripts\python.exe tools\export_local_policy_data.py `
 Validate those local policies through the same policy-loading path the app uses:
 
 ```powershell
-venv\Scripts\python.exe tools\check_local_dev_data.py `
+venv\Scripts\python.exe tools\localdev\check_local_dev_data.py `
   UE000576 U0688012 U0492070 U0656998 `
   --region CKPR `
   --policy-only
@@ -105,13 +105,13 @@ shadow-account plancode, benefit rates, and LTR rider rates needed for offline
 Forecasting:
 
 ```powershell
-venv\Scripts\python.exe tools\export_local_rate_data.py
+venv\Scripts\python.exe tools\localdev\export_local_rate_data.py
 ```
 
 Validate the exported local rate database with:
 
 ```powershell
-venv\Scripts\python.exe tools\check_local_rate_data.py
+venv\Scripts\python.exe tools\localdev\check_local_rate_data.py
 ```
 
 By default this writes `bundled_data/dev/rates.sqlite` with:
@@ -124,7 +124,7 @@ By default this writes `bundled_data/dev/rates.sqlite` with:
 You can override the defaults if needed:
 
 ```powershell
-venv\Scripts\python.exe tools\export_local_rate_data.py `
+venv\Scripts\python.exe tools\localdev\export_local_rate_data.py `
   --plancodes 1U143900,CCV00100,1U536C00 `
   --base-plancode 1U143900 `
   --benefit-types 76,39

@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 REPORT_DATE = date(2026, 7, 22)
 OUTPUT_PATH = ROOT / "TESTING_PLAN.html"
 

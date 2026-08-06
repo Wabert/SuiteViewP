@@ -23,7 +23,7 @@ from typing import Any
 
 import pyodbc
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / "bundled_data" / "dev" / "rates.sqlite"
 TABLE = "Select_RATE_BANDSPECS"
 

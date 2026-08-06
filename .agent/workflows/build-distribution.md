@@ -52,8 +52,6 @@ The script automatically:
 ## What's NOT Included (dev-only)
 - Audit button & Audit Tool
 - Email Attachments
-- Task Tracker
-- Rate File Converter
 
 ## Notes
 - The `DEV_MODE` flag is automatically `False` in the built exe

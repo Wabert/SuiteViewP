@@ -530,9 +530,9 @@ Methods:
 - `reload()`: Reload tooltips from file
 
 ### VBA Reference Files
-- `frmPolicyMasterTV.frm.bas`: Main form with PopulatePolicy(), PopulateCoverages(), etc.
-- `cls_PolicyInformation.cls.cls`: Policy object properties and data loading
-- `mdlDataItemSupport.bas.bas`: Translation functions and lookup dictionaries
+- `frmPolicyMasterTV.frm`: Main form with PopulatePolicy(), PopulateCoverages(), etc.
+- `cls_PolicyInformation.cls`: Policy object properties and data loading
+- `mdlDataItemSupport.bas`: Translation functions and lookup dictionaries
 
 ---
 

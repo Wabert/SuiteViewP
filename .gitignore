@@ -59,6 +59,9 @@ docs/Illustration_UL/GLP Funding Outlook.html
 # Generated report (regenerate via tools/app/generate_testing_plan.py)
 TESTING_PLAN.html
 
+# Generated demo flat files (regenerate via tools/audit/make_sample_file_sources.py)
+sample_data/
+
 # pytest
 .pytest_cache/
 

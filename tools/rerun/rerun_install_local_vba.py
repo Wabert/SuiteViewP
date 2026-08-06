@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rerun_com import _open_excel  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORKBOOK = ROOT.parent / "SuiteViewP_archived_docs" / "Illustration_UL" / "RERUN (v20.0) local.xlsm"
 MODULE_BAS = ROOT / "docs" / "Illustration_UL" / "RERUN_VBA_local" / "mdl_LocalData.bas"
 

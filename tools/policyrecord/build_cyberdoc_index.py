@@ -56,7 +56,7 @@ import os
 import re
 import sys
 
-_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _DEFAULT_SOURCES = [
     os.path.join(_REPO, "docs", "CyberDoc", "text", "D20.txt"),

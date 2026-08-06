@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DEV_DIR = ROOT / "bundled_data" / "dev"
 POLICY_DB = DEV_DIR / "policy_records.sqlite"
 RATES_DB = DEV_DIR / "rates.sqlite"

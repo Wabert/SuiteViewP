@@ -173,7 +173,7 @@ follow these rules:
    - Keep the script small, auditable, and single-purpose.
    - Accept input via command-line args (prefer JSON as a single argument)
      and write outputs to stdout as JSON.
-   - Call it using: `python tools/<script>.py '<json>'`
+   - Call it using: `python tools/<folder>/<script>.py '<json>'`
 
 4. **Reuse existing scripts.** Do not duplicate scripts. Always check
    `tools/` for an existing helper before creating a new one.
@@ -991,7 +991,7 @@ All ABR-specific colors and stylesheets live in `suiteview/abrquote/ui/abr_style
 - All tables support Excel-style column filtering and right-click copy/export
 
 **Data import scripts:**
-- `scripts/import_state_forms.py` — imports `StateForms.xlsx` → `state_forms` table
+- `tools/rates/import_state_forms.py` — imports `StateForms.xlsx` → `state_forms` table
 - Term rates, interest rates, and per diem are imported via bulk insert methods on `ABRDatabase`
 
 ### Output Panel (Step 3)

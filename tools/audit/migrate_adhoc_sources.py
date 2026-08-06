@@ -16,7 +16,7 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from suiteview.audit import file_source_store, query_object_store  # noqa: E402
 from suiteview.audit.file_source_intake import migrate_adhoc_to_file_source  # noqa: E402

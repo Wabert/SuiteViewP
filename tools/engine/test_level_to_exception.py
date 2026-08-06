@@ -1,6 +1,6 @@
 """Validate solve_level_to_exception against the known UL062614 boundary.
 
-The premium sweep (tools/diag_level_to_exception.py) puts the lapse↔exception
+The premium sweep (the retired tools/diag_level_to_exception.py, see git history) puts the lapse↔exception
 boundary at $48.00 lapses / $48.10 survives, so the solved minimum must land in
 (48.00, 48.10]. Run:
 
@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

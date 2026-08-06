@@ -20,7 +20,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 POLICY_DB = ROOT / "bundled_data" / "dev" / "policy_records.sqlite"
 
 COMPANY_NAMES = {"01": "ANICO", "04": "ANTEX", "06": "SLAICO", "08": "GSL", "26": "ANICO NY"}

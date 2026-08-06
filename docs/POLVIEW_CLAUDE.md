@@ -21,19 +21,19 @@ application (`SuiteView v2.2`).
 #### Key VBA Files
 | File | Lines | Purpose |
 |------|-------|---------|
-| `frmPolicyMasterTV.frm.bas` | 6,370 | Main policy display form |
-| `cls_PolicyInformation.cls.cls` | 4,624 | Business layer wrapping raw DB2 data |
-| `cls_PolicyData.cls.cls` | 916 | Raw DB2 table data access and caching |
-| `cls_Rates.cls.cls` | 518 | Rate lookup and calculation |
-| `cls_Storage.cls.cls` | 660 | Persistent data storage |
-| `frmAudit.frm.bas` | 6,744 | Cyber Audit query tool |
-| `mdlDataItemSupport.bas.bas` | 5,864 | Data translation dictionaries |
-| `mdlDataSourceConnections.bas.bas` | 466 | ADODB database connectivity |
-| `mdlGlobals.bas.bas` | 546 | Global enums, types, constants |
-| `mdlPolicyHandler.bas.bas` | 192 | Policy form management and caching |
-| `mdlDataMap.bas.bas` | 1,420 | Data mapping utilities |
-| `mdlDataSegment.bas.bas` | 1,626 | Segment data handling |
-| `mdlUtilities.bas.bas` | 1,192 | General utility functions |
+| `frmPolicyMasterTV.frm` | 6,370 | Main policy display form |
+| `cls_PolicyInformation.cls` | 4,624 | Business layer wrapping raw DB2 data |
+| `cls_PolicyData.cls` | 916 | Raw DB2 table data access and caching |
+| `cls_Rates.cls` | 518 | Rate lookup and calculation |
+| `cls_Storage.cls` | 660 | Persistent data storage |
+| `frmAudit.frm` | 6,744 | Cyber Audit query tool |
+| `mdlDataItemSupport.bas` | 5,864 | Data translation dictionaries |
+| `mdlDataSourceConnections.bas` | 466 | ADODB database connectivity |
+| `mdlGlobals.bas` | 546 | Global enums, types, constants |
+| `mdlPolicyHandler.bas` | 192 | Policy form management and caching |
+| `mdlDataMap.bas` | 1,420 | Data mapping utilities |
+| `mdlDataSegment.bas` | 1,626 | Segment data handling |
+| `mdlUtilities.bas` | 1,192 | General utility functions |
 
 ---
 
@@ -722,7 +722,7 @@ mdlPolicyHandler.GetPolicy(policyNum, region, sysCode)
 
 The Cyber Audit tool allows users to search for policies matching multiple
 criteria and export results. It is a complex query builder implemented in VBA
-as `frmAudit.frm.bas` (6,744 lines).
+as `frmAudit.frm` (6,744 lines).
 
 ### Audit Query Tabs & Criteria
 | Tab | Criteria Available |

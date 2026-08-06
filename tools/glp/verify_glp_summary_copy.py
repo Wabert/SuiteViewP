@@ -15,7 +15,7 @@ import os
 import sys
 from datetime import date
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from suiteview.polview.ui.tabs.policy_support_tab import PolicySupportTab
 from suiteview.polview.services.guideline_exception_adjustment import (

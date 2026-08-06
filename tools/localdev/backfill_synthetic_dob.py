@@ -38,7 +38,7 @@ if str(TOOLS_DIR) not in sys.path:
 
 from export_local_policy_data import is_meaningful_person, synthetic_birth_date
 
-DEFAULT_DB = TOOLS_DIR.parent / "bundled_data" / "dev" / "policy_records.sqlite"
+DEFAULT_DB = TOOLS_DIR.parents[1] / "bundled_data" / "dev" / "policy_records.sqlite"
 
 PERSON_CODES = {
     "00": "Primary Insured",

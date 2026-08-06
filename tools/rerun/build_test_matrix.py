@@ -30,7 +30,7 @@ import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 TESTING_DIR = ROOT / "docs" / "Illustration_UL" / "Testing"
 JSON_PATH = TESTING_DIR / "test_matrix.json"
 XLSX_PATH = TESTING_DIR / "TEST_MATRIX.xlsx"

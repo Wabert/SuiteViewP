@@ -14,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from suiteview.core.policy_service import get_policy_info
 from suiteview.polview.ui.policy_record_viewer import load_screen

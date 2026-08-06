@@ -525,15 +525,13 @@ shift as the file changes):
 - `suiteview/core/schema_discovery.py:649` — bulk fetch (**BLOCKSIZE tuned**)
 - `suiteview/core/odbc_utils.py:123` — DSN test query
 - `suiteview/core/connection_manager.py:129` — DB2 test path (duplicates DB2Connection logic)
-- `suiteview/ui/dialogs/preview_dialog.py:41` — preview (**BLOCKSIZE tuned**)
-- `suiteview/database_manager/xdb_engine.py:361` — `DSN={dsn}` (in try/finally)
-- `suiteview/database_manager/xdb_engine.py:420` — mixed DB2/SQL-Server conn string
-- `suiteview/database_manager/xdb_engine.py:870` — `DSN={dsn}` (in try/finally)
+- ~~preview_dialog / xdb_engine sites~~ — removed in the 2026-08 cleanup with
+  `database_manager` and its orphaned dialogs; no longer migration targets.
 
 **NOT DB2 — leave alone / separate concern (SQL Server UL_Rates or Access MDB):**
 - `suiteview/core/rates.py:106,110`, `suiteview/core/reinsurance.py:58`,
   `suiteview/abrquote/models/abr_odbc_database.py:92` — UL_Rates SQL Server.
-- `schema_discovery.py:754,990,1165,1319`, `add_connection_dialog_v2.py:869` — MS Access driver.
+- `schema_discovery.py:754,990,1165,1319` — MS Access driver.
 - `scripts/*`, `tests/*` — out of app scope.
 
 ---
@@ -543,8 +541,7 @@ shift as the file changes):
 `suiteview/core/json_store.py` now provides `read_json` / `write_json` /
 `JsonStore` (atomic temp+rename writes, missing-file & corruption handling,
 parent-dir creation). Already migrated: `audit/saved_query_store.py`,
-`mainframe_nav/mainframe_terminal_screen.py` (`_save_settings`),
-`database_manager/dataset_screen.py` (save path).
+`mainframe_nav/mainframe_terminal_screen.py` (`_save_settings`).
 
 Remaining sites to migrate to atomic writes (each is low-risk but should be
 clicked through in-app once, since they touch user-visible state). Migrate the
@@ -554,9 +551,6 @@ clicked through in-app once, since they touch user-visible state). Migrate the
   panel widths (~4721/4732). Largest cluster; no atomic writes today.
 - `suiteview/mainframe_nav/mainframe_nav_screen.py` — splitter sizes (~1975/1993),
   column widths (~2021/2039).
-- `suiteview/messaging/message_service.py` — message/profile/inbox files
-  (~172, 189, 284, 344) read via `read_text()+json.loads`; reads already guard
-  JSONDecodeError, so migrate writes for atomicity.
 
 Note when migrating: keep `indent=2` (JsonStore default) so on-disk format is
 unchanged; don't convert a load path that shows an intentional error dialog to
@@ -646,7 +640,6 @@ proceed with the cleanup below:**
 
 ## §4 — FUTURE: Tier 3 (larger refactors, not yet started)
 - Decompose `suiteview/taskbar_launcher/suiteview_taskbar.py` (very large).
-- Decompose `suiteview/database_manager/dbquery_screen.py`.
 
 ---
 

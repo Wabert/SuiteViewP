@@ -14,7 +14,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DBS = {
     "rates": ROOT / "bundled_data" / "dev" / "rates.sqlite",
     "policy": ROOT / "bundled_data" / "dev" / "policy_records.sqlite",

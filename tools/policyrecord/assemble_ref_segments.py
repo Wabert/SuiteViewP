@@ -27,7 +27,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "suiteview" / "polview" / "data" / "policy_record_screens"
 TMP = Path("C:/tmp/segjson")
 

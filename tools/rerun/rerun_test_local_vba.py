@@ -52,7 +52,7 @@ def _open_excel_macros_on(visible: bool = False):
 def main():
     cmd = json.loads(sys.argv[1])
     workbook = Path(cmd.get("workbook")
-                    or Path(__file__).resolve().parents[2] / "SuiteViewP_archived_docs"
+                    or Path(__file__).resolve().parents[3] / "SuiteViewP_archived_docs"
                     / "Illustration_UL" / "RERUN (v20.0) local.xlsm").resolve()
     cols = cmd.get("cols", DEFAULT_COLS)
     max_month = int(cmd.get("max_month", 360))

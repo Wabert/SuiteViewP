@@ -17,7 +17,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from suiteview.abrquote.models.abr_data import ABRPolicyData
 from suiteview.abrquote.core.apv_engine import APVEngine

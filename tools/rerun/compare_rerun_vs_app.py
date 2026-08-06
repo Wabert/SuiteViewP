@@ -45,7 +45,7 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 TOOLS = Path(__file__).resolve().parent
 for _p in (str(ROOT), str(TOOLS)):
     if _p not in sys.path:

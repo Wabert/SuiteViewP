@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "suiteview" / "polview" / "data" / "policy_record_screens"
 SEG = DATA / "seg_02.json"
 FIELDS = DATA / "seg_02_coverage_fields.json"

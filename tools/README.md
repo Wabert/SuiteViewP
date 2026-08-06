@@ -22,6 +22,15 @@ Intra-folder imports (e.g. `compare_case` ← `calc_compare_map`,
 `rerun_*` ← `rerun_com`) rely on scripts living in the **same** folder — keep
 pipeline families together when adding or moving scripts.
 
+**Two invariants every script in a bucket folder must obey:**
+
+1. Invoke from the repo root: `venv\Scripts\python.exe tools/<folder>/<name>.py`
+   (some scripts also assume `cwd` = repo root for relative data paths).
+2. The repo root from inside a bucket is **two levels up**:
+   `ROOT = Path(__file__).resolve().parents[2]` (or a triple
+   `os.path.dirname`). A `parents[1]` here points at `tools/` and silently
+   breaks `import suiteview` — this exact bug bit all 9 folders once.
+
 ## Rules
 
 1. **Reuse.** Before writing a new script, grep the relevant folder — the

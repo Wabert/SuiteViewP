@@ -17,7 +17,7 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 OUT = ROOT / "sample_data" / "file_sources"
 
 POLICY_COLUMNS = ["PolicyNumber", "InsuredName", "State", "PlanCode",

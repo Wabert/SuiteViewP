@@ -65,7 +65,7 @@ Private Sub RunBridge(argsJson As String, statusPath As String)
 
     Dim cmd As String
     cmd = """" & RepoRoot() & "\venv\Scripts\python.exe"" """ & _
-          RepoRoot() & "\tools\rerun_local_bridge.py"" """ & argsPath & """"
+          RepoRoot() & "\tools\rerun\rerun_local_bridge.py"" """ & argsPath & """"
     Trace "bridge: exec " & cmd
 
     Dim sh As Object: Set sh = CreateObject("WScript.Shell")

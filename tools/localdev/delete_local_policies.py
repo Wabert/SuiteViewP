@@ -14,7 +14,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 POLICY_DB = ROOT / "bundled_data" / "dev" / "policy_records.sqlite"
 
 
