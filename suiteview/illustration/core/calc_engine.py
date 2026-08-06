@@ -3538,12 +3538,14 @@ def _compute_exception_premium(
     triggered = options.allow_exception_prems and at_guideline and av < 0.0
     gp_mode = prior_exception_mode or triggered      # already past_maturity-guarded
     # An Option B policy uses Option A (level death benefit) assumptions for the
-    # entire GP exception period — not just the trigger month. Flag the switch on
-    # ANY month the policy is in exception mode while still Option B, so the
-    # caller reruns the month's deduction + exception under the level benefit
+    # entire GP exception period — not just the trigger month — but ONLY when the
+    # run opts in via ``switch_to_option_a_in_exception``. Flag the switch on ANY
+    # month the policy is in exception mode while still Option B, so the caller
+    # reruns the month's deduction + exception under the level benefit
     # (idempotent: once db_option is "A" this is False).
     result.requires_option_a = (
-        gp_mode and str(policy.db_option or "").upper() == "B"
+        options.switch_to_option_a_in_exception
+        and gp_mode and str(policy.db_option or "").upper() == "B"
     )
     result.mode = gp_mode
     result.is_gp_exception = gp_mode

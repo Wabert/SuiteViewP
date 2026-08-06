@@ -500,8 +500,6 @@ class IllustrationInputsTab(QWidget):
         outer.setContentsMargins(10, 10, 10, 10)
         outer.setSpacing(8)
 
-        outer.addWidget(self._build_illustration_duration_group(), 0, Qt.AlignmentFlag.AlignTop)
-
         group = QGroupBox("Run Controls")
         group.setStyleSheet(GROUP_STYLE)
         # Two columns: the editable controls pack down the left, the two
@@ -519,6 +517,11 @@ class IllustrationInputsTab(QWidget):
         group_row.addLayout(layout)
         group_row.addStretch(1)
         group_row.addLayout(locked_column)
+
+        # Illustration Duration (Illustration to Date / Illustration Years) sits
+        # at the top of the working column; it is gated by "Enable Illustration
+        # Options" below, just like Conform to TEFRA/DEFRA and Stop on Lapse.
+        self._add_illustration_duration_controls(layout)
 
         self.exact_days_check = self._make_control_checkbox("Exact Days Interest")
         self.exact_days_check.setToolTip("Checked uses exact-days interest; unchecked uses monthly compounding.")
@@ -595,6 +598,21 @@ class IllustrationInputsTab(QWidget):
             "Normally on — projection rows stop once the lapse test fails. "
             "Enable Illustration Options to toggle it off.")
         locked_column.addWidget(self.stop_on_lapse_check)
+
+        # Switch to Option A in the exception period — off by default. When on,
+        # an Option B policy that enters the GP exception period is re-run under
+        # Option A (level death benefit) assumptions, which changes the COI
+        # saving that discounts the exception premium. Locked off until "Enable
+        # Illustration Options" is checked.
+        self.switch_to_option_a_check = self._make_control_checkbox(
+            "Switch to Option A in exception period")
+        self.switch_to_option_a_check.setChecked(False)
+        self.switch_to_option_a_check.setEnabled(False)
+        self.switch_to_option_a_check.setToolTip(
+            "When an Option B policy enters the GP exception period, re-run it "
+            "under Option A (level death benefit) assumptions — this changes the "
+            "exception premium discount. Enable Illustration Options to toggle it on.")
+        locked_column.addWidget(self.switch_to_option_a_check)
         locked_column.addStretch(1)
 
         note = QLabel("Unchecked Exact Days uses monthly compounding.")
@@ -605,6 +623,11 @@ class IllustrationInputsTab(QWidget):
         outer.addWidget(group, 0, Qt.AlignmentFlag.AlignTop)
         outer.addWidget(self._build_iul_crediting_group(), 0, Qt.AlignmentFlag.AlignTop)
         outer.addStretch(1)
+        # Initialize the gated-control enabled state now that every widget the
+        # "Enable Illustration Options" switch governs (including the duration
+        # controls) exists.
+        self._apply_illustration_options_enabled(
+            self.enable_illustration_options_check.isChecked())
         return tab
 
     def _build_iul_crediting_group(self):
@@ -723,12 +746,16 @@ class IllustrationInputsTab(QWidget):
         for index, radio in self._ag49_regime_radios.items():
             radio.setChecked(index == tier)
 
-    def _build_illustration_duration_group(self):
-        group = QGroupBox("Illustration Duration")
-        group.setStyleSheet(GROUP_STYLE)
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 18, 10, 10)
-        layout.setSpacing(6)
+    def _add_illustration_duration_controls(self, layout):
+        """Add the Illustration Duration controls (Illustration to Date /
+        Illustration Years) to ``layout``. Gated by "Enable Illustration
+        Options" — see ``_apply_illustration_options_enabled`` /
+        ``_sync_duration_controls``."""
+        heading = QLabel("Illustration Duration")
+        heading.setStyleSheet(
+            f"color: {PURPLE_DARK}; background: transparent; font-size: 11px; "
+            "font-weight: bold;")
+        layout.addWidget(heading)
 
         self.duration_mode_group = QButtonGroup(self)
         self.duration_mode_group.setExclusive(True)
@@ -769,8 +796,6 @@ class IllustrationInputsTab(QWidget):
         self.illustration_years_radio.setChecked(True)
         self.illustration_to_date_radio.toggled.connect(self._sync_duration_controls)
         self.illustration_years_radio.toggled.connect(self._sync_duration_controls)
-        self._sync_duration_controls()
-        return group
 
     def _apply_exception_availability(self, available: bool, reason: str):
         """The Input panel gates GP exceptions per policy (active shadow
@@ -804,9 +829,15 @@ class IllustrationInputsTab(QWidget):
         )
 
     def _sync_duration_controls(self):
+        # The duration controls are gated by "Enable Illustration Options": both
+        # radios follow that switch, and only the active input (date vs years)
+        # is enabled when the switch is on.
+        options_on = self.enable_illustration_options_check.isChecked()
+        self.illustration_to_date_radio.setEnabled(options_on)
+        self.illustration_years_radio.setEnabled(options_on)
         use_date = self.illustration_to_date_radio.isChecked()
-        self.illustration_to_date_edit.setEnabled(use_date)
-        self.illustration_years_combo.setEnabled(not use_date)
+        self.illustration_to_date_edit.setEnabled(options_on and use_date)
+        self.illustration_years_combo.setEnabled(options_on and not use_date)
 
     def _build_scheduled_premium_group(self):
         group = QGroupBox("Scheduled Premiums")
@@ -1234,6 +1265,7 @@ class IllustrationInputsTab(QWidget):
             # (An active shadow account still blocks them inside the engine.)
             allow_exception_prems=(
                 self.exception_prem_check.isChecked() or bool(b2md_windows)),
+            switch_to_option_a_in_exception=self.switch_to_option_a_check.isChecked(),
             exact_days_interest=self.exact_days_check.isChecked(),
             # cap_premiums_at_acceptance left at None — derives from
             # conform_to_tefra. Only PolView's GLP solver overrides it.
@@ -1292,17 +1324,24 @@ class IllustrationInputsTab(QWidget):
         return self.stop_on_lapse_check.isChecked()
 
     def _apply_illustration_options_enabled(self, enabled: bool):
-        """Lock/unlock the two illustration-option controls.
+        """Lock/unlock the illustration-option controls.
 
-        When "Enable Illustration Options" is on, Conform to TEFRA/DEFRA and Stop
-        Projection on Lapse become user-editable. When it is turned back off they
-        revert to their locked-on default (checked + disabled) so a normal
-        illustration can't silently run without them.
+        When "Enable Illustration Options" is on, Conform to TEFRA/DEFRA, Stop
+        Projection on Lapse, Switch to Option A in exception period, and the
+        Illustration Duration controls become user-editable. When it is turned
+        back off, the two locked-on controls revert to their locked-on default
+        (checked + disabled), Switch to Option A reverts to off, and the
+        duration controls are disabled so a normal illustration can't silently
+        run without them.
         """
         for check in (self.tefra_check, self.stop_on_lapse_check):
             check.setEnabled(enabled)
             if not enabled:
                 check.setChecked(True)
+        self.switch_to_option_a_check.setEnabled(enabled)
+        if not enabled:
+            self.switch_to_option_a_check.setChecked(False)
+        self._sync_duration_controls()
 
     def projection_months(self, policy) -> int | None:
         if self.illustration_to_date_radio.isChecked():
@@ -1384,6 +1423,7 @@ class IllustrationInputsTab(QWidget):
                     self.enable_illustration_options_check.isChecked()),
                 "conform_to_tefra": self.tefra_check.isChecked(),
                 "stop_on_lapse": self.stop_on_lapse_check.isChecked(),
+                "switch_to_option_a": self.switch_to_option_a_check.isChecked(),
                 "duration_mode": (
                     "date" if self.illustration_to_date_radio.isChecked()
                     else "years"),
@@ -1430,6 +1470,8 @@ class IllustrationInputsTab(QWidget):
             self.tefra_check.setChecked(bool(controls.get("conform_to_tefra", True)))
             self.stop_on_lapse_check.setChecked(
                 bool(controls.get("stop_on_lapse", True)))
+            self.switch_to_option_a_check.setChecked(
+                bool(controls.get("switch_to_option_a", False)))
         # Premium capping at acceptance rides with TEFRA, so it is not captured
         # or restored separately.
         # The exception checkbox may be force-blocked on this policy (active
