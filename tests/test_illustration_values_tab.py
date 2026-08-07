@@ -1077,7 +1077,8 @@ def test_summary_tab_uses_requested_illustration_values_order():
 def test_overview_ledger_restores_compact_values_order():
     _app()
     overview = ValuesOverview()
-    inforce = MonthlyState(policy_year=0, policy_month=0, attained_age=44)
+    inforce = MonthlyState(date=date(2025, 12, 15), policy_year=0, policy_month=0,
+                           attained_age=44)
     first = MonthlyState(
         date=date(2026, 1, 15),
         policy_year=1,
@@ -1129,7 +1130,7 @@ def test_overview_ledger_restores_compact_values_order():
     headers = [overview.ledger.headerItem().text(index) for index in range(overview.ledger.columnCount())]
     assert headers == [
         "Year", "Month", "Age", "Age EOY", "Date",
-        "Contributions", "Distributions",
+        "Distributions", "Contributions",
         "MD", "AV", "SV", "Interest", "EAV", "SC", "LN", "ESV", "Shadow EAV",
         "Death Benefit", "Status",
         "",
@@ -1140,8 +1141,8 @@ def test_overview_ledger_restores_compact_values_order():
     assert overview.ledger.isColumnHidden(LEDGER_COLUMNS.index("Shadow EAV"))
     year_item = overview.ledger.topLevelItem(0)
     assert [year_item.text(index) for index in range(overview.ledger.columnCount())] == [
-        "1", "2", "45", "46", "02/15/2026",     # Age EOY = attained age + 1
-        "185.00", "60.00",     # 45+110+30 in  |  45+5+10 out (wd net of force-out)
+        "1", "0", "45", "46", "12/15/2025",    # first year row anchors to the valuation date
+        "60.00", "185.00",     # 45+5+10 out (wd net of force-out)  |  45+110+30 in
         "23.00", "1,150.00", "1,050.00", "10.00", "1,200.00", "80.00",
         "20.00", "1,100.00", "0.00",
         "151,000", "LAPSED",
@@ -1153,7 +1154,8 @@ def test_overview_ledger_restores_compact_values_order():
 
 def _overview_two_month_projection():
     """inforce + two projected months with distinct cash flows and dates."""
-    inforce = MonthlyState(policy_year=0, policy_month=0, attained_age=44)
+    inforce = MonthlyState(date=date(2025, 12, 15), policy_year=0, policy_month=0,
+                           attained_age=44)
     first = MonthlyState(
         date=date(2026, 1, 15), policy_year=1, policy_month=1, attained_age=45,
         gross_premium=100.0, gp_exception_prem=25.0,
@@ -1178,11 +1180,86 @@ def test_overview_date_column_follows_age_with_row_dates():
     date_col = LEDGER_COLUMNS.index("Date")
     assert date_col == LEDGER_COLUMNS.index("Age EOY") + 1 == 4
     year_item = overview.ledger.topLevelItem(0)
-    # Annual row carries the year-end (EOY) date the row aggregates to;
-    # monthly children carry their own month's date.
-    assert year_item.text(date_col) == "02/15/2026"
+    # The first (inforce) year row carries the valuation date; its months are
+    # kept as children since none of them repeats the valuation date.
+    assert year_item.text(date_col) == "12/15/2025"
     assert year_item.child(0).text(date_col) == "01/15/2026"
     assert year_item.child(1).text(date_col) == "02/15/2026"
+
+
+def test_overview_year_rows_anchor_to_beginning_of_year_without_duplication():
+    _app()
+    overview = ValuesOverview()
+    inforce = MonthlyState(date=date(2025, 4, 15), policy_year=0, policy_month=0,
+                           attained_age=44)
+    y1m1 = MonthlyState(date=date(2025, 5, 15), policy_year=1, policy_month=1,
+                        attained_age=45)
+    y1m2 = MonthlyState(date=date(2025, 6, 15), policy_year=1, policy_month=2,
+                        attained_age=45)
+    y2m1 = MonthlyState(date=date(2026, 5, 15), policy_year=2, policy_month=1,
+                        attained_age=46)
+    y2m2 = MonthlyState(date=date(2026, 6, 15), policy_year=2, policy_month=2,
+                        attained_age=46)
+
+    overview.display(_policy(), [inforce, y1m1, y1m2, y2m1, y2m2])
+
+    date_col = LEDGER_COLUMNS.index("Date")
+    year1 = overview.ledger.topLevelItem(0)
+    year2 = overview.ledger.topLevelItem(1)
+    # First year row = valuation date; its months are all kept as children.
+    assert year1.text(date_col) == "04/15/2025"
+    assert [year1.child(i).text(date_col) for i in range(year1.childCount())] == [
+        "05/15/2025", "06/15/2025",
+    ]
+    # A full year's row IS its beginning-of-year (anniversary) month; that month
+    # is not repeated as a child.
+    assert year2.text(date_col) == "05/15/2026"
+    assert [year2.child(i).text(date_col) for i in range(year2.childCount())] == [
+        "06/15/2026",
+    ]
+    # Fully expanded, the dates form one clean monthliversary sequence.
+    fully_expanded = [year1.text(date_col)]
+    fully_expanded += [year1.child(i).text(date_col) for i in range(year1.childCount())]
+    fully_expanded += [year2.text(date_col)]
+    fully_expanded += [year2.child(i).text(date_col) for i in range(year2.childCount())]
+    assert fully_expanded == [
+        "04/15/2025", "05/15/2025", "06/15/2025", "05/15/2026", "06/15/2026",
+    ]
+    assert len(fully_expanded) == len(set(fully_expanded))
+
+
+def test_overview_year_row_swaps_annual_totals_for_the_month_when_expanded():
+    _app()
+    overview = ValuesOverview()
+    inforce = MonthlyState(date=date(2025, 4, 15), policy_year=0, policy_month=0,
+                           attained_age=44)
+    y1m1 = MonthlyState(date=date(2025, 5, 15), policy_year=1, policy_month=1,
+                        attained_age=45)
+    y2m1 = MonthlyState(date=date(2026, 5, 15), policy_year=2, policy_month=1,
+                        attained_age=46, gross_premium=100.0,
+                        withdrawals_to_date=10.0, av_end_of_month=1000.0)
+    y2m2 = MonthlyState(date=date(2026, 6, 15), policy_year=2, policy_month=2,
+                        attained_age=46, gross_premium=40.0,
+                        withdrawals_to_date=25.0, av_end_of_month=1100.0)
+
+    overview.display(_policy(), [inforce, y1m1, y2m1, y2m2])
+
+    contrib = LEDGER_COLUMNS.index("Contributions")
+    distrib = LEDGER_COLUMNS.index("Distributions")
+    eav = LEDGER_COLUMNS.index("EAV")
+    year2 = overview.ledger.topLevelItem(1)
+
+    # Collapsed → the full policy year's roll-up.
+    assert (year2.text(contrib), year2.text(distrib), year2.text(eav)) == (
+        "140.00", "25.00", "1,100.00")
+    # Expanded → just the beginning-of-year month the row now represents.
+    year2.setExpanded(True)
+    assert (year2.text(contrib), year2.text(distrib), year2.text(eav)) == (
+        "100.00", "10.00", "1,000.00")
+    # Collapsing restores the annual roll-up.
+    year2.setExpanded(False)
+    assert (year2.text(contrib), year2.text(distrib), year2.text(eav)) == (
+        "140.00", "25.00", "1,100.00")
 
 
 def test_overview_contributions_and_distributions_roll_up_cash_flows():
@@ -1193,7 +1270,7 @@ def test_overview_contributions_and_distributions_roll_up_cash_flows():
 
     contrib = LEDGER_COLUMNS.index("Contributions")
     distrib = LEDGER_COLUMNS.index("Distributions")
-    assert (contrib, distrib) == (5, 6)  # right after the frozen locators
+    assert (distrib, contrib) == (5, 6)  # Distributions first, right after locators
 
     year_item = overview.ledger.topLevelItem(0)
     # Contributions = Loan Repay + Prem + Exception Prem, same aggregation as

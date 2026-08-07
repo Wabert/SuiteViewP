@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPushButton,
     QTreeView,
     QTreeWidget,
     QTreeWidgetItem,
@@ -335,7 +336,7 @@ class _KpiChip(QWidget):
 # for shadow-account products (the column is hidden otherwise — see display()).
 LEDGER_COLUMNS = [
     "Year", "Month", "Age", "Age EOY", "Date",
-    "Contributions", "Distributions",
+    "Distributions", "Contributions",
     "MD", "AV", "SV", "Interest", "EAV", "SC", "LN", "ESV", "Shadow EAV",
     "Death Benefit", "Status",
     "",  # spacer — visual break before the relocated cash-flow detail
@@ -346,6 +347,12 @@ LEDGER_COLUMNS = [
 FROZEN_LEDGER_COLUMN_COUNT = LEDGER_COLUMNS.index("Date") + 1
 SPACER_COLUMN = LEDGER_COLUMNS.index("")
 SHADOW_EAV_COLUMN = LEDGER_COLUMNS.index("Shadow EAV")
+# The only value columns the "Simple" toggle leaves visible in the ledger.
+SIMPLE_LEDGER_COLUMNS = {"Distributions", "Contributions", "ESV", "Death Benefit"}
+# A year row carries two cell sets: the annual roll-up (collapsed) and its
+# beginning-of-year month (expanded); the tree swaps between them on expand.
+_ROLE_COLLAPSED_CELLS = Qt.ItemDataRole.UserRole + 1
+_ROLE_EXPANDED_CELLS = Qt.ItemDataRole.UserRole + 2
 NUMERIC_LEDGER = {
     index for index, name in enumerate(LEDGER_COLUMNS) if name not in ("Status", "")
 }
@@ -382,7 +389,7 @@ def _ledger_cells(
     distributions = withdrawals + forceouts + new_loan
     return [
         str(year), str(month), str(age), str(age_eoy), _fmt_date(when),
-        _fmt_money(contributions, 2), _fmt_money(distributions, 2),
+        _fmt_money(distributions, 2), _fmt_money(contributions, 2),
         _fmt_money(monthly_deduction, 2), _fmt_money(av, 2), _fmt_money(sv, 2),
         _fmt_money(interest, 2), _fmt_money(eav, 2), _fmt_money(sc, 2),
         _fmt_money(loan_balance, 2), _fmt_money(esv, 2),
@@ -406,6 +413,8 @@ class ValuesOverview(QWidget):
         super().__init__(parent)
         self._year_items: dict[int, QTreeWidgetItem] = {}
         self._updating_frozen_width = False
+        self._has_shadow = False
+        self._simple_mode = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -425,6 +434,21 @@ class ValuesOverview(QWidget):
                      self.kpi_lapse, self.kpi_premium):
             kpi_row.addWidget(chip)
         kpi_row.addStretch(1)
+        # "Simple" collapses the ledger to just Distributions, Contributions,
+        # SV and Death Benefit.
+        self.simple_toggle = QPushButton("Simple")
+        self.simple_toggle.setCheckable(True)
+        self.simple_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.simple_toggle.setStyleSheet(
+            "QPushButton { color: #E8DDF8; background-color: #2A1458;"
+            " border: 1px solid #5E35A5; border-radius: 4px;"
+            " padding: 4px 14px; font-size: 11px; font-weight: bold; }"
+            "QPushButton:hover { background-color: #3A1E6E; }"
+            "QPushButton:checked { color: #2A1458; background-color: #FFD54F;"
+            " border: 1px solid #FFD54F; }"
+        )
+        self.simple_toggle.toggled.connect(self._on_simple_toggled)
+        kpi_row.addWidget(self.simple_toggle)
         layout.addLayout(kpi_row)
 
         # QTreeView selector so the SAME sheet styles both the QTreeWidget
@@ -530,23 +554,58 @@ class ValuesOverview(QWidget):
         finally:
             self._updating_frozen_width = False
 
+    def _on_simple_toggled(self, checked: bool):
+        self._simple_mode = bool(checked)
+        self._update_ledger_columns()
+
+    def _update_ledger_columns(self):
+        """Apply column visibility in the scrolling pane for the current mode.
+
+        Simple mode leaves only the SIMPLE_LEDGER_COLUMNS visible; otherwise
+        every value column shows except Shadow EAV on non-shadow products.
+        """
+        for column in range(FROZEN_LEDGER_COLUMN_COUNT, len(LEDGER_COLUMNS)):
+            name = LEDGER_COLUMNS[column]
+            if self._simple_mode:
+                visible = name in SIMPLE_LEDGER_COLUMNS
+            elif column == SHADOW_EAV_COLUMN:
+                visible = self._has_shadow
+            else:
+                visible = True
+            self.ledger.setColumnHidden(column, not visible)
+
     # Expansion state is per-view; mirror it so both panes lay out the same
     # rows, then refit the locator widths (children indent under Year).
     def _on_ledger_expand_changed(self, index):
         self.frozen_ledger.expand(index)
+        self._apply_row_expansion_values(index, True)
         self._update_frozen_ledger_width()
 
     def _on_ledger_collapse_changed(self, index):
         self.frozen_ledger.collapse(index)
+        self._apply_row_expansion_values(index, False)
         self._update_frozen_ledger_width()
 
     def _on_frozen_expand_changed(self, index):
         self.ledger.expand(index)
+        self._apply_row_expansion_values(index, True)
         self._update_frozen_ledger_width()
 
     def _on_frozen_collapse_changed(self, index):
         self.ledger.collapse(index)
+        self._apply_row_expansion_values(index, False)
         self._update_frozen_ledger_width()
+
+    def _apply_row_expansion_values(self, index, expanded: bool):
+        """Swap a year row between its annual roll-up and beginning-of-year month."""
+        item = self.ledger.itemFromIndex(index)
+        if item is None:
+            return
+        cells = item.data(0, _ROLE_EXPANDED_CELLS if expanded else _ROLE_COLLAPSED_CELLS)
+        if not cells:
+            return
+        for column, text in enumerate(cells):
+            item.setText(column, text)
 
     def _sync_frozen_bottom_inset(self):
         scrollbar = self.ledger.horizontalScrollBar()
@@ -641,8 +700,8 @@ class ValuesOverview(QWidget):
         self.kpi_premium.set(_fmt_money(sum(s.premium_outlay for s in projected)))
 
         # Shadow EAV only applies to shadow-account products — hide it otherwise.
-        has_shadow = bool(getattr(policy, "has_shadow_account", False))
-        self.ledger.setColumnHidden(SHADOW_EAV_COLUMN, not has_shadow)
+        self._has_shadow = bool(getattr(policy, "has_shadow_account", False))
+        self._update_ledger_columns()
 
         # ── ledger: annual rows with monthly children ──
         # Each entry keeps its index into ``results`` so selection and
@@ -654,10 +713,22 @@ class ValuesOverview(QWidget):
         bold = QFont()
         bold.setBold(True)
         prior_wd = results[0].withdrawals_to_date
+        first_year = min(by_year, default=None)
         for year in sorted(by_year):
             month_entries = by_year[year]
             months = [state for _, state in month_entries]
             eoy_index, eoy = month_entries[-1]
+            # The year row is anchored to the START of the policy year: the
+            # valuation date for the first (partial) year, otherwise the
+            # anniversary (first monthliversary). Its VALUES stay the annual
+            # roll-up; only the locator date/month move to beginning-of-year.
+            if year == first_year:
+                boy_month = results[0].policy_month
+                boy_date = results[0].date
+            else:
+                first_state = month_entries[0][1]
+                boy_month = first_state.policy_month
+                boy_date = first_state.date
             # Prem excludes the GP exception premium (it has its own column), so
             # Prem + Exception Prem == premium_outlay with no double count.
             premium = sum(s.premium_outlay - s.gp_exception_prem for s in months)
@@ -677,8 +748,8 @@ class ValuesOverview(QWidget):
             # loans and the surrender charge out of that AV.
             av_pre_interest = eoy.av_after_exception
             sv_pre_interest = av_pre_interest - eoy.policy_debt - eoy.surrender_charge
-            item = QTreeWidgetItem(_ledger_cells(
-                year, eoy.policy_month, eoy.attained_age, eoy.attained_age + 1, eoy.date,
+            annual_cells = _ledger_cells(
+                year, boy_month, eoy.attained_age, eoy.attained_age + 1, boy_date,
                 withdrawals=withdrawals, forceouts=forceouts,
                 loan_repay=loan_repay, premium=premium,
                 monthly_deduction=monthly_deduction, exception_prem=exception_prem,
@@ -690,7 +761,37 @@ class ValuesOverview(QWidget):
                 status=_status_text(eoy),
                 glp=eoy.glp, gsp=eoy.gsp, total_gp=eoy.guideline_limit,
                 subject_payments=eoy.premiums_to_date_after_exception - eoy.withdrawals_to_date,
-            ))
+            )
+            # Expanded, the year row shrinks to just its beginning-of-year month
+            # (the valuation snapshot for the first year), so the drill-down
+            # reads one month at a time instead of a year's worth of totals.
+            anchor = results[0] if year == first_year else month_entries[0][1]
+            anchor_prev_wd = (
+                by_year[year - 1][-1][1].withdrawals_to_date
+                if year - 1 in by_year else results[0].withdrawals_to_date
+            )
+            anchor_wd = (
+                anchor.withdrawals_to_date - anchor_prev_wd - anchor.guideline_forceout)
+            anchor_av = anchor.av_after_exception
+            boy_cells = _ledger_cells(
+                year, boy_month, eoy.attained_age, eoy.attained_age + 1, boy_date,
+                withdrawals=anchor_wd, forceouts=anchor.guideline_forceout,
+                loan_repay=anchor.applied_loan_repayment,
+                premium=anchor.premium_outlay - anchor.gp_exception_prem,
+                monthly_deduction=anchor.total_deduction,
+                exception_prem=anchor.gp_exception_prem,
+                av=anchor_av,
+                sv=anchor_av - anchor.policy_debt - anchor.surrender_charge,
+                interest=anchor.interest_credited,
+                eav=anchor.av_end_of_month, sc=anchor.surrender_charge,
+                new_loan=anchor.applied_new_loan, loan_balance=anchor.policy_debt,
+                esv=anchor.ending_sv, shadow_eav=anchor.shadow_eav,
+                death_benefit=anchor.ending_db or anchor.gross_db,
+                status=_status_text(anchor),
+                glp=anchor.glp, gsp=anchor.gsp, total_gp=anchor.guideline_limit,
+                subject_payments=anchor.premiums_to_date_after_exception - anchor.withdrawals_to_date,
+            )
+            item = QTreeWidgetItem(annual_cells)
             item.setBackground(SPACER_COLUMN, SPACER_BRUSH)
             for column in range(len(LEDGER_COLUMNS)):
                 if column in NUMERIC_LEDGER:
@@ -700,6 +801,8 @@ class ValuesOverview(QWidget):
                 for column in range(len(LEDGER_COLUMNS)):
                     item.setForeground(column, QColor("#B71C1C"))
             item.setData(0, Qt.ItemDataRole.UserRole, eoy_index)
+            item.setData(0, _ROLE_COLLAPSED_CELLS, annual_cells)
+            item.setData(0, _ROLE_EXPANDED_CELLS, boy_cells)
             self._year_items[year] = item
             self.ledger.addTopLevelItem(item)
 
@@ -707,12 +810,19 @@ class ValuesOverview(QWidget):
                 by_year[year - 1][-1][1].withdrawals_to_date
                 if year - 1 in by_year else results[0].withdrawals_to_date
             )
-            for result_index, state in month_entries:
+            # A full policy year's first monthliversary IS the year row (anchored
+            # to the beginning-of-year date), so it is not repeated as a child.
+            # The first (partial/inforce) year keeps every month — its year row
+            # carries the valuation date, which no child duplicates.
+            drop_boy_child = year != first_year
+            for child_position, (result_index, state) in enumerate(month_entries):
                 # Net the force-out out of the withdrawal delta (see annual row).
                 month_wd = (
                     state.withdrawals_to_date - previous_wd
                     - state.guideline_forceout)
                 previous_wd = state.withdrawals_to_date
+                if drop_boy_child and child_position == 0:
+                    continue
                 av_pre_interest = state.av_after_exception
                 sv_pre_interest = av_pre_interest - state.policy_debt - state.surrender_charge
                 child = QTreeWidgetItem(_ledger_cells(
