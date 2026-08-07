@@ -9,6 +9,24 @@ from .sql_helpers import (
 )
 
 
+def _cease_code_predicate(column: str, values: list[str]) -> str | None:
+    """Build a WHERE predicate for a multi-select Cease Reason Code filter.
+
+    ``values`` are the selected codes from the picker. A selected blank ("")
+    matches coverages with no cease reason code (i.e. not ceased). Returns
+    ``None`` when nothing is selected.
+    """
+    codes = [v for v in values if v != ""]
+    parts = []
+    if codes:
+        parts.append(f"{column} IN ({in_list(codes)})")
+    if "" in values:
+        parts.append(f"TRIM({column}) = ''")
+    if not parts:
+        return None
+    return "(" + " OR ".join(parts) + ")"
+
+
 # Issue-state code → abbreviation map (subset — full 52-entry map)
 _ISS_STATE_MAP = [
     ("02", "AZ"), ("03", "AR"), ("04", "CA"), ("05", "CO"),
@@ -352,7 +370,8 @@ def build_cyberlife_sql(
         p2t.txt_total_addl_prem_lo.text().strip() or p2t.txt_total_addl_prem_hi.text().strip() or
         p2t.txt_total_prem_addl_reg_lo.text().strip() or p2t.txt_total_prem_addl_reg_hi.text().strip() or
         p2t.txt_accum_wd_lo.text().strip() or p2t.txt_accum_wd_hi.text().strip() or
-        disp_accum_wd or disp_cost_basis)
+        disp_accum_wd or disp_cost_basis or
+        at.chk_prem_wd_gt_face.isChecked())
     needs_pol_yr_tot = bool(
         p2t.txt_prem_ytd_lo.text().strip() or p2t.txt_prem_ytd_hi.text().strip() or
         disp_prem_ytd)
@@ -400,6 +419,7 @@ def build_cyberlife_sql(
     adv_apb_rider = at.chk_apb_rider.isChecked()
     adv_gcv_gt_cv = at.chk_gcv_gt_cv.isChecked()
     adv_gcv_lt_cv = at.chk_gcv_lt_cv.isChecked()
+    adv_prem_wd_gt_face = at.chk_prem_wd_gt_face.isChecked()
     adv_grace_rule = bool(at.chk_grace_rule.isChecked() and at.list_grace_rule.selectedItems())
     adv_db_option = bool(at.chk_db_option.isChecked() and at.list_db_option.selectedItems())
     adv_orig_entry = bool(at.chk_orig_entry.isChecked() and at.list_orig_entry.selectedItems())
@@ -457,6 +477,7 @@ def build_cyberlife_sql(
     cov_base_person = _bw["person"].currentText().strip()
     cov_base_lives_cov = _bw["lives_cov"].currentText().strip()
     cov_base_change_type = _bw["change_type"].currentText().strip()
+    cov_base_cease_code = _bw["cease_code"].selected_values()
     cov_base_cola_ind = _bw["cola_ind"].currentText().strip()
     cov_base_gio_fio = _bw["gio_fio"].currentText().strip()
     cov_base_table03 = _bw["table_03"].isChecked()
@@ -482,6 +503,7 @@ def build_cyberlife_sql(
         info["person"] = widgets["person"].currentText().strip()
         info["lives_cov"] = widgets["lives_cov"].currentText().strip()
         info["change_type"] = widgets["change_type"].currentText().strip()
+        info["cease_code"] = widgets["cease_code"].selected_values()
         info["cola_ind"] = widgets["cola_ind"].currentText().strip()
         info["gio_fio"] = widgets["gio_fio"].currentText().strip()
         info["addl_plancode"] = widgets.get("addl_plancode", None)
@@ -508,6 +530,7 @@ def build_cyberlife_sql(
             info["plancode"], info["prod_line"], info["prod_ind"],
             info["rateclass"], info["sex_code_67"], info["sex_code_02"],
             info["person"], info["lives_cov"], info["change_type"],
+            info["cease_code"],
             info["cola_ind"], info["gio_fio"], info["addl_plancode"],
             info["table_03"], info["flat_03"], info["post_issue"],
             info["issue_date_lo"], info["issue_date_hi"],
@@ -536,13 +559,15 @@ def build_cyberlife_sql(
     cov_needs_mvval = bool(cov_gcv_gt_cv or cov_gcv_lt_cv)
 
     # Composite ADV flags
-    needs_mvval = adv_cv_corr or adv_accum_gt_prem or has_accum_val or adv_gcv_gt_cv or adv_gcv_lt_cv or cov_needs_mvval or disp_accum_value or disp_prem_ptd or disp_account_value
+    needs_mvval = adv_cv_corr or adv_accum_gt_prem or has_accum_val or adv_gcv_gt_cv or adv_gcv_lt_cv or cov_needs_mvval or disp_accum_value or disp_prem_ptd or disp_account_value or adv_prem_wd_gt_face
     needs_iswl_gcv = adv_gcv_gt_cv or adv_gcv_lt_cv or cov_needs_iswl_gcv
     needs_interpolation = needs_iswl_gcv or disp_trad_cv_cov1 or disp_account_value
     needs_covsummary = (disp_spec_amt or multi_base_covs or adv_cv_corr
                         or adv_sa_lt_orig or adv_sa_gt_orig
                         or has_curr_spec_amt or needs_iswl_gcv
                         or cov_needs_covsummary)
+    # ADV: Prem - WD > Face uses a dedicated active-coverage face CTE
+    needs_premwd_face = adv_prem_wd_gt_face
 
     # LH_POL_YR_TOT CTEs — needed for Premiums Paid YTD
     if needs_pol_yr_tot:
@@ -700,7 +725,27 @@ def build_cyberlife_sql(
         sql_parts.append(f"  FROM ALL_BASE_COVS")
         sql_parts.append(f"  GROUP BY CK_SYS_CD, CK_CMP_CD, TCH_POL_ID)")
 
-    # ADV: LASTMV + MVVAL CTEs (monthliversary values)
+    # ADV: Prem - WD > Face — total face of ACTIVE base coverages plus any
+    # ACTIVE 1U144A00 rider. A coverage is treated as terminated (and excluded)
+    # when its next-change type is '0' and the change date has passed / is unset,
+    # mirroring PolicyInformation._coverage_is_active.
+    if needs_premwd_face:
+        sql_parts.append(f", PREMWD_FACE AS (")
+        sql_parts.append(f"  SELECT TEMPCOV1.CK_SYS_CD, TEMPCOV1.CK_CMP_CD, TEMPCOV1.TCH_POL_ID")
+        sql_parts.append(f"    , SUM(ROUND(REAL(TEMPCOVALL.COV_UNT_QTY) * REAL(TEMPCOVALL.COV_VPU_AMT), 2)) TOTAL_FACE")
+        sql_parts.append(f"  FROM {schema}.LH_COV_PHA TEMPCOV1")
+        sql_parts.append(f"    INNER JOIN {schema}.LH_COV_PHA TEMPCOVALL")
+        sql_parts.append(f"      ON TEMPCOV1.COV_PHA_NBR = 1")
+        sql_parts.append(f"      AND TEMPCOV1.CK_SYS_CD = TEMPCOVALL.CK_SYS_CD")
+        sql_parts.append(f"      AND TEMPCOV1.CK_CMP_CD = TEMPCOVALL.CK_CMP_CD")
+        sql_parts.append(f"      AND TEMPCOV1.TCH_POL_ID = TEMPCOVALL.TCH_POL_ID")
+        sql_parts.append(f"      AND (TEMPCOVALL.PLN_DES_SER_CD = TEMPCOV1.PLN_DES_SER_CD")
+        sql_parts.append(f"           OR TEMPCOVALL.PLN_DES_SER_CD = '1U144A00')")
+        sql_parts.append(f"  WHERE (TEMPCOVALL.NXT_CHG_TYP_CD <> '0'")
+        sql_parts.append(f"         OR (TEMPCOVALL.NXT_CHG_DT IS NOT NULL")
+        sql_parts.append(f"             AND TEMPCOVALL.NXT_CHG_DT > CURRENT DATE))")
+        sql_parts.append(f"  GROUP BY TEMPCOV1.CK_SYS_CD, TEMPCOV1.CK_CMP_CD, TEMPCOV1.TCH_POL_ID)")
+
     if needs_mvval:
         sql_parts.append(f", LASTMV AS (")
         sql_parts.append(f"  SELECT CK_SYS_CD, CK_CMP_CD, TCH_POL_ID, MAX(MVRY_DT) LASTMVDT")
@@ -971,6 +1016,17 @@ def build_cyberlife_sql(
     if disp_spec_amt or multi_base_covs:
         sql_parts.append("  , COVSUMMARY.TOTAL_SA TotalFace")
         sql_parts.append("  , COVSUMMARY.TOTAL_ORIGINAL_SA TotalOriginalFace")
+
+    # ADV: Prem - WD > Face → show PremTD, AccumWD, TotalFace, DeathBenefit, DBOption
+    if adv_prem_wd_gt_face:
+        sql_parts.append("  , (POLICY_TOTALS.TOT_REG_PRM_AMT + POLICY_TOTALS.TOT_ADD_PRM_AMT) PremTD")
+        sql_parts.append("  , POLICY_TOTALS.TOT_WTD_AMT AccumWD")
+        sql_parts.append("  , PREMWD_FACE.TOTAL_FACE TotalFace")
+        # Death Benefit = total face + Option B/C additional amount (MVVAL.OPTDB:
+        # Option A → 0, Option B → account value, Option C → premiums paid)
+        sql_parts.append("  , ROUND(REAL(PREMWD_FACE.TOTAL_FACE) + COALESCE(REAL(MVVAL.OPTDB), 0), 2) DeathBenefit")
+        if not disp_db_option:
+            sql_parts.append("  , NONTRAD.DTH_BNF_PLN_OPT_CD DBOpt")
 
     # Circle 7: Simple POLICY1 / COVERAGE1 display columns
     if disp_tch_pol_id:
@@ -1368,6 +1424,13 @@ def build_cyberlife_sql(
         sql_parts.append("    AND COVSUMMARY.CK_CMP_CD = POLICY1.CK_CMP_CD")
         sql_parts.append("    AND COVSUMMARY.TCH_POL_ID = POLICY1.TCH_POL_ID")
 
+    # ADV: Prem - WD > Face active-coverage face JOIN
+    if needs_premwd_face:
+        sql_parts.append("  INNER JOIN PREMWD_FACE")
+        sql_parts.append("    ON PREMWD_FACE.CK_SYS_CD = POLICY1.CK_SYS_CD")
+        sql_parts.append("    AND PREMWD_FACE.CK_CMP_CD = POLICY1.CK_CMP_CD")
+        sql_parts.append("    AND PREMWD_FACE.TCH_POL_ID = POLICY1.TCH_POL_ID")
+
     # In conversion period / conversion display fields requires TH_USER_PDF (52-1)
     if in_conversion or disp_conv_credit or disp_within_conv or disp_conv_period:
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.TH_USER_PDF UPDF")
@@ -1406,7 +1469,7 @@ def build_cyberlife_sql(
         sql_parts.append("    ON POLICY1.CK_SYS_CD = LH_POL_YR_TOT_at_MaxDuration.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = LH_POL_YR_TOT_at_MaxDuration.CK_CMP_CD")
         sql_parts.append("    AND POLICY1.TCH_POL_ID = LH_POL_YR_TOT_at_MaxDuration.TCH_POL_ID")
-    if has_nontrad or disp_db_option or disp_def_life_ins:
+    if has_nontrad or disp_db_option or disp_def_life_ins or adv_prem_wd_gt_face:
         sql_parts.append(f"  LEFT OUTER JOIN {schema}.LH_NON_TRD_POL NONTRAD")
         sql_parts.append("    ON POLICY1.CK_SYS_CD = NONTRAD.CK_SYS_CD")
         sql_parts.append("    AND POLICY1.CK_CMP_CD = NONTRAD.CK_CMP_CD")
@@ -1784,6 +1847,9 @@ def build_cyberlife_sql(
         if ct_val:
             code = ct_val[0]
             sql_parts.append(f"    AND {alias}.NXT_CHG_TYP_CD = '{esc(code)}'")
+        cease_pred = _cease_code_predicate(f"{alias}.CEA_REA_CD", info["cease_code"])
+        if cease_pred:
+            sql_parts.append(f"    AND {cease_pred}")
         change_lo = info["change_date_lo"]
         if change_lo:
             sql_parts.append(f"    AND {alias}.NXT_CHG_DT >= '{esc(change_lo)}'")
@@ -2284,6 +2350,12 @@ def build_cyberlife_sql(
     # -- GCV < Current CV (ISWL) --
     if adv_gcv_lt_cv:
         wheres.append("(ISWL_INTERPOLATED_GCV.ISWL_GCV <= MVVAL.CSV_AMT)")
+    # -- Prem - WD > Face (premiums paid to date less accumulated withdrawals
+    #    > total active base face incl. active 1U144A00 rider) --
+    if adv_prem_wd_gt_face:
+        wheres.append(
+            "((POLICY_TOTALS.TOT_REG_PRM_AMT + POLICY_TOTALS.TOT_ADD_PRM_AMT"
+            " - POLICY_TOTALS.TOT_WTD_AMT) > PREMWD_FACE.TOTAL_FACE)")
     # -- Grace Period Rule Code (66) --
     if adv_grace_rule:
         codes = selected_codes(at.list_grace_rule)
@@ -2431,6 +2503,9 @@ def build_cyberlife_sql(
     if cov_base_change_type:
         code = cov_base_change_type[0]
         wheres.append(f"COVERAGE1.NXT_CHG_TYP_CD = '{esc(code)}'")
+    _cease_pred = _cease_code_predicate("COVERAGE1.CEA_REA_CD", cov_base_cease_code)
+    if _cease_pred:
+        wheres.append(_cease_pred)
     add_date_range(wheres, "COVERAGE1.ISSUE_DT",
                    _bw["issue_date_lo"], _bw["issue_date_hi"])
     add_date_range(wheres, "COVERAGE1.NXT_CHG_DT",

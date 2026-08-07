@@ -56,6 +56,20 @@ _CLASS_CODE_ITEMS = [
     ("C - Disability Income", "C"),
 ]
 
+# Cease Reason Code (LH_COV_PHA.CEA_REA_CD) — blank at top means "no cease code"
+_CEASE_CODE_ITEMS = [
+    ("", ""),
+    ("L - Death Claim Settled", "L"),
+    ("M - Matured", "M"),
+    ("N - Expired", "N"),
+    ("O - Conversion", "O"),
+    ("P - Coverage Surrendered", "P"),
+    ("Q - Lapsed", "Q"),
+    ("R - Prem paying policy terminated when converted to NFO", "R"),
+    ("S - Paid-up rider terminated when converted to NFO", "S"),
+    ("1 - General cease code", "1"),
+]
+
 _GRP_STYLE = (
     "QGroupBox { font-weight: bold; color: #1E5BA8; border: 1px solid #6A9BD1; "
     "border-radius: 3px; margin-top: 8px; padding-top: 4px; } "
@@ -121,6 +135,15 @@ class CoveragesTab(QWidget):
             grid.addWidget(le, row, 1)
             return le
 
+        def _add_multiselect_row(row, label, items, width=130):
+            lbl = QLabel(label)
+            lbl.setFont(_FONT_SM)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            grid.addWidget(lbl, row, 0)
+            ms = _make_multiselect_popup(items, width=width, height_rows=len(items))
+            grid.addWidget(ms, row, 1)
+            return ms
+
         r = 0
         widgets["plancode"] = _add_text_row(r, "Plancode:"); r += 1
         widgets["prod_line"] = _add_combo_row(r, "Prod Line (02):", [""] + PRODUCT_LINE_CODE_ITEMS); r += 1
@@ -132,6 +155,7 @@ class CoveragesTab(QWidget):
         widgets["person"] = _add_combo_row(r, "Person:", PERSON_ITEMS); r += 1
         widgets["lives_cov"] = _add_combo_row(r, "Lives Cov (02):", [""] + LIVES_COVERED_ITEMS); r += 1
         widgets["change_type"] = _add_combo_row(r, "Change Type (02):", [""] + CHANGE_TYPE_02_ITEMS); r += 1
+        widgets["cease_code"] = _add_multiselect_row(r, "Cease Code (02):", _CEASE_CODE_ITEMS); r += 1
         widgets["cola_ind"] = _add_combo_row(r, "COLA Ind:", COLA_IND_ITEMS); r += 1
         widgets["gio_fio"] = _add_combo_row(r, "GIO/FIO:", GIO_FIO_ITEMS); r += 1
 
@@ -418,10 +442,13 @@ class CoveragesTab(QWidget):
             get_lineedit_text as _t, get_checkbox_checked as _c,
             get_combo_text as _cmb,
         )
+        from ._styles import MultiSelectPopup
         state = {}
         for key, w in widgets.items():
             from PyQt6.QtWidgets import QLineEdit, QCheckBox, QComboBox
-            if isinstance(w, QLineEdit):
+            if isinstance(w, MultiSelectPopup):
+                state[key] = w.text()
+            elif isinstance(w, QLineEdit):
                 state[key] = _t(w)
             elif isinstance(w, QCheckBox):
                 state[key] = _c(w)
@@ -434,9 +461,12 @@ class CoveragesTab(QWidget):
             set_lineedit_text as _t, set_checkbox_checked as _c,
             set_combo_text as _cmb,
         )
+        from ._styles import MultiSelectPopup
         from PyQt6.QtWidgets import QLineEdit, QCheckBox, QComboBox
         for key, w in widgets.items():
-            if isinstance(w, QLineEdit):
+            if isinstance(w, MultiSelectPopup):
+                w.setText(state.get(key, ""))
+            elif isinstance(w, QLineEdit):
                 _t(w, state.get(key, ""))
             elif isinstance(w, QCheckBox):
                 _c(w, state.get(key, False))

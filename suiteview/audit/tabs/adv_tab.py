@@ -129,6 +129,10 @@ class AdvTab(QWidget):
                    self.chk_gcv_gt_cv, self.chk_gcv_lt_cv):
             col1.addWidget(cb)
 
+        col1.addSpacing(8)
+        self.chk_prem_wd_gt_face = _make_checkbox("Prem - WD > Face")
+        col1.addWidget(self.chk_prem_wd_gt_face)
+
         col1.addStretch()
         top_row.addLayout(col1)
 
@@ -304,6 +308,7 @@ class AdvTab(QWidget):
             "chk_apb_rider": _c(self.chk_apb_rider),
             "chk_gcv_gt_cv": _c(self.chk_gcv_gt_cv),
             "chk_gcv_lt_cv": _c(self.chk_gcv_lt_cv),
+            "chk_prem_wd_gt_face": _c(self.chk_prem_wd_gt_face),
             "chk_grace_rule": _c(self.chk_grace_rule),
             "list_grace_rule": _sel(self.list_grace_rule),
             "chk_db_option": _c(self.chk_db_option),
@@ -348,6 +353,7 @@ class AdvTab(QWidget):
         _c(self.chk_apb_rider, state.get("chk_apb_rider", False))
         _c(self.chk_gcv_gt_cv, state.get("chk_gcv_gt_cv", False))
         _c(self.chk_gcv_lt_cv, state.get("chk_gcv_lt_cv", False))
+        _c(self.chk_prem_wd_gt_face, state.get("chk_prem_wd_gt_face", False))
         _c(self.chk_grace_rule, state.get("chk_grace_rule", False))
         _sel(self.list_grace_rule, state.get("list_grace_rule", []))
         _c(self.chk_db_option, state.get("chk_db_option", False))

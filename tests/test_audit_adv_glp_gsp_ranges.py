@@ -86,3 +86,62 @@ def test_adv_tab_state_round_trips_glp_and_gsp_ranges():
     assert restored.rng_glp[1].text() == "456"
     assert restored.rng_gsp[0].text() == "789"
     assert restored.rng_gsp[1].text() == "987"
+
+
+def test_prem_wd_gt_face_adds_where_joins_and_result_columns():
+    _app()
+    adv = AdvTab()
+    adv.chk_prem_wd_gt_face.setChecked(True)
+
+    sql = _build(adv)
+    head = _select_head(sql)
+
+    # WHERE: PremTD - AccumWD > active TotalFace
+    assert ("((POLICY_TOTALS.TOT_REG_PRM_AMT + POLICY_TOTALS.TOT_ADD_PRM_AMT"
+            " - POLICY_TOTALS.TOT_WTD_AMT) > PREMWD_FACE.TOTAL_FACE)") in sql
+    # Dedicated active-coverage face CTE + JOINs
+    assert "PREMWD_FACE AS (" in sql
+    assert "INNER JOIN PREMWD_FACE" in sql
+    assert "LH_POL_TOTALS POLICY_TOTALS" in sql
+    assert "LH_NON_TRD_POL NONTRAD" in sql
+    # Death Benefit needs MVVAL (Option B/C additional amount)
+    assert "MVVAL AS (" in sql
+    # Active-only filter: terminated coverages excluded (app convention)
+    assert "TEMPCOVALL.NXT_CHG_TYP_CD <> '0'" in sql
+    assert "TEMPCOVALL.NXT_CHG_DT > CURRENT DATE" in sql
+    # 1U144A00 rider always included for this query
+    assert "1U144A00" in sql
+    # Result columns
+    assert "  , (POLICY_TOTALS.TOT_REG_PRM_AMT + POLICY_TOTALS.TOT_ADD_PRM_AMT) PremTD" in head
+    assert "  , POLICY_TOTALS.TOT_WTD_AMT AccumWD" in head
+    assert "  , PREMWD_FACE.TOTAL_FACE TotalFace" in head
+    assert "REAL(PREMWD_FACE.TOTAL_FACE) + COALESCE(REAL(MVVAL.OPTDB), 0)" in head
+    assert "DeathBenefit" in head
+    assert "  , NONTRAD.DTH_BNF_PLN_OPT_CD DBOpt" in head
+
+
+def test_prem_wd_gt_face_dboption_not_duplicated_with_display():
+    _app()
+    from suiteview.audit.tabs.display_tab import DisplayTab
+
+    adv = AdvTab()
+    adv.chk_prem_wd_gt_face.setChecked(True)
+    disp = DisplayTab()
+    disp.chk_death_benefit_opt.setChecked(True)
+
+    sql = _build(adv, disp)
+    head = _select_head(sql)
+
+    # DBOpt appears exactly once even when the Display DB Option is also on
+    assert head.count("DTH_BNF_PLN_OPT_CD DBOpt") == 1
+
+
+def test_prem_wd_gt_face_round_trips_in_state():
+    _app()
+    adv = AdvTab()
+    adv.chk_prem_wd_gt_face.setChecked(True)
+
+    restored = AdvTab()
+    restored.set_state(adv.get_state())
+
+    assert restored.chk_prem_wd_gt_face.isChecked() is True
