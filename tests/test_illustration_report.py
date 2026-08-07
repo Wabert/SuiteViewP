@@ -518,6 +518,34 @@ def test_seven_pay_restart_marks_ledger_and_footnotes():
     assert "NEW 7-PAY PERIOD STARTS = 11/09/2027" in flat
 
 
+def test_changes_on_same_date_group_into_one_section():
+    """Multiple policy changes sharing an effective date collapse into a single
+    section so the cover and regulatory pages show one block per date."""
+    inputs = IllustrationInputSet(policy_changes=[
+        PolicyChangeEvent(kind=PolicyChangeKind.FACE_AMOUNT,
+                          effective_date=date(2027, 11, 9), value=75000.0),
+        PolicyChangeEvent(kind=PolicyChangeKind.DB_OPTION,
+                          effective_date=date(2027, 11, 9), value="B"),
+    ])
+    report = build_ul_report(_policy(), _results(), future_inputs=inputs,
+                             run_date=date(2026, 6, 10))
+
+    assert len(report.change_sections) == 1
+    section = report.change_sections[0]
+    assert any("SPECIFIED AMOUNT CHANGE TO $75,000.00" in line
+               for line in section.summary_lines)
+    assert any("DEATH BENEFIT OPTION CHANGE TO OPTION B" in line
+               for line in section.summary_lines)
+
+    from suiteview.illustration.ui.report_tab import format_report_pages
+    flat = "\n".join(line for page in format_report_pages(report) for line in page)
+    assert flat.count("THE FOLLOWING POLICY CHANGES WERE FORECASTED ON 11/09/2027") == 1
+    assert flat.count(
+        "ESTIMATED REGULATORY LIMITS FOR PREMIUMS AS OF 11/09/2027") == 1
+    assert flat.count(
+        "RIDERS AND BENEFITS ASSUMED IN THIS ILLUSTRATION AS OF 11/09/2027") == 1
+
+
 def test_retroactive_mec_marks_discovery_year_and_suppresses_later_restart():
     rows = [MonthlyState(
         policy_year=3, policy_month=12, duration=36,

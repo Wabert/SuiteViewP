@@ -725,6 +725,9 @@ def _change_sections(
         return []
     projected = results[1:]
     sections: List[ChangeSection] = []
+    # Changes that land on the same effective date share a single section so the
+    # cover page and regulatory page each show one block per date.
+    by_date: dict = {}
     seen: set = set()
     for change in sorted(future_inputs.policy_changes, key=lambda c: c.effective_date):
         # The same change entered through both input styles shows once.
@@ -736,7 +739,11 @@ def _change_sections(
         if not at_or_after:
             continue
         eff = at_or_after[0]
-        section = ChangeSection(effective_date=change.effective_date, year=eff.policy_year)
+        section = by_date.get(change.effective_date)
+        if section is None:
+            section = ChangeSection(effective_date=change.effective_date, year=eff.policy_year)
+            by_date[change.effective_date] = section
+            sections.append(section)
         if change.kind == PolicyChangeKind.FACE_AMOUNT:
             section.summary_lines.append(
                 f"SPECIFIED AMOUNT CHANGE TO {_money(float(change.value))}")
@@ -749,7 +756,8 @@ def _change_sections(
         section.rider_lines = list(rider_lines)
 
         # Estimated regulatory limits as of the change (the engine recalcs
-        # GLP/GSP/7-pay at the change month).
+        # GLP/GSP/7-pay at the change month). All changes on a given date share
+        # the same as-of state, so the limits are computed once per date.
         eoy_states = [s for s in at_or_after if s.policy_year == eff.policy_year]
         eoy = eoy_states[-1] if eoy_states else eff
         if options.conform_to_tefra or True:  # limits are informational either way
@@ -768,7 +776,6 @@ def _change_sections(
                 if not eff.is_mec and new_start is not None and new_start != prior_start:
                     section.limit_lines.append(
                         f"NEW 7-PAY PERIOD STARTS = {new_start.strftime('%m/%d/%Y')}")
-        sections.append(section)
     return sections
 
 

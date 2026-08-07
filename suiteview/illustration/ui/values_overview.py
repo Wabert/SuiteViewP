@@ -348,7 +348,7 @@ FROZEN_LEDGER_COLUMN_COUNT = LEDGER_COLUMNS.index("Date") + 1
 SPACER_COLUMN = LEDGER_COLUMNS.index("")
 SHADOW_EAV_COLUMN = LEDGER_COLUMNS.index("Shadow EAV")
 # The only value columns the "Simple" toggle leaves visible in the ledger.
-SIMPLE_LEDGER_COLUMNS = {"Distributions", "Contributions", "ESV", "Death Benefit"}
+SIMPLE_LEDGER_COLUMNS = {"Distributions", "Contributions", "ESV", "Death Benefit", "Status"}
 # A year row carries two cell sets: the annual roll-up (collapsed) and its
 # beginning-of-year month (expanded); the tree swaps between them on expand.
 _ROLE_COLLAPSED_CELLS = Qt.ItemDataRole.UserRole + 1
