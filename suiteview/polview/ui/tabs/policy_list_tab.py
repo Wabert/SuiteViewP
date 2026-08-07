@@ -62,13 +62,20 @@ class PolicyListWindow(DockableToolPanel):
     # -- DockableToolPanel overrides ----------------------------------------
 
     def _set_window_owner(self, owned: bool):
+        # Docked: a Tool owned by the parent (rides above it, no taskbar entry).
+        # Floating: an independent top-level Window with its own taskbar button
+        # so it can be minimized/restored and moved like a normal application
+        # window, fully independent of the parent.
         parent = self._parent_window if owned else None
-        if self.parent() is parent:
+        if owned:
+            flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        else:
+            flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
+        if self.parent() is parent and self.windowFlags() == flags:
             return
 
         was_visible = self.isVisible()
         geometry = self.geometry()
-        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
         self.setParent(parent, flags)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -87,6 +94,9 @@ class PolicyListWindow(DockableToolPanel):
 
     def detach(self):
         super().detach()
+        self._set_window_owner(False)
+
+    def _enter_float_mode(self):
         self._set_window_owner(False)
 
     def build_header(self):
@@ -130,6 +140,14 @@ class PolicyListWindow(DockableToolPanel):
         title_label = QLabel("Policy List")
         header_layout.addWidget(title_label)
         header_layout.addStretch()
+
+        # Minimize button -- collapses the window like a normal app window
+        # (most useful once undocked into its own taskbar window).
+        min_btn = QPushButton("\u2013")
+        min_btn.setFixedSize(24, 20)
+        min_btn.setToolTip("Minimize")
+        min_btn.clicked.connect(self.minimize_panel)
+        header_layout.addWidget(min_btn)
 
         # Close button (no dock/undock button -- drag header to undock,
         # double-click header to re-dock)

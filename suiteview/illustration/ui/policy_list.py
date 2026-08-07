@@ -137,6 +137,12 @@ class IllustrationPolicyListWindow(PolicyListWindow):
             lambda: self.show_view("imported"))
         header_layout.addStretch()
 
+        min_btn = QPushButton("\u2013")
+        min_btn.setFixedSize(24, 20)
+        min_btn.setToolTip("Minimize")
+        min_btn.clicked.connect(self.minimize_panel)
+        header_layout.addWidget(min_btn)
+
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(24, 20)
         close_btn.clicked.connect(self.on_closed)

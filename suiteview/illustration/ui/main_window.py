@@ -346,7 +346,7 @@ class IllustrationWindow(FramelessWindowBase):
     def _toggle_list_panel(self):
         self._list_panel_visible = not self._list_panel_visible
         if self._list_panel_visible:
-            self.policy_list_window.show_docked()
+            self.policy_list_window.show_panel()
         else:
             self.policy_list_window.hide()
         self.list_toggle_btn.setChecked(self._list_panel_visible)

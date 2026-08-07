@@ -20,12 +20,46 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, QPoint, QRect
 from PyQt6.QtGui import (
-    QColor, QPainter, QPen, QBrush, QPainterPath, QMouseEvent,
+    QColor, QPainter, QPen, QBrush, QPainterPath, QMouseEvent, QCursor,
 )
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QFrame
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QFrame, QApplication
 
 _RESIZE_MARGIN = 6
 _MIN_HEIGHT_DEFAULT = 200
+# Distance (px) from a screen edge at which a dragged, undocked panel snaps
+# to fill that half of the screen (left/right) or the full work area (top).
+_SCREEN_SNAP_MARGIN = 18
+
+
+class _SnapZoneOverlay(QWidget):
+    """Translucent, click-through preview showing where a panel will snap."""
+
+    def __init__(self):
+        super().__init__(None)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowTransparentForInput
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(3, 3, -3, -3)
+        path = QPainterPath()
+        path.addRoundedRect(
+            float(rect.x()), float(rect.y()),
+            float(rect.width()), float(rect.height()), 12.0, 12.0
+        )
+        painter.fillPath(path, QBrush(QColor(70, 130, 220, 80)))
+        painter.setPen(QPen(QColor(70, 130, 220, 210), 3))
+        painter.drawPath(path)
+        painter.end()
+
 
 
 class DockableToolPanel(QWidget):
@@ -69,6 +103,12 @@ class DockableToolPanel(QWidget):
 
         # Dock state
         self._docked = True
+        # Last free-floating geometry, remembered so closing + reopening the
+        # panel (or toggling it off/on) restores it where the user left it
+        # instead of snapping back to the docked position.
+        self._float_geometry: Optional[QRect] = None
+        # Aero-snap preview overlay, created lazily during a drag.
+        self._snap_overlay: Optional[_SnapZoneOverlay] = None
 
         # Resize state (8-edge)
         self._resizing = False
@@ -194,6 +234,38 @@ class DockableToolPanel(QWidget):
         self.show()
         self.raise_()
 
+    def show_panel(self):
+        """Show the panel, restoring its last dock/float state and geometry.
+
+        Use this (instead of ``show_docked``) for a List/toggle button so a
+        panel the user left floating reopens floating where they left it.
+        """
+        if self._docked:
+            self.show_docked()
+        else:
+            self.show_floating()
+
+    def show_floating(self):
+        """Show the panel as a free-floating, independent window."""
+        self._docked = False
+        self._enter_float_mode()
+        if self._float_geometry is not None:
+            self.setGeometry(self._float_geometry)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _enter_float_mode(self):
+        """Hook: reconfigure the panel as an independent top-level window.
+
+        Subclasses that reparent/change window flags on undock override this.
+        """
+        pass
+
+    def minimize_panel(self):
+        """Minimize the panel (behaves like a normal window when floating)."""
+        self.showMinimized()
+
     # -- Close hook --------------------------------------------------------
 
     def on_closed(self):
@@ -289,6 +361,7 @@ class DockableToolPanel(QWidget):
             # Auto-detach when dragged
             if self._docked:
                 self.detach()
+            self._update_snap_overlay()
         else:
             edge = self._edge_at(event.pos())
             if edge:
@@ -299,10 +372,76 @@ class DockableToolPanel(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
+            was_dragging = self._dragging
             self._resizing = False
             self._resize_edge = None
             self._dragging = False
+            if was_dragging and not self._docked:
+                self._maybe_snap_to_screen_edge()
+            self._hide_snap_overlay()
         super().mouseReleaseEvent(event)
+
+    def _snap_zone_rect(self) -> Optional[QRect]:
+        """Target snap rect for the current cursor position, or None.
+
+        Near the left/right screen edge -> that half of the work area; near the
+        top edge -> the whole work area.
+        """
+        cur = QCursor.pos()
+        screen = (
+            QApplication.screenAt(cur) or self.screen()
+            or QApplication.primaryScreen()
+        )
+        if screen is None:
+            return None
+        area = screen.availableGeometry()
+        m = _SCREEN_SNAP_MARGIN
+        half_w = area.width() // 2
+        if cur.x() <= area.left() + m:
+            return QRect(area.left(), area.top(), half_w, area.height())
+        if cur.x() >= area.right() - m:
+            return QRect(
+                area.left() + half_w, area.top(),
+                area.width() - half_w, area.height(),
+            )
+        if cur.y() <= area.top() + m:
+            return QRect(area)
+        return None
+
+    def _update_snap_overlay(self):
+        """Show/position the snap preview while dragging near a screen edge."""
+        zone = self._snap_zone_rect()
+        if zone is None:
+            self._hide_snap_overlay()
+            return
+        if self._snap_overlay is None:
+            self._snap_overlay = _SnapZoneOverlay()
+        self._snap_overlay.setGeometry(zone)
+        self._snap_overlay.show()
+        self._snap_overlay.raise_()
+
+    def _hide_snap_overlay(self):
+        if self._snap_overlay is not None:
+            self._snap_overlay.hide()
+
+    def _maybe_snap_to_screen_edge(self):
+        """Snap a just-dragged floating panel to a screen edge (Windows-style)."""
+        zone = self._snap_zone_rect()
+        if zone is not None:
+            self.setGeometry(zone)
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._remember_float_geometry()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._remember_float_geometry()
+
+    def _remember_float_geometry(self):
+        """Record the current geometry while floating so it can be restored."""
+        if not self._docked and self.isVisible() and not self.isMinimized():
+            self._float_geometry = self.geometry()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent):
         """Double-click header to re-dock."""

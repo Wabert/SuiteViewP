@@ -440,7 +440,7 @@ class GetPolicyWindow(FramelessWindowBase):
             return
         self._history_panel_visible = not self._history_panel_visible
         if self._history_panel_visible:
-            self.policy_list_window.show_docked()
+            self.policy_list_window.show_panel()
         else:
             self.policy_list_window.hide()
         if hasattr(self, 'list_toggle_btn'):
@@ -455,7 +455,7 @@ class GetPolicyWindow(FramelessWindowBase):
                 self.show()
                 self._history_panel_visible = True
                 if hasattr(self, "policy_list_window"):
-                    self.policy_list_window.show_docked()
+                    self.policy_list_window.show_panel()
                 if hasattr(self, "list_toggle_btn"):
                     self.list_toggle_btn.setChecked(True)
             return
@@ -468,7 +468,7 @@ class GetPolicyWindow(FramelessWindowBase):
             self.show()
             self._history_panel_visible = True
             if hasattr(self, "policy_list_window"):
-                self.policy_list_window.show_docked()
+                self.policy_list_window.show_panel()
             if hasattr(self, "list_toggle_btn"):
                 self.list_toggle_btn.setChecked(True)
 
